@@ -41,7 +41,10 @@ const PHASE_TONE: Record<CredentialPhase, "ok" | "warn" | "error" | "unknown"> =
 function StatValue({ state, render }: { state: AsyncState<unknown>; render: () => string }) {
   const t = useT();
   if (state.phase === "loading") return <Skeleton height={24} width={90} />;
-  if (state.phase === "error") return <span className="kpi-state">{t("state.read_failed")}</span>;
+  if (state.phase === "error" || (state.phase === "ready" && state.data !== null
+    && typeof state.data === "object" && "status" in state.data && state.data.status === "read_failed")) {
+    return <span className="kpi-state">{t("state.read_failed")}</span>;
+  }
   return <>{render()}</>;
 }
 
@@ -56,7 +59,6 @@ function StatStrip({
 }) {
   const t = useT();
   const data = summary.phase === "ready" ? summary.data : null;
-  const summaryFailed = summary.phase === "error" || data?.status === "read_failed";
   const okCount = data ? data.accounts.filter(account => account.status === "ok").length : 0;
   const failureCount = data
     ? data.accounts.filter(account => account.status === "read_failed" || account.activity === "failed").length
@@ -90,7 +92,6 @@ function StatStrip({
         title={t("health.kpi.recent_failure")}
         value={<StatValue state={summary} render={() => t("health.stat.recent_failure", { count: failureCount })} />}
       />
-      {summaryFailed && summary.phase === "ready" && null}
     </div>
   );
 }
@@ -119,7 +120,7 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
     {
       id: "activity",
       header: t("health.activity"),
-      cell: row => row.activity || "—",
+      cell: row => row.activity === "no_signal" ? t("state.no_signal") : row.activity || "—",
     },
     {
       id: "run_count",

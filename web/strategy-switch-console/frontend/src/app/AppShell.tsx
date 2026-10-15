@@ -83,6 +83,7 @@ export function AppShell({
       key={item.id}
       type="button"
       className={`${extraClass}${page === item.id ? " active" : ""}`}
+      aria-label={t(item.labelKey)}
       aria-current={page === item.id ? "page" : undefined}
       onClick={() => navigate({ page: item.id, account: null, tab: null })}
     >

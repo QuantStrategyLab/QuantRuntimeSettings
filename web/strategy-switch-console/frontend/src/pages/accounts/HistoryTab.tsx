@@ -25,7 +25,7 @@ export function HistoryTab({ account }: { account: AccountRow }) {
       setCursor(first.data.next_cursor);
       setAvailability(first.data.availability);
     }
-  }, [first]);
+  }, [first.phase, first.data]);
 
   if (first.phase === "loading") return <Skeleton height={200} />;
   if (first.phase === "error") return <ErrorState onRetry={first.reload} />;

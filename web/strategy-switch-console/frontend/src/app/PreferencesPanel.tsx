@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+import type { KeyboardEvent } from "react";
 import { usePrefs } from "../app/context";
 import { useT } from "../i18n";
 import { RANGES } from "../components/RangeSelector";
@@ -7,12 +9,43 @@ import type { DefaultRange, Language, ThemePreference, UpDownPreference } from "
 export function PreferencesPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
   const { prefs, setPrefs } = usePrefs();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const disclosure = trigger?.closest("details");
+    const restoreTarget = disclosure && !disclosure.open ? disclosure.querySelector("summary") : trigger;
+    dialogRef.current?.querySelector<HTMLElement>("button")?.focus();
+    return () => { if (restoreTarget instanceof HTMLElement && restoreTarget.isConnected) restoreTarget.focus(); };
+  }, []);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const controls = dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    );
+    if (!controls?.length) return;
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   const set = <K extends keyof typeof prefs>(key: K, value: (typeof prefs)[K]) => setPrefs({ ...prefs, [key]: value });
 
   return (
     <div className="dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="prefs-title">
+      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="prefs-title" ref={dialogRef} onKeyDown={onKeyDown}>
         <h2 id="prefs-title">{t("prefs.title")}</h2>
         <div className="prefs-grid">
           <div className="prefs-row">
