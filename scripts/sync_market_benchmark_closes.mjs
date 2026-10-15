@@ -278,7 +278,12 @@ async function applyApprovedRevision() {
   const plan = planBenchmarkRevision(
     body.points.map((point) => normalizeMarketBenchmarkPoint(point)),
     storedPoints.map((point) => normalizeMarketBenchmarkPoint(point)),
-    { relativeTolerance: RELATIVE_TOLERANCE, primarySource: PRIMARY_SOURCE },
+    {
+      relativeTolerance: RELATIVE_TOLERANCE,
+      primarySource: PRIMARY_SOURCE,
+      // Dry runs also emit a hash-only revision proposal for owner review; never applied here.
+      ...(DRY_RUN ? { policy: "revision_proposal", detectedAt: new Date().toISOString() } : {}),
+    },
   );
   const planSummary = {
     policy: plan.policy, primary_source: PRIMARY_SOURCE, relative_tolerance: RELATIVE_TOLERANCE,
@@ -288,7 +293,8 @@ async function applyApprovedRevision() {
   };
   if (DRY_RUN) {
     console.log(JSON.stringify(diagnoseBenchmarkPoints(body.points, storedPoints)));
-    console.log(JSON.stringify({ revision_plan: planSummary }));
+    // Proposal entries carry SHA-256 digests only, never closes.
+    console.log(JSON.stringify({ revision_plan: planSummary, revision_proposal: plan.revision_proposal }));
     process.exit(0);
   }
   console.log(JSON.stringify({ revision_plan: planSummary }));
