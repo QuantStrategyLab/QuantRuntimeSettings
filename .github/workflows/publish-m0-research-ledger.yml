@@ -13,9 +13,11 @@ on:
         required: true
         type: string
   schedule:
-    # QAR starts its Saturday weekly report at 12:30 UTC.  This leaves more
-    # than four hours for a normal 45-minute QAR run to complete.
-    - cron: "20 17 * * 6"
+    # QAR starts its weekly report on Sunday at 12:30 UTC and publishes its site
+    # at 13:00 UTC.  Scheduled GitHub runs often start several hours late, so
+    # this runs at 20:20 UTC, which keeps the QAR run inside the 12-hour
+    # freshness window below.
+    - cron: "20 20 * * 0"
 
 permissions:
   contents: read
