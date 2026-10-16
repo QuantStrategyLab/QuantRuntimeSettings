@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./console_strategy_execution_validation.mjs";
 import { todaySummary, strategySummary, businessDate, notificationLog } from "../web/strategy-switch-console/application/console_api/operations.js";
 import { runControls } from "../web/strategy-switch-console/application/console_api/run_controls.js";
 import { inbox } from "../web/strategy-switch-console/application/console_api/routes.js";
@@ -83,8 +84,8 @@ validate("strategy_summary", strategies);
 assert.equal(strategies.status, "stale");
 assert.equal(strategies.strategies[0].configured_accounts[0].account_alias, account.key);
 assert.match(strategies.coverage, /not_runtime_deployment/);
-validate("notification_log", notificationLog());
-assert.equal(notificationLog().items.length, 0);
+validate("notification_log", await notificationLog());
+assert.equal((await notificationLog()).items.length, 0);
 
 let preflights = 0;
 const controlDeps = { dispatchAvailable: true, stopReady: async () => { preflights++; return true; },
@@ -138,3 +139,6 @@ for (const scenario of ["api-ready", "api-empty", "api-partial", "api-stale", "a
     validate(fixture.status === 503 ? "read_failed" : schema, fixture.body);
   }
 console.log("console_design_api_validation: PASS");
+
+await import("./console_notification_receipts_validation.mjs");
+await import("./console_grouping_runs_validation.mjs");

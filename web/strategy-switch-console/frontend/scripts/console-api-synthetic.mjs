@@ -285,6 +285,8 @@ export function consoleApiFixture(
       account_key: "synthetic-alpha",
       platform: "longbridge",
       observed_finished_at: at,
+      observation_date: points.at(-1)?.date || null,
+      balances: points.length ? [{ currency: "USD", net_assets: String(points.at(-1).value) }] : [],
       positions_scope: "stocks_only",
       positions: empty
         ? []
@@ -306,6 +308,7 @@ export function consoleApiFixture(
     },
   ];
   const blocks = performanceBlocks({
+    now,
     accounts,
     histories: [{ id: "synthetic-alpha", currency: "USD", points }],
     benchmarks: [

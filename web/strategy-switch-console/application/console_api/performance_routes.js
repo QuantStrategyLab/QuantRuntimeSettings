@@ -96,10 +96,16 @@ export async function performanceResponse(request, env, deps) {
         }
         const body = await response.json();
         if (body.currency !== "USDT") {
+          accounts.push({ account_key: option.key, platform: option.platform });
           failed.push(option.key);
           continue;
         }
-        accounts.push({ account_key: option.key, platform: option.platform });
+        const latest = [...(body.points || [])].sort((a, b) => a.observation_date.localeCompare(b.observation_date)).at(-1);
+        accounts.push({ account_key: option.key, platform: option.platform,
+          observed_finished_at: latest?.observed_at || null,
+          observation_date: latest?.observation_date || null,
+          balances: latest ? [{ currency: "USDT", net_assets: latest.amount }] : [],
+        });
         histories.push({
           id: `${option.platform}:${option.key}`,
           currency: "USDT",
@@ -128,6 +134,7 @@ export async function performanceResponse(request, env, deps) {
         ["duplicate", "conflict"].includes(fact.aggregation_status)
       ) {
         failed.push(option.key);
+        accounts.push({ account_key: option.key, platform: option.platform });
         continue;
       }
       if (
@@ -220,6 +227,8 @@ export async function performanceResponse(request, env, deps) {
       benchmarkFailed = true;
     }
     const performanceInput = {
+      now: Date.now(),
+      freshnessThresholdHours: env.CONSOLE_ACCOUNT_FRESHNESS_HOURS,
       accounts,
       histories,
       benchmarks,

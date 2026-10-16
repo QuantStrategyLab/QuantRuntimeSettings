@@ -1,3 +1,4 @@
+import { FreshnessSummary } from "../../components/CurrencyTotals";
 import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -7,7 +8,7 @@ import type { AsyncState } from "../../lib/hooks";
 import { formatQuantity } from "../../lib/format";
 import { loadPerformanceHoldings, loadPerformanceTrades } from "../../api/endpoints";
 import type { HoldingsResponse, Range } from "../../api/contracts";
-import { AsOfStamp, EmptyState, ErrorState, Money, Skeleton, StatusBadge } from "../../components/primitives";
+import { EmptyState, ErrorState, Money, Skeleton, StatusBadge } from "../../components/primitives";
 import { DataTable, type Column } from "../../components/DataTable";
 import { Tabs } from "../../components/Tabs";
 import { BarList, type BarListItem } from "../../charts/BarList";
@@ -26,14 +27,21 @@ type HoldingRow = HoldingsResponse["rows"][number];
 
 const RANKING_SIZE = 5;
 
-function coverageNote(data: HoldingsResponse, name: (alias: string, platform?: string) => string): string | null {
+function coverageNote(data: HoldingsResponse, names: { account: (alias: string, platform?: string) => string; platform: (platform: string) => string }): string | null {
   const coverage = data.coverage;
   if (Array.isArray(coverage)) {
-    const aliases = coverage.map(item => name(item.account_alias));
-    return aliases.length ? aliases.join(", ") : null;
+    const groups = new Map<string, string[]>();
+    for (const item of coverage) {
+      const platform = item.platform ? names.platform(item.platform) : "";
+      const accounts = groups.get(platform) || [];
+      accounts.push(names.account(item.account_alias, item.platform));
+      groups.set(platform, accounts);
+    }
+    return [...groups].sort(([a], [b]) => a.localeCompare(b))
+      .map(([platform, accounts]) => `${platform ? `${platform}: ` : ""}${accounts.join(", ")}`).join("; ") || null;
   }
   if (coverage && typeof coverage === "object" && Array.isArray(coverage.account_aliases)) {
-    return coverage.account_aliases.length ? coverage.account_aliases.map(alias => name(alias)).join(", ") : null;
+    return coverage.account_aliases.length ? coverage.account_aliases.map(alias => names.account(alias)).join(", ") : null;
   }
   return null;
 }
@@ -102,7 +110,7 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
       cell: row => (row.status !== "ok" ? <StatusBadge status={row.status} reason={row.unavailable_reason} /> : null),
     },
   ];
-  const coverage = coverageNote(data, names.account);
+  const coverage = coverageNote(data, names);
   return (
     <div>
       <p className="card-note" style={{ marginTop: 0 }}>
@@ -182,16 +190,16 @@ function TradesTab({ scope, platform, range, epoch }: PerformanceTabsProps) {
   if (state.phase === "loading") return <Skeleton height={48} />;
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
   const data = state.data;
-  // Today the fill source is never connected; keep the branch generic in case that changes.
-  if (!renderableStatus(data.status)) {
+  if (data.status === "not_connected") {
     return (
       <EmptyState
-        title={t("perf.trades_not_connected")}
+        title={t("state.not_connected")}
         body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
       />
     );
   }
-  return <EmptyState title={t("state.no_data")} />;
+  // No fills reader exists: never manufacture zero trades or a performance statistic.
+  return <EmptyState title={t(`state.${data.status}`)} />;
 }
 
 export function PerformanceTabs({ scope, platform, range, epoch }: PerformanceTabsProps) {
@@ -218,11 +226,9 @@ export function PerformanceTabs({ scope, platform, range, epoch }: PerformanceTa
         ariaLabel={t("nav.performance")}
       />
       <div id="performance-panel" className="perf-tab-body" role="tabpanel" aria-labelledby={`performance-tab-${tab}`} tabIndex={0}>
-        {tab !== "trades" && holdings.phase === "ready" && renderableStatus(holdings.data.status) && holdings.data.status !== "ok" && (
-          <p className="card-note" style={{ marginTop: 0, marginBottom: 8 }}>
-            <StatusBadge status={holdings.data.status} reason={holdings.data.unavailable_reason} /> <AsOfStamp value={holdings.data.as_of} />
-          </p>
-        )}
+        {tab !== "trades" && holdings.phase === "ready" && <p className="card-note">
+          <FreshnessSummary counts={holdings.data.freshness_summary} />
+        </p>}
         {body}
       </div>
     </div>

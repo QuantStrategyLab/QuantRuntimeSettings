@@ -1281,7 +1281,7 @@ const syncResult = await __test.syncDefaultStrategyForAccount(
     variable_scope: "default",
     plugin_mode: "auto",
   },
-  { login: "pigbibi" },
+  { login: "synthetic-operator" },
 );
 assert.equal(syncResult.synced, true);
 // default_strategy_profile is no longer persisted to KV after switch
@@ -1361,6 +1361,9 @@ try {
   );
   assert.equal(currentStrategies.schwab.default.strategy_profile, "nasdaq_sp500_smart_dca");
   assert.equal(currentStrategies.schwab.default.execution_mode, "live");
+  assert.deepEqual(currentStrategies.schwab.default.strategy_execution, {
+    execution_mode: "live", dry_run_only: false, continuation_reason: null,
+  }, "read projection retains strict mode evidence independently of legacy inference");
   assert.equal(currentStrategies.schwab.default.min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.schwab.default.reserved_cash_ratio, "0.03");
   assert.equal(currentStrategies.schwab.default.income_layer_start_usd, "150000");

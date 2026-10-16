@@ -62,12 +62,17 @@ export interface InboxItem extends DecisionFields {
     review_binding?: unknown;
   } | null;
 }
+export type InboxErrorState = "quota_exhausted" | "unauthorized" | "index_missing"
+  | "index_incomplete" | "index_unavailable" | "unknown";
 export interface InboxResponse {
+  error_state?: InboxErrorState | null;
+  directory?: DirectoryStatus | null;
   status: "ok" | "partial" | "read_failed";
   sources: {
     source: string;
     status: "ok" | "stale" | "unavailable" | "read_failed";
-    failure_reason?: "kv_list_daily_limit_exceeded" | "kv_directory_uninitialized" | "kv_directory_unavailable" | "kv_directory_truncated" | "kv_directory_migration_pending" | "kv_directory_migration_failed" | "kv_directory_record_unavailable";
+    error_state?: InboxErrorState;
+    failure_reason?: "unauthorized" | "unknown" | "kv_list_daily_limit_exceeded" | "kv_directory_uninitialized" | "kv_directory_unavailable" | "kv_directory_truncated" | "kv_directory_migration_pending" | "kv_directory_migration_failed" | "kv_directory_record_unavailable";
   }[];
   items: InboxItem[];
   coverage: string;
@@ -198,6 +203,34 @@ export interface PerformanceCoverage {
   truncated?: boolean;
   read_failures?: string[];
 }
+export interface AccountFreshness {
+  platform: string | null;
+  account_alias: string;
+  account_ref: string | null;
+  as_of: string | null;
+  freshness: "fresh" | "stale" | "unknown";
+  fresh: boolean | null;
+  stale: boolean | null;
+  unavailable_reason: Reason | null;
+}
+export interface FreshnessCounts { fresh: number; stale: number; unknown: number; threshold_hours: number }
+export interface CurrencyTotal {
+  currency: string;
+  total: number | null;
+  account_count: number;
+  expected_account_count: number;
+  excluded_account_count?: number;
+  as_of: string | null;
+  stale: boolean | null;
+  status: Status;
+  unavailable_reason: Reason | null;
+}
+export interface Drawdown {
+  percent: number | null;
+  peak_date: string | null;
+  trough_date: string | null;
+  unavailable_reason: Reason | null;
+}
 export interface PerformanceMeta {
   schema_version: "console_api.v1";
   scope: string;
@@ -211,6 +244,8 @@ export interface PerformanceMeta {
     | { account_alias: string; platform?: string; account_ref?: string; scope: string }[]
     | "fills_not_connected";
   currency?: string | null;
+  account_freshness?: AccountFreshness[];
+  freshness_summary?: FreshnessCounts;
 }
 export interface Point {
   date: string;
@@ -246,6 +281,8 @@ export interface SummaryResponse extends PerformanceMeta {
   cashflow_per_currency?: CashflowReturnMetrics[];
   cashflow_method?: "modified_dietz";
   approximate?: boolean;
+  metric_reasons?: { twr: Reason | null };
+  per_currency?: (CurrencyTotal & { max_drawdown: Drawdown })[];
   twr_return_percent: number | null;
   amount: number | null;
   simple_weighted_return_percent: number | null;
@@ -293,6 +330,9 @@ export interface ReturnsResponse extends PerformanceMeta {
   }[];
 }
 export interface AssetsResponse extends PerformanceMeta {
+  curve_status?: Status;
+  curve_unavailable_reason?: Reason | null;
+  per_currency?: CurrencyTotal[];
   points: Point[];
 }
 export interface HoldingsResponse extends PerformanceMeta {
@@ -330,13 +370,14 @@ export interface ReadOnlyProjection {
   no_order: true;
   execution_authority_granted: false;
 }
+export type RunState = "succeeded" | "failed" | "blocked" | "no_data" | "not_connected" | "not_run" | "unknown" | "read_failed";
 export interface TodayRunSummary extends ReadOnlyProjection {
   status: "ok" | "partial" | "read_failed";
   date: string;
   timezone: "America/New_York";
   as_of: string | null;
   coverage: string;
-  counts: { configured: number; observed: number; runs: number | null };
+  counts: { configured: number; observed: number; runs: number | null; by_state?: Record<RunState, number> };
   accounts: {
     account_alias: string;
     platform: string;
@@ -344,6 +385,11 @@ export interface TodayRunSummary extends ReadOnlyProjection {
     unavailable_reason: string | null;
     as_of: string | null;
     activity: string | null;
+    run_status?: RunState;
+    run_status_reason?: string | null;
+    freshness?: string;
+    fresh?: boolean;
+    stale?: boolean;
     completeness: "complete" | "incomplete" | null;
     run_count: number | null;
     runs: { id: string; started_at: string | null; finished_at: string | null;
@@ -360,20 +406,49 @@ export interface StrategySummary extends ReadOnlyProjection {
     profile: string;
     domain: string;
     allowed_execution_modes: string[];
-    configured_accounts: { account_alias: string; platform: string; account_ref?: string }[];
+    configured_accounts: {
+      account_alias: string; platform: string; account_ref?: string;
+      execution_mode?: "live" | "paper" | "dry_run" | "unknown";
+      dry_run_only?: boolean | null;
+      live_status?: "configured_live" | "not_live" | "unknown";
+      continuation_reason?: "legacy_live_continuation" | null;
+      mode_source?: "RUNTIME_TARGET_JSON" | "CLOUD_RUN_SERVICE_TARGETS_JSON" | "STRATEGY_PROFILE" | null;
+      runtime_observation_status?: "unknown";
+    }[];
     health_status: StrategyHealthStatus | null;
     health_score: number | null;
     status: "ok" | "stale" | "not_connected" | "read_failed";
     unavailable_reason: string | null;
   }[];
 }
+export interface NotificationReceiptItem {
+  id: string;
+  source_run_id: number;
+  source_run_attempt: number;
+  source_sha: string;
+  source_url: string;
+  workflow_updated_at: string | null;
+  sent_at: string | null;
+  channel: "telegram";
+  status: string;
+  receipt_status: string | null;
+  business_day: string | null;
+  report_date: string | null;
+  delivered: boolean | null;
+  dry_run: boolean | null;
+  test_message: boolean | null;
+  reason_code: string | null;
+}
 export interface NotificationSendLog extends ReadOnlyProjection {
-  status: "not_connected";
-  unavailable_reason: "notification_log_not_connected";
-  as_of: null;
-  items: never[];
+  status: "ok" | "partial" | "read_failed" | "not_connected";
+  unavailable_reason: string | null;
+  as_of: string | null;
+  items: NotificationReceiptItem[];
   next_cursor: null;
-  coverage: "no_delivery_source";
+  coverage: "no_delivery_source" | "recent_daily_digest_public_receipts_only";
+  run_limit?: number;
+  truncated?: boolean;
+  read_failure_count?: number;
 }
 export interface RunControlAvailability extends ReadOnlyProjection {
   status: "ok" | "partial";

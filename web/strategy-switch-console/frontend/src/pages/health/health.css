@@ -50,3 +50,11 @@
 @media (max-width: 768px) {
   .scroll-hint { display: block; margin: 8px 0; color: var(--muted); font-size: 12px; }
 }
+
+.health-cell.blocked { background: color-mix(in srgb, var(--status-warn) 20%, transparent); color: var(--status-warn); }
+.health-state-counts { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0; list-style: none; font-size: 13px; }
+.health-platform-group + .health-platform-group { margin-top: 20px; }
+.health-platform-group h3 { margin: 0 0 8px; font-size: 14px; }
+
+.health-notifications .data-table { min-width: 760px; }
+.health-notifications th, .health-notifications td { white-space: nowrap; }
