@@ -56,6 +56,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "trade_count": "{label} {count} 笔",
         "no_orders": "无订单",
         "counts_unknown": "未知",
+        "counts_not_connected": "未接入统计",
         "status_ok": "正常",
         "status_alert": "异常",
         "heartbeat_no_run_verified": "今日已验证无平台/策略实际运行。",
@@ -74,6 +75,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "block_rebalance": "🔔 【调仓指令】",
         "block_no_order": "⚠️ 【未下单】",
         "block_pending": "⏳ 【待确认】",
+        "block_blocked": "⚠️ 【已拦截】",
         "strategy_label": "🧭 策略",
         "equity_label": "💰 账户总权益",
         "holdings_label": "💼 持仓",
@@ -111,6 +113,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "v2_us_market_closed": "休市",
         "v2_no_evidence": "本窗口无运行证据",
         "v2_attention_alert": "· {tag} {strategy}：状态异常{reason}",
+        "v2_attention_status": "· {tag} {strategy}：{detail}",
         "v2_coverage_line": "已收录 {runs} 条运行；候选 {fresh} 条可用、{stale} 条过期已略去",
         "v2_coverage_github_failures": "GitHub 证据读取失败 {count} 处",
         "candidate_source_failures": "⚠️ 候选读取失败 {count} 处；本窗口覆盖不完整。",
@@ -128,6 +131,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "cycles_label": "cycles",
         "no_fill": "no fills",
         "counts_unknown": "unknown",
+        "counts_not_connected": "not connected",
         "trade_count": "{label} {count}",
         "no_orders": "no orders",
         "status_ok": "ok",
@@ -156,6 +160,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "block_rebalance": "🔔 [Rebalance]",
         "block_no_order": "⚠️ [No order]",
         "block_pending": "⏳ [Pending]",
+        "block_blocked": "⚠️ [Blocked]",
         "strategy_label": "🧭 Strategy",
         "equity_label": "💰 Account equity",
         "holdings_label": "💼 Holdings",
@@ -195,6 +200,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "v2_us_market_closed": "Market closed",
         "v2_no_evidence": "No run evidence in this window",
         "v2_attention_alert": "· {tag} {strategy}: alert{reason}",
+        "v2_attention_status": "· {tag} {strategy}: {detail}",
         "v2_coverage_line": "{runs} runs included; candidates {fresh} usable, {stale} stale omitted",
         "v2_coverage_github_failures": "GitHub evidence read failures: {count}",
         "candidate_source_failures": "⚠️ Candidate source read failures: {count}; window coverage is incomplete.",
@@ -260,6 +266,7 @@ _CONCLUSION_TOKEN_DISPLAY: dict[str, dict[str, str]] = {
         "broker_acknowledged": "券商已确认",
         "previewed": "仅预览",
         "blocked": "已拦截",
+        "risk_blocked": "风控拦截",
         "failed": "失败",
         "unknown": "未知",
         "reconciliation_required": "需对账",
@@ -279,6 +286,7 @@ _CONCLUSION_TOKEN_DISPLAY: dict[str, dict[str, str]] = {
         "broker_acknowledged": "Broker acknowledged",
         "previewed": "Preview only",
         "blocked": "Blocked",
+        "risk_blocked": "Risk blocked",
         "failed": "Failed",
         "unknown": "Unknown",
         "reconciliation_required": "Reconciliation required",
@@ -771,7 +779,18 @@ def _trade_counts(entry: DigestRunEntry, locale: DigestLocale) -> str:
         ):
             if status != "unknown" and value is not None and value > 0:
                 known.append(_t(locale, "trade_count").format(label=_t(locale, label), count=value))
-        return " / ".join(known + [missing_evidence_text(locale, entry.missing_evidence_reason or entry.reason_code)])
+        if counts_not_connected(entry):
+            labels = [_t(locale, label) for label, value, status in (
+                ("orders_label", entry.order_count, entry.order_count_status),
+                ("fills_label", entry.fill_count, entry.fill_count_status),
+            ) if status == "unknown" or value is None]
+            separator = "、" if locale == "zh" else "/"
+            unknown = f"{separator.join(labels)}：{_t(locale, 'counts_not_connected')}" if locale == "zh" else (
+                f"{separator.join(labels)}: {_t(locale, 'counts_not_connected')}"
+            )
+        else:
+            unknown = missing_evidence_text(locale, entry.missing_evidence_reason or entry.reason_code)
+        return " / ".join(known + [unknown])
     if entry.fill_count == 0 and entry.order_count == 0:
         return _t(locale, "no_trades")
     parts = []
@@ -784,6 +803,35 @@ def _trade_counts(entry: DigestRunEntry, locale: DigestLocale) -> str:
         else:
             parts.append(_t(locale, "trade_count").format(label=_t(locale, label), count=value))
     return " / ".join(parts)
+
+
+def counts_not_connected(entry: DigestRunEntry) -> bool:
+    """A known unconnected counter is distinct from unreadable/absent evidence."""
+    return (
+        entry.platform_id == "schwab"
+        and "schwab_fills_not_connected" in entry.reason_code.split("+")
+        and entry.missing_evidence_reason in {"", "EVIDENCE_NOT_FOUND"}
+        and (entry.fill_count is None or entry.fill_count_status == "unknown"
+             or entry.order_count is None or entry.order_count_status == "unknown")
+    )
+
+
+def is_blocked(entry: DigestRunEntry) -> bool:
+    return entry.rebalance_conclusion in {"blocked", "risk_blocked"} or entry.signal_summary in {"blocked", "risk_blocked"}
+
+
+def _counts_notice(payload: DailyDigestInput, locale: DigestLocale) -> str:
+    unknown = [entry for entry in payload.runs if entry.fill_count is None or entry.fill_count_status == "unknown"
+               or entry.order_count is None or entry.order_count_status == "unknown"]
+    coverage = payload.evidence_coverage
+    if unknown and all(counts_not_connected(entry) for entry in unknown) and not (
+        coverage and (coverage.has_source_failures or coverage.stale_candidates or coverage.missing_targets)
+    ):
+        # Each account already names its unconnected counters.
+        return ""
+    if global_total_fills(payload) is None:
+        return _t(locale, "heartbeat_fills_unknown")
+    return _t(locale, "heartbeat_orders_unknown") if unknown else ""
 
 
 def missing_evidence_text(locale: DigestLocale, reason: str = "") -> str:
@@ -806,6 +854,8 @@ def label_delivery_text(text: str, locale: str, *, test: bool = False, previous_
 
 
 def _block_title(entry: DigestRunEntry, locale: DigestLocale) -> str:
+    if is_blocked(entry):
+        return _t(locale, "block_blocked")
     kind = entry.rebalance_kind or ""
     if kind == "rebalance":
         return _t(locale, "block_rebalance")
@@ -1018,7 +1068,7 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> li
         lines.append(_holdings_header(entry.holdings_scope, locale))
         for holding in entry.holdings:
             lines.append(_holding_line(holding, locale))
-    if entry.signal_summary.strip():
+    if entry.signal_summary.strip() and not (is_blocked(entry) and entry.signal_summary in {"blocked", "risk_blocked"}):
         signal_raw = entry.signal_summary.strip()
         signal_display = _localize_producer_token(
             locale, signal_raw, _SIGNAL_TOKEN_DISPLAY
@@ -1038,7 +1088,7 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> li
         lines.append(_format_count_part(locale, label_key="cycles_label", value=entry.cycle_count,
                                        status=entry.cycle_count_status))
     conclusion = _default_conclusion(entry, locale)
-    if conclusion:
+    if conclusion and entry.rebalance_conclusion != "blocked":
         lines.append(conclusion)
     lines.append(f"{_t(locale, 'platform_tag')}: {entry.platform_id}")
     return lines
@@ -1176,10 +1226,9 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
         lines.append(_t(locale, "daily_digest_heartbeat_title"))
     lines.append(f"{_t(locale, 'date_label')}: {payload.business_day}")
     counts_missing = any(entry.order_count_status == "unknown" or entry.order_count is None for entry in runs)
-    if known_fills is None:
-        lines.append(_t(locale, "heartbeat_fills_unknown"))
-    elif counts_missing:
-        lines.append(_t(locale, "heartbeat_orders_unknown"))
+    notice = _counts_notice(payload, locale)
+    if notice:
+        lines.append(notice)
     if not rich:
         if known_fills is None or counts_missing:
             lines.append(_t(locale, "ran_section"))
@@ -1256,16 +1305,23 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
         )
 
     if runs:
-        if global_total_fills(payload) is None:
-            lines.append(_t(locale, "heartbeat_fills_unknown"))
-        elif any(entry.order_count_status == "unknown" or entry.order_count is None for entry in runs):
-            lines.append(_t(locale, "heartbeat_orders_unknown"))
+        notice = _counts_notice(payload, locale)
+        if notice:
+            lines.append(notice)
 
     attention: list[str] = []
     if coverage is not None and coverage.candidate_failures:
         attention.append(_t(locale, "candidate_source_failures").format(count=len(coverage.candidate_failures)))
     for entry in runs:
         if entry.status == "alert":
+            if is_blocked(entry) or counts_not_connected(entry):
+                detail = _default_conclusion(entry, locale) if is_blocked(entry) else ""
+                if counts_not_connected(entry):
+                    detail = " · ".join(filter(None, (detail, _trade_counts(entry, locale))))
+                attention.append(_t(locale, "v2_attention_status").format(
+                    tag=account_block_tag(entry), strategy=_display_strategy(entry), detail=detail,
+                ))
+                continue
             reason = f"（{entry.reason_code}）" if locale == "zh" and entry.reason_code else (
                 f" ({entry.reason_code})" if entry.reason_code else ""
             )
