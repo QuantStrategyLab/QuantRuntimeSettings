@@ -243,6 +243,9 @@ export interface DailyChange {
   unavailable_reason: Reason | null;
 }
 export interface SummaryResponse extends PerformanceMeta {
+  cashflow_per_currency?: CashflowReturnMetrics[];
+  cashflow_method?: "modified_dietz";
+  approximate?: boolean;
   twr_return_percent: number | null;
   amount: number | null;
   simple_weighted_return_percent: number | null;
@@ -263,6 +266,9 @@ export interface SummaryResponse extends PerformanceMeta {
   }[];
 }
 export interface ReturnsResponse extends PerformanceMeta {
+  cashflow_per_currency?: CashflowReturnMetrics[];
+  cashflow_method?: "modified_dietz";
+  approximate?: boolean;
   aligned_start: string | null;
   return_kind: "twr" | "unadjusted_asset_ratio";
   points: Point[];
@@ -437,4 +443,17 @@ export interface M0ResearchDashboard {
   }[];
   policy: { authority: "research_only"; no_order: true; permitted_next_step: "research_validation_only"; notice: string };
   errors: string[];
+}
+
+export interface CashflowReturnMetrics {
+  currency: string;
+  status: Status;
+  unavailable_reason: Reason | null;
+  twr_return_percent: number | null;
+  max_drawdown: SummaryResponse["max_drawdown"];
+  points: Point[];
+  return_kind: "twr" | "unadjusted_asset_ratio";
+  cashflow_method: "modified_dietz";
+  approximate: boolean;
+  multi_day_intervals?: boolean;
 }

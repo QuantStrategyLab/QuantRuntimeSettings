@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import "./console_external_flow_validation.mjs";
+import "./external_flow_receiver_validation.mjs";
 import {
   businessDate,
   calendarCells,

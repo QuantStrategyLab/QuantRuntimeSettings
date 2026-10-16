@@ -1,6 +1,8 @@
 import { isAggregateAssetAccount } from "../../performance_math.js";
 import { MARKET_BENCHMARK_SERIES_IDS } from "../../infrastructure/market_benchmark/market_benchmark.js";
 import { businessDate, performanceBlocks } from "./performance.js";
+import { externalFlowEnabled } from "../account_facts/external_flow.js";
+import { applyCashflowPerformance } from "./cashflow_performance.js";
 const ENDPOINTS = {
   calendar: "calendar",
   summary: "summary",
@@ -170,6 +172,7 @@ export async function performanceResponse(request, env, deps) {
         accountHistories.push({
           id: `${option.platform}:${option.key}:${currency}`,
           currency,
+          ...(externalFlowEnabled(env) && body.externalFlow ? { externalFlow: body.externalFlow } : {}),
           points: (body.series.points || []).flatMap((p) =>
             p.currency !== currency || number(p.net_assets) === null
               ? []
@@ -178,6 +181,8 @@ export async function performanceResponse(request, env, deps) {
                     date: p.observation_date,
                     value: number(p.net_assets),
                     externalFlow: null,
+                    ...(externalFlowEnabled(env) ? { observed_at: Number.isFinite(Date.parse(p.observed_finished_at))
+                      ? new Date(p.observed_finished_at).toISOString() : null } : {}),
                   },
                 ],
           ),
@@ -214,7 +219,7 @@ export async function performanceResponse(request, env, deps) {
     } catch {
       benchmarkFailed = true;
     }
-    const blocks = performanceBlocks({
+    const performanceInput = {
       accounts,
       histories,
       benchmarks,
@@ -223,7 +228,8 @@ export async function performanceResponse(request, env, deps) {
       year,
       month,
       failed: [...new Set(failed)],
-    });
+    };
+    const blocks = applyCashflowPerformance(performanceBlocks(performanceInput), performanceInput, env);
     const block = blocks[endpoint];
     if (["calendar", "summary", "returns", "assets"].includes(endpoint)) {
       block.coverage.truncated = truncated;
