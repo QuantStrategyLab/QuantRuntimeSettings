@@ -1,9 +1,10 @@
+import { accountName, strategyName } from "../../lib/displayNames";
 import { useState } from "react";
 import { getJson } from "../../api/client";
 import { loadStrategySummary } from "../../api/endpoints";
 import type { StrategySummary } from "../../api/contracts";
 import { useNavigate } from "../../app/context";
-import { useT, type Translate } from "../../i18n";
+import { useT, useLanguage, type Translate } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { AsOfStamp, Badge, EmptyState, ErrorState, Skeleton, StatusBadge } from "../../components/primitives";
 import { Tabs } from "../../components/Tabs";
@@ -39,7 +40,7 @@ function AccountAliases({ accounts }: { accounts: Strategy["configured_accounts"
           className="strategy-account-link"
           onClick={() => navigate({ page: "accounts", account: account.account_alias })}
         >
-          {account.account_alias}
+          {accountName(account.account_alias, account.platform)}
         </button>
       ))}
     </span>
@@ -60,15 +61,16 @@ function HealthValue({ strategy }: { strategy: Strategy }) {
 
 function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAsOf: string | null }) {
   const t = useT();
+  const language = useLanguage();
   const reason = knownReason(t, strategy.unavailable_reason);
   const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.join(" · ") : t("common.na");
   const accountNames = strategy.configured_accounts.length > 0
-    ? strategy.configured_accounts.map(account => account.account_alias).join(" · ")
+    ? strategy.configured_accounts.map(account => accountName(account.account_alias, account.platform)).join(" · ")
     : t("common.none");
   return (
     <article className="card strategy-card">
       <div className="strategy-card-head">
-        <h3 className="strategy-card-title">{strategy.profile}</h3>
+        <h3 className="strategy-card-title">{strategyName(strategy.profile, language)}</h3>
         <StatusBadge status={knownState(strategy.health_status)} />
       </div>
       <dl className="strategy-rows">

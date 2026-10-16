@@ -1,3 +1,4 @@
+import { accountName } from "../../lib/displayNames";
 import { useEffect, useRef, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import { loadSettingsDiff } from "../../api/endpoints";
@@ -83,7 +84,7 @@ export function AccountDetail({
         </button>
       </div>
       <section className="card">
-        <h2 className="card-title">{account.account_alias}</h2>
+        <h2 className="card-title">{accountName(account.account_alias, account.platform)}</h2>
         <div className="accounts-summary-rows">
           <div className="accounts-summary-row">
             <span>{t("common.platform")}</span>

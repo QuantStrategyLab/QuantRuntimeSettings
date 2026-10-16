@@ -1,3 +1,4 @@
+import { accountName } from "../../lib/displayNames";
 import { useState } from "react";
 import { getJson } from "../../api/client";
 import { loadAccounts, loadTodayRuns } from "../../api/endpoints";
@@ -38,7 +39,7 @@ export default function AccountsPage({ account, tab }: { account: string | null;
       header: t("accounts.col.alias"),
       cell: row => (
         <button type="button" className="accounts-alias-button" onClick={() => select(row.account_alias)}>
-          {row.account_alias}
+          {accountName(row.account_alias, row.platform)}
         </button>
       ),
       sortValue: row => row.account_alias,
@@ -93,7 +94,7 @@ export default function AccountsPage({ account, tab }: { account: string | null;
         <div className="accounts-list-cards">
           {accounts.map(row => (
             <button key={`${row.platform}/${row.account_alias}`} type="button" className="account-card" onClick={() => select(row.account_alias)}>
-              <span className="account-title">{row.account_alias}</span>
+              <span className="account-title">{accountName(row.account_alias, row.platform)}</span>
               <span className="account-row">
                 <span>{t("accounts.col.platform")}</span>
                 <span>{platformLabel(config, row.platform)}</span>

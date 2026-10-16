@@ -1,3 +1,4 @@
+import { accountName } from "../../lib/displayNames";
 import { useMemo, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import {
@@ -108,7 +109,7 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
       header: t("health.col.account"),
       cell: row => (
         <>
-          {row.account_alias} <span className="card-note">{row.platform}</span>
+          {accountName(row.account_alias, row.platform)} <span className="card-note">{row.platform}</span>
         </>
       ),
       sortValue: row => row.account_alias,

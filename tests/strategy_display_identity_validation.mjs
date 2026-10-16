@@ -41,7 +41,6 @@ for (const id of [v7.profile, "us_equity_combo", "us_equity_combo_core", "crypto
 }
 for (const profile of [
   { profile: "private_unknown_champion_live", label_zh: "自定义名字", label_en: "Custom name" },
-  { profile: "tqqq_growth_income", label_zh: "我的TQQQ名称", label_en: "My TQQQ name" },
 ]) for (const language of ["zh", "en"]) assert.equal(strategySelectionName(profile, [profile], language), profile[language === "zh" ? "label_zh" : "label_en"], "unreviewed IDs and other private labels stay untouched");
 assert.equal(candidateDisplayName("toString", "en"), "Unnamed strategy");
 assert.equal(candidateDisplayName("tqqq_core_only_p2_v9_benchmark_drawdown_guard", "en"), "TQQQ Benchmark Drawdown Guard");

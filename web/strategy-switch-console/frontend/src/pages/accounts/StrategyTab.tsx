@@ -1,8 +1,9 @@
+import { strategyName } from "../../lib/displayNames";
 import { useId, useState } from "react";
 import type { DraftField, Scalar, SettingsDiffResponse, SettingsDiffRow, SettingsSection } from "../../api/contracts";
 import { loadAccountSettings, loadSettingsDiff, saveCombinedDraft } from "../../api/endpoints";
 import { HttpError } from "../../api/client";
-import { useT } from "../../i18n";
+import { useT, useLanguage } from "../../i18n";
 import type { Translate } from "../../i18n";
 import type { AsyncState } from "../../lib/hooks";
 import { Badge, ErrorState, Skeleton } from "../../components/primitives";
@@ -103,6 +104,7 @@ export function StrategyTab({
   const formId = useId();
   const controlId = (field: DraftField) => `${formId}-${field}`;
   const t = useT();
+  const language = useLanguage();
   const toast = useToast();
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -114,7 +116,7 @@ export function StrategyTab({
   const diff = diffState.data;
   const rows = diff.rows;
   const identityConflict = diff.identity_status === "identity_conflict";
-  const options = profileOptions(config);
+  const options = profileOptions(config).map(option => ({ ...option, label: strategyName(option.profile, language, option.label) }));
   const dirty = Object.keys(edits).length > 0;
 
   const setEdit = (field: DraftField, value: Scalar | null) => {

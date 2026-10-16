@@ -33,7 +33,7 @@ def test_idle_is_silent_and_trading_is_bilingual_without_diagnostics():
 def test_all_five_platforms_fit_one_message_and_real_issue_is_visible():
     rows = [row(p, fill_count=1, order_count=1) for p in ("schwab", "ibkr", "longbridge", "binance", "firstrade")]
     text = render(payload(*rows))
-    assert all(p in text for p in ("schwab", "ibkr", "longbridge", "binance", "firstrade"))
+    assert all(p in text for p in ("Schwab", "IBKR", "LongBridge", "Binance", "Firstrade"))
     assert "Diagnostics" not in text
     text = render(payload(*rows, row("other", status="alert")))
     assert "需关注 / Diagnostics" in text and "执行异常 / Execution issue" in text

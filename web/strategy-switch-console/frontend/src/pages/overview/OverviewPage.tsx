@@ -1,3 +1,4 @@
+import { accountName, strategyName } from "../../lib/displayNames";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { getJson } from "../../api/client";
@@ -305,7 +306,7 @@ function TodoPreviewCard({ state }: { state: Api<InboxResponse> }) {
                 <span className="item-main">
                   <span className="item-title">{title}</span>
                   <span className="item-meta">
-                    <span>{item.account_alias || t("decisions.account_global")}</span>
+                    <span>{accountName(item.account_alias, item.platform) || t("decisions.account_global")}</span>
                     {fresh && <span>{fresh}</span>}
                   </span>
                 </span>
@@ -331,6 +332,7 @@ function TodoPreviewCard({ state }: { state: Api<InboxResponse> }) {
 
 function AccountsCard({ accounts, config, todayRuns }: { accounts: Api<AccountsResponse>; config: Api<LegacyConfig | null>; todayRuns: Api<TodayRunSummary> }) {
   const t = useT();
+  const language = useLanguage();
   const navigate = useNavigate();
   let body: ReactNode;
   if (accounts.phase === "loading") {
@@ -371,11 +373,11 @@ function AccountsCard({ accounts, config, todayRuns }: { accounts: Api<AccountsR
               onClick={() => navigate({ page: "accounts", account: account.account_alias })}
             >
               <span className="account-title">
-                {account.account_alias}
+                {accountName(account.account_alias, account.platform)}
                 {paper && <Badge tone="accent">{t("common.paper_badge")}</Badge>}
               </span>
               <span className="account-row"><span>{t("common.platform")}</span><span>{platformLabel}</span></span>
-              <span className="account-row"><span>{t("overview.account_strategy")}</span><span>{strategy || t("common.na")}</span></span>
+              <span className="account-row"><span>{t("overview.account_strategy")}</span><span>{strategy ? strategyName(strategy, language) : t("common.na")}</span></span>
               {enabled !== null && (
                 <span className="account-row">
                   <span>{t("overview.runtime_target")}</span>
