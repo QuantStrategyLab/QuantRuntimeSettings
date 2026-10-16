@@ -10,9 +10,9 @@ export function accountFreshness(accounts, now, thresholdHours = 36) {
     const known = Number.isFinite(time) && time <= now;
     const stale = known ? now - time > threshold * HOUR : null;
     return {
-      platform: account.platform,
+      platform: account.platform || null,
       account_alias: account.account_key,
-      account_ref: `${account.platform}:${account.account_key}`,
+      account_ref: account.platform ? `${account.platform}:${account.account_key}` : null,
       as_of: known ? account.observed_finished_at : null,
       freshness: known ? stale ? "stale" : "fresh" : "unknown",
       fresh: known ? !stale : null,

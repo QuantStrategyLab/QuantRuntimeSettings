@@ -1043,13 +1043,19 @@
             ],
             "properties": {
               "platform": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "account_alias": {
                 "type": "string"
               },
               "account_ref": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "as_of": {
                 "type": [
@@ -1569,13 +1575,19 @@
             ],
             "properties": {
               "platform": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "account_alias": {
                 "type": "string"
               },
               "account_ref": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "as_of": {
                 "type": [
@@ -1864,13 +1876,19 @@
             ],
             "properties": {
               "platform": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "account_alias": {
                 "type": "string"
               },
               "account_ref": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "as_of": {
                 "type": [

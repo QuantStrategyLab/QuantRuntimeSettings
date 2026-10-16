@@ -204,9 +204,9 @@ export interface PerformanceCoverage {
   read_failures?: string[];
 }
 export interface AccountFreshness {
-  platform: string;
+  platform: string | null;
   account_alias: string;
-  account_ref: string;
+  account_ref: string | null;
   as_of: string | null;
   freshness: "fresh" | "stale" | "unknown";
   fresh: boolean | null;

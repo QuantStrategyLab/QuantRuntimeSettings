@@ -41,6 +41,10 @@ for (const [threshold, fresh] of [[1, false], [2, true], [36, true], ["invalid",
   const data = performanceBlocks({ ...input, accounts: [input.accounts[0]], freshnessThresholdHours: threshold });
   assert.equal(data.assets.account_freshness[0].fresh, fresh);
 }
+const legacy = performanceBlocks({ ...input, accounts: [{ account_key: "legacy" }] });
+assert.deepEqual(legacy.holdings.coverage, [{ account_alias: "legacy", scope: "not_connected" }]);
+assert.equal(legacy.assets.account_freshness[0].platform, null);
+assert.equal(legacy.assets.account_freshness[0].account_ref, null, "missing identity remains unknown");
 const noValue = performanceBlocks({ ...input, accounts: [account("unknown-value", "USD", " ")] });
 assert.equal(noValue.assets.per_currency[0].total, null, "missing amount never becomes zero");
 assert.equal(noValue.assets.per_currency[0].unavailable_reason, "no_snapshot");

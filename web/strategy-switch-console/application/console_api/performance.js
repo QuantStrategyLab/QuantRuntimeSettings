@@ -478,7 +478,7 @@ export function performanceBlocks({
       account_freshness: freshness.accounts,
       freshness_summary: freshness.summary,
       coverage: accounts.map((a, i) => ({
-        ...freshness.accounts[i],
+        ...(a.platform ? freshness.accounts[i] : { account_alias: a.account_key }),
         scope: a.positions_scope || "not_connected",
       })),
       label_key: "performance.current_holdings_unrealized",
