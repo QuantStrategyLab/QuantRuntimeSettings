@@ -1,5 +1,10 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
+  "perf.benchmark_sp500": "标普500",
+  "perf.benchmark_nasdaq100": "纳斯达克100",
+  "perf.benchmark_dow": "道琼斯工业平均指数",
+  "perf.benchmark_russell2000": "罗素2000",
+  "perf.benchmark_unknown": "基准",
   "performance.current_holdings_unrealized": "当前持仓 · 未实现盈亏",
   "perf.return_kind_twr": "时间加权收益率（TWR）",
   "perf.return_kind_unadjusted": "未经出入金调整的资产变动比例（非 TWR）",
@@ -10,6 +15,11 @@ export const zh: Record<string, string> = {
   "perf.ranking_losers": "亏损靠前",
 };
 export const en: Record<string, string> = {
+  "perf.benchmark_sp500": "S&P 500",
+  "perf.benchmark_nasdaq100": "Nasdaq-100",
+  "perf.benchmark_dow": "Dow Jones Industrial Average",
+  "perf.benchmark_russell2000": "Russell 2000",
+  "perf.benchmark_unknown": "Benchmark",
   "performance.current_holdings_unrealized": "Current holdings · unrealized P/L",
   "perf.return_kind_twr": "Time-weighted return (TWR)",
   "perf.return_kind_unadjusted": "Asset-change ratio unadjusted for cash flows (not TWR)",

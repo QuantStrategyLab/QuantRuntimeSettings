@@ -18,6 +18,12 @@ export interface ReturnsCardProps {
 type Mode = "cumulative" | "daily";
 
 const BENCHMARK_COLORS = ["var(--benchmark-1)", "var(--benchmark-2)", "var(--benchmark-3)", "var(--benchmark-4)"];
+const BENCHMARK_LABEL_KEYS: Record<string, string> = {
+  "标普500": "perf.benchmark_sp500",
+  "纳斯达克100": "perf.benchmark_nasdaq100",
+  "道琼斯工业平均指数": "perf.benchmark_dow",
+  "罗素2000": "perf.benchmark_russell2000",
+};
 
 function kindLabel(returnKind: string): string {
   return returnKind === "unadjusted_asset_ratio" ? "perf.return_kind_unadjusted" : "perf.return_kind_twr";
@@ -43,7 +49,7 @@ function ReturnsChart({
     { id: "main", label: t("perf.returns_main_series"), color: "var(--accent)", points, primary: true },
     ...benchmarks.slice(0, 4).map((benchmark, index) => ({
       id: benchmark.id,
-      label: benchmark.id,
+      label: t(BENCHMARK_LABEL_KEYS[benchmark.id] || "perf.benchmark_unknown"),
       color: BENCHMARK_COLORS[index]!,
       points: benchmark.points,
     })),
@@ -62,7 +68,7 @@ function ReturnsChart({
               className="perf-benchmark-off"
               title={item.unavailable_reason ? t(`reason.${item.unavailable_reason}`) : undefined}
             >
-              {item.id} · {t(`state.${item.status}`)}
+              {t(BENCHMARK_LABEL_KEYS[item.id] || "perf.benchmark_unknown")} · {t(`state.${item.status}`)}
             </span>
           ))}
         </div>

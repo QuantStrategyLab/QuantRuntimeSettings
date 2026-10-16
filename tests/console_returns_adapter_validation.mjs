@@ -28,12 +28,20 @@ try {
     } }],
   });
   const { render } = createRequire(import.meta.url)(outfile);
+  const benchmarkLabels = {
+    "标普500": "S&P 500", "纳斯达克100": "Nasdaq-100",
+    "道琼斯工业平均指数": "Dow Jones Industrial Average", "罗素2000": "Russell 2000",
+  };
   for (const language of ["zh", "en"]) {
-    globalThis.__gapReturns = mixedReturns;
+    const benchmarks = Object.keys(benchmarkLabels).map(id => ({ id, points: mixedReturns.per_currency[1].points }));
+    globalThis.__gapReturns = { ...mixedReturns, per_currency: mixedReturns.per_currency.map(entry => ({ ...entry,
+      benchmarks: entry.currency === "USDT" ? benchmarks : entry.benchmarks })) };
     globalThis.__gapCharts = [];
     const html = render(language);
     assert.equal(globalThis.__gapCharts.length, 1, "a mixed-currency aggregate must not hide the valid USDT group");
     assert.equal(globalThis.__gapCharts[0].series[0].points.length, 7);
+    for (const series of globalThis.__gapCharts[0].series.slice(1))
+      assert.equal(series.label, language === "zh" ? series.id : benchmarkLabels[series.id], "localize real benchmark ids without changing identity");
     assert.match(html, /USD<\/h3>/);
     assert.match(html, /USDT<\/h3>/);
     assert.ok(html.includes(language === "zh" ? "非 TWR" : "not TWR"));
@@ -45,6 +53,12 @@ try {
     assert.equal(globalThis.__gapCharts.length, 0, "a store failure cannot be bypassed by retained groups");
     globalThis.__gapReturns = { ...mixedReturns, per_currency: [] };
     assert.doesNotMatch(render(language), /perf-currency-block/);
+    globalThis.__gapReturns = { ...mixedReturns, status: "partial", unavailable_reason: "external_cashflow_required",
+      no_common_date: false, per_currency: [], points: mixedReturns.per_currency[1].points, benchmarks: [],
+      benchmark_availability: [{ id: "标普500", status: "unavailable", unavailable_reason: "benchmark_history_unreadable" }] };
+    const disabled = render(language);
+    assert.ok(disabled.includes(language === "zh" ? "标普500" : "S&amp;P 500"), "disabled benchmark labels use the same locale");
+    if (language === "en") assert.doesNotMatch(disabled, /[\u4e00-\u9fff]/);
   }
 } finally {
   delete globalThis.__gapReturns;
