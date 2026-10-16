@@ -156,11 +156,10 @@ export async function directoryCommand(env, command) {
 }
 
 export async function directoryList(env, prefix, limit) {
-  if (!env.STRATEGY_SWITCH_RUNTIME_INSTANCES)
-    return manifestRead(await sharedManifest(env.STRATEGY_SWITCH_CONFIG), prefix, limit);
   try { return await directoryCommand(env, { action: "read", prefix, limit }); }
   catch (error) {
-    if (error.message !== "kv_directory_legacy_receiver") throw error;
+    if (error.message !== "kv_directory_legacy_receiver"
+      && !(error.message === "kv_directory_unavailable" && !env.STRATEGY_SWITCH_RUNTIME_INSTANCES)) throw error;
     // A 0% Worker override does not override the Durable Object's version.
     // A complete maintained KV mirror allows receiver-first compatibility.
     return manifestRead(await sharedManifest(env.STRATEGY_SWITCH_CONFIG), prefix, limit);
