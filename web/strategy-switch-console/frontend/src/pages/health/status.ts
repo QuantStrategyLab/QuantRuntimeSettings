@@ -2,14 +2,16 @@ import type { TodayRunSummary } from "../../api/contracts";
 import type { RuntimeDailySnapshot } from "../../api/endpoints";
 import { runtimeDailyRunIssue } from "../../../../runtime_daily_contract.js";
 
-export type CellKind = "ok" | "failed" | "not-run" | "no-record" | "unknown" | "incomplete" | "stale" | "read-failed";
+export type CellKind = "ok" | "failed" | "blocked" | "not-run" | "no-record" | "unknown" | "incomplete" | "stale" | "read-failed";
 
 /** Completeness describes the record, not the execution outcome. */
 export function cellKind(snapshot: RuntimeDailySnapshot): CellKind {
   const record = snapshot.record;
   if (!record || snapshot.data_status === "unavailable") return "no-record";
   const runs = record.runs ?? [];
-  if (["failed", "blocked"].includes(record.status) || runs.some(run => runtimeDailyRunIssue(run) === "failure")) return "failed";
+  if (record.status === "blocked") return "blocked";
+  if (["failed", "error"].includes(record.status) || runs.some(run => run.activity !== "blocked" && runtimeDailyRunIssue(run) === "failure")) return "failed";
+  if (runs.some(run => run.activity === "blocked")) return "blocked";
   if (record.status === "read_incomplete") return "read-failed";
   if (snapshot.data_status === "stale") return "stale";
   if (!["fresh", "historical"].includes(snapshot.data_status)) return "unknown";
@@ -21,13 +23,13 @@ export function cellKind(snapshot: RuntimeDailySnapshot): CellKind {
   return "unknown";
 }
 
-/** Count failed/blocked accounts only within today's New York summary; read errors are coverage gaps. */
+/** Count failed accounts only within today's New York summary; read errors are coverage gaps. */
 export function todayFailures(summary: TodayRunSummary): { count: number; complete: boolean } {
-  const failureActivities = ["failed", "blocked", "error"];
-  const completeActivities = ["no_submission", "no_signal", "no_rebalance", "filled"];
+  const failureActivities = ["failed", "error"];
+  const completeActivities = ["blocked", "no_submission", "no_signal", "no_rebalance", "filled"];
   return {
-    count: summary.accounts.filter(account => failureActivities.includes(account.activity || "")
-      || account.runs.some(run => runtimeDailyRunIssue(run) === "failure")).length,
+    count: summary.accounts.filter(account => account.activity !== "blocked" && (failureActivities.includes(account.activity || "")
+      || account.runs.some(run => run.activity !== "blocked" && runtimeDailyRunIssue(run) === "failure"))).length,
     complete: summary.status === "ok" && summary.counts.runs !== null && summary.counts.configured > 0
       && summary.counts.observed === summary.counts.configured
       && summary.accounts.length === summary.counts.configured

@@ -160,7 +160,7 @@ try {
     assert.ok(ui.stats(language, summary).includes("2026-10-16"));
     assert.ok(ui.stats(language, summary).includes("America/New_York"));
     assert.match(statValue(summary), /0/);
-    for (const activity of ["failed", "blocked"]) {
+    for (const activity of ["failed"]) {
       const failed = { ...account, activity };
       assert.match(statValue({ ...summary, accounts: [failed] }), /1/);
     }
@@ -174,7 +174,7 @@ try {
     ]) {
       assert.ok(statValue(incomplete).includes(language === "zh" ? "未知" : "Unknown"), "incomplete coverage cannot certify zero failures");
     }
-    const partialFailed = { ...summary, status: "partial", counts: { configured: 10, observed: 1, runs: null }, accounts: [{ ...account, activity: "blocked" }] };
+    const partialFailed = { ...summary, status: "partial", counts: { configured: 10, observed: 1, runs: null }, accounts: [{ ...account, activity: "failed" }] };
     assert.ok(statValue(partialFailed).includes(language === "zh" ? "至少 1" : "At least 1"));
   }
   globalThis.__displayPayload = m0Subjects;

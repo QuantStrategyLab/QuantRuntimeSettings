@@ -17,7 +17,6 @@ import { DataTable, type Column } from "../../components/DataTable";
 import {
   AsOfStamp,
   Badge,
-  DataBlock,
   EmptyState,
   ErrorState,
   Skeleton,
@@ -25,6 +24,8 @@ import {
 } from "../../components/primitives";
 import { RunGrid } from "./RunGrid";
 import { todayFailures } from "./status";
+import { runStatus, runStateCounts } from "../../../../application/console_api/run_status.js";
+import { groupAccounts } from "../../lib/accountDirectory";
 import { boundDailyAccounts } from "./dailySelection";
 import "./health.css";
 
@@ -74,7 +75,7 @@ function StatStrip({
         <KpiCard
           title={t("health.kpi.today_runs")}
           value={
-            <StatValue state={summary} render={() => t("health.stat.today_runs", { ok: okCount, total: data?.counts.configured ?? 0 })} />
+            <StatValue state={summary} render={() => t("health.account_fraction", { count: okCount, total: data?.counts.configured ?? 0 })} />
           }
           footer={data?.as_of ? <AsOfStamp value={data.as_of} /> : undefined}
         />
@@ -83,7 +84,7 @@ function StatStrip({
           value={
             <StatValue
               state={summary}
-              render={() => t("health.stat.observed", { observed: data?.counts.observed ?? 0, configured: data?.counts.configured ?? 0 })}
+              render={() => t("health.account_fraction", { count: data?.counts.observed ?? 0, total: data?.counts.configured ?? 0 })}
             />
           }
         />
@@ -98,6 +99,11 @@ function StatStrip({
             : failures.count > 0 ? t("health.failure_at_least", { count: failures.count }) : t("state.unknown")} />}
         />
       </div>
+      {data && <ul className="health-state-counts" aria-label={t("health.state_counts")}>
+        {Object.entries(runStateCounts(data.accounts)).map(([state, count]) => <li key={state}>
+          {t(`health.run_state.${state}`)}: <span className="num">{count}</span>
+        </li>)}
+      </ul>}
       <p className="metric-note">{t("health.failure_window", { date: data?.date ?? "—" })}{!failures.complete && ` · ${t("health.failure_incomplete")}`}</p>
     </>
   );
@@ -114,21 +120,24 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
       header: t("health.col.account"),
       cell: row => (
         <>
-          {names.account(row.account_alias, row.platform)} <span className="card-note">{names.platform(row.platform)}</span>
+          {names.account(row.account_alias, row.platform)}
         </>
       ),
-      sortValue: row => row.account_alias,
+      sortValue: row => `${names.account(row.account_alias, row.platform)}:${row.account_alias}`,
     },
     {
       id: "status",
       header: t("health.col.status"),
-      cell: row => <StatusBadge status={row.status} reason={row.unavailable_reason} />,
+      cell: row => <StatusBadge status={row.freshness ?? (row.stale === true ? "stale" : row.fresh === true ? "fresh" : row.status)} reason={row.unavailable_reason} />,
       sortValue: row => row.status,
     },
     {
       id: "activity",
       header: t("health.activity"),
-      cell: row => t(`state.${row.activity || "unknown"}`),
+      cell: row => <>
+        {t(`health.run_state.${row.run_status || runStatus(row)}`)}
+        {(row.run_status || runStatus(row)) === "blocked" && <span className="card-note"> · {t(row.run_status_reason ? `reason.${row.run_status_reason}` : "reason.unknown")}</span>}
+      </>,
     },
     {
       id: "run_count",
@@ -144,17 +153,19 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
       sortValue: row => row.as_of,
     },
   ];
-  return (
-    <DataBlock status={summary.data.status}>
-      <DataTable
-        columns={columns}
-        rows={summary.data.accounts}
+  const groups = groupAccounts(summary.data.accounts, names.config)
+    .sort((a, b) => names.platform(a.platform).localeCompare(names.platform(b.platform)));
+  return <>
+    {summary.data.status === "read_failed" && <p role="alert">{t("state.read_failed")}</p>}
+    {groups.map(group => <section className="health-platform-group" key={group.platform}>
+      <h3>{names.platform(group.platform)}</h3>
+      <DataTable columns={columns} rows={group.accounts.flatMap(account => account.rows)}
         rowKey={row => `${row.platform}/${row.account_alias}`}
         defaultSort={{ column: "account", direction: "asc" }}
-        caption={t("health.freshness_title")}
-      />
-    </DataBlock>
-  );
+        caption={`${t("health.freshness_title")} · ${names.platform(group.platform)}`} />
+    </section>)}
+    {!groups.length && <EmptyState title={t("state.no_data")} />}
+  </>;
 }
 
 function CredentialsCard({ credential }: { credential: Loadable<CredentialMaintenance> }) {
@@ -184,13 +195,6 @@ function CredentialsCard({ credential }: { credential: Loadable<CredentialMainte
   return <DataTable columns={columns} rows={[item]} rowKey={row => row.id} caption={t("health.credentials_title")} />;
 }
 
-interface NotificationItem {
-  sent_at?: string | null;
-  channel?: string | null;
-  status?: string | null;
-  summary?: string | null;
-}
-
 function NotificationsCard({ epoch }: { epoch: number }) {
   const t = useT();
   const language = useLanguage();
@@ -198,38 +202,27 @@ function NotificationsCard({ epoch }: { epoch: number }) {
   if (state.phase === "loading") return <Skeleton height={72} />;
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
   const log = state.data;
-  const items = (log.items ?? []) as unknown as NotificationItem[];
-  if (log.status === "not_connected" || items.length === 0) {
-    return (
-      <EmptyState
-        title={t("health.notifications_not_connected")}
-        action={<StatusBadge status="not_connected" />}
-      />
-    );
-  }
-  const columns: Column<NotificationItem>[] = [
-    {
-      id: "sent_at",
-      header: t("common.time"),
-      cell: row => formatDateTime(row.sent_at ?? null, language).text,
-      sortValue: row => row.sent_at ?? null,
-    },
-    { id: "channel", header: t("health.col.channel"), cell: row => row.channel || "—" },
-    {
-      id: "status",
-      header: t("common.status"),
-      cell: row => <StatusBadge status={row.status} />,
-    },
-    { id: "summary", header: t("health.col.summary"), cell: row => row.summary || "—" },
+  if (log.status === "not_connected") return <EmptyState title={t("health.notifications_not_connected")} action={<StatusBadge status="not_connected" />} />;
+  if (log.status === "read_failed") return <ErrorState onRetry={state.reload} />;
+  if (!log.items.length) return <EmptyState title={t("health.notifications_empty")} body={t("health.notifications_scope")} />;
+  const columns: Column<(typeof log.items)[number]>[] = [
+    { id: "date", header: t("health.notification_business_day"), cell: row => row.business_day || "—", sortValue: row => row.business_day },
+    { id: "status", header: t("common.status"), cell: row => <>
+      {t(`health.notification.${row.status}`)}
+      <span className="card-note"> · {t("health.notification_delivered")}: {t(row.delivered === null ? "state.unknown" : row.delivered ? "health.notification_yes" : "health.notification_no")}</span>
+      {row.dry_run === true && <span> · {t("health.notification.dry_run")}</span>}
+      {row.test_message === true && <span> · {t("health.notification.test_message")}</span>}
+      {row.reason_code && <p className="card-note">{t(`health.notification_reason.${row.reason_code}`)}</p>}
+    </> },
+    { id: "sent", header: t("health.notification_sent_at"), cell: row => formatDateTime(row.sent_at, language).text },
+    { id: "workflow_time", header: t("health.notification_workflow_time"), cell: row => formatDateTime(row.workflow_updated_at, language).text, sortValue: row => row.workflow_updated_at },
+    { id: "source", header: t("health.notification_source"), cell: row => <a href={row.source_url} target="_blank" rel="noreferrer">{t("health.notification_run", { id: row.source_run_id, attempt: row.source_run_attempt })}</a> },
   ];
-  return (
-    <DataTable
-      columns={columns}
-      rows={items}
-      rowKey={row => `${row.sent_at ?? ""}/${row.channel ?? ""}/${row.summary ?? ""}`}
-      caption={t("health.notifications_title")}
-    />
-  );
+  return <>
+    <p className="card-note">{t("health.notifications_scope")}</p>
+    {log.status === "partial" && <p role="alert">{t("health.notifications_partial")}</p>}
+    <DataTable columns={columns} rows={log.items} rowKey={row => row.id} caption={t("health.notifications_title")} />
+  </>;
 }
 
 export default function HealthPage() {
