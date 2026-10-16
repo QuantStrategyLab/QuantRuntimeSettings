@@ -1,3 +1,5 @@
+import { InboxReadFailed } from "../../components/InboxReadFailed";
+import { inboxFailureState } from "../../lib/inboxFailure";
 import { AccountGroups } from "../../components/AccountGroups";
 import type { DirectoryConfig } from "../../lib/accountDirectory";
 import { useState } from "react";
@@ -147,7 +149,7 @@ function TodosKpi({ state }: { state: Api<InboxResponse> }) {
   }
   // A failed read must never render as zero pending.
   if (state.phase === "error" || state.data.status === "read_failed") {
-    return <KpiCard title={title} value={<KpiState status="read_failed" />} onClick={open} />;
+    return <KpiCard title={title} value={<span className="kpi-state">{t(`inbox.error.${inboxFailureState(state.data, state.error)}.title`)}</span>} onClick={open} />;
   }
   const data = state.data;
   const pending = data.items.filter(item => item.status === "pending");
@@ -265,17 +267,7 @@ function TodoPreviewCard({ state }: { state: Api<InboxResponse> }) {
       </div>
     );
   } else if (state.phase === "error" || state.data.status === "read_failed") {
-    body = (
-      <div className="error-state" role="alert">
-        <div className="error-title">{t("state.read_failed")}</div>
-        <div>{t("decisions.read_failed")}</div>
-        {state.phase === "error" && (
-          <div style={{ marginTop: 12 }}>
-            <button type="button" className="button button-secondary" onClick={state.reload}>{t("common.retry")}</button>
-          </div>
-        )}
-      </div>
-    );
+    body = <InboxReadFailed data={state.data} error={state.error} onRetry={state.reload} />;
   } else {
     const pending = state.data.items
       .filter(item => item.status === "pending")

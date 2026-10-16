@@ -1,3 +1,4 @@
+import { InboxReadFailed } from "../../components/InboxReadFailed";
 import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -106,19 +107,6 @@ function freshnessKey(status: string | null | undefined): string {
 }
 
 /* ---------- read-failed block (never an empty inbox) ---------- */
-
-function InboxReadFailed({ onRetry }: { onRetry: () => void }) {
-  const t = useT();
-  return (
-    <div className="error-state" role="alert">
-      <div className="error-title">{t("state.read_failed")}</div>
-      <div>{t("decisions.read_failed")}</div>
-      <div style={{ marginTop: 12 }}>
-        <button type="button" className="button button-secondary" onClick={onRetry}>{t("common.retry")}</button>
-      </div>
-    </div>
-  );
-}
 
 /* ---------- decided history (read-only timeline, paginated) ---------- */
 
@@ -651,7 +639,7 @@ export default function DecisionsPage() {
       );
     }
     if (inbox.phase === "error" || inbox.data.status === "read_failed") {
-      return <InboxReadFailed onRetry={inbox.phase === "error" ? inbox.reload : refresh} />;
+      return <InboxReadFailed data={inbox.data} error={inbox.error} onRetry={inbox.phase === "error" ? inbox.reload : refresh} />;
     }
     const degraded = inbox.data.sources.filter(source => source.status !== "ok");
     return (

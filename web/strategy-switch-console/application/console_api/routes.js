@@ -1,13 +1,13 @@
 import {
   actorAlias,
-  canonicalItem,
   decisionHistoryRows,
   pageQuery,
   settingsDiff,
   shortId,
 } from "./presentation.js";
 import { todaySummary, strategySummary, notificationLog } from "./operations.js";
-import { KV_LIST_DAILY_LIMIT, sourceListFailure } from "./read_failures.js";
+import { inbox } from "./inbox.js";
+export { inbox } from "./inbox.js";
 
 export async function consoleApiResponse(request, env, deps) {
   const { json, readSession, command } = deps;
@@ -15,7 +15,7 @@ export async function consoleApiResponse(request, env, deps) {
     path = url.pathname;
   const session = await readSession(request, env);
   if (!session?.allowed)
-    return json({ ok: false, error: "login required" }, 401);
+    return json({ ok: false, error: "login required", error_state: "unauthorized" }, 401);
   if (path === "/api/account-settings/draft") {
     if (request.method !== "POST")
       return json({ ok: false, error: "method_not_allowed" }, 405);
@@ -199,81 +199,4 @@ export async function consoleApiResponse(request, env, deps) {
       503,
     );
   }
-}
-export async function inbox(request, env, deps) {
-  const definitions = [
-    ["owner", "owner_decision", "candidates"],
-    ["promotion", "strategy_promotion", "tickets"],
-    ["recovery", "reconciliation_recovery", "recoveries"],
-    ["credential", "credential_maintenance", null],
-  ];
-  const results = await Promise.all(
-    definitions.map(async ([source, category, field]) => {
-      try {
-        const response = await deps[source](request, env);
-        const body = await response.json();
-        const quotaExceeded = body.error === KV_LIST_DAILY_LIMIT
-          || (body.errors || []).includes(KV_LIST_DAILY_LIMIT);
-        if (!response.ok && !quotaExceeded) throw new Error("source_read_failed");
-        const failed = (body.errors || []).some((e) =>
-          /unavailable|invalid|unreadable|failed/.test(e),
-        );
-        const directoryFailure = (body.errors || []).find(code => /^kv_directory_/.test(code));
-        const unavailable = ["unavailable", "partial"].includes(
-          body.data_status,
-        );
-        let rows = field
-          ? body[field] || []
-          : body.requires_action
-            ? [body]
-            : [];
-        // The existing promotion controller remains the only application path.
-        // Include accepted paper requests once, using their original ticket binding.
-        if (source === "promotion") {
-          const merged = new Map(rows.map(row => [row.ticket_id, row]));
-          for (const row of body.applications || []) {
-            if (row.confirmation_execution_mode === "paper" || row.application?.broker_environment === "paper" || row.application_preparation?.preview_request)
-              merged.set(row.ticket_id, row);
-          }
-          rows = [...merged.values()];
-        }
-        return {
-          source,
-          status: failed || quotaExceeded || directoryFailure
-            ? "read_failed"
-            : unavailable
-              ? "unavailable"
-              : body.data_status === "stale"
-                ? "stale"
-                : "ok",
-          items: rows.map((row) => canonicalItem(row, category)),
-          ...(quotaExceeded ? { failure_reason: KV_LIST_DAILY_LIMIT } : directoryFailure ? { failure_reason: directoryFailure } : {}),
-        };
-      } catch (error) {
-        const failure = sourceListFailure(error, null);
-        return { source, status: "read_failed", items: [], ...(failure ? { failure_reason: failure } : {}) };
-      }
-    }),
-  );
-  const unique = new Map(
-    results.flatMap((r) => r.items).map((item) => [item.id, item]),
-  );
-  const priority = { high: 0, medium: 1, normal: 2 };
-  return {
-    status: results.some((r) => r.status === "read_failed")
-      ? "read_failed"
-      : results.some((r) => r.status !== "ok")
-        ? "partial"
-        : "ok",
-    sources: results.map(({ source, status, failure_reason }) => ({ source, status,
-      ...(failure_reason ? { failure_reason } : {}) })),
-    items: [...unique.values()].sort(
-      (a, b) =>
-        priority[a.priority] - priority[b.priority] ||
-        (a.created_at || "").localeCompare(b.created_at || ""),
-    ),
-    coverage: "existing_decision_sources",
-    no_order: true,
-    execution_authority_granted: false,
-  };
 }
