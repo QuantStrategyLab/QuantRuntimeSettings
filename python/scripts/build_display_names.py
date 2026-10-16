@@ -25,6 +25,8 @@ def snapshot(config):
         "platforms": {key: value.get("label", key) for key, value in config["platforms"].items()},
         "senders": {"quant_sentinel": {"zh": config["notifications"]["quant_sentinel"]["label_zh"], "en": config["notifications"]["quant_sentinel"]["label_en"]}},
         "accounts": names.get("accounts", {}),
+        "account_aliases": names.get("account_aliases", {}),
+        "domains": {key: {"zh": value.get("label_zh", key), "en": value.get("label_en", key)} for key, value in config.get("domains", {}).items()},
         "lanes": names.get("lanes", {}),
         "strategy_aliases": names.get("strategy_aliases", {}),
     }

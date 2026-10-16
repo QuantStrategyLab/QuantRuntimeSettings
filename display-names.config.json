@@ -1,18 +1,45 @@
 {
   "accounts": {
     "binance": {
-      "crypto_combo": "live",
-      "default": "live",
-      "Binance": "live",
-      "binance": "live"
+      "crypto_combo": {
+        "en": "live",
+        "zh": "实盘"
+      },
+      "default": {
+        "en": "live",
+        "zh": "实盘"
+      },
+      "Binance": {
+        "en": "live",
+        "zh": "实盘"
+      },
+      "binance": {
+        "en": "live",
+        "zh": "实盘"
+      }
     }
   },
   "lanes": {
-    "live": "live",
-    "paper": "paper",
-    "shadow": "shadow",
-    "research": "research",
-    "dry_run": "dry_run"
+    "live": {
+      "en": "live",
+      "zh": "实盘"
+    },
+    "paper": {
+      "en": "paper",
+      "zh": "模拟"
+    },
+    "shadow": {
+      "en": "shadow",
+      "zh": "影子"
+    },
+    "research": {
+      "en": "research",
+      "zh": "研究"
+    },
+    "dry_run": {
+      "en": "dry run",
+      "zh": "演练"
+    }
   },
   "strategy_aliases": {
     "global_etf_confidence_vol_gate": "global_etf_rotation",
@@ -43,6 +70,32 @@
     "tech_communication_pullback_enhancement": {
       "zh": "科技通信回调增强",
       "en": "Tech/Communication Pullback Enhancement"
+    }
+  },
+  "account_aliases": {
+    "live": {
+      "en": "live",
+      "zh": "实盘"
+    },
+    "paper": {
+      "en": "paper",
+      "zh": "模拟"
+    },
+    "sg": {
+      "en": "SG",
+      "zh": "新加坡"
+    },
+    "hk": {
+      "en": "HK",
+      "zh": "香港"
+    },
+    "soxl": {
+      "en": "SOXL",
+      "zh": "SOXL"
+    },
+    "tqqq": {
+      "en": "TQQQ",
+      "zh": "TQQQ"
     }
   }
 }
