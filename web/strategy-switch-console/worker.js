@@ -1,3 +1,4 @@
+import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, indexedKey } from "./kv_directory.js";
 import { sourceListFailure } from "./application/console_api/read_failures.js";
 import { performanceResponse } from "./application/console_api/performance_routes.js";
 import { consoleApiResponse } from "./application/console_api/routes.js";
@@ -776,6 +777,14 @@ export default {
         for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
         return new Response(bytes, { status: 200, headers });
       }
+      if (url.pathname === "/api/admin/kv-directory") {
+        const session = await readSession(request, env);
+        if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+        if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+        if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
+        requireSameOrigin(request, { requireOrigin: true });
+        return json(await directoryCommand(env, { action: "maintain", refresh: true }));
+      }
       if (url.pathname === "/login") return await startLogin(request, env);
       if (url.pathname === "/callback") return await finishLogin(request, env);
       if (url.pathname.startsWith("/api/performance/")) {
@@ -1015,7 +1024,9 @@ export default {
       if (url.pathname === "/app.css" || url.pathname === "/app.js") return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
       return json({ ok: false, error: "not_found" }, 404);
     } catch (error) {
-      return json({ ok: false, error: error.message || "unexpected error" }, error.status || 500);
+      const directoryError = /^(kv_directory_|kv_list_daily_limit_exceeded)/.test(error.message || "");
+      return json({ ok: false, error: error.message || "unexpected error" }, error.status || (directoryError ? 503 : 500),
+        directoryError ? { "Retry-After": String(error.retry_after || 300) } : {});
     }
   },
 
@@ -1023,6 +1034,8 @@ export default {
   // users never wait for GitHub API on the /api/config endpoint.
   async scheduled(event, env, ctx) {
     if (!hasConfigStore(env)) return;
+    // Maintenance is bounded and persisted globally; normal reads never scan KV.
+    try { await directoryCommand(env, { action: "maintain" }); } catch { /* Keep the actual directory error visible to readers. */ }
     const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
     if (!token) return;
 
@@ -2141,7 +2154,8 @@ async function runtimeInstancesResponse(request, env) {
 }
 
 export class RuntimeInstances {
-  constructor(ctx) {
+  constructor(ctx, env) {
+    this.directory = new KvDirectory(ctx.storage, env?.STRATEGY_SWITCH_CONFIG, env);
     this.storage = ctx.storage;
     this.sql = ctx.storage.sql;
     initializeCredentialMaintenance(this.sql);
@@ -3916,6 +3930,11 @@ export class RuntimeInstances {
 
   async fetch(request) {
     try {
+      if (new URL(request.url).pathname === DIRECTORY_PATH) {
+        if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
+        const result = await this.directory.command(await request.json());
+        return json(result, result.ok ? 200 : 503);
+      }
       if (request.method === "GET") return json(this.response(this.read()));
       if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
       let command;
@@ -8279,10 +8298,10 @@ async function aggregateReconciliationRecoverySources(env) {
 
 async function readReconciliationRecoverySources(env) {
   const store = configStore(env);
-  if (!store || typeof store.list !== "function") return [];
+  if (!store) return [];
   let listing;
   try {
-    listing = await store.list({ prefix: RECONCILIATION_RECOVERY_SOURCE_PREFIX, limit: RECONCILIATION_RECOVERY_MAX_SOURCES });
+    listing = await directoryList(env, RECONCILIATION_RECOVERY_SOURCE_PREFIX, RECONCILIATION_RECOVERY_MAX_SOURCES);
   } catch (error) {
     return [emptyReconciliationRecoverySourceSnapshot(sourceListFailure(error, "reconciliation_recovery_source_list_unavailable"))];
   }
@@ -8293,7 +8312,7 @@ async function readReconciliationRecoverySources(env) {
     if (!key.startsWith(RECONCILIATION_RECOVERY_SOURCE_PREFIX)) continue;
     try {
       const stored = await readConfigJson(env, key);
-      if (!stored) continue;
+      if (!stored) throw new Error("indexed_record_unavailable");
       sources.push(normalizeReconciliationRecoverySourceSnapshot(stored, key));
     } catch {
       sources.push(emptyReconciliationRecoverySourceSnapshot("reconciliation_recovery_source_invalid"));
@@ -8750,40 +8769,18 @@ function runtimeDailyPublicRecord(record) {
   };
 }
 
-// Coverage is derived from the stored record keys themselves, never from a
-// producer-declared window, so the page reflects exactly what this console can
-// show. Missing KV list support or a list error degrades to "no coverage".
+// The directory contains only successfully discovered or registered record keys.
+// Unknown coverage remains null; it must never look like an empty history.
 async function runtimeDailyHistory(env, target) {
-  const empty = { available_from: null, available_through: null, stored_days: 0, truncated: false };
-  const store = configStore(env);
-  if (!store || typeof store.list !== "function") return empty;
   const prefix = `${RUNTIME_DAILY_KEY_PREFIX}${target.target_key}:`;
-  const dates = new Set();
-  let cursor = null;
-  let pages = 0;
   try {
-    do {
-      const listing = await store.list({ prefix, limit: RUNTIME_DAILY_HISTORY_PAGE, ...(cursor ? { cursor } : {}) });
-      const keys = Array.isArray(listing?.keys) ? listing.keys : [];
-      for (const entry of keys) {
-        const name = typeof entry?.name === "string" ? entry.name : "";
-        if (!name.startsWith(prefix)) continue;
-        const date = runtimeDailyCalendarDate(name.slice(prefix.length));
-        if (date) dates.add(date);
-      }
-      cursor = typeof listing?.cursor === "string" && listing.cursor ? listing.cursor : null;
-      pages += 1;
-    } while (cursor && pages < RUNTIME_DAILY_HISTORY_MAX_PAGES);
+    const listing = await directoryList(env, prefix, RUNTIME_DAILY_HISTORY_PAGE * RUNTIME_DAILY_HISTORY_MAX_PAGES);
+    const dates = listing.keys.map(entry => runtimeDailyCalendarDate(entry.name.slice(prefix.length))).filter(Boolean).sort();
+    return { available_from: dates[0] || null, available_through: dates.at(-1) || null,
+      stored_days: dates.length, truncated: false };
   } catch {
-    return empty;
+    return null;
   }
-  const sorted = [...dates].sort();
-  return {
-    available_from: sorted.length ? sorted[0] : null,
-    available_through: sorted.length ? sorted[sorted.length - 1] : null,
-    stored_days: sorted.length,
-    truncated: Boolean(cursor),
-  };
 }
 
 function runtimeDailyReadStatus(stored, now) {
@@ -9048,10 +9045,10 @@ async function aggregateExecutionEvidenceSources(env) {
 
 async function readExecutionEvidenceSources(env) {
   const store = configStore(env);
-  if (!store || typeof store.list !== "function") return [];
+  if (!store) return [];
   let listing;
   try {
-    listing = await store.list({ prefix: EXECUTION_EVIDENCE_SOURCE_PREFIX, limit: EXECUTION_EVIDENCE_MAX_SOURCES });
+    listing = await directoryList(env, EXECUTION_EVIDENCE_SOURCE_PREFIX, EXECUTION_EVIDENCE_MAX_SOURCES);
   } catch {
     return [emptyExecutionEvidenceSourceSnapshot("execution_evidence_source_list_unavailable")];
   }
@@ -9062,7 +9059,7 @@ async function readExecutionEvidenceSources(env) {
     if (!key.startsWith(EXECUTION_EVIDENCE_SOURCE_PREFIX)) continue;
     try {
       const stored = await readConfigJson(env, key);
-      if (!stored) continue;
+      if (!stored) throw new Error("indexed_record_unavailable");
       sources.push(normalizeExecutionEvidenceSourceSnapshot(stored, key));
     } catch {
       sources.push(emptyExecutionEvidenceSourceSnapshot("execution_evidence_source_invalid"));
@@ -9691,10 +9688,10 @@ function runtimeTargetLifecycleExecutionObservation(target) {
 
 async function readRuntimeTargetLifecycleSources(env) {
   const store = configStore(env);
-  if (!store || typeof store.list !== "function") return [];
+  if (!store) return [];
   let listing;
   try {
-    listing = await store.list({ prefix: RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX, limit: RUNTIME_TARGET_LIFECYCLE_MAX_SOURCES });
+    listing = await directoryList(env, RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX, RUNTIME_TARGET_LIFECYCLE_MAX_SOURCES);
   } catch {
     return [emptyRuntimeTargetLifecycleSourceSnapshot("runtime_target_lifecycle_source_list_unavailable")];
   }
@@ -9705,7 +9702,7 @@ async function readRuntimeTargetLifecycleSources(env) {
     if (!key.startsWith(RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX)) continue;
     try {
       const stored = await readConfigJson(env, key);
-      if (!stored) continue;
+      if (!stored) throw new Error("indexed_record_unavailable");
       sources.push(normalizeRuntimeTargetLifecycleSourceSnapshot(stored, key));
     } catch {
       sources.push(emptyRuntimeTargetLifecycleSourceSnapshot("runtime_target_lifecycle_source_invalid"));
@@ -9825,10 +9822,10 @@ async function aggregateResearchTaskSources(env) {
 
 async function readResearchTaskSources(env) {
   const store = configStore(env);
-  if (!store || typeof store.list !== "function") return [];
+  if (!store) return [];
   let listing;
   try {
-    listing = await store.list({ prefix: RESEARCH_TASK_SOURCE_PREFIX, limit: RESEARCH_TASK_MAX_SOURCES });
+    listing = await directoryList(env, RESEARCH_TASK_SOURCE_PREFIX, RESEARCH_TASK_MAX_SOURCES);
   } catch {
     return [emptyResearchTaskSourceSnapshot("research_task_source_list_unavailable")];
   }
@@ -9839,7 +9836,7 @@ async function readResearchTaskSources(env) {
     if (!key.startsWith(RESEARCH_TASK_SOURCE_PREFIX)) continue;
     try {
       const stored = await readConfigJson(env, key);
-      if (!stored) continue;
+      if (!stored) throw new Error("indexed_record_unavailable");
       sources.push(await normalizeResearchTaskSourceSnapshot(stored, key));
     } catch {
       sources.push(emptyResearchTaskSourceSnapshot("research_task_source_invalid"));
@@ -9956,10 +9953,10 @@ function normalizeControlPlaneSourceRetirements(payload, now) {
 
 async function readControlPlaneSources(env) {
   const store = configStore(env);
-  if (!store || typeof store.list !== "function") return null;
+  if (!store) return null;
   let listing;
   try {
-    listing = await store.list({ prefix: CONTROL_PLANE_SOURCE_PREFIX, limit: CONTROL_PLANE_MAX_SOURCES });
+    listing = await directoryList(env, CONTROL_PLANE_SOURCE_PREFIX, CONTROL_PLANE_MAX_SOURCES);
   } catch (error) {
     return [emptyControlPlaneSourceSnapshot(sourceListFailure(error, "control_plane_source_list_unavailable"))];
   }
@@ -9970,7 +9967,7 @@ async function readControlPlaneSources(env) {
     if (!key.startsWith(CONTROL_PLANE_SOURCE_PREFIX)) continue;
     try {
       const stored = await readConfigJson(env, key);
-      if (!stored) continue;
+      if (!stored) throw new Error("indexed_record_unavailable");
       const source = normalizeControlPlaneSourceSnapshot(stored, key);
       if (key !== controlPlaneSourceKey(source.source_id)) throw new Error("control plane source identity mismatch");
       sources.push(source);
@@ -10235,10 +10232,10 @@ async function aggregateAdaptiveSelectionSources(env) {
 
 async function readAdaptiveSelectionSources(env) {
   const store = configStore(env);
-  if (!store || typeof store.list !== "function") return [];
+  if (!store) return [];
   let listing;
   try {
-    listing = await store.list({ prefix: ADAPTIVE_SELECTION_SOURCE_PREFIX, limit: ADAPTIVE_SELECTION_MAX_SOURCES });
+    listing = await directoryList(env, ADAPTIVE_SELECTION_SOURCE_PREFIX, ADAPTIVE_SELECTION_MAX_SOURCES);
   } catch {
     return [emptyAdaptiveSelectionSourceSnapshot("adaptive_selection_source_list_unavailable")];
   }
@@ -10249,7 +10246,7 @@ async function readAdaptiveSelectionSources(env) {
     if (!key.startsWith(ADAPTIVE_SELECTION_SOURCE_PREFIX)) continue;
     try {
       const stored = await readConfigJson(env, key);
-      if (!stored) continue;
+      if (!stored) throw new Error("indexed_record_unavailable");
       sources.push(await normalizeAdaptiveSelectionSourceSnapshot(stored, key));
     } catch {
       sources.push(emptyAdaptiveSelectionSourceSnapshot("adaptive_selection_source_invalid"));
@@ -11335,7 +11332,7 @@ async function listResearchPromotionTickets(env) {
   const store = configStore(env);
   let listing;
   try {
-    listing = await store.list({ prefix: RESEARCH_PROMOTION_TICKET_PREFIX, limit: RESEARCH_PROMOTION_MAX_TICKETS });
+    listing = await directoryList(env, RESEARCH_PROMOTION_TICKET_PREFIX, RESEARCH_PROMOTION_MAX_TICKETS);
   } catch (error) {
     throw new HttpError(sourceListFailure(error, "research_promotion_source_list_unavailable"), 503);
   }
@@ -11345,7 +11342,7 @@ async function listResearchPromotionTickets(env) {
     const key = entry.name || entry;
     if (!String(key).startsWith(RESEARCH_PROMOTION_TICKET_PREFIX)) continue;
     const stored = await readConfigJson(env, key);
-    if (!stored) continue;
+    if (!stored) throw new HttpError("kv_directory_record_unavailable", 503);
     try {
       const record = normalizeResearchPromotionTicket(stored, key);
       const authority = await readHumanDecisionAuthority(env, "promotion", record.ticket_id);
@@ -16010,7 +16007,9 @@ async function readConfigJson(env, key) {
 async function writeConfigJson(env, key, value) {
   const store = configStore(env);
   if (!store) throw new Error("STRATEGY_SWITCH_CONFIG KV binding is required");
-  await store.put(key, JSON.stringify(value, null, 2));
+  const text = JSON.stringify(value, null, 2);
+  if (indexedKey(key)) await directoryCommand(env, { action: "put", key, value: text });
+  else await store.put(key, text);
 }
 
 async function loadAuditLog(env) {

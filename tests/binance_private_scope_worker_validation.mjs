@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test } from "./helpers/directory_worker.mjs";
 
 const values = new Map();
 const puts = [];

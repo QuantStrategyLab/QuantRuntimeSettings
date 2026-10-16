@@ -22,10 +22,19 @@ try {
   assert.equal(requests.length, 1);
   settle({ status: "read_failed", sources: [] });
   assert.equal((await badge).status, "read_failed", "business errors stay visible");
+  const cached = await loadInbox(true);
+  assert.equal(cached.status, "read_failed");
+  assert.equal(requests.length, 1, "failed reads back off even on repeated manual refresh");
+  // Move the clock beyond the configurable default cooldown.
+  const originalNow = Date.now;
+  Date.now = () => originalNow() + 61_000;
   const fresh = loadInbox();
-  assert.equal(requests.length, 2, "settled data is not cached");
+  Date.now = originalNow;
+  assert.equal(requests.length, 2, "expired failures trigger one fresh read");
   settle({ status: "ok", sources: [] });
   assert.equal((await fresh).status, "ok");
+  assert.equal((await loadInbox()).status, "ok");
+  assert.equal(requests.length, 2, "badge and page reuse the short success cache");
   const daily = loadRuntimeDaily("2026-10-14", "synthetic", "fixture", false);
   assert.equal(new URL(requests.at(-1).path, "https://synthetic.invalid").searchParams.get("include_history"), "false");
   settle({ ok: true }); await daily;

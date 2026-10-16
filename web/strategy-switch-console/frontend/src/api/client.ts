@@ -20,9 +20,12 @@ export class HttpError extends Error {
 }
 
 let privateRequestEpoch = 0;
+let privateReadRevision = 0;
+export function readRevision(): number { return privateReadRevision; }
 
 export function invalidatePrivateSession(): void {
   privateRequestEpoch += 1;
+  privateReadRevision += 1;
   window.dispatchEvent(new Event("qsl-private-session-invalid"));
 }
 
@@ -71,5 +74,6 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
   if (!response.ok || (payload as { ok?: boolean })?.ok === false) {
     throw new HttpError(response.status, payload);
   }
+  privateReadRevision += 1;
   return payload as T;
 }

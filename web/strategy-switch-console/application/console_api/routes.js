@@ -217,6 +217,7 @@ export async function inbox(request, env, deps) {
         const failed = (body.errors || []).some((e) =>
           /unavailable|invalid|unreadable|failed/.test(e),
         );
+        const directoryFailure = (body.errors || []).find(code => /^kv_directory_/.test(code));
         const unavailable = ["unavailable", "partial"].includes(
           body.data_status,
         );
@@ -237,7 +238,7 @@ export async function inbox(request, env, deps) {
         }
         return {
           source,
-          status: failed || quotaExceeded
+          status: failed || quotaExceeded || directoryFailure
             ? "read_failed"
             : unavailable
               ? "unavailable"
@@ -245,7 +246,7 @@ export async function inbox(request, env, deps) {
                 ? "stale"
                 : "ok",
           items: rows.map((row) => canonicalItem(row, category)),
-          ...(quotaExceeded ? { failure_reason: KV_LIST_DAILY_LIMIT } : {}),
+          ...(quotaExceeded ? { failure_reason: KV_LIST_DAILY_LIMIT } : directoryFailure ? { failure_reason: directoryFailure } : {}),
         };
       } catch (error) {
         const failure = sourceListFailure(error, null);

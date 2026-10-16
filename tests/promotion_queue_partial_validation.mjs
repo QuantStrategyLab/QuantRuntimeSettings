@@ -26,7 +26,7 @@ const makeTicket = (id, patch = {}) => ({
   confirmation_target_platform: "", confirmation_execution_mode: "", confirmation_risk_profile: "", notes: [], ...patch,
 });
 try {
-  const worker = await import("../web/strategy-switch-console/worker.js");
+  const worker = await import("./helpers/directory_worker.mjs");
   async function fixture(tickets, failAuthority = false, migrated = true) {
     const rows = new Map(tickets.map(ticket => [`research_promotion_ticket:${ticket.ticket_id}`, JSON.stringify(ticket)]));
     const before = [...rows]; let writes = 0; const commands = [];

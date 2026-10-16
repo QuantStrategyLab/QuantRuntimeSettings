@@ -421,7 +421,7 @@ export default function OverviewPage() {
   const assets = useApi(() => loadPerformanceAssets(scope, RANGE), [scope, epoch]);
   const summary = useApi(() => loadPerformanceSummary(scope, RANGE), [scope, epoch]);
   const calendar = useApi(() => loadPerformanceCalendar(scope, RANGE, now.getFullYear(), now.getMonth() + 1), [scope, epoch]);
-  const inbox = useApi(() => loadInbox(), [epoch]);
+  const inbox = useApi(() => loadInbox(epoch > 0), [epoch]);
   const todayRuns = useApi(() => loadTodayRuns(), [epoch]);
   const returns = useApi(() => loadPerformanceReturns(scope, RANGE), [scope, epoch]);
   const accounts = useApi(() => loadAccounts(), [epoch]);

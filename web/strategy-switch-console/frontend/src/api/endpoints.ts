@@ -1,4 +1,4 @@
-import { getJson, postJson } from "./client";
+import { getJson, postJson, readRevision } from "./client";
 import type {
   AccountsResponse,
   AssetsResponse,
@@ -33,9 +33,19 @@ export function loadSession(): Promise<Session> {
 }
 
 let inboxRead: Promise<InboxResponse> | null = null;
-export function loadInbox(): Promise<InboxResponse> {
-  // The badge and page share concurrent reads; settled data is never cached.
+let inboxCached: { value: InboxResponse; until: number; revision: number } | null = null;
+function inboxTtl(failed: boolean): number {
+  const configured = Number(failed ? import.meta.env?.VITE_INBOX_FAILURE_BACKOFF_MS : import.meta.env?.VITE_INBOX_CACHE_MS);
+  return Number.isFinite(configured) && configured >= 1000 && configured <= 300_000 ? configured : failed ? 60_000 : 15_000;
+}
+export function loadInbox(force = false): Promise<InboxResponse> {
+  const revision = readRevision();
+  // Explicit refresh skips successful cached data. Failed reads retain a short
+  // cooldown so repeated clicks cannot turn an outage into a request storm.
+  if (inboxCached && inboxCached.revision === revision && Date.now() < inboxCached.until
+    && (!force || inboxCached.value.status === "read_failed")) return Promise.resolve(inboxCached.value);
   if (!inboxRead) inboxRead = getJson<InboxResponse>("/api/decisions-inbox")
+    .then(value => { inboxCached = { value, until: Date.now() + inboxTtl(value.status === "read_failed"), revision }; return value; })
     .finally(() => { inboxRead = null; });
   return inboxRead;
 }

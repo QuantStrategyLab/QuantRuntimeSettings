@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test } from "./helpers/directory_worker.mjs";
 import { promotionSuggestion } from "../web/strategy-switch-console/frontend/src/operations.ts";
 
 const locales = {

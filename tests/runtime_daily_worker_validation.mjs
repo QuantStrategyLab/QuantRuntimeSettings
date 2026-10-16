@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test } from "./helpers/directory_worker.mjs";
 
 const token = ["runtime", "daily", "sync"].join("-");
 const sessionSecret = ["session", "secret"].join("-");
@@ -492,7 +492,7 @@ const coverageUnavailable = await (await get("2020-01-04", sessionHeaders)).json
 assert.deepEqual(coverageUnavailable.history, expectedCoverage, "coverage does not depend on the selected date");
 const noListKv = { async get(key) { return store.get(key) ?? null; }, async put(key, value) { store.set(key, value); } };
 const noListRead = await (await get(coverageDayB, sessionHeaders, { ...env, STRATEGY_SWITCH_CONFIG: noListKv })).json();
-assert.deepEqual(noListRead.history, { available_from: null, available_through: null, stored_days: 0, truncated: false });
+assert.equal(noListRead.history, null, "unknown directory coverage is not empty coverage");
 
 // A date-grid read must not enumerate the same directory for every cell.
 let quotaLists = 0;

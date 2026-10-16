@@ -6,7 +6,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test } from "./helpers/directory_worker.mjs";
+import actualWorker from "../web/strategy-switch-console/worker.js";
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
@@ -48,10 +49,19 @@ const options = {
   bindings,
   durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: "RuntimeInstances", useSQLite: true } },
   durableObjectsPersist: persist,
+  kvPersist: await mkdtemp(join(tmpdir(), "qrt-human-kv-")),
   kvNamespaces: ["STRATEGY_SWITCH_CONFIG"],
   outboundService: () => { outbound += 1; return new Response("offline only", { status: 503 }); },
 };
+async function initializeDirectory(runtime) {
+  const namespace = await runtime.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
+  const response = await namespace.get(namespace.idFromName("console-kv-directory-v1")).fetch("https://fixture.invalid/kv-directory", {
+    method: "POST", body: JSON.stringify({ action: "maintain" }),
+  });
+  assert.equal(response.status, 200);
+}
 let mf = new Miniflare(options);
+await initializeDirectory(mf);
 async function call(endpoint, { method = "GET", body, cookie = adminCookie, origin = "https://switch.example", headers = {} } = {}) {
   const response = await mf.dispatchFetch(`https://switch.example${endpoint}`, {
     method,
@@ -276,6 +286,7 @@ try {
 
   await mf.dispose();
   mf = new Miniflare(options);
+  await initializeDirectory(mf);
   assert.equal((await syncControl(ownerSnapshot("owner-stable"))).status, 200);
   const restored = await call("/api/owner-decisions");
   const restoredIntent = restored.body.candidates.find((item) => item.candidate.candidate_id === "owner-stable").intent;
@@ -673,8 +684,9 @@ try {
   assert.equal(outbound, beforeOutbound);
   // All six terminal decisions have the same bounded persisted receipt contract.
   await mf.dispose();
-  const receiptOptions = { ...options, durableObjectsPersist: await mkdtemp(join(tmpdir(), "qrt-human-receipts-")) };
+  const receiptOptions = { ...options, kvPersist: await mkdtemp(join(tmpdir(), "qrt-receipt-kv-")), durableObjectsPersist: await mkdtemp(join(tmpdir(), "qrt-human-receipts-")) };
   mf = new Miniflare(receiptOptions);
+  await initializeDirectory(mf);
   const paths = { owner: "/api/owner-decisions", recovery: "/api/reconciliation-recovery", promotion: "/api/research-promotion-tickets" };
   const exactPath = (receipt) => `${paths[receipt.kind]}?${new URLSearchParams({ decision_subject_id: receipt.subject_id, decision_material_sha256: receipt.material_sha256 })}`;
   const durableReceipts = [];
@@ -759,6 +771,7 @@ try {
   const invalidRecord = await worker.fetch(new Request(`https://switch.example${exactPath(receipt)}`, { headers: { Cookie: adminCookie } }), { ...bindings, STRATEGY_SWITCH_RUNTIME_INSTANCES: malformedNamespace });
   assert.equal(invalidRecord.status, 503);
   await mf.dispose(); mf = new Miniflare(receiptOptions);
+  await initializeDirectory(mf);
   for (const receipt of durableReceipts) assert.deepEqual((await call(exactPath(receipt))).body.decision_readback.receipt, receipt, "restart retains exact historical actor, target, time and receipt");
   assert.equal(outbound, beforeOutbound, "receipt operations never dispatch or call a broker");
   // Same legacy material key, changed producer review evidence: both preflight and DO transaction reject stale review.
@@ -804,7 +817,7 @@ try {
       } };
     },
   };
-  const seedOldMaterial = async ticket => worker.fetch(new Request("https://switch.example/api/internal/sync-research-promotion-ticket", { method: "POST", headers: { Authorization: "Bearer human-decision-promotion-sync", "Content-Type": "application/json" }, body: JSON.stringify(ticket) }), { ...bindings, STRATEGY_SWITCH_CONFIG: reviewKv, STRATEGY_SWITCH_RUNTIME_INSTANCES: oldMaterialNamespace });
+  const seedOldMaterial = async ticket => actualWorker.fetch(new Request("https://switch.example/api/internal/sync-research-promotion-ticket", { method: "POST", headers: { Authorization: "Bearer human-decision-promotion-sync", "Content-Type": "application/json" }, body: JSON.stringify(ticket) }), { ...bindings, STRATEGY_SWITCH_CONFIG: reviewKv, STRATEGY_SWITCH_RUNTIME_INSTANCES: oldMaterialNamespace });
   const oldClientTicket = promotionTicket(`rpt_${"f2".repeat(32)}`);
   assert.equal((await seedOldMaterial(oldClientTicket)).status, 200);
   const oldQueued = (await call(paths.promotion)).body.tickets.find(v => v.ticket_id === oldClientTicket.ticket_id);
