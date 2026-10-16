@@ -144,6 +144,7 @@ export interface RuntimeDailyRecord {
   service?: string;
   strategy_profile?: string;
   status: string;
+  block_reason_code?: string;
   kind?: string;
   execution_lane?: string;
   business_date?: string;

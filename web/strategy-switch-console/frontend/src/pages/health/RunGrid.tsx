@@ -17,6 +17,7 @@ type CellState =
 const CELL_LABEL_KEY: Record<CellKind, MessageKey> = {
   ok: "health.grid.ok",
   failed: "health.grid.failed",
+  blocked: "health.run_state.blocked",
   "not-run": "health.grid.not_run",
   "no-record": "health.grid.no_record",
   unknown: "state.unknown",
@@ -28,6 +29,7 @@ const CELL_LABEL_KEY: Record<CellKind, MessageKey> = {
 const CELL_ICON: Record<CellKind, string> = {
   ok: "✓",
   failed: "✗",
+  blocked: "⊘",
   "not-run": "–",
   "no-record": "",
   unknown: "?",
@@ -75,7 +77,8 @@ function DayDetail({ selection, cell }: { selection: Selection; cell: CellState 
     body = (
       <>
         <div className="health-day-detail-meta">
-          <StatusBadge status={record.status} />
+          {record.status === "blocked" ? <Badge tone="warn">{t("health.run_state.blocked")}</Badge> : <StatusBadge status={record.status} />}
+          {cellKind(cell.snapshot) === "blocked" && <span>{t(record.block_reason_code ? `reason.${record.block_reason_code}` : "reason.unknown")}</span>}
           <span>{t("health.run_count")}: {record.runs ? runs.length : "—"}</span>
         </div>
         {runs.length > 0 && (
@@ -87,8 +90,8 @@ function DayDetail({ selection, cell }: { selection: Selection; cell: CellState 
                 <li key={index}>
                   <span className="num">{t("health.detail.started")} {started}</span>
                   <span className="num">{t("health.detail.finished")} {finished}</span>
-                  <span>{t(`state.${run.activity || "unknown"}`)}</span>
-                  {run.errors_present === true && <Badge tone="error">{t("health.grid.failed")}</Badge>}
+                  <span>{t(run.activity === "blocked" ? "health.run_state.blocked" : `state.${run.activity || "unknown"}`)}</span>
+                  {run.errors_present === true && run.activity !== "blocked" && <Badge tone="error">{t("health.grid.failed")}</Badge>}
                 </li>
               );
             })}
