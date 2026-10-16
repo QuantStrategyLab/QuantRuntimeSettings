@@ -146,7 +146,7 @@ git push origin main
 python3 scripts/build_config.py
 ```
 
-CI/CD 自动检测差异并部署。
+CI 自动校验差异；控制台部署需所有者单独批准后，手动触发 `deploy-strategy-switch-console.yml`（`workflow_dispatch`）。
 
 ---
 
@@ -167,21 +167,20 @@ npx wrangler dev --port 8787
 
 ## CI/CD 流程
 
-```mermaid
-git push main
-  │
-  └─→ validate.yml（PR/推送触发）
-      ├── build_config.py --check
-      ├── runtime_settings.py validate
-      ├── JavaScript 语法检查
-      └── 回归验证（已生成文件 vs git HEAD）
+```text
+推送 / pull_request
+  └─→ validate.yml
+      ├── python/scripts/build_config.py --check
+      ├── python/scripts/runtime_settings.py validate
+      ├── 前端构建、测试及 JavaScript 语法检查
+      └── 生成文件与 git HEAD 比较，验证无差异
 
 手动 workflow_dispatch
-  │
   └─→ deploy-strategy-switch-console.yml（仅手动触发，不在 push/合并时运行）
-      ├── build_config.py（重新生成）
-      ├── build_platform_config.py（生成目录）
-      ├── validate（同上）
+      ├── 构建控制台、同步内嵌资产，运行该工作流列出的测试
+      ├── python/scripts/build_platform_config.py 及 --check
+      ├── JSON / JavaScript 资产及可选绑定校验
+      ├── 准备 Wrangler 配置
       └── wrangler deploy（Cloudflare Worker 部署）
 ```
 
