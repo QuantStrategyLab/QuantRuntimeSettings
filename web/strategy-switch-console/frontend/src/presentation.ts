@@ -1366,7 +1366,8 @@ const SOXL_R6_STUDY = "soxl_v7_twelve_basic_split_close_development_v1";
 
 export function candidateDisplayName(candidateId: unknown, language: "zh" | "en"): string {
   const known = frozenResearchIdentity(candidateId);
-  return known?.[language] || (language === "zh" ? "未命名策略" : "Unnamed strategy");
+  const fallback = known?.[language] || (language === "zh" ? "未命名策略" : "Unnamed strategy");
+  return known ? displayName("strategies", String(candidateId), language, fallback) : fallback;
 }
 
 export function strategySelectionName(profile: object | null | undefined, profiles: object[], language: "zh" | "en"): string {
