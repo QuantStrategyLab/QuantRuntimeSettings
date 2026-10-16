@@ -1286,6 +1286,8 @@ export function accountIdentity(account: { label?: unknown; key?: unknown; accou
   const occupiedLabel = Boolean(label) && (occupied.has(identityFold(label)) || identityFold(label) === identityFold(platform) || legacyStrategyLabel);
   if (label && !occupiedLabel && !labelIsNumber && !ROUTE_ALIASES.has(identityFold(label))) return { ...base, kind: "nickname", text: label };
   if (accountNumber && (occupiedLabel || labelIsNumber || !label)) return { ...base, kind: "masked", tail: accountNumber };
+  const configuredAlias = displayName("accounts", key, "en", "", platform);
+  if (configuredAlias && configuredAlias !== key) return { ...base, kind: "alias", alias: configuredAlias };
   const alias = routeAlias(labelIsNumber ? "" : label, key);
   if (alias) return { ...base, kind: "alias", alias: displayName("accounts", alias, "en", alias, platform) };
   return { ...base, kind: "generic" };
