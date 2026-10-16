@@ -6,6 +6,7 @@ import {
   dateMs,
   sliceRange,
 } from "../../performance_math.js";
+import { accountFreshness, currencyTotals, currencyDrawdowns, returnUnavailableReason } from "./performance_snapshots.js";
 const DAY = 86400000;
 const finite = (value) =>
   ["string", "number"].includes(typeof value) &&
@@ -233,7 +234,16 @@ export function performanceBlocks({
   year,
   month,
   failed = [],
+  now = Date.now(),
+  freshnessThresholdHours = 36,
 }) {
+  const freshness = accountFreshness(accounts, now, freshnessThresholdHours);
+  const snapshotExcluded = [...new Set([
+    ...accounts.filter((a) => !a.balances?.length).map((a) => `${a.platform}:${a.account_key}`),
+    ...failed.filter((alias) => !accounts.some((a) => a.account_key === alias)),
+  ])];
+  const totals = currencyTotals(accounts, freshness, snapshotExcluded);
+  const drawdowns = currencyDrawdowns(histories, range, today, aggregateEquity, maxDrawdown);
   const currencies = [...new Set(histories.map((h) => h.currency))];
   const mixed = currencies.length > 1;
   const combined = aggregateEquity(
@@ -291,6 +301,8 @@ export function performanceBlocks({
     coverage,
     currency: mixed ? null : currencies[0] || null,
     value_kind: unknownFlow ? "asset_change" : "pnl",
+    account_freshness: freshness.accounts,
+    freshness_summary: freshness.summary,
   };
   const availableBenchmarks = benchmarks.map((b) => ({
     ...b,
@@ -305,7 +317,7 @@ export function performanceBlocks({
         percent: null,
         peak_date: null,
         trough_date: null,
-        unavailable_reason: reason,
+        unavailable_reason: mixed ? "mixed_currency" : returnUnavailableReason(points),
       };
   const daily = dailyChanges(allPoints, {
     crypto: accounts.every((a) => a.platform === "binance"),
@@ -396,6 +408,16 @@ export function performanceBlocks({
           ? (amount / (first.value + netFlow)) * 100
           : null,
       max_drawdown: drawdown,
+      metric_reasons: { twr: mixed ? "mixed_currency" : returnUnavailableReason(points) },
+      per_currency: [...new Set([...totals.map((t) => t.currency), ...drawdowns.map((d) => d.currency)])].sort().map((currency) => ({
+        total: null, account_count: 0, expected_account_count: 0, as_of: null, stale: null,
+        status: "no_data", unavailable_reason: "no_snapshot",
+        ...totals.find((t) => t.currency === currency),
+        currency,
+        max_drawdown: drawdowns.find((d) => d.currency === currency)?.max_drawdown || {
+          percent: null, peak_date: null, trough_date: null, unavailable_reason: "no_snapshot",
+        },
+      })),
       best_day: ranked[0] || null,
       worst_day: ranked.at(-1) || null,
       excess_returns: aligned.benchmarks.map((b) => {
@@ -438,32 +460,33 @@ export function performanceBlocks({
         as_of: b.points.at(-1)?.date || null,
       })),
     },
-    assets: { ...meta, points },
+    assets: {
+      ...meta, points, per_currency: totals,
+      currency: totals.length > 1 ? null : meta.currency,
+      status: !totals.some((t) => t.total !== null) ? "no_data"
+        : totals.some((t) => t.status !== "ok") ? "partial" : "ok",
+      unavailable_reason: !totals.some((t) => t.total !== null) ? "no_snapshot"
+        : totals.length > 1 ? "mixed_currency" : totals.find((t) => t.unavailable_reason)?.unavailable_reason || null,
+      curve_status: meta.status,
+      curve_unavailable_reason: meta.unavailable_reason,
+    },
     holdings: {
-      status: accounts.some((a) => a.data_status === "stale")
-        ? "stale"
-        : accounts.some((a) => a.positions?.length)
-          ? "partial"
-          : "no_data",
-      unavailable_reason: accounts.some((a) => a.data_status === "stale")
-        ? "positions_stale"
-        : accounts.some((a) => a.positions?.length)
-          ? "positions_partial_coverage"
-          : "positions_not_connected",
-      as_of:
-        accounts
-          .map((a) => a.observed_finished_at)
-          .filter(Boolean)
-          .sort()
-          .at(0) || null,
-      coverage: accounts.map((a) => ({
-        account_alias: a.account_key,
-        ...(a.platform ? { platform: a.platform, account_ref: `${a.platform}:${a.account_key}` } : {}),
+      status: accounts.some((a) => a.positions?.length) ? "partial" : "no_data",
+      unavailable_reason: accounts.some((a) => a.positions?.length)
+        ? "positions_partial_coverage" : "positions_not_connected",
+      as_of: null,
+      account_freshness: freshness.accounts,
+      freshness_summary: freshness.summary,
+      coverage: accounts.map((a, i) => ({
+        ...freshness.accounts[i],
         scope: a.positions_scope || "not_connected",
       })),
       label_key: "performance.current_holdings_unrealized",
       value_kind: "pnl",
-      rows: holdingsRows(accounts),
+      rows: holdingsRows(accounts).map((row) => {
+        const account = freshness.accounts.find((a) => a.platform === row.platform && a.account_alias === row.account_alias);
+        return { ...row, as_of: account?.as_of || null, freshness: account?.freshness || "unknown", stale: account?.stale ?? null };
+      }),
     },
     trades: {
       status: "not_connected",

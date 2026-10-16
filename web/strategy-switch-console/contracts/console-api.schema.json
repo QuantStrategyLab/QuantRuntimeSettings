@@ -1027,6 +1027,174 @@
               "unavailable_reason"
             ]
           }
+        },
+        "account_freshness": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "platform",
+              "account_alias",
+              "account_ref",
+              "as_of",
+              "freshness",
+              "fresh",
+              "stale"
+            ],
+            "properties": {
+              "platform": {
+                "type": "string"
+              },
+              "account_alias": {
+                "type": "string"
+              },
+              "account_ref": {
+                "type": "string"
+              },
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "freshness": {
+                "enum": [
+                  "fresh",
+                  "stale",
+                  "unknown"
+                ]
+              },
+              "fresh": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "stale": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "freshness_summary": {
+          "type": "object",
+          "required": [
+            "fresh",
+            "stale",
+            "unknown",
+            "threshold_hours"
+          ],
+          "properties": {
+            "fresh": {
+              "type": "integer"
+            },
+            "stale": {
+              "type": "integer"
+            },
+            "unknown": {
+              "type": "integer"
+            },
+            "threshold_hours": {
+              "type": "number"
+            }
+          }
+        },
+        "per_currency": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "currency",
+              "total",
+              "account_count",
+              "expected_account_count",
+              "as_of",
+              "stale",
+              "status",
+              "unavailable_reason"
+            ],
+            "properties": {
+              "currency": {
+                "type": "string"
+              },
+              "total": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "account_count": {
+                "type": "integer"
+              },
+              "expected_account_count": {
+                "type": "integer"
+              },
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stale": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "stale",
+                  "no_data"
+                ]
+              },
+              "unavailable_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "max_drawdown": {
+                "type": "object",
+                "properties": {
+                  "percent": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "peak_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "trough_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "unavailable_reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "percent",
+                  "peak_date",
+                  "trough_date",
+                  "unavailable_reason"
+                ]
+              }
+            }
+          }
         }
       },
       "required": [
@@ -1385,6 +1553,139 @@
               "value"
             ]
           }
+        },
+        "account_freshness": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "platform",
+              "account_alias",
+              "account_ref",
+              "as_of",
+              "freshness",
+              "fresh",
+              "stale"
+            ],
+            "properties": {
+              "platform": {
+                "type": "string"
+              },
+              "account_alias": {
+                "type": "string"
+              },
+              "account_ref": {
+                "type": "string"
+              },
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "freshness": {
+                "enum": [
+                  "fresh",
+                  "stale",
+                  "unknown"
+                ]
+              },
+              "fresh": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "stale": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "freshness_summary": {
+          "type": "object",
+          "required": [
+            "fresh",
+            "stale",
+            "unknown",
+            "threshold_hours"
+          ],
+          "properties": {
+            "fresh": {
+              "type": "integer"
+            },
+            "stale": {
+              "type": "integer"
+            },
+            "unknown": {
+              "type": "integer"
+            },
+            "threshold_hours": {
+              "type": "number"
+            }
+          }
+        },
+        "per_currency": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "currency",
+              "total",
+              "account_count",
+              "expected_account_count",
+              "as_of",
+              "stale",
+              "status",
+              "unavailable_reason"
+            ],
+            "properties": {
+              "currency": {
+                "type": "string"
+              },
+              "total": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "account_count": {
+                "type": "integer"
+              },
+              "expected_account_count": {
+                "type": "integer"
+              },
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stale": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "stale",
+                  "no_data"
+                ]
+              },
+              "unavailable_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
         }
       },
       "required": [
@@ -1546,6 +1847,80 @@
               "coverage",
               "status"
             ]
+          }
+        },
+        "account_freshness": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "platform",
+              "account_alias",
+              "account_ref",
+              "as_of",
+              "freshness",
+              "fresh",
+              "stale"
+            ],
+            "properties": {
+              "platform": {
+                "type": "string"
+              },
+              "account_alias": {
+                "type": "string"
+              },
+              "account_ref": {
+                "type": "string"
+              },
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "freshness": {
+                "enum": [
+                  "fresh",
+                  "stale",
+                  "unknown"
+                ]
+              },
+              "fresh": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "stale": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "freshness_summary": {
+          "type": "object",
+          "required": [
+            "fresh",
+            "stale",
+            "unknown",
+            "threshold_hours"
+          ],
+          "properties": {
+            "fresh": {
+              "type": "integer"
+            },
+            "stale": {
+              "type": "integer"
+            },
+            "unknown": {
+              "type": "integer"
+            },
+            "threshold_hours": {
+              "type": "number"
+            }
           }
         }
       },

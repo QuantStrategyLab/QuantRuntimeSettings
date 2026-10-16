@@ -39,7 +39,7 @@ function TwrCard({ data }: { data: SummaryResponse }) {
   }
   // asset_change scopes have no qualified TWR; the reason line explains the blank instead of a fake 0.
   if (data.twr_return_percent === null) {
-    return <KpiCard title={title} value={<span className="flat">—</span>} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t(`reason.${data.metric_reasons?.twr || data.unavailable_reason || "no_cashflow_data"}`)} footer={footer} />;
   }
   return <KpiCard title={title} value={<Percent value={data.twr_return_percent} />} footer={footer} />;
 }
@@ -61,14 +61,27 @@ function AmountCard({ data }: { data: SummaryResponse }) {
 function DrawdownCard({ data }: { data: SummaryResponse }) {
   const t = useT();
   const language = useLanguage();
-  const title = t("perf.card.max_drawdown");
+  const title = t("perf.drawdown_twr_title");
   const footer = cardFooter(data);
+  if (data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable") {
+    return <KpiCard title={title} value={<span className="currency-totals">
+      {data.per_currency.map(item => {
+        const dd = item.max_drawdown;
+        return <span className="currency-total" key={item.currency}>
+          <span className="kpi-sub">{item.currency}</span>
+          {dd.percent === null ? <span className="flat">—</span> : <Percent value={dd.percent} />}
+          <span className="kpi-sub">{dd.unavailable_reason ? t(`reason.${dd.unavailable_reason}`)
+            : dd.peak_date && dd.trough_date ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) }) : null}</span>
+        </span>;
+      })}
+    </span>} />;
+  }
   if (!renderableStatus(data.status)) {
     return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={footer} />;
   }
   const dd = data.max_drawdown;
   if (dd.percent === null) {
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={dd.unavailable_reason && dd.unavailable_reason !== data.unavailable_reason ? t(`reason.${dd.unavailable_reason}`) : undefined} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={dd.unavailable_reason ? t(`reason.${dd.unavailable_reason}`) : undefined} footer={footer} />;
   }
   const sub =
     dd.peak_date && dd.trough_date
@@ -169,7 +182,7 @@ export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProp
   const data = state.data;
   return (
     <div className="section-stack">
-      {data.unavailable_reason && <p className="metric-note">{t(`reason.${data.unavailable_reason}`)}</p>}
+      {data.unavailable_reason && <p className="metric-note">{data.unavailable_reason === "mixed_currency" ? t("perf.native_totals_note") : t(`reason.${data.unavailable_reason}`)}</p>}
       <div className="perf-kpi-grid">
         <TwrCard data={data} />
         <AmountCard data={data} />
