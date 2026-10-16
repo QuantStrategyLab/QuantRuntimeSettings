@@ -1,0 +1,3 @@
+.currency-totals { display: flex; flex-wrap: wrap; gap: 16px; }
+.currency-total { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.currency-total .num { overflow-wrap: anywhere; }

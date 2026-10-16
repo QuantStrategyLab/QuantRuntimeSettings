@@ -1,3 +1,4 @@
+import { FreshnessSummary } from "../../components/CurrencyTotals";
 import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -7,7 +8,7 @@ import type { AsyncState } from "../../lib/hooks";
 import { formatQuantity } from "../../lib/format";
 import { loadPerformanceHoldings, loadPerformanceTrades } from "../../api/endpoints";
 import type { HoldingsResponse, Range } from "../../api/contracts";
-import { AsOfStamp, EmptyState, ErrorState, Money, Skeleton, StatusBadge } from "../../components/primitives";
+import { EmptyState, ErrorState, Money, Skeleton, StatusBadge } from "../../components/primitives";
 import { DataTable, type Column } from "../../components/DataTable";
 import { Tabs } from "../../components/Tabs";
 import { BarList, type BarListItem } from "../../charts/BarList";
@@ -225,11 +226,9 @@ export function PerformanceTabs({ scope, platform, range, epoch }: PerformanceTa
         ariaLabel={t("nav.performance")}
       />
       <div id="performance-panel" className="perf-tab-body" role="tabpanel" aria-labelledby={`performance-tab-${tab}`} tabIndex={0}>
-        {tab !== "trades" && holdings.phase === "ready" && renderableStatus(holdings.data.status) && holdings.data.status !== "ok" && (
-          <p className="card-note" style={{ marginTop: 0, marginBottom: 8 }}>
-            <StatusBadge status={holdings.data.status} reason={holdings.data.unavailable_reason} /> <AsOfStamp value={holdings.data.as_of} />
-          </p>
-        )}
+        {tab !== "trades" && holdings.phase === "ready" && <p className="card-note">
+          <FreshnessSummary counts={holdings.data.freshness_summary} />
+        </p>}
         {body}
       </div>
     </div>

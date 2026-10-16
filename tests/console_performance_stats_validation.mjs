@@ -158,3 +158,6 @@ assert.equal(
   ])[1].unavailable_reason,
   "invalid_return_period",
 );
+
+await import("./console_currency_totals_validation.mjs");
+await import("./console_currency_totals_ui_validation.mjs");

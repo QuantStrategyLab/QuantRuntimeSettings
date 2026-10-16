@@ -1,5 +1,6 @@
 import { InboxReadFailed } from "../../components/InboxReadFailed";
 import { inboxFailureState } from "../../lib/inboxFailure";
+import { CurrencyTotals, FreshnessSummary } from "../../components/CurrencyTotals";
 import { AccountGroups } from "../../components/AccountGroups";
 import type { DirectoryConfig } from "../../lib/accountDirectory";
 import { useState } from "react";
@@ -78,13 +79,17 @@ function AssetKpi({ state }: { state: Api<AssetsResponse> }) {
   if (state.phase === "loading") return kpiLoading(title);
   if (state.phase === "error") return <KpiCard title={title} value={<KpiState status="read_failed" />} />;
   const data = state.data;
+  if (data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable") {
+    return <KpiCard title={title} value={<CurrencyTotals totals={data.per_currency} />}
+      sub={t("perf.native_totals_note")} footer={<FreshnessSummary counts={data.freshness_summary} />} />;
+  }
   const balance = latestAssetBalance(data);
   const status = balance === null && usable(data.status) ? "unavailable" : data.status;
   const footer = <><StatusBadge status={status} reason={data.unavailable_reason} /><AsOfStamp value={data.as_of} /></>;
   const value = balance !== null
     ? <Money value={balance} currency={data.currency} />
     : <KpiState status={status} reason={data.unavailable_reason} />;
-  return <KpiCard title={title} value={value} footer={footer} />;
+  return <KpiCard title={title} value={value} sub={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined} footer={footer} />;
 }
 
 function ReturnKpi({ state }: { state: Api<SummaryResponse> }) {
@@ -103,7 +108,7 @@ function ReturnKpi({ state }: { state: Api<SummaryResponse> }) {
     return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} sub={t("overview.twr_tag")} footer={footer} />;
   }
   const value = data.twr_return_percent === null ? <span className="flat">—</span> : <Percent value={data.twr_return_percent} />;
-  return <KpiCard title={title} value={value} sub={t("overview.twr_tag")} footer={footer} />;
+  return <KpiCard title={title} value={value} sub={data.twr_return_percent === null && data.metric_reasons?.twr ? t(`reason.${data.metric_reasons.twr}`) : t("overview.twr_tag")} footer={footer} />;
 }
 
 function LastDayKpi({ state }: { state: Api<CalendarResponse> }) {

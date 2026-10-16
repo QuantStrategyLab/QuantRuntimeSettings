@@ -203,6 +203,34 @@ export interface PerformanceCoverage {
   truncated?: boolean;
   read_failures?: string[];
 }
+export interface AccountFreshness {
+  platform: string | null;
+  account_alias: string;
+  account_ref: string | null;
+  as_of: string | null;
+  freshness: "fresh" | "stale" | "unknown";
+  fresh: boolean | null;
+  stale: boolean | null;
+  unavailable_reason: Reason | null;
+}
+export interface FreshnessCounts { fresh: number; stale: number; unknown: number; threshold_hours: number }
+export interface CurrencyTotal {
+  currency: string;
+  total: number | null;
+  account_count: number;
+  expected_account_count: number;
+  excluded_account_count?: number;
+  as_of: string | null;
+  stale: boolean | null;
+  status: Status;
+  unavailable_reason: Reason | null;
+}
+export interface Drawdown {
+  percent: number | null;
+  peak_date: string | null;
+  trough_date: string | null;
+  unavailable_reason: Reason | null;
+}
 export interface PerformanceMeta {
   schema_version: "console_api.v1";
   scope: string;
@@ -216,6 +244,8 @@ export interface PerformanceMeta {
     | { account_alias: string; platform?: string; account_ref?: string; scope: string }[]
     | "fills_not_connected";
   currency?: string | null;
+  account_freshness?: AccountFreshness[];
+  freshness_summary?: FreshnessCounts;
 }
 export interface Point {
   date: string;
@@ -248,6 +278,8 @@ export interface DailyChange {
   unavailable_reason: Reason | null;
 }
 export interface SummaryResponse extends PerformanceMeta {
+  metric_reasons?: { twr: Reason | null };
+  per_currency?: (CurrencyTotal & { max_drawdown: Drawdown })[];
   twr_return_percent: number | null;
   amount: number | null;
   simple_weighted_return_percent: number | null;
@@ -292,6 +324,9 @@ export interface ReturnsResponse extends PerformanceMeta {
   }[];
 }
 export interface AssetsResponse extends PerformanceMeta {
+  curve_status?: Status;
+  curve_unavailable_reason?: Reason | null;
+  per_currency?: CurrencyTotal[];
   points: Point[];
 }
 export interface HoldingsResponse extends PerformanceMeta {
