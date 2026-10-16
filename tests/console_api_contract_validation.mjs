@@ -21,6 +21,12 @@ const schemas = JSON.parse(
 ).$defs;
 export function validate(name, data) {
   const visit = (schema, value, path) => {
+    if (schema.$ref) {
+      assert.match(schema.$ref, /^#\/\$defs\//, path + ": local reference");
+      const target = schemas[schema.$ref.slice("#/$defs/".length)];
+      assert.ok(target, path + ": reference target");
+      return visit(target, value, path);
+    }
     if (schema.const !== undefined) assert.deepEqual(value, schema.const, path);
     if (schema.enum) assert.ok(schema.enum.includes(value), path + ": enum");
     if (schema.type) {
@@ -57,6 +63,9 @@ export function validate(name, data) {
   visit(schemas[name], data, name);
 }
 assert.throws(() => validate("trades", { status: "ok" }));
+const assetFixture = consoleApiFixture("/api/performance/assets", new URLSearchParams(), "api-ready", "GET", Date.parse("2026-10-15T12:00:00Z")).body;
+assert.throws(() => validate("assets", { ...assetFixture, points: [{ date: "2026-10-15", value: "100" }] }), /value: type/);
+assert.throws(() => validate("assets", { ...assetFixture, points: [{ date: "2026-10-15", value: 100, partial: "true" }] }), /partial: type/);
 const endpoints = {
   "/api/decisions-inbox": "inbox",
   "/api/owner-decisions/history": "decision_history",
