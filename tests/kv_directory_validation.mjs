@@ -14,6 +14,7 @@ const kv = { async get(key) { return values.get(key) ?? null; },
 let directory = new KvDirectory(storage, kv, {}, () => time);
 const read = { action: "read", prefix: "research_promotion_ticket:", limit: 100 };
 assert.equal((await directory.command(read)).error, "kv_directory_uninitialized");
+for (let i = 0; i < 100; i++) assert.equal((await directory.command(read)).ok, false);
 assert.equal(lists, 0, "a cold read cannot spend list quota");
 assert.equal((await directory.command({ action: "maintain" })).error, "kv_list_daily_limit_exceeded");
 directory = new KvDirectory(storage, kv, {}, () => time);
