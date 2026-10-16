@@ -2,9 +2,12 @@
 
 This runbook describes the release gates for the optional account-facts holdings
 pair. It does not authorize a merge, deployment, publisher change, live write,
-forced broker run, or trade. PR #617 stays draft pending owner review. Merging
-console changes to `main` triggers `deploy-strategy-switch-console.yml` and can
-change the live console, so release requires separate owner approval.
+forced broker run, or trade. The work is not a release authorization: the
+original console holdings panel (#617) has merged, and any publisher or display
+change still needs separate owner approval. The console deploys only through a
+manual `deploy-strategy-switch-console.yml` `workflow_dispatch` run; merging
+console changes to `main` does not deploy, so release still requires separate
+owner approval.
 
 ## Release order
 
@@ -72,8 +75,10 @@ repository CI remains required; synthetic checks do not prove production adoptio
 
 ## 中文：发布与回退边界
 
-本说明不授权合并、部署、修改发布器、生产写入、强制券商运行或交易。#617
-保持草稿，等待所有者审阅；控制台改动合入 `main` 会触发自动部署，需单独批准。
+本说明不授权合并、部署、修改发布器、生产写入、强制券商运行或交易。持仓改动不构成发布
+授权：原控制台持仓面板（#617）已合并，发布器或展示的任何改动仍需所有者单独批准。控制台
+仅通过手动触发 `deploy-strategy-switch-console.yml`（`workflow_dispatch`）部署；控制台改动
+合入 `main` 不会自动部署，发布仍需单独批准。
 
 1. 先发布兼容接收端与前端，两个发布器继续剥离持仓字段。旧载荷仍可接收，缺少
    持仓时显示“暂无持仓数据”。旧接收端拒绝扩展字段，不能把发布器先发送持仓
