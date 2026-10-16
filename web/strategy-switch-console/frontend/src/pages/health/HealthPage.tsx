@@ -24,6 +24,7 @@ import {
   StatusBadge,
 } from "../../components/primitives";
 import { RunGrid } from "./RunGrid";
+import { todayFailures } from "./status";
 import { boundDailyAccounts } from "./dailySelection";
 import "./health.css";
 
@@ -63,9 +64,7 @@ function StatStrip({
   const t = useT();
   const data = summary.phase === "ready" ? summary.data : null;
   const okCount = data ? data.accounts.filter(account => account.status === "ok").length : 0;
-  const failureCount = data
-    ? data.accounts.filter(account => account.status === "read_failed" || account.activity === "failed").length
-    : 0;
+  const failures = data ? todayFailures(data) : { count: 0, complete: false };
   const credentialData = credential.phase === "ready" ? credential.data : null;
   const credentialCount = credentialData && ATTENTION_PHASES.includes(credentialData.phase) ? 1 : 0;
 
@@ -93,7 +92,10 @@ function StatStrip({
       />
       <KpiCard
         title={t("health.kpi.recent_failure")}
-        value={<StatValue state={summary} render={() => t("health.stat.recent_failure", { count: failureCount })} />}
+        value={<StatValue state={summary} render={() => failures.complete
+          ? String(failures.count)
+          : failures.count > 0 ? t("health.failure_at_least", { count: failures.count }) : t("state.unknown")} />}
+        footer={<span>{t("health.failure_window", { date: data?.date ?? "—" })}{!failures.complete && ` · ${t("health.failure_incomplete")}`}</span>}
       />
     </div>
   );
@@ -124,7 +126,7 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
     {
       id: "activity",
       header: t("health.activity"),
-      cell: row => row.activity === "no_signal" ? t("state.no_signal") : row.activity || "—",
+      cell: row => t(`state.${row.activity || "unknown"}`),
     },
     {
       id: "run_count",

@@ -1,0 +1,129 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
+import { m0Subjects, healthStates, controlReasons, runtimeRecords } from "./fixtures/console-gaps.ts";
+
+// Render production components and dictionaries. Only network/hooks are replaced.
+const root = new URL("../web/strategy-switch-console/frontend/", import.meta.url).pathname;
+const directory = await mkdtemp(join(tmpdir(), "console-display-"));
+const outfile = join(directory, "render.cjs");
+try {
+  await build({ stdin: { contents: `import { createElement as h } from 'react';
+    import { renderToStaticMarkup } from 'react-dom/server';
+    import { ResearchTab, parseResearchLeads, loadResearchLeads } from './src/pages/strategies/StrategiesPage';
+    import { StatStrip } from './src/pages/health/HealthPage';
+    import { DayDetail } from './src/pages/health/RunGrid';
+    import { I18nProvider, translate } from './src/i18n';
+    import { StatusBadge } from './src/components/primitives';
+    const render = (language, component, props) => renderToStaticMarkup(h(I18nProvider, { language }, h(component, props)));
+    export { parseResearchLeads, loadResearchLeads, translate };
+    export const research = language => render(language, ResearchTab, { refreshEpoch: 0 });
+    export const badge = (language, status, reason) => render(language, StatusBadge, { status, reason });
+    export const stats = (language, data) => render(language, StatStrip, {
+      summary: { phase: 'ready', data, reload() {} }, credential: { phase: 'loading', reload() {} } });
+    export const detail = (language, snapshot) => render(language, DayDetail, {
+      selection: { date: snapshot.date, account: { platform: snapshot.platform, account_alias: snapshot.account_key } },
+      cell: { phase: 'ready', snapshot } });`, resolveDir: root },
+    bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", loader: { ".css": "empty" },
+    define: { "import.meta.env": "{}" }, plugins: [{ name: "controlled-read", setup(b) {
+      b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents:
+        "export const useApi = () => globalThis.__displayState;", loader: "js" }));
+      b.onLoad({ filter: /\/api\/client\.ts$/ }, () => ({ contents:
+        "export async function getJson() { if (globalThis.__displayError) throw Error('synthetic_read_failure'); return globalThis.__displayPayload; } export const readRevision = () => 0; export const postJson = () => { throw Error('writes_forbidden'); };", loader: "js" }));
+      for (const [file, exports] of [["StrategiesPage", "ResearchTab, parseResearchLeads, loadResearchLeads"],
+        ["HealthPage", "StatStrip"], ["RunGrid", "DayDetail"]]) {
+        b.onLoad({ filter: new RegExp(`/${file}\\.tsx$`) }, async ({ path }) => ({
+          contents: await readFile(path, "utf8") + `\nexport { ${exports} };`, loader: "tsx" }));
+      }
+    } }],
+  });
+  const ui = createRequire(import.meta.url)(outfile);
+  const ready = payload => { globalThis.__displayState = { phase: "ready", data: ui.parseResearchLeads(payload), reload() {} }; };
+  const noCodes = html => assert.doesNotMatch(html, /state\.|reason\.|research\.state\./);
+  for (const language of ["zh", "en"]) {
+    ready(m0Subjects);
+    const html = ui.research(language);
+    assert.equal((html.match(/class="card research-item"/g) || []).length, 12, "ready M0 subjects must render all 12 cards");
+    assert.equal((html.match(/synthetic-source/g) || []).length, 12, "preserve each observation's source");
+    assert.ok(html.includes(language === "zh" ? "仅作背景" : "Context only"));
+    assert.ok(html.includes(ui.translate(language, "state.fresh")));
+    assert.ok(html.includes(language === "zh" ? "仅研究，不下单" : "Research only; no orders"));
+    assert.doesNotMatch(html, /context_only|未接入|not connected/i);
+    noCodes(html);
+    ready({ ...m0Subjects, data_status: "ready", subjects: [] });
+    assert.ok(ui.research(language).includes(language === "zh" ? "暂无研究线索" : "No research leads yet"));
+    ready({ ...m0Subjects, data_status: "unavailable", subjects: [], errors: ["m0_research_ledger_unavailable"] });
+    assert.ok(ui.research(language).includes(language === "zh" ? "研究资料暂不可用" : "Research data unavailable"));
+    for (const payload of [null, { items: [] }, { ...m0Subjects, subjects: [{}] },
+      { ...m0Subjects, data_status: "unavailable", errors: ["stored_records_unreadable"] }]) {
+      ready(payload);
+      assert.ok(ui.research(language).includes(language === "zh" ? "读取失败" : "Read failed"), "invalid/failed reads are not empty or disconnected");
+    }
+    globalThis.__displayState = { phase: "error", reload() {} };
+    assert.ok(ui.research(language).includes(language === "zh" ? "读取失败" : "Read failed"));
+    const stale = structuredClone(m0Subjects);
+    stale.data_status = "stale";
+    stale.subjects[0].observations[0].freshness.status = "stale";
+    ready(stale);
+    assert.equal((ui.research(language).match(/class="card research-item"/g) || []).length, 12);
+    assert.ok(ui.research(language).includes(ui.translate(language, "state.stale")));
+    for (const strategy of healthStates.strategies) {
+      const rendered = ui.badge(language, strategy.health_status);
+      noCodes(rendered);
+      assert.ok(!rendered.includes(language === "zh" ? "未知" : "Unknown"));
+    }
+    for (const reason of controlReasons) noCodes(ui.badge(language, "blocked", reason));
+    const recovery = ui.translate(language, "reason.existing_recovery_not_available");
+    assert.match(recovery, language === "zh" ? /没有可用/ : /No existing recovery/);
+    const unknown = ui.badge(language, "future_state", "future_reason");
+    noCodes(unknown);
+    assert.ok(unknown.includes(language === "zh" ? "未知状态" : "Unknown status"));
+    for (const snapshot of runtimeRecords) {
+      const detail = ui.detail(language, snapshot);
+      noCodes(detail);
+      assert.doesNotMatch(detail, />blocked<|>insufficient<|>read_incomplete</);
+    }
+    for (const activity of ["previewed", "blocked", "insufficient", "future_activity"]) {
+      const snapshot = structuredClone(runtimeRecords[0]);
+      snapshot.record.runs[0].activity = activity;
+      noCodes(ui.detail(language, snapshot));
+      assert.ok(!ui.detail(language, snapshot).includes(`>${activity}<`));
+    }
+    const account = { account_alias: "synthetic-paper", platform: "longbridge", status: "ok", unavailable_reason: null,
+      completeness: "complete", run_count: 1, activity: "filled", runs: [{ activity: "filled", errors_present: false }] };
+    const summary = { status: "ok", date: "2026-10-16", timezone: "America/New_York", as_of: null,
+      counts: { configured: 1, observed: 1, runs: 1 }, accounts: [account] };
+    const statValue = data => ui.stats(language, data).match(/<span class="kpi-value[^"]*">([\s\S]*?)<\/span>/g)?.at(-1) || ui.stats(language, data);
+    assert.ok(ui.stats(language, summary).replaceAll("&#x27;", "'").includes(language === "zh" ? "今日失败账户" : "Today's failed accounts"));
+    assert.ok(ui.stats(language, summary).includes("2026-10-16"));
+    assert.ok(ui.stats(language, summary).includes("America/New_York"));
+    assert.match(statValue(summary), /0/);
+    for (const activity of ["failed", "blocked"]) {
+      const failed = { ...account, activity };
+      assert.match(statValue({ ...summary, accounts: [failed] }), /1/);
+    }
+    const errored = { ...account, runs: [{ activity: "filled", errors_present: true }] };
+    assert.match(statValue({ ...summary, accounts: [errored] }), /1/);
+    for (const incomplete of [
+      { ...summary, status: "partial", counts: { configured: 10, observed: 0, runs: null }, accounts: [] },
+      { ...summary, status: "partial", accounts: [{ ...account, completeness: "incomplete" }] },
+      { ...summary, status: "partial", accounts: [{ ...account, activity: "insufficient", runs: [] }] },
+      { ...summary, accounts: [{ ...account, runs: [{ activity: "previewed", errors_present: false }] }] },
+    ]) {
+      assert.ok(statValue(incomplete).includes(language === "zh" ? "未知" : "Unknown"), "incomplete coverage cannot certify zero failures");
+    }
+    const partialFailed = { ...summary, status: "partial", counts: { configured: 10, observed: 1, runs: null }, accounts: [{ ...account, activity: "blocked" }] };
+    assert.ok(statValue(partialFailed).includes(language === "zh" ? "至少 1" : "At least 1"));
+  }
+  globalThis.__displayPayload = m0Subjects;
+  assert.deepEqual(await ui.loadResearchLeads(), ui.parseResearchLeads(m0Subjects));
+  globalThis.__displayError = true;
+  await assert.rejects(ui.loadResearchLeads(), /synthetic_read_failure/);
+} finally {
+  for (const key of ["__displayState", "__displayPayload", "__displayError"]) delete globalThis[key];
+  await rm(directory, { recursive: true, force: true });
+}
+console.log("console_display_gaps_validation: PASS (zh/en M0 12 subjects, failure windows, health/control/detail states)");

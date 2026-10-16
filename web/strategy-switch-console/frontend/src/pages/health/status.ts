@@ -1,3 +1,4 @@
+import type { TodayRunSummary } from "../../api/contracts";
 import type { RuntimeDailySnapshot } from "../../api/endpoints";
 import { runtimeDailyRunIssue } from "../../../../runtime_daily_contract.js";
 
@@ -18,4 +19,22 @@ export function cellKind(snapshot: RuntimeDailySnapshot): CellKind {
   if (record.kind === "run" && ["no_submission", "no_signal", "no_rebalance", "filled"].includes(record.status)
     && runs.length > 0 && runs.every(run => runtimeDailyRunIssue(run) === null)) return "ok";
   return "unknown";
+}
+
+/** Count failed/blocked accounts only within today's New York summary; read errors are coverage gaps. */
+export function todayFailures(summary: TodayRunSummary): { count: number; complete: boolean } {
+  const failureActivities = ["failed", "blocked", "error"];
+  const completeActivities = ["no_submission", "no_signal", "no_rebalance", "filled"];
+  return {
+    count: summary.accounts.filter(account => failureActivities.includes(account.activity || "")
+      || account.runs.some(run => runtimeDailyRunIssue(run) === "failure")).length,
+    complete: summary.status === "ok" && summary.counts.runs !== null && summary.counts.configured > 0
+      && summary.counts.observed === summary.counts.configured
+      && summary.accounts.length === summary.counts.configured
+      && summary.accounts.every(account => account.status === "ok" && account.completeness === "complete"
+        && account.run_count !== null && account.run_count === account.runs.length
+        && (failureActivities.includes(account.activity || "") || completeActivities.includes(account.activity || "")
+          || ["not_due", "market_closed", "outside_window", "within_grace"].includes(account.activity || ""))
+        && account.runs.every(run => runtimeDailyRunIssue(run) !== "unconfirmed")),
+  };
 }

@@ -44,7 +44,11 @@ export type Translate = (key: MessageKey, params?: TranslateParams) => string;
 
 export function translate(language: Language, key: MessageKey, params: TranslateParams = {}): string {
   const table = language === "zh" ? zh : enMessages;
-  const template = table[key] ?? (language === "zh" ? enMessages[key] : zh[key]) ?? key;
+  const fallbackKey = key.startsWith("state.") ? "state.unknown_status"
+    : key.startsWith("reason.") ? "reason.unknown"
+    : key.startsWith("research.state.") ? "state.unknown_status" : null;
+  const template = table[key] ?? (language === "zh" ? enMessages[key] : zh[key])
+    ?? (fallbackKey ? table[fallbackKey] : key);
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
     name in params ? String(params[name]) : match,
   );

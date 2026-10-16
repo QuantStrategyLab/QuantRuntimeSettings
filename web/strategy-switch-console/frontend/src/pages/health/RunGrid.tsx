@@ -87,7 +87,7 @@ function DayDetail({ selection, cell }: { selection: Selection; cell: CellState 
                 <li key={index}>
                   <span className="num">{t("health.detail.started")} {started}</span>
                   <span className="num">{t("health.detail.finished")} {finished}</span>
-                  <span>{run.activity === "no_signal" ? t("state.no_signal") : run.activity || "—"}</span>
+                  <span>{t(`state.${run.activity || "unknown"}`)}</span>
                   {run.errors_present === true && <Badge tone="error">{t("health.grid.failed")}</Badge>}
                 </li>
               );
