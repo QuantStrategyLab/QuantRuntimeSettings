@@ -49,6 +49,9 @@ runInNewContext(code, { exports, document, window, Date: { now: () => clock }, r
 assert.equal(exports.UpdateNotice(), null);
 cleanup = effect();
 await new Promise(setImmediate);
+assert.equal(checks, 0, "a fresh shell does not request its own version during boot");
+assert.equal(visible, false);
+await events.get("focus")();
 assert.equal(visible, true);
 assert.equal(reloads, 0, "new deployments never force a reload");
 await events.get("focus")();
