@@ -1,13 +1,13 @@
-import { accountName } from "../../lib/displayNames";
+import { AccountGroups } from "../../components/AccountGroups";
+import { findAccount } from "../../lib/accountDirectory";
 import { useState } from "react";
 import { getJson } from "../../api/client";
 import { loadAccounts, loadTodayRuns } from "../../api/endpoints";
 import { useNavigate } from "../../app/context";
 import { useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
-import { DateText, EmptyState, ErrorState, Skeleton, StatusBadge } from "../../components/primitives";
-import { DataTable, type Column } from "../../components/DataTable";
-import { platformLabel, type AccountRow, type ConsoleConfig } from "./helpers";
+import { EmptyState, ErrorState, Skeleton, StatusBadge } from "../../components/primitives";
+import { type ConsoleConfig } from "./helpers";
 import { AccountDetail } from "./AccountDetail";
 import "./accounts.css";
 
@@ -22,55 +22,16 @@ export default function AccountsPage({ account, tab }: { account: string | null;
 
   const config = configState.phase === "ready" ? configState.data : null;
   const accounts = accountsState.phase === "ready" ? accountsState.data.accounts : [];
-  const selected = account ? accounts.find(item => item.account_alias === account) : undefined;
+  const selected = account ? findAccount(accounts, account) : undefined;
 
   const todayFailed =
     todayState.phase === "error" || (todayState.phase === "ready" && todayState.data.status === "read_failed");
   const todayRun =
     selected && todayState.phase === "ready" && !todayFailed
-      ? todayState.data.accounts.find(item => item.account_alias === selected.account_alias)
+      ? todayState.data.accounts.find(item => item.account_alias === selected.account_alias && item.platform === selected.platform)
       : undefined;
 
   const select = (alias: string) => navigate({ account: alias });
-
-  const columns: Column<AccountRow>[] = [
-    {
-      id: "alias",
-      header: t("accounts.col.alias"),
-      cell: row => (
-        <button type="button" className="accounts-alias-button" onClick={() => select(row.account_alias)}>
-          {accountName(row.account_alias, row.platform)}
-        </button>
-      ),
-      sortValue: row => row.account_alias,
-    },
-    {
-      id: "platform",
-      header: t("accounts.col.platform"),
-      cell: row => platformLabel(config, row.platform),
-      sortValue: row => row.platform,
-    },
-    {
-      id: "drafts",
-      header: t("accounts.col.drafts"),
-      numeric: true,
-      cell: row => row.pending_draft_count,
-      sortValue: row => row.pending_draft_count,
-    },
-    {
-      id: "todos",
-      header: t("accounts.col.todos"),
-      numeric: true,
-      cell: row => (row.pending_decision_count === null ? "—" : row.pending_decision_count),
-      sortValue: row => row.pending_decision_count,
-    },
-    {
-      id: "last_change",
-      header: t("accounts.col.last_change"),
-      cell: row => <DateText value={row.last_change_at} />,
-      sortValue: row => row.last_change_at,
-    },
-  ];
 
   let listBody;
   if (accountsState.phase === "loading") {
@@ -80,42 +41,7 @@ export default function AccountsPage({ account, tab }: { account: string | null;
   } else if (accounts.length === 0) {
     listBody = <EmptyState title={t("overview.no_accounts")} />;
   } else {
-    listBody = (
-      <>
-        <div className="accounts-list-table">
-          <DataTable
-            columns={columns}
-            rows={accounts}
-            rowKey={row => `${row.platform}/${row.account_alias}`}
-            defaultSort={{ column: "alias", direction: "asc" }}
-            caption={t("accounts.title")}
-          />
-        </div>
-        <div className="accounts-list-cards">
-          {accounts.map(row => (
-            <button key={`${row.platform}/${row.account_alias}`} type="button" className="account-card" onClick={() => select(row.account_alias)}>
-              <span className="account-title">{accountName(row.account_alias, row.platform)}</span>
-              <span className="account-row">
-                <span>{t("accounts.col.platform")}</span>
-                <span>{platformLabel(config, row.platform)}</span>
-              </span>
-              <span className="account-row">
-                <span>{t("accounts.col.drafts")}</span>
-                <span className="num">{row.pending_draft_count}</span>
-              </span>
-              <span className="account-row">
-                <span>{t("accounts.col.todos")}</span>
-                <span className="num">{row.pending_decision_count === null ? "—" : row.pending_decision_count}</span>
-              </span>
-              <span className="account-row">
-                <span>{t("accounts.col.last_change")}</span>
-                <span><DateText value={row.last_change_at} /></span>
-              </span>
-            </button>
-          ))}
-        </div>
-      </>
-    );
+    listBody = <AccountGroups accounts={accounts} config={config} onSelect={select} />;
   }
 
   return (

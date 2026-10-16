@@ -12,8 +12,8 @@ export interface Preferences {
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
-  theme: "dark",
-  language: "zh",
+  theme: "system",
+  language: "en",
   upDown: "green-up",
   hideAmounts: false,
   defaultRange: "YTD",
@@ -49,7 +49,14 @@ export function normalizeTheme(value: string | null): ThemePreference {
 }
 
 export function normalizeLanguage(value: string | null): Language {
-  return value === "en" || value === "zh" ? value : DEFAULT_PREFERENCES.language;
+  if (value === "zh" || value === "zh-CN") return "zh";
+  if (value === "en") return "en";
+  const languages = typeof navigator === "undefined" ? [] : navigator.languages?.length ? navigator.languages : [navigator.language];
+  for (const language of languages) {
+    if (/^zh(?:-|$)/i.test(language)) return "zh";
+    if (/^en(?:-|$)/i.test(language)) return "en";
+  }
+  return DEFAULT_PREFERENCES.language;
 }
 
 export function normalizeUpDown(value: string | null): UpDownPreference {

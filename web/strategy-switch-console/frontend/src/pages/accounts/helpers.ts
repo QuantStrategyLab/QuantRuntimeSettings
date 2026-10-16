@@ -1,14 +1,12 @@
+import { strategyName } from "../../lib/displayNames";
+import type { Language } from "../../lib/prefs";
 import type { AccountsResponse, DraftField, Scalar, SettingsDiffRow, SettingsSection } from "../../api/contracts";
 import type { Translate } from "../../i18n";
 
 export type AccountRow = AccountsResponse["accounts"][number];
 
 /** Best-effort legacy config: target names for run-control POSTs and strategy profile options. */
-export interface ConsoleConfig {
-  accountOptions?: Record<string, { key?: string; label?: string; target_name?: string }[]>;
-  platformMeta?: Record<string, { label?: string }>;
-  strategyProfiles?: { profile?: string; label?: string }[];
-}
+export type ConsoleConfig = import("../../lib/accountDirectory").DirectoryConfig;
 
 export type EditMap = Partial<Record<DraftField, Scalar | null>>;
 
@@ -24,10 +22,10 @@ export function targetNameFor(config: ConsoleConfig | null, platform: string, al
   return option?.target_name || alias;
 }
 
-export function profileOptions(config: ConsoleConfig | null): { profile: string; label: string }[] {
+export function profileOptions(config: ConsoleConfig | null, language: Language): { profile: string; label: string }[] {
   return (config?.strategyProfiles || [])
-    .filter((item): item is { profile: string; label?: string } => typeof item?.profile === "string" && item.profile.length > 0)
-    .map(item => ({ profile: item.profile, label: item.label || item.profile }));
+    .filter((item): item is { profile: string; label?: string; label_zh?: string; label_en?: string } => typeof item?.profile === "string" && item.profile.length > 0)
+    .map(item => ({ profile: item.profile, label: strategyName(item.profile, language, language === "zh" ? item.label_zh : item.label_en) }));
 }
 
 /** Backend label_key first; fall back to the page dictionary when the key is not translated. */
@@ -41,11 +39,12 @@ export function sectionLabel(t: Translate, section: SettingsSection): string {
 }
 
 /** Display a settings scalar; unknown current values and nulls stay honest. */
-export function scalarText(t: Translate, field: DraftField, value: Scalar, unknownValue = false): string {
+export function scalarText(t: Translate, field: DraftField, value: Scalar, unknownValue = false, language: Language = "en"): string {
   if (unknownValue) return t("common.unknown");
   if (value === null || value === undefined || value === "") return t("common.na");
   if (typeof value === "boolean") return t(value ? "accounts.bool.on" : "accounts.bool.off");
   if (field === "dca_mode" && (value === "fixed" || value === "smart")) return t(`accounts.dca_mode.${value}`);
+  if (field === "strategy_profile") return strategyName(String(value), language);
   return String(value);
 }
 

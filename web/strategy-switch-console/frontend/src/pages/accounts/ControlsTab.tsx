@@ -1,3 +1,4 @@
+import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useState } from "react";
 import type { RunControlAvailability } from "../../api/contracts";
 import { loadAccountSettings, loadRunControls } from "../../api/endpoints";
@@ -40,6 +41,7 @@ export function ControlsTab({
 }) {
   const t = useT();
   const toast = useToast();
+  const names = useDisplayNames(config);
   const state = useApi(() => loadRunControls(account.account_alias, account.platform), [account.account_alias, account.platform]);
   const [busy, setBusy] = useState<ActionName | null>(null);
   // Unknown or ambiguous outcomes lock the action until the availability is reloaded.
@@ -68,7 +70,7 @@ export function ControlsTab({
   const submitStop = async () => {
     const accepted = await confirm({
       title: t("controls.stop_confirm_title"),
-      target: account.account_alias,
+      target: names.account(account.account_alias, account.platform),
       summary: t("controls.stop_summary"),
       consequence: t("controls.stop_consequence"),
       tone: "danger",
@@ -100,7 +102,7 @@ export function ControlsTab({
     if (typeof sha256 !== "string" || !sha256) return;
     const accepted = await confirm({
       title: t("controls.confirm.resume_title"),
-      target: account.account_alias,
+      target: names.account(account.account_alias, account.platform),
       summary: t("controls.resume_summary"),
       tone: "danger",
       confirmLabel: t("controls.resume"),
@@ -125,7 +127,7 @@ export function ControlsTab({
   const submitApprove = async () => {
     const accepted = await confirm({
       title: t("controls.confirm.approve_title"),
-      target: account.account_alias,
+      target: names.account(account.account_alias, account.platform),
       summary: t("controls.approve_summary"),
       tone: "danger",
       confirmLabel: t("controls.approve_application"),
@@ -176,7 +178,7 @@ export function ControlsTab({
     // No direct enable write exists; the console only points to the existing flow.
     await confirm({
       title: t("controls.confirm.enable_title"),
-      target: account.account_alias,
+      target: names.account(account.account_alias, account.platform),
       summary: t("controls.enable_summary"),
       consequence: t("controls.enable_note"),
       tone: "normal",

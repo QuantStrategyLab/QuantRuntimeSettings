@@ -1,4 +1,4 @@
-import { accountName } from "../../lib/displayNames";
+import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useEffect, useRef, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import { loadSettingsDiff } from "../../api/endpoints";
@@ -39,6 +39,7 @@ export function AccountDetail({
   onBack: () => void;
 }) {
   const t = useT();
+  const names = useDisplayNames(config);
   const navigate = useNavigate();
   const { confirmRequest, confirm, resolveConfirm } = useConfirmation();
   const [editing, setEditing] = useState(false);
@@ -84,7 +85,7 @@ export function AccountDetail({
         </button>
       </div>
       <section className="card">
-        <h2 className="card-title">{accountName(account.account_alias, account.platform)}</h2>
+        <h2 className="card-title" title={`${account.platform}:${account.account_alias}`}>{names.account(account.account_alias, account.platform)}</h2>
         <div className="accounts-summary-rows">
           <div className="accounts-summary-row">
             <span>{t("common.platform")}</span>

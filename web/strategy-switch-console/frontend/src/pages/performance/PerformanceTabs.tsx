@@ -1,4 +1,4 @@
-import { accountName } from "../../lib/displayNames";
+import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useLanguage, useT } from "../../i18n";
@@ -26,14 +26,14 @@ type HoldingRow = HoldingsResponse["rows"][number];
 
 const RANKING_SIZE = 5;
 
-function coverageNote(data: HoldingsResponse): string | null {
+function coverageNote(data: HoldingsResponse, name: (alias: string, platform?: string) => string): string | null {
   const coverage = data.coverage;
   if (Array.isArray(coverage)) {
-    const aliases = coverage.map(item => item.account_alias);
+    const aliases = coverage.map(item => name(item.account_alias));
     return aliases.length ? aliases.join(", ") : null;
   }
   if (coverage && typeof coverage === "object" && Array.isArray(coverage.account_aliases)) {
-    return coverage.account_aliases.length ? coverage.account_aliases.join(", ") : null;
+    return coverage.account_aliases.length ? coverage.account_aliases.map(alias => name(alias)).join(", ") : null;
   }
   return null;
 }
@@ -45,6 +45,7 @@ function QuantityValue({ value }: { value: number | null }) {
 
 function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
   const t = useT();
+  const names = useDisplayNames();
   if (state.phase === "loading") {
     return (
       <div className="section-stack">
@@ -65,7 +66,7 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
     );
   }
   const columns: Column<HoldingRow>[] = [
-    { id: "account", header: t("perf.col.account"), cell: row => accountName(row.account_alias, row.platform), sortValue: row => row.account_alias },
+    { id: "account", header: t("perf.col.account"), cell: row => names.account(row.account_alias, row.platform), sortValue: row => row.account_alias },
     { id: "symbol", header: t("perf.col.symbol"), cell: row => row.symbol, sortValue: row => row.symbol },
     {
       id: "quantity",
@@ -101,7 +102,7 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
       cell: row => (row.status !== "ok" ? <StatusBadge status={row.status} reason={row.unavailable_reason} /> : null),
     },
   ];
-  const coverage = coverageNote(data);
+  const coverage = coverageNote(data, names.account);
   return (
     <div>
       <p className="card-note" style={{ marginTop: 0 }}>
@@ -111,7 +112,7 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
       <DataTable
         columns={columns}
         rows={data.rows}
-        rowKey={row => `${row.account_alias}|${row.symbol}`}
+        rowKey={row => `${row.platform}:${row.account_alias}|${row.symbol}`}
         defaultSort={{ column: "market_value", direction: "desc" }}
         caption={t("perf.holdings_title")}
       />
@@ -127,7 +128,7 @@ function RankingTab({ state }: { state: Api<HoldingsResponse> }) {
     const ranked = state.data.rows
       .filter(row => row.unrealized_pnl !== null && row.avg_cost !== null && row.quantity !== null && row.avg_cost * row.quantity > 0)
       .map(row => ({
-        id: `${row.account_alias}|${row.symbol}`,
+        id: `${row.platform}:${row.account_alias}|${row.symbol}`,
         label: row.symbol,
         pnl: row.unrealized_pnl!,
         value: (row.unrealized_pnl! / (row.avg_cost! * row.quantity!)) * 100,

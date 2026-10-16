@@ -1,5 +1,7 @@
 /** zh-CN product copy. Keys are dotted identifiers; pages may add fragment keys under i18n/pages/. */
 export const zhCN = {
+  "shell.switch_light": "切换浅色模式",
+  "shell.switch_dark": "切换深色模式",
   "shell.update_available": "新版已就绪，刷新后使用。",
   "shell.reload": "刷新页面",
   "app.name": "QuantStrategyLab",

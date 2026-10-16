@@ -1,4 +1,4 @@
-import { accountName } from "../../lib/displayNames";
+import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Category, DecisionHistoryItem, InboxItem } from "../../api/contracts";
@@ -215,6 +215,7 @@ function HistoryPanel({ epoch, category }: { epoch: number; category: CategoryFi
 
 export default function DecisionsPage() {
   const t = useT();
+  const names = useDisplayNames();
   const language = useLanguage();
   const navigate = useNavigate();
   const toast = useToast();
@@ -609,7 +610,7 @@ export default function DecisionsPage() {
           <h2 className="card-title" style={{ margin: 0 }}>{itemTitle(item, t)}</h2>
           <p className="decision-prompt">{t(`decisions.prompt.${item.category}`)}</p>
           <div className="decision-meta">
-            <span>{accountName(item.account_alias, item.platform) || t("decisions.account_global")}</span>
+            <span>{item.account_alias ? names.account(item.account_alias, item.platform) : t("decisions.account_global")}</span>
             {item.platform && <span>{item.platform}</span>}
             {item.created_at && (
               <span>{t("decisions.created_at", { value: formatDateTime(item.created_at, language).text })}</span>
@@ -685,7 +686,7 @@ export default function DecisionsPage() {
                         {item.category === "reconciliation_recovery" && (
                           <Badge tone="warn">{t("category.reconciliation_recovery")}</Badge>
                         )}
-                        <span>{accountName(item.account_alias, item.platform) || t("decisions.account_global")}</span>
+                        <span>{item.account_alias ? names.account(item.account_alias, item.platform) : t("decisions.account_global")}</span>
                         {fresh && <span>{fresh}</span>}
                       </span>
                     </span>
