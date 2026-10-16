@@ -47,6 +47,32 @@ function HealthValue({ strategy }: { strategy: Strategy }) {
   );
 }
 
+function AccountExecution({ accounts }: { accounts: Strategy["configured_accounts"] }) {
+  const t = useT();
+  const names = useDisplayNames();
+  if (accounts.length === 0) return null;
+  const hasLiveTarget = accounts.some(account => account.execution_mode === "live");
+  return (
+    <div className="strategy-execution">
+      <div className="strategy-execution-title">{t("strategies.account_execution")}</div>
+      {accounts.map(account => {
+        const live = account.execution_mode === "live" && account.live_status === "configured_live";
+        const key = live ? account.continuation_reason === "legacy_live_continuation" ? "legacy_live" : "live"
+          : account.execution_mode === "live" ? "live_unknown"
+          : account.execution_mode === "paper" || account.execution_mode === "dry_run" ? account.execution_mode : "unknown";
+        return (
+          <div className="strategy-execution-account" key={accountKey(account)}>
+            <span>{names.platform(account.platform)} · {names.account(account.account_alias, account.platform)}</span>
+            <Badge tone={account.execution_mode === "live" ? "warn" : "unknown"}>{t(`strategies.execution.${key}`)}</Badge>
+          </div>
+        );
+      })}
+      {hasLiveTarget && <p className="strategy-execution-note">{t("strategies.live_exposure")}</p>}
+      <p className="strategy-execution-note">{t("strategies.execution_source")}</p>
+    </div>
+  );
+}
+
 function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAsOf: string | null }) {
   const t = useT();
   const names = useDisplayNames();
@@ -57,7 +83,7 @@ function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAs
   return (
     <article className="card strategy-card">
       <div className="strategy-card-head">
-        <h3 className="strategy-card-title" title={strategy.profile}>{names.strategy(strategy.profile)}</h3>
+        <h3 className="strategy-card-title">{names.strategy(strategy.profile)}</h3>
         <StatusBadge status={strategy.health_status} />
       </div>
       <dl className="strategy-rows">
@@ -78,6 +104,7 @@ function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAs
           <dd><HealthValue strategy={strategy} /></dd>
         </div>
       </dl>
+      <AccountExecution accounts={strategy.configured_accounts} />
       {strategy.status !== "ok" && (
         <div className="strategy-card-foot">
           <StatusBadge status={strategy.status} reason={strategy.unavailable_reason} />
