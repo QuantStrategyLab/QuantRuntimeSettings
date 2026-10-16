@@ -150,6 +150,8 @@ export async function performanceResponse(request, env, deps) {
       if (!currencies.length) failed.push(option.key);
       const accountHistories = [];
       for (const currency of currencies) {
+        const member = { id: `${option.platform}:${option.key}:${currency}`, currency, points: [] };
+        accountHistories.push(member);
         const response = await deps.history(
           makeRequest("/api/account-facts/history", {
             platform: option.platform,
@@ -174,28 +176,20 @@ export async function performanceResponse(request, env, deps) {
           failed.push(option.key);
           continue;
         }
-        accountHistories.push({
-          id: `${option.platform}:${option.key}:${currency}`,
-          currency,
-          points: (body.series.points || []).flatMap((p) =>
-            p.currency !== currency || number(p.net_assets) === null
-              ? []
-              : [
-                  {
-                    date: p.observation_date,
-                    value: number(p.net_assets),
-                    externalFlow: null,
-                  },
-                ],
-          ),
-        });
+        member.points = (body.series.points || []).flatMap((p) =>
+          p.currency !== currency || number(p.net_assets) === null
+            ? []
+            : [
+                {
+                  date: p.observation_date,
+                  value: number(p.net_assets),
+                  externalFlow: null,
+                },
+              ],
+        );
       }
-      if (
-        accountHistories.length === currencies.length &&
-        accountHistories.every((h) => h.points.length)
-      )
-        histories.push(...accountHistories);
-      else failed.push(option.key);
+      histories.push(...accountHistories);
+      if (accountHistories.some((h) => !h.points.length)) failed.push(option.key);
     }
     let benchmarks = [],
       benchmarkFailed = false;
@@ -224,6 +218,7 @@ export async function performanceResponse(request, env, deps) {
     const blocks = performanceBlocks({
       now: Date.now(),
       freshnessThresholdHours: env.CONSOLE_ACCOUNT_FRESHNESS_HOURS,
+      historyMaxStalenessDays: env.CONSOLE_HISTORY_MAX_STALENESS_DAYS,
       accounts,
       histories,
       benchmarks,
@@ -237,6 +232,14 @@ export async function performanceResponse(request, env, deps) {
     if (["calendar", "summary", "returns", "assets"].includes(endpoint)) {
       block.coverage.truncated = truncated;
       block.coverage.read_failures = readFailures;
+      if (endpoint === "assets") {
+        for (const history of block.history_per_currency) {
+          history.coverage.truncated = truncated;
+          history.coverage.read_failures = readFailures;
+          if ((truncated || readFailures.length) && history.status === "ok") history.status = "partial";
+        }
+        if ((truncated || readFailures.length) && block.curve_status === "ok") block.curve_status = "partial";
+      }
       if (readFailures.length && block.status === "no_data") {
         block.status = "unavailable";
         block.unavailable_reason = "stored_records_unreadable";

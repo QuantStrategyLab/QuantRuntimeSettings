@@ -1283,19 +1283,7 @@
         "points": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "date": {
-                "type": "string"
-              },
-              "value": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "date",
-              "value"
-            ]
+            "$ref": "#/$defs/equity_history_point"
           }
         },
         "benchmarks": {
@@ -1425,19 +1413,7 @@
               "points": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "date": {
-                      "type": "string"
-                    },
-                    "value": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "date",
-                    "value"
-                  ]
+                  "$ref": "#/$defs/equity_history_point"
                 }
               },
               "benchmarks": {
@@ -1545,18 +1521,54 @@
         "points": {
           "type": "array",
           "items": {
+            "$ref": "#/$defs/equity_history_point"
+          }
+        },
+        "history_per_currency": {
+          "type": "array",
+          "items": {
             "type": "object",
             "properties": {
-              "date": {
+              "currency": {
                 "type": "string"
               },
-              "value": {
-                "type": "number"
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "coverage": {
+                "$ref": "#/$defs/equity_history_coverage"
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/equity_history_point"
+                }
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "stale",
+                  "no_data",
+                  "not_connected",
+                  "unavailable"
+                ]
+              },
+              "unavailable_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
-              "date",
-              "value"
+              "currency",
+              "as_of",
+              "coverage",
+              "points"
             ]
           }
         },
@@ -1698,6 +1710,32 @@
               }
             }
           }
+        },
+        "curve_status": {
+          "enum": [
+            "ok",
+            "partial",
+            "stale",
+            "no_data",
+            "not_connected",
+            "unavailable"
+          ]
+        },
+        "curve_unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "curve_coverage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/equity_history_coverage"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -2831,6 +2869,107 @@
         "unavailable_reason"
       ],
       "additionalProperties": false
+    },
+    "equity_history_point": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        },
+        "externalFlow": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "breakBefore": {
+          "type": "boolean"
+        },
+        "contributing_accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing_accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "forward_filled_accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "membership_changed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "date",
+        "value"
+      ]
+    },
+    "equity_history_coverage": {
+      "type": "object",
+      "properties": {
+        "omitted_dates": {
+          "type": "integer"
+        },
+        "missing_accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "excluded_accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_staleness_days": {
+          "type": "integer"
+        },
+        "partial_points": {
+          "type": "integer"
+        },
+        "missing_points": {
+          "type": "integer"
+        },
+        "forward_filled_points": {
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "read_failures": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "membership_changed": {
+          "type": "boolean"
+        },
+        "return_comparison": {
+          "enum": [
+            "within_contributing_cohort_only",
+            "fixed_contributing_cohort"
+          ]
+        },
+        "fx": {
+          "type": "string"
+        }
+      }
     }
   }
 }
