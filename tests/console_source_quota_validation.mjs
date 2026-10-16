@@ -26,3 +26,5 @@ assert.deepEqual(inbox.body.sources.slice(0, 3).map(source => source.failure_rea
   Array(3).fill("kv_list_daily_limit_exceeded"));
 assert.equal(inbox.body.items.length, 0);
 console.log("console_source_quota_validation: PASS");
+
+await import("./console_todo_state_validation.mjs");

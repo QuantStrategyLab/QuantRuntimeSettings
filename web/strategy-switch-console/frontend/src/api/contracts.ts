@@ -62,12 +62,17 @@ export interface InboxItem extends DecisionFields {
     review_binding?: unknown;
   } | null;
 }
+export type InboxErrorState = "quota_exhausted" | "unauthorized" | "index_missing"
+  | "index_incomplete" | "index_unavailable" | "unknown";
 export interface InboxResponse {
+  error_state?: InboxErrorState | null;
+  directory?: DirectoryStatus | null;
   status: "ok" | "partial" | "read_failed";
   sources: {
     source: string;
     status: "ok" | "stale" | "unavailable" | "read_failed";
-    failure_reason?: "kv_list_daily_limit_exceeded" | "kv_directory_uninitialized" | "kv_directory_unavailable" | "kv_directory_truncated" | "kv_directory_migration_pending" | "kv_directory_migration_failed" | "kv_directory_record_unavailable";
+    error_state?: InboxErrorState;
+    failure_reason?: "unauthorized" | "unknown" | "kv_list_daily_limit_exceeded" | "kv_directory_uninitialized" | "kv_directory_unavailable" | "kv_directory_truncated" | "kv_directory_migration_pending" | "kv_directory_migration_failed" | "kv_directory_record_unavailable";
   }[];
   items: InboxItem[];
   coverage: string;

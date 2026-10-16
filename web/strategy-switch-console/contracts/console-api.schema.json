@@ -35,7 +35,19 @@
                   "kv_directory_truncated",
                   "kv_directory_migration_pending",
                   "kv_directory_migration_failed",
-                  "kv_directory_record_unavailable"
+                  "kv_directory_record_unavailable",
+                  "unauthorized",
+                  "unknown"
+                ]
+              },
+              "error_state": {
+                "enum": [
+                  "quota_exhausted",
+                  "unauthorized",
+                  "index_missing",
+                  "index_incomplete",
+                  "index_unavailable",
+                  "unknown"
                 ]
               }
             },
@@ -201,6 +213,23 @@
         },
         "execution_authority_granted": {
           "const": false
+        },
+        "error_state": {
+          "enum": [
+            "quota_exhausted",
+            "unauthorized",
+            "index_missing",
+            "index_incomplete",
+            "index_unavailable",
+            "unknown",
+            null
+          ]
+        },
+        "directory": {
+          "type": [
+            "object",
+            "null"
+          ]
         }
       },
       "required": [
