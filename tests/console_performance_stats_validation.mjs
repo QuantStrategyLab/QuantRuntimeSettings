@@ -1,3 +1,4 @@
+import "./console_equity_history_validation.mjs";
 import assert from "node:assert/strict";
 import {
   businessDate,

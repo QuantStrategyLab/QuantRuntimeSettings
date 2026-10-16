@@ -7,6 +7,7 @@ import {
   sliceRange,
 } from "../../performance_math.js";
 import { accountFreshness, currencyTotals, currencyDrawdowns, returnUnavailableReason } from "./performance_snapshots.js";
+import { aggregateEquityHistory, equityHistoryCurve } from "./equity_history.js";
 const DAY = 86400000;
 const finite = (value) =>
   ["string", "number"].includes(typeof value) &&
@@ -236,6 +237,7 @@ export function performanceBlocks({
   failed = [],
   now = Date.now(),
   freshnessThresholdHours = 36,
+  historyMaxStalenessDays,
 }) {
   const freshness = accountFreshness(accounts, now, freshnessThresholdHours);
   const snapshotExcluded = [...new Set([
@@ -347,36 +349,42 @@ export function performanceBlocks({
       c.amount !== null ||
       (c.observed_amount !== undefined && c.observed_amount !== null),
   );
-  const byCurrency = mixed
-    ? currencies.map((currency) => {
-        const group = aggregateEquity(
-          histories
-            .filter((h) => h.currency === currency)
-            .map((h) => ({ id: h.id, points: h.points })),
-        );
-        const result = chainReturns(
-          sliceRange(group.points, range.toLowerCase(), today),
-        );
-        const alignedGroup = alignReturns(result.index, availableBenchmarks);
-        return {
-          currency,
-          as_of: result.index.at(-1)?.date || null,
-          coverage: { omitted_dates: group.omittedDates },
-          return_kind: result.unknownFlow ? "unadjusted_asset_ratio" : "twr",
-          status: !result.index.length
-            ? "no_data"
-            : result.unknownFlow
-              ? "partial"
-              : "ok",
-          unavailable_reason: result.unknownFlow
-            ? "external_cashflow_required"
-            : null,
-          aligned_start: alignedGroup.start || null,
-          points: alignedGroup.primary,
-          benchmarks: alignedGroup.benchmarks,
-        };
-      })
-    : [];
+  // Curves use bounded native-currency history. Summary/TWR metrics retain their fixed cohort.
+  const historyCurves = currencies.map(currency => {
+    const curve = equityHistoryCurve(
+      aggregateEquityHistory(histories, currency, { maxStalenessDays: historyMaxStalenessDays }),
+      { range, today, benchmarks: availableBenchmarks },
+    );
+    // Excluded accounts can have unknown currencies; retain that uncertainty separately.
+    curve.coverage.excluded_accounts = failed;
+    if (failed.length && curve.status === "ok") curve.status = "partial";
+    return curve;
+  });
+  const singleHistory = mixed ? null : historyCurves[0];
+  const byCurrency = mixed ? historyCurves.map(({ asset_points, ...curve }) => curve) : [];
+  const historyMeta = singleHistory ? {
+    status: singleHistory.status,
+    unavailable_reason: singleHistory.unavailable_reason,
+    as_of: singleHistory.as_of,
+    coverage: { ...coverage, ...singleHistory.coverage },
+    value_kind: singleHistory.return_kind === "twr" ? "pnl" : "asset_change",
+  } : {};
+  const assetHistories = historyCurves.map(curve => ({
+    currency: curve.currency,
+    as_of: curve.as_of,
+    coverage: curve.coverage,
+    status: !curve.asset_points.length ? "no_data"
+      : curve.status === "stale" ? "stale"
+        : failed.length || curve.asset_points.some(p => p.partial) ? "partial" : "ok",
+    unavailable_reason: !curve.asset_points.length ? "snapshot_history_missing" : null,
+    points: curve.asset_points,
+  }));
+  const singleAssetHistory = mixed ? null : assetHistories[0];
+  const assetHistoryMeta = singleAssetHistory ? {
+    ...singleAssetHistory,
+    coverage: { ...coverage, ...singleAssetHistory.coverage },
+    value_kind: "asset_change",
+  } : {};
   return {
     calendar: {
       ...meta,
@@ -438,12 +446,13 @@ export function performanceBlocks({
     },
     returns: {
       ...meta,
-      aligned_start: aligned.start || null,
-      return_kind: qualified ? "twr" : "unadjusted_asset_ratio",
-      points: aligned.primary,
-      benchmarks: aligned.benchmarks,
+      ...historyMeta,
+      aligned_start: singleHistory ? singleHistory.aligned_start : aligned.start || null,
+      return_kind: singleHistory ? singleHistory.return_kind : qualified ? "twr" : "unadjusted_asset_ratio",
+      points: singleHistory ? singleHistory.points : aligned.primary,
+      benchmarks: singleHistory ? singleHistory.benchmarks : aligned.benchmarks,
       per_currency: byCurrency,
-      no_common_date: aligned.noCommonDate,
+      no_common_date: singleHistory ? singleHistory.no_common_date : aligned.noCommonDate,
       benchmark_availability: availableBenchmarks.map((b) => ({
         id: b.id,
         status:
@@ -461,14 +470,18 @@ export function performanceBlocks({
       })),
     },
     assets: {
-      ...meta, points, per_currency: totals,
+      ...meta,
+      ...assetHistoryMeta,
+      points: singleHistory ? singleHistory.asset_points : points,
+      history_per_currency: assetHistories,
+      per_currency: totals,
       currency: totals.length > 1 ? null : meta.currency,
       status: !totals.some((t) => t.total !== null) ? "no_data"
         : totals.some((t) => t.status !== "ok") ? "partial" : "ok",
       unavailable_reason: !totals.some((t) => t.total !== null) ? "no_snapshot"
         : totals.length > 1 ? "mixed_currency" : totals.find((t) => t.unavailable_reason)?.unavailable_reason || null,
-      curve_status: meta.status,
-      curve_unavailable_reason: meta.unavailable_reason,
+      curve_status: singleAssetHistory ? singleAssetHistory.status : meta.status,
+      curve_unavailable_reason: singleAssetHistory ? singleAssetHistory.unavailable_reason : meta.unavailable_reason,
     },
     holdings: {
       status: accounts.some((a) => a.positions?.length) ? "partial" : "no_data",

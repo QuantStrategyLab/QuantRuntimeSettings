@@ -1283,19 +1283,7 @@
         "points": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "date": {
-                "type": "string"
-              },
-              "value": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "date",
-              "value"
-            ]
+            "$ref": "#/$defs/equity_history_point"
           }
         },
         "benchmarks": {
@@ -1425,19 +1413,7 @@
               "points": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "date": {
-                      "type": "string"
-                    },
-                    "value": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "date",
-                    "value"
-                  ]
+                  "$ref": "#/$defs/equity_history_point"
                 }
               },
               "benchmarks": {
@@ -1545,18 +1521,38 @@
         "points": {
           "type": "array",
           "items": {
+            "$ref": "#/$defs/equity_history_point"
+          }
+        },
+        "history_per_currency": {
+          "type": "array",
+          "items": {
             "type": "object",
             "properties": {
-              "date": {
+              "currency": {
                 "type": "string"
               },
-              "value": {
-                "type": "number"
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "coverage": {
+                "type": "object"
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/equity_history_point"
+                }
               }
             },
             "required": [
-              "date",
-              "value"
+              "currency",
+              "as_of",
+              "coverage",
+              "points"
             ]
           }
         },
@@ -2627,6 +2623,54 @@
         "unavailable_reason"
       ],
       "additionalProperties": false
+    },
+    "equity_history_point": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        },
+        "externalFlow": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "breakBefore": {
+          "type": "boolean"
+        },
+        "contributing_accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing_accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "forward_filled_accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "membership_changed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "date",
+        "value"
+      ]
     }
   }
 }
