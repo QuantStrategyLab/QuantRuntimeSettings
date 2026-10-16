@@ -761,6 +761,10 @@ export default {
         const headers = responseHeaders({ "Content-Type": "text/html; charset=utf-8", "X-Console-Build": V2_BUILD_ID, "Cache-Control": "no-store" });
         return new Response(request.method === "HEAD" ? null : V2_PAGE_HTML, { status: 200, headers });
       }
+      if (["/v2", "/v2/", "/v2/index.html"].includes(url.pathname)) {
+        if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "method_not_allowed" }, 405);
+        return new Response(null, { status: 302, headers: responseHeaders({ Location: `/${url.search}`, "Cache-Control": "no-store" }) });
+      }
       if (url.pathname === "/v2" || url.pathname.startsWith("/v2/")) {
         const buildHeaders = values => responseHeaders({ ...values, "X-Console-Build": V2_BUILD_ID });
         if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "method_not_allowed" }, 405);

@@ -314,6 +314,16 @@ production session or real account data are used.
 
 ### Candidate routing and list quota
 
+The Kimi console is the default at `/` for every session. Page navigation uses
+`?page=overview|performance|decisions|accounts|strategies|health`; old `/v2`,
+`/v2/` and `/v2/index.html` links redirect to `/` with their query preserved.
+There is no cookie or feature flag selecting the old interface. HTML is served
+with `Cache-Control: no-store`; content-hashed assets are immutable. An already
+open tab keeps its loaded application until refreshed. The new shell checks its
+build on return to a visible tab using a static HEAD request, at most once per
+minute and without an interval. When an update is available, its refresh button
+uses the existing unsaved-edit guard. API contracts and permissions are unchanged.
+
 `include_history=false` on `/api/runtime-daily` skips directory discovery and returns
 `history: null`. It still reads and validates the selected stored record, account
 binding, date and all source evidence. Default reads retain the existing coverage.

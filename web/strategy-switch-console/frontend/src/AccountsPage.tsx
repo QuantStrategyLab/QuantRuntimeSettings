@@ -347,7 +347,7 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
       onResume();
       return;
     }
-    window.alert(t("启用请求未改变生产运行配置。请用 Manual Strategy Switch / 平台既有启用流程完成实际启用。"));
+    window.alert(t("启用请求未改变生产运行配置。请用 Manual Strategy Switch / 平台既有启用操作完成实际启用。"));
   };
   const submitProfileApprove = () => {
     if (!profileApproveEligible || !settings) return;
@@ -466,9 +466,9 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
           <button type="button" className="button button-primary" disabled={!canSaveCash || !cashSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("cash", cashSubmittable)}>{t("保存预留草案")}</button>
           {cashDirty && !view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.revertCash(); sync(); }}>{t("取消")}</button>}
           {view.review.draft && cashDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertCash(); sync(); }}>{t("取消")}</button>}
-          {view.review.draft && <button type="button" className="button button-secondary" onClick={() => { if (!controller.acknowledgeReview("draft")) setReadAttempt(value => value + 1); sync(); }}>{t("重新核对")}</button>}
+          {view.review.draft && <button type="button" className="button button-secondary" onClick={() => { if (!controller.acknowledgeReview("draft")) setReadAttempt(value => value + 1); sync(); }}>{t("重新查看")}</button>}
         </div>
-        {view.review.draft && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或核对后再保存。")}</p>}
+        {view.review.draft && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或查看后再保存。")}</p>}
         {cashNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
       </section>
       <section className="detail-group">
@@ -494,9 +494,9 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
           <button type="button" className="button button-primary" disabled={!canSaveCash || !incomeSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("income", incomeSubmittable)}>{t("保存收入层草案")}</button>
           {incomeDirty && !view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.edit({ income: savedIncome, incomeTouched: false }); sync(); }}>{t("取消")}</button>}
           {view.review.draft && incomeDirty && <button type="button" className="button button-secondary" onClick={() => { controller.edit({ income: savedIncome, incomeTouched: false }); sync(); }}>{t("取消")}</button>}
-          {view.review.draft && incomeDirty && <button type="button" className="button button-secondary" onClick={() => { if (!controller.acknowledgeReview("draft")) setReadAttempt(value => value + 1); sync(); }}>{t("重新核对")}</button>}
+          {view.review.draft && incomeDirty && <button type="button" className="button button-secondary" onClick={() => { if (!controller.acknowledgeReview("draft")) setReadAttempt(value => value + 1); sync(); }}>{t("重新查看")}</button>}
         </div>
-        {view.review.draft && incomeDirty && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或核对后再保存。")}</p>}
+        {view.review.draft && incomeDirty && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或查看后再保存。")}</p>}
         {incomeNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
         <label className="cash-floor-field">{t("期权层草案")}
           <select value={optionValue} disabled={!canSaveCash} onChange={event => {
@@ -512,7 +512,7 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
             <option value="false" disabled={!boundSupports}>{t("关闭")}</option>
           </select>
         </label>
-        {!boundSupports && <p className="section-note">{t(strategyPending ? "请先保存策略草案，再核对期权层支持。" : (settings?.operations?.save_option_draft_reason === "option_overlay_not_defined" || settings?.operations?.save_option_draft_reason === "admin_required" ? accountSettingsOperationReason(settings?.operations?.save_option_draft_reason) : "这项操作暂不可用。"))}</p>}
+        {!boundSupports && <p className="section-note">{t(strategyPending ? "请先保存策略草案，再查看期权层支持。" : (settings?.operations?.save_option_draft_reason === "option_overlay_not_defined" || settings?.operations?.save_option_draft_reason === "admin_required" ? accountSettingsOperationReason(settings?.operations?.save_option_draft_reason) : "这项操作暂不可用。"))}</p>}
         <div className="form-actions">
           <button type="button" className="button button-primary" disabled={!canSaveCash || !optionSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("option", optionSubmittable)}>{t("保存期权层草案")}</button>
           {optionDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertOption(); sync(); }}>{t("取消")}</button>}

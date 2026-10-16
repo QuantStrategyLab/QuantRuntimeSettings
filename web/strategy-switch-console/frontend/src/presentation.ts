@@ -1072,7 +1072,7 @@ export function overviewRuntimeHealth(
   identityMismatch = false,
   now = Date.now(),
 ): { label: "健康" | "异常"; detail: string; observedAt: string | null; nextDueAt: string | null; lastSuccessAt: string | null } {
-  const result = { label: "异常" as "健康" | "异常", detail: "运行证据未取得", observedAt: runtime?.observed_at || null, nextDueAt: null as string | null, lastSuccessAt: null as string | null };
+  const result = { label: "异常" as "健康" | "异常", detail: "暂无运行数据", observedAt: runtime?.observed_at || null, nextDueAt: null as string | null, lastSuccessAt: null as string | null };
   const fail = (detail: string) => ({ ...result, label: "异常" as const, detail });
   // Former 健康未知 / 待确认: missing or stale evidence is shown as 异常.
   const unknown = (detail: string) => ({ ...result, label: "异常" as const, detail });
@@ -1080,13 +1080,13 @@ export function overviewRuntimeHealth(
   // Cycle gaps stay visible in detail but do not flip lifecycle monitoring by themselves.
   const dailyIssue = (detail: string) => ({ ...result, label: "健康" as const, detail });
   if (identityMismatch) return fail("账户身份不匹配");
-  if (!runtime) return unknown("运行证据未取得");
+  if (!runtime) return unknown("暂无运行数据");
   const activation = runtime.account_state?.activation;
   const observed = validBinanceScopeInstant(runtime.observed_at) ? Date.parse(runtime.observed_at) : NaN;
   const ttl = runtime.evidence_valid_for_seconds;
-  if (!Number.isFinite(observed) || typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0) return unknown("运行证据时间未取得");
-  if (observed > now) return unknown("运行证据时间异常");
-  if (runtime.freshness?.data_status !== "ready" || now - observed > ttl * 1000) return unknown("运行证据已过期");
+  if (!Number.isFinite(observed) || typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0) return unknown("运行数据缺少时间");
+  if (observed > now) return unknown("运行数据时间异常");
+  if (runtime.freshness?.data_status !== "ready" || now - observed > ttl * 1000) return unknown("运行数据已过期");
   const deployment = runtime.target.deployment;
   if (runtime.account_state?.health === "abnormal") {
     const monitoring = runtime.target?.monitoring;
@@ -1102,8 +1102,8 @@ export function overviewRuntimeHealth(
     return fail(state.detail === "暂未取得状态" ? "账户运行异常" : state.detail);
   }
   const deployedAt = validBinanceScopeInstant(deployment?.observed_at) ? Date.parse(deployment.observed_at) : NaN;
-  if (!Number.isFinite(deployedAt) || deployedAt > now) return unknown("启用证据时间未确认");
-  if (runtime.deployment_freshness?.data_status !== "ready" || now - deployedAt > ttl * 1000) return unknown("启用证据已过期");
+  if (!Number.isFinite(deployedAt) || deployedAt > now) return unknown("启用时间待确认");
+  if (runtime.deployment_freshness?.data_status !== "ready" || now - deployedAt > ttl * 1000) return unknown("启用状态已过期");
   if (activation !== "enabled" && activation !== "disabled") return unknown("启用状态未确认");
   const configuredState = runtime.target.target?.configured_state;
   const monitoring = runtime.target.monitoring;
@@ -1355,8 +1355,8 @@ const FROZEN_RESEARCH_NAMES: Record<string, { zh: string; en: string; version: s
     zh: "TQQQ 基准回撤防护", en: "TQQQ Benchmark Drawdown Guard", version: "V9",
     configHash: "c2c3d7ce1333f8f1675f40cd4c45ffa89d83f0dcf99b2a475840d0f87ab64dce",
     sourceRevision: "fe5c0377faa11b0010243e3ef32f8b7256d63992", runtimeRevision: null,
-    noteZh: "独立冻结的 QQQ 基准回撤防护研究候选；不能继承 V5 证据或交易权限。",
-    noteEn: "Separate frozen QQQ benchmark drawdown-guard research candidate. V5 evidence and trading authority do not transfer.",
+    noteZh: "独立冻结的 QQQ 基准回撤防护研究候选；不能继承 V5 资料或交易权限。",
+    noteEn: "Separate frozen QQQ benchmark drawdown-guard research candidate. It has separate research results and no trading permission.",
   },
 };
 function frozenResearchIdentity(candidateId: unknown) {
@@ -1449,7 +1449,7 @@ export function safeActionVisibility(input: { settingsUnavailable: boolean; acti
 export function accountSettingsOperationReason(reason: unknown): string {
   if (reason === "admin_required") return "当前登录不能保存这项设置。";
   if (reason === "option_overlay_not_defined") return "该策略尚未定义期权层。";
-  if (reason === "strategy_application_not_connected") return "策略应用与账户启用流程尚未接通。";
+  if (reason === "strategy_application_not_connected") return "策略应用与账户启用操作尚未接通。";
   return "这项操作暂不可用。";
 }
 
@@ -1724,7 +1724,7 @@ const OVERVIEW_SUPPRESSED_STATUS_DETAILS = new Set([
   "部署状态读回已过期",
   "运行启用状态尚未确认",
   "尚未到检查时间",
-  "现有证据不足以确认运行状态",
+  "运行状态待确认",
   "暂未取得状态",
   "运行监测正常，已启用。",
   "运行监测正常，已停用。",
@@ -1898,18 +1898,18 @@ function profileName(profiles: any[], id: unknown, language: "zh" | "en"): strin
 export function promotionMaterialNotes(summary: Record<string, any> | null | undefined): string[] {
   const comparison = summary?.comparison;
   const comparisonNote = comparison == null
-    ? "未提供比较材料，无法核对方案差异。"
+    ? "未提供比较材料，无法查看方案差异。"
     : comparison?.status === "comparable"
       ? "比较材料已提供，详情见方案。"
       : comparison?.status === "unavailable"
-        ? "比较结果暂不可用，无法核对方案差异。"
+        ? "比较结果暂不可用，无法查看方案差异。"
         : "比较材料状态未确认。";
   const limitations = summary?.limitations;
   const limitationsNote = !Array.isArray(limitations) || limitations.some(item => typeof item !== "string")
-    ? "未提供限制材料，请先核对原始方案。"
+    ? "未提供限制材料，请先查看原始方案。"
     : limitations.some(item => item.trim())
       ? "限制材料已提供，详情见方案。"
-      : "材料未列出限制条件，请先核对原始方案。";
+      : "材料未列出限制条件，请先查看原始方案。";
   return [comparisonNote, limitationsNote];
 }
 
@@ -2058,16 +2058,16 @@ export function listDailyDecisions(input: {
       items.push({
         id: `recovery:${recovery.recovery_id}`,
         kind: "recovery",
-        title: "恢复核对",
-        kicker: "恢复核对",
-        question: "是否确认这份恢复核对？",
+        title: "恢复确认",
+        kicker: "恢复确认",
+        question: "是否确认这份恢复方案？",
         accountLine: "",
         currentName: "待确认材料",
         proposedName: "确认材料",
         explanationKind: "system",
         explanation: null,
         reasons: [],
-        impact: "确认后只留下核对记录，账户不会因此重新启用。",
+        impact: "确认后只保存确认结果，账户不会因此重新启用。",
         technical: JSON.stringify({ recovery_id: recovery.recovery_id, platform: recovery.platform ?? null, candidate_sha256: recovery.candidate_sha256 ?? null, dual_review_binding_sha256: recovery.dual_review?.evidence_binding_sha256 ?? null }, null, 2),
         reference: recovery.recovery_id,
         materialNotes: [],

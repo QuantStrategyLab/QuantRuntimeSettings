@@ -14,12 +14,11 @@ export function StrategyIdentity({ value }: { value: StrategyIdentityView | null
     ["候选版本", value.candidateVersion], ["研究 study", value.studyId],
     ["来源 revision（资料字段）", value.sourceRevision], ["配置摘要（资料字段）", value.configHash],
     ["研究角色（资料字段）", value.role ? t(ROLE_LABELS[value.role]) : null],
-    ["运行通道（资料字段）", value.lane ? t(LANE_LABELS[value.lane]) : null], ["证据时间", value.evidenceAt],
+    ["运行通道（资料字段）", value.lane ? t(LANE_LABELS[value.lane]) : null], ["资料时间", value.evidenceAt],
   ];
   return <details className="decision-fold strategy-identity">
     <summary>{t("策略身份与版本")}</summary>
     <dl>{rows.map(([label, content]) => <div key={label}><dt>{t(label)}</dt><dd style={{ overflowWrap: "anywhere" }}>{content || t("未知")}</dd></div>)}</dl>
-    <p className="section-note">{t("名称、目录可选通道与已保存配置不证明实际采用或运行状态。")}</p>
     {value.frozenResearch && <section>
       <h4>{t("冻结研究版本")}</h4>
       <p>{language === "en" ? value.frozenResearch.noteEn : value.frozenResearch.noteZh}</p>
@@ -28,7 +27,6 @@ export function StrategyIdentity({ value }: { value: StrategyIdentityView | null
         <dt>{t("冻结 QPK revision")}</dt><dd style={{ overflowWrap: "anywhere" }}>{value.frozenResearch.runtimeRevision || t("未知")}</dd>
         <dt>{t("冻结配置摘要")}</dt><dd style={{ overflowWrap: "anywhere" }}>{value.frozenResearch.configHash}</dd>
       </dl>
-      <p className="section-note">{t("冻结研究索引不证明实际部署、采用或运行状态。")}</p>
     </section>}
   </details>;
 }

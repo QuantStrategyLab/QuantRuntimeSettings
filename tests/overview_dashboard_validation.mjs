@@ -157,7 +157,7 @@ for (const [name, mutate] of [
   const r = clone(runtime); mutate(r); assert.equal(health(r).label, "异常", name);
 }
 assert.equal(health(null).label, "异常");
-assert.equal(health(null).detail, "运行证据未取得");
+assert.equal(health(null).detail, "暂无运行数据");
 assert.equal(health(runtime, null).label, "健康", "a missing cycle does not change lifecycle monitoring health");
 assert.equal(health(runtime, null).detail, "周期记录未取得", "a missing cycle remains explicit and is never counted as success");
 assert.equal(health(runtime, daily, selection, true).detail, "账户身份不匹配");
@@ -200,7 +200,7 @@ staleAttentionSource.observed_at = instant(-301);
 staleAttentionSource.deployment_freshness.data_status = "stale";
 assert.equal(health(staleAttentionSource, null, binance).label, "异常",
   "an expired lifecycle snapshot cannot be presented as a fresh monitoring failure");
-assert.equal(health(staleAttentionSource, null, binance).detail, "运行证据已过期",
+assert.equal(health(staleAttentionSource, null, binance).detail, "运行数据已过期",
   "an expired lifecycle snapshot cannot be presented as a fresh monitoring failure");
 const heartbeatAttention = clone(abnormalUnknownActivation);
 heartbeatAttention.target.monitoring.runtime_guard = "pass";

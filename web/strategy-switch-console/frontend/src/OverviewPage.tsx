@@ -654,10 +654,10 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
               <div><dt>{t("定时触发")}</dt><dd>{t(deployment.scheduler)}</dd></div>
               <div><dt>{t("运行开关")}</dt><dd>{t(deployment.runtimeSwitch)}</dd></div>
               <div><dt>{t("开关观察时间")}</dt><dd>{formatInstant(deployment.observedAt) || t("未取得")}</dd></div>
-              <div><dt>{t("证据观察时间")}</dt><dd>{formatInstant(health.observedAt) || t("未取得")}</dd></div>
+              <div><dt>{t("资料观察时间")}</dt><dd>{formatInstant(health.observedAt) || t("未取得")}</dd></div>
               <div><dt>{t("下次运行时间")}</dt><dd>{formatInstant(health.nextDueAt) || t("未取得")}</dd></div>
               <div><dt>{t("最近完整周期")}</dt><dd>{formatInstant(health.lastSuccessAt) || t("未取得")}</dd></div>
-            </dl><small>{t("定时触发、运行开关和周期结果分别核对；启用不代表已下单。")}</small></details>
+            </dl></details>
             {walletCardValuation ? <BinanceWalletDetails
               summary={t("钱包数据详情")}
               scope={t("按 Binance 返回的钱包范围")}

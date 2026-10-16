@@ -146,6 +146,7 @@ jobs:
           node tests/research_promotion_application_extract_validation.mjs
           node --experimental-strip-types tests/research_summary_worker_validation.mjs
           node tests/console_v2_worker_validation.mjs
+          node --experimental-strip-types tests/console_update_notice_validation.mjs
           node --experimental-default-type=module tests/runtime_instances_worker_validation.mjs
           node --experimental-default-type=module tests/account_diagnosis_worker_validation.mjs
           node --experimental-strip-types tests/account_diagnosis_targets_validation.mjs

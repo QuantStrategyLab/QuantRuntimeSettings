@@ -402,7 +402,7 @@ export function buildHomeAttention(input: {
       const owner = identity ? ownedCandidates.get(identity) : null;
       if (!identity || (owner && (!candidate.candidate_evidence_sha256 || !owner.digest || candidate.candidate_evidence_sha256 === owner.digest))) continue;
       // Control-plane items are review-only: the owner queue carries the current confirmation digest.
-      operations.push({ identity: `candidate-review:${identity}`, kind: "candidate_review", title: "所有者决定资料需核对", detail: String(candidate.candidate_id), source: "control", target: "strategy", targetId: String(candidate.candidate_id) });
+      operations.push({ identity: `candidate-review:${identity}`, kind: "candidate_review", title: "候选方案待查看", detail: String(candidate.candidate_id), source: "control", target: "strategy", targetId: String(candidate.candidate_id) });
     }
   }
 
@@ -410,7 +410,7 @@ export function buildHomeAttention(input: {
     for (const ticket of input.promotions.value.tickets || []) {
       if (!ticket?.ticket_id || !["awaiting_human", "ready_for_review"].includes(ticket.state)) continue;
       if (ticket.source_check_required || ticket.state !== "awaiting_human") {
-        operations.push({ identity: `promotion-source:${ticket.ticket_id}`, kind: "promotion_source", title: "候选来源需核对", detail: String(ticket.ticket_id), source: "promotions", target: "strategy", targetId: String(ticket.ticket_id) });
+        operations.push({ identity: `promotion-source:${ticket.ticket_id}`, kind: "promotion_source", title: "候选来源需查看", detail: String(ticket.ticket_id), source: "promotions", target: "strategy", targetId: String(ticket.ticket_id) });
       } else {
         decisions.push({ identity: `promotion:${ticket.ticket_id}`, kind: "promotion", title: "新策略方案待选择", detail: String(ticket.ticket_id), source: "promotions", target: "strategy", targetId: String(ticket.ticket_id) });
       }
@@ -422,7 +422,7 @@ export function buildHomeAttention(input: {
       const recovery = entry?.recovery;
       if (!recovery?.recovery_id) continue;
       if (entry.freshness?.data_status !== "ready") {
-        operations.push({ identity: `recovery-review:${recovery.recovery_id}:${recovery.candidate_sha256 || "unknown"}`, kind: "recovery_blocked", title: "恢复资料需重新核对", detail: `${recovery.platform || ""} ${recovery.target_name || recovery.recovery_id}`.trim(), source: "recovery", target: "strategy", targetId: String(recovery.recovery_id) });
+        operations.push({ identity: `recovery-review:${recovery.recovery_id}:${recovery.candidate_sha256 || "unknown"}`, kind: "recovery_blocked", title: "恢复资料需重新查看", detail: `${recovery.platform || ""} ${recovery.target_name || recovery.recovery_id}`.trim(), source: "recovery", target: "strategy", targetId: String(recovery.recovery_id) });
         continue;
       }
       if (recovery.readiness === "awaiting_human_confirmation" && !entry.confirmation) {
@@ -436,7 +436,7 @@ export function buildHomeAttention(input: {
   if (readySource(input.runtime)) {
     for (const account of input.accounts || []) {
       if (!["attention", "unknown"].includes(account.tone)) continue;
-      operations.push({ identity: `account:${account.id}`, kind: "account", title: account.tone === "attention" ? "账户需要核对" : "账户状态未核实", detail: account.title, source: "runtime", target: "accounts", targetId: account.id });
+      operations.push({ identity: `account:${account.id}`, kind: "account", title: account.tone === "attention" ? "账户需要关注" : "账户状态未核实", detail: account.title, source: "runtime", target: "accounts", targetId: account.id });
     }
   }
   return { decisions, operations, sourceWarnings };
@@ -458,10 +458,10 @@ export function diagnosisStatusKey(task: Record<string, any> | null | undefined)
 
 export function diagnosisConclusionKey(task: Record<string, any> | null | undefined): string {
   if (!task) return "尚无运行诊断记录";
-  if (task.status === "unknown" || task.dispatch_state === "unknown") return "派发结果需人工核对，暂不重复请求。";
+  if (task.status === "unknown" || task.dispatch_state === "unknown") return "请求结果待确认，请勿重复提交。";
   if (task.status === "succeeded" && task.reason_code === "diagnosis_ready") return "只读诊断已完成，请查看账户运行资料与监测复核结论。";
   if (task.status === "failed" && ["capacity_unavailable", "codex_unavailable"].includes(String(task.reason_code || ""))) return "诊断服务暂不可用；账户运行资料未被更改。";
-  if (task.status === "failed" && task.reason_code === "invalid_response") return "诊断结果未通过校验，需要人工核对账户运行资料。";
+  if (task.status === "failed" && task.reason_code === "invalid_response") return "诊断结果未通过校验，需要人工查看账户运行资料。";
   return diagnosisStatusKey(task);
 }
 
@@ -475,7 +475,7 @@ const ACCOUNT_STATE_DETAILS: Record<string, string> = {
   deployment_not_fresh: "部署状态读回已过期",
   activation_unconfirmed: "运行启用状态尚未确认",
   check_not_due: "尚未到检查时间",
-  evidence_insufficient: "现有证据不足以确认运行状态",
+  evidence_insufficient: "运行状态待确认",
 };
 
 export function presentAccountState(projection: AccountStateProjection | null | undefined, sourceFreshness?: string | null): {
@@ -575,7 +575,7 @@ export function diagnosisUserSummary(input: {
     return { status: "暂时无法检查", reason: "本次检查未完成，可以重新检查。", action: "check" };
   }
   if (task.status === "succeeded" && task.recheck_status === "attention") {
-    return { status: "需要你处理", reason: "监测复核发现需要关注，请查看账户状态并按既有流程处理。", action: "check" };
+    return { status: "需要你处理", reason: "监测复核发现需要关注，请查看账户状态并按既有操作处理。", action: "check" };
   }
   if (task.status === "succeeded" && task.recheck_status === "unavailable") {
     return { status: "暂时无法检查", reason: "监测复核资料暂不可用；刷新状态后再决定。", action: "refresh" };
@@ -620,16 +620,16 @@ export function promotionSuggestion(ticket: Record<string, any> | null | undefin
 }
 
 export function diagnosisNextStepKey(task: Record<string, any> | null | undefined): string {
-  if (!task) return "完成只读诊断后，会在此显示结论和后续核对步骤。";
+  if (!task) return "诊断完成后显示结果和建议。";
   if (["queued", "running"].includes(String(task.status || ""))) return "等待诊断与只读复核完成；请勿重复提交。";
-  if (task.status === "unknown") return "派发结果需人工核对，暂不重复请求。";
-  if (task.status === "failed") return "诊断未完成。核对账户运行资料后，再按需重新请求。";
+  if (task.status === "unknown") return "请求结果待确认，请勿重复提交。";
+  if (task.status === "failed") return "诊断未完成。查看账户运行资料后，再按需重新请求。";
   if (task.status === "succeeded" && task.recheck_status === "passed") return "只读复核已完成；查看账户运行资料。此结果不代表已修复。";
-  if (task.status === "succeeded" && task.recheck_status === "attention") return "复核发现需要关注；请检查账户运行资料并按既有流程处理。";
+  if (task.status === "succeeded" && task.recheck_status === "attention") return "诊断发现异常，请查看账户运行数据。";
   if (task.status === "succeeded" && task.recheck_status === "unavailable") return "复核资料暂不可用；刷新账户运行状态后再决定。";
   if (task.status === "succeeded" && task.recheck_status === "sent") return "只读复核仍在处理；等待状态读回后再操作。";
   if (task.status === "succeeded") return "复核状态未确认；刷新资料后再决定是否继续。";
-  return "刷新账户运行资料，核对最新状态后再决定。";
+  return "刷新账户运行资料，查看最新状态后再决定。";
 }
 
 export function pageFromWorkspace(value: string | null): "overview" | "strategy" | "accounts" {

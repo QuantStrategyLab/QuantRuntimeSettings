@@ -211,7 +211,7 @@ try {
   assert.equal(decisionApp.current.humanDecisions.current.entries()[0].status, "unresolved");
   assert.equal(decisionApp.current.humanDecisions.current.entries()[0].receipt.decided_at, receipt.decided_at);
   assert.equal(decisionApp.current.errorMessage.key, "决定已记录：{time}。{detail}");
-  assert.equal(decisionApp.current.errorMessage.values.detail.key, "最新资料未确认；请刷新核对，避免重复提交。");
+  assert.equal(decisionApp.current.errorMessage.values.detail.key, "最新资料未确认；请刷新查看，避免重复提交。");
   await decisionApp.current.recordHumanDecision("owner", owner, { ...body, decision: "approve_limited_live_canary" }, "/api/owner-decisions", "owner:synthetic-history");
   assert.equal(postCount, 1, "unresolved original material blocks a new/conflicting POST");
   failQueue = false;

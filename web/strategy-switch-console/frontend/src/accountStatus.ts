@@ -68,9 +68,9 @@ export function presentActivation(evidence: Evidence<"enabled" | "disabled">): P
     return { label: "异常", tone: "bad", detail: evidence.detail || "启用状态冲突" };
   }
   if (evidence.status === "stale") {
-    return { label: "异常", tone: "bad", detail: evidence.detail || "启用证据已过期" };
+    return { label: "异常", tone: "bad", detail: evidence.detail || "启用状态已过期" };
   }
-  return { label: "异常", tone: "bad", detail: evidence.detail || "启用证据未取得" };
+  return { label: "异常", tone: "bad", detail: evidence.detail || "启用资料未取得" };
 }
 
 /**
@@ -88,9 +88,9 @@ export function presentHealth(evidence: Evidence<"healthy" | "abnormal">): Prese
     return { label: "异常", tone: "bad", detail: evidence.detail || "健康状态冲突" };
   }
   if (evidence.status === "stale") {
-    return { label: "异常", tone: "bad", detail: evidence.detail || "健康证据已过期" };
+    return { label: "异常", tone: "bad", detail: evidence.detail || "健康资料已过期" };
   }
-  return { label: "异常", tone: "bad", detail: evidence.detail || "健康证据未取得" };
+  return { label: "异常", tone: "bad", detail: evidence.detail || "健康资料未取得" };
 }
 
 /**
@@ -103,7 +103,7 @@ export function activationEvidenceFromLegacyLabel(
   if (label === "已启用") return evidenceFresh("enabled", "legacy-activation", "运行读回为已启用");
   if (label === "已停用") return evidenceFresh("disabled", "legacy-activation", "运行读回为已停用");
   if (label === "启用未知" || label === "待确认" || label === "—" || !label) {
-    return evidenceMissing("legacy-activation", "启用证据未取得");
+    return evidenceMissing("legacy-activation", "启用资料未取得");
   }
   return evidenceConflict("legacy-activation", "启用状态冲突");
 }
@@ -118,5 +118,5 @@ export function healthEvidenceFromLegacyLabel(
   if (label === "异常") {
     return evidenceFresh("abnormal", "legacy-health", detail || "监测异常");
   }
-  return evidenceMissing("legacy-health", detail || "健康证据未取得");
+  return evidenceMissing("legacy-health", detail || "健康资料未取得");
 }

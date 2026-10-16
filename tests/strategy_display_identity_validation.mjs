@@ -127,7 +127,7 @@ const body = controller.requestBody(controller.startSave("strategy"));
 assert.equal(body.overrides.strategy_profile, v7.profile, "submitted strategy ID never becomes a label");
 assert.equal(body.expected_draft_revision, 2);
 
-for (const key of ["策略身份与版本", "身份来源", "策略目录", "研究票据", "候选材料", "应用记录", "候选版本", "研究 study", "来源 revision（资料字段）", "配置摘要（资料字段）", "研究角色（资料字段）", "运行通道（资料字段）", "证据时间", "冻结研究版本", "冻结研究索引不证明实际部署、采用或运行状态。", "未知"]) assert.notEqual(translate(key, "en"), key);
+for (const key of ["策略身份与版本", "身份来源", "策略目录", "研究票据", "候选材料", "应用记录", "候选版本", "研究 study", "来源 revision（资料字段）", "配置摘要（资料字段）", "研究角色（资料字段）", "运行通道（资料字段）", "资料时间", "冻结研究版本", "冻结研究索引不证明实际部署、采用或运行状态。", "未知"]) assert.notEqual(translate(key, "en"), key);
 const accounts = readFileSync(new URL("../web/strategy-switch-console/frontend/src/AccountsPage.tsx", import.meta.url), "utf8");
 const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
 const decisionsPage = readFileSync(new URL("../web/strategy-switch-console/frontend/src/DecisionsPage.tsx", import.meta.url), "utf8");
@@ -165,7 +165,7 @@ try {
     assert.equal(html.includes("Information unavailable"), false, "every rendered detail label has English copy");
     assert.equal(html.includes("<details open"), false, "long identity metadata is collapsed initially");
     assert.match(html, /843ab4e93e81985c2b3becc61a2f0b971508ccf25afa59acf402e75f574514d1/);
-    assert.equal(html.includes(translate("冻结研究索引不证明实际部署、采用或运行状态。", language)), true);
+    assert.equal(html.includes(translate("冻结研究索引不证明实际部署、采用或运行状态。", language)), false, "internal process footnotes are removed while identity fields remain");
     assert.equal(html.includes(translate("未知", language)), true);
     const studyHtml = render.identity(r6, language);
     assert.match(studyHtml, /<details class="decision-fold strategy-identity">/);
