@@ -251,6 +251,25 @@ export interface Point {
   date: string;
   value: number;
   breakBefore?: boolean;
+  contributing_accounts?: string[];
+  missing_accounts?: string[];
+  forward_filled_accounts?: string[];
+  partial?: boolean;
+  membership_changed?: boolean;
+}
+export interface HistoryCoverage {
+  omitted_dates: number;
+  missing_accounts?: string[];
+  max_staleness_days?: number;
+  partial_points?: number;
+  missing_points?: number;
+  forward_filled_points?: number;
+  truncated?: boolean;
+  read_failures?: string[];
+  membership_changed?: boolean;
+  return_comparison?: "within_contributing_cohort_only" | "fixed_contributing_cohort";
+  excluded_accounts?: string[];
+  fx?: string;
 }
 export interface CalendarCell {
   date?: string;
@@ -308,7 +327,7 @@ export interface ReturnsResponse extends PerformanceMeta {
   per_currency: {
     currency: string;
     as_of?: string | null;
-    coverage?: { omitted_dates: number };
+    coverage?: HistoryCoverage;
     return_kind: string;
     status: Status;
     unavailable_reason: Reason | null;
@@ -326,8 +345,17 @@ export interface ReturnsResponse extends PerformanceMeta {
 export interface AssetsResponse extends PerformanceMeta {
   curve_status?: Status;
   curve_unavailable_reason?: Reason | null;
+  curve_coverage?: HistoryCoverage | null;
   per_currency?: CurrencyTotal[];
   points: Point[];
+  history_per_currency?: {
+    currency: string;
+    as_of: string | null;
+    coverage: HistoryCoverage;
+    status: Status;
+    unavailable_reason: Reason | null;
+    points: Point[];
+  }[];
 }
 export interface HoldingsResponse extends PerformanceMeta {
   label_key: "performance.current_holdings_unrealized";

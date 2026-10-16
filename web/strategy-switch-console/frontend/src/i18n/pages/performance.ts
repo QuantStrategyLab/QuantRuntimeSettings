@@ -1,5 +1,9 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
+  "perf.history_incomplete": "历史覆盖不完整",
+  "perf.history_stale": "历史数据偏旧",
+  "perf.history_coverage_note": "历史曲线可能仅含部分账户。缺失账户不计入小计；前值填充沿用先前估值，不代表当日新估值。",
+  "perf.history_affected_accounts": "历史缺失或使用前值的账户：{accounts}",
   "perf.currency_excluded_accounts": "另有 {count} 个账户的币种或金额未确认。",
   "perf.drawdown_twr_title": "TWR 最大回撤",
   "perf.native_totals_note": "按原币种分别展示，不换汇；不同估值日期的账户不相加。",
@@ -29,6 +33,10 @@ export const zh: Record<string, string> = {
   "perf.ranking_losers": "亏损靠前",
 };
 export const en: Record<string, string> = {
+  "perf.history_incomplete": "Incomplete history",
+  "perf.history_stale": "History is stale",
+  "perf.history_coverage_note": "History may cover only some accounts. Missing accounts are excluded from subtotals. Forward-filled values carry an earlier observation, not a new valuation for that date.",
+  "perf.history_affected_accounts": "Accounts with missing or carried history: {accounts}",
   "perf.currency_excluded_accounts": "Currency or balance is unconfirmed for {count} additional accounts.",
   "perf.drawdown_twr_title": "Maximum TWR drawdown",
   "perf.native_totals_note": "Shown separately in native currencies, without FX conversion. Accounts with different valuation dates are not added.",
