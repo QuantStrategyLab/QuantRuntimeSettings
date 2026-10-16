@@ -2,7 +2,7 @@ import { useContext } from "react";
 import { AccountDirectoryContext } from "../app/context";
 import { useLanguage, useT } from "../i18n";
 import { accountOption, type AccountRef } from "./accountDirectory";
-import { accountName, strategyName, laneName } from "./displayNames";
+import { accountName, strategyName, laneName, domainName } from "./displayNames";
 
 export function useDisplayNames() {
   const config = useContext(AccountDirectoryContext), language = useLanguage(), t = useT();
@@ -22,7 +22,7 @@ export function useDisplayNames() {
     currentStrategy: (account: AccountRef) => config?.currentStrategies?.[account.platform]?.[account.account_alias]?.strategy_profile,
     platform: (platform: string) => displayPlatform(config?.platformMeta?.[platform]?.label, platform),
     lane: (lane: string) => laneName(lane, language),
-    domain: (domain: string) => t(`strategies.domain.${domain}`),
+    domain: (domain: string) => domainName(domain, language),
   };
 }
 function displayPlatform(label: string | undefined, platform: string) { return label || platform; }

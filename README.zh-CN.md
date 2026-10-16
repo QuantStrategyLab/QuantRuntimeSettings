@@ -135,3 +135,5 @@ confirm_apply=APPLY_AND_SYNC
 ## 许可证
 
 详见 [LICENSE](LICENSE)。
+
+显示与通知名称配置：[说明](docs/display-names.md)。

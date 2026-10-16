@@ -30,7 +30,7 @@ assert.notEqual(accountKey(rows[2]),accountKey(rows[3]));
 assert.deepEqual(performanceScope('firstrade:live'),{scope:'live',platform:'firstrade'});
 assert.deepEqual(performanceScope('all'),{scope:'all',platform:undefined});
 assert.equal(accountName('crypto_combo','binance','en'),'live');
-assert.equal(accountName('paper','longbridge','zh'),'模拟账户');
+assert.equal(accountName('paper','longbridge','zh'),'模拟');
 assert.equal(laneName('paper','zh'),'模拟');
 for(const id of ['russell_top50_leader_rotation','soxl_soxx_trend_income','tqqq_growth_income','global_etf_rotation','ibit_smart_dca','crypto_live_pool_rotation']) {
   assert.match(strategyName(id,'zh'),/[\u3400-\u9fff]/);assert.doesNotMatch(strategyName(id,'en'),/[\u3400-\u9fff]/);

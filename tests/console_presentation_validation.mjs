@@ -138,7 +138,7 @@ assert.equal(accountDisplayTitle({ label: "我的港股" }, "Longbridge", "模�
 const occupied = strategyOccupiedNames([{ profile: "soxl", label: "SOXL", label_zh: "SOXL 策略", label_en: "SOXL strategy" }, { profile: "global", label: "GlobalETF", label_zh: "全球ETF", label_en: "Global ETF" }], "tqqq", "TQQQ");
 assert.equal(accountDisplayTitle({ label: "SOXL", key: "live" }, "Binance", "", occupied), "账户 · live");
 assert.equal(accountDisplayTitle({ label: "GlobalETF", key: "paper" }, "IBKR", "", occupied), "账户 · paper");
-assert.equal(accountDisplayTitle({ label: "Binance", key: "default" }, "Binance", "", occupied), "账户");
+assert.equal(accountDisplayTitle({ label: "Binance", key: "default" }, "Binance", "", occupied), "账户 · live");
 assert.equal(accountDisplayTitle({ label: "SG", key: "sg" }, "Longbridge", "", occupied), "账户 · SG");
 assert.equal(accountDisplayTitle({ key: "hk" }, "Longbridge", "", occupied), "账户 · hk");
 assert.equal(accountDisplayTitle({ key: "firstrade" }, "Firstrade", "", occupied), "账户 · firstrade");

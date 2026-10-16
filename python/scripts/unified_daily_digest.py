@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from display_names import display_name
 from daily_digest_notify import DailyDigestInput, _trade_counts, block_reason_text, counts_not_connected, is_blocked
 
 
@@ -19,7 +20,7 @@ def render(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
     trades, problems = [], []
     for row in payload.runs:
         label = " / ".join(" ".join(str(v).split())[:70] for v in
-                           (row.platform_id, row.strategy_label or row.strategy_profile))
+                           (display_name("platforms", row.platform_id), display_name("accounts", row.account_hint or row.account_scope or row.execution_mode, platform=row.platform_id), display_name("strategies", row.strategy_profile, "zh", fallback=row.strategy_label or row.strategy_profile) + " / " + display_name("strategies", row.strategy_profile, "en", fallback=row.strategy_label or row.strategy_profile)))
         known_orders = row.order_count is not None and row.order_count_status == "known"
         known_fills = row.fill_count is not None and row.fill_count_status == "known"
         if (known_orders and row.order_count > 0) or (known_fills and row.fill_count > 0):
