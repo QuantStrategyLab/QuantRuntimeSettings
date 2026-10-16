@@ -49,6 +49,15 @@ export function Badge({ tone, children, title }: { tone: Tone | "accent"; childr
 
 const STATUS_TONE: Record<string, Tone> = {
   healthy: "ok",
+  review: "warn",
+  watch: "warn",
+  critical: "error",
+  fresh: "ok",
+  blocked: "error",
+  failed: "error",
+  read_incomplete: "error",
+  insufficient: "warn",
+  previewed: "unknown",
   no_signal: "ok",
   ok: "ok",
   partial: "warn",

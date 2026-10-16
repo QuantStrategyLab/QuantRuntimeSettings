@@ -3,9 +3,9 @@ import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useState } from "react";
 import { getJson } from "../../api/client";
 import { loadStrategySummary } from "../../api/endpoints";
-import type { StrategySummary } from "../../api/contracts";
+import type { M0ResearchDashboard, StrategySummary } from "../../api/contracts";
 import { useNavigate } from "../../app/context";
-import { useT, type Translate } from "../../i18n";
+import { useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { AsOfStamp, Badge, EmptyState, ErrorState, Skeleton, StatusBadge } from "../../components/primitives";
 import { Tabs } from "../../components/Tabs";
@@ -13,20 +13,6 @@ import "./strategies.css";
 
 type Strategy = StrategySummary["strategies"][number];
 type StrategiesTab = "catalog" | "research";
-
-const KNOWN_STATES = new Set(["healthy", "ok", "partial", "stale", "no_data", "not_connected", "unavailable", "read_failed"]);
-
-/** Map free-form status strings to a renderable state key; anything unrecognized becomes "unknown". */
-function knownState(status: string | null | undefined): string {
-  return status && KNOWN_STATES.has(status) ? status : "unknown";
-}
-
-/** Only pass reasons that exist in the dictionary; otherwise the raw key would leak into the tooltip. */
-function knownReason(t: Translate, reason: string | null | undefined): string | null {
-  if (!reason) return null;
-  const key = `reason.${reason}`;
-  return t(key) === key ? null : reason;
-}
 
 function AccountAliases({ accounts }: { accounts: Strategy["configured_accounts"] }) {
   const t = useT();
@@ -53,7 +39,7 @@ function HealthValue({ strategy }: { strategy: Strategy }) {
   const t = useT();
   return (
     <>
-      <StatusBadge status={knownState(strategy.health_status)} />
+      <StatusBadge status={strategy.health_status} />
       {strategy.health_score !== null && (
         <span className="num">{t("strategies.health_score", { value: strategy.health_score })}</span>
       )}
@@ -64,7 +50,6 @@ function HealthValue({ strategy }: { strategy: Strategy }) {
 function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAsOf: string | null }) {
   const t = useT();
   const names = useDisplayNames();
-  const reason = knownReason(t, strategy.unavailable_reason);
   const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.map(names.lane).join(" · ") : t("common.na");
   const accountNames = strategy.configured_accounts.length > 0
     ? strategy.configured_accounts.map(account => names.account(account.account_alias, account.platform)).join(" · ")
@@ -73,7 +58,7 @@ function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAs
     <article className="card strategy-card">
       <div className="strategy-card-head">
         <h3 className="strategy-card-title" title={strategy.profile}>{names.strategy(strategy.profile)}</h3>
-        <StatusBadge status={knownState(strategy.health_status)} />
+        <StatusBadge status={strategy.health_status} />
       </div>
       <dl className="strategy-rows">
         <div className="strategy-row">
@@ -95,7 +80,7 @@ function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAs
       </dl>
       {strategy.status !== "ok" && (
         <div className="strategy-card-foot">
-          <StatusBadge status={strategy.status} reason={reason} />
+          <StatusBadge status={strategy.status} reason={strategy.unavailable_reason} />
         </div>
       )}
       <details className="strategy-details">
@@ -166,61 +151,35 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
   );
 }
 
-/* ---------- research leads (legacy read-only endpoint) ---------- */
+/* ---------- M0 research dashboard (read-only) ---------- */
 
-interface ResearchLead {
-  title: string | null;
-  summary: string | null;
-  status: string | null;
-}
-
-interface ResearchLeads {
-  connected: boolean;
-  items: ResearchLead[];
-}
-
-const RESEARCH_LIST_KEYS = ["items", "records", "entries"] as const;
-
-function pickString(record: Record<string, unknown>, keys: readonly string[]): string | null {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return null;
-}
-
-function toResearchLead(value: unknown): ResearchLead | null {
-  if (typeof value !== "object" || value === null) return null;
-  const record = value as Record<string, unknown>;
-  const lead: ResearchLead = {
-    title: pickString(record, ["title", "name"]),
-    summary: pickString(record, ["summary", "description"]),
-    status: pickString(record, ["status", "state"]),
-  };
-  return lead.title || lead.summary ? lead : null;
-}
+type ResearchLeads =
+  | { status: "read_failed" }
+  | { status: "unavailable" }
+  | { status: "ready" | "stale"; dashboard: M0ResearchDashboard };
 
 function parseResearchLeads(payload: unknown): ResearchLeads {
-  if (typeof payload !== "object" || payload === null) return { connected: false, items: [] };
-  const record = payload as Record<string, unknown>;
-  if (record.ok === false || typeof record.error === "string") return { connected: false, items: [] };
-  if (typeof record.status === "string" && record.status !== "ok") return { connected: false, items: [] };
-  for (const key of RESEARCH_LIST_KEYS) {
-    const value = record[key];
-    if (Array.isArray(value)) {
-      return { connected: true, items: value.map(toResearchLead).filter((lead): lead is ResearchLead => lead !== null) };
-    }
+  if (!payload || typeof payload !== "object") return { status: "read_failed" };
+  const data = payload as M0ResearchDashboard;
+  if (data.schema_version !== "qsl_m0_research_dashboard.v1"
+    || !["ready", "stale", "unavailable"].includes(data.data_status)
+    || !Array.isArray(data.subjects) || !Array.isArray(data.errors)) return { status: "read_failed" };
+  if (data.errors.some(error => typeof error !== "string" || /failed|unreadable|invalid/.test(error))) {
+    return { status: "read_failed" };
   }
-  return { connected: false, items: [] };
+  if (data.data_status === "unavailable") return { status: "unavailable" };
+  // Check the fields rendered below; malformed input must not become a successful empty view.
+  if (!data.subjects.every(entry => entry?.subject && typeof entry.subject.identifier === "string"
+    && Array.isArray(entry.observations) && entry.observations.every(observation =>
+      observation && Array.isArray(observation.source_ids) && observation.source_ids.every(id => typeof id === "string")
+      && typeof observation.generated_at === "string" && typeof observation.expires_at === "string"
+      && typeof observation.as_of === "string" && typeof observation.research_context?.state === "string"
+      && typeof observation.freshness?.status === "string"))) return { status: "read_failed" };
+  return { status: data.data_status, dashboard: data };
 }
 
-/** Legacy read: any HTTP error or unrecognized shape is reported as not connected. */
 async function loadResearchLeads(): Promise<ResearchLeads> {
-  try {
-    return parseResearchLeads(await getJson<unknown>("/api/m0-research"));
-  } catch {
-    return { connected: false, items: [] };
-  }
+  return parseResearchLeads(await getJson<unknown>("/api/m0-research"));
 }
 
 function ResearchTab({ refreshEpoch }: { refreshEpoch: number }) {
@@ -234,28 +193,44 @@ function ResearchTab({ refreshEpoch }: { refreshEpoch: number }) {
       </div>
     );
   }
-  if (state.phase === "error" || !state.data.connected) {
-    return <EmptyState title={t("strategies.research_not_connected")} />;
+  if (state.phase === "error" || state.data.status === "read_failed") {
+    return <ErrorState onRetry={state.reload} />;
   }
-  const leads = state.data.items;
-  if (leads.length === 0) return <EmptyState title={t("strategies.research_empty")} />;
+  if (state.data.status === "unavailable") {
+    return <EmptyState title={t("strategies.research_unavailable")} />;
+  }
+  const dashboard = state.data.dashboard;
+  if (dashboard.subjects.length === 0) return <EmptyState title={t("strategies.research_empty")} />;
   return (
-    <div className="research-list">
-      {leads.map((lead, index) => (
-        <article className="card research-item" key={index}>
-          <div className="research-item-head">
-            <span className="research-item-title">{lead.title || t("common.unknown")}</span>
-            <Badge tone="accent">{t("strategies.research_only")}</Badge>
-          </div>
-          {lead.summary && <p className="research-item-summary">{lead.summary}</p>}
-          {lead.status && KNOWN_STATES.has(lead.status) && (
-            <div>
-              <StatusBadge status={lead.status} />
+    <section className="section-stack">
+      <div className="catalog-meta">
+        <Badge tone="accent">{t("strategies.research_only")}</Badge>
+        {state.data.status === "stale" && <StatusBadge status="stale" />}
+        <AsOfStamp value={dashboard.source_generated_at} />
+      </div>
+      <div className="research-list">
+        {dashboard.subjects.map((entry, index) => (
+          <article className="card research-item" key={`${entry.subject.kind}/${entry.subject.identifier}/${index}`}>
+            <div className="research-item-head">
+              <span className="research-item-title">{entry.subject.identifier}</span>
+              <Badge tone="accent">{t("strategies.research_only")}</Badge>
             </div>
-          )}
-        </article>
-      ))}
-    </div>
+            {entry.observations.map((observation, observationIndex) => (
+              <div className="section-stack" key={observationIndex}>
+                <div className="catalog-meta">
+                  <StatusBadge status={observation.freshness.status} />
+                  <Badge tone="accent">{t(`research.state.${observation.research_context.state}`)}</Badge>
+                </div>
+                <p className="research-item-summary">{t("strategies.research_sources", { value: observation.source_ids.join(" · ") || t("common.unknown") })}</p>
+                <p className="research-item-summary">{t("strategies.research_as_of", { value: observation.as_of })}</p>
+                <AsOfStamp value={observation.generated_at} />
+                <AsOfStamp value={observation.expires_at} prefix="strategies.research_expires" />
+              </div>
+            ))}
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 

@@ -1,9 +1,12 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
+  "health.failure_at_least": "至少 {count}",
+  "health.failure_window": "{date}（America/New_York）；仅统计今日，不含下方 14 日历史",
+  "health.failure_incomplete": "覆盖不完整，无法确认失败总数",
   "health.kpi.today_runs": "今日运行",
   "health.kpi.observed": "已观测",
   "health.kpi.credentials": "凭证",
-  "health.kpi.recent_failure": "最近失败",
+  "health.kpi.recent_failure": "今日失败账户",
   "health.grid_read_failed_note": "部分日期的历史读取失败，对应单元格显示读取失败；这不代表当天没有运行。",
   "health.grid.incomplete": "未完成",
   "health.col.credential": "凭证",
@@ -15,10 +18,13 @@ export const zh: Record<string, string> = {
   "health.detail.finished": "结束",
 };
 export const en: Record<string, string> = {
+  "health.failure_at_least": "At least {count}",
+  "health.failure_window": "{date} (America/New_York); today only, excludes the 14-day history below",
+  "health.failure_incomplete": "Incomplete coverage; total failures unknown",
   "health.kpi.today_runs": "Today's runs",
   "health.kpi.observed": "Observed",
   "health.kpi.credentials": "Credentials",
-  "health.kpi.recent_failure": "Recent failures",
+  "health.kpi.recent_failure": "Today's failed accounts",
   "health.grid_read_failed_note": "History for some dates failed to load; those cells show a read failure. This does not mean nothing ran.",
   "health.grid.incomplete": "Incomplete",
   "health.col.credential": "Credential",
