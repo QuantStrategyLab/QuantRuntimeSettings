@@ -110,9 +110,10 @@ for (const status of ["not_due", "market_closed", "outside_window", "within_grac
 for (const patch of [{ kind: "schedule" }, { kind: undefined }, { runs: [] }, { runs: [{ activity: "unknown", errors_present: false }] }, { runs: [{ activity: "filled" }] }]) {
   assert.notEqual(cellKind({ ...snapshot, record: { ...snapshot.record, ...patch } }), "ok");
 }
-for (const patch of [{ status: "failed" }, { status: "blocked" }, { runs: [{ activity: "no_signal", errors_present: true }] }]) {
+for (const patch of [{ status: "failed" }, { runs: [{ activity: "no_signal", errors_present: true }] }]) {
   assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, ...patch } }), "failed");
 }
+assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, status: "blocked" } }), "blocked");
 assert.equal(cellKind({ ...snapshot, record: null }), "no-record");
 assert.equal(cellKind({ ...snapshot, data_status: "unavailable" }), "no-record");
 assert.equal(cellKind({ ...snapshot, data_status: "stale" }), "stale");
