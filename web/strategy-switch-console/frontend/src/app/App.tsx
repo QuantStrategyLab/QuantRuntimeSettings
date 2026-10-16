@@ -5,6 +5,7 @@ import { loadPreferences, resolveTheme, savePreferences, type Preferences } from
 import { getNavigationGuard, parseRoute, pushRoute, type Route } from "./router";
 import { AccessError, getJson, invalidatePrivateSession, postJson } from "../api/client";
 import { loadAccounts, loadInbox, loadSession, type Session } from "../api/endpoints";
+import type { DirectoryConfig } from "../lib/accountDirectory";
 import { AppShell } from "./AppShell";
 import { ToastProvider } from "../components/Toast";
 import { Skeleton } from "../components/primitives";
@@ -15,8 +16,6 @@ const DecisionsPage = lazy(() => import("../pages/decisions/DecisionsPage"));
 const AccountsPage = lazy(() => import("../pages/accounts/AccountsPage"));
 const StrategiesPage = lazy(() => import("../pages/strategies/StrategiesPage"));
 const HealthPage = lazy(() => import("../pages/health/HealthPage"));
-
-import type { DirectoryConfig } from "../lib/accountDirectory";
 
 type Boot = "loading" | "ready" | "denied" | "error";
 

@@ -178,7 +178,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
               <tr key={`${account.platform}/${account.account_alias}`}>
                 <th scope="row">
                   {names.account(account.account_alias, account.platform)}
-                  <span className="card-note"> {account.platform}</span>
+                  <span className="card-note"> {names.platform(account.platform)}</span>
                 </th>
                 {dates.map(date => {
                   const key = cellKey(account, date);

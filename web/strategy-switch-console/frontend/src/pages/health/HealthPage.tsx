@@ -110,7 +110,7 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
       header: t("health.col.account"),
       cell: row => (
         <>
-          {names.account(row.account_alias, row.platform)} <span className="card-note">{row.platform}</span>
+          {names.account(row.account_alias, row.platform)} <span className="card-note">{names.platform(row.platform)}</span>
         </>
       ),
       sortValue: row => row.account_alias,

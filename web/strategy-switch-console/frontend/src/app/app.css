@@ -15,6 +15,7 @@
   --down: var(--down-green);
   --status-ok: #0F766E;
   --status-warn: #92400E;
+  --on-warn: #FFFFFF;
   --status-error: #BE123C;
   --status-unknown: #64748B;
   --danger: #B91C1C;
@@ -41,6 +42,7 @@
   --down-green: #F87171;
   --status-ok: #2DD4BF;
   --status-warn: #FBBF24;
+  --on-warn: #0B1016;
   --status-error: #FB7185;
   --status-unknown: #94A3B8;
   --danger: #F87171;
@@ -157,7 +159,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   padding: 0 5px;
   border-radius: 9px;
   background: var(--status-warn);
-  color: #fff;
+  color: var(--on-warn);
   font-size: 12px;
   text-align: center;
   line-height: 18px;
