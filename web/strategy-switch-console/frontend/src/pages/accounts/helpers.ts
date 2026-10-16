@@ -39,12 +39,12 @@ export function sectionLabel(t: Translate, section: SettingsSection): string {
 }
 
 /** Display a settings scalar; unknown current values and nulls stay honest. */
-export function scalarText(t: Translate, field: DraftField, value: Scalar, unknownValue = false): string {
+export function scalarText(t: Translate, field: DraftField, value: Scalar, unknownValue = false, language: Language = "en"): string {
   if (unknownValue) return t("common.unknown");
   if (value === null || value === undefined || value === "") return t("common.na");
   if (typeof value === "boolean") return t(value ? "accounts.bool.on" : "accounts.bool.off");
   if (field === "dca_mode" && (value === "fixed" || value === "smart")) return t(`accounts.dca_mode.${value}`);
-  if (field === "strategy_profile") return strategyName(String(value), t("common.account") === "账户" ? "zh" : "en");
+  if (field === "strategy_profile") return strategyName(String(value), language);
   return String(value);
 }
 

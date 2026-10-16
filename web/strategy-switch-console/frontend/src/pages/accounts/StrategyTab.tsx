@@ -37,6 +37,7 @@ function hasOwn(map: EditMap, field: DraftField): boolean {
 
 /** Read-only summary of the diff rows, grouped by section. Used by the overview tab and view mode. */
 export function DiffSummary({ rows, t }: { rows: SettingsDiffRow[]; t: Translate }) {
+  const language = useLanguage();
   return (
     <>
       {groupBySection(rows).map(group => (
@@ -48,11 +49,11 @@ export function DiffSummary({ rows, t }: { rows: SettingsDiffRow[]; t: Translate
                 <span className="accounts-field-label">{fieldLabel(t, row)}</span>
                 <div className="accounts-field-body">
                   <span className="accounts-field-value">
-                    {scalarText(t, row.field, row.current, row.current_status === "unknown")}
+                    {scalarText(t, row.field, row.current, row.current_status === "unknown", language)}
                   </span>
                   {row.overridden && (
                     <span className="accounts-field-current">
-                      {t("accounts.draft_value", { value: scalarText(t, row.field, row.draft) })}
+                      {t("accounts.draft_value", { value: scalarText(t, row.field, row.draft, false, language) })}
                     </span>
                   )}
                 </div>
@@ -355,7 +356,7 @@ export function StrategyTab({
           )}
         </div>
         <span className="accounts-field-current">
-          {t("decisions.col.current")} · {scalarText(t, row.field, row.current, row.current_status === "unknown")}
+          {t("decisions.col.current")} · {scalarText(t, row.field, row.current, row.current_status === "unknown", language)}
         </span>
         {error && <span id={`${controlId(row.field)}-error`} className="accounts-field-error">{error}</span>}
       </div>
