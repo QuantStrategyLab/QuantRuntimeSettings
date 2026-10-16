@@ -15,4 +15,8 @@ Rules enforced by `python/scripts/runtime_control_files.py` (run in CI through `
 - The total effective (leverage-weighted) cap is reachable under the nominal caps.
 - `risk_limits_ref` must name an existing policy.
 
+An opt-in [offline preview](runtime-control-offline-preview.md)
+([中文](runtime-control-offline-preview.zh-CN.md)) renders only disabled,
+dry-run controls from explicit local files. It does not integrate with deploys.
+
 Next steps (separate, reviewed PRs): render deploy-time `RUNTIME_CONTROL_JSON` from these files, then let each platform read it through `quant_platform_kit.common.runtime_control`.
