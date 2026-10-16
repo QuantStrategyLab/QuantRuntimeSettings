@@ -162,3 +162,4 @@ assert.equal(
 
 await import("./console_currency_totals_validation.mjs");
 await import("./console_currency_totals_ui_validation.mjs");
+await import("./console_asset_history_ui_validation.mjs");

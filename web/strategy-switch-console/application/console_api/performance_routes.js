@@ -232,6 +232,14 @@ export async function performanceResponse(request, env, deps) {
     if (["calendar", "summary", "returns", "assets"].includes(endpoint)) {
       block.coverage.truncated = truncated;
       block.coverage.read_failures = readFailures;
+      if (endpoint === "assets") {
+        for (const history of block.history_per_currency) {
+          history.coverage.truncated = truncated;
+          history.coverage.read_failures = readFailures;
+          if ((truncated || readFailures.length) && history.status === "ok") history.status = "partial";
+        }
+        if ((truncated || readFailures.length) && block.curve_status === "ok") block.curve_status = "partial";
+      }
       if (readFailures.length && block.status === "no_data") {
         block.status = "unavailable";
         block.unavailable_reason = "stored_records_unreadable";

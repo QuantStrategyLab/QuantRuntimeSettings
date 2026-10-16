@@ -91,6 +91,8 @@ export function equityHistoryCurve(group, { range = "ALL", today, benchmarks = [
       missing_accounts: group.missingAccounts,
       max_staleness_days: group.maxStalenessDays,
       partial_points: points.filter(p => p.partial).length,
+      missing_points: points.filter(p => p.missing_accounts.length > 0).length,
+      forward_filled_points: points.filter(p => p.forward_filled_accounts.length > 0).length,
       membership_changed: membershipChanged,
       return_comparison: membershipChanged ? "within_contributing_cohort_only" : "fixed_contributing_cohort",
       fx: "not_applied",

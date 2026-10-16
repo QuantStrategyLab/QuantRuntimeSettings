@@ -107,15 +107,23 @@ assert.equal(snapshotIndependent.assets.per_currency[0].total, 3000, "current to
 assert.equal(snapshotIndependent.assets.points.at(-1).value, 330);
 assert.equal(snapshotIndependent.assets.status, "ok");
 assert.equal(snapshotIndependent.assets.curve_status, "partial");
+assert.equal(snapshotIndependent.assets.curve_coverage.partial_points, 4);
+assert.equal(snapshotIndependent.assets.curve_coverage.missing_points, 1);
+assert.equal(snapshotIndependent.assets.curve_coverage.forward_filled_points, 3);
+assert.deepEqual(snapshotIndependent.assets.curve_coverage, snapshotIndependent.assets.history_per_currency[0].coverage);
+assert.equal(mixed.assets.curve_coverage, null, "mixed currencies retain independent per-currency coverage");
+assert.equal(mixed.assets.history_per_currency.find(g => g.currency === "USD").coverage.forward_filled_points, 3);
 
 // Actual GET adapter, with only local in-memory sources. No account or storage requests are sent.
 const today = businessDate(Date.now());
 const previous = new Date(dateMs(today) - 86_400_000).toISOString().slice(0, 10);
 const facts = ["synthetic-a", "synthetic-b"].map(account_key => ({
   platform: "ibkr", account_key, binding_status: "bound", identity_mismatch: false,
+  observation_date: today, observed_finished_at: new Date().toISOString(),
   aggregation_status: "included", balances: [{ currency: "USD", net_assets: "100" }],
 }));
 let failSecond = false;
+let truncated = false;
 const deps = {
   json: (body, status = 200) => Response.json(body, { status }),
   readSession: async () => ({ allowed: true }),
@@ -125,7 +133,7 @@ const deps = {
     assert.equal(request.method, "GET");
     const key = new URL(request.url).searchParams.get("account_key");
     if (key === "synthetic-b" && failSecond) return Response.json({}, { status: 503 });
-    return Response.json({ platform: "ibkr", account_key: key, series: { currency: "USD", points: [{
+    return Response.json({ platform: "ibkr", account_key: key, series: { currency: "USD", truncated, points: [{
       observation_date: key === "synthetic-a" ? previous : today,
       currency: "USD", net_assets: key === "synthetic-a" ? "100" : "200",
     }] } });
@@ -135,7 +143,21 @@ const deps = {
 const request = endpoint => new Request(`https://console.example.invalid/api/performance/${endpoint}`);
 const defaultResponse = await performanceResponse(request("assets"), {}, deps);
 assert.equal(defaultResponse.status, 200);
-assert.equal((await defaultResponse.json()).points.at(-1).value, 300);
+const defaultBody = await defaultResponse.json();
+assert.equal(defaultBody.points.at(-1).value, 300);
+assert.equal(defaultBody.status, "ok");
+assert.equal(defaultBody.curve_status, "partial");
+assert.equal(defaultBody.curve_coverage.forward_filled_points, 1);
+assert.equal(defaultBody.curve_coverage.truncated, false);
+// A truncated single-account read would otherwise look complete with no carried points.
+truncated = true;
+const truncatedBody = await (await performanceResponse(new Request("https://console.example.invalid/api/performance/assets?scope=synthetic-a&platform=ibkr"), {}, deps)).json();
+assert.equal(truncatedBody.status, "ok");
+assert.equal(truncatedBody.curve_status, "partial");
+assert.equal(truncatedBody.history_per_currency[0].status, "partial");
+assert.equal(truncatedBody.curve_coverage.truncated, true);
+assert.equal(truncatedBody.curve_coverage.partial_points, 0);
+truncated = false;
 const configured = await performanceResponse(request("assets"), { CONSOLE_HISTORY_MAX_STALENESS_DAYS: "0" }, deps);
 assert.equal((await configured.json()).points.at(-1).value, 200, "read-only environment setting reaches aggregation");
 failSecond = true;
@@ -144,4 +166,7 @@ const failedBody = await failedRead.json();
 assert.equal(failedBody.points[0].partial, true);
 assert.deepEqual(failedBody.points[0].missing_accounts, ["ibkr:synthetic-b:USD"]);
 assert.deepEqual(failedBody.coverage.read_failures, ["synthetic-b"]);
+assert.deepEqual(failedBody.curve_coverage.read_failures, ["synthetic-b"]);
+assert.equal(failedBody.curve_status, "partial");
+assert.equal(failedBody.status, "ok", "history read failure does not overwrite current snapshot health");
 console.log("console_equity_history_validation: PASS (synthetic union, overlap, age cutoff, first observation, empty/single, currencies, coverage and return segments)");

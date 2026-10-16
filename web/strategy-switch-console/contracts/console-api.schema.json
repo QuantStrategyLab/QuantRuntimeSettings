@@ -1539,13 +1539,29 @@
                 ]
               },
               "coverage": {
-                "type": "object"
+                "$ref": "#/$defs/equity_history_coverage"
               },
               "points": {
                 "type": "array",
                 "items": {
                   "$ref": "#/$defs/equity_history_point"
                 }
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "stale",
+                  "no_data",
+                  "not_connected",
+                  "unavailable"
+                ]
+              },
+              "unavailable_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -1694,6 +1710,32 @@
               }
             }
           }
+        },
+        "curve_status": {
+          "enum": [
+            "ok",
+            "partial",
+            "stale",
+            "no_data",
+            "not_connected",
+            "unavailable"
+          ]
+        },
+        "curve_unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "curve_coverage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/equity_history_coverage"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -2875,6 +2917,59 @@
         "date",
         "value"
       ]
+    },
+    "equity_history_coverage": {
+      "type": "object",
+      "properties": {
+        "omitted_dates": {
+          "type": "integer"
+        },
+        "missing_accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "excluded_accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_staleness_days": {
+          "type": "integer"
+        },
+        "partial_points": {
+          "type": "integer"
+        },
+        "missing_points": {
+          "type": "integer"
+        },
+        "forward_filled_points": {
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "read_failures": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "membership_changed": {
+          "type": "boolean"
+        },
+        "return_comparison": {
+          "enum": [
+            "within_contributing_cohort_only",
+            "fixed_contributing_cohort"
+          ]
+        },
+        "fx": {
+          "type": "string"
+        }
+      }
     }
   }
 }

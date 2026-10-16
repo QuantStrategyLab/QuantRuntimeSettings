@@ -262,6 +262,10 @@ export interface HistoryCoverage {
   missing_accounts?: string[];
   max_staleness_days?: number;
   partial_points?: number;
+  missing_points?: number;
+  forward_filled_points?: number;
+  truncated?: boolean;
+  read_failures?: string[];
   membership_changed?: boolean;
   return_comparison?: "within_contributing_cohort_only" | "fixed_contributing_cohort";
   excluded_accounts?: string[];
@@ -341,6 +345,7 @@ export interface ReturnsResponse extends PerformanceMeta {
 export interface AssetsResponse extends PerformanceMeta {
   curve_status?: Status;
   curve_unavailable_reason?: Reason | null;
+  curve_coverage?: HistoryCoverage | null;
   per_currency?: CurrencyTotal[];
   points: Point[];
   history_per_currency?: {

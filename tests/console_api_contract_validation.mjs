@@ -21,6 +21,12 @@ const schemas = JSON.parse(
 ).$defs;
 export function validate(name, data) {
   const visit = (schema, value, path) => {
+    if (schema.anyOf) {
+      assert.ok(schema.anyOf.some(option => {
+        try { visit(option, value, path); return true; } catch { return false; }
+      }), path + ": anyOf");
+      return;
+    }
     if (schema.$ref) {
       assert.match(schema.$ref, /^#\/\$defs\//, path + ": local reference");
       const target = schemas[schema.$ref.slice("#/$defs/".length)];
@@ -66,6 +72,10 @@ assert.throws(() => validate("trades", { status: "ok" }));
 const assetFixture = consoleApiFixture("/api/performance/assets", new URLSearchParams(), "api-ready", "GET", Date.parse("2026-10-15T12:00:00Z")).body;
 assert.throws(() => validate("assets", { ...assetFixture, points: [{ date: "2026-10-15", value: "100" }] }), /value: type/);
 assert.throws(() => validate("assets", { ...assetFixture, points: [{ date: "2026-10-15", value: 100, partial: "true" }] }), /partial: type/);
+validate("assets", { ...assetFixture, curve_status: "partial", curve_coverage: { partial_points: 2, missing_points: 1, forward_filled_points: 1 } });
+validate("assets", { ...assetFixture, curve_coverage: null });
+assert.throws(() => validate("assets", { ...assetFixture, curve_status: "healthy" }), /curve_status: enum/);
+assert.throws(() => validate("assets", { ...assetFixture, curve_coverage: { forward_filled_points: "1" } }), /curve_coverage: anyOf/);
 const endpoints = {
   "/api/decisions-inbox": "inbox",
   "/api/owner-decisions/history": "decision_history",

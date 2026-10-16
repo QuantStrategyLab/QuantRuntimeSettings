@@ -58,9 +58,14 @@ export function AreaChart({
   const yFor = (value: number) => PAD.top + (1 - (value - yMin) / (yMax - yMin)) * (HEIGHT - PAD.top - PAD.bottom);
 
   const linePath = points.map((point, i) => `${point.breakBefore || i === 0 ? "M" : "L"}${xFor(i).toFixed(2)},${yFor(point.value).toFixed(2)}`).join("");
-  const areaPath = points.length
-    ? `M${xFor(0).toFixed(2)},${yFor(yMin).toFixed(2)}${points.map((point, i) => `L${xFor(i).toFixed(2)},${yFor(point.value).toFixed(2)}`).join("")}L${xFor(points.length - 1).toFixed(2)},${yFor(yMin).toFixed(2)}Z`
-    : "";
+  const segments: number[][] = [];
+  points.forEach((point, i) => {
+    if (i === 0 || point.breakBefore) segments.push([]);
+    segments.at(-1)!.push(i);
+  });
+  const areaPath = segments.map(indices =>
+    `M${xFor(indices[0]).toFixed(2)},${yFor(yMin).toFixed(2)}${indices.map(i => `L${xFor(i).toFixed(2)},${yFor(points[i].value).toFixed(2)}`).join("")}L${xFor(indices.at(-1)!).toFixed(2)},${yFor(yMin).toFixed(2)}Z`,
+  ).join("");
 
   const onMove = (clientX: number) => {
     const frame = frameRef.current;
@@ -100,6 +105,9 @@ export function AreaChart({
           <>
             <path d={areaPath} fill="var(--accent)" opacity="0.12" />
             <path d={linePath} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+            {segments.filter(indices => indices.length === 1).map(([i]) =>
+              <circle key={points[i].date} cx={xFor(i)} cy={yFor(points[i].value)} r="3" fill="var(--accent)" />,
+            )}
             {points.map((point, i) =>
               point.externalFlow ? (
                 <g key={point.date}>

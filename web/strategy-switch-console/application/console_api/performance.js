@@ -482,6 +482,7 @@ export function performanceBlocks({
         : totals.length > 1 ? "mixed_currency" : totals.find((t) => t.unavailable_reason)?.unavailable_reason || null,
       curve_status: singleAssetHistory ? singleAssetHistory.status : meta.status,
       curve_unavailable_reason: singleAssetHistory ? singleAssetHistory.unavailable_reason : meta.unavailable_reason,
+      curve_coverage: singleAssetHistory ? singleAssetHistory.coverage : null,
     },
     holdings: {
       status: accounts.some((a) => a.positions?.length) ? "partial" : "no_data",
