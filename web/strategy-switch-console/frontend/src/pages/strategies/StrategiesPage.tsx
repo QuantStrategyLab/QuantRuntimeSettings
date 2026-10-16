@@ -52,7 +52,7 @@ function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAs
   const names = useDisplayNames();
   const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.map(names.lane).join(" · ") : t("common.na");
   const accountNames = strategy.configured_accounts.length > 0
-    ? strategy.configured_accounts.map(account => names.account(account.account_alias, account.platform)).join(" · ")
+    ? strategy.configured_accounts.map(account => `${names.platform(account.platform)} · ${names.account(account.account_alias, account.platform)}`).join(" · ")
     : t("common.none");
   return (
     <article className="card strategy-card">
@@ -84,7 +84,7 @@ function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAs
         </div>
       )}
       <details className="strategy-details">
-        <summary>{t("strategies.params_summary")}</summary>
+        <summary>{t("strategies.details")}</summary>
         <div className="strategy-details-body">
           <dl className="strategy-rows">
             <div className="strategy-row">
@@ -109,7 +109,6 @@ function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAs
 
 function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
   const t = useT();
-  const names = useDisplayNames();
   const state = useApi(loadStrategySummary, [refreshEpoch]);
   if (state.phase === "loading") {
     return (
@@ -126,9 +125,7 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
     );
   }
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
-  const summary = { ...state.data, strategies: state.data.strategies.map(strategy => ({ ...strategy,
-    configured_accounts: names.config?.currentStrategies ? Object.entries(names.config.currentStrategies).flatMap(([platform, accounts]) => Object.entries(accounts).filter(([, current]) => current.strategy_profile === strategy.profile).map(([account_alias]) => ({ platform, account_alias }))) : strategy.configured_accounts,
-  })) };
+  const summary = state.data;
   if (summary.status === "read_failed") return <ErrorState onRetry={state.reload} />;
   if (summary.strategies.length === 0) {
     if (summary.status === "not_connected") {
