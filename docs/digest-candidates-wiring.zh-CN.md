@@ -12,6 +12,12 @@ GitHub workflow 成功结论只是**存在性**辅助证据；成交/订单数�
 
 正式合同文件：[`schemas/qsl-digest-candidates.v1.schema.json`](../schemas/qsl-digest-candidates.v1.schema.json)（`schema_version` = `qsl.digest_candidates.v1`）。本文件示例与平台 producer 文档必须与该 schema 对齐；未知成交数保持 `null` + `field_status.counts_unknown`。
 
+Schwab 可附加通知专用的 `block_reason` 对象：`reason_code`、`observed_value`、
+`limit`、`order_submitted_this_run`。已验证的连续亏损原因按传入数值同一行显示中英文本；
+只有明确的 `false` 才显示“本轮未下单”。该轮事实不推导全天订单／成交总数，
+缺失、未知或格式错误的原因字段继续使用原“已拦截／未接入统计”文案。
+沿用现有通知模式和受保护的候选配置，不新增风险阈值或启用开关。
+
 ## 候选 JSON 形状（最小）
 
 ```json
