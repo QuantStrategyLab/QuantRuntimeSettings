@@ -46,8 +46,8 @@ MISSING_EVIDENCE_REASONS = frozenset({
 
 _TEXTS: dict[str, dict[str, str]] = {
     "zh": {
-        "daily_digest_title": "📡 量化哨兵 · 收盘日报",
-        "daily_digest_heartbeat_title": "📡 量化哨兵 · 心跳",
+        "daily_digest_title": "📡 {sender} · 收盘日报",
+        "daily_digest_heartbeat_title": "📡 {sender} · 心跳",
         "date_label": "业务日",
         "window_label": "窗口",
         "ran_section": "【当日已运行】",
@@ -71,7 +71,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         # Legacy keys kept for callers/tests that still reference them.
         "heartbeat_no_run": "今日已验证无平台/策略实际运行。",
         "heartbeat_no_fill": "今日有运行且已验证零成交。",
-        "footer": "通道：QuantSentinel（统一 bot）· 仅含当日实际运行项",
+        "footer": "通道：{sender}（统一 bot）· 仅含当日实际运行项",
         "platform_line": "· {platform} / {strategy} · {detail}",
         "block_heartbeat": "💓 【心跳检测】",
         "block_rebalance": "🔔 【调仓指令】",
@@ -104,7 +104,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "stale_detail_day": "数据业务日 {day}",
         "stale_detail_undated": "未注明业务日",
         "heartbeat_all_candidates_stale": "今日候选数据均未更新，不能判定为链路正常。",
-        "v2_title": "📡 量化哨兵 · 日报 {date}",
+        "v2_title": "📡 {sender} · 日报 {date}",
         "v2_window": "窗口 {start} → {end}（上海时间）",
         "v2_section_attention": "⚠️ 待处理",
         "v2_stale_header": "以下账户今天的数据缺失或过期：",
@@ -123,8 +123,8 @@ _TEXTS: dict[str, dict[str, str]] = {
         "v2_verified_idle": "已验证本窗口无平台/策略实际运行。",
     },
     "en": {
-        "daily_digest_title": "📡 QuantSentinel · Daily digest",
-        "daily_digest_heartbeat_title": "📡 QuantSentinel · Heartbeat",
+        "daily_digest_title": "📡 {sender} · Daily digest",
+        "daily_digest_heartbeat_title": "📡 {sender} · Heartbeat",
         "date_label": "Business day",
         "window_label": "Window",
         "ran_section": "[Ran today]",
@@ -156,7 +156,7 @@ _TEXTS: dict[str, dict[str, str]] = {
             "Verified: no platform/strategy actually ran today."
         ),
         "heartbeat_no_fill": "Runs completed with verified zero fills today.",
-        "footer": "Channel: QuantSentinel (unified bot) · only entries that actually ran",
+        "footer": "Channel: {sender} (unified bot) · only entries that actually ran",
         "platform_line": "· {platform} / {strategy} · {detail}",
         "block_heartbeat": "💓 [Heartbeat]",
         "block_rebalance": "🔔 [Rebalance]",
@@ -191,7 +191,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "heartbeat_all_candidates_stale": (
             "All candidate data is stale today; monitoring link health is not confirmed."
         ),
-        "v2_title": "📡 QuantSentinel · Daily report {date}",
+        "v2_title": "📡 {sender} · Daily report {date}",
         "v2_window": "Window {start} → {end} (Asia/Shanghai)",
         "v2_section_attention": "⚠️ Needs attention",
         "v2_stale_header": "These accounts have missing or stale data today:",
@@ -328,7 +328,7 @@ def normalize_locale(raw: str | None) -> DigestLocale:
 
 
 def _t(locale: DigestLocale, key: str) -> str:
-    return _TEXTS[locale][key]
+    return _TEXTS[locale][key].replace("{sender}", display_name("senders", "quant_sentinel", locale))
 
 
 def _optional_float(raw: Any) -> float | None:
