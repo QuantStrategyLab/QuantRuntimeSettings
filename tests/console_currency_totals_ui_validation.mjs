@@ -61,7 +61,7 @@ try {
     assert.ok(missing.includes(language === "zh" ? "缺少完整出入金记录" : "Complete cash-flow records are missing"));
     globalThis.__currencyState.data = { ...blocks.summary, per_currency: [{ ...blocks.summary.per_currency[0], max_drawdown: { percent: 20, peak_date: "2026-10-14", trough_date: "2026-10-15", unavailable_reason: null } }] };
     const computed = ui.summary(language);
-    assert.match(computed, /20\.00%/);
+    assert.match(computed, /-20\.00%/, "drawdown is displayed as a loss, not a positive return");
     assert.match(computed, /10\/14|14\/10|2026/);
   }
 } finally {

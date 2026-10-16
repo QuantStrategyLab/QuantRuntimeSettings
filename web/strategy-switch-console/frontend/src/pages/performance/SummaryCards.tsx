@@ -69,7 +69,7 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
         const dd = item.max_drawdown;
         return <span className="currency-total" key={item.currency}>
           <span className="kpi-sub">{item.currency}</span>
-          {dd.percent === null ? <span className="flat">—</span> : <Percent value={dd.percent} />}
+          {dd.percent === null ? <span className="flat">—</span> : <Percent value={-dd.percent || 0} />}
           <span className="kpi-sub">{dd.unavailable_reason ? t(`reason.${dd.unavailable_reason}`)
             : dd.peak_date && dd.trough_date ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) }) : null}</span>
         </span>;
@@ -87,7 +87,7 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
     dd.peak_date && dd.trough_date
       ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) })
       : undefined;
-  return <KpiCard title={title} value={<Percent value={dd.percent} />} sub={sub} footer={footer} />;
+  return <KpiCard title={title} value={<Percent value={-dd.percent || 0} />} sub={sub} footer={footer} />;
 }
 
 function ExcessCard({ data }: { data: SummaryResponse }) {
