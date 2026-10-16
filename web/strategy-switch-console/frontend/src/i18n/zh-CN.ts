@@ -45,6 +45,8 @@ export const zhCN = {
   "common.unsaved_guard_title": "放弃未保存的修改？",
   "common.unsaved_guard_body": "当前有未保存的修改，离开后将丢失。",
 
+  "state.healthy": "健康",
+  "state.no_signal": "无信号",
   "state.ok": "正常",
   "state.partial": "部分数据",
   "state.stale": "数据偏旧",

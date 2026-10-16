@@ -364,6 +364,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   z-index: 1;
 }
 .data-table tbody tr:last-child td { border-bottom: none; }
+.table-sort { border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: inherit; }
 .data-table th.sortable { cursor: pointer; user-select: none; }
 .data-table th.sortable:hover { color: var(--ink); }
 .data-table td.num, .data-table th.num { text-align: right; }
