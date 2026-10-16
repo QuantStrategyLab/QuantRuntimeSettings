@@ -1281,7 +1281,7 @@ const syncResult = await __test.syncDefaultStrategyForAccount(
     variable_scope: "default",
     plugin_mode: "auto",
   },
-  { login: "pigbibi" },
+  { login: "synthetic-operator" },
 );
 assert.equal(syncResult.synced, true);
 // default_strategy_profile is no longer persisted to KV after switch
