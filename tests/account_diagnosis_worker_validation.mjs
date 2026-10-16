@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test, initializeDirectory } from "./helpers/directory_worker.mjs";
 
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
@@ -111,6 +111,7 @@ function lifecycleSource({ runtimeGuard = "pass", heartbeat = "pass", runtimeEna
   };
 }
 
+await initializeDirectory(mf);
 try {
   let seeded = await call("/api/internal/sync-runtime-target-lifecycle-source", {
     method: "POST", cookie: "", origin: "",

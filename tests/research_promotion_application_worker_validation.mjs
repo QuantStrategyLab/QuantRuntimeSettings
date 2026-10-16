@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test, initializeDirectory } from "./helpers/directory_worker.mjs";
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
@@ -142,6 +142,7 @@ async function acceptTicket(ticketId, params = { ...v7.research_candidate_identi
   });
 }
 
+await initializeDirectory(mf);
 try {
   const initialized = await call("/api/admin/runtime-instances", {
     method: "POST",

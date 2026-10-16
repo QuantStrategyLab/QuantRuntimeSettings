@@ -18,6 +18,7 @@ const staleAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
 const accountId = "synthetic-account-key";
 const targetId = "tqqq_growth_income";
 const sourceKey = "runtime_target_lifecycle_source:synthetic-source";
+const manifestBody = JSON.stringify({ schema: "qsl_console_kv_directory.v1", complete: true, keys: [sourceKey], scanned_at: Date.now(), retry_at: 0 });
 const factsBinding = {
   platform: "ibkr", account_key: accountId, account_scope: "live-primary",
   target_name: "synthetic-account", service_name: "synthetic-service",
@@ -164,9 +165,9 @@ const remoteData = await readRemoteLifecycleData(env, async (url, init) => {
   assert.equal(init.redirect, "error");
   if (String(url).endsWith("/values/account_options")) return new Response(optionsBody, { status: 200 });
   if (String(url).endsWith("/values/account_facts_bindings")) return new Response(bindingsBody, { status: 200 });
-  if (String(url).includes("/keys?")) {
-    assert.match(String(url), /limit=100/);
-    return new Response(JSON.stringify({ success: true, result: [{ name: sourceKey }] }), { status: 200 });
+  if (String(url).endsWith("/values/console_kv_directory%3Av1")) {
+    assert.ok(!String(url).includes("/keys?"), "inspection never lists KV");
+    return new Response(manifestBody, { status: 200 });
   }
   return new Response(sourceBody, { status: 200 });
 });
@@ -193,7 +194,7 @@ const discoveredData = await readRemoteLifecycleData(noAccountIdEnv, async (url,
   if (String(url).endsWith("/accounts?page=1&per_page=5")) return new Response(accountListing(), { status: 200 });
   if (String(url).endsWith("/values/account_options")) return new Response(optionsBody, { status: 200 });
   if (String(url).endsWith("/values/account_facts_bindings")) return new Response(bindingsBody, { status: 200 });
-  if (String(url).includes("/keys?")) return new Response(JSON.stringify({ success: true, result: [{ name: sourceKey }] }), { status: 200 });
+  if (String(url).endsWith("/values/console_kv_directory%3Av1")) return new Response(manifestBody, { status: 200 });
   return new Response(sourceBody, { status: 200 });
 });
 assert.equal(discoveryCalls.length, 5);
@@ -239,7 +240,7 @@ await assert.rejects(() => readRemoteLifecycleData(env, async (url) => {
   oversizedSourceReads += 1;
   if (String(url).endsWith("/values/account_options")) return new Response(optionsBody, { status: 200 });
   if (String(url).endsWith("/values/account_facts_bindings")) return new Response(bindingsBody, { status: 200 });
-  if (String(url).includes("/keys?")) return new Response(JSON.stringify({ success: true, result: [{ name: sourceKey }] }), { status: 200 });
+  if (String(url).endsWith("/values/console_kv_directory%3Av1")) return new Response(manifestBody, { status: 200 });
   return new Response("x", { status: 200, headers: { "content-length": String(256 * 1024 + 1) } });
 }), (error) => error.code === "read_failed");
 assert.equal(oversizedSourceReads, 4);
@@ -310,7 +311,7 @@ const successOutput = await runMain(async (url, init) => {
   assert.equal(init.redirect, "error");
   if (String(url).endsWith("/values/account_options")) return new Response(optionsBody, { status: 200 });
   if (String(url).endsWith("/values/account_facts_bindings")) return new Response(bindingsBody, { status: 200 });
-  if (String(url).includes("/keys?")) return new Response(JSON.stringify({ success: true, result: [{ name: sourceKey }] }), { status: 200 });
+  if (String(url).endsWith("/values/console_kv_directory%3Av1")) return new Response(manifestBody, { status: 200 });
   return new Response(sourceBody, { status: 200 });
 });
 assert.equal(successOutput.status, 0);
@@ -325,7 +326,7 @@ const discoverySuccessOutput = await runMain(async (url) => {
   if (String(url).endsWith("/accounts?page=1&per_page=5")) return new Response(accountListing(), { status: 200 });
   if (String(url).endsWith("/values/account_options")) return new Response(optionsBody, { status: 200 });
   if (String(url).endsWith("/values/account_facts_bindings")) return new Response(bindingsBody, { status: 200 });
-  if (String(url).includes("/keys?")) return new Response(JSON.stringify({ success: true, result: [{ name: sourceKey }] }), { status: 200 });
+  if (String(url).endsWith("/values/console_kv_directory%3Av1")) return new Response(manifestBody, { status: 200 });
   return new Response(sourceBody, { status: 200 });
 }, Date.now, [], noAccountIdEnv);
 assert.equal(discoverySuccessOutput.status, 0);

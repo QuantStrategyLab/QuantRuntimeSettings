@@ -226,7 +226,7 @@ export default function DecisionsPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [accountChoice, setAccountChoice] = useState<Record<string, string>>({});
 
-  const inbox = useApi(() => loadInbox(), [epoch]);
+  const inbox = useApi(() => loadInbox(epoch > 0), [epoch]);
   const session = useApi(() => loadSession(), []);
   const admin = session.phase === "ready" && session.data.admin === true;
 

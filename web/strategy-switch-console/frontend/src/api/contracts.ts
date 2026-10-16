@@ -67,7 +67,7 @@ export interface InboxResponse {
   sources: {
     source: string;
     status: "ok" | "stale" | "unavailable" | "read_failed";
-    failure_reason?: "kv_list_daily_limit_exceeded";
+    failure_reason?: "kv_list_daily_limit_exceeded" | "kv_directory_uninitialized" | "kv_directory_unavailable" | "kv_directory_truncated" | "kv_directory_migration_pending" | "kv_directory_migration_failed" | "kv_directory_record_unavailable";
   }[];
   items: InboxItem[];
   coverage: string;

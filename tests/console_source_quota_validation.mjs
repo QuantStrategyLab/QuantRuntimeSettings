@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test } from "./helpers/directory_worker.mjs";
 const env = { SESSION_SECRET: "synthetic-quota-only", ALLOWED_GITHUB_LOGINS: "fixture-reader",
   STRATEGY_SWITCH_CONFIG: {
     async get() { return null; }, async put() { throw Error("unexpected_write"); },

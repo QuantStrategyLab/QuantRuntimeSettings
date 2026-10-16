@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test } from "./helpers/directory_worker.mjs";
 
 const now = Date.now();
 const freshAt = new Date(now - 30 * 1000).toISOString();

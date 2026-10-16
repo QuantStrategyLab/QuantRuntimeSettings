@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import worker from "../web/strategy-switch-console/worker.js";
+import worker from "./helpers/directory_worker.mjs";
 import { createRequire } from "node:module";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

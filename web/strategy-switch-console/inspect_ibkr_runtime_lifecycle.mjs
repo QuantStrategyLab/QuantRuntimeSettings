@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { __test } from "./worker.js";
+import { MANIFEST_KEY, indexedKey } from "./kv_directory.js";
 import { normalizeAccountOptionsPayload } from "./account_options_schema.js";
 import { accountFactsOptionMatchesBinding, normalizeAccountFactsBindings } from "./account_facts.js";
 
@@ -33,11 +34,11 @@ class LifecycleReadError extends Error {
 function inMemoryStore(sources) {
   const byKey = new Map(sources.map(({ key, value }) => [key, value]));
   return {
-    async list({ prefix, limit }) {
-      const keys = [...byKey.keys()].filter((key) => key.startsWith(prefix)).slice(0, limit);
-      return { keys: keys.map((name) => ({ name })) };
+    async get(key) {
+      if (key === MANIFEST_KEY) return JSON.stringify({ schema: "qsl_console_kv_directory.v1", complete: true,
+        keys: [...byKey.keys()], scanned_at: Date.now(), retry_at: 0 });
+      return byKey.get(key) ?? null;
     },
-    async get(key) { return byKey.get(key) ?? null; },
     async put() { throw new Error("read_only"); },
   };
 }
@@ -215,18 +216,14 @@ export async function readRemoteLifecycleData(env, fetchImpl = fetch, now = Date
   );
   const options = await getConfig(ACCOUNT_OPTIONS_KEY);
   const bindings = await getConfig(ACCOUNT_FACTS_BINDINGS_KEY);
-  const listUrl = `${root}/keys?prefix=${encodeURIComponent(PREFIX)}&limit=${MAX_SOURCES}`;
-  const listing = parseJson(await get(listUrl, MAX_LIST_BYTES), "read_failed");
-  if (listing?.success !== true || !Array.isArray(listing.result) || listing.result.length > MAX_SOURCES) {
+  const manifest = parseJson(await get(`${root}/values/${encodeURIComponent(MANIFEST_KEY)}`, MAX_LIST_BYTES), "read_failed");
+  if (manifest?.schema !== "qsl_console_kv_directory.v1" || manifest.complete !== true
+    || !Array.isArray(manifest.keys) || !manifest.keys.every(indexedKey) || !Number.isFinite(manifest.scanned_at))
     throw new LifecycleReadError("read_failed");
-  }
-  const cursor = listing?.result_info?.cursor;
-  if (cursor !== undefined && cursor !== null && (typeof cursor !== "string" || cursor.length > 0)) {
-    throw new LifecycleReadError("read_failed");
-  }
+  const keys = manifest.keys.filter(key => key.startsWith(PREFIX));
+  if (keys.length > MAX_SOURCES) throw new LifecycleReadError("read_failed");
   const rows = [];
-  for (const entry of listing.result) {
-    const key = entry?.name;
+  for (const key of keys) {
     if (typeof key !== "string" || !key.startsWith(PREFIX)) throw new LifecycleReadError("read_failed");
     const valueUrl = `${root}/values/${encodeURIComponent(key)}`;
     const value = await get(valueUrl, MAX_SOURCE_BYTES);

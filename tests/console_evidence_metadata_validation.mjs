@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test } from "./helpers/directory_worker.mjs";
 
 const profile = (id, patch = {}) => ({ profile: id, label: "HK · USD · live", domain: "us_equity", allowed_execution_modes: ["paper"], ...patch });
 const normalized = __test.normalizeStrategyProfilesPayload([

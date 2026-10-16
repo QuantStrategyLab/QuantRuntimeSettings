@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test } from "./helpers/directory_worker.mjs";
 import { overviewRuntimeHealth, presentRuntimeDaily, runtimeBusinessDate, runtimeDailySelectionEligible, runtimeDailySelectionBinding } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { RUNTIME_DAILY_TARGET } from "../web/strategy-switch-console/runtime_daily_contract.js";
 
