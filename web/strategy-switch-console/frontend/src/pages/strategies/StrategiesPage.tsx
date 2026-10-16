@@ -1,3 +1,5 @@
+import { accountKey } from "../../lib/accountDirectory";
+import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useState } from "react";
 import { getJson } from "../../api/client";
 import { loadStrategySummary } from "../../api/endpoints";
@@ -28,18 +30,19 @@ function knownReason(t: Translate, reason: string | null | undefined): string | 
 
 function AccountAliases({ accounts }: { accounts: Strategy["configured_accounts"] }) {
   const t = useT();
+  const names = useDisplayNames();
   const navigate = useNavigate();
   if (accounts.length === 0) return <>{t("common.none")}</>;
   return (
     <span className="strategy-accounts">
       {accounts.map(account => (
         <button
-          key={account.account_alias}
+          key={accountKey(account)}
           type="button"
-          className="strategy-account-link"
-          onClick={() => navigate({ page: "accounts", account: account.account_alias })}
+          className="strategy-account-link" title={accountKey(account)}
+          onClick={() => navigate({ page: "accounts", account: accountKey(account) })}
         >
-          {account.account_alias}
+          {names.platform(account.platform)} · {names.account(account.account_alias, account.platform)}
         </button>
       ))}
     </span>
@@ -60,21 +63,22 @@ function HealthValue({ strategy }: { strategy: Strategy }) {
 
 function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAsOf: string | null }) {
   const t = useT();
+  const names = useDisplayNames();
   const reason = knownReason(t, strategy.unavailable_reason);
-  const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.join(" · ") : t("common.na");
+  const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.map(names.lane).join(" · ") : t("common.na");
   const accountNames = strategy.configured_accounts.length > 0
-    ? strategy.configured_accounts.map(account => account.account_alias).join(" · ")
+    ? strategy.configured_accounts.map(account => names.account(account.account_alias, account.platform)).join(" · ")
     : t("common.none");
   return (
     <article className="card strategy-card">
       <div className="strategy-card-head">
-        <h3 className="strategy-card-title">{strategy.profile}</h3>
+        <h3 className="strategy-card-title" title={strategy.profile}>{names.strategy(strategy.profile)}</h3>
         <StatusBadge status={knownState(strategy.health_status)} />
       </div>
       <dl className="strategy-rows">
         <div className="strategy-row">
           <dt>{t("strategies.domain")}</dt>
-          <dd>{strategy.domain}</dd>
+          <dd>{names.domain(strategy.domain)}</dd>
         </div>
         <div className="strategy-row">
           <dt>{t("strategies.modes")}</dt>
@@ -120,6 +124,7 @@ function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAs
 
 function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
   const t = useT();
+  const names = useDisplayNames();
   const state = useApi(loadStrategySummary, [refreshEpoch]);
   if (state.phase === "loading") {
     return (
@@ -136,7 +141,9 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
     );
   }
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
-  const summary = state.data;
+  const summary = { ...state.data, strategies: state.data.strategies.map(strategy => ({ ...strategy,
+    configured_accounts: names.config?.currentStrategies ? Object.entries(names.config.currentStrategies).flatMap(([platform, accounts]) => Object.entries(accounts).filter(([, current]) => current.strategy_profile === strategy.profile).map(([account_alias]) => ({ platform, account_alias }))) : strategy.configured_accounts,
+  })) };
   if (summary.status === "read_failed") return <ErrorState onRetry={state.reload} />;
   if (summary.strategies.length === 0) {
     if (summary.status === "not_connected") {

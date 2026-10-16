@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { I18nProvider, translate, useT } from "../i18n";
-import { NavigateContext, PrefsContext, ScopeContext, type ScopeOption } from "./context";
+import { AccountDirectoryContext, NavigateContext, PrefsContext, ScopeContext, type ScopeOption } from "./context";
 import { loadPreferences, resolveTheme, savePreferences, type Preferences } from "../lib/prefs";
 import { getNavigationGuard, parseRoute, pushRoute, type Route } from "./router";
 import { AccessError, getJson, invalidatePrivateSession, postJson } from "../api/client";
@@ -15,6 +15,8 @@ const DecisionsPage = lazy(() => import("../pages/decisions/DecisionsPage"));
 const AccountsPage = lazy(() => import("../pages/accounts/AccountsPage"));
 const StrategiesPage = lazy(() => import("../pages/strategies/StrategiesPage"));
 const HealthPage = lazy(() => import("../pages/health/HealthPage"));
+
+import type { DirectoryConfig } from "../lib/accountDirectory";
 
 type Boot = "loading" | "ready" | "denied" | "error";
 
@@ -43,6 +45,7 @@ export default function App() {
   const [boot, setBoot] = useState<Boot>("loading");
   const [session, setSession] = useState<Session | null>(null);
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.search));
+  const [directory, setDirectory] = useState<DirectoryConfig | null>(null);
   const [scopeOptions, setScopeOptions] = useState<ScopeOption[]>([]);
   const [todoCount, setTodoCount] = useState<number | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
@@ -90,19 +93,14 @@ export default function App() {
         try {
           const accounts = await loadAccounts();
           if (cancelled) return;
-          let paperAliases = new Set<string>();
+          let config: DirectoryConfig | null = null;
           try {
-            const config = await getJson<{ accountOptions?: Record<string, { key?: string; broker_environment?: string }[]> }>("/api/config");
-            paperAliases = new Set(
-              Object.values(config.accountOptions || {})
-                .flat()
-                .filter(account => account.broker_environment === "paper" && typeof account.key === "string")
-                .map(account => account.key as string),
-            );
-          } catch {
-            // Paper grouping is best-effort; scope switching works without it.
-          }
-          setScopeOptions(accounts.accounts.map(account => ({ alias: account.account_alias, platform: account.platform, paper: paperAliases.has(account.account_alias) })));
+            config = await getJson<DirectoryConfig>("/api/config");
+          } catch { /* The list remains usable when optional account metadata is unavailable. */ }
+          if (cancelled) return;
+          setDirectory(config);
+          setScopeOptions(accounts.accounts.map(account => ({ alias: account.account_alias, platform: account.platform,
+            paper: config?.accountOptions?.[account.platform]?.find(option => option.key === account.account_alias)?.broker_environment === "paper" })));
           setUpdatedAt(new Date().toISOString());
         } catch {
           // Scope options stay empty; the scope selector still offers "all".
@@ -217,7 +215,8 @@ export default function App() {
 
   return (
     <I18nProvider language={prefs.language}>
-      <PrefsContext.Provider value={{ prefs, setPrefs }}>
+      <PrefsContext.Provider value={{ prefs, setPrefs, resolvedTheme }}>
+        <AccountDirectoryContext.Provider value={directory}>
         <ScopeContext.Provider value={scopeValue}>
           <NavigateContext.Provider value={navigate}>
             <ToastProvider>
@@ -241,6 +240,7 @@ export default function App() {
             </ToastProvider>
           </NavigateContext.Provider>
         </ScopeContext.Provider>
+        </AccountDirectoryContext.Provider>
       </PrefsContext.Provider>
     </I18nProvider>
   );

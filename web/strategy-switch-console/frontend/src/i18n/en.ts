@@ -2,6 +2,8 @@ import type { CoreMessageKey } from "./zh-CN";
 
 /** en mirror of the zh-CN dictionary; every key is required. */
 export const en: Record<CoreMessageKey, string> = {
+  "shell.switch_light": "Switch to light mode",
+  "shell.switch_dark": "Switch to dark mode",
   "shell.update_available": "A new version is ready. Refresh to use it.",
   "shell.reload": "Refresh page",
   "app.name": "QuantStrategyLab",

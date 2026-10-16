@@ -48,7 +48,8 @@ export function AppShell({
   const t = useT();
   const language = useLanguage();
   const navigate = useNavigate();
-  const { prefs, setPrefs } = usePrefs();
+  const { prefs, setPrefs, resolvedTheme } = usePrefs();
+  const dark = resolvedTheme === "dark";
   useScope();
   const [collapsed, setCollapsed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -112,6 +113,12 @@ export function AppShell({
           <ScopeSwitcher />
           {updated && <span className="topbar-updated">{t("common.updated_at", { value: `${updated.text}${updated.zone ? ` (${updated.zone})` : ""}` })}</span>}
           <span className="spacer" />
+          <button type="button" className="button button-secondary button-sm appearance-toggle" aria-label={t("prefs.language")} title={t("prefs.language")} onClick={() => setPrefs({ ...prefs, language: language === "zh" ? "en" : "zh" })}>
+            {language === "zh" ? "English" : "中文"}
+          </button>
+          <button type="button" className="button button-secondary button-sm appearance-toggle" aria-label={t(dark ? "shell.switch_light" : "shell.switch_dark")} title={t(dark ? "shell.switch_light" : "shell.switch_dark")} onClick={() => setPrefs({ ...prefs, theme: dark ? "light" : "dark" })}>
+            <span aria-hidden="true">{dark ? "☀" : "☾"}</span><span className="theme-toggle-label">{t(dark ? "prefs.theme_light" : "prefs.theme_dark")}</span>
+          </button>
           {synthetic && <span className="badge badge-accent">{t("common.synthetic_badge")}</span>}
           <button
             type="button"

@@ -1,3 +1,5 @@
+import { AccountGroups } from "../../components/AccountGroups";
+import type { DirectoryConfig } from "../../lib/accountDirectory";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { getJson } from "../../api/client";
@@ -28,7 +30,6 @@ import { useNavigate, useScope } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
 import {
   AsOfStamp,
-  Badge,
   DateText,
   EmptyState,
   ErrorState,
@@ -44,11 +45,7 @@ import "./overview.css";
 type Api<T> = AsyncState<T> & { reload: () => void };
 
 /** Best-effort legacy config: strategy names, paper flag, runtime target state. */
-interface LegacyConfig {
-  accountOptions?: Record<string, { key?: string; label?: string; broker_environment?: string; target_name?: string }[]>;
-  currentStrategies?: Record<string, Record<string, { strategy_profile?: string; runtime_target_enabled?: boolean }>>;
-  platformMeta?: Record<string, { label?: string }>;
-}
+type LegacyConfig = DirectoryConfig;
 
 const RANGE = "YTD" as const;
 
@@ -92,7 +89,7 @@ function AssetKpi({ state }: { state: Api<AssetsResponse> }) {
 
 function ReturnKpi({ state }: { state: Api<SummaryResponse> }) {
   const t = useT();
-  const title = t("overview.range_return", { range: RANGE });
+  const title = t("overview.range_return", { range: t(`perf.range.${RANGE}`) });
   if (state.phase === "loading") return kpiLoading(title);
   if (state.phase === "error") return <KpiCard title={title} value={<KpiState status="read_failed" />} />;
   const data = state.data;
@@ -329,7 +326,7 @@ function TodoPreviewCard({ state }: { state: Api<InboxResponse> }) {
 
 /* ---------- my accounts ---------- */
 
-function AccountsCard({ accounts, config, todayRuns }: { accounts: Api<AccountsResponse>; config: Api<LegacyConfig | null>; todayRuns: Api<TodayRunSummary> }) {
+function AccountsCard({ accounts, config }: { accounts: Api<AccountsResponse>; config: Api<LegacyConfig | null> }) {
   const t = useT();
   const navigate = useNavigate();
   let body: ReactNode;
@@ -347,59 +344,7 @@ function AccountsCard({ accounts, config, todayRuns }: { accounts: Api<AccountsR
     body = <EmptyState title={t("overview.no_accounts")} />;
   } else {
     const cfg = config.phase === "ready" ? config.data : null;
-    const runByAlias = new Map(
-      todayRuns.phase === "ready" && todayRuns.data.status !== "read_failed"
-        ? todayRuns.data.accounts.map(account => [account.account_alias, account] as const)
-        : [],
-    );
-    body = (
-      <div className="account-grid">
-        {accounts.data.accounts.map(account => {
-          const options = cfg?.accountOptions?.[account.platform] || [];
-          const option = options.find(item => item.key === account.account_alias);
-          const paper = option?.broker_environment === "paper";
-          const current = cfg?.currentStrategies?.[account.platform]?.[account.account_alias];
-          const strategy = current?.strategy_profile || null;
-          const enabled = typeof current?.runtime_target_enabled === "boolean" ? current.runtime_target_enabled : null;
-          const platformLabel = cfg?.platformMeta?.[account.platform]?.label || account.platform;
-          const run = runByAlias.get(account.account_alias);
-          return (
-            <button
-              key={account.account_alias}
-              type="button"
-              className="account-card"
-              onClick={() => navigate({ page: "accounts", account: account.account_alias })}
-            >
-              <span className="account-title">
-                {account.account_alias}
-                {paper && <Badge tone="accent">{t("common.paper_badge")}</Badge>}
-              </span>
-              <span className="account-row"><span>{t("common.platform")}</span><span>{platformLabel}</span></span>
-              <span className="account-row"><span>{t("overview.account_strategy")}</span><span>{strategy || t("common.na")}</span></span>
-              {enabled !== null && (
-                <span className="account-row">
-                  <span>{t("overview.runtime_target")}</span>
-                  <span>{enabled ? t("overview.runtime_enabled") : t("overview.runtime_disabled")}</span>
-                </span>
-              )}
-              {run && (
-                <span className="account-row">
-                  <span>{t("accounts.col.run")}</span>
-                  <span><StatusBadge status={run.status} reason={run.unavailable_reason} /></span>
-                </span>
-              )}
-              {account.pending_draft_count > 0 && (
-                <span className="account-row"><span>{t("accounts.col.drafts")}</span><span className="num">{account.pending_draft_count}</span></span>
-              )}
-              {account.pending_decision_count !== null && account.pending_decision_count > 0 && (
-                <span className="account-row"><span>{t("accounts.col.todos")}</span><span className="num">{account.pending_decision_count}</span></span>
-              )}
-              <span className="account-row"><span>{t("accounts.col.last_change")}</span><span><DateText value={account.last_change_at} /></span></span>
-            </button>
-          );
-        })}
-      </div>
-    );
+    body = <AccountGroups accounts={accounts.data.accounts} config={cfg} onSelect={key => navigate({ page: "accounts", account: key })} />;
   }
   return (
     <div className="card">
@@ -446,7 +391,7 @@ export default function OverviewPage() {
         <TrendCard state={returns} />
         <TodoPreviewCard state={inbox} />
       </div>
-      <AccountsCard accounts={accounts} config={config} todayRuns={todayRuns} />
+      <AccountsCard accounts={accounts} config={config} />
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { performanceScope } from "../lib/accountDirectory";
 import { getJson, postJson, readRevision } from "./client";
 import type {
   AccountsResponse,
@@ -104,8 +105,9 @@ export function loadRunControls(account: string, platform?: string): Promise<Run
 }
 
 function performanceQuery(scope: string, range: Range, platform?: string): string {
-  const params = new URLSearchParams({ scope, range });
-  if (platform) params.set("platform", platform);
+  const selected = performanceScope(scope, platform);
+  const params = new URLSearchParams({ scope: selected.scope, range });
+  if (selected.platform) params.set("platform", selected.platform);
   return String(params);
 }
 
@@ -130,9 +132,10 @@ export function loadPerformanceTrades(scope: string, range: Range, platform?: st
 }
 
 export function loadPerformanceCalendar(scope: string, range: Range, year: number, month?: number | null, platform?: string): Promise<CalendarResponse> {
-  const params = new URLSearchParams({ scope, range, year: String(year) });
+  const selected = performanceScope(scope, platform);
+  const params = new URLSearchParams({ scope: selected.scope, range, year: String(year) });
   if (month !== null && month !== undefined) params.set("month", String(month));
-  if (platform) params.set("platform", platform);
+  if (selected.platform) params.set("platform", selected.platform);
   return getJson<CalendarResponse>(`/api/performance/calendar?${params}`);
 }
 

@@ -1,8 +1,9 @@
+import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useId, useState } from "react";
 import type { DraftField, Scalar, SettingsDiffResponse, SettingsDiffRow, SettingsSection } from "../../api/contracts";
 import { loadAccountSettings, loadSettingsDiff, saveCombinedDraft } from "../../api/endpoints";
 import { HttpError } from "../../api/client";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import type { Translate } from "../../i18n";
 import type { AsyncState } from "../../lib/hooks";
 import { Badge, ErrorState, Skeleton } from "../../components/primitives";
@@ -100,6 +101,8 @@ export function StrategyTab({
   setEdits: (next: EditMap | ((prev: EditMap) => EditMap)) => void;
   confirm: Confirm;
 }) {
+  const language = useLanguage();
+  const names = useDisplayNames();
   const formId = useId();
   const controlId = (field: DraftField) => `${formId}-${field}`;
   const t = useT();
@@ -114,7 +117,7 @@ export function StrategyTab({
   const diff = diffState.data;
   const rows = diff.rows;
   const identityConflict = diff.identity_status === "identity_conflict";
-  const options = profileOptions(config);
+  const options = profileOptions(config, language);
   const dirty = Object.keys(edits).length > 0;
 
   const setEdit = (field: DraftField, value: Scalar | null) => {
@@ -257,7 +260,7 @@ export function StrategyTab({
       }
       const accepted = await confirm({
         title: t("accounts.diff_dialog_title"),
-        target: account.account_alias,
+        target: names.account(account.account_alias, account.platform),
         summary: t("accounts.draft_note"),
         body: <ReviewBody rows={changed} t={t} />,
         ackLabel: changed.some(row => row.affectsLive) ? t("accounts.ack_live") : undefined,

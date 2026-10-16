@@ -1,14 +1,18 @@
 import { createContext, useContext } from "react";
+import type { DirectoryConfig } from "../lib/accountDirectory";
+export const AccountDirectoryContext = createContext<DirectoryConfig | null>(null);
 import type { Preferences } from "../lib/prefs";
 import { DEFAULT_PREFERENCES } from "../lib/prefs";
 
 export interface PrefsContextValue {
   prefs: Preferences;
+  resolvedTheme: "light" | "dark";
   setPrefs: (next: Preferences) => void;
 }
 
 export const PrefsContext = createContext<PrefsContextValue>({
   prefs: DEFAULT_PREFERENCES,
+  resolvedTheme: "light",
   setPrefs: () => {},
 });
 

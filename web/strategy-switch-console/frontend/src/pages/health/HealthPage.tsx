@@ -1,3 +1,4 @@
+import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useMemo, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import {
@@ -100,6 +101,7 @@ function StatStrip({
 
 function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
   const t = useT();
+  const names = useDisplayNames();
   if (summary.phase === "loading") return <Skeleton height={120} />;
   if (summary.phase === "error") return <ErrorState onRetry={summary.reload} />;
   const columns: Column<SummaryAccount>[] = [
@@ -108,7 +110,7 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
       header: t("health.col.account"),
       cell: row => (
         <>
-          {row.account_alias} <span className="card-note">{row.platform}</span>
+          {names.account(row.account_alias, row.platform)} <span className="card-note">{row.platform}</span>
         </>
       ),
       sortValue: row => row.account_alias,

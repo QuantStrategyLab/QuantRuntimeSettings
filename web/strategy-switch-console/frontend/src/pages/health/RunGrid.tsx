@@ -1,3 +1,4 @@
+import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useEffect, useMemo, useState } from "react";
 import type { RuntimeDailyRecord, RuntimeDailySnapshot } from "../../api/endpoints";
 import { cellKind, type CellKind } from "./status";
@@ -58,6 +59,7 @@ interface Selection {
 
 function DayDetail({ selection, cell }: { selection: Selection; cell: CellState | undefined }) {
   const t = useT();
+  const names = useDisplayNames();
   const language = useLanguage();
   const dateText = formatDate(selection.date, language);
   let body;
@@ -99,7 +101,7 @@ function DayDetail({ selection, cell }: { selection: Selection; cell: CellState 
     <div className="health-day-detail">
       <div className="health-day-detail-head">
         <strong>{t("health.day_detail")}</strong>
-        <span>{selection.account.account_alias}</span>
+        <span>{names.account(selection.account.account_alias, selection.account.platform)}</span>
         <span className="num">{dateText}</span>
       </div>
       {body}
@@ -109,6 +111,7 @@ function DayDetail({ selection, cell }: { selection: Selection; cell: CellState 
 
 export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: number }) {
   const t = useT();
+  const names = useDisplayNames();
   const dates = useMemo(() => lastNDates(runtimeDailyBusinessDate(), 14), [epoch]);
   const [cells, setCells] = useState<Record<string, CellState>>({});
   const [historyError, setHistoryError] = useState(false);
@@ -174,7 +177,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
             {accounts.map(account => (
               <tr key={`${account.platform}/${account.account_alias}`}>
                 <th scope="row">
-                  {account.account_alias}
+                  {names.account(account.account_alias, account.platform)}
                   <span className="card-note"> {account.platform}</span>
                 </th>
                 {dates.map(date => {
@@ -196,7 +199,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
                           type="button"
                           className={`health-cell read-failed${isSelected ? " selected" : ""}`}
                           title={t("state.read_failed")}
-                          aria-label={`${account.account_alias} ${date}: ${t("state.read_failed")}`}
+                          aria-label={`${names.account(account.account_alias, account.platform)} ${date}: ${t("state.read_failed")}`}
                           onClick={() => setSelected({ account, date })}
                         >!</button>
                       </td>
@@ -210,7 +213,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
                         type="button"
                         className={`health-cell ${kind}${isSelected ? " selected" : ""}`}
                         title={label}
-                        aria-label={`${account.account_alias} ${date}: ${label}`}
+                        aria-label={`${names.account(account.account_alias, account.platform)} ${date}: ${label}`}
                         aria-pressed={isSelected}
                         onClick={() => setSelected({ account, date })}
                       >

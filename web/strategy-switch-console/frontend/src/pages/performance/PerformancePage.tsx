@@ -19,7 +19,7 @@ export default function PerformancePage() {
   const language = useLanguage();
   const { prefs } = usePrefs();
   const { scope, options } = useScope();
-  const platform = scope === "all" ? undefined : options.find(option => option.alias === scope)?.platform;
+  const platform = scope === "all" ? undefined : options.find(option => `${option.platform}:${option.alias}` === scope)?.platform;
   const [range, setRange] = useState<Range>(prefs.defaultRange);
   const [epoch, setEpoch] = useState(0);
   const reloadAll = () => setEpoch(value => value + 1);
