@@ -1,11 +1,12 @@
 import { useContext } from "react";
 import { AccountDirectoryContext } from "../app/context";
 import { useLanguage, useT } from "../i18n";
-import { accountOption, type AccountRef } from "./accountDirectory";
+import { accountOption, type AccountRef, type DirectoryConfig } from "./accountDirectory";
 import { accountName, strategyName, laneName, domainName } from "./displayNames";
 
-export function useDisplayNames() {
-  const config = useContext(AccountDirectoryContext), language = useLanguage(), t = useT();
+export function useDisplayNames(override?: DirectoryConfig | null) {
+  const directory = useContext(AccountDirectoryContext), language = useLanguage(), t = useT();
+  const config = override === undefined ? directory : override;
   return {
     config,
     account: (alias: string | null | undefined, platform?: string | null) => {

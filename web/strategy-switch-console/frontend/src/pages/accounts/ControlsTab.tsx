@@ -41,7 +41,7 @@ export function ControlsTab({
 }) {
   const t = useT();
   const toast = useToast();
-  const names = useDisplayNames();
+  const names = useDisplayNames(config);
   const state = useApi(() => loadRunControls(account.account_alias, account.platform), [account.account_alias, account.platform]);
   const [busy, setBusy] = useState<ActionName | null>(null);
   // Unknown or ambiguous outcomes lock the action until the availability is reloaded.

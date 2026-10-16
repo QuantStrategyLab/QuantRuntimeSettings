@@ -103,7 +103,7 @@ export function StrategyTab({
   confirm: Confirm;
 }) {
   const language = useLanguage();
-  const names = useDisplayNames();
+  const names = useDisplayNames(config);
   const formId = useId();
   const controlId = (field: DraftField) => `${formId}-${field}`;
   const t = useT();

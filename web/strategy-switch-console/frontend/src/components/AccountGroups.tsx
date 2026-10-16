@@ -6,7 +6,7 @@ import { DateText } from "./primitives";
 
 type Account = AccountsResponse["accounts"][number];
 export function AccountGroups({ accounts, config, onSelect }: { accounts: Account[]; config: DirectoryConfig | null; onSelect: (key: string) => void }) {
-  const names = useDisplayNames(), t = useT();
+  const names = useDisplayNames(config), t = useT();
   return <div className="section-stack">{groupAccounts(accounts, config).map(group => <section className="account-platform-group" key={group.platform}>
     <h2 className="account-platform-title">{names.platform(group.platform)}</h2>
     <div className="account-grid">{group.accounts.map(account => <article className="card account-group-card" key={account.identity}>

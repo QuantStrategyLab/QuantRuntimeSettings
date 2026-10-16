@@ -39,7 +39,7 @@ export function AccountDetail({
   onBack: () => void;
 }) {
   const t = useT();
-  const names = useDisplayNames();
+  const names = useDisplayNames(config);
   const navigate = useNavigate();
   const { confirmRequest, confirm, resolveConfirm } = useConfirmation();
   const [editing, setEditing] = useState(false);
