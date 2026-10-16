@@ -1,3 +1,4 @@
+import { displayName } from "../../display_names.js";
 import type { CredentialMaintenance, Source } from "./api";
 import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, promotionSuggestion, promotionDecisionReady, type HumanDecisionState, recoveryBinding } from "./operations.ts";
 import { accountFactsForDisplay, binanceProviderProductTypeForDisplay } from "./types.ts";
@@ -1286,7 +1287,7 @@ export function accountIdentity(account: { label?: unknown; key?: unknown; accou
   if (label && !occupiedLabel && !labelIsNumber && !ROUTE_ALIASES.has(identityFold(label))) return { ...base, kind: "nickname", text: label };
   if (accountNumber && (occupiedLabel || labelIsNumber || !label)) return { ...base, kind: "masked", tail: accountNumber };
   const alias = routeAlias(labelIsNumber ? "" : label, key);
-  if (alias) return { ...base, kind: "alias", alias: identityFold(platform) === "binance" && identityFold(alias) === "crypto_combo" ? "live" : alias };
+  if (alias) return { ...base, kind: "alias", alias: displayName("accounts", alias, "en", alias, platform) };
   return { ...base, kind: "generic" };
 }
 
@@ -1315,19 +1316,16 @@ function catalogText(profile: object | null | undefined, key: string): string {
 }
 
 // Label-only releases deliberately do not sync the private catalog. Normalize only
-// these four reviewed display identities from the existing generated label authority.
+// known public display identities from the existing generated label authority.
 // No gate, parameter, source/config identity or observed state is read from this map.
-const NORMALIZED_DISPLAY_IDS = new Set([
-  "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve", "us_equity_combo",
-  "us_equity_combo_core", "crypto_live_pool_rotation",
-]);
+const NORMALIZED_DISPLAY_IDS = new Set(DEFAULT_STRATEGY_PROFILES.map(profile => profile.profile));
 const NORMALIZED_DISPLAY_LABELS = new Map(DEFAULT_STRATEGY_PROFILES
   .filter(profile => NORMALIZED_DISPLAY_IDS.has(profile.profile))
   .map(profile => [profile.profile, { label_zh: profile.label_zh, label_en: profile.label_en }]));
 
 export function strategyDisplayName(profile: object | null | undefined, language: "zh" | "en"): string {
   const labels = NORMALIZED_DISPLAY_LABELS.get(catalogText(profile, "profile")) || profile;
-  return catalogText(labels, language === "zh" ? "label_zh" : "label_en") || "未命名策略";
+  return displayName("strategies", catalogText(profile, "profile"), language, catalogText(labels, language === "zh" ? "label_zh" : "label_en") || "未命名策略");
 }
 
 export function strategyNote(profile: object | null | undefined, language: "zh" | "en"): string {

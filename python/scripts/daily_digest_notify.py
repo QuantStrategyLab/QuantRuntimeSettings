@@ -16,6 +16,8 @@ Count semantics:
 
 from __future__ import annotations
 
+from display_names import display_name
+
 import re
 
 from dataclasses import dataclass, field
@@ -1016,7 +1018,7 @@ def account_block_tag(entry: DigestRunEntry) -> str:
     """
 
     platform = str(entry.platform_id or "").strip()
-    label = _account_label(entry)
+    label = display_name("accounts", _account_label(entry), platform=entry.platform_id)
     if not label:
         return ""
     if not platform:
@@ -1028,9 +1030,8 @@ def account_block_tag(entry: DigestRunEntry) -> str:
     return f"{platform} {label}"
 
 
-def _display_strategy(entry: DigestRunEntry) -> str:
-    label = entry.strategy_label.strip()
-    return label or entry.strategy_profile
+def _display_strategy(entry: DigestRunEntry, locale="zh") -> str:
+    return display_name("strategies", entry.strategy_profile, locale, fallback=entry.strategy_label.strip() or entry.strategy_profile)
 
 
 _HOLDINGS_SCOPES = frozenset({"strategy_symbols_only", "stocks_only"})
@@ -1098,7 +1099,7 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> li
         lines.append(f"[{tag}] {title}")
     else:
         lines.append(title)
-    lines.append(f"{_t(locale, 'strategy_label')}: {_display_strategy(entry)}")
+    lines.append(f"{_t(locale, 'strategy_label')}: {_display_strategy(entry, locale)}")
     if entry.equity is not None:
         lines.append(
             f"{_t(locale, 'equity_label')}: "
@@ -1143,7 +1144,7 @@ def _render_run_line(entry: DigestRunEntry, locale: DigestLocale) -> list[str]:
     return [
         _t(locale, "platform_line").format(
             platform=entry.platform_id,
-            strategy=_display_strategy(entry),
+            strategy=_display_strategy(entry, locale),
             detail=_detail_for(entry, locale),
         )
     ]
@@ -1197,6 +1198,7 @@ def _render_stale_candidates(
             or str(item.get("strategy_profile") or "").strip()
             or "unknown"
         )
+        strategy = display_name("strategies", item.get("strategy_profile"), locale, fallback=strategy)
         day = str(item.get("candidate_business_day") or "").strip()
         detail = (
             _t(locale, "stale_detail_day").format(day=day)
@@ -1365,7 +1367,7 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
                 if counts_not_connected(entry):
                     detail = " · ".join(filter(None, (detail, _trade_counts(entry, locale))))
                 attention.append(_t(locale, "v2_attention_status").format(
-                    tag=account_block_tag(entry), strategy=_display_strategy(entry), detail=detail,
+                    tag=account_block_tag(entry), strategy=_display_strategy(entry, locale), detail=detail,
                 ))
                 continue
             reason = f"（{entry.reason_code}）" if locale == "zh" and entry.reason_code else (
@@ -1374,7 +1376,7 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
             attention.append(
                 _t(locale, "v2_attention_alert").format(
                     tag=account_block_tag(entry),
-                    strategy=_display_strategy(entry),
+                    strategy=_display_strategy(entry, locale),
                     reason=reason,
                 )
             )

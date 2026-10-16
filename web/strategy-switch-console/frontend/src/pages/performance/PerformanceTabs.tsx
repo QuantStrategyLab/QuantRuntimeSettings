@@ -1,3 +1,4 @@
+import { accountName } from "../../lib/displayNames";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useLanguage, useT } from "../../i18n";
@@ -64,7 +65,7 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
     );
   }
   const columns: Column<HoldingRow>[] = [
-    { id: "account", header: t("perf.col.account"), cell: row => row.account_alias, sortValue: row => row.account_alias },
+    { id: "account", header: t("perf.col.account"), cell: row => accountName(row.account_alias, row.platform), sortValue: row => row.account_alias },
     { id: "symbol", header: t("perf.col.symbol"), cell: row => row.symbol, sortValue: row => row.symbol },
     {
       id: "quantity",

@@ -1,3 +1,4 @@
+import { accountName } from "../lib/displayNames";
 import { useEffect, useRef, useState } from "react";
 import { useScope } from "../app/context";
 import { useT } from "../i18n";
@@ -40,7 +41,7 @@ export function ScopeSwitcher() {
         setOpen(false);
       }}
     >
-      <span style={{ flex: 1 }}>{option.alias}</span>
+      <span style={{ flex: 1 }}>{accountName(option.alias, option.platform)}</span>
       {option.paper && <span className="badge badge-accent">{t("common.paper_badge")}</span>}
     </button>
   );
@@ -55,7 +56,7 @@ export function ScopeSwitcher() {
         aria-label={t("shell.scope")}
         onClick={() => setOpen(value => !value)}
       >
-        {current} ▾
+        {scope === "all" ? current : accountName(scope, options.find(option => option.alias === scope)?.platform)} ▾
       </button>
       {open && (
         <div className="scope-panel" role="listbox" aria-label={t("shell.scope")}>

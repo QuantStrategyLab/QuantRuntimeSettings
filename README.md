@@ -144,3 +144,5 @@ Notes:
 ## License
 
 See [LICENSE](LICENSE).
+
+显示与通知名称配置：[说明](docs/display-names.md)。

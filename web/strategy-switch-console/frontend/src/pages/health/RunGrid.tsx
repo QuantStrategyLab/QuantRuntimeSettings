@@ -1,3 +1,4 @@
+import { accountName } from "../../lib/displayNames";
 import { useEffect, useMemo, useState } from "react";
 import type { RuntimeDailyRecord, RuntimeDailySnapshot } from "../../api/endpoints";
 import { cellKind, type CellKind } from "./status";
@@ -99,7 +100,7 @@ function DayDetail({ selection, cell }: { selection: Selection; cell: CellState 
     <div className="health-day-detail">
       <div className="health-day-detail-head">
         <strong>{t("health.day_detail")}</strong>
-        <span>{selection.account.account_alias}</span>
+        <span>{accountName(selection.account.account_alias, selection.account.platform)}</span>
         <span className="num">{dateText}</span>
       </div>
       {body}
@@ -174,7 +175,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
             {accounts.map(account => (
               <tr key={`${account.platform}/${account.account_alias}`}>
                 <th scope="row">
-                  {account.account_alias}
+                  {accountName(account.account_alias, account.platform)}
                   <span className="card-note"> {account.platform}</span>
                 </th>
                 {dates.map(date => {

@@ -42,6 +42,8 @@ jobs:
           else
             git diff-tree --check --no-commit-id --root -r HEAD
           fi
+      - name: Validate generated display names
+        run: python3 python/scripts/build_display_names.py --check
       - name: Validate platform config
         run: python3 python/scripts/build_config.py --check
       - name: Validate runtime targets
@@ -97,6 +99,7 @@ jobs:
           npm_config_update_notifier: "false"
         run: |
           set -euo pipefail
+          node tests/display_names_validation.mjs
           node tests/console_v2_assets_validation.mjs
           node tests/console_deploy_safety_validation.mjs
           npm ci --prefix web/strategy-switch-console/frontend

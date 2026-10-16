@@ -1,0 +1,48 @@
+{
+  "accounts": {
+    "binance": {
+      "crypto_combo": "live",
+      "default": "live",
+      "Binance": "live",
+      "binance": "live"
+    }
+  },
+  "lanes": {
+    "live": "live",
+    "paper": "paper",
+    "shadow": "shadow",
+    "research": "research",
+    "dry_run": "dry_run"
+  },
+  "strategy_aliases": {
+    "global_etf_confidence_vol_gate": "global_etf_rotation",
+    "global_macro_etf_rotation": "global_etf_rotation",
+    "bitcoin_etf_smart_dca": "ibit_smart_dca"
+  },
+  "legacy_strategies": {
+    "cn_csi500_multi_factor_snapshot": {
+      "zh": "A股中证500多因子",
+      "en": "CN CSI 500 Multi-Factor Snapshot"
+    },
+    "cn_stock_momentum_rotation": {
+      "zh": "A股股票动量轮动",
+      "en": "CN Stock Momentum Rotation"
+    },
+    "crypto_leader_rotation": {
+      "en": "Crypto Leader Rotation",
+      "zh": "加密领涨轮动"
+    },
+    "global_etf_confidence_vol_gate": {
+      "zh": "全球 ETF 置信波动门控",
+      "en": "Global ETF Confidence Vol Gate"
+    },
+    "qqq_tech_enhancement": {
+      "zh": "科技通信回调增强",
+      "en": "Tech/Communication Pullback Enhancement"
+    },
+    "tech_communication_pullback_enhancement": {
+      "zh": "科技通信回调增强",
+      "en": "Tech/Communication Pullback Enhancement"
+    }
+  }
+}

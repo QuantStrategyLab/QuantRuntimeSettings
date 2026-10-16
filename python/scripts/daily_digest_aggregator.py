@@ -630,7 +630,7 @@ def enrich_candidate_labels(
             row["section"] = section_for_profile(
                 config, str(row.get("strategy_profile") or "")
             )
-        if not str(row.get("strategy_label") or "").strip():
+        if str(row.get("strategy_profile") or "").strip():
             label = strategy_label_from_config(
                 config, str(row.get("strategy_profile") or ""), locale=locale
             )
