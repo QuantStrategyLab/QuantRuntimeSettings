@@ -249,6 +249,7 @@ export default function StrategiesPage() {
         </button>
       </header>
       <Tabs
+        id="strategies"
         items={[
           { id: "catalog", label: t("strategies.tab.catalog") },
           { id: "research", label: t("strategies.tab.research") },
@@ -257,7 +258,9 @@ export default function StrategiesPage() {
         onChange={id => setTab(id as StrategiesTab)}
         ariaLabel={t("strategies.title")}
       />
-      {tab === "catalog" ? <CatalogTab refreshEpoch={refreshEpoch} /> : <ResearchTab refreshEpoch={refreshEpoch} />}
+      <div id="strategies-panel" role="tabpanel" aria-labelledby={`strategies-tab-${tab}`} tabIndex={0}>
+        {tab === "catalog" ? <CatalogTab refreshEpoch={refreshEpoch} /> : <ResearchTab refreshEpoch={refreshEpoch} />}
+      </div>
     </div>
   );
 }

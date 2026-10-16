@@ -8,6 +8,8 @@
 }
 
 .accounts-list-cards { display: none; }
+.accounts-split:not(.detail-open) { grid-template-columns: minmax(0, 1fr); }
+.accounts-list, .accounts-detail { min-width: 0; }
 
 .accounts-alias-button {
   color: var(--accent);
