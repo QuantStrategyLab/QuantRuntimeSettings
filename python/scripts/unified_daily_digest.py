@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from daily_digest_notify import DailyDigestInput
+from daily_digest_notify import DailyDigestInput, _trade_counts, counts_not_connected, is_blocked
 
 
 def enabled() -> bool:
@@ -23,14 +23,22 @@ def render(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
         known_orders = row.order_count is not None and row.order_count_status == "known"
         known_fills = row.fill_count is not None and row.fill_count_status == "known"
         if (known_orders and row.order_count > 0) or (known_fills and row.fill_count > 0):
-            orders = str(row.order_count) if known_orders else "?"
+            orders = str(row.order_count) if known_orders else ("未接入统计 / not connected" if counts_not_connected(row) else "?")
             completion = row.execution_status in {"executed", "completed"}
-            fill_text = f"成交 Fills {row.fill_count}" if known_fills else ("已完成 / Completed" if completion else "成交数量未知 / Fill count unknown")
+            fill_text = f"成交 Fills {row.fill_count}" if known_fills else (
+                "成交未接入统计 / Fill counting not connected" if counts_not_connected(row) else
+                "已完成 / Completed" if completion else "成交数量未知 / Fill count unknown"
+            )
             trades.append(f"• {label}：订单 Orders {orders} · {fill_text}")
         complete_orders = known_orders and row.order_count > 0 and row.execution_status in {"executed", "completed"}
-        if row.status == "alert" or not known_orders or (not known_fills and not complete_orders):
+        if row.status == "alert" or is_blocked(row) or not known_orders or (not known_fills and not complete_orders):
             # Do not expose producer prose, raw exceptions or private identities.
             reason = "执行异常 / Execution issue" if row.status == "alert" and known_orders and known_fills else "执行证据不完整 / Incomplete execution evidence"
+            if is_blocked(row):
+                reason = "已拦截 / Blocked"
+            if counts_not_connected(row):
+                counts = f"{_trade_counts(row, 'zh')} / {_trade_counts(row, 'en')}"
+                reason = f"{reason} · {counts}" if is_blocked(row) else counts
             problems.append(f"• {label}：{reason}")
     coverage = payload.evidence_coverage
     if coverage:
