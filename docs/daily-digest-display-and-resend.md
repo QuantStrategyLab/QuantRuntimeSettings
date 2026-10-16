@@ -70,7 +70,11 @@ secret, resource, cross-repository token grant, or write permission is added.
    Existing workflow concurrency serializes scheduled and manual runs.
 2. It lists this workflow's runs across branches, including failed/cancelled
    runs and a rerun's prior attempt, and reads `receipt-public.json` from the
-   existing artifact. Overall workflow success alone never proves delivery.
+   existing artifact. It also accepts the pre-projection `receipt.json` archive
+   after validating its known receipt schema and delivery fields. Only delivery
+   marker fields are retained; account data and private diagnostics are discarded.
+   Overall workflow success alone never proves delivery. This path never calls
+   the console or Cloudflare KV, including KV `list()`.
 3. A receipt with the same business day, `status=delivered`, `delivered=true`,
    `dry_run=false`, and no test flag skips the send with exit success. Receipts
    written before test flags existed count as normal deliveries.
@@ -80,6 +84,12 @@ secret, resource, cross-repository token grant, or write permission is added.
    the send step did not run. A send failure is not automatically retried.
 5. The existing public receipt, artifact, step summary and error log expose
    `blocked_resend_guard` and a fixed reason without private exception text.
+   `HISTORY_UNAVAILABLE` also includes an allowlisted `history_error`, the number
+   of attempted history reads, an **URGENT** annotation/summary, and an unforced
+   `workflow_dispatch` command pinned to the blocked business day. Transient
+   transport, server, incomplete-scan and concurrent-run errors retry history
+   reads with bounded exponential delays. Invalid/expired/missing markers and
+   auth failures stop immediately. No retry sends a message or writes state.
    The next normal digest that can safely send includes a bilingual notice of
    unresolved guard failures seen in recent history. A successful normal
    delivery clears that notice for later runs. No new alert channel is added.
@@ -105,15 +115,28 @@ default only in GitHub Actions. Runtime settings for other installations:
 | `DIGEST_GUARD_SEND_STEP` | `Aggregate, render, and send daily digest` |
 | `DIGEST_GUARD_MAX_PAGES` | `10` pages of 100 entries; incomplete scans block |
 | `DIGEST_GUARD_LOOKBACK_DAYS` | `7` days before the requested business day, for recovery notices |
+| `DIGEST_GUARD_LEGACY_RECEIPT` | `receipt.json`; configurable legacy basename, `none` disables legacy compatibility |
+| `DIGEST_GUARD_READ_ATTEMPTS` | `3`; range `1..5`, transient history reads only |
+| `DIGEST_GUARD_RETRY_DELAY_SECONDS` | `2`; range `0..60`, exponential delay capped at 60 seconds |
 
 Repository, API URL, event, run ID and attempt come from standard `GITHUB_*`
 context. All requests are GETs. Artifact redirects strip authorization before
-following another host, archives are size-limited and never extracted.
+following another host, archives are size-limited and never extracted. The
+workflow exposes the legacy filename and read retry settings through optional
+repository/environment variables of the same names; no variable change is
+needed to use the safe defaults.
 Future business-day sends are rejected by history detection; older overrides
 scan from that older business day. Preserve receipts for any day that may be
 resent. Removing/expiring evidence can block sending; it is not permission to
-assume no prior delivery. Restore readable evidence or investigate the existing
-workflow receipts before deciding on a deliberate labelled test.
+assume no prior delivery. Restore readable evidence, then dispatch with the
+original business day and `force_resend=false`. Do not rerun the send after an
+uncertain delivery; investigate that receipt first.
+
+The US-session business day is the New York date, independently of the SGT
+report date. For example, `2026-10-15T23:59Z` is October 15 in New York and
+October 16 in Singapore. A manual recovery must keep `business_day=2026-10-15`.
+GitHub schedules can be delayed; run creation and job startup timestamps show
+which delay is visible, but do not establish the scheduler's internal cause.
 
 ## Offline verification
 

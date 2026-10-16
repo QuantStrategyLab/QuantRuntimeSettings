@@ -26,7 +26,7 @@ class PublicDigestReceiptTests(unittest.TestCase):
              "delivery_axes": {"execution_status": {"private": marker}}},
             {"failures": {"private": marker}},
             {"resend_guard": {"decision": marker, "reason": marker, "previous_failures": marker,
-                              "private_detail": marker}, "test_message": marker,
+                              "private_detail": marker, "history_error": marker, "history_attempts": marker}, "test_message": marker,
              "source_coverage": {"missing_targets": [{"account_hint": marker}],
                                  "suppressed_candidates_count": {"private": marker}}},
         ]

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from daily_digest_aggregator import CANDIDATE_STORE_FAILURE_REASONS
+from daily_digest_resend_guard import HISTORY_ERRORS
 from credential_maintenance_notify import READ_STATUSES, PHASES, DELIVERIES
 from daily_digest_delivery_axes import (
     EVIDENCE_DELIVERY_STATUSES, EXECUTION_STATUSES, NOTIFICATION_DELIVERY_STATUSES, PERSISTENCE_STATUSES,
@@ -104,6 +105,8 @@ def project_public_receipt(receipt: Mapping[str, Any], *, source_sha: str = "") 
                 "DELIVERY_UNCERTAIN", "CONFIGURATION_INVALID", "UNSUPPORTED_EVENT", "LOCAL_EXECUTION", "DRY_RUN",
             }),
             "previous_failures": _count(guard.get("previous_failures")),
+            "history_error": _enum(guard.get("history_error"), HISTORY_ERRORS | {""}),
+            "history_attempts": _count(guard.get("history_attempts")),
         }
     if source_sha:
         if not isinstance(source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", source_sha):

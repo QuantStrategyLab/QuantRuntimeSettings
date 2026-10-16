@@ -7,6 +7,9 @@ import json
 import os
 import re
 import sys
+import shlex
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -15,6 +18,23 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+
+# Public diagnostics must never contain exception text, URLs, or credentials.
+HISTORY_ERRORS = frozenset({
+    "guard_response_too_large", "guard_history_incomplete", "guard_marker_invalid",
+    "guard_marker_business_day_missing", "guard_configuration_invalid", "guard_future_business_day",
+    "guard_run_invalid", "guard_prior_run_in_progress", "guard_job_history_missing",
+    "guard_send_receipt_missing", "guard_send_receipt_expired", "guard_http_access_denied", "guard_http_request_failed",
+    "guard_http_unavailable", "guard_transport_unavailable", "guard_history_read_failed",
+})
+RETRYABLE_HISTORY_ERRORS = frozenset({
+    "guard_http_unavailable", "guard_transport_unavailable", "guard_history_incomplete",
+    "guard_prior_run_in_progress",
+})
+MARKER_FIELDS = (
+    "schema_version", "business_day", "report_date", "recipient_scope", "delivered", "dry_run", "status", "test_message",
+)
 
 
 def report_date() -> str:
@@ -31,13 +51,16 @@ class Decision:
     reason: str
     test_message: bool = False
     previous_failures: int = 0
+    history_error: str = ""
+    history_attempts: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def log(self, day: str, event: str) -> str:
         return (f"digest_resend_guard decision={self.decision} reason={self.reason} "
-                f"business_day={day} event={event} test={str(self.test_message).lower()}")
+                f"business_day={day} event={event} test={str(self.test_message).lower()} "
+                f"history_error={self.history_error or 'none'} history_attempts={self.history_attempts}")
 
 
 class _SafeRedirect(urllib.request.HTTPRedirectHandler):
@@ -77,11 +100,14 @@ def _pages(url: str, token: str, key: str, max_pages: int) -> list[dict[str, Any
     raise ValueError("guard_history_incomplete")
 
 
-def _read_marker(data: bytes) -> dict[str, Any]:
-    # Never extract files, follow archive paths, or read private receipts.
+def _read_marker(data: bytes, *, legacy_filename: str = "receipt.json") -> dict[str, Any]:
+    # Never extract files or retain private fields from legacy full receipts.
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         entries = archive.infolist()
-        if len(entries) != 1 or entries[0].filename != "receipt-public.json" or entries[0].file_size > 65536:
+        allowed = {"receipt-public.json"}
+        if legacy_filename and re.fullmatch(r"[\w.-]+\.json", legacy_filename):
+            allowed.add(legacy_filename)
+        if len(entries) != 1 or entries[0].filename not in allowed or entries[0].file_size > 65536:
             raise ValueError("guard_marker_invalid")
         receipt = json.loads(archive.read(entries[0]))
     if (not isinstance(receipt, dict) or type(receipt.get("delivered")) is not bool
@@ -93,7 +119,11 @@ def _read_marker(data: bytes) -> dict[str, Any]:
         raise ValueError("guard_marker_business_day_missing")
     if "test_message" in receipt and type(receipt["test_message"]) is not bool:
         raise ValueError("guard_marker_invalid")
-    return receipt
+    if entries[0].filename != "receipt-public.json" and receipt.get("schema_version") not in {
+        "qsl.daily_digest_receipt.v1", "qsl.daily_digest_delivery_receipt.v1",
+    }:
+        raise ValueError("guard_marker_invalid")
+    return {key: receipt[key] for key in MARKER_FIELDS if key in receipt}
 
 
 def read_history(business_day: str, env: Mapping[str, str]) -> list[tuple[int, dict[str, Any]]]:
@@ -151,12 +181,38 @@ def read_history(business_day: str, env: Mapping[str, str]) -> list[tuple[int, d
         for marker in markers:
             if marker.get("expired") is not False:
                 raise ValueError("guard_send_receipt_expired")
-            receipt = _read_marker(api_get(f"{root}/artifacts/{int(marker['id'])}/zip", token, binary=True))
+            receipt = _read_marker(api_get(f"{root}/artifacts/{int(marker['id'])}/zip", token, binary=True),
+                                   legacy_filename=env.get("DIGEST_GUARD_LEGACY_RECEIPT", "receipt.json"))
             if unified_mode(env):
                 receipt.setdefault("report_date", datetime.fromisoformat(run["created_at"].replace("Z", "+00:00")).astimezone(ZoneInfo("Asia/Singapore")).date().isoformat())
                 receipt.setdefault("recipient_scope", "default")
             history.append((run_id, receipt))
     return history
+
+
+def history_error(exc: Exception) -> str:
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code in {401, 403}:
+            return "guard_http_access_denied"
+        return "guard_http_unavailable" if exc.code == 429 or exc.code >= 500 else "guard_http_request_failed"
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError)):
+        return "guard_transport_unavailable"
+    if isinstance(exc, ValueError) and str(exc) in HISTORY_ERRORS:
+        return str(exc)
+    return "guard_history_read_failed"
+
+
+def recovery_notice(day: str, env: Mapping[str, str]) -> str:
+    date.fromisoformat(day)
+    repo = env.get("GITHUB_REPOSITORY", "OWNER/REPO")
+    workflow = env.get("DIGEST_GUARD_WORKFLOW") or env.get("GITHUB_WORKFLOW_REF", "").split("@", 1)[0].rsplit("/", 1)[-1]
+    command = shlex.join([
+        "gh", "workflow", "run", workflow or "daily-digest-notify.yml", "--repo", repo, "--ref", "main",
+        "-f", "dry_run=false", "-f", "force_resend=false", "-f", f"business_day={day}",
+    ])
+    return ("URGENT: Daily digest was not sent because history could not be verified. "
+            "Restore readable history, then retry the same business day with the guard enabled. "
+            "Do not force resend or retry uncertain delivery.\n" + command)
 
 
 def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False) -> Decision:
@@ -174,7 +230,23 @@ def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False
     if event == "workflow_dispatch" and force == "true" and not unified_mode(env):
         return Decision("send", "EXPLICIT_TEST_RESEND", test_message=True)
     try:
-        history = read_history(business_day, env)
+        attempts = int(env.get("DIGEST_GUARD_READ_ATTEMPTS", "3"))
+        delay = int(env.get("DIGEST_GUARD_RETRY_DELAY_SECONDS", "2"))
+        if not 1 <= attempts <= 5 or not 0 <= delay <= 60:
+            raise ValueError("guard_configuration_invalid")
+    except ValueError:
+        return Decision("blocked", "CONFIGURATION_INVALID")
+    for attempt in range(1, attempts + 1):
+        try:
+            history = read_history(business_day, env)
+            break
+        except Exception as exc:
+            code = history_error(exc)
+            if attempt == attempts or code not in RETRYABLE_HISTORY_ERRORS:
+                return Decision("blocked", "HISTORY_UNAVAILABLE", history_error=code, history_attempts=attempt)
+            # Only repeat read operations, never Telegram delivery or state writes.
+            time.sleep(min(60, delay * 2 ** (attempt - 1)))
+    try:
         deliveries = [run for run, receipt in history if receipt.get("delivered") is True
                       and receipt.get("dry_run") is False and receipt.get("status") == "delivered"
                       and receipt.get("test_message", False) is False]
@@ -189,20 +261,20 @@ def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False
                                and receipt.get("recipient_scope", "default") == scope
                                and receipt.get("dry_run") is False]
             if any(receipt.get("delivered") is True for receipt in same_report_day):
-                return Decision("skip", "ALREADY_DELIVERED")
+                return Decision("skip", "ALREADY_DELIVERED", history_attempts=attempt)
             if any(receipt.get("status") in {"send_failed", "business_digest_failed", "sending"} for receipt in same_report_day):
-                return Decision("blocked", "DELIVERY_UNCERTAIN")
-            return Decision("send", "FIRST_SEND")
+                return Decision("blocked", "DELIVERY_UNCERTAIN", history_attempts=attempt)
+            return Decision("send", "FIRST_SEND", history_attempts=attempt)
         same_day = [receipt for _, receipt in history if receipt.get("business_day") == business_day
                     and receipt.get("dry_run") is False and not receipt.get("test_message", False)]
         if any(receipt.get("delivered") is True and receipt.get("status") == "delivered" for receipt in same_day):
-            return Decision("skip", "ALREADY_DELIVERED", previous_failures=previous_failures)
+            return Decision("skip", "ALREADY_DELIVERED", previous_failures=previous_failures, history_attempts=attempt)
         if any(receipt.get("status") == "send_failed" for receipt in same_day):
-            return Decision("blocked", "DELIVERY_UNCERTAIN", previous_failures=previous_failures)
-        return Decision("send", "FIRST_SEND", previous_failures=previous_failures)
-    except Exception:
+            return Decision("blocked", "DELIVERY_UNCERTAIN", previous_failures=previous_failures, history_attempts=attempt)
+        return Decision("send", "FIRST_SEND", previous_failures=previous_failures, history_attempts=attempt)
+    except Exception as exc:
         # Never echo HTTP errors, URLs, tokens, or artifact contents.
-        return Decision("blocked", "HISTORY_UNAVAILABLE")
+        return Decision("blocked", "HISTORY_UNAVAILABLE", history_error=history_error(exc), history_attempts=attempt)
 
 
 def skip_receipt(day: str, locale: str, decision: Decision) -> dict[str, Any]:
@@ -232,6 +304,8 @@ def main(argv: list[str] | None = None) -> int:
             output.write(f"proceed={str(decision.decision in {'send', 'preview'}).lower()}\n")
     if decision.decision == "blocked":
         print(f"::error::Daily digest not sent: resend guard {decision.reason}.", file=sys.stderr)
+        if decision.reason == "HISTORY_UNAVAILABLE":
+            print("::error::" + recovery_notice(day, os.environ).replace("\n", " "), file=sys.stderr)
         return 1
     return 0
 
