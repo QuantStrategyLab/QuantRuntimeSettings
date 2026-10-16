@@ -96,6 +96,17 @@ assert.deepEqual(mixed.assets.history_per_currency.find(g => g.currency === "USD
 assert.equal(mixed.assets.history_per_currency.find(g => g.currency === "USDT").points[0].value, 9999);
 assert.equal(mixed.returns.per_currency.find(g => g.currency === "USDT").asset_points, undefined);
 assert.equal(mixed.summary.amount, null);
+const snapshotIndependent = performanceBlocks({ ...input,
+  now: Date.parse("2026-01-04T13:00:00Z"),
+  accounts: [1000, 2000].map((value, i) => ({ platform: "ibkr", account_key: `synthetic-${i}`,
+    observation_date: "2026-01-04", observed_finished_at: "2026-01-04T12:00:00Z",
+    balances: [{ currency: "USD", net_assets: String(value) }],
+  })),
+});
+assert.equal(snapshotIndependent.assets.per_currency[0].total, 3000, "current totals stay independent of history subtotals");
+assert.equal(snapshotIndependent.assets.points.at(-1).value, 330);
+assert.equal(snapshotIndependent.assets.status, "ok");
+assert.equal(snapshotIndependent.assets.curve_status, "partial");
 
 // Actual GET adapter, with only local in-memory sources. No account or storage requests are sent.
 const today = businessDate(Date.now());
