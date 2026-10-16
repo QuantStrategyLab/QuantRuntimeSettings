@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from daily_digest_notify import DailyDigestInput, _trade_counts, counts_not_connected, is_blocked
+from daily_digest_notify import DailyDigestInput, _trade_counts, block_reason_text, counts_not_connected, is_blocked
 
 
 def enabled() -> bool:
@@ -36,6 +36,9 @@ def render(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
             reason = "执行异常 / Execution issue" if row.status == "alert" and known_orders and known_fills else "执行证据不完整 / Incomplete execution evidence"
             if is_blocked(row):
                 reason = "已拦截 / Blocked"
+                detail = block_reason_text(row)
+                if detail:
+                    reason += f" · {detail}"
             if counts_not_connected(row):
                 counts = f"{_trade_counts(row, 'zh')} / {_trade_counts(row, 'en')}"
                 reason = f"{reason} · {counts}" if is_blocked(row) else counts

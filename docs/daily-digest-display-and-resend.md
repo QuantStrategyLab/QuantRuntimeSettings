@@ -4,6 +4,16 @@ The daily digest reads producer evidence and never infers execution counts
 from a signal such as `no_action`, workflow success, or a missing report.
 Both `v1` and `sections_v2` support `zh-CN` (`zh`) and `en`.
 
+Schwab may supply an optional `block_reason` object with `reason_code`,
+`observed_value`, `limit` and `order_submitted_this_run`. A validated
+`consecutive_loss_limit_exceeded` observation renders the supplied numbers in
+Chinese and English on one line. Explicit `false` adds `本轮未下单 / No orders
+submitted this run`; absent or unknown submission evidence makes no such claim.
+This run observation never supplies whole-day order/fill counts. Absent,
+malformed or unknown reason fields retain the existing blocked/not-connected
+wording. The optional contract is in `qsl-digest-candidates.v1.schema.json`;
+existing notification mode and private candidate configuration remain in use.
+
 ## Account display
 
 When **both** fill and order counts are known and zero, the account shows

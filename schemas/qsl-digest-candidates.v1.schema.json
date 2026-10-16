@@ -342,6 +342,50 @@
             "delivered_to_central"
           ],
           "description": "B11 optional producer-side delivery intent toward central. Central receipt projects authoritative evidence_delivery_status."
+        },
+        "block_reason": {
+          "$ref": "#/$defs/block_reason"
+        }
+      }
+    },
+    "block_reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Notification-only observation for the latest blocked run; never proves whole-day zero orders or fills.",
+      "required": [
+        "reason_code",
+        "observed_value",
+        "limit",
+        "order_submitted_this_run"
+      ],
+      "properties": {
+        "reason_code": {
+          "enum": [
+            "consecutive_loss_limit_exceeded",
+            "strategy_risk_rejected"
+          ]
+        },
+        "observed_value": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 999999999
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 999999999
+        },
+        "order_submitted_this_run": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       }
     }

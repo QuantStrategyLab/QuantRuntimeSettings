@@ -510,6 +510,8 @@ class DigestRunEntry:
     evidence_delivery_status: str = ""
     # NOTIFY-04 B1: digest section (us_daily | dca | crypto_intraday); "" = infer.
     section: str = ""
+    # One atomic notification observation; never used as count evidence.
+    block_reason: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         if not str(self.platform_id).strip():
@@ -666,6 +668,7 @@ def has_observation(entry: DigestRunEntry) -> bool:
         or entry.signal_summary.strip()
         or entry.rebalance_conclusion.strip()
         or entry.rebalance_kind
+        or entry.block_reason
         or entry.tips
     )
 
@@ -817,7 +820,44 @@ def counts_not_connected(entry: DigestRunEntry) -> bool:
 
 
 def is_blocked(entry: DigestRunEntry) -> bool:
-    return entry.rebalance_conclusion in {"blocked", "risk_blocked"} or entry.signal_summary in {"blocked", "risk_blocked"}
+    return bool(entry.block_reason) or entry.rebalance_conclusion in {"blocked", "risk_blocked"} or entry.signal_summary in {"blocked", "risk_blocked"}
+
+
+def _parse_block_reason(raw: object) -> dict[str, object] | None:
+    """Ignore malformed/unknown producer facts without changing legacy copy."""
+    if not isinstance(raw, Mapping):
+        return None
+    code = raw.get("reason_code")
+    if not isinstance(code, str) or code not in {"consecutive_loss_limit_exceeded", "strategy_risk_rejected"}:
+        return None
+    observed, limit = raw.get("observed_value"), raw.get("limit")
+    if code == "consecutive_loss_limit_exceeded":
+        if (type(observed) is not int or type(limit) is not int
+                or not 0 <= limit < observed <= 999_999_999):
+            return None
+    elif observed is not None or limit is not None:
+        return None
+    submitted = raw.get("order_submitted_this_run")
+    if submitted is not None and type(submitted) is not bool:
+        return None
+    return {"reason_code": code, "observed_value": observed, "limit": limit,
+            "order_submitted_this_run": submitted}
+
+
+def block_reason_text(entry: DigestRunEntry) -> str:
+    """Keep both languages and the run-scoped submission fact on one line."""
+    reason = _parse_block_reason(entry.block_reason) if entry.platform_id == "schwab" else None
+    if not reason:
+        return ""
+    parts = []
+    if reason["reason_code"] == "consecutive_loss_limit_exceeded":
+        observed, limit = reason["observed_value"], reason["limit"]
+        parts.append(f"连续亏损 {observed} 次 > 上限 {limit} 次 / Consecutive losses {observed} > limit {limit}")
+    if reason["order_submitted_this_run"] is False:
+        parts.append("本轮未下单 / No orders submitted this run")
+    elif reason["order_submitted_this_run"] is True:
+        parts.append("本轮已提交订单 / Orders submitted this run")
+    return " · ".join(parts)
 
 
 def _counts_notice(payload: DailyDigestInput, locale: DigestLocale) -> str:
@@ -1084,6 +1124,9 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> li
         if tip_text:
             lines.append(f"- {_t(locale, 'tip_prefix')}: {tip_text}")
     lines.append(_trade_counts(entry, locale))
+    reason = block_reason_text(entry)
+    if reason:
+        lines.append(reason)
     if entry.cycle_count_status == "unknown" or entry.cycle_count is None:
         lines.append(_format_count_part(locale, label_key="cycles_label", value=entry.cycle_count,
                                        status=entry.cycle_count_status))
@@ -1316,6 +1359,9 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
         if entry.status == "alert":
             if is_blocked(entry) or counts_not_connected(entry):
                 detail = _default_conclusion(entry, locale) if is_blocked(entry) else ""
+                reason = block_reason_text(entry)
+                if reason:
+                    detail = f"{detail} · {reason}" if detail else reason
                 if counts_not_connected(entry):
                     detail = " · ".join(filter(None, (detail, _trade_counts(entry, locale))))
                 attention.append(_t(locale, "v2_attention_status").format(
@@ -1522,6 +1568,7 @@ def filter_runs_for_digest(
                 signal_summary=str(raw.get("signal_summary") or "").strip(),
                 rebalance_kind=_parse_rebalance_kind(raw.get("rebalance_kind")),
                 rebalance_conclusion=str(raw.get("rebalance_conclusion") or "").strip(),
+                block_reason=_parse_block_reason(raw.get("block_reason")) if raw.get("platform_id") == "schwab" else None,
                 tips=_parse_tips(raw.get("tips") or raw.get("tip")),
                 account_hint=str(raw.get("account_hint") or "").strip(),
                 opaque_account_uid=str(raw.get("opaque_account_uid") or "").strip(),
