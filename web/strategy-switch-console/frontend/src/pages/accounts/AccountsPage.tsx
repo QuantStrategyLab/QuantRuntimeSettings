@@ -58,9 +58,10 @@ export default function AccountsPage({ account, tab }: { account: string | null;
           {t("accounts.unassigned_note", { count: accountsState.data.unassigned_decision_count })}
         </p>
       )}
+      {!selected && <p className="card-note">{t("accounts.select_account")}</p>}
       <div className={`accounts-split${selected ? " detail-open" : ""}`}>
         <div className="accounts-list">{listBody}</div>
-        {selected ? (
+        {selected && (
           <AccountDetail
             key={`${selected.platform}/${selected.account_alias}`}
             account={selected}
@@ -70,12 +71,6 @@ export default function AccountsPage({ account, tab }: { account: string | null;
             todayFailed={todayFailed}
             onBack={() => navigate({ account: null })}
           />
-        ) : (
-          <div className="accounts-detail">
-            <div className="card">
-              <EmptyState title={t("accounts.select_account")} body={t("accounts.select_account_hint")} />
-            </div>
-          </div>
         )}
       </div>
     </div>

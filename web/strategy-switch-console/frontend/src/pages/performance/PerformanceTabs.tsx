@@ -207,6 +207,7 @@ export function PerformanceTabs({ scope, platform, range, epoch }: PerformanceTa
   return (
     <div className="card">
       <Tabs
+        id="performance"
         items={[
           { id: "holdings", label: t("perf.holdings_title") },
           { id: "ranking", label: t("perf.ranking_title") },
@@ -216,7 +217,7 @@ export function PerformanceTabs({ scope, platform, range, epoch }: PerformanceTa
         onChange={setTab}
         ariaLabel={t("nav.performance")}
       />
-      <div className="perf-tab-body">
+      <div id="performance-panel" className="perf-tab-body" role="tabpanel" aria-labelledby={`performance-tab-${tab}`} tabIndex={0}>
         {tab !== "trades" && holdings.phase === "ready" && renderableStatus(holdings.data.status) && holdings.data.status !== "ok" && (
           <p className="card-note" style={{ marginTop: 0, marginBottom: 8 }}>
             <StatusBadge status={holdings.data.status} reason={holdings.data.unavailable_reason} /> <AsOfStamp value={holdings.data.as_of} />

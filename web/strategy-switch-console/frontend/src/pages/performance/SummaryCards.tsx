@@ -18,9 +18,7 @@ export interface SummaryCardsProps {
 /** Status text replaces the main value when the block cannot support a number. */
 function KpiState({ status, reason }: { status: string; reason?: string | null }) {
   const t = useT();
-  const statusText = t(`state.${status}`);
-  const reasonText = reason ? t(`reason.${reason}`) : null;
-  return <span className="flat">{reasonText ? `${statusText} · ${reasonText}` : statusText}</span>;
+  return <span className="kpi-state" title={reason ? t(`reason.${reason}`) : undefined}>{t(`state.${status}`)}</span>;
 }
 
 function cardFooter(data: SummaryResponse) {
@@ -41,8 +39,7 @@ function TwrCard({ data }: { data: SummaryResponse }) {
   }
   // asset_change scopes have no qualified TWR; the reason line explains the blank instead of a fake 0.
   if (data.twr_return_percent === null) {
-    const sub = data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined;
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={sub} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} footer={footer} />;
   }
   return <KpiCard title={title} value={<Percent value={data.twr_return_percent} />} footer={footer} />;
 }
@@ -56,8 +53,7 @@ function AmountCard({ data }: { data: SummaryResponse }) {
   }
   // Mixed native currencies are never summed; the reason replaces the amount.
   if (data.unavailable_reason === "mixed_currency" || data.amount === null) {
-    const sub = data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined;
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={sub} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} footer={footer} />;
   }
   return <KpiCard title={title} value={<Money value={data.amount} currency={data.currency} signed />} footer={footer} />;
 }
@@ -72,7 +68,7 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
   }
   const dd = data.max_drawdown;
   if (dd.percent === null) {
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={dd.unavailable_reason ? t(`reason.${dd.unavailable_reason}`) : undefined} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={dd.unavailable_reason && dd.unavailable_reason !== data.unavailable_reason ? t(`reason.${dd.unavailable_reason}`) : undefined} footer={footer} />;
   }
   const sub =
     dd.peak_date && dd.trough_date
@@ -92,7 +88,7 @@ function ExcessCard({ data }: { data: SummaryResponse }) {
   const primary = data.excess_returns.find(item => item.percentage_points !== null);
   if (!primary || primary.percentage_points === null) {
     const reason = data.excess_returns.find(item => item.unavailable_reason)?.unavailable_reason;
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={reason ? t(`reason.${reason}`) : undefined} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={reason && reason !== data.unavailable_reason ? t(`reason.${reason}`) : undefined} footer={footer} />;
   }
   const pp = primary.percentage_points;
   const rest = data.excess_returns.filter(item => item !== primary);
@@ -127,7 +123,7 @@ function DayCard({ data, field, titleKey }: { data: SummaryResponse; field: "bes
   const day = data[field];
   if (!day || !renderableStatus(day.status)) {
     const reason = day?.unavailable_reason;
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={reason ? t(`reason.${reason}`) : undefined} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={reason && reason !== data.unavailable_reason ? t(`reason.${reason}`) : undefined} footer={footer} />;
   }
   const value: ReactNode =
     day.amount !== null ? <Money value={day.amount} currency={data.currency} signed /> : <Percent value={day.return_percent} />;
@@ -172,13 +168,16 @@ export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProp
   }
   const data = state.data;
   return (
-    <div className="perf-kpi-grid">
-      <TwrCard data={data} />
-      <AmountCard data={data} />
-      <DrawdownCard data={data} />
-      <ExcessCard data={data} />
-      <DayCard data={data} field="best_day" titleKey="perf.card.best_day" />
-      <DayCard data={data} field="worst_day" titleKey="perf.card.worst_day" />
+    <div className="section-stack">
+      {data.unavailable_reason && <p className="metric-note">{t(`reason.${data.unavailable_reason}`)}</p>}
+      <div className="perf-kpi-grid">
+        <TwrCard data={data} />
+        <AmountCard data={data} />
+        <DrawdownCard data={data} />
+        <ExcessCard data={data} />
+        <DayCard data={data} field="best_day" titleKey="perf.card.best_day" />
+        <DayCard data={data} field="worst_day" titleKey="perf.card.worst_day" />
+      </div>
     </div>
   );
 }

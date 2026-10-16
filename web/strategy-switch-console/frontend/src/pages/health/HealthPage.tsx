@@ -69,35 +69,37 @@ function StatStrip({
   const credentialCount = credentialData && ATTENTION_PHASES.includes(credentialData.phase) ? 1 : 0;
 
   return (
-    <div className="stat-strip">
-      <KpiCard
-        title={t("health.kpi.today_runs")}
-        value={
-          <StatValue state={summary} render={() => t("health.stat.today_runs", { ok: okCount, total: data?.counts.configured ?? 0 })} />
-        }
-        footer={data?.as_of ? <AsOfStamp value={data.as_of} /> : undefined}
-      />
-      <KpiCard
-        title={t("health.kpi.observed")}
-        value={
-          <StatValue
-            state={summary}
-            render={() => t("health.stat.observed", { observed: data?.counts.observed ?? 0, configured: data?.counts.configured ?? 0 })}
-          />
-        }
-      />
-      <KpiCard
-        title={t("health.kpi.credentials")}
-        value={<StatValue state={credential} render={() => t("health.stat.credentials", { count: credentialCount })} />}
-      />
-      <KpiCard
-        title={t("health.kpi.recent_failure")}
-        value={<StatValue state={summary} render={() => failures.complete
-          ? String(failures.count)
-          : failures.count > 0 ? t("health.failure_at_least", { count: failures.count }) : t("state.unknown")} />}
-        footer={<span>{t("health.failure_window", { date: data?.date ?? "—" })}{!failures.complete && ` · ${t("health.failure_incomplete")}`}</span>}
-      />
-    </div>
+    <>
+      <div className="stat-strip">
+        <KpiCard
+          title={t("health.kpi.today_runs")}
+          value={
+            <StatValue state={summary} render={() => t("health.stat.today_runs", { ok: okCount, total: data?.counts.configured ?? 0 })} />
+          }
+          footer={data?.as_of ? <AsOfStamp value={data.as_of} /> : undefined}
+        />
+        <KpiCard
+          title={t("health.kpi.observed")}
+          value={
+            <StatValue
+              state={summary}
+              render={() => t("health.stat.observed", { observed: data?.counts.observed ?? 0, configured: data?.counts.configured ?? 0 })}
+            />
+          }
+        />
+        <KpiCard
+          title={t("health.kpi.credentials")}
+          value={<StatValue state={credential} render={() => t("health.stat.credentials", { count: credentialCount })} />}
+        />
+        <KpiCard
+          title={t("health.kpi.recent_failure")}
+          value={<StatValue state={summary} render={() => failures.complete
+            ? String(failures.count)
+            : failures.count > 0 ? t("health.failure_at_least", { count: failures.count }) : t("state.unknown")} />}
+        />
+      </div>
+      <p className="metric-note">{t("health.failure_window", { date: data?.date ?? "—" })}{!failures.complete && ` · ${t("health.failure_incomplete")}`}</p>
+    </>
   );
 }
 
@@ -162,7 +164,7 @@ function CredentialsCard({ credential }: { credential: Loadable<CredentialMainte
   if (credential.phase === "error") return <ErrorState onRetry={credential.reload} />;
   const item = credential.data;
   const columns: Column<CredentialMaintenance>[] = [
-    { id: "id", header: t("health.col.credential"), cell: row => row.id },
+    { id: "id", header: t("health.col.credential"), cell: row => t(row.id === "ibkr_flex" ? "health.credential_ibkr_report" : "health.credential_other") },
     {
       id: "phase",
       header: t("health.col.phase"),
@@ -173,7 +175,8 @@ function CredentialsCard({ credential }: { credential: Loadable<CredentialMainte
       header: t("health.col.expires"),
       cell: row => {
         if (!row.expires_at) return "—";
-        return t("health.credential_expires", { value: formatDateTime(row.expires_at, language).text });
+        const { text, zone } = formatDateTime(row.expires_at, language, true);
+        return t("health.credential_expires", { value: zone ? `${text} (${zone})` : text });
       },
       sortValue: row => row.expires_at,
     },
@@ -266,12 +269,14 @@ export default function HealthPage() {
 
       <section className="card">
         <h2 className="card-title">{t("health.freshness_title")}</h2>
-        <FreshnessTable summary={summary} />
+        <p className="scroll-hint">{t("health.table_scroll_hint")}</p>
+        <div className="health-freshness"><FreshnessTable summary={summary} /></div>
       </section>
 
       <section className="card">
         <h2 className="card-title">{t("health.credentials_title")}</h2>
-        <CredentialsCard credential={credential} />
+        <p className="scroll-hint">{t("health.table_scroll_hint")}</p>
+        <div className="health-credentials"><CredentialsCard credential={credential} /></div>
       </section>
 
       <section className="card">

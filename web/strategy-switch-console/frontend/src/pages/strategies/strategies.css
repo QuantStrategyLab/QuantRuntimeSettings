@@ -23,13 +23,13 @@
 }
 
 .strategy-accounts { display: inline-flex; gap: 4px 8px; flex-wrap: wrap; justify-content: flex-end; }
-.strategy-account-link { color: var(--accent); padding: 0 2px; border-radius: 4px; }
+.strategy-account-link { display: inline-flex; align-items: center; min-height: 32px; color: var(--accent); padding: 4px 6px; border-radius: 4px; }
 .strategy-account-link:hover { text-decoration: underline; }
 
 .strategy-card-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 .strategy-details { border-top: 1px solid var(--line); padding-top: 8px; margin-top: auto; }
-.strategy-details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.strategy-details summary { cursor: pointer; color: var(--muted); font-size: 13px; min-height: 32px; padding: 6px 0; }
 .strategy-details summary:hover { color: var(--ink); }
 .strategy-details-body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
 

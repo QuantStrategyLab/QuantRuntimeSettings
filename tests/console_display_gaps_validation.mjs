@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
 import { m0Subjects, healthStates, controlReasons, runtimeRecords } from "./fixtures/console-gaps.ts";
+import { formatDateTime } from "../web/strategy-switch-console/frontend/src/lib/format.ts";
 
 // Render production components and dictionaries. Only network/hooks are replaced.
 const root = new URL("../web/strategy-switch-console/frontend/", import.meta.url).pathname;
@@ -15,7 +16,9 @@ try {
     import { renderToStaticMarkup } from 'react-dom/server';
     import { CatalogTab, ResearchTab, parseResearchLeads, loadResearchLeads } from './src/pages/strategies/StrategiesPage';
     import { AccountDirectoryContext } from './src/app/context';
-    import { StatStrip } from './src/pages/health/HealthPage';
+    import { StatStrip, CredentialsCard } from './src/pages/health/HealthPage';
+    import { SummaryCards } from './src/pages/performance/SummaryCards';
+    import { Tabs } from './src/components/Tabs';
     import { DayDetail } from './src/pages/health/RunGrid';
     import { I18nProvider, translate } from './src/i18n';
     import { StatusBadge } from './src/components/primitives';
@@ -27,6 +30,11 @@ try {
     export const badge = (language, status, reason) => render(language, StatusBadge, { status, reason });
     export const stats = (language, data) => render(language, StatStrip, {
       summary: { phase: 'ready', data, reload() {} }, credential: { phase: 'loading', reload() {} } });
+    export const credentials = (language, data) => render(language, CredentialsCard, {
+      credential: { phase: 'ready', data, reload() {} } });
+    export const summary = language => render(language, SummaryCards, { scope: 'all', range: 'YTD', epoch: 0 });
+    export const tabs = language => render(language, Tabs, {
+      id: 'test-tabs', items: [{ id: 'first', label: 'First' }, { id: 'second', label: 'Second' }], active: 'second', onChange() {} });
     export const detail = (language, snapshot) => render(language, DayDetail, {
       selection: { date: snapshot.date, account: { platform: snapshot.platform, account_alias: snapshot.account_key } },
       cell: { phase: 'ready', snapshot } });`, resolveDir: root },
@@ -37,7 +45,7 @@ try {
       b.onLoad({ filter: /\/api\/client\.ts$/ }, () => ({ contents:
         "export async function getJson() { if (globalThis.__displayError) throw Error('synthetic_read_failure'); return globalThis.__displayPayload; } export const readRevision = () => 0; export const postJson = () => { throw Error('writes_forbidden'); };", loader: "js" }));
       for (const [file, exports] of [["StrategiesPage", "CatalogTab, ResearchTab, parseResearchLeads, loadResearchLeads"],
-        ["HealthPage", "StatStrip"], ["RunGrid", "DayDetail"]]) {
+        ["HealthPage", "StatStrip, CredentialsCard"], ["RunGrid", "DayDetail"]]) {
         b.onLoad({ filter: new RegExp(`/${file}\\.tsx$`) }, async ({ path }) => ({
           contents: await readFile(path, "utf8") + `\nexport { ${exports} };`, loader: "tsx" }));
       }
@@ -47,6 +55,30 @@ try {
   const ready = payload => { globalThis.__displayState = { phase: "ready", data: ui.parseResearchLeads(payload), reload() {} }; };
   const noCodes = html => assert.doesNotMatch(html, /state\.|reason\.|research\.state\./);
   for (const language of ["zh", "en"]) {
+    const expiry = "2027-09-14T19:24:00Z";
+    const { text, zone } = formatDateTime(expiry, language, true);
+    assert.ok(text.includes("2027"));
+    assert.ok(zone.includes("GMT"));
+    const credential = { id: "ibkr_flex", phase: "not_due", expires_at: expiry };
+    const label = language === "zh" ? "IBKR 报表凭证" : "IBKR report credential";
+    const renderedCredential = ui.credentials(language, credential);
+    assert.ok(renderedCredential.includes(label));
+    assert.ok(renderedCredential.includes(text));
+    assert.ok(renderedCredential.includes(`(${zone})`));
+    assert.doesNotMatch(renderedCredential, /ibkr_flex/);
+    assert.doesNotMatch(ui.credentials(language, { ...credential, id: "future_private_id", expires_at: null }), /future_private_id|2027/);
+    assert.deepEqual(formatDateTime("invalid", language, true), { text: "—", zone: "" });
+    assert.deepEqual(formatDateTime(null, language, true), { text: "—", zone: "" });
+    globalThis.__displayState = { phase: "ready", data: { status: "unavailable", unavailable_reason: "mixed_currency", as_of: null } };
+    const metrics = ui.summary(language);
+    const mainValues = [...metrics.matchAll(/<span class="kpi-value num">([\s\S]*?)<\/span><span class="kpi-foot">/g)];
+    assert.equal(mainValues.length, 6);
+    for (const [, value] of mainValues) assert.doesNotMatch(value.replace(/<[^>]*>/g, ""), /多币种|currenc/i, "reason must not become a main metric");
+    assert.equal((metrics.match(/class="metric-note"/g) || []).length, 1, "one shared metric explanation");
+    assert.doesNotMatch(metrics, /USD [0-9]|USDT [0-9]/, "mixed currencies never produce a combined amount");
+    const tabs = ui.tabs(language);
+    assert.match(tabs, /id="test-tabs-tab-first"[^>]*aria-controls="test-tabs-panel"[^>]*aria-selected="false"[^>]*tabindex="-1"/);
+    assert.match(tabs, /id="test-tabs-tab-second"[^>]*aria-controls="test-tabs-panel"[^>]*aria-selected="true"[^>]*tabindex="0"/);
     ready(m0Subjects);
     const html = ui.research(language);
     assert.equal((html.match(/class="card research-item"/g) || []).length, 12, "ready M0 subjects must render all 12 cards");
@@ -153,4 +185,4 @@ try {
   for (const key of ["__displayState", "__displayPayload", "__displayError"]) delete globalThis[key];
   await rm(directory, { recursive: true, force: true });
 }
-console.log("console_display_gaps_validation: PASS (zh/en M0 12 subjects, failure windows, health/control/detail states)");
+console.log("console_display_gaps_validation: PASS (zh/en credentials/year/zone, compact metrics, tab associations, M0, failure windows, health/control/detail states)");
