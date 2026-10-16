@@ -23,7 +23,6 @@ export function UpdateNotice() {
     };
     window.addEventListener("focus", check);
     document.addEventListener("visibilitychange", check);
-    void check();
     return () => {
       disposed = true;
       window.removeEventListener("focus", check);
