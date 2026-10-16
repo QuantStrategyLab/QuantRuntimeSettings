@@ -848,13 +848,15 @@ def _parse_block_reason(raw: object) -> dict[str, object] | None:
 
 def block_reason_text(entry: DigestRunEntry) -> str:
     """Keep both languages and the run-scoped submission fact on one line."""
-    reason = _parse_block_reason(entry.block_reason) if entry.platform_id == "schwab" else None
+    reason = _parse_block_reason(entry.block_reason) if entry.platform_id in {"schwab", "ibkr"} else None
     if not reason:
         return ""
     parts = []
     if reason["reason_code"] == "consecutive_loss_limit_exceeded":
         observed, limit = reason["observed_value"], reason["limit"]
         parts.append(f"连续亏损 {observed} 次 > 上限 {limit} 次 / Consecutive losses {observed} > limit {limit}")
+    elif entry.platform_id == "ibkr":
+        parts.append("策略风控拦截 / Strategy risk rejected")
     if reason["order_submitted_this_run"] is False:
         parts.append("本轮未下单 / No orders submitted this run")
     elif reason["order_submitted_this_run"] is True:
@@ -1570,7 +1572,7 @@ def filter_runs_for_digest(
                 signal_summary=str(raw.get("signal_summary") or "").strip(),
                 rebalance_kind=_parse_rebalance_kind(raw.get("rebalance_kind")),
                 rebalance_conclusion=str(raw.get("rebalance_conclusion") or "").strip(),
-                block_reason=_parse_block_reason(raw.get("block_reason")) if raw.get("platform_id") == "schwab" else None,
+                block_reason=_parse_block_reason(raw.get("block_reason")) if raw.get("platform_id") in {"schwab", "ibkr"} else None,
                 tips=_parse_tips(raw.get("tips") or raw.get("tip")),
                 account_hint=str(raw.get("account_hint") or "").strip(),
                 opaque_account_uid=str(raw.get("opaque_account_uid") or "").strip(),

@@ -74,9 +74,22 @@ class SchwabDigestWordingTests(unittest.TestCase):
             self.assertIn("本轮未下单 / No orders submitted this run", text)
             self.assertEqual(aggregator.digest.global_total_fills(payload), 3)
             self.assertNotIn("全天零", text)
-        other = dict(row, platform_id="ibkr", target_id="ibkr/synthetic-target")
+        other = dict(row, platform_id="binance", target_id="binance/synthetic-target")
         for _, _, _, (_, text, _) in self.variants([other]):
             self.assertNotIn("本轮未下单", text)
+
+    def test_ibkr_generic_reason_preserves_daily_counts_and_run_scope(self):
+        for submitted in (None, False):
+            row = dict(schwab_row(), platform_id="ibkr", target_id="ibkr/synthetic-target",
+                order_count=2, fill_count=3, field_status={},
+                block_reason={"reason_code": "strategy_risk_rejected", "observed_value": None,
+                    "limit": None, "order_submitted_this_run": submitted})
+            for mode, locale, layout, (payload, text, _) in self.variants([row], expected=[row]):
+                with self.subTest(mode=mode, locale=locale, layout=layout, submitted=submitted):
+                    self.assertIn("策略风控拦截 / Strategy risk rejected", text)
+                    self.assertEqual("No orders submitted this run" in text, submitted is False)
+                    self.assertEqual(aggregator.digest.global_total_fills(payload), 3)
+                    self.assertNotIn("全天零", text)
 
     def test_unified_candidate_without_legacy_block_labels_still_shows_reason(self):
         row = schwab_row()
@@ -89,12 +102,13 @@ class SchwabDigestWordingTests(unittest.TestCase):
             self.assertIn("No orders submitted this run", text)
 
     def variants(self, rows, **kwargs):
+        expected = kwargs.pop("expected", [schwab_row()])
         for mode in ("immediate", "daily_digest"):
             for locale in ("zh", "en"):
                 for layout in ("v1", "sections_v2"):
                     environment = {"QSL_ROUTINE_NOTIFICATION_MODE": mode}
                     yield mode, locale, layout, render(
-                        rows, locale=locale, layout=layout, expected=[schwab_row()],
+                        rows, locale=locale, layout=layout, expected=expected,
                         environment=environment, **kwargs,
                     )
 
