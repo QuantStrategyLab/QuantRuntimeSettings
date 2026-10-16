@@ -13,7 +13,8 @@ const outfile = join(directory, "render.cjs");
 try {
   await build({ stdin: { contents: `import { createElement as h } from 'react';
     import { renderToStaticMarkup } from 'react-dom/server';
-    import { ResearchTab, parseResearchLeads, loadResearchLeads } from './src/pages/strategies/StrategiesPage';
+    import { CatalogTab, ResearchTab, parseResearchLeads, loadResearchLeads } from './src/pages/strategies/StrategiesPage';
+    import { AccountDirectoryContext } from './src/app/context';
     import { StatStrip } from './src/pages/health/HealthPage';
     import { DayDetail } from './src/pages/health/RunGrid';
     import { I18nProvider, translate } from './src/i18n';
@@ -21,6 +22,8 @@ try {
     const render = (language, component, props) => renderToStaticMarkup(h(I18nProvider, { language }, h(component, props)));
     export { parseResearchLeads, loadResearchLeads, translate };
     export const research = language => render(language, ResearchTab, { refreshEpoch: 0 });
+    export const catalog = (language, config) => render(language, AccountDirectoryContext.Provider, {
+      value: config, children: h(CatalogTab, { refreshEpoch: 0 }) });
     export const badge = (language, status, reason) => render(language, StatusBadge, { status, reason });
     export const stats = (language, data) => render(language, StatStrip, {
       summary: { phase: 'ready', data, reload() {} }, credential: { phase: 'loading', reload() {} } });
@@ -33,7 +36,7 @@ try {
         "export const useApi = () => globalThis.__displayState;", loader: "js" }));
       b.onLoad({ filter: /\/api\/client\.ts$/ }, () => ({ contents:
         "export async function getJson() { if (globalThis.__displayError) throw Error('synthetic_read_failure'); return globalThis.__displayPayload; } export const readRevision = () => 0; export const postJson = () => { throw Error('writes_forbidden'); };", loader: "js" }));
-      for (const [file, exports] of [["StrategiesPage", "ResearchTab, parseResearchLeads, loadResearchLeads"],
+      for (const [file, exports] of [["StrategiesPage", "CatalogTab, ResearchTab, parseResearchLeads, loadResearchLeads"],
         ["HealthPage", "StatStrip"], ["RunGrid", "DayDetail"]]) {
         b.onLoad({ filter: new RegExp(`/${file}\\.tsx$`) }, async ({ path }) => ({
           contents: await readFile(path, "utf8") + `\nexport { ${exports} };`, loader: "tsx" }));
@@ -75,6 +78,30 @@ try {
       noCodes(rendered);
       assert.ok(!rendered.includes(language === "zh" ? "未知" : "Unknown"));
     }
+    // The summary owns assignments; a separately fetched config can be older or incomplete.
+    const accounts = [{ platform: "schwab", account_alias: "live", account_ref: "schwab:live" },
+      { platform: "firstrade", account_alias: "live", account_ref: "firstrade:live" }];
+    globalThis.__displayState = { phase: "ready", reload() {}, data: {
+      ...healthStates, configured_accounts_source: "currentStrategies", account_assignment_status: "complete",
+      strategies: [{ ...healthStates.strategies[1], configured_accounts: accounts }],
+    } };
+    const config = { platformMeta: { schwab: { label: "Schwab" }, firstrade: { label: "Firstrade" } },
+      strategyProfiles: [{ profile: healthStates.strategies[1].profile, label_zh: "研究策略", label_en: "Research strategy" }] };
+    for (const currentStrategies of [undefined, {}, { schwab: { live: { strategy_profile: "old-profile" } } },
+      { schwab: { live: { strategy_profile: healthStates.strategies[1].profile } } }]) {
+      const catalog = ui.catalog(language, { ...config, currentStrategies });
+      for (const account of accounts) assert.ok(catalog.includes(`title="${account.account_ref}"`), "retain platform-qualified summary identities");
+      assert.equal((catalog.match(/class="strategy-account-link"/g) || []).length, 2, "same live aliases must remain distinct");
+      assert.ok(catalog.includes(language === "zh" ? "研究策略" : "Research strategy"));
+      assert.doesNotMatch(catalog, /<h3[^>]*>synthetic-profile/);
+      assert.doesNotMatch(catalog, /state\.|reason\./);
+      assert.doesNotMatch(catalog, />review<|>watch</);
+    }
+    globalThis.__displayState.data.strategies[0].configured_accounts = [];
+    const unassigned = ui.catalog(language, { ...config, currentStrategies: {
+      schwab: { live: { strategy_profile: healthStates.strategies[1].profile } },
+    } });
+    assert.doesNotMatch(unassigned, /class="strategy-account-link"/, "config must not invent an assignment missing from the summary");
     for (const reason of controlReasons) noCodes(ui.badge(language, "blocked", reason));
     const recovery = ui.translate(language, "reason.existing_recovery_not_available");
     assert.match(recovery, language === "zh" ? /没有可用/ : /No existing recovery/);
