@@ -1410,7 +1410,30 @@
             "null"
           ]
         },
-        "coverage": {},
+        "coverage": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "account_alias": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              },
+              "account_ref": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "account_alias",
+              "scope"
+            ]
+          }
+        },
         "value_kind": {
           "enum": [
             "pnl",
@@ -1834,6 +1857,9 @@
                     },
                     "platform": {
                       "type": "string"
+                    },
+                    "account_ref": {
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -1886,6 +1912,16 @@
         },
         "execution_authority_granted": {
           "const": false
+        },
+        "configured_accounts_source": {
+          "const": "currentStrategies"
+        },
+        "account_assignment_status": {
+          "enum": [
+            "complete",
+            "partial",
+            "unavailable"
+          ]
         }
       },
       "required": [
@@ -2070,6 +2106,105 @@
         "no_order",
         "execution_authority_granted"
       ]
+    },
+    "directory_status": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "unknown",
+            "incomplete",
+            "complete",
+            "read_failed"
+          ]
+        },
+        "complete": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "last_success": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "enum": [
+                    "kv_directory_uninitialized",
+                    "kv_directory_unavailable",
+                    "kv_directory_migration_pending",
+                    "kv_directory_migration_failed",
+                    "kv_list_daily_limit_exceeded"
+                  ]
+                },
+                "at": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "at"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "retry_at": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "in_progress": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "data_as_of": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "unavailable_reason": {
+          "enum": [
+            "kv_directory_uninitialized",
+            "kv_directory_unavailable",
+            "kv_directory_migration_pending",
+            "kv_directory_migration_failed",
+            "kv_list_daily_limit_exceeded",
+            null
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "status",
+        "complete",
+        "last_success",
+        "last_error",
+        "retry_at",
+        "in_progress",
+        "data_as_of",
+        "unavailable_reason"
+      ],
+      "additionalProperties": false
     }
   }
 }

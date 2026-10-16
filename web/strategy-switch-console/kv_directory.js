@@ -8,6 +8,24 @@ const PREFIXES = ["control_plane_source:", "adaptive_selection_source:",
   "reconciliation_recovery_source:", "execution_evidence_source:",
   "runtime_target_lifecycle_source:", "research_task_source:",
   "research_promotion_ticket:", "runtime_daily:"];
+const STATUS_ERRORS = new Set(["kv_directory_uninitialized", "kv_directory_unavailable",
+  "kv_directory_migration_pending", "kv_directory_migration_failed", "kv_list_daily_limit_exceeded"]);
+
+// Whitelist every public field. Never spread stored manifests or provider errors.
+function publicStatus(state) {
+  const timestamp = value => Number.isFinite(value) && value > 0 ? value : null;
+  const lastError = state?.last_error;
+  return { ok: true, status: !state ? "unknown" : state.complete ? "complete" : "incomplete",
+    complete: state ? state.complete === true : null,
+    last_success: timestamp(state?.scanned_at),
+    last_error: lastError ? { code: STATUS_ERRORS.has(lastError.code) ? lastError.code : "kv_directory_migration_failed",
+      at: timestamp(lastError.at) } : state?.error && state.error !== "kv_directory_migration_pending"
+      ? { code: STATUS_ERRORS.has(state.error) ? state.error : "kv_directory_migration_failed", at: null } : null,
+    retry_at: timestamp(state?.retry_at),
+    in_progress: state ? !state.complete && !!state.cursor : null,
+    data_as_of: timestamp(state?.scanned_at),
+    unavailable_reason: state?.complete ? null : STATUS_ERRORS.has(state?.error) ? state.error : "kv_directory_uninitialized" };
+}
 
 export function indexedKey(key) {
   return typeof key === "string" && PREFIXES.some(prefix => key.startsWith(prefix));
@@ -62,7 +80,9 @@ export class KvDirectory {
   }
 
   async run(command) {
-    const state = await this.storage.get(STATE_KEY) || await sharedManifest(this.store) || {
+    const stored = await this.storage.get(STATE_KEY) || await sharedManifest(this.store);
+    if (command.action === "status") return publicStatus(stored);
+    const state = stored || {
       keys: [], complete: false, cursor: null, retry_at: 0, failures: 0,
     };
     if (command.action === "put") {
@@ -113,6 +133,7 @@ export class KvDirectory {
         state.failures += 1;
         const quota = error.message === "KV list() limit exceeded for the day.";
         state.error = quota ? "kv_list_daily_limit_exceeded" : "kv_directory_migration_failed";
+        state.last_error = { code: state.error, at: this.now() };
         const delay = bounded(this.env.KV_DIRECTORY_RETRY_SECONDS, 300, 60, 3600);
         state.retry_at = quota ? (Math.floor(this.now() / 86400000) + 1) * 86400000 + 60000
           : this.now() + Math.min(3600000, delay * 1000 * 2 ** Math.min(state.failures - 1, 4));
@@ -132,6 +153,17 @@ export class KvDirectory {
   unavailable(state) {
     return { ok: false, complete: false, error: state.error || "kv_directory_uninitialized",
       retry_after: Math.max(60, Math.ceil((state.retry_at - this.now()) / 1000)) };
+  }
+}
+
+export async function directoryStatus(env) {
+  try { return await directoryCommand(env, { action: "status" }); }
+  catch (error) {
+    if (error.message === "kv_directory_legacy_receiver" || error.message === "kv_directory_invalid_request"
+      || (error.message === "kv_directory_unavailable" && !env.STRATEGY_SWITCH_RUNTIME_INSTANCES)) {
+      return publicStatus(await sharedManifest(env.STRATEGY_SWITCH_CONFIG));
+    }
+    throw error;
   }
 }
 

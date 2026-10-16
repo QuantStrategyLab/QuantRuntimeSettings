@@ -458,6 +458,7 @@ export function performanceBlocks({
           .at(0) || null,
       coverage: accounts.map((a) => ({
         account_alias: a.account_key,
+        ...(a.platform ? { platform: a.platform, account_ref: `${a.platform}:${a.account_key}` } : {}),
         scope: a.positions_scope || "not_connected",
       })),
       label_key: "performance.current_holdings_unrealized",

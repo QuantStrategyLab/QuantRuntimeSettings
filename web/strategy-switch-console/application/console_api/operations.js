@@ -54,7 +54,7 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
       runs: rows.some(r => r.run_count === null || r.completeness !== "complete") ? null : rows.reduce((n, r) => n + r.run_count, 0) },
     coverage: "configured_accounts_existing_bound_daily_records", ...READ_ONLY };
 }
-export async function strategySummary(request, env, deps, accounts) {
+export async function strategySummary(request, env, deps, accounts, currentStrategies = {}) {
   const profiles = await deps.profiles(env);
   const response = await deps.health(request, env);
   if (!response.ok) throw Error("strategy_health_read_failed");
@@ -66,8 +66,8 @@ export async function strategySummary(request, env, deps, accounts) {
       const observation = (health.strategies || []).find(s => s.profile === profile.profile);
       return { profile: profile.profile, domain: profile.domain,
         allowed_execution_modes: profile.allowed_execution_modes || [],
-        configured_accounts: accounts.filter(a => a.default_strategy_profile === profile.profile)
-          .map(a => ({ account_alias: a.key, platform: a.platform })),
+        configured_accounts: accounts.filter(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile === profile.profile)
+          .map(a => ({ account_alias: a.key, platform: a.platform, account_ref: `${a.platform}:${a.key}` })),
         health_status: status === "ok" || status === "stale" ? observation?.status || null : null,
         health_score: status === "ok" || status === "stale" ? observation?.score ?? null : null,
         status: observation ? status : status === "read_failed" ? status : "not_connected",
@@ -75,6 +75,9 @@ export async function strategySummary(request, env, deps, accounts) {
           ? "stored_records_unreadable" : "strategy_health_not_connected" };
     });
   return { status: status === "ok" && strategies.some(row => row.status !== "ok") ? "partial" : status,
+    configured_accounts_source: "currentStrategies",
+    account_assignment_status: accounts.every(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile) ? "complete"
+      : accounts.some(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile) ? "partial" : "unavailable",
     as_of: health.computed_at || health.generated_at || null,
     coverage: "configured_catalog_and_stored_health_not_runtime_deployment", strategies, ...READ_ONLY };
 }

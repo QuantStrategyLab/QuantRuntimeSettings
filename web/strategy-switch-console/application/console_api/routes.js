@@ -55,7 +55,8 @@ export async function consoleApiResponse(request, env, deps) {
       ([platform, rows]) => rows.map((row) => ({ ...row, platform })),
     );
     if (path === "/api/runtime/today") return json(await todaySummary(request, env, deps, accounts));
-    if (path === "/api/strategies/summary") return json(await strategySummary(request, env, deps, accounts));
+    if (path === "/api/strategies/summary") return json(await strategySummary(request, env, deps, accounts,
+      await deps.currentStrategies(config.options, env)));
     if (path === "/api/accounts") {
       const meta = await command(env, {
         action: "console_account_metadata",

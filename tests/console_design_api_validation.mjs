@@ -78,7 +78,7 @@ const strategies = await strategySummary(request, {}, {
   profiles: async () => [{ profile: "synthetic-growth", domain: "us_equity", allowed_execution_modes: ["paper"] }],
   health: async () => Response.json({ data_status: "stale", computed_at: "2026-10-01T00:00:00Z",
     strategies: [{ profile: "synthetic-growth", status: "watch", score: 50 }] }),
-}, [account]);
+}, [account], { longbridge: { [account.key]: { strategy_profile: "synthetic-growth" } } });
 validate("strategy_summary", strategies);
 assert.equal(strategies.status, "stale");
 assert.equal(strategies.strategies[0].configured_accounts[0].account_alias, account.key);

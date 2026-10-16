@@ -1,5 +1,19 @@
 # Console KV discovery
 
+Authenticated readers can GET `/api/admin/kv-directory` for a whitelisted status
+projection without listing keys or writing storage. `status=unknown` and
+`complete=null` mean no known manifest; an incomplete scan remains
+`status=incomplete/complete=false`. `last_success` and `data_as_of` are the last
+complete scan's epoch milliseconds, not business-record freshness.
+`last_error={code,at}` retains the last persisted failure, even after a successful
+scan; legacy errors without recorded times have `at=null`. `retry_at` is the
+existing backoff deadline or null. `in_progress` means a pagination cursor is
+pending (null if unknown), not a currently running maintenance invocation.
+There are no public keys, counts, cursors, user identifiers or raw error strings.
+Unreadable metadata returns HTTP 503/read_failed, never empty success.
+GET does not initialize, repair, mirror or maintain the directory. The status
+action is serialized with existing commands and performs only exact reads.
+
 The existing `STRATEGY_SWITCH_RUNTIME_INSTANCES` binding also hosts a separate object named `console-kv-directory-v1`. Its manifest stores discovery keys only, with a maintained KV mirror at `console_kv_directory:v1`. It has no decision, trading, account, IAM or secret authority, and requires no D1 database, new binding, migration or dependency.
 
 All seven source queues and daily history read this maintained manifest. Source/daily publishers register each key durably before writing its existing KV record, under one serialized object queue. New keys update the mirror after the record write; a failed mirror write leaves a persisted dirty marker for retry. Records, freshness, binding checks and decision authority are still read through their original paths. A listed record that cannot be read remains a source error. An incomplete manifest never means an empty queue; unknown daily history is `null`.
