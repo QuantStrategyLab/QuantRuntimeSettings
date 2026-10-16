@@ -49,7 +49,7 @@ export async function consoleApiResponse(request, env, deps) {
     }
     if (path === "/api/decisions-inbox")
       return json(await inbox(request, env, deps));
-    if (path === "/api/notifications/send-log") return json(notificationLog());
+    if (path === "/api/notifications/send-log") return json(await notificationLog(env, deps));
     const config = await deps.accountOptions(env);
     const accounts = Object.entries(config.options || {}).flatMap(
       ([platform, rows]) => rows.map((row) => ({ ...row, platform })),

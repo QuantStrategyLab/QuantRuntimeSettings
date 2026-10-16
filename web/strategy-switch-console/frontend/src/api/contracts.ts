@@ -387,13 +387,14 @@ export interface ReadOnlyProjection {
   no_order: true;
   execution_authority_granted: false;
 }
+export type RunState = "succeeded" | "failed" | "blocked" | "no_data" | "not_connected" | "not_run" | "unknown" | "read_failed";
 export interface TodayRunSummary extends ReadOnlyProjection {
   status: "ok" | "partial" | "read_failed";
   date: string;
   timezone: "America/New_York";
   as_of: string | null;
   coverage: string;
-  counts: { configured: number; observed: number; runs: number | null };
+  counts: { configured: number; observed: number; runs: number | null; by_state?: Record<RunState, number> };
   accounts: {
     account_alias: string;
     platform: string;
@@ -401,6 +402,11 @@ export interface TodayRunSummary extends ReadOnlyProjection {
     unavailable_reason: string | null;
     as_of: string | null;
     activity: string | null;
+    run_status?: RunState;
+    run_status_reason?: string | null;
+    freshness?: string;
+    fresh?: boolean;
+    stale?: boolean;
     completeness: "complete" | "incomplete" | null;
     run_count: number | null;
     runs: { id: string; started_at: string | null; finished_at: string | null;
@@ -417,20 +423,49 @@ export interface StrategySummary extends ReadOnlyProjection {
     profile: string;
     domain: string;
     allowed_execution_modes: string[];
-    configured_accounts: { account_alias: string; platform: string; account_ref?: string }[];
+    configured_accounts: {
+      account_alias: string; platform: string; account_ref?: string;
+      execution_mode?: "live" | "paper" | "dry_run" | "unknown";
+      dry_run_only?: boolean | null;
+      live_status?: "configured_live" | "not_live" | "unknown";
+      continuation_reason?: "legacy_live_continuation" | null;
+      mode_source?: "RUNTIME_TARGET_JSON" | "CLOUD_RUN_SERVICE_TARGETS_JSON" | "STRATEGY_PROFILE" | null;
+      runtime_observation_status?: "unknown";
+    }[];
     health_status: StrategyHealthStatus | null;
     health_score: number | null;
     status: "ok" | "stale" | "not_connected" | "read_failed";
     unavailable_reason: string | null;
   }[];
 }
+export interface NotificationReceiptItem {
+  id: string;
+  source_run_id: number;
+  source_run_attempt: number;
+  source_sha: string;
+  source_url: string;
+  workflow_updated_at: string | null;
+  sent_at: string | null;
+  channel: "telegram";
+  status: string;
+  receipt_status: string | null;
+  business_day: string | null;
+  report_date: string | null;
+  delivered: boolean | null;
+  dry_run: boolean | null;
+  test_message: boolean | null;
+  reason_code: string | null;
+}
 export interface NotificationSendLog extends ReadOnlyProjection {
-  status: "not_connected";
-  unavailable_reason: "notification_log_not_connected";
-  as_of: null;
-  items: never[];
+  status: "ok" | "partial" | "read_failed" | "not_connected";
+  unavailable_reason: string | null;
+  as_of: string | null;
+  items: NotificationReceiptItem[];
   next_cursor: null;
-  coverage: "no_delivery_source";
+  coverage: "no_delivery_source" | "recent_daily_digest_public_receipts_only";
+  run_limit?: number;
+  truncated?: boolean;
+  read_failure_count?: number;
 }
 export interface RunControlAvailability extends ReadOnlyProjection {
   status: "ok" | "partial";

@@ -28,6 +28,11 @@
 
 .strategy-card-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
+.strategy-execution { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 13px; }
+.strategy-execution-title, .strategy-execution-note { color: var(--muted); }
+.strategy-execution-account { display: flex; gap: 6px 12px; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+.strategy-execution-note { margin: 0; line-height: 1.5; }
+
 .strategy-details { border-top: 1px solid var(--line); padding-top: 8px; margin-top: auto; }
 .strategy-details summary { cursor: pointer; color: var(--muted); font-size: 13px; min-height: 32px; padding: 6px 0; }
 .strategy-details summary:hover { color: var(--ink); }

@@ -1,5 +1,7 @@
 /** Read-only page projections. Missing observations never imply a successful run. */
 import { RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate } from "../../runtime_daily_contract.js";
+import { configuredStrategyExecution } from "./strategy_execution.js";
+import { runStatus, runStateCounts } from "./run_status.js";
 export const READ_ONLY = { no_order: true, execution_authority_granted: false };
 export function businessDate(now = Date.now()) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -36,20 +38,26 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
       return { ...base, status: body.data_status !== "fresh" ? "stale" : incomplete ? "partial" : "ok",
         unavailable_reason: body.data_status !== "fresh" ? "runtime_daily_stale" : incomplete ? "runtime_daily_incomplete" : null,
         as_of: record.observed_at, activity: record.status,
+        run_status_reason: typeof record.block_reason_code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(record.block_reason_code) ? record.block_reason_code : null,
         completeness: incomplete ? "incomplete" : "complete",
         run_count: record.runs.length,
         runs: record.runs.map(run => ({ id: run.run_id, started_at: run.started_at,
           finished_at: run.finished_at, activity: run.activity,
-          execution_lane: run.execution_lane, errors_present: run.errors_present })),
+          execution_lane: run.execution_lane, errors_present: run.errors_present, ...(run.issue ? { issue: run.issue } : {}) })),
       };
     } catch {
       return { ...base, status: "read_failed", unavailable_reason: "stored_records_unreadable" };
     }
   }));
+  for (const row of rows) {
+    row.run_status = runStatus(row);
+    // Missing public execution block reasons stay unknown.
+    row.run_status_reason ??= null;
+  }
   return { status: rows.some(r => r.status === "read_failed") ? "read_failed"
     : rows.some(r => r.status !== "ok") ? "partial" : "ok",
     date, timezone: RUNTIME_DAILY_TIMEZONE, as_of: rows.map(r => r.as_of).filter(Boolean).sort()[0] || null,
-    accounts: rows, counts: { configured: rows.length,
+    accounts: rows, counts: { configured: rows.length, by_state: runStateCounts(rows),
       observed: rows.filter(r => r.run_count !== null).length,
       runs: rows.some(r => r.run_count === null || r.completeness !== "complete") ? null : rows.reduce((n, r) => n + r.run_count, 0) },
     coverage: "configured_accounts_existing_bound_daily_records", ...READ_ONLY };
@@ -67,7 +75,8 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
       return { profile: profile.profile, domain: profile.domain,
         allowed_execution_modes: profile.allowed_execution_modes || [],
         configured_accounts: accounts.filter(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile === profile.profile)
-          .map(a => ({ account_alias: a.key, platform: a.platform, account_ref: `${a.platform}:${a.key}` })),
+          .map(a => ({ account_alias: a.key, platform: a.platform, account_ref: `${a.platform}:${a.key}`,
+            ...configuredStrategyExecution(currentStrategies[a.platform][a.key], profile, a.platform) })),
         health_status: status === "ok" || status === "stale" ? observation?.status || null : null,
         health_score: status === "ok" || status === "stale" ? observation?.score ?? null : null,
         status: observation ? status : status === "read_failed" ? status : "not_connected",
@@ -81,8 +90,9 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
     as_of: health.computed_at || health.generated_at || null,
     coverage: "configured_catalog_and_stored_health_not_runtime_deployment", strategies, ...READ_ONLY };
 }
-export function notificationLog() {
-  // There is no stored delivery source in this console. Queue intent is not delivery.
-  return { status: "not_connected", unavailable_reason: "notification_log_not_connected",
-    as_of: null, items: [], next_cursor: null, coverage: "no_delivery_source", ...READ_ONLY };
+export function notificationLog(env = {}, deps = {}) {
+  return deps.notificationReceipts ? deps.notificationReceipts(env) : {
+    status: "not_connected", unavailable_reason: "notification_log_not_connected",
+    as_of: null, items: [], next_cursor: null, coverage: "no_delivery_source", ...READ_ONLY,
+  };
 }
