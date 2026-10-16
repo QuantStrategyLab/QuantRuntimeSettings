@@ -85,7 +85,6 @@ export function HistoryTab({ account }: { account: AccountRow }) {
           {t("reason.effect_verification_not_recorded")}
         </p>
       )}
-      <p className="card-note">{t("accounts.history.note")}</p>
     </section>
   );
 }

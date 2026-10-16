@@ -347,7 +347,7 @@ assert.match(overview, /runtimeDateBounds/);
 const runtimeDateLabel = "业务日期（纽约业务日，America/New_York）";
 assert.equal(translate(runtimeDateLabel, "zh"), runtimeDateLabel);
 assert.equal(translate(runtimeDateLabel, "en"), "Business date (New York business day, America/New_York)");
-assert.equal(translate("运行计划资料未确认", "en"), "Run schedule evidence is unconfirmed");
+assert.equal(translate("运行计划资料未确认", "en"), "Run schedule data is unconfirmed");
 assert.equal(translate("周期记录不完整，结果待确认", "en"), "Cycle record is incomplete; result is unconfirmed");
 assert.equal(translate("重复账户配置键 {count} 组已去重；资料冲突的 {conflicts} 组不计金额。", "en", { count: 2, conflicts: 1 }),
   "Repeated account configuration keys (2 groups) are counted once; conflicting groups excluded from amounts: 1.");
@@ -377,7 +377,7 @@ console.log("account_history_presentation_validation ok");
 await import("./overview_account_metadata_validation.mjs");
 
 assert.equal(
-  overviewLifecycleDetail(null, "账户尚未绑定运行目标", "运行证据未取得"),
+  overviewLifecycleDetail(null, "账户尚未绑定运行目标", "暂无运行数据"),
   "账户尚未绑定运行目标",
 );
 assert.equal(

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate, usePrefs, useScope } from "../app/context";
+import { UpdateNotice } from "./UpdateNotice";
 import { useLanguage, useT } from "../i18n";
 import { formatDateTime } from "../lib/format";
 import { ScopeSwitcher } from "../components/ScopeSwitcher";
@@ -139,6 +140,7 @@ export function AppShell({
             </div>
           </details>
         </header>
+        <UpdateNotice />
         <main className="content" id="main-content" key={page}>{children}</main>
       </div>
       <nav className="bottom-tabs" aria-label={t("nav.main")}>

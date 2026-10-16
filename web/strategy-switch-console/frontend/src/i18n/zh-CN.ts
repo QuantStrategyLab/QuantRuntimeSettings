@@ -1,5 +1,7 @@
 /** zh-CN product copy. Keys are dotted identifiers; pages may add fragment keys under i18n/pages/. */
 export const zhCN = {
+  "shell.update_available": "新版已就绪，刷新后使用。",
+  "shell.reload": "刷新页面",
   "app.name": "QuantStrategyLab",
 
   "nav.main": "主导航",
@@ -87,7 +89,7 @@ export const zhCN = {
   "reason.admin_required": "需要管理员权限",
   "reason.dispatch_unavailable": "执行通道暂不可用",
   "reason.stop_pending_or_identity_unavailable": "已有停用请求待确认或身份暂不可用",
-  "reason.existing_recovery_not_available": "存在未完成的恢复流程",
+  "reason.existing_recovery_not_available": "已有恢复请求尚未完成",
   "reason.runtime_instances_not_bound": "运行实例未绑定",
   "reason.account_settings_identity_conflict": "草案绑定的是旧身份，需先确认",
   "reason.profile_draft_required": "需要当前身份的草案",

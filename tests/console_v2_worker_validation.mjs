@@ -31,6 +31,18 @@ const anonymousSession = await worker.fetch(request("/api/session"), {}).then(re
 assert.equal(anonymousSession.allowed, false);
 const anonymousConfig = await worker.fetch(request("/api/config"), {}).then(response => response.json());
 assert.equal(anonymousConfig.accountOptions, null, "public route exposes no private account routing before session validation");
+for (const headers of [{}, { Cookie: `qsl_switch_session=${nonAdminSession}` }, { Cookie: `qsl_switch_session=${adminSession}; console_ui=legacy` }]) {
+  const root = await worker.fetch(request("/?workspace=accounts", "GET", headers), adminEnv);
+  assert.equal(await root.text(), V2_PAGE_HTML, "all sessions and legacy links receive the Kimi shell");
+}
+assert.ok(V2_PAGE_HTML.includes(`name="qsl-console-build" content="${V2_BUILD_ID}"`));
+for (const path of ["/v2", "/v2/", "/v2/index.html"]) {
+  const redirect = await worker.fetch(request(`${path}?page=health&scope=all`), {});
+  assert.equal(redirect.status, 302);
+  assert.equal(redirect.headers.get("location"), "/?page=health&scope=all");
+  assert.equal(redirect.headers.get("cache-control"), "no-store");
+  assert.equal((await worker.fetch(request(path, "POST"), {})).status, 405);
+}
 
 assert.match(V2_PAGE_HTML, /<div id="root"><\/div>/);
 assert.doesNotMatch(V2_PAGE_HTML, /<script[^>]*>[^<]/i);
@@ -55,7 +67,7 @@ assert.deepEqual(Buffer.from(await iconResponse.arrayBuffer()), await readFile(n
 const iconHead = await worker.fetch(request("/v2/assets/qsl-brand-icon.svg", "HEAD"), {});
 assert.equal(iconHead.status, 200);
 assert.equal(await iconHead.text(), "");
-for (const path of ["/v2", "/v2/unknown", "/v2/assets/not-built.js", "/v2/assets/%2e%2e%2fapi%2fconfig"]) {
+for (const path of ["/v2/unknown", "/v2/assets/not-built.js", "/v2/assets/%2e%2e%2fapi%2fconfig"]) {
   assert.equal((await worker.fetch(request(path), {})).status, 404, `${path} must not fall back to the shell`);
   const head = await worker.fetch(request(path, "HEAD"), {});
   assert.equal(head.status, 404);

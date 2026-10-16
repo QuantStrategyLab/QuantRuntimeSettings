@@ -2,6 +2,8 @@ import type { CoreMessageKey } from "./zh-CN";
 
 /** en mirror of the zh-CN dictionary; every key is required. */
 export const en: Record<CoreMessageKey, string> = {
+  "shell.update_available": "A new version is ready. Refresh to use it.",
+  "shell.reload": "Refresh page",
   "app.name": "QuantStrategyLab",
 
   "nav.main": "Main navigation",

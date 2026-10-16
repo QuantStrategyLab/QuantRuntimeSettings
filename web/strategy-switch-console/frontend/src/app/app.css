@@ -786,6 +786,16 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .inbox-actions { position: static; }
 }
 
+.update-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--surface-2);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

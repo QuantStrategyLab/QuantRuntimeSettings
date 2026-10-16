@@ -58,8 +58,8 @@ function lbFacts({ financing = true, negative = true, dataStatus = "fresh", bind
 
 assert.equal(presentActivation(evidenceFresh("enabled", "test", "")).label, "已启用");
 assert.equal(presentActivation(evidenceFresh("disabled", "test", "")).label, "已停用");
-assert.equal(presentActivation(evidenceMissing("test", "启用证据未取得")).label, "异常");
-assert.equal(presentActivation(evidenceStale("test", "启用证据已过期")).label, "异常");
+assert.equal(presentActivation(evidenceMissing("test", "启用资料未取得")).label, "异常");
+assert.equal(presentActivation(evidenceStale("test", "启用状态已过期")).label, "异常");
 assert.equal(presentActivation(evidenceConflict("test", "启用状态冲突")).label, "异常");
 assert.equal(presentActivation(activationEvidenceFromLegacyLabel("启用未知")).label, "异常");
 assert.equal(presentActivation(activationEvidenceFromLegacyLabel("待确认")).label, "异常");

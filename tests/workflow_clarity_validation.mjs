@@ -5,10 +5,10 @@ import { createAccountSettingsController, refreshAccountSettingsReadback } from 
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import postcss from "../web/strategy-switch-console/frontend/node_modules/postcss/lib/postcss.js";
 
-assert.deepEqual(promotionMaterialNotes(null), ["未提供比较材料，无法核对方案差异。", "未提供限制材料，请先核对原始方案。"]);
-assert.deepEqual(promotionMaterialNotes({ comparison: { status: "unavailable" }, limitations: [] }), ["比较结果暂不可用，无法核对方案差异。", "材料未列出限制条件，请先核对原始方案。"]);
+assert.deepEqual(promotionMaterialNotes(null), ["未提供比较材料，无法查看方案差异。", "未提供限制材料，请先查看原始方案。"]);
+assert.deepEqual(promotionMaterialNotes({ comparison: { status: "unavailable" }, limitations: [] }), ["比较结果暂不可用，无法查看方案差异。", "材料未列出限制条件，请先查看原始方案。"]);
 assert.deepEqual(promotionMaterialNotes({ comparison: { status: "comparable" }, limitations: ["source limitation"] }), ["比较材料已提供，详情见方案。", "限制材料已提供，详情见方案。"]);
-assert.deepEqual(promotionMaterialNotes({ comparison: "{\"status\":\"comparable\"}", limitations: "[]" }), ["比较材料状态未确认。", "未提供限制材料，请先核对原始方案。"], "arbitrary JSON text is never parsed into evidence");
+assert.deepEqual(promotionMaterialNotes({ comparison: "{\"status\":\"comparable\"}", limitations: "[]" }), ["比较材料状态未确认。", "未提供限制材料，请先查看原始方案。"], "arbitrary JSON text is never parsed into evidence");
 const ready = value => ({ value: { data_status: "ready", ...value } });
 const decisions = listDailyDecisions({ language: "zh", profiles: [], promotions: ready({ tickets: [{ ticket_id: "synthetic-1", state: "awaiting_human", research_summary: null }] }), owners: { error: new Error("synthetic unavailable") }, recovery: ready({ recoveries: [] }), accountsFor: () => [{ platform: "longbridge", key: "synthetic", label: "Synthetic account" }] });
 assert.equal(decisions.blocked, true);
@@ -37,7 +37,7 @@ assert.equal(accountSettingsSaveBlockReason({ ...settings, identity: null }, "re
 assert.equal(accountSettingsSaveBlockReason({ ...settings, identity: "untrusted" }, "ready", "draft"), "缺少账户来源，不能保存。");
 assert.equal(accountSettingsSaveBlockReason({ ...settings, draft: { ...settings.draft, status: "identity_conflict" } }, "ready", "draft"), "请重新读取并确认当前账户来源。");
 assert.equal(accountSettingsSaveBlockReason({ ...settings, operations: { save_draft: false, save_draft_reason: "admin_required" } }, "ready", "draft"), "当前登录不能保存这项设置。");
-assert.equal(accountSettingsOperationReason("strategy_application_not_connected"), "策略应用与账户启用流程尚未接通。");
+assert.equal(accountSettingsOperationReason("strategy_application_not_connected"), "策略应用与账户启用操作尚未接通。");
 assert.equal(accountSettingsOperationReason("unknown_unsafe_reason"), "这项操作暂不可用。");
 
 const controller = createAccountSettingsController();

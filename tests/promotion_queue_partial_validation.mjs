@@ -181,7 +181,7 @@ try {
       assert.equal(emptyBlocked.includes(translate("待办来源读取失败：{sources}", language, { sources: translate("晋级方案", language) })), false);
       const emptyHard = render(derive(mixed, { promotions: { error: "transport_failed" } }), language);
       assert.equal(emptyHard.includes(translate("待办来源读取失败：{sources}", language, { sources: translate("晋级方案", language) })), true);
-      assert.equal(emptyHard.includes(translate("这是读取失败，不是没有待办。请重试；若持续失败再核对来源服务。", language)), true);
+      assert.equal(emptyHard.includes(translate("这是读取失败，不是没有待办。请重试；若持续失败再查看来源服务。", language)), true);
       assert.equal(emptyHard.includes(translate("暂无需要你决定的事项", language)), false);
     }
   } finally { rmSync(temporary, { recursive: true, force: true }); }

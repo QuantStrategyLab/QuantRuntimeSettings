@@ -234,7 +234,7 @@ assert.equal(humanDecisionQueue([{ kind: "promotion", title: "未命名策略", 
 assert.equal(humanDecisionQueue([{ kind: "promotion", title: "方案", reference: "smoke-4", proposedName: "方案", shadowReady: true }]).length, 0);
 assert.equal(humanDecisionQueue([{ kind: "promotion", title: "方案", reference: "promo", proposedName: "方案" }]).length, 0);
 assert.equal(humanDecisionQueue([{ kind: "promotion", title: "方案", reference: "promo", proposedName: "方案", shadowReady: true }]).length, 1);
-assert.equal(humanDecisionQueue([{ kind: "recovery", title: "恢复核对", reference: "r", proposedName: "确认材料" }]).length, 1);
+assert.equal(humanDecisionQueue([{ kind: "recovery", title: "恢复确认", reference: "r", proposedName: "确认材料" }]).length, 1);
 
 const comparison = { status: "unavailable", start_date: null, end_date: null, cost_model: "", baseline: null, candidate: null };
 const ticket = {

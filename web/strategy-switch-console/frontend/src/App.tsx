@@ -61,7 +61,7 @@ function safeSet(key: string, value: string): void {
 function copy(key: string, values: Record<string, string | number | LocaleMessage> = {}): LocaleMessage { return {key,values}; }
 function initialLanguage(): Language { const stored = safeGet("qsl-switch-lang"); return stored === "zh" || stored === "en" ? stored : "zh"; }
 function displayStatus(value: unknown, _translate?: (key: string) => string): string {
-    const labels: Record<string, string> = { observed: "已收到心跳", healthy: "运行状态可供核对", live: "执行（live）", ready: "可供核对", stale: "资料已过期", unavailable: "暂不可用", unknown: "结果待确认", active: "运行中", paused: "已暂停", disabled: "已停用", enabled: "已启用", monitoring_only: "仅监测", not_due: "等待检查周期", attention: "需要核对", failed: "未完成", succeeded: "已完成", queued: "排队中", running: "处理中", approved: "请求已批准", rejected: "已明确拒绝", claimed: "已领取处理中", applied_paused: "已完成", pending: "等待提交", sent: "已提交", fixed: "固定金额", current: "保持现状", none: "不启用", auto: "自动选择", smart: "智能定投", ratio: "比例", floor: "固定金额下限", max: "金额与比例取较大值", paper: "模拟账户环境", dry_run: "禁止下单验证", ready_to_apply: "可供核对" };
+    const labels: Record<string, string> = { observed: "已收到心跳", healthy: "运行状态可供查看", live: "执行（live）", ready: "可供查看", stale: "资料已过期", unavailable: "暂不可用", unknown: "结果待确认", active: "运行中", paused: "已暂停", disabled: "已停用", enabled: "已启用", monitoring_only: "仅监测", not_due: "等待检查周期", attention: "需要查看", failed: "未完成", succeeded: "已完成", queued: "排队中", running: "处理中", approved: "请求已批准", rejected: "已明确拒绝", claimed: "已领取处理中", applied_paused: "已完成", pending: "等待提交", sent: "已提交", fixed: "固定金额", current: "保持现状", none: "不启用", auto: "自动选择", smart: "智能定投", ratio: "比例", floor: "固定金额下限", max: "金额与比例取较大值", paper: "模拟账户环境", dry_run: "禁止下单验证", ready_to_apply: "可供查看" };
     const label = labels[String(value || "")];
     return label || "状态未知";
 }
@@ -80,8 +80,8 @@ function requestErrorKey(error: unknown): string {
     if (status === 401 || status === 403)
         return "会话已失效，请重新登录。";
     if (status === 409)
-        return "版本冲突；当前编辑已保留，请刷新核对。";
-    return "请求未完成；请刷新并核对当前状态。";
+        return "版本冲突；当前编辑已保留，请刷新查看。";
+    return "请求未完成；请刷新并查看当前状态。";
 }
 function currentFor(config: ConfigPayload | null, platform: string, account: AccountOption): Record<string, any> | null {
     const entries = config?.currentStrategies?.[platform] || {};
@@ -183,7 +183,7 @@ function App() {
         confirmResolver.current = null;
         setConfirmDialog(null);
         if (confirmed && !accepted)
-            setErrorMessage(copy("确认期间相关资料已变化，操作已取消；请刷新并重新核对。"));
+            setErrorMessage(copy("确认期间相关资料已变化，操作已取消；请刷新并重新查看。"));
         resolve?.(confirmed && accepted);
         requestAnimationFrame(() => {
             if (confirmReturnFocus.current?.isConnected)
@@ -241,8 +241,8 @@ function App() {
         const latest = states.filter(s => s.receipt).at(-1);
         const unresolved = states.some(s => s.status === "unresolved");
         if (latest) setErrorMessage(copy("决定已记录：{time}。{detail}", { time: latest.receipt!.decided_at,
-            detail: copy(unresolved ? "最新资料未确认；请刷新核对，避免重复提交。" : "本次只记录决定，不会提交订单或改变交易权限。") }));
-        else if (unresolved) setErrorMessage(copy("最新资料未确认；请刷新核对，避免重复提交。"));
+            detail: copy(unresolved ? "最新资料未确认；请刷新查看，避免重复提交。" : "本次只记录决定，不会提交订单或改变交易权限。") }));
+        else if (unresolved) setErrorMessage(copy("最新资料未确认；请刷新查看，避免重复提交。"));
     };
     const refresh = useCallback(async () => {
         const token = gate.current.begin();
@@ -525,7 +525,7 @@ function App() {
                 else {
                     if (result.actions_url)
                         window.open(result.actions_url, "_blank", "noopener,noreferrer");
-                    setErrorMessage(copy("停用请求已提交；请核对现有 workflow 结果后再刷新，避免重复提交。"));
+                    setErrorMessage(copy("停用请求已提交；请查看现有 workflow 结果后再刷新，避免重复提交。"));
                 }
             }
             catch (error) {
@@ -548,7 +548,7 @@ function App() {
         try {
             const body = buildSwitchInputs(row.platform, row.account, form);
             const summary = t("账户：{account}\n券商环境：{environment}\n策略：{strategy}\n执行方式：{execution}\n启停：{runtime}\n提交后仍需运行读回确认。", { account: accountTitle(row.account, row.platformLabel, form.strategy), environment: brokerEnvironment(row.account.broker_environment, t), strategy: form.strategy, execution: executionMode(form.executionMode, t), runtime: t(displayStatus(form.runtimeMode)) });
-            if (!await confirmAction({ title: t("核对账户变更计划"), target: accountTitle(row.account, row.platformLabel, form.strategy), summary, consequence: t("将提交配置计划；不代表配置已应用、运行正常或已有成交。"), tone: "normal" }))
+            if (!await confirmAction({ title: t("查看账户变更计划"), target: accountTitle(row.account, row.platformLabel, form.strategy), summary, consequence: t("将提交配置计划；不代表配置已应用、运行正常或已有成交。"), tone: "normal" }))
                 return;
             if (!beginOnce(`switch:${row.id}`))
                 return;
@@ -556,7 +556,7 @@ function App() {
             const result = await postJson<any>("/api/switch", body);
             if (result.actions_url)
                 window.open(result.actions_url, "_blank", "noopener,noreferrer");
-            setErrorMessage(copy("计划已提交；配置读回与运行状态需另行核对。本账户操作已锁定，完成读回前不能重复提交。"));
+            setErrorMessage(copy("计划已提交；配置读回与运行状态需另行查看。本账户操作已锁定，完成读回前不能重复提交。"));
             void refresh();
         }
         catch (error) {
@@ -571,7 +571,7 @@ function App() {
         if (!canResumeBinance(row.platform, row.account, row.current) || typeof digest !== "string")
             return;
         const key = `resume:${row.id}`;
-        if (!await confirmAction({ title: t("确认恢复现有目标"), target: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile), summary: t("策略：{strategy}；目标摘要：{digest}", { strategy: row.current?.strategy_profile || t("未读取"), digest }), consequence: t("请先核对现有对账记录。此操作不修改策略或资金参数。"), tone: "danger" }))
+        if (!await confirmAction({ title: t("确认恢复现有目标"), target: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile), summary: t("策略：{strategy}；目标摘要：{digest}", { strategy: row.current?.strategy_profile || t("未读取"), digest }), consequence: t("请先查看现有对账记录。此操作不修改策略或资金参数。"), tone: "danger" }))
             return;
         if (!beginOnce(key))
             return;
@@ -618,7 +618,7 @@ function App() {
         const binding = ownerDecisionBinding({ ...candidate.candidate, candidate_evidence_sha256: candidate.candidate_evidence_sha256 }, decision);
         if (!binding)
             return;
-        if (!await confirmAction({ title: t("记录所有者决定"), target: String(candidate.candidate?.candidate_id || t("候选")), summary: t("决定：{decision} · 证据：{digest}", { decision: decisionLabel(decision, t), digest: candidate.candidate_evidence_sha256 }), consequence: t("仅记录人工决定，不会直接启用策略。"), tone: "normal", confirmLabel: decision === "keep_parked" ? "确认不采用" : "确认采用" }))
+        if (!await confirmAction({ title: t("记录所有者决定"), target: String(candidate.candidate?.candidate_id || t("候选")), summary: t("决定：{decision}", { decision: decisionLabel(decision, t), digest: candidate.candidate_evidence_sha256 }), consequence: t("仅记录人工决定，不会直接启用策略。"), tone: "normal", confirmLabel: decision === "keep_parked" ? "确认不采用" : "确认采用" }))
             return;
         await recordHumanDecision("owner", candidate, binding, "/api/owner-decisions", `owner:${binding.candidate_id}`);
     };
@@ -636,7 +636,7 @@ function App() {
         const recoveryAccounts = recoveryOptions && typeof recovery.platform === "string" ? recoveryOptions[recovery.platform] : undefined;
         const recoveryMatches = Array.isArray(recoveryAccounts) ? recoveryAccounts.filter(account => account && (account.target_name === recovery.target_name || account.key === recovery.target_name)) : [];
         const accountLabel = knownRecovery && recoveryMatches.length === 1 ? accountTitle(recoveryMatches[0], String(recovery.platform || ""), recovery.strategy_profile) : "";
-        const summary = t(decision === "reject" ? "不采用这份恢复方案，账户不会因此启用" : "采用这份恢复方案只留下核对记录，账户不会因此启用");
+        const summary = t(decision === "reject" ? "不采用这份恢复方案，账户不会因此启用" : "采用这份恢复方案只保存确认结果，账户不会因此启用");
         if (!await confirmAction({ title: t(decision === "reject" ? "确认不采用这项方案？" : "确认采用这项方案？"), target: accountLabel ? `${accountLabel} · ${planText}` : planText, summary, consequence: summary, tone: "danger", confirmLabel: decision === "reject" ? "确认不采用" : "确认采用" }))
             return;
         await recordHumanDecision("recovery", entry, binding, "/api/reconciliation-recovery-confirmations", `recovery:${binding.recovery_id}`);
@@ -719,7 +719,7 @@ function App() {
             submitted = true;
             await postJson("/api/research-promotion-applications", { ticket_id: application.ticket_id, selected_account: { platform: selected.platform, key: selected.key }, expected_revision: Number(instance.revision) });
             void refresh();
-            setErrorMessage(copy("应用请求已提交；请核对读回状态后再继续。"));
+            setErrorMessage(copy("应用请求已提交；请查看读回状态后再继续。"));
         } catch (error) {
             setErrorMessage(copy("应用请求结果需要读回确认，避免重复提交。{detail}", { detail: error ? copy(" · {error}", { error: copy(requestErrorKey(error)) }) : "" }));
             if (submitted) void refresh();
@@ -908,7 +908,7 @@ function ConfirmationDialog({ dialog, onCancel, onConfirm }: {
                 onCancel();
         }}>
     <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description" ref={dialogRef} onKeyDown={onKeyDown}>
-      <div className="confirm-kicker">{t("\u8BF7\u6838\u5BF9\u540E\u7EE7\u7EED")}</div><h2 id="confirm-title">{dialog.title}</h2>
+      <div className="confirm-kicker">{t("请查看后继续")}</div><h2 id="confirm-title">{dialog.title}</h2>
       <p className="confirm-target">{dialog.target}</p><p id="confirm-description" className="confirm-summary">{dialog.summary}</p>
       {dialog.consequence !== dialog.summary && <p className={`confirm-consequence ${dialog.tone}`}>{dialog.consequence}</p>}
       <div className="confirm-actions"><button ref={cancelRef} className="button button-secondary" type="button" onClick={onCancel}>{t("\u53D6\u6D88")}</button><button className={`button ${dialog.tone === "danger" ? "button-danger" : "button-primary"}`} type="button" onClick={onConfirm}>{t(dialog.confirmLabel || "\u786E\u8BA4\u7EE7\u7EED")}</button></div>
@@ -944,7 +944,7 @@ function ApplicationCard({ application, profiles, language, busy, onDeploy }: {
         <p>{t("模拟账户应用 · {ticket}", { ticket: application.ticket_id })}</p>
         <StrategyIdentity value={identity} />
         <p>{t("预检：{preflight} · 应用：{status}", { preflight: t(displayStatus(prep.preflight_status)), status })}</p>
-        {prep.blocker_codes?.length > 0 && <p>{t("{count} 项需核对", { count: prep.blocker_codes.length })}</p>}
+        {prep.blocker_codes?.length > 0 && <p>{t("{count} 项需查看", { count: prep.blocker_codes.length })}</p>}
         <label className="application-account">{t("目标账户")}<select value={selected} onChange={event => setSelectedAccountId(event.target.value)}>
             <option value="">{t("请明确选择 LongBridge 模拟账户")}</option>
             {accounts.map(account => <option key={account.id} value={account.id}>{t("{account} · 券商模拟环境", { account: account.label })}</option>)}

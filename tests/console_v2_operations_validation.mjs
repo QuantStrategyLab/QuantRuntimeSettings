@@ -76,12 +76,12 @@ assert.equal(requestLock.hasAny(["apply:ticket-a"]), true, "a protected request 
 assert.equal(requestLock.hasAnyWithPrefixes(["apply:", "switch:"]), true, "retained locks remain detectable even when current API rows are missing");
 assert.equal(diagnosisStatusKey({ status: "succeeded", recheck_status: "passed" }), "诊断完成，监测复核通过");
 assert.equal(diagnosisConclusionKey({ status: "succeeded", reason_code: "diagnosis_ready" }), "只读诊断已完成，请查看账户运行资料与监测复核结论。");
-assert.equal(diagnosisConclusionKey({ status: "unknown", dispatch_state: "unknown" }), "派发结果需人工核对，暂不重复请求。");
+assert.equal(diagnosisConclusionKey({ status: "unknown", dispatch_state: "unknown" }), "请求结果待确认，请勿重复提交。");
 assert.equal(diagnosisConclusionKey({ status: "failed", reason_code: "capacity_unavailable" }), "诊断服务暂不可用；账户运行资料未被更改。");
 assert.equal(diagnosisNextStepKey({ status: "succeeded", recheck_status: "passed" }), "只读复核已完成；查看账户运行资料。此结果不代表已修复。");
-assert.equal(diagnosisNextStepKey({ status: "succeeded", recheck_status: "attention" }), "复核发现需要关注；请检查账户运行资料并按既有流程处理。");
+assert.equal(diagnosisNextStepKey({ status: "succeeded", recheck_status: "attention" }), "诊断发现异常，请查看账户运行数据。");
 assert.equal(diagnosisNextStepKey({ status: "succeeded", recheck_status: "unavailable" }), "复核资料暂不可用；刷新账户运行状态后再决定。");
-assert.equal(diagnosisNextStepKey({ status: "unknown" }), "派发结果需人工核对，暂不重复请求。");
+assert.equal(diagnosisNextStepKey({ status: "unknown" }), "请求结果待确认，请勿重复提交。");
 assert.equal(formatAccountCount(1, "zh"), "1 个账户");
 assert.equal(formatAccountCount(1, "en"), "1 account");
 assert.equal(formatAccountCount(2, "en"), "2 accounts");
@@ -162,7 +162,7 @@ assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading
 assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "deployment_missing" }).detail, "尚未取得该目标的部署读回");
 assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "deployment_not_fresh" }).detail, "部署状态读回已过期");
 assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "activation_unconfirmed" }).detail, "运行启用状态尚未确认");
-assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "evidence_insufficient" }).detail, "现有证据不足以确认运行状态");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "evidence_insufficient" }).detail, "运行状态待确认");
 assert.equal(accountRuntimeLinkDetail({}), "账户尚未绑定运行目标");
 assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 2, runtimeError: "request_failed" }), "运行目标映射重复，无法唯一匹配");
 assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 1, runtimeError: "request_failed" }), "运行状态接口读取失败");
