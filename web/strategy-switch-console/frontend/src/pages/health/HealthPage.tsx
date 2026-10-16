@@ -221,7 +221,8 @@ function NotificationsCard({ epoch }: { epoch: number }) {
   return <>
     <p className="card-note">{t("health.notifications_scope")}</p>
     {log.status === "partial" && <p role="alert">{t("health.notifications_partial")}</p>}
-    <DataTable columns={columns} rows={log.items} rowKey={row => row.id} caption={t("health.notifications_title")} />
+    <p className="scroll-hint">{t("health.table_scroll_hint")}</p>
+    <div className="health-notifications"><DataTable columns={columns} rows={log.items} rowKey={row => row.id} caption={t("health.notifications_title")} /></div>
   </>;
 }
 

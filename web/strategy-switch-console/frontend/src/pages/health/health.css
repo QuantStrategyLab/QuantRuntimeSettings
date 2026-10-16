@@ -55,3 +55,6 @@
 .health-state-counts { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0; list-style: none; font-size: 13px; }
 .health-platform-group + .health-platform-group { margin-top: 20px; }
 .health-platform-group h3 { margin: 0 0 8px; font-size: 14px; }
+
+.health-notifications .data-table { min-width: 760px; }
+.health-notifications th, .health-notifications td { white-space: nowrap; }
