@@ -61,9 +61,7 @@ const usable = renderableStatus;
 /** State text replaces the main value when the status is not usable. */
 function KpiState({ status, reason }: { status: string; reason?: string | null }) {
   const t = useT();
-  const statusText = t(`state.${status}`);
-  const reasonText = reason ? t(`reason.${reason}`) : null;
-  return <span className="flat">{reasonText ? `${statusText} · ${reasonText}` : statusText}</span>;
+  return <span className="kpi-state" title={reason ? t(`reason.${reason}`) : undefined}>{t(`state.${status}`)}</span>;
 }
 
 function kpiLoading(title: string) {
@@ -371,6 +369,8 @@ export default function OverviewPage() {
   const returns = useApi(() => loadPerformanceReturns(scope, RANGE), [scope, epoch]);
   const accounts = useApi(() => loadAccounts(), [epoch]);
   const config = useApi(() => getJson<LegacyConfig>("/api/config").catch(() => null), [epoch]);
+  const metricReasons = [...new Set([assets, summary, calendar].flatMap(state =>
+    state.phase === "ready" && state.data.unavailable_reason ? [state.data.unavailable_reason] : []))];
 
   return (
     <div className="page">
@@ -387,6 +387,7 @@ export default function OverviewPage() {
         <TodosKpi state={inbox} />
         <RunsKpi state={todayRuns} />
       </div>
+      {metricReasons.length > 0 && <p className="metric-note">{metricReasons.map(reason => t(`reason.${reason}`)).join(" · ")}</p>}
       <div className="grid-2">
         <TrendCard state={returns} />
         <TodoPreviewCard state={inbox} />

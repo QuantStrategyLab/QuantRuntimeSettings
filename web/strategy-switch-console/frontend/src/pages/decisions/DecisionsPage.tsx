@@ -717,12 +717,11 @@ export default function DecisionsPage() {
         </button>
       </div>
       <div className="decisions-filters">
-        <Tabs items={categoryTabs} active={category} onChange={id => setCategory(id as CategoryFilter)} ariaLabel={t("decisions.title")} />
-        <div className="segmented" role="tablist" aria-label={t("decisions.title")}>
+        <Tabs id="decisions" items={categoryTabs} active={category} onChange={id => setCategory(id as CategoryFilter)} ariaLabel={t("decisions.title")} />
+        <div className="segmented" role="group" aria-label={t("decisions.title")}>
           <button
             type="button"
-            role="tab"
-            aria-selected={view === "pending"}
+            aria-pressed={view === "pending"}
             className={`segment${view === "pending" ? " active" : ""}`}
             onClick={() => setView("pending")}
           >
@@ -731,8 +730,7 @@ export default function DecisionsPage() {
           </button>
           <button
             type="button"
-            role="tab"
-            aria-selected={view === "decided"}
+            aria-pressed={view === "decided"}
             className={`segment${view === "decided" ? " active" : ""}`}
             onClick={() => setView("decided")}
           >
@@ -740,7 +738,9 @@ export default function DecisionsPage() {
           </button>
         </div>
       </div>
-      {view === "pending" ? renderPending() : <HistoryPanel epoch={epoch} category={category} />}
+      <div id="decisions-panel" role="tabpanel" aria-labelledby={`decisions-tab-${category}`} tabIndex={0}>
+        {view === "pending" ? renderPending() : <HistoryPanel epoch={epoch} category={category} />}
+      </div>
       {confirmRequest && <ConfirmationDialog request={confirmRequest} onResolve={resolveConfirm} />}
     </div>
   );

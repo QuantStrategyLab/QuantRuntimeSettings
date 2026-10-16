@@ -48,7 +48,7 @@ export function DataTable<T>({
   if (!rows.length) return <EmptyState title={t(emptyKey)} />;
 
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" tabIndex={0} role="region" aria-label={caption}>
       <table className="data-table">
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead>

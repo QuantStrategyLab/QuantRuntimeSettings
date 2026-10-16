@@ -64,16 +64,16 @@ export function formatDate(value: string | null | undefined, language: Language)
   return formatter.format(new Date(time));
 }
 
-/** Timestamp in the browser timezone plus a short zone label, e.g. 10-15 09:30 (GMT+8). */
-export function formatDateTime(value: string | null | undefined, language: Language): { text: string; zone: string } {
+/** Browser-local timestamp with a separate zone label; expiry dates can include the year. */
+export function formatDateTime(value: string | null | undefined, language: Language, includeYear = false): { text: string; zone: string } {
   if (!value) return { text: "—", zone: "" };
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return { text: "—", zone: "" };
   const date = new Date(time);
-  const key = `${language}:datetime`;
+  const key = `${language}:datetime:${includeYear}`;
   let formatter = dateFormatters.get(key);
   if (!formatter) {
-    formatter = new Intl.DateTimeFormat(localeTag(language), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "shortOffset" });
+    formatter = new Intl.DateTimeFormat(localeTag(language), { year: includeYear ? "numeric" : undefined, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "shortOffset" });
     dateFormatters.set(key, formatter);
   }
   const parts = formatter.formatToParts(date);

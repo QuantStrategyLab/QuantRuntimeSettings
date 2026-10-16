@@ -98,52 +98,55 @@ export function AccountDetail({
         </div>
       </section>
       <Tabs
+        id="account-detail"
         items={TAB_IDS.map(id => ({ id, label: t(`accounts.tab.${id}`) }))}
         active={active}
         onChange={id => navigate({ tab: id })}
         ariaLabel={t("accounts.title")}
       />
-      {active === "overview" && (
-        <section className="card">
-          <h2 className="card-title">{t("accounts.tab.overview")}</h2>
-          {diffState.phase === "loading" && <div className="skeleton" style={{ height: 200 }} aria-hidden="true" />}
-          {diffState.phase === "error" && (
-            <div className="error-state" role="alert">
-              <div className="error-title">{t("state.read_failed")}</div>
-              <div>{t("error.generic")}</div>
-              <div style={{ marginTop: 12 }}>
-                <button type="button" className="button button-secondary" onClick={diffState.reload}>{t("common.retry")}</button>
+      <div id="account-detail-panel" className="section-stack" role="tabpanel" aria-labelledby={`account-detail-tab-${active}`} tabIndex={0}>
+        {active === "overview" && (
+          <section className="card">
+            <h2 className="card-title">{t("accounts.tab.overview")}</h2>
+            {diffState.phase === "loading" && <div className="skeleton" style={{ height: 200 }} aria-hidden="true" />}
+            {diffState.phase === "error" && (
+              <div className="error-state" role="alert">
+                <div className="error-title">{t("state.read_failed")}</div>
+                <div>{t("error.generic")}</div>
+                <div style={{ marginTop: 12 }}>
+                  <button type="button" className="button button-secondary" onClick={diffState.reload}>{t("common.retry")}</button>
+                </div>
               </div>
-            </div>
-          )}
-          {diffState.phase === "ready" && (
-            <>
-              {diffState.data.identity_status === "identity_conflict" && (
-                <p className="accounts-inline-note error" role="alert">{t("accounts.identity_conflict")}</p>
-              )}
-              <DiffSummary rows={diffState.data.rows} t={t} />
-              <p className="card-note" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <Badge tone="unknown">{t("accounts.draft_revision", { value: diffState.data.draft_revision })}</Badge>
-                {diffState.data.status !== "ok" && <StatusBadge status={diffState.data.status} />}
-              </p>
-            </>
-          )}
-        </section>
-      )}
-      {active === "strategy" && (
-        <StrategyTab
-          account={account}
-          diffState={diffState}
-          config={config}
-          editing={editing}
-          setEditing={setEditing}
-          edits={edits}
-          setEdits={setEdits}
-          confirm={confirm}
-        />
-      )}
-      {active === "controls" && <ControlsTab account={account} config={config} confirm={confirm} />}
-      {active === "history" && <HistoryTab account={account} />}
+            )}
+            {diffState.phase === "ready" && (
+              <>
+                {diffState.data.identity_status === "identity_conflict" && (
+                  <p className="accounts-inline-note error" role="alert">{t("accounts.identity_conflict")}</p>
+                )}
+                <DiffSummary rows={diffState.data.rows} t={t} />
+                <p className="card-note" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <Badge tone="unknown">{t("accounts.draft_revision", { value: diffState.data.draft_revision })}</Badge>
+                  {diffState.data.status !== "ok" && <StatusBadge status={diffState.data.status} />}
+                </p>
+              </>
+            )}
+          </section>
+        )}
+        {active === "strategy" && (
+          <StrategyTab
+            account={account}
+            diffState={diffState}
+            config={config}
+            editing={editing}
+            setEditing={setEditing}
+            edits={edits}
+            setEdits={setEdits}
+            confirm={confirm}
+          />
+        )}
+        {active === "controls" && <ControlsTab account={account} config={config} confirm={confirm} />}
+        {active === "history" && <HistoryTab account={account} />}
+      </div>
       {confirmRequest && <ConfirmationDialog request={confirmRequest} onResolve={resolveConfirm} />}
     </div>
   );
