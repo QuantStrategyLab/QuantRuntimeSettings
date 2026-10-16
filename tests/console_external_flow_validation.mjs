@@ -59,6 +59,8 @@ assert.ok(Math.abs(on.summary.twr_return_percent - 10) < 1e-10);
 assert.deepEqual(on.assets, legacy.assets);
 assert.deepEqual(on.calendar, legacy.calendar);
 assert.equal(on.returns.return_kind, "twr");
+if (on.summary.metric_reasons) assert.equal(on.summary.metric_reasons.twr, null);
+if (on.summary.per_currency) assert.equal(on.summary.per_currency[0].max_drawdown.percent, 0);
 const change = fn => { const x = structuredClone(input); fn(x); return cashflowCurrencyResult(x.histories, x); };
 for (const fn of [
   x => { x.histories[0].externalFlow = null; },
@@ -68,6 +70,7 @@ for (const fn of [
   x => { x.histories[0].points[1].observed_at = null; },
   x => { x.failed = ["missing"]; },
   x => { x.histories.push({ id: "missing", currency: "USD", points: [] }); },
+  x => { x.histories[0].points.push({ ...x.histories[0].points[1], value: 999 }); },
 ]) assert.equal(change(fn).twr_return_percent, null);
 assert.equal(change(x => { x.histories[0].points[0].value = 0; }).unavailable_reason, "invalid_return_period");
 const withdrawal = change(x => {
@@ -84,6 +87,23 @@ assert.ok(Math.abs(zero.twr_return_percent - 10) < 1e-10, "only explicit complet
 const terminal = change(x => { x.histories[0].points[1].value = 0; x.histories[0].externalFlow.windows[0].records = []; });
 assert.equal(terminal.twr_return_percent, -100);
 assert.equal(terminal.max_drawdown.percent, 100);
+const endFlow = change(x => {
+  x.histories[0].externalFlow.windows[0].records[0].effective_at = end;
+  x.histories[0].points[1].value = 200;
+});
+assert.equal(endFlow.twr_return_percent, 0, "end-flow weight is zero");
+assert.equal(change(x => {
+  x.histories[0].externalFlow.windows[0].records[0] = { ...record, type: "withdrawal", amount: "-300" };
+}).unavailable_reason, "invalid_return_period");
+const linked = change(x => {
+  x.histories[0].points.push({ date: "2026-01-03", value: 193.5, observed_at: "2026-01-03T12:00:00.000Z", externalFlow: null });
+  x.histories[0].externalFlow.windows.push({ ...window, date: "2026-01-03", period_start: end,
+    period_end: "2026-01-03T12:00:00.000Z", records: [] });
+});
+assert.ok(Math.abs(linked.twr_return_percent + 1) < 1e-10, "chain 10% then -10% gives -1%");
+assert.ok(Math.abs(linked.max_drawdown.percent - 10) < 1e-10);
+const singleTransfer = change(x => { x.histories[0].externalFlow.windows[0].records[0].type = "transfer_in"; });
+assert.ok(Math.abs(singleTransfer.twr_return_percent - 10) < 1e-10);
 const two = structuredClone(input);
 two.histories.push({ ...structuredClone(two.histories[0]), id: "second", currency: "USDT", externalFlow: payload({ ...window, currency: "USDT", records: [] }) });
 assert.equal(applyCashflowPerformance(performanceBlocks(two), two, env).summary.twr_return_percent, null, "no cross-currency total");

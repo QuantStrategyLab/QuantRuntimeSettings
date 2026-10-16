@@ -1,4 +1,4 @@
-import { dateMs, sliceRange, alignReturns } from "../../performance_math.js";
+import { cleanPoints, dateMs, sliceRange, alignReturns } from "../../performance_math.js";
 import { externalFlowEnabled, instant, normalizeExternalFlow } from "../account_facts/external_flow.js";
 import { maxDrawdown } from "./performance.js";
 
@@ -36,6 +36,10 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
     twr_return_percent: null, max_drawdown: { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason },
     index: [], points: [], return_kind: "unadjusted_asset_ratio", cashflow_method: "modified_dietz", approximate: true });
   if (!normalized.length || failed.length || normalized.some(h => !h.points.length)) return unavailable("snapshot_history_missing");
+  if (histories.some(h => {
+    const valid = h.points.filter(p => Number.isFinite(dateMs(p.date)) && Number.isFinite(p.value));
+    return cleanPoints(h.points).length !== new Set(valid.map(p => p.date)).size;
+  })) return unavailable("snapshot_history_missing");
   if (normalized.some(h => h.points.some(p => p.value < 0))) return unavailable("invalid_return_period");
   if (common.length < 2) return unavailable("insufficient_observations");
   // Omitting another member's real valuation must not manufacture a daily return.
@@ -63,7 +67,7 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
     // interval. Unpaired legs and unsettled in-transit capital stay unavailable.
     const transfers = new Map();
     for (const r of records.filter(r => r.type.startsWith("transfer_"))) {
-      if (!r.transfer_ref) return unavailable("external_cashflow_required");
+      if (!r.transfer_ref && normalized.length > 1) return unavailable("external_cashflow_required");
       const pair = transfers.get(r.transfer_ref) || [];
       pair.push(r); transfers.set(r.transfer_ref, pair);
     }
