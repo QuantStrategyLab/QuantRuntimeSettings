@@ -1,6 +1,7 @@
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
 import { sourceListFailure } from "./application/console_api/read_failures.js";
+import { strategyTargetExecution } from "./application/console_api/strategy_execution.js";
 import { performanceResponse } from "./application/console_api/performance_routes.js";
 import { consoleApiResponse } from "./application/console_api/routes.js";
 import { runControls } from "./application/console_api/run_controls.js";
@@ -6071,6 +6072,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     return {
       strategy_profile: serviceTargetProfile,
       ...runtimeModePayload(serviceTarget),
+      strategy_execution: strategyTargetExecution(serviceTarget),
       ...serviceTargetReservedCashPayload,
       ...serviceTargetIncomeLayerPayload,
       ...serviceTargetOptionOverlayPayload,
@@ -6090,6 +6092,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   ) {
     return {
       ...runtimeModePayload(serviceTarget),
+      strategy_execution: strategyTargetExecution(serviceTarget),
       ...serviceTargetReservedCashPayload,
       ...serviceTargetIncomeLayerPayload,
       ...serviceTargetOptionOverlayPayload,
@@ -6173,6 +6176,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       strategy_profile: runtimeTargetProfile,
       ...(resumeTarget ? { binance_resume_target_sha256: resumeTarget.runtime_target_sha256 } : {}),
       ...runtimeModePayload(runtimeTarget),
+      strategy_execution: strategyTargetExecution(runtimeTarget),
       ...reservedCashPayload,
       ...incomeLayerPayload,
       ...optionOverlayPayload,

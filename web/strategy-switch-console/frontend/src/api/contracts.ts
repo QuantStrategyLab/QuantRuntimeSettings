@@ -365,7 +365,15 @@ export interface StrategySummary extends ReadOnlyProjection {
     profile: string;
     domain: string;
     allowed_execution_modes: string[];
-    configured_accounts: { account_alias: string; platform: string; account_ref?: string }[];
+    configured_accounts: {
+      account_alias: string; platform: string; account_ref?: string;
+      execution_mode?: "live" | "paper" | "dry_run" | "unknown";
+      dry_run_only?: boolean | null;
+      live_status?: "configured_live" | "not_live" | "unknown";
+      continuation_reason?: "legacy_live_continuation" | null;
+      mode_source?: "RUNTIME_TARGET_JSON" | "CLOUD_RUN_SERVICE_TARGETS_JSON" | "STRATEGY_PROFILE" | null;
+      runtime_observation_status?: "unknown";
+    }[];
     health_status: StrategyHealthStatus | null;
     health_score: number | null;
     status: "ok" | "stale" | "not_connected" | "read_failed";

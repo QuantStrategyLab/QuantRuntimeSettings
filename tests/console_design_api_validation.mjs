@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./console_strategy_execution_validation.mjs";
 import { todaySummary, strategySummary, businessDate, notificationLog } from "../web/strategy-switch-console/application/console_api/operations.js";
 import { runControls } from "../web/strategy-switch-console/application/console_api/run_controls.js";
 import { inbox } from "../web/strategy-switch-console/application/console_api/routes.js";

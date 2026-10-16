@@ -1,5 +1,6 @@
 /** Read-only page projections. Missing observations never imply a successful run. */
 import { RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate } from "../../runtime_daily_contract.js";
+import { configuredStrategyExecution } from "./strategy_execution.js";
 import { runStatus, runStateCounts } from "./run_status.js";
 export const READ_ONLY = { no_order: true, execution_authority_granted: false };
 export function businessDate(now = Date.now()) {
@@ -74,7 +75,8 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
       return { profile: profile.profile, domain: profile.domain,
         allowed_execution_modes: profile.allowed_execution_modes || [],
         configured_accounts: accounts.filter(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile === profile.profile)
-          .map(a => ({ account_alias: a.key, platform: a.platform, account_ref: `${a.platform}:${a.key}` })),
+          .map(a => ({ account_alias: a.key, platform: a.platform, account_ref: `${a.platform}:${a.key}`,
+            ...configuredStrategyExecution(currentStrategies[a.platform][a.key], profile, a.platform) })),
         health_status: status === "ok" || status === "stale" ? observation?.status || null : null,
         health_score: status === "ok" || status === "stale" ? observation?.score ?? null : null,
         status: observation ? status : status === "read_failed" ? status : "not_connected",
