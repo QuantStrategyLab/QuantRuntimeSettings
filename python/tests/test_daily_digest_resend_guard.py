@@ -2,11 +2,12 @@
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest import mock
 
@@ -71,6 +72,72 @@ class DailyDigestResendGuardTests(unittest.TestCase):
                 self.assertEqual((result.decision, result.reason), ("blocked", "HISTORY_UNAVAILABLE"))
                 self.assertNotIn("private", result.log(DAY, event))
 
+    def test_transient_history_failure_retries_reads_without_sending(self):
+        import urllib.error
+        with mock.patch.object(guard, "read_history", side_effect=[urllib.error.URLError("private"), []]) as read, \
+             mock.patch.object(guard.time, "sleep") as sleep:
+            result = guard.evaluate(DAY, environment(DIGEST_GUARD_RETRY_DELAY_SECONDS="1"))
+        self.assertEqual(result.decision, "send")
+        self.assertEqual(read.call_count, 2)
+        sleep.assert_called_once_with(1)
+
+    def test_exhausted_history_retries_expose_only_safe_diagnostics(self):
+        import urllib.error
+        with mock.patch.object(guard, "read_history", side_effect=urllib.error.URLError("private-token-url")) as read, \
+             mock.patch.object(guard.time, "sleep"):
+            result = guard.evaluate(DAY, environment(DIGEST_GUARD_READ_ATTEMPTS="2"))
+        self.assertEqual(read.call_count, 2)
+        self.assertEqual(result.reason, "HISTORY_UNAVAILABLE")
+        self.assertEqual(result.history_error, "guard_transport_unavailable")
+        self.assertEqual(result.history_attempts, 2)
+        self.assertNotIn("private", json.dumps(result.to_dict()))
+        projected = public.project_public_receipt(guard.skip_receipt(DAY, "zh", result))
+        self.assertEqual(projected["resend_guard"]["history_error"], result.history_error)
+        self.assertEqual(projected["resend_guard"]["history_attempts"], 2)
+
+    def test_invalid_history_and_retry_configuration_do_not_repeat(self):
+        with mock.patch.object(guard, "read_history", side_effect=ValueError("guard_marker_invalid")) as read, \
+             mock.patch.object(guard.time, "sleep") as sleep:
+            result = guard.evaluate(DAY, environment())
+        self.assertEqual(read.call_count, 1)
+        sleep.assert_not_called()
+        self.assertEqual(result.history_error, "guard_marker_invalid")
+        for value in ("0", "6", "bad"):
+            with mock.patch.object(guard, "read_history") as read:
+                result = guard.evaluate(DAY, environment(DIGEST_GUARD_READ_ATTEMPTS=value))
+            self.assertEqual(result.reason, "CONFIGURATION_INVALID")
+            read.assert_not_called()
+
+    def test_blocked_history_has_urgent_day_pinned_unforced_retry(self):
+        notice = guard.recovery_notice(DAY, environment())
+        self.assertIn("URGENT", notice)
+        self.assertIn("business_day=" + DAY, notice)
+        self.assertIn("force_resend=false", notice)
+        self.assertIn("dry_run=false", notice)
+        self.assertNotIn("synthetic-token", notice)
+
+    def test_workflow_summary_executes_urgent_recovery_for_blocked_history(self):
+        from test_daily_digest_store_workflow import workflow_body
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt = root / "data/output/daily-digest/receipt-public.json"
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text(json.dumps(public.project_public_receipt(guard.skip_receipt(
+                DAY, "zh", guard.Decision("blocked", "HISTORY_UNAVAILABLE",
+                                         history_error="guard_marker_invalid", history_attempts=1)))))
+            summary = root / "summary.md"
+            env = {"PATH": os.environ["PATH"], "GITHUB_STEP_SUMMARY": str(summary),
+                   "PYTHONPATH": str(Path(guard.__file__).parent), **environment()}
+            result = subprocess.run(["bash", "-c", workflow_body("Summarize (no secrets)")],
+                                    cwd=root, env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            text = summary.read_text()
+            self.assertIn("URGENT", text)
+            self.assertIn("business_day=" + DAY, text)
+            self.assertIn("force_resend=false", text)
+            self.assertIn("guard_marker_invalid", text)
+            self.assertNotIn("synthetic-token", text)
+
     def test_unknown_delivery_is_not_retried(self):
         result = self.decision([(90, sent(delivered=False, status="send_failed"))])
         self.assertEqual((result.decision, result.reason), ("blocked", "DELIVERY_UNCERTAIN"))
@@ -115,10 +182,12 @@ class DailyDigestResendGuardTests(unittest.TestCase):
             with self.subTest(decision=decision), tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp)
                 with mock.patch.dict(os.environ, environment(DIGEST_BUSINESS_DAY=DAY, GITHUB_OUTPUT=str(path / "outputs")), clear=True), \
-                     mock.patch.object(guard, "evaluate", return_value=decision), redirect_stdout(io.StringIO()):
+                     mock.patch.object(guard, "evaluate", return_value=decision), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
                     code = guard.main(["--write-receipt", str(path / "receipt.json")])
                 self.assertEqual(code, 0 if decision.decision == "skip" else 1)
                 self.assertEqual((path / "outputs").read_text(), "proceed=false\n")
+                if decision.decision == "blocked":
+                    self.assertIn("::error::URGENT", errors.getvalue())
                 self.assertFalse(json.loads((path / "receipt.json").read_text())["delivered"])
         workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/daily-digest-notify.yml").read_text()
         self.assertLess(workflow.index("id: resend_guard"), workflow.index("id: candidates"))
@@ -216,6 +285,51 @@ class DailyDigestHistoryTests(unittest.TestCase):
             z.writestr("receipt-public.json", "x" * 65537)
         with self.assertRaises(ValueError):
             guard._read_marker(data.getvalue())
+
+    def test_legacy_receipt_projects_only_delivery_fields_and_blocks_duplicates(self):
+        legacy = {**sent(), "schema_version": "qsl.daily_digest_receipt.v1", "account": "private-row"}
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as archive:
+            archive.writestr("receipt.json", json.dumps(legacy))
+        marker = guard._read_marker(data.getvalue())
+        self.assertEqual(marker["business_day"], DAY)
+        self.assertNotIn("private-row", json.dumps(marker))
+        def transport(route, token, **kwargs):
+            return data.getvalue() if route.endswith("/zip") else self.transport(route, token, **kwargs)
+        with mock.patch.object(guard, "api_get", side_effect=transport):
+            self.assertEqual(guard.evaluate(DAY, self.env).decision, "skip")
+        legacy["business_day"] = "2026-10-12"
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as archive:
+            archive.writestr("receipt.json", json.dumps(legacy))
+        with mock.patch.object(guard, "api_get", side_effect=transport):
+            self.assertEqual(guard.evaluate(DAY, self.env).decision, "send")
+
+    def test_legacy_filename_is_configurable_and_malformed_legacy_stays_blocked(self):
+        for receipt in (sent(), {**sent(), "schema_version": "qsl.daily_digest_receipt.v1", "dry_run": "false"}):
+            data = io.BytesIO()
+            with zipfile.ZipFile(data, "w") as archive:
+                archive.writestr("receipt.json", json.dumps(receipt))
+            with self.assertRaises(ValueError):
+                guard._read_marker(data.getvalue())
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as archive:
+            archive.writestr("old-marker.json", json.dumps({**sent(), "schema_version": "qsl.daily_digest_receipt.v1"}))
+        self.assertTrue(guard._read_marker(data.getvalue(), legacy_filename="old-marker.json")["delivered"])
+        with self.assertRaises(ValueError):
+            guard._read_marker(data.getvalue(), legacy_filename="")
+
+    def test_history_is_independent_of_console_and_kv(self):
+        self.env.update(STRATEGY_SWITCH_CONSOLE_URL="https://console.invalid",
+                        STRATEGY_SWITCH_SYNC_TOKEN="private-console-token")
+        routes = []
+        def transport(route, token, **kwargs):
+            routes.append(route)
+            return self.transport(route, token, **kwargs)
+        with mock.patch.object(guard, "api_get", side_effect=transport):
+            self.assertEqual(guard.evaluate(DAY, self.env).decision, "skip")
+        self.assertTrue(routes)
+        self.assertTrue(all(route.startswith("https://api.example.invalid/repos/example/demo/actions/") for route in routes))
 
     def test_current_run_rerun_reads_its_previous_attempt_receipt(self):
         self.run["id"] = 100

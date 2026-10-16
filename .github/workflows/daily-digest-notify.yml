@@ -95,6 +95,10 @@ jobs:
     env:
       QSL_ROUTINE_NOTIFICATION_MODE: ${{ vars.QSL_ROUTINE_NOTIFICATION_MODE || 'immediate' }}
       DIGEST_RECIPIENT_SCOPE: ${{ vars.DIGEST_RECIPIENT_SCOPE || 'default' }}
+      # Read-only guard recovery; these settings never retry message delivery.
+      DIGEST_GUARD_READ_ATTEMPTS: ${{ vars.DIGEST_GUARD_READ_ATTEMPTS || '3' }}
+      DIGEST_GUARD_RETRY_DELAY_SECONDS: ${{ vars.DIGEST_GUARD_RETRY_DELAY_SECONDS || '2' }}
+      DIGEST_GUARD_LEGACY_RECEIPT: ${{ vars.DIGEST_GUARD_LEGACY_RECEIPT || 'receipt.json' }}
       # Sentinel secret *name* contract (value never committed).
       TELEGRAM_TOKEN_SECRET_NAME: ${{ vars.TELEGRAM_TOKEN_SECRET_NAME || 'quant-sentinel-telegram-bot-token' }}
       # Optional direct Environment secret; prefer this when present.
@@ -408,6 +412,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
+          import os
           import sys
           from pathlib import Path
 
@@ -436,6 +441,11 @@ jobs:
               decision = f"digest_resend_guard decision={guard.get('decision')} reason={guard.get('reason')} business_day={receipt.get('business_day')} test={str(receipt.get('test_message', False)).lower()}"
               print(f"- {decision}")
               print(("::error::" if guard.get("decision") == "blocked" else "") + decision, file=sys.stderr)
+              if guard.get("reason") == "HISTORY_UNAVAILABLE":
+                  sys.path.insert(0, "python/scripts")
+                  from daily_digest_resend_guard import recovery_notice
+                  print(f"- history_error: `{guard.get('history_error')}`; read attempts: `{guard.get('history_attempts')}`")
+                  print("\n" + recovery_notice(receipt["business_day"], os.environ))
           print(f"- secret_name_contract: `{receipt.get('secret_name_contract')}`")
           coverage = receipt.get("source_coverage") or {}
           if coverage:
