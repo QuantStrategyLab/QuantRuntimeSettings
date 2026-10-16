@@ -1,4 +1,4 @@
-import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, indexedKey, maintainDirectory } from "./kv_directory.js";
+import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
 import { sourceListFailure } from "./application/console_api/read_failures.js";
 import { performanceResponse } from "./application/console_api/performance_routes.js";
 import { consoleApiResponse } from "./application/console_api/routes.js";
@@ -784,6 +784,12 @@ export default {
       if (url.pathname === "/api/admin/kv-directory") {
         const session = await readSession(request, env);
         if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+        if (request.method === "GET") {
+          try { return json(await directoryStatus(env)); }
+          catch { return json({ status: "read_failed", complete: null, last_success: null,
+            last_error: null, retry_at: null, in_progress: null, data_as_of: null,
+            unavailable_reason: "kv_directory_unavailable" }, 503); }
+        }
         if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
         if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
         requireSameOrigin(request, { requireOrigin: true });
@@ -806,6 +812,7 @@ export default {
           recovery: reconciliationRecoveryResponse, credential: (req, e) => credentialMaintenanceResponse(req, e, new URL("/api/credential-maintenance", req.url)),
           audit: loadAuditLog,
           profiles: loadStrategyProfilesConfig, health: strategyHealthResponse,
+          currentStrategies: (options, e) => readCurrentStrategies(options, e, ctx),
           dailyBindings: async e => runtimeDailyReadModelEnabled(e) ? runtimeDailyPublicBindings(e, (await loadAccountOptionsConfig(e)).options) : [],
           daily: (req, e) => runtimeDailyResponse(req, e, new URL(req.url)),
           runControls: consoleRunControls,
@@ -5860,6 +5867,20 @@ async function configPayload(request, env, ctx) {
   const accountConfig = await loadAccountOptionsConfig(env);
   const strategyProfiles = await loadStrategyProfilesConfig(env);
 
+  const currentStrategies = await readCurrentStrategies(accountConfig.options, env, ctx);
+
+  return {
+    accountOptions: accountConfig.options,
+    accountOptionsRevision: accountConfig.revision ?? null,
+    runtimeDailyBindings: runtimeDailyReadModelEnabled(env) ? await runtimeDailyPublicBindings(env, accountConfig.options) : [],
+    platformRepositories: platformRepositories(env),
+    platformMeta: meta,
+    strategyProfiles,
+    currentStrategies,
+  };
+}
+
+async function readCurrentStrategies(accountOptions, env, ctx) {
   let currentStrategies = null;
   let cacheFresh = false;
 
@@ -5899,7 +5920,7 @@ async function configPayload(request, env, ctx) {
     _memRefreshing = true;
     ctx.waitUntil((async () => {
       try {
-        const fresh = await loadCurrentStrategiesSafely(accountConfig.options, env);
+        const fresh = await loadCurrentStrategiesSafely(accountOptions, env);
         _memCurrentStrategies = fresh;
         _memCurrentStrategiesTs = Date.now();
         await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
@@ -5913,7 +5934,7 @@ async function configPayload(request, env, ctx) {
 
   // 4) Complete miss — must wait for GitHub
   if (!currentStrategies) {
-    currentStrategies = await loadCurrentStrategiesSafely(accountConfig.options, env);
+    currentStrategies = await loadCurrentStrategiesSafely(accountOptions, env);
     _memCurrentStrategies = currentStrategies;
     _memCurrentStrategiesTs = Date.now();
     if (hasConfigStore(env) && ctx) {
@@ -5924,15 +5945,7 @@ async function configPayload(request, env, ctx) {
     }
   }
 
-  return {
-    accountOptions: accountConfig.options,
-    accountOptionsRevision: accountConfig.revision ?? null,
-    runtimeDailyBindings: runtimeDailyReadModelEnabled(env) ? await runtimeDailyPublicBindings(env, accountConfig.options) : [],
-    platformRepositories: platformRepositories(env),
-    platformMeta: meta,
-    strategyProfiles,
-    currentStrategies,
-  };
+  return currentStrategies;
 }
 
 async function strategyProfilesPayload(env) {

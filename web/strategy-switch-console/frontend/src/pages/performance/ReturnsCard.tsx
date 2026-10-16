@@ -85,16 +85,8 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
   } else {
     const data = state.data;
     meta = data;
-    if (!renderableStatus(data.status)) {
-      body = (
-        <EmptyState
-          title={t(`state.${data.status}`)}
-          body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
-        />
-      );
-    } else if (data.no_common_date) {
-      body = <EmptyState title={t("state.unavailable")} body={t("reason.no_common_date")} />;
-    } else if (scope === "all" && data.per_currency.length > 0) {
+    if (scope === "all" && data.per_currency.length > 0
+      && (renderableStatus(data.status) || data.unavailable_reason === "mixed_currency")) {
       // Mixed-currency scope: one independently aligned curve per currency, never a combined one.
       body = (
         <div>
@@ -120,6 +112,15 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
           ))}
         </div>
       );
+    } else if (!renderableStatus(data.status)) {
+      body = (
+        <EmptyState
+          title={t(`state.${data.status}`)}
+          body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
+        />
+      );
+    } else if (data.no_common_date) {
+      body = <EmptyState title={t("state.unavailable")} body={t("reason.no_common_date")} />;
     } else if (data.points.length === 0) {
       body = <EmptyState title={t("state.no_data")} body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined} />;
     } else {

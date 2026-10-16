@@ -156,7 +156,12 @@ export interface RuntimeDailySnapshot {
   ok: true;
   date: string;
   timezone: string;
+  platform?: string;
   account_key?: string;
+  read_error_count?: number;
+  read_error_codes?: string[];
+  unmatched_count?: number;
+  history?: unknown;
   data_status: "fresh" | "stale" | "historical" | "unavailable";
   record: RuntimeDailyRecord | null;
 }

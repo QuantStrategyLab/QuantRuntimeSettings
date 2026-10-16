@@ -13,6 +13,7 @@ draft saves and conflicts. All responses use `Cache-Control: no-store`.
 | Method and path | Parameters or body | Response contract |
 |---|---|---|
 | GET `/api/decisions-inbox` | none | `InboxResponse` / `inbox` |
+| GET `/api/admin/kv-directory` | none; allowed reader session | `DirectoryStatus` / `directory_status` |
 | GET `/api/owner-decisions/history` | `limit`, `cursor` | `DecisionHistoryResponse` / `decision_history` |
 | GET `/api/accounts` | none | `AccountsResponse` / `accounts` |
 | GET `/api/account-settings/diff` | `account`, optional `platform` | `SettingsDiffResponse` / `settings_diff` |
@@ -107,7 +108,7 @@ returns HTTP 503 with `ReadFailed`, never an empty success.
 
 ## Today, strategies and notification context
 
-`/api/runtime/today` chooses today's date on the server in `Asia/Shanghai`,
+`/api/runtime/today` chooses today's date on the server in `America/New_York`,
 matching the existing daily read model. It covers every configured account,
 using only existing trusted daily bindings and validated stored records. It
 does not fetch broker data, dispatch a run or infer execution from the schedule.
@@ -126,13 +127,37 @@ null. `counts.runs` is null whenever any account lacks a complete usable record;
 `counts.observed` discloses coverage. No records from another business day are
 silently substituted.
 
+The summary window is exactly `date` in its returned `timezone`, including New
+York daylight-saving changes. It is not a rolling 24-hour or 14-day failure
+statistic. `counts.observed` counts accounts with a record, including incomplete
+ones; it does not certify successful execution. `counts.runs=null` means the
+configured cohort is incomplete, not zero runs or zero failures. `blocked` is a
+reported runtime activity; `read_incomplete` concerns evidence coverage. Keep
+both the record activity and each run's activity. Do not derive a green failure
+counter from an empty, missing, unbound or incomplete daily row. Historical
+statistics require the explicit dates and coverage of those separate reads.
+Runtime dates must not be substituted with performance dates: performance range
+boundaries remain **Asia/Shanghai**, and stored observation-date labels retain
+their producer's date. Neither API shifts yesterday's record into today.
+
 `/api/strategies/summary` joins the configured strategy catalog with the existing
 stored health snapshot. It exposes profile, domain, allowed modes, configured
-account aliases and available health status/score. `configured_accounts` means
-the declared default configuration, not a verified runtime deployment. Missing
+account aliases and available health status/score. `configured_accounts` joins
+the same `currentStrategies[platform][alias].strategy_profile` source and bounded
+cache used by `/api/config`, preserving platform, alias and additive
+`account_ref=platform:alias`. It describes observed configuration, not a verified
+runtime deployment. `configured_accounts_source=currentStrategies` and
+`account_assignment_status=complete|partial|unavailable` describe whether every
+configured account has a current profile. Missing current assignments stay
+unassigned; declared defaults never fill the gap. Missing
 health remains null with `strategy_health_not_connected`; invalid stored health
 returns `read_failed/stored_records_unreadable`; stale health stays stale. It
-does not refresh GitHub variables, generate research or change strategy state.
+does not generate research or change strategy state. A cache miss or expiry uses
+the existing bounded GitHub configuration reader; cache TTLs are unchanged.
+Health values are `healthy|review|watch|critical`, independently of the read
+availability status. Missing health is null; a valid `review` or `watch` is not
+unknown. Holdings coverage also supports optional `platform` and `account_ref`;
+older coverage entries containing only `account_alias` and `scope` remain valid.
 
 `/api/notifications/send-log` provides a stable read contract for runtime and
 preference screens. **No delivery-log store is connected to this console.**
@@ -282,6 +307,51 @@ Stable reasons include:
 `coverage.excluded_accounts` and `omitted_dates` disclose incomplete cohorts.
 A missing currency excludes that account's full history rather than understating
 its assets. Benchmark availability is independent of account data availability.
+
+## Directory status and frontend fixtures
+
+`GET /api/admin/kv-directory` accepts any allowed reader session, returns private
+`no-store` metadata, and never calls `list`, writes a manifest or starts
+maintenance. The existing same-origin admin POST and five-minute cron remain
+the maintenance paths. The GET returns only `status`, `complete`, `last_success`,
+`last_error`, `retry_at`, `in_progress`, `data_as_of`, `unavailable_reason` and an
+optional transport `ok` flag. Times are epoch milliseconds or null.
+`complete=null/status=unknown` means no recorded manifest; `complete=false` is
+incomplete coverage. Neither state implies an empty successful inbox. A quota
+failure remains `kv_list_daily_limit_exceeded`, with its existing retry time.
+`in_progress` means pagination is pending, not that a cron is executing now.
+`data_as_of` and `last_success` are the last complete scan time, not freshness of
+the underlying business records or proof that every cron succeeded.
+`last_error` retains the latest recorded failure `{code, at}` after recovery.
+Old metadata without an error time returns `at=null`; it does not invent a time.
+An unreadable directory returns HTTP 503 with `status=read_failed` and unknown
+metadata. Errors are fixed public codes; no keys, cursors, identities or raw
+provider exceptions are returned. The exact legacy receiver may read its existing
+KV mirror without scanning. See [directory details](../web/strategy-switch-console/KV_DIRECTORY.md).
+
+The small typed [gap fixtures](../tests/fixtures/console-gaps.ts) use synthetic
+identities, timestamps, values and digests in the existing response shapes.
+`m0Subjects` is `qsl_m0_research_dashboard.v1`: twelve `subjects`, each with
+nested `observations`, freshness, source references and `research_context`.
+There is no top-level `items` or `observations` list. `context_only` remains
+research context with no execution authority; unavailable data, an HTTP read
+failure and a known empty list need separate display states.
+`mixedReturns` has an unavailable mixed aggregate and an independent partial
+seven-point USDT curve; the empty USD group does not erase it. Unknown cashflows
+keep the curve an unadjusted asset ratio, never qualified TWR. Health fixtures
+cover review/watch; runtime fixtures retain blocked/read_incomplete separately
+from run activity; `controlReasons` covers the current reasons without changing
+button authority. Unknown future states must have a translated unknown fallback,
+not raw `state.*` keys or guessed permissions. `existing_recovery_not_available`
+means no available existing recovery; it does not assert a pending recovery.
+
+Settings `current_status=unknown` means the effective value was not supplied.
+Keep current/inherited draft null, including when an unknown observation happens
+to carry `0` or `false`. Known zero and known false remain actual values.
+Unknown does not mean not applicable; this contract has no source for that claim.
+Empty settings history describes only the returned bounded audit/application
+scope, not an account that has never changed. Its effect-verification source
+remains unavailable; drafts and approvals do not prove runtime adoption.
 
 ## Authentication and errors
 

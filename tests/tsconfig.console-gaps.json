@@ -1,0 +1,4 @@
+{
+  "extends": "../web/strategy-switch-console/frontend/tsconfig.json",
+  "include": ["fixtures/console-gaps.ts", "../web/strategy-switch-console/frontend/src/vite-env.d.ts"]
+}

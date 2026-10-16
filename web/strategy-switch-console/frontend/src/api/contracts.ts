@@ -208,7 +208,7 @@ export interface PerformanceMeta {
   value_kind: "pnl" | "asset_change";
   coverage:
     | PerformanceCoverage
-    | { account_alias: string; scope: string }[]
+    | { account_alias: string; platform?: string; account_ref?: string; scope: string }[]
     | "fills_not_connected";
   currency?: string | null;
 }
@@ -270,6 +270,8 @@ export interface ReturnsResponse extends PerformanceMeta {
   no_common_date: boolean;
   per_currency: {
     currency: string;
+    as_of?: string | null;
+    coverage?: { omitted_dates: number };
     return_kind: string;
     status: Status;
     unavailable_reason: Reason | null;
@@ -346,12 +348,14 @@ export interface StrategySummary extends ReadOnlyProjection {
   status: "ok" | "partial" | "stale" | "not_connected" | "read_failed";
   as_of: string | null;
   coverage: string;
+  configured_accounts_source?: "currentStrategies";
+  account_assignment_status?: "complete" | "partial" | "unavailable";
   strategies: {
     profile: string;
     domain: string;
     allowed_execution_modes: string[];
-    configured_accounts: { account_alias: string; platform: string }[];
-    health_status: string | null;
+    configured_accounts: { account_alias: string; platform: string; account_ref?: string }[];
+    health_status: StrategyHealthStatus | null;
     health_score: number | null;
     status: "ok" | "stale" | "not_connected" | "read_failed";
     unavailable_reason: string | null;
@@ -372,8 +376,65 @@ export interface RunControlAvailability extends ReadOnlyProjection {
   as_of: string;
   actions: Record<"enable" | "stop" | "resume" | "approve_application", {
     enabled: boolean;
-    reason: string;
+    reason: RunControlReason;
     requires_confirmation: true;
   }>;
   resume_binding?: { runtime_target_sha256: string };
+}
+
+export type StrategyHealthStatus = "healthy" | "watch" | "review" | "critical";
+export type RunControlReason = "available" | "admin_required" | "strategy_application_not_connected"
+  | "dispatch_unavailable" | "existing_recovery_not_available" | "profile_draft_required"
+  | "stop_pending_or_identity_unavailable" | "stored_records_unreadable" | "runtime_readback_unavailable"
+  | "runtime_instances_not_bound" | "account_settings_identity_conflict" | "profile_only_required"
+  | "profile_not_selectable" | "runtime_target_not_disabled" | "current_profile_conflict" | "profile_application_pending";
+export type DirectoryError = "kv_directory_uninitialized" | "kv_directory_unavailable"
+  | "kv_directory_migration_pending" | "kv_directory_migration_failed" | "kv_list_daily_limit_exceeded";
+/** Epoch milliseconds; null means unrecorded. in_progress means a pagination cursor is pending. */
+export interface DirectoryStatus {
+  status: "unknown" | "incomplete" | "complete" | "read_failed";
+  complete: boolean | null;
+  last_success: number | null;
+  last_error: { code: DirectoryError; at: number | null } | null;
+  retry_at: number | null;
+  in_progress: boolean | null;
+  data_as_of: number | null;
+  unavailable_reason: DirectoryError | null;
+}
+export type ResearchHorizon = "short" | "medium" | "long" | "not_applicable";
+export interface M0ResearchDashboard {
+  schema_version: "qsl_m0_research_dashboard.v1";
+  source_ledger_sha256: string | null;
+  source_generated_at: string | null;
+  source_computed_at: string | null;
+  viewed_at: string;
+  data_status: "ready" | "stale" | "unavailable";
+  summary: Record<"subject_count" | "observation_count" | "fresh_observation_count"
+    | "stale_observation_count" | "unknown_observation_count" | "horizon_conflict_count"
+    | "historical_stale_horizon_drift_count", number>;
+  subjects: {
+    subject: { kind: "asset_idea" | "theme_context" | "strategy_hypothesis" | "risk_context"; identifier: string };
+    observations: {
+      source_ids: string[];
+      source_report_digest: string;
+      source_entry_digest: string;
+      hypothesis_id: string;
+      as_of: string;
+      generated_at: string;
+      expires_at: string;
+      research_context: {
+        state: "candidate" | "source_verification_required" | "deferred" | "context_only";
+        primary_horizon: ResearchHorizon;
+        suitable_horizons: ResearchHorizon[];
+        source_confidence: "high" | "medium" | "low" | "mixed" | "no_event" | "unknown";
+        source_style: "event_driven" | "long_horizon_growth" | "value_quality" | "macro_context" | "mixed_research";
+        theme_ids: string[];
+      };
+      freshness: { status: "fresh" | "stale" | "unknown"; age_seconds: number | null };
+    }[];
+    horizon_conflict: { status: "none" | "conflict"; primary_horizons: ResearchHorizon[] };
+    historical_stale_horizon_drift: { status: "none" | "drift" | "unavailable"; primary_horizons: ResearchHorizon[] };
+  }[];
+  policy: { authority: "research_only"; no_order: true; permitted_next_step: "research_validation_only"; notice: string };
+  errors: string[];
 }

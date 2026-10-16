@@ -87,6 +87,13 @@ async function call(
   return { status: response.status, body: await response.json() };
 }
 try {
+  const directoryRead = await call("/api/admin/kv-directory", { cookie: reader });
+  assert.equal(directoryRead.status, 200);
+  validate("directory_status", directoryRead.body);
+  assert.equal(directoryRead.body.status, "unknown");
+  assert.equal(directoryRead.body.complete, null);
+  assert.equal((await call("/api/admin/kv-directory", { cookie: null })).status, 401);
+  assert.equal((await call("/api/admin/kv-directory", { cookie: reader, method: "POST" })).status, 403);
   assert.equal(
     (
       await call("/api/admin/runtime-instances", {
@@ -203,6 +210,16 @@ try {
   assert.equal(accounts.status, 200);
   validate("accounts", accounts.body);
   assert.equal(accounts.body.accounts[0].pending_draft_count, 4);
+  const kv = await mf.getKVNamespace("STRATEGY_SWITCH_CONFIG");
+  await kv.put("current_strategies_cache", JSON.stringify({ ts: Date.now(), data: {
+    longbridge: { "synthetic-alpha": { strategy_profile: "synthetic-growth" } },
+  } }));
+  const configured = await call("/api/config", { cookie: reader });
+  const summary = await call("/api/strategies/summary", { cookie: reader });
+  assert.equal(configured.body.currentStrategies.longbridge[account.key].strategy_profile, "synthetic-growth");
+  assert.deepEqual(summary.body.strategies[0].configured_accounts, [{
+    account_alias: account.key, platform: "longbridge", account_ref: `longbridge:${account.key}`,
+  }], "summary and /api/config share currentStrategies rather than the declared default");
   for (const [path, schema] of [
     ["/api/runtime/today", "today_runs"], ["/api/strategies/summary", "strategy_summary"],
     ["/api/notifications/send-log", "notification_log"], ["/api/accounts/run-controls?account=synthetic-alpha", "run_controls"],
