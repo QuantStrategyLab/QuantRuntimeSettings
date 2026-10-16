@@ -2,6 +2,8 @@
 // record store; the manifest contains names only and grants no authority.
 export const DIRECTORY_PATH = "/kv-directory";
 const STATE_KEY = "console-kv-directory-v1";
+export const MANIFEST_KEY = "console_kv_directory:v1";
+const SCHEMA = "qsl_console_kv_directory.v1";
 const PREFIXES = ["control_plane_source:", "adaptive_selection_source:",
   "reconciliation_recovery_source:", "execution_evidence_source:",
   "runtime_target_lifecycle_source:", "research_task_source:",
@@ -14,6 +16,32 @@ export function indexedKey(key) {
 function bounded(value, fallback, min, max) {
   const number = Number(value);
   return Number.isInteger(number) && number >= min && number <= max ? number : fallback;
+}
+
+async function sharedManifest(store) {
+  const text = await store.get(MANIFEST_KEY);
+  if (!text) return null;
+  let state;
+  try { state = JSON.parse(text); } catch { throw Error("kv_directory_unavailable"); }
+  if (state.schema !== SCHEMA || !Array.isArray(state.keys) || !state.keys.every(indexedKey)
+    || typeof state.complete !== "boolean" || !Number.isFinite(state.retry_at)
+    || (state.complete && !Number.isFinite(state.scanned_at))) throw Error("kv_directory_unavailable");
+  return state;
+}
+
+async function mirrorManifest(store, state) {
+  await store.put(MANIFEST_KEY, JSON.stringify({ ...state, mirror_dirty: false, schema: SCHEMA }));
+}
+
+function manifestRead(state, prefix, limit) {
+  if (!state?.complete) {
+    const error = new Error(state?.error || "kv_directory_uninitialized");
+    error.retry_after = Math.max(60, Math.ceil(((state?.retry_at || 0) - Date.now()) / 1000));
+    throw error;
+  }
+  const keys = state.keys.filter(key => key.startsWith(prefix)).sort();
+  if (keys.length > limit) throw Error("kv_directory_truncated");
+  return { ok: true, keys: keys.map(name => ({ name })), list_complete: true };
 }
 
 export class KvDirectory {
@@ -34,7 +62,7 @@ export class KvDirectory {
   }
 
   async run(command) {
-    const state = await this.storage.get(STATE_KEY) || {
+    const state = await this.storage.get(STATE_KEY) || await sharedManifest(this.store) || {
       keys: [], complete: false, cursor: null, retry_at: 0, failures: 0,
     };
     if (command.action === "put") {
@@ -46,9 +74,15 @@ export class KvDirectory {
         if (state.keys.length >= maximum || new TextEncoder().encode(JSON.stringify(state) + command.key).byteLength + 1024 > 120000)
           throw Error("kv_directory_capacity_exceeded");
         state.keys.push(command.key);
+        state.mirror_dirty = true;
         await this.storage.put(STATE_KEY, state);
       }
       await this.store.put(command.key, command.value);
+      if (state.mirror_dirty) {
+        await mirrorManifest(this.store, state);
+        state.mirror_dirty = false;
+        await this.storage.put(STATE_KEY, state);
+      }
       return { ok: true };
     }
     if (command.action === "maintain") {
@@ -84,6 +118,7 @@ export class KvDirectory {
           : this.now() + Math.min(3600000, delay * 1000 * 2 ** Math.min(state.failures - 1, 4));
       }
       await this.storage.put(STATE_KEY, state);
+      await mirrorManifest(this.store, state);
       return state.complete ? { ok: true, complete: true, count: state.keys.length, scanned_at: state.scanned_at } : this.unavailable(state);
     }
     if (command.action !== "read" || !indexedKey(command.prefix)) throw Error("kv_directory_invalid_request");
@@ -109,6 +144,7 @@ export async function directoryCommand(env, command) {
     method: "POST", body: JSON.stringify(command),
   });
   const result = await response.json();
+  if (response.status === 400 && result.error === "runtime_instance_actor_required") throw Error("kv_directory_legacy_receiver");
   if (!response.ok || !result.ok) {
     const error = new Error(/^(kv_directory_|kv_list_daily_limit_exceeded)/.test(result.error || "") ? result.error : "kv_directory_unavailable");
     error.retry_after = result.retry_after || 300;
@@ -119,8 +155,31 @@ export async function directoryCommand(env, command) {
   return result;
 }
 
-export function directoryList(env, prefix, limit) {
-  return directoryCommand(env, { action: "read", prefix, limit });
+export async function directoryList(env, prefix, limit) {
+  if (!env.STRATEGY_SWITCH_RUNTIME_INSTANCES)
+    return manifestRead(await sharedManifest(env.STRATEGY_SWITCH_CONFIG), prefix, limit);
+  try { return await directoryCommand(env, { action: "read", prefix, limit }); }
+  catch (error) {
+    if (error.message !== "kv_directory_legacy_receiver") throw error;
+    // A 0% Worker override does not override the Durable Object's version.
+    // A complete maintained KV mirror allows receiver-first compatibility.
+    return manifestRead(await sharedManifest(env.STRATEGY_SWITCH_CONFIG), prefix, limit);
+  }
+}
+
+export async function maintainDirectory(env) {
+  try { return await directoryCommand(env, { action: "maintain", refresh: true }); }
+  catch (error) {
+    if (error.message !== "kv_directory_legacy_receiver") throw error;
+    // Only the authenticated explicit admin operation reaches this fallback.
+    // No public read or background loop may bootstrap through the old object.
+    const migration = new KvDirectory({ async get() { return null; }, async put() {} }, env.STRATEGY_SWITCH_CONFIG, env);
+    const result = await migration.command({ action: "maintain", refresh: true });
+    if (!result.ok) {
+      const failure = new Error(result.error); failure.retry_after = result.retry_after; throw failure;
+    }
+    return result;
+  }
 }
 
 // Unit fixtures can substitute the private service without changing whether

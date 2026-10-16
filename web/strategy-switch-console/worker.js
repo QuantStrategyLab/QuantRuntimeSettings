@@ -1,4 +1,4 @@
-import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, indexedKey } from "./kv_directory.js";
+import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, indexedKey, maintainDirectory } from "./kv_directory.js";
 import { sourceListFailure } from "./application/console_api/read_failures.js";
 import { performanceResponse } from "./application/console_api/performance_routes.js";
 import { consoleApiResponse } from "./application/console_api/routes.js";
@@ -783,7 +783,7 @@ export default {
         if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
         if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
         requireSameOrigin(request, { requireOrigin: true });
-        return json(await directoryCommand(env, { action: "maintain", refresh: true }));
+        return json(await maintainDirectory(env));
       }
       if (url.pathname === "/login") return await startLogin(request, env);
       if (url.pathname === "/callback") return await finishLogin(request, env);
