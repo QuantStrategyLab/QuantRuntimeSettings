@@ -12,7 +12,7 @@ import "./strategies.css";
 type Strategy = StrategySummary["strategies"][number];
 type StrategiesTab = "catalog" | "research";
 
-const KNOWN_STATES = new Set(["ok", "partial", "stale", "no_data", "not_connected", "unavailable", "read_failed"]);
+const KNOWN_STATES = new Set(["healthy", "ok", "partial", "stale", "no_data", "not_connected", "unavailable", "read_failed"]);
 
 /** Map free-form status strings to a renderable state key; anything unrecognized becomes "unknown". */
 function knownState(status: string | null | undefined): string {

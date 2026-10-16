@@ -61,9 +61,12 @@ export function DataTable<T>({
                   key={column.id}
                   className={`${column.numeric ? "num " : ""}${sortable ? "sortable" : ""}`}
                   aria-sort={active ? (sort!.direction === "asc" ? "ascending" : "descending") : undefined}
-                  onClick={sortable ? () => setSort({ column: column.id, direction: active && sort!.direction === "desc" ? "asc" : "desc" }) : undefined}
                 >
-                  {column.header}{active ? (sort!.direction === "asc" ? " ▲" : " ▼") : ""}
+                  {sortable ? (
+                    <button type="button" className="table-sort" onClick={() => setSort({ column: column.id, direction: active && sort!.direction === "desc" ? "asc" : "desc" })}>
+                      {column.header}{active ? (sort!.direction === "asc" ? " ▲" : " ▼") : ""}
+                    </button>
+                  ) : column.header}
                 </th>
               );
             })}
