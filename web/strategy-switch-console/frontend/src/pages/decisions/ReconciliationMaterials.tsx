@@ -10,8 +10,16 @@ export function ReconciliationMaterials({ data, language, t }: {
   const source = data?.sources.find(row => row.source === "recovery");
   const observation = source?.current_reconciliation_observation;
   const rows = data?.items.filter(row => row.category === "reconciliation_recovery") || [];
-  const timestamp = (value: string | null | undefined) => value && Number.isFinite(Date.parse(value))
-    ? <time dateTime={value}>{value}</time> : t("common.unknown");
+  // Keep the raw ISO instant in dateTime; show a localized browser-zone reading (SGT for this console's users).
+  const timestamp = (value: string | null | undefined) => {
+    if (!value || !Number.isFinite(Date.parse(value))) return t("common.unknown");
+    const parts = new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "shortOffset",
+    }).formatToParts(new Date(value));
+    const zone = parts.find(part => part.type === "timeZoneName")?.value || "";
+    const text = parts.filter(part => part.type !== "timeZoneName").map(part => part.value).join("").trim();
+    return <time dateTime={value}>{zone ? `${text} (${zone})` : text}</time>;
+  };
   return <section className="card reconciliation-materials" aria-label={t("reconciliation.title")}>
     <h2 className="card-title">{t("reconciliation.current")}</h2>
     <p role="status">{observation?.status_label[language] || t("reconciliation.not_connected")}</p>
@@ -26,7 +34,7 @@ export function ReconciliationMaterials({ data, language, t }: {
       const account = displayName("accounts", item.account_alias || "", language, t("common.account"), item.platform || "");
       return <article key={item.id} className="reconciliation-material">
         <h3>{material?.label[language] || t("reconciliation.materials")}</h3>
-        <p>{strategy} · {account} · {t("decisions.ref", { id: item.short_id })}</p>
+        <p>{strategy} · {account} · <span className="reconciliation-ref">{t("decisions.ref", { id: item.short_id })}</span></p>
         <dl>
           <div><dt>{t("reconciliation.decision_status")}</dt><dd>{material?.decision_status_label[language] || t("reconciliation.decision_unknown")}</dd></div>
           <div><dt>{t("reconciliation.freshness")}</dt><dd>{t(item.evidence_freshness.status === "stale" ? "state.stale" : item.evidence_freshness.status === "ready" ? "decisions.freshness.ready" : "common.unknown")}</dd></div>

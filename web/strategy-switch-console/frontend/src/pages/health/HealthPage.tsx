@@ -66,6 +66,10 @@ function StatStrip({
   const data = summary.phase === "ready" ? summary.data : null;
   const okCount = data ? data.accounts.filter(account => account.status === "ok").length : 0;
   const failures = data ? todayFailures(data) : { count: 0, complete: false };
+  const stateCounts = data ? runStateCounts(data.accounts) : null;
+  const unconnectedNote = stateCounts && (stateCounts.not_connected > 0 || stateCounts.no_data > 0)
+    ? t("health.kpi.today_runs_note", { not_connected: stateCounts.not_connected, no_data: stateCounts.no_data })
+    : undefined;
   const credentialData = credential.phase === "ready" ? credential.data : null;
   const credentialCount = credentialData && ATTENTION_PHASES.includes(credentialData.phase) ? 1 : 0;
 
@@ -77,6 +81,7 @@ function StatStrip({
           value={
             <StatValue state={summary} render={() => t("health.account_fraction", { count: okCount, total: data?.counts.configured ?? 0 })} />
           }
+          sub={unconnectedNote}
           footer={data?.as_of ? <AsOfStamp value={data.as_of} /> : undefined}
         />
         <KpiCard
@@ -99,8 +104,8 @@ function StatStrip({
             : failures.count > 0 ? t("health.failure_at_least", { count: failures.count }) : t("state.unknown")} />}
         />
       </div>
-      {data && <ul className="health-state-counts" aria-label={t("health.state_counts")}>
-        {Object.entries(runStateCounts(data.accounts)).map(([state, count]) => <li key={state}>
+      {stateCounts && <ul className="health-state-counts" aria-label={t("health.state_counts")}>
+        {Object.entries(stateCounts).map(([state, count]) => <li key={state}>
           {t(`health.run_state.${state}`)}: <span className="num">{count}</span>
         </li>)}
       </ul>}

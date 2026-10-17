@@ -215,10 +215,10 @@ function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
       ];
       body = <LineChart series={series} mode="cumulative" ariaLabel={t("overview.equity_trend")} />;
     } else {
+      // The reason line lives in the page-level metric note (shared with the KPI cards) to avoid repeating it here.
       body = (
         <EmptyState
           title={t(`state.${usable(data.status) ? "no_data" : data.status}`)}
-          body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
         />
       );
     }
@@ -366,7 +366,7 @@ export default function OverviewPage() {
   const returns = useApi(() => loadPerformanceReturns(scope, RANGE), [scope, epoch]);
   const accounts = useApi(() => loadAccounts(), [epoch]);
   const config = useApi(() => getJson<LegacyConfig>("/api/config").catch(() => null), [epoch]);
-  const metricReasons = [...new Set([assets, summary, calendar].flatMap(state =>
+  const metricReasons = [...new Set([assets, summary, calendar, returns].flatMap(state =>
     state.phase === "ready" && state.data.unavailable_reason ? [state.data.unavailable_reason] : []))];
 
   return (

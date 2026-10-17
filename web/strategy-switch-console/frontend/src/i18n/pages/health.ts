@@ -1,9 +1,10 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
   "health.failure_at_least": "至少 {count}",
-  "health.failure_window": "{date}（America/New_York）；仅统计今日，不含下方 14 日历史",
+  "health.failure_window": "{date}（纽约时间，含夏令时）；仅统计今日，不含下方 14 日历史",
   "health.failure_incomplete": "覆盖不完整，无法确认失败总数",
   "health.kpi.today_runs": "完整数据账户",
+  "health.kpi.today_runs_note": "未接入 {not_connected} · 暂无数据 {no_data}；这两类不是失败",
   "health.kpi.observed": "今日有记录账户",
   "health.kpi.credentials": "凭证",
   "health.kpi.recent_failure": "今日失败账户",
@@ -64,9 +65,10 @@ export const zh: Record<string, string> = {
 };
 export const en: Record<string, string> = {
   "health.failure_at_least": "At least {count}",
-  "health.failure_window": "{date} (America/New_York); today only, excludes the 14-day history below",
+  "health.failure_window": "{date} (New York time, DST observed); today only, excludes the 14-day history below",
   "health.failure_incomplete": "Incomplete coverage; total failures unknown",
   "health.kpi.today_runs": "Accounts with complete data",
+  "health.kpi.today_runs_note": "Not connected: {not_connected} · no data: {no_data}; neither is a failure",
   "health.kpi.observed": "Accounts with today's records",
   "health.kpi.credentials": "Credentials",
   "health.kpi.recent_failure": "Today's failed accounts",

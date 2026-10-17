@@ -26,6 +26,8 @@
 
 .perf-kind { font-size: 12px; color: var(--muted); }
 
+.kpi-foot .kpi-reason { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+
 .perf-mode-toggle { margin-left: auto; }
 
 .perf-benchmarks-off {
