@@ -94,6 +94,7 @@ jobs:
     environment: runtime-strategy-switch
     env:
       QSL_ROUTINE_NOTIFICATION_MODE: ${{ vars.QSL_ROUTINE_NOTIFICATION_MODE || 'immediate' }}
+      QRS_UNIFIED_NOTIFICATION_ENABLED: ${{ vars.QRS_UNIFIED_NOTIFICATION_ENABLED || 'false' }}
       DIGEST_RECIPIENT_SCOPE: ${{ vars.DIGEST_RECIPIENT_SCOPE || 'default' }}
       # Read-only guard recovery; these settings never retry message delivery.
       DIGEST_GUARD_READ_ATTEMPTS: ${{ vars.DIGEST_GUARD_READ_ATTEMPTS || '3' }}
@@ -139,6 +140,8 @@ jobs:
           python3 - <<'PY_SLOT'
           import os
           mode = os.environ.get("QSL_ROUTINE_NOTIFICATION_MODE", "immediate")
+          if os.environ.get("QRS_UNIFIED_NOTIFICATION_ENABLED", "").strip().lower() == "true":
+              mode = "daily_digest"
           expected = "0 23 * * *" if mode == "daily_digest" else "0 22 * * 1-5"
           proceed = os.environ.get("DIGEST_EVENT_NAME") != "schedule" or os.environ.get("DIGEST_EVENT_SCHEDULE") == expected
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
@@ -217,6 +220,9 @@ jobs:
             else
               echo "dry_run=false" >> "$GITHUB_OUTPUT"
             fi
+          fi
+          if [[ "${QRS_UNIFIED_NOTIFICATION_ENABLED:-}" =~ ^[[:space:]]*[tT][rR][uU][eE][[:space:]]*$ && -z "$INPUT_BUSINESS_DAY" ]]; then
+            INPUT_BUSINESS_DAY="$(python3 -c 'import sys; sys.path.insert(0, "python/scripts"); from notification_mode import consolidation_enabled; from daily_digest_aggregator import resolve_business_day; print(resolve_business_day() if consolidation_enabled() else "")')"
           fi
           echo "business_day=$INPUT_BUSINESS_DAY" >> "$GITHUB_OUTPUT"
           echo "locale=$INPUT_LOCALE" >> "$GITHUB_OUTPUT"

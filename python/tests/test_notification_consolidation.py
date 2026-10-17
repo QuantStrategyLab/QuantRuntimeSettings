@@ -1,0 +1,326 @@
+"""Offline default-off selector and daily sender safety regressions."""
+import io
+import json
+import os
+import re
+import subprocess
+import tempfile
+import textwrap
+import unittest
+from contextlib import redirect_stdout
+from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import patch
+
+import daily_digest_aggregator as aggregator
+import daily_digest_resend_guard as guard
+from notification_mode import consolidation_enabled, routine_mode
+from unified_daily_digest import render
+from test_unified_daily_digest import payload, row
+from test_daily_digest_ux import config
+from notification_snapshot.unified_contract import NotificationEvent, select_notification_route
+
+ON = {"QRS_UNIFIED_NOTIFICATION_ENABLED": "true"}
+
+
+def candidate(run="run-a", kind="routine_cycle", **updates):
+    fact = NotificationEvent(kind, datetime.fromisoformat("2026-10-16T05:50:00+08:00"),
+                             platform_id="schwab", opaque_account_uid="synthetic-account", target_id="synthetic-target",
+                             strategy_profile="synthetic_core", source_run_id=run,
+                             order_count=0, fill_count=0)
+    value = {name: getattr(fact, name) for name in
+             ("platform_id", "opaque_account_uid", "target_id", "strategy_profile", "source_run_id")}
+    value.update(actually_ran=True, business_day="2026-10-15", order_count=0, fill_count=0, cycle_count=1,
+                 notification_event=fact.to_candidate())
+    value.update(updates)
+    return value
+
+
+def build(rows, expected=None, **kwargs):
+    with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, ON, clear=True):
+        path = Path(directory) / "candidates.json"
+        path.write_text(json.dumps({"runs": rows}))
+        with patch.object(aggregator, "load_platform_config", return_value=config([candidate()] if expected is None else expected)):
+            result = aggregator.build_digest_payload(business_day="2026-10-15", include_github=False,
+                                                     candidates_path=path, **kwargs)
+            receipt = aggregator.build_receipt(result[0], result[2], message_chars=len(result[1]))
+            return *result, receipt
+
+
+class ConsolidationSelectorTests(unittest.TestCase):
+    def test_only_valid_true_maps_to_the_existing_mode(self):
+        for value in (None, "", "false", "invalid", "1", "yes"):
+            env = {} if value is None else {"QRS_UNIFIED_NOTIFICATION_ENABLED": value}
+            self.assertFalse(consolidation_enabled(env))
+            self.assertEqual(routine_mode(env), "immediate")
+            self.assertEqual(routine_mode({**env, "QSL_ROUTINE_NOTIFICATION_MODE": "daily_digest"}), "daily_digest")
+        self.assertEqual(routine_mode({**ON, "QSL_ROUTINE_NOTIFICATION_MODE": "immediate"}), "daily_digest")
+
+    def test_both_crons_and_manual_calls_share_one_selected_slot(self):
+        root = Path(__file__).resolve().parents[2]
+        source = (root / ".github/workflows/daily-digest-notify.yml").read_text()
+        job = source.split("  digest:\n", 1)[1].split("\n  maintenance-read-check:", 1)[0]
+        steps = re.split(r"(?m)^      - (?:name|uses): ", job)[1:]
+        script = textwrap.dedent(steps[0].split("        run: |\n", 1)[1])
+        self.assertIn("QRS_UNIFIED_NOTIFICATION_ENABLED || 'false'", source)
+        for value in ("", "false", "invalid", "true", " TRUE "):
+            for slot in ("0 22 * * 1-5", "0 23 * * *"):
+                with tempfile.TemporaryDirectory() as directory:
+                    output = Path(directory) / "out"
+                    env = dict(PATH=os.environ["PATH"], QRS_UNIFIED_NOTIFICATION_ENABLED=value,
+                               QSL_ROUTINE_NOTIFICATION_MODE="immediate", DIGEST_EVENT_NAME="schedule",
+                               DIGEST_EVENT_SCHEDULE=slot, GITHUB_OUTPUT=str(output))
+                    result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    expected = "0 23 * * *" if value.strip().lower() == "true" else "0 22 * * 1-5"
+                    self.assertEqual(output.read_text(), f"proceed={str(slot == expected).lower()}\n")
+        self.assertIn("cancel-in-progress: false", source)
+
+    def test_completed_sgt_window_is_used_even_for_late_manual_calls(self):
+        with patch.dict(os.environ, ON, clear=True):
+            for stamp, day in (("2026-10-16T21:59:00+00:00", "2026-10-15"),
+                               ("2026-10-16T22:00:00+00:00", "2026-10-16"),
+                               ("2026-10-17T12:00:00+00:00", "2026-10-16")):
+                self.assertEqual(aggregator.resolve_business_day(now=datetime.fromisoformat(stamp)), day)
+            self.assertEqual(aggregator.resolve_business_day(explicit="2026-10-10"), "2026-10-10")
+
+
+class ConsolidationGuardTests(unittest.TestCase):
+    def test_public_pending_receipt_round_trip_blocks_a_second_attempt(self):
+        import zipfile
+        from project_public_digest_receipt import project_public_receipt
+        receipt = dict(schema_version="qsl.daily_digest_receipt.v1", business_day="2026-10-15",
+                       report_date="2026-10-16", recipient_scope="synthetic", dry_run=False, delivered=False,
+                       status="sending", window={"timezone": "Asia/Singapore", "business_day": "2026-10-15",
+                                                 "window_id": "sgt-0600:2026-10-15"})
+        public = project_public_receipt(receipt)
+        self.assertEqual(public["status"], "sending")
+        self.assertEqual(public["window"]["timezone"], "Asia/Singapore")
+        self.assertEqual(public["window"]["window_id"], "sgt-0600:2026-10-15")
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as archive:
+            archive.writestr("receipt-public.json", json.dumps(public))
+        marker = guard._read_marker(stream.getvalue())
+        env = dict(ON, GITHUB_ACTIONS="true", GITHUB_EVENT_NAME="schedule", DIGEST_RECIPIENT_SCOPE="synthetic")
+        with patch.object(guard, "report_date", return_value="2026-10-16"), \
+             patch.object(guard, "read_history", return_value=[(1, marker)]):
+            self.assertEqual(guard.evaluate("2026-10-15", env).reason, "DELIVERY_UNCERTAIN")
+            marker["status"] = "unknown"
+            self.assertEqual(guard.evaluate("2026-10-15", env).reason, "DELIVERY_UNCERTAIN")
+
+    def test_old_window_cannot_be_sent_again_on_a_later_report_date(self):
+        env = dict(ON, GITHUB_ACTIONS="true", GITHUB_EVENT_NAME="workflow_dispatch", DIGEST_RECIPIENT_SCOPE="synthetic")
+        receipt = dict(report_date="2026-10-16", recipient_scope="synthetic", dry_run=False,
+                       delivered=True, status="delivered", business_day="2026-10-15")
+        with patch.object(guard, "report_date", return_value="2026-10-17"), \
+             patch.object(guard, "read_history", return_value=[(1, receipt)]):
+            self.assertEqual(guard.evaluate("2026-10-15", env).decision, "skip")
+        with patch.object(guard, "read_history", return_value=[]):
+            self.assertEqual(guard.evaluate("2020-01-01", env).reason, "BUSINESS_WINDOW_NOT_CURRENT")
+            self.assertEqual(guard.evaluate("2020-01-01", env, dry_run=True).decision, "preview")
+
+    def test_late_reruns_language_layout_and_force_do_not_send_a_second_summary(self):
+        env = dict(ON, GITHUB_ACTIONS="true", GITHUB_EVENT_NAME="workflow_dispatch",
+                   DIGEST_RESEND_GUARD="false", DIGEST_FORCE_RESEND="true", DIGEST_RECIPIENT_SCOPE="synthetic")
+        receipt = dict(report_date="2026-10-17", recipient_scope="synthetic", dry_run=False,
+                       delivered=True, status="delivered", business_day="2026-10-15")
+        with patch.object(guard, "report_date", return_value="2026-10-17"), \
+             patch.object(guard, "read_history", return_value=[(1, receipt)]):
+            for lang in ("zh", "en"):
+                for day in ("2026-10-15", "2026-10-16", "2026-10-17"):
+                    self.assertEqual(guard.evaluate(day, dict(env, DIGEST_LOCALE=lang)).decision, "skip")
+            receipt.update(status="sending", delivered=False)
+            self.assertEqual(guard.evaluate("2026-10-16", env).reason, "DELIVERY_UNCERTAIN")
+        with patch.object(guard, "read_history", side_effect=ValueError("missing history")):
+            self.assertEqual(guard.evaluate("2026-10-16", env).reason, "HISTORY_UNAVAILABLE")
+
+
+class ConsolidationLanguageTests(unittest.TestCase):
+    def test_utf16_budget_remains_one_message_with_both_locales(self):
+        from dataclasses import replace
+        item = row(block_reason=dict(reason_code="strategy_risk_rejected", order_submitted_this_run=False))
+        with patch.dict(os.environ, ON, clear=True):
+            for locale in ("zh", "en"):
+                text = render(replace(payload(*([item] * 100)), locale=locale), max_units=256)
+                self.assertLessEqual(len(text.encode("utf-16-le")) // 2, 256)
+                self.assertIn("省略" if locale == "zh" else "omitted", text)
+
+    def test_zero_runs_is_silent_but_zero_trade_runs_get_a_summary(self):
+        with patch.dict(os.environ, ON, clear=True):
+            self.assertEqual(render(payload()), "")
+            self.assertIn("订单：0", render(payload(row())))
+            self.assertIn("已收录运行 1 次", render(payload(row())))
+
+    def test_localized_schwab_reason_is_run_scoped_and_does_not_infer_fills(self):
+        from dataclasses import replace
+        reason = dict(reason_code="consecutive_loss_limit_exceeded", observed_value=4, limit=3,
+                      order_submitted_this_run=False)
+        item = row(block_reason=reason, fill_count=None, fill_count_status="unknown", status="alert")
+        with patch.dict(os.environ, ON, clear=True):
+            zh = render(payload(item))
+            en = render(replace(payload(item), locale="en"))
+            self.assertIn("连续亏损 4 次，超过上限 3 次", zh)
+            self.assertIn("本轮 0 单", zh)
+            self.assertIn("成交：全窗口统计未知", zh)
+            self.assertNotIn("No orders", zh)
+            self.assertIn("Consecutive losses 4 exceed limit 3", en)
+            self.assertIn("0 orders this run", en)
+            self.assertNotRegex(en, r"[\u4e00-\u9fff]")
+
+
+class ConsolidationCandidateTests(unittest.TestCase):
+    def test_identity_in_event_is_bound_before_expected_target_coverage(self):
+        a = candidate(order_count=2, fill_count=None)
+        for name in ("opaque_account_uid", "target_id", "source_run_id", "business_day"):
+            a.pop(name)
+        p, text, _, receipt = build([a])
+        self.assertEqual(len(p.runs), 1)
+        self.assertIn("订单：2", text)
+        self.assertEqual(receipt["notification_summary"]["source_inventory"]["schwab"]["covered_targets"], 1)
+
+    def test_raw_event_counts_cannot_replace_archive_run_counters(self):
+        a = candidate()["notification_event"]
+        a["actually_ran"] = True
+        _, text, _, receipt = build([a])
+        self.assertIn("全窗口统计未知", text)
+        self.assertIsNone(receipt["total_fills"])
+
+    def test_invalid_event_types_and_naive_time_are_rejected(self):
+        for field, value in (("event_kind", 1), ("opaque_account_uid", 123),
+                             ("occurred_at", "2026-10-16T05:50:00")):
+            a = candidate()
+            a["notification_event"][field] = value
+            with self.assertRaisesRegex(ValueError, "notification_event_invalid"):
+                build([a])
+
+    def test_archive_facts_old_new_producers_and_heartbeat_count_one_run(self):
+        a = candidate(order_count=2, fill_count=1)
+        heartbeat = candidate(kind="healthy_heartbeat", order_count=2, fill_count=1)
+        old = {name: value for name, value in a.items() if name != "notification_event"}
+        p, text, collected, receipt = build([a, a, old, heartbeat, candidate("run-b", order_count=3, fill_count=2)])
+        self.assertEqual(len(p.runs), 2)
+        self.assertIn("订单：5", text)
+        self.assertIn("成交：3", text)
+        self.assertEqual(receipt["total_fills"], 3)
+        self.assertEqual(collected.notification_summary["source_inventory"]["schwab"]["runs"], 2)
+        self.assertEqual(len(collected.notification_summary["source_inventory"]), 6)
+        self.assertIn("未配置", text)
+
+    def test_conflicting_revision_stays_unknown_and_earlier_alert_survives(self):
+        a = candidate(status="alert", order_count=1, fill_count=None)
+        b = candidate(order_count=2, fill_count=0)
+        p, text, collected, receipt = build([a, b, b])
+        self.assertEqual(len(p.runs), 1)
+        self.assertEqual(p.runs[0].status, "alert")
+        self.assertIsNone(p.runs[0].order_count)
+        self.assertIn("全窗口统计未知", text)
+        self.assertIsNone(receipt["total_fills"])
+        self.assertGreater(collected.notification_summary["count_conflicts"], 0)
+
+    def test_unknown_identity_is_never_zero_or_merged_across_accounts(self):
+        a = candidate(opaque_account_uid="")
+        a["notification_event"]["opaque_account_uid"] = None
+        for name in ("dedupe_key", "coverage_status", "order_count", "fill_count"):
+            a["notification_event"].pop(name)
+        p, text, _, receipt = build([a, a])
+        self.assertEqual(len(p.runs), 2)
+        self.assertIn("全窗口统计未知", text)
+        self.assertIsNone(receipt["total_fills"])
+        self.assertEqual(receipt["notification_summary"]["source_inventory"]["schwab"]["covered_targets"], 0)
+        self.assertIsNone(receipt["run_count"])
+
+    def test_zero_runs_has_no_message_but_unknown_coverage_is_retained(self):
+        p, text, _, receipt = build([])
+        self.assertEqual(text, "")
+        self.assertEqual(len(p.runs), 0)
+        self.assertEqual(receipt["evidence_status"], "evidence_unknown")
+        self.assertIsNone(receipt["total_fills"])
+        _, text, _, receipt = build([candidate(actually_ran=False)])
+        self.assertEqual(text, "")
+        self.assertEqual(receipt["evidence_status"], "verified_idle")
+
+    def test_missing_expected_binding_is_visible_without_filling_unknown_counts(self):
+        other = dict(candidate(), target_id="synthetic-other")
+        _, text, _, receipt = build([candidate()], expected=[candidate(), other])
+        self.assertIn("覆盖 1/2", text)
+        self.assertIn("全窗口统计未知", text)
+        self.assertIsNone(receipt["total_fills"])
+        for expected in ([], [dict(candidate(), opaque_account_uid="")]):
+            with self.assertRaisesRegex(ValueError, "digest_expected_targets"):
+                build([candidate()], expected=expected)
+
+    def test_event_timestamp_and_window_boundary_are_enforced(self):
+        a = candidate()
+        a["notification_event"]["occurred_at"] = "2026-10-16T06:00:00+08:00"
+        for name in ("business_day", "report_date", "window_id"):
+            a["notification_event"].pop(name)
+        with self.assertRaisesRegex(ValueError, "window_mismatch"):
+            build([a])
+        a["business_day"] = "2026-10-16"
+        p, text, _, receipt = build([a])
+        self.assertEqual(len(p.runs), 0)
+        self.assertEqual(text, "")
+        self.assertEqual(len(receipt["stale_candidates"]), 1)
+
+    def test_orders_remain_immediate_and_digest_counts_only_archive_facts(self):
+        a = candidate(kind="order_submitted", order_count=2, fill_count=None)
+        a["notification_event"]["order_execution_digest"] = "a" * 64
+        a["notification_event"].pop("dedupe_key")
+        a["notification_event"].pop("coverage_status")
+        self.assertEqual(select_notification_route(event_kind="order_submitted", env=ON,
+                                                   flag_key="QRS_UNIFIED_NOTIFICATION_ENABLED"), "immediate")
+        _, text, _, receipt = build([a, a])
+        self.assertIn("订单：2", text)
+        self.assertIn("成交：全窗口统计未知", text)
+        self.assertEqual(receipt["notification_summary"]["immediate_events"], 1)
+        self.assertIsNone(receipt["total_fills"])
+        self.assertEqual(select_notification_route(event_kind="blocked_run", env=ON,
+                                                   flag_key="QRS_UNIFIED_NOTIFICATION_ENABLED"), "immediate")
+
+    def test_changed_protected_target_cannot_enter_the_summary(self):
+        with self.assertRaisesRegex(ValueError, "identity_mismatch"):
+            build([candidate(target_id="synthetic-unapproved")])
+
+    def test_snapshot_bytes_match_the_pinned_qpk_contract(self):
+        import hashlib
+        root = Path(aggregator.__file__).parent / "notification_snapshot"
+        source = json.loads((root / "source.json").read_text())
+        self.assertEqual(source["commit"], "60a30ff9a5abc8654787095c9d5a003485afb325")
+        for name, expected in source["files"].items():
+            self.assertEqual(hashlib.sha256((root / name).read_bytes()).hexdigest(), expected)
+
+
+class ConsolidationDeliveryTests(unittest.TestCase):
+    def test_only_confirmed_ack_is_delivered_and_intent_is_recorded_before_transport(self):
+        import send_daily_digest_telegram as sender
+        for ack, delivered in (({"ok": True}, False),
+                               ({"ok": True, "result": {"message_id": 3, "chat": {"id": -123}}}, True),
+                               ({"ok": True, "result": {"message_id": 3, "chat": {"id": -456}}}, False)):
+            p, text, c, _ = build([candidate()])
+            with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, ON, clear=True):
+                path = Path(directory) / "receipt.json"
+
+                def response(_request):
+                    pending = json.loads(path.read_text())
+                    self.assertEqual(pending["status"], "sending")
+                    self.assertFalse(pending["delivered"])
+                    return ack
+
+                with patch.object(guard, "evaluate", return_value=guard.Decision("send", "FIRST_SEND")), \
+                     patch.object(sender.aggregator, "build_digest_payload", return_value=(p, text, c)), \
+                     patch.object(sender.maintenance.MaintenanceClient, "from_environment", return_value=None), \
+                     patch.object(sender, "diagnose_telegram_route", return_value={}), \
+                     patch.object(sender, "missing_delivery_requirements", return_value=[]), \
+                     patch.object(sender, "resolve_telegram_token", return_value="synthetic-token"), \
+                     patch.object(sender, "resolve_telegram_chat_id", return_value="-123"), \
+                     patch.object(sender.maintenance, "_json", side_effect=response) as send, \
+                     patch.object(sender, "send_telegram_message") as old, \
+                     patch("urllib.request.urlopen", side_effect=AssertionError("network forbidden")), \
+                     redirect_stdout(io.StringIO()):
+                    rc = sender.main(["--business-day", p.business_day, "--write-receipt", str(path)])
+                self.assertEqual(rc, 0 if delivered else 1)
+                receipt = json.loads(path.read_text())
+                self.assertEqual(receipt["delivered"], delivered)
+                self.assertEqual(receipt["languages"], ["zh"])
+                send.assert_called_once()
+                old.assert_not_called()

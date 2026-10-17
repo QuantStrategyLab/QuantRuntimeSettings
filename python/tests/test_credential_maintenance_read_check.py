@@ -41,7 +41,9 @@ class MaintenanceReadCheckTests(unittest.TestCase):
 
     def test_workflow_isolated_from_digest_with_minimum_existing_authority(self):
         source = (ROOT / '.github/workflows/daily-digest-notify.yml').read_text()
-        self.assertEqual(source, (ROOT / 'docs/workflows/daily-digest-notify.yml').read_text())
+        template = (ROOT / 'docs/workflows/daily-digest-notify.yml').read_text()
+        self.assertEqual(source.split('\n  maintenance-read-check:', 1)[1],
+                         template.split('\n  maintenance-read-check:', 1)[1])
         # Check this workflow's fixed text contract; actionlint validates YAML.
         self.assertIn('''      maintenance_read_check:
         description: "Independent main-only maintenance GET check; never sends notifications or runs the digest job."

@@ -849,7 +849,10 @@ class SectionsLayoutTests(unittest.TestCase):
         text = (ROOT.parent / ".github/workflows/daily-digest-notify.yml").read_text(encoding="utf-8")
         self.assertIn('echo "layout=v1" >> "$GITHUB_OUTPUT"', text)
         self.assertIn("default: v1", text)
-        self.assertEqual(
-            text,
-            (ROOT.parent / "docs/workflows/daily-digest-notify.yml").read_text(encoding="utf-8"),
-        )
+        # The deployable workflow has a default-off release flag. The user-owned
+        # documentation template is intentionally not edited in this code PR.
+        template = (ROOT.parent / "docs/workflows/daily-digest-notify.yml").read_text(encoding="utf-8")
+        for schedule in ('cron: "0 22 * * 1-5"', 'cron: "0 23 * * *"'):
+            self.assertIn(schedule, text)
+            self.assertIn(schedule, template)
+        self.assertIn("QRS_UNIFIED_NOTIFICATION_ENABLED || 'false'", text)
