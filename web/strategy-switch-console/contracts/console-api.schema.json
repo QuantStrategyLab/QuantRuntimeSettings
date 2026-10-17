@@ -49,6 +49,9 @@
                   "index_unavailable",
                   "unknown"
                 ]
+              },
+              "current_reconciliation_observation": {
+                "$ref": "#/$defs/current_reconciliation_observation"
               }
             },
             "required": [
@@ -185,6 +188,9 @@
               "short_id": {
                 "type": "string",
                 "pattern": "^(IN|CH)-[0-9A-Z]{13}$"
+              },
+              "presentation": {
+                "$ref": "#/$defs/recovery_material_presentation"
               }
             },
             "required": [
@@ -2970,6 +2976,171 @@
           "type": "string"
         }
       }
+    },
+    "recovery_material_presentation": {
+      "type": "object",
+      "properties": {
+        "material_kind": {
+          "enum": [
+            "historical_recovery_approval_material",
+            "recovery_approval_material"
+          ]
+        },
+        "label": {
+          "type": "object",
+          "properties": {
+            "zh": {
+              "type": "string"
+            },
+            "en": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "zh",
+            "en"
+          ]
+        },
+        "decision_status": {
+          "enum": [
+            "approved",
+            "rejected",
+            "undecided",
+            "unknown"
+          ]
+        },
+        "decision_status_label": {
+          "type": "object",
+          "properties": {
+            "zh": {
+              "type": "string"
+            },
+            "en": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "zh",
+            "en"
+          ]
+        },
+        "source_generated_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_computed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "strategy_profile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "material_kind",
+        "label",
+        "decision_status",
+        "decision_status_label",
+        "source_generated_at",
+        "source_computed_at",
+        "last_observed_at",
+        "strategy_profile"
+      ]
+    },
+    "current_reconciliation_observation": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "object",
+          "properties": {
+            "zh": {
+              "type": "string"
+            },
+            "en": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "zh",
+            "en"
+          ]
+        },
+        "connection_status": {
+          "enum": [
+            "connected",
+            "not_connected"
+          ]
+        },
+        "data_status": {
+          "enum": [
+            "ready",
+            "stale",
+            "unavailable",
+            "unknown"
+          ]
+        },
+        "comparison_status": {
+          "enum": [
+            "matched",
+            "mismatched",
+            "incomparable",
+            "unknown"
+          ]
+        },
+        "status_label": {
+          "type": "object",
+          "properties": {
+            "zh": {
+              "type": "string"
+            },
+            "en": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "zh",
+            "en"
+          ]
+        },
+        "generated_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "computed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "label",
+        "connection_status",
+        "data_status",
+        "comparison_status",
+        "status_label",
+        "generated_at",
+        "computed_at",
+        "last_observed_at"
+      ]
     }
   }
 }

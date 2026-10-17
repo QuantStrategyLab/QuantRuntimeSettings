@@ -6,6 +6,7 @@ import { performanceResponse } from "./application/console_api/performance_route
 import { consoleApiResponse } from "./application/console_api/routes.js";
 import { runControls } from "./application/console_api/run_controls.js";
 import { decorateQueue, decisionFields } from "./application/console_api/presentation.js";
+import { recoveryMaterialPresentation, currentReconciliationObservationPresentation } from "./application/console_api/reconciliation_presentation.js";
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
 import { V2_ASSETS, V2_PAGE_HTML, V2_BUILD_ID } from "./v2_asset_map.js";
@@ -8280,6 +8281,7 @@ async function aggregateReconciliationRecoverySources(env) {
         ? result.rejection
         : null;
       recoveries.push({ source_id: source.source_id, freshness, recovery, confirmation, rejection,
+        presentation: recoveryMaterialPresentation({ source, recovery, confirmation, rejection, decisionError: result.error }),
         decision_binding: { kind: "recovery", subject_id: recovery.recovery_id, material_sha256: await recoveryDecisionMaterialKey(recovery) },
       });
     }
@@ -8308,6 +8310,7 @@ async function aggregateReconciliationRecoverySources(env) {
       confirmed: uniqueRecoveries.filter((entry) => Boolean(entry.confirmation)).length,
     },
     recoveries: uniqueRecoveries,
+    current_reconciliation_observation: currentReconciliationObservationPresentation(),
     policy: {
       human_confirmation_required: true,
       current_evidence_required: true,
@@ -13935,6 +13938,7 @@ function emptyReconciliationRecoveryPayload(errorCode) {
     data_status: "unavailable",
     summary: { recovery_count: 0, awaiting_human_confirmation: 0, blocked: 0, confirmed: 0 },
     recoveries: [],
+    current_reconciliation_observation: currentReconciliationObservationPresentation(),
     policy: {
       human_confirmation_required: true,
       current_evidence_required: true,

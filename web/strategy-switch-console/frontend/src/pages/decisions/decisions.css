@@ -59,3 +59,9 @@
 }
 
 .decision-history-more { margin-top: 12px; }
+
+.reconciliation-materials { margin-block: 16px; }
+.reconciliation-material + .reconciliation-material { border-top: 1px solid var(--line); padding-top: 12px; }
+.reconciliation-material dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.reconciliation-material dt { color: var(--muted); font-size: 12px; }
+.reconciliation-material dd { margin: 0; overflow-wrap: anywhere; }

@@ -170,6 +170,7 @@ export function canonicalItem(entry, category) {
     account_alias: data.account_key || data.confirmation_account_key || null,
     platform: scalar(data.platform || data.confirmation_target_platform),
     decision_binding: entry.decision_binding || null,
+    ...(category === "reconciliation_recovery" && entry.presentation ? { presentation: entry.presentation } : {}),
   };
 }
 export async function actorAlias(actor) {
