@@ -21,11 +21,19 @@ function KpiState({ status, reason }: { status: string; reason?: string | null }
   return <span className="kpi-state" title={reason ? t(`reason.${reason}`) : undefined}>{t(`state.${status}`)}</span>;
 }
 
-function cardFooter(data: SummaryResponse) {
+/** Inline per-metric reason; skipped when the shared note above the grid already carries the same reason. */
+function MetricReason({ reason, shared }: { reason?: string | null; shared?: string | null }) {
+  const t = useT();
+  if (!reason || reason === shared) return null;
+  return <span className="kpi-reason">{t(`reason.${reason}`)}</span>;
+}
+
+function cardFooter(data: SummaryResponse, metricReason?: string | null) {
   return (
     <>
       <StatusBadge status={data.status} reason={data.unavailable_reason} />
       <AsOfStamp value={data.as_of} />
+      <MetricReason reason={metricReason} shared={data.unavailable_reason} />
     </>
   );
 }
@@ -33,15 +41,15 @@ function cardFooter(data: SummaryResponse) {
 function TwrCard({ data }: { data: SummaryResponse }) {
   const t = useT();
   const title = t("perf.card.twr");
-  const footer = cardFooter(data);
   if (!renderableStatus(data.status)) {
-    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={footer} />;
+    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={cardFooter(data, data.metric_reasons?.twr)} />;
   }
-  // asset_change scopes have no qualified TWR; the reason line explains the blank instead of a fake 0.
+  // asset_change scopes have no qualified TWR; a stated reason explains the blank instead of a fake 0.
   if (data.twr_return_percent === null) {
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t(`reason.${data.metric_reasons?.twr || data.unavailable_reason || "no_cashflow_data"}`)} footer={footer} />;
+    const reason = data.metric_reasons?.twr || data.unavailable_reason;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t(`reason.${reason || "unknown"}`)} footer={cardFooter(data)} />;
   }
-  return <KpiCard title={title} value={<Percent value={data.twr_return_percent} />} footer={footer} />;
+  return <KpiCard title={title} value={<Percent value={data.twr_return_percent} />} footer={cardFooter(data)} />;
 }
 
 function AmountCard({ data }: { data: SummaryResponse }) {
@@ -77,7 +85,7 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
     </span>} />;
   }
   if (!renderableStatus(data.status)) {
-    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={footer} />;
+    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={cardFooter(data, data.max_drawdown?.unavailable_reason)} />;
   }
   const dd = data.max_drawdown;
   if (dd.percent === null) {
@@ -96,7 +104,8 @@ function ExcessCard({ data }: { data: SummaryResponse }) {
   const title = t("perf.card.excess");
   const footer = cardFooter(data);
   if (!renderableStatus(data.status)) {
-    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={footer} />;
+    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />}
+      footer={cardFooter(data, data.excess_returns?.find(item => item.unavailable_reason)?.unavailable_reason)} />;
   }
   const primary = data.excess_returns.find(item => item.percentage_points !== null);
   if (!primary || primary.percentage_points === null) {
@@ -131,7 +140,8 @@ function DayCard({ data, field, titleKey }: { data: SummaryResponse; field: "bes
   const title = t(titleKey);
   const footer = cardFooter(data);
   if (!renderableStatus(data.status)) {
-    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={footer} />;
+    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />}
+      footer={cardFooter(data, data[field]?.unavailable_reason)} />;
   }
   const day = data[field];
   if (!day || !renderableStatus(day.status)) {

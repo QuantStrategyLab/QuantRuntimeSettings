@@ -56,6 +56,14 @@ const CATEGORY_TABS: Category[] = [
 
 const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, normal: 2 };
 
+const STALE_HINT_AGE_MS = 30 * 86_400_000;
+/** Display-only staleness hint; items are never closed, deleted or reprioritized here. */
+function showsStaleHint(item: InboxItem): boolean {
+  if (item.evidence_freshness?.status === "stale") return true;
+  const created = item.created_at ? Date.parse(item.created_at) : NaN;
+  return Number.isFinite(created) && Date.now() - created > STALE_HINT_AGE_MS;
+}
+
 function subjectIdOf(item: InboxItem): string {
   const binding = item.decision_binding;
   if (binding && typeof binding.subject_id === "string" && binding.subject_id) return binding.subject_id;
@@ -607,6 +615,7 @@ export default function DecisionsPage() {
             {item.expires_at && (
               <span>{t("decisions.expires_at", { value: formatDateTime(item.expires_at, language).text })}</span>
             )}
+            {showsStaleHint(item) && <span className="decision-stale-hint">{t("decisions.stale_hint")}</span>}
           </div>
         </div>
         {diffRows.length > 0 && (
@@ -677,6 +686,7 @@ export default function DecisionsPage() {
                         )}
                         <span>{item.account_alias ? names.account(item.account_alias, item.platform) : t("decisions.account_global")}</span>
                         {fresh && <span>{fresh}</span>}
+                        {showsStaleHint(item) && <span className="decision-stale-hint">{t("decisions.stale_hint")}</span>}
                       </span>
                     </span>
                     <Badge tone={expired ? "unknown" : "warn"}>

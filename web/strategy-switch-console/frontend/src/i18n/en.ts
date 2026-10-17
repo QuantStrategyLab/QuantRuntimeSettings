@@ -82,7 +82,7 @@ export const en: Record<CoreMessageKey, string> = {
   "reason.external_cashflow_required": "Without complete cash-flow records, amounts are shown as asset change",
   "reason.fills_not_connected": "The fill source is not connected",
   "reason.avg_cost_missing": "Average cost is missing, so unrealized P/L cannot be calculated",
-  "reason.mixed_currency": "Mixed currencies cannot be combined into one amount; percentages only",
+  "reason.mixed_currency": "Mixed currencies cannot be combined into one amount; each currency is shown separately",
   "reason.snapshot_history_missing": "Historical asset snapshots are missing",
   "reason.snapshot_missing": "Asset snapshot is missing",
   "reason.previous_snapshot_missing": "The previous day's asset snapshot is missing",

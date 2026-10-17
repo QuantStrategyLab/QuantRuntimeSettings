@@ -158,7 +158,8 @@ try {
     const statValue = data => ui.stats(language, data).match(/<span class="kpi-value[^"]*">([\s\S]*?)<\/span>/g)?.at(-1) || ui.stats(language, data);
     assert.ok(ui.stats(language, summary).replaceAll("&#x27;", "'").includes(language === "zh" ? "今日失败账户" : "Today's failed accounts"));
     assert.ok(ui.stats(language, summary).includes("2026-10-16"));
-    assert.ok(ui.stats(language, summary).includes("America/New_York"));
+    assert.ok(ui.stats(language, summary).includes(language === "zh" ? "纽约时间" : "New York time"));
+    assert.ok(!ui.stats(language, summary).includes("America/New_York"), "raw IANA timezone id must not be shown to users");
     assert.match(statValue(summary), /0/);
     for (const activity of ["failed"]) {
       const failed = { ...account, activity };
