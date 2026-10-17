@@ -212,4 +212,111 @@ for (const reason of ["invalid_return_period", "external_cashflow_required"]) {
   assert.deepEqual(after.assets, before.assets);
   assert.deepEqual(after.calendar, before.calendar);
 }
+// Root-required direct core compatibility input: the extra empty history member
+// does not represent a selected production account or establish route reachability.
+const emptyCompatInput = {
+  "accounts": [
+    {
+      "account_key": "synthetic",
+      "platform": "schwab"
+    }
+  ],
+  "histories": [
+    {
+      "id": "synthetic",
+      "currency": "USD",
+      "externalFlow": {
+        "schema_version": "external_flow.v1",
+        "windows": [
+          {
+            "currency": "USD",
+            "date": "2026-10-17",
+            "period_start": "2026-10-16T14:06:32.000Z",
+            "period_end": "2026-10-17T14:06:32.000Z",
+            "source": "schwab_transactions",
+            "coverage": "incomplete",
+            "records": [
+              {
+                "source_ref": "9174db243ce072454686a90cd10869c3e24b417f13e67b9d0b642fdc48ac701f",
+                "type": "deposit",
+                "amount": "100",
+                "effective_at": "2026-10-17T02:06:32.000Z",
+                "settlement_date": "2026-10-17",
+                "transfer_ref": null
+              }
+            ]
+          }
+        ]
+      },
+      "points": [
+        {
+          "date": "2026-10-16",
+          "observed_at": "2026-10-16T14:06:32.000Z",
+          "value": 100,
+          "externalFlow": null
+        },
+        {
+          "date": "2026-10-17",
+          "observed_at": "2026-10-17T14:06:32.000Z",
+          "value": 215,
+          "externalFlow": null
+        }
+      ]
+    },
+    {
+      "id": "missing",
+      "currency": "USD",
+      "points": []
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "标普500",
+      "points": [
+        {
+          "date": "2026-10-16",
+          "value": 100
+        },
+        {
+          "date": "2026-10-17",
+          "value": 100
+        }
+      ]
+    }
+  ],
+  "range": "ALL",
+  "today": "2026-10-17",
+  "year": 2026,
+  "month": 10,
+  "failed": []
+};
+const emptyCompatCore = cashflowCurrencyResult(emptyCompatInput.histories, emptyCompatInput);
+assert.equal(emptyCompatCore.unavailable_reason, "snapshot_history_missing");
+assert.equal(emptyCompatCore.twr_return_percent, null);
+assert.equal(emptyCompatCore.max_drawdown.percent, null);
+assert.equal(emptyCompatCore.max_drawdown.unavailable_reason, "snapshot_history_missing");
+assert.deepEqual(emptyCompatCore.points, []);
+assert.deepEqual(emptyCompatCore.index, []);
+const emptyCompatLegacy = performanceBlocks(emptyCompatInput);
+assert.equal(emptyCompatLegacy.returns.no_common_date, false);
+const emptyCompatBlocks = applyCashflowPerformance(structuredClone(emptyCompatLegacy), emptyCompatInput, env);
+assert.equal(emptyCompatBlocks.returns.no_common_date, false, "root requires historical EMPTY false compatibility");
+assert.equal(emptyCompatBlocks.returns.no_common_date, emptyCompatLegacy.returns.no_common_date);
+assert.equal(emptyCompatBlocks.summary.metric_reasons.twr, "snapshot_history_missing");
+assert.equal(emptyCompatBlocks.summary.twr_return_percent, null);
+assert.equal(emptyCompatBlocks.summary.max_drawdown.percent, null);
+assert.equal(emptyCompatBlocks.summary.max_drawdown.unavailable_reason, "snapshot_history_missing");
+for (const block of [emptyCompatBlocks.summary, emptyCompatBlocks.returns]) {
+  assert.equal(block.status, "partial");
+  assert.equal(block.unavailable_reason, "snapshot_history_missing");
+  assert.equal(block.cashflow_per_currency[0].unavailable_reason, "snapshot_history_missing");
+  assert.equal(block.cashflow_per_currency[0].twr_return_percent, null);
+  assert.equal(block.cashflow_per_currency[0].max_drawdown.percent, null);
+  assert.equal(block.cashflow_per_currency[0].max_drawdown.unavailable_reason, "snapshot_history_missing");
+}
+assert.deepEqual(emptyCompatBlocks.returns.points, []);
+assert.deepEqual(emptyCompatBlocks.returns.benchmarks, []);
+assert.equal(emptyCompatBlocks.returns.aligned_start, null);
+assert.deepEqual(emptyCompatBlocks.assets, emptyCompatLegacy.assets);
+assert.deepEqual(emptyCompatBlocks.calendar, emptyCompatLegacy.calendar);
 console.log("console_external_flow_validation: ok (synthetic only)");

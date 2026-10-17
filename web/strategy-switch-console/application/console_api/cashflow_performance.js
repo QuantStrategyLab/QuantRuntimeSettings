@@ -123,8 +123,10 @@ export function applyCashflowPerformance(blocks, input, env) {
       .map(p => p.date)));
     const benchmarkDates = input.benchmarks.map(b => new Set(sliceRange(b.points, input.range.toLowerCase(), input.today)
       .map(p => p.date))).filter(dates => dates.size);
-    const noCommonDate = benchmarkDates.length > 0 && ![...(memberDates[0] || [])].some(date =>
-      memberDates.every(dates => dates.has(date)) && benchmarkDates.every(dates => dates.has(date)));
+    // Preserve the legacy flag when a member has no real dates to compare.
+    const noCommonDate = memberDates.some(dates => !dates.size) ? blocks.returns.no_common_date
+      : benchmarkDates.length > 0 && ![...(memberDates[0] || [])].some(date =>
+        memberDates.every(dates => dates.has(date)) && benchmarkDates.every(dates => dates.has(date)));
     Object.assign(blocks.summary, { twr_return_percent: null, max_drawdown: r.max_drawdown,
       unavailable_reason: r.unavailable_reason });
     if (blocks.summary.metric_reasons) blocks.summary.metric_reasons.twr = r.unavailable_reason;
