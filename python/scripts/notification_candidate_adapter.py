@@ -61,11 +61,34 @@ def _bind_identity(row, events):
                 row[name] = value
 
 
+
+def validate_run_row(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate one business run; never accept a window aggregate as a run."""
+    row = dict(raw)
+    events = events_for(row)
+    _bind_identity(row, events)
+    if type(row.get("actually_ran")) is not bool:
+        raise ValueError("notification_candidate_run_evidence_required")
+    if row["actually_ran"]:
+        run_id = row.get("source_run_id")
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("notification_candidate_source_run_id_required")
+        for event in events:
+            if event.source_run_id != run_id:
+                raise ValueError("notification_candidate_identity_mismatch")
+        if row.get("schema_version") != "qsl.notification_event.v1":
+            cycles, status = digest.resolve_count_field(row, "cycle_count")
+            if status == "known" and cycles != 1:
+                raise ValueError("notification_candidate_per_run_required")
+    if any(name in row for name in ("source_runs", "source_run_ids", "events_by_run")):
+        raise ValueError("notification_candidate_per_run_required")
+    return row
+
 def partition(rows: Sequence[Mapping[str, Any]], business_day: str):
     """Use event timestamps for new facts; legacy rows retain existing dates."""
     current, stale = [], []
     for raw in rows:
-        row = dict(raw)
+        row = validate_run_row(raw)
         events = events_for(row)
         _bind_identity(row, events)
         if events:
@@ -96,26 +119,24 @@ def aggregate(rows: Sequence[Mapping[str, Any]], expected: Sequence[Mapping[str,
     grouped = {}
     event_ids = set()
     immediate_ids = set()
-    conflicts = 0
-    unknown = False
+    unknown_event = False
     observed_targets = set()
     run_counts = defaultdict(int)
     unknown_run_platforms = set()
     allowed = {tuple(str(row[name]) for name in IDENTITY[:4]) for row in expected}
     for index, raw in enumerate(rows):
-        row = dict(raw)
+        row = validate_run_row(raw)
         events = events_for(row)
         _bind_identity(row, events)
         if row.get("schema_version") == "qsl.notification_event.v1":
             # A raw event fact is not an archive-projected run counter.
             # Accept its identity/incident, but require producer projection for
             # whole-run order/fill counts rather than treating event counts as it.
-            unknown = True
             row.update(order_count=None, fill_count=None, cycle_count=None)
             row["field_status"] = {"order_count": "unknown", "fill_count": "unknown", "cycle_count": "unknown"}
         for event in events:
             if event.coverage_status != "known":
-                unknown = True
+                unknown_event = True
             key = event.to_candidate()["dedupe_key"]
             if key:
                 event_ids.add(key)
@@ -139,7 +160,6 @@ def aggregate(rows: Sequence[Mapping[str, Any]], expected: Sequence[Mapping[str,
         if all(identity[:4]) and identity[:4] not in allowed:
             raise ValueError("notification_candidate_target_unexpected")
         if not known_identity:
-            unknown = True
             unknown_run_platforms.add(row["platform_id"])
         else:
             observed_targets.add(identity[:4])
@@ -162,11 +182,17 @@ def aggregate(rows: Sequence[Mapping[str, Any]], expected: Sequence[Mapping[str,
                 merged[name] = None
                 merged[conflict_key] = True
                 merged["field_status"] = {**merged.get("field_status", {}), name: "unknown"}
-                unknown = True
-                conflicts += 1
             elif old_status != "known" and status == "known":
                 merged[name] = value
                 merged["field_status"] = {**merged.get("field_status", {}), name: "known"}
+        # Keep only this run's events, including later monitor observations.
+        facts = {}
+        for event in (*events_for(previous), *events):
+            fact = event.to_candidate()
+            facts[event] = fact
+        if facts:
+            merged.pop("notification_event", None)
+            merged["notification_events"] = list(facts.values())
         # Never overwrite an earlier alert with a later healthy snapshot.
         if row.get("status") == "alert":
             merged["status"] = "alert"
@@ -174,13 +200,25 @@ def aggregate(rows: Sequence[Mapping[str, Any]], expected: Sequence[Mapping[str,
             if row.get(name) and (not merged.get(name) or name == "block_reason"):
                 merged[name] = row[name]
         grouped[key] = merged
+    # Raw observations do not permanently taint an archive-authoritative run.
+    # Conflicts remain sticky on the final row even after later duplicates.
+    count_fields = ("order_count", "fill_count", "cycle_count")
+    conflicts = sum(bool(row.get("_conflict_" + name))
+                    for row in grouped.values() for name in count_fields)
+    unknown = unknown_event or bool(unknown_run_platforms) or any(
+        digest.resolve_count_field(row, name)[1] != "known"
+        for row in grouped.values() for name in count_fields
+    )
+    observed_targets &= allowed
+    scope_unknown = bool(unknown_run_platforms or conflicts or allowed - observed_targets) or unknown_event
+    unknown = unknown or scope_unknown
     inventory = {}
     for platform in PLATFORMS:
         targets = {tuple(str(row.get(name) or "") for name in IDENTITY[:4])
                    for row in expected if row.get("platform_id") == platform}
         inventory[platform] = dict(expected_targets=len(targets), covered_targets=len(targets & observed_targets),
                                    runs=None if platform in unknown_run_platforms else run_counts[platform])
-    return list(grouped.values()), dict(source_inventory=inventory, counts_unknown=unknown,
+    return list(grouped.values()), dict(source_inventory=inventory, counts_unknown=unknown, counts_scope_unknown=scope_unknown,
                                        run_count_unknown=bool(unknown_run_platforms),
                                        event_count=len(event_ids), immediate_events=len(immediate_ids),
                                        count_conflicts=conflicts)

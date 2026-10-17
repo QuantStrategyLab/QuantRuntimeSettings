@@ -81,7 +81,7 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     zh = not str(payload.locale).lower().startswith("en")
     summary = payload.notification_summary or {}
     coverage = payload.evidence_coverage
-    complete = bool(coverage and coverage.is_complete_for_verified_idle and not summary.get("counts_unknown"))
+    complete = bool(coverage and coverage.is_complete_for_verified_idle and not summary.get("counts_scope_unknown", summary.get("counts_unknown")))
     lines = [f"每日交易摘要 · {payload.business_day}" if zh else f"Daily trading digest · {payload.business_day}"]
     lines.append(("窗口内运行次数未知" if zh else "Run count in window unknown") if summary.get("run_count_unknown") else
                  f"已收录运行 {len(payload.runs)} 次" if zh else f"Observed runs in window: {len(payload.runs)}")

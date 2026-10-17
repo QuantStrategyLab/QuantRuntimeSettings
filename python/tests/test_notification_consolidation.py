@@ -185,6 +185,41 @@ class ConsolidationCandidateTests(unittest.TestCase):
         self.assertIn("全窗口统计未知", text)
         self.assertIsNone(receipt["total_fills"])
 
+    def test_archive_resolves_raw_event_counts_in_both_input_orders(self):
+        archive = candidate()
+        raw = dict(archive["notification_event"], actually_ran=True)
+        for rows in ([raw, archive], [archive, raw]):
+            with self.subTest(raw_first=rows[0] is raw):
+                p, text, _, receipt = build(rows)
+                self.assertEqual(len(p.runs), 1)
+                self.assertEqual(receipt["total_fills"], 0)
+                self.assertFalse(receipt["notification_summary"]["counts_unknown"])
+                self.assertIn("订单：0", text)
+                self.assertNotIn("全窗口统计未知", text)
+
+    def test_raw_event_cannot_clear_real_archive_conflict(self):
+        archive = candidate()
+        raw = dict(archive["notification_event"], actually_ran=True)
+        conflict = candidate(order_count=1)
+        for rows in ([raw, archive, conflict, archive], [conflict, archive, raw, archive]):
+            _, _, _, receipt = build(rows)
+            self.assertTrue(receipt["notification_summary"]["counts_unknown"])
+            self.assertEqual(receipt["notification_summary"]["count_conflicts"], 1)
+            self.assertIsNone(receipt["total_fills"])
+
+    def test_window_aggregate_and_other_runs_events_are_rejected(self):
+        from merge_digest_candidates import _rows
+        for value in (candidate(source_run_id=""), candidate(cycle_count=2),
+                      dict(candidate(), notification_events=[candidate("run-b")["notification_event"]])):
+            # Do not let a singular event rescue an invalid aggregate identity.
+            if value.get("source_run_id") == "":
+                value.pop("notification_event")
+            with self.assertRaisesRegex(ValueError, "notification_candidate"):
+                build([value])
+        with patch.dict(os.environ, ON, clear=True):
+            with self.assertRaisesRegex(ValueError, "per_run_required"):
+                _rows(dict(runs=[candidate()], source_runs={"run-a": {}}))
+
     def test_invalid_event_types_and_naive_time_are_rejected(self):
         for field, value in (("event_kind", 1), ("opaque_account_uid", 123),
                              ("occurred_at", "2026-10-16T05:50:00")):
