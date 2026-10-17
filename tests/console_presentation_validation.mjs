@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import "./account_native_display_validation.mjs";
+import "./reconciliation_material_presentation_validation.mjs";
 import { readFileSync } from "node:fs";
 import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";

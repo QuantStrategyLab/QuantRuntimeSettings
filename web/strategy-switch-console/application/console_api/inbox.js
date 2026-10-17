@@ -50,6 +50,7 @@ export async function inbox(request, env, deps) {
                 ? "stale"
                 : "ok",
           items: rows.map((row) => canonicalItem(row, category)),
+          ...(source === "recovery" ? { current_reconciliation_observation: body.current_reconciliation_observation } : {}),
           ...(failure || {}),
         };
       } catch (error) {
@@ -77,7 +78,8 @@ export async function inbox(request, env, deps) {
         : "ok",
     error_state: failure?.error_state || null,
     directory,
-    sources: results.map(({ source, status, failure_reason, error_state }) => ({ source, status,
+    sources: results.map(({ source, status, failure_reason, error_state, current_reconciliation_observation }) => ({ source, status,
+      ...(current_reconciliation_observation ? { current_reconciliation_observation } : {}),
       ...(failure_reason ? { failure_reason, error_state } : {}) })),
     items: [...unique.values()].sort(
       (a, b) =>

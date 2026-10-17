@@ -49,6 +49,7 @@ export interface DecisionFields {
   diff: DecisionDiff[];
 }
 export interface InboxItem extends DecisionFields {
+  presentation?: RecoveryMaterialPresentation;
   id: string;
   short_id: string;
   application_status?: string | null;
@@ -72,12 +73,33 @@ export interface InboxResponse {
     source: string;
     status: "ok" | "stale" | "unavailable" | "read_failed";
     error_state?: InboxErrorState;
+    current_reconciliation_observation?: CurrentReconciliationObservation;
     failure_reason?: "unauthorized" | "unknown" | "kv_list_daily_limit_exceeded" | "kv_directory_uninitialized" | "kv_directory_unavailable" | "kv_directory_truncated" | "kv_directory_migration_pending" | "kv_directory_migration_failed" | "kv_directory_record_unavailable";
   }[];
   items: InboxItem[];
   coverage: string;
   no_order: true;
   execution_authority_granted: false;
+}
+export interface RecoveryMaterialPresentation {
+  material_kind: "historical_recovery_approval_material" | "recovery_approval_material";
+  label: { zh: string; en: string };
+  decision_status: "approved" | "rejected" | "undecided" | "unknown";
+  decision_status_label: { zh: string; en: string };
+  strategy_profile: string;
+  source_generated_at: string | null;
+  source_computed_at: string | null;
+  last_observed_at: string | null;
+}
+export interface CurrentReconciliationObservation {
+  label: { zh: string; en: string };
+  connection_status: "connected" | "not_connected";
+  data_status: "ready" | "stale" | "unavailable" | "unknown";
+  comparison_status: "matched" | "mismatched" | "incomparable" | "unknown";
+  status_label: { zh: string; en: string };
+  generated_at: string | null;
+  computed_at: string | null;
+  last_observed_at: string | null;
 }
 export interface DecisionHistoryItem {
   id: string;
