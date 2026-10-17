@@ -318,9 +318,14 @@ export interface DailyChange {
   status: Status;
   unavailable_reason: Reason | null;
 }
-export interface SummaryResponse extends PerformanceMeta {
+/** Optional cash-flow method metadata from the API; absent on older responses. */
+export interface CashflowMethodMeta {
+  cashflow_method?: "modified_dietz" | string | null;
+  approximate?: boolean | null;
+}
+export interface SummaryResponse extends PerformanceMeta, CashflowMethodMeta {
   metric_reasons?: { twr: Reason | null };
-  per_currency?: (CurrencyTotal & { max_drawdown: Drawdown })[];
+  per_currency?: (CurrencyTotal & { max_drawdown: Drawdown } & CashflowMethodMeta)[];
   twr_return_percent: number | null;
   amount: number | null;
   simple_weighted_return_percent: number | null;
@@ -340,13 +345,13 @@ export interface SummaryResponse extends PerformanceMeta {
     unavailable_reason: Reason | null;
   }[];
 }
-export interface ReturnsResponse extends PerformanceMeta {
+export interface ReturnsResponse extends PerformanceMeta, CashflowMethodMeta {
   aligned_start: string | null;
   return_kind: "twr" | "unadjusted_asset_ratio";
   points: Point[];
   benchmarks: { id: string; points: Point[] }[];
   no_common_date: boolean;
-  per_currency: {
+  per_currency: ({
     currency: string;
     as_of?: string | null;
     coverage?: HistoryCoverage;
@@ -356,7 +361,7 @@ export interface ReturnsResponse extends PerformanceMeta {
     aligned_start: string | null;
     points: Point[];
     benchmarks: { id: string; points: Point[] }[];
-  }[];
+  } & CashflowMethodMeta)[];
   benchmark_availability: {
     id: string;
     status: Status;

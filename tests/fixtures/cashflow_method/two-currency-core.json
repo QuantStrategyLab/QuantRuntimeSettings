@@ -1,0 +1,294 @@
+{
+  "summary": {
+    "status": "unavailable",
+    "unavailable_reason": "mixed_currency",
+    "as_of": null,
+    "coverage": {
+      "account_aliases": [
+        "synthetic"
+      ],
+      "currencies": [
+        "USD",
+        "HKD"
+      ],
+      "excluded_accounts": [],
+      "omitted_dates": 0,
+      "cashflows": "unknown",
+      "fx": "not_applied",
+      "trading_dates": "stored_observation_date_weekends_excluded_holidays_unknown"
+    },
+    "currency": null,
+    "value_kind": "asset_change",
+    "account_freshness": [
+      {
+        "platform": "longbridge",
+        "account_alias": "synthetic",
+        "account_ref": "longbridge:synthetic",
+        "as_of": "2026-10-16T10:00:00Z",
+        "freshness": "fresh",
+        "fresh": true,
+        "stale": false,
+        "unavailable_reason": null
+      }
+    ],
+    "freshness_summary": {
+      "fresh": 1,
+      "stale": 0,
+      "unknown": 0,
+      "threshold_hours": 36
+    },
+    "twr_return_percent": null,
+    "amount": null,
+    "simple_weighted_return_percent": null,
+    "max_drawdown": {
+      "percent": null,
+      "peak_date": null,
+      "trough_date": null,
+      "unavailable_reason": "mixed_currency"
+    },
+    "metric_reasons": {
+      "twr": "mixed_currency"
+    },
+    "per_currency": [
+      {
+        "total": null,
+        "account_count": 0,
+        "expected_account_count": 1,
+        "as_of": null,
+        "stale": null,
+        "status": "no_data",
+        "unavailable_reason": "no_snapshot",
+        "currency": "HKD",
+        "excluded_account_count": 0,
+        "observation_date": null,
+        "max_drawdown": {
+          "percent": null,
+          "peak_date": null,
+          "trough_date": null,
+          "unavailable_reason": "no_cashflow_data"
+        }
+      },
+      {
+        "total": null,
+        "account_count": 0,
+        "expected_account_count": 1,
+        "as_of": null,
+        "stale": null,
+        "status": "no_data",
+        "unavailable_reason": "no_snapshot",
+        "currency": "USD",
+        "excluded_account_count": 0,
+        "observation_date": null,
+        "max_drawdown": {
+          "percent": 0,
+          "peak_date": "2026-10-15",
+          "trough_date": "2026-10-15",
+          "unavailable_reason": null
+        },
+        "twr_return_percent": 10.000000000000009,
+        "cashflow_method": "modified_dietz",
+        "approximate": true
+      }
+    ],
+    "best_day": null,
+    "worst_day": null,
+    "excess_returns": [],
+    "cashflow_per_currency": [
+      {
+        "currency": "USD",
+        "status": "ok",
+        "unavailable_reason": null,
+        "twr_return_percent": 10.000000000000009,
+        "max_drawdown": {
+          "percent": 0,
+          "peak_date": "2026-10-15",
+          "trough_date": "2026-10-15",
+          "unavailable_reason": null
+        },
+        "points": [
+          {
+            "date": "2026-10-15",
+            "value": 0,
+            "breakBefore": false
+          },
+          {
+            "date": "2026-10-16",
+            "value": 10.000000000000009,
+            "breakBefore": false
+          }
+        ],
+        "return_kind": "twr",
+        "cashflow_method": "modified_dietz",
+        "approximate": true,
+        "multi_day_intervals": false
+      },
+      {
+        "currency": "HKD",
+        "status": "partial",
+        "unavailable_reason": "external_cashflow_required",
+        "twr_return_percent": null,
+        "max_drawdown": {
+          "percent": null,
+          "peak_date": null,
+          "trough_date": null,
+          "unavailable_reason": "external_cashflow_required"
+        },
+        "points": [],
+        "return_kind": "unadjusted_asset_ratio",
+        "cashflow_method": "modified_dietz",
+        "approximate": true
+      }
+    ]
+  },
+  "returns": {
+    "status": "unavailable",
+    "unavailable_reason": "mixed_currency",
+    "as_of": null,
+    "coverage": {
+      "account_aliases": [
+        "synthetic"
+      ],
+      "currencies": [
+        "USD",
+        "HKD"
+      ],
+      "excluded_accounts": [],
+      "omitted_dates": 0,
+      "cashflows": "unknown",
+      "fx": "not_applied",
+      "trading_dates": "stored_observation_date_weekends_excluded_holidays_unknown"
+    },
+    "currency": null,
+    "value_kind": "asset_change",
+    "account_freshness": [
+      {
+        "platform": "longbridge",
+        "account_alias": "synthetic",
+        "account_ref": "longbridge:synthetic",
+        "as_of": "2026-10-16T10:00:00Z",
+        "freshness": "fresh",
+        "fresh": true,
+        "stale": false,
+        "unavailable_reason": null
+      }
+    ],
+    "freshness_summary": {
+      "fresh": 1,
+      "stale": 0,
+      "unknown": 0,
+      "threshold_hours": 36
+    },
+    "aligned_start": null,
+    "return_kind": "unadjusted_asset_ratio",
+    "points": [],
+    "benchmarks": [],
+    "per_currency": [
+      {
+        "currency": "USD",
+        "as_of": "2026-10-16",
+        "coverage": {
+          "omitted_dates": 0
+        },
+        "return_kind": "twr",
+        "status": "ok",
+        "unavailable_reason": null,
+        "aligned_start": "2026-10-15",
+        "points": [
+          {
+            "date": "2026-10-15",
+            "value": 0,
+            "breakBefore": false
+          },
+          {
+            "date": "2026-10-16",
+            "value": 10.000000000000009,
+            "breakBefore": false
+          }
+        ],
+        "benchmarks": [],
+        "twr_return_percent": 10.000000000000009,
+        "max_drawdown": {
+          "percent": 0,
+          "peak_date": "2026-10-15",
+          "trough_date": "2026-10-15",
+          "unavailable_reason": null
+        },
+        "cashflow_method": "modified_dietz",
+        "approximate": true,
+        "multi_day_intervals": false
+      },
+      {
+        "currency": "HKD",
+        "as_of": "2026-10-16",
+        "coverage": {
+          "omitted_dates": 0
+        },
+        "return_kind": "unadjusted_asset_ratio",
+        "status": "partial",
+        "unavailable_reason": "external_cashflow_required",
+        "aligned_start": "2026-10-15",
+        "points": [
+          {
+            "date": "2026-10-15",
+            "value": 0,
+            "breakBefore": false
+          },
+          {
+            "date": "2026-10-16",
+            "value": 10.000000000000009,
+            "breakBefore": false
+          }
+        ],
+        "benchmarks": []
+      }
+    ],
+    "no_common_date": false,
+    "benchmark_availability": [],
+    "cashflow_per_currency": [
+      {
+        "currency": "USD",
+        "status": "ok",
+        "unavailable_reason": null,
+        "twr_return_percent": 10.000000000000009,
+        "max_drawdown": {
+          "percent": 0,
+          "peak_date": "2026-10-15",
+          "trough_date": "2026-10-15",
+          "unavailable_reason": null
+        },
+        "points": [
+          {
+            "date": "2026-10-15",
+            "value": 0,
+            "breakBefore": false
+          },
+          {
+            "date": "2026-10-16",
+            "value": 10.000000000000009,
+            "breakBefore": false
+          }
+        ],
+        "return_kind": "twr",
+        "cashflow_method": "modified_dietz",
+        "approximate": true,
+        "multi_day_intervals": false
+      },
+      {
+        "currency": "HKD",
+        "status": "partial",
+        "unavailable_reason": "external_cashflow_required",
+        "twr_return_percent": null,
+        "max_drawdown": {
+          "percent": null,
+          "peak_date": null,
+          "trough_date": null,
+          "unavailable_reason": "external_cashflow_required"
+        },
+        "points": [],
+        "return_kind": "unadjusted_asset_ratio",
+        "cashflow_method": "modified_dietz",
+        "approximate": true
+      }
+    ]
+  }
+}

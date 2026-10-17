@@ -1,0 +1,145 @@
+{
+  "summary": {
+    "status": "ok",
+    "unavailable_reason": null,
+    "as_of": "2026-10-16",
+    "coverage": {
+      "account_aliases": [
+        "synthetic"
+      ],
+      "currencies": [
+        "USD"
+      ],
+      "excluded_accounts": [],
+      "omitted_dates": 0,
+      "cashflows": "complete",
+      "fx": "native_currency",
+      "trading_dates": "stored_observation_date_weekends_excluded_holidays_unknown"
+    },
+    "currency": "USD",
+    "value_kind": "pnl",
+    "account_freshness": [
+      {
+        "platform": "longbridge",
+        "account_alias": "synthetic",
+        "account_ref": "longbridge:synthetic",
+        "as_of": "2026-10-16T10:00:00Z",
+        "freshness": "fresh",
+        "fresh": true,
+        "stale": false,
+        "unavailable_reason": null
+      }
+    ],
+    "freshness_summary": {
+      "fresh": 1,
+      "stale": 0,
+      "unknown": 0,
+      "threshold_hours": 36
+    },
+    "twr_return_percent": 10.000000000000009,
+    "amount": 10,
+    "simple_weighted_return_percent": 10,
+    "max_drawdown": {
+      "percent": 0,
+      "peak_date": "2026-10-15",
+      "trough_date": "2026-10-15",
+      "unavailable_reason": null
+    },
+    "metric_reasons": {
+      "twr": null
+    },
+    "per_currency": [
+      {
+        "total": null,
+        "account_count": 0,
+        "expected_account_count": 1,
+        "as_of": null,
+        "stale": null,
+        "status": "no_data",
+        "unavailable_reason": "no_snapshot",
+        "currency": "USD",
+        "excluded_account_count": 0,
+        "observation_date": null,
+        "max_drawdown": {
+          "percent": 0,
+          "peak_date": "2026-10-15",
+          "trough_date": "2026-10-15",
+          "unavailable_reason": null
+        }
+      }
+    ],
+    "best_day": {
+      "date": "2026-10-16",
+      "amount": 10,
+      "return_percent": 10,
+      "value_kind": "pnl",
+      "status": "ok",
+      "unavailable_reason": null
+    },
+    "worst_day": {
+      "date": "2026-10-16",
+      "amount": 10,
+      "return_percent": 10,
+      "value_kind": "pnl",
+      "status": "ok",
+      "unavailable_reason": null
+    },
+    "excess_returns": []
+  },
+  "returns": {
+    "status": "ok",
+    "unavailable_reason": null,
+    "as_of": "2026-10-16",
+    "coverage": {
+      "account_aliases": [
+        "synthetic"
+      ],
+      "currencies": [
+        "USD"
+      ],
+      "excluded_accounts": [],
+      "omitted_dates": 0,
+      "cashflows": "complete",
+      "fx": "native_currency",
+      "trading_dates": "stored_observation_date_weekends_excluded_holidays_unknown"
+    },
+    "currency": "USD",
+    "value_kind": "pnl",
+    "account_freshness": [
+      {
+        "platform": "longbridge",
+        "account_alias": "synthetic",
+        "account_ref": "longbridge:synthetic",
+        "as_of": "2026-10-16T10:00:00Z",
+        "freshness": "fresh",
+        "fresh": true,
+        "stale": false,
+        "unavailable_reason": null
+      }
+    ],
+    "freshness_summary": {
+      "fresh": 1,
+      "stale": 0,
+      "unknown": 0,
+      "threshold_hours": 36
+    },
+    "aligned_start": "2026-10-15",
+    "return_kind": "twr",
+    "points": [
+      {
+        "date": "2026-10-15",
+        "value": 0,
+        "breakBefore": false
+      },
+      {
+        "date": "2026-10-16",
+        "value": 10.000000000000009,
+        "breakBefore": false
+      }
+    ],
+    "benchmarks": [],
+    "per_currency": [],
+    "no_common_date": false,
+    "benchmark_availability": []
+  }
+}
