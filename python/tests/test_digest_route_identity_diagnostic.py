@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import ast
-import http.server
 import importlib.util
 import io
 import json
@@ -11,7 +10,6 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
 from unittest import mock
 import urllib.error
@@ -291,54 +289,41 @@ spec.loader.exec_module(importlib.util.module_from_spec(spec))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
 
-    def test_actual_subprocess_get_fixture_never_sends_or_queries_shadowed(self):
-        requests = []
-
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                requests.append((self.command, self.path, self.headers.get("Content-Length")))
-                body = json.dumps({"ok": True, "result": {"id": 847362915, "is_bot": True, "username": PRIVATE[7]}}).encode()
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(body)
-
-            def do_POST(self):
-                requests.append((self.command, self.path, None))
-                self.send_error(405)
-
-            def log_message(self, *args):
-                pass
-
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        bootstrap = '''import runpy, sys, urllib.request
-real_build = urllib.request.build_opener
-port, script = sys.argv[1:]
+    def test_actual_subprocess_injected_get_never_sends_or_queries_shadowed(self):
+        bootstrap = '''import io, json, os, runpy, socket, sys, urllib.request
+script = sys.argv[1]
+requests = []
+def forbidden(*args, **kwargs):
+    raise AssertionError("network forbidden")
+socket.socket.connect = socket.socket.bind = socket.create_connection = socket.getaddrinfo = forbidden
+urllib.request.urlopen = forbidden
+class FixtureResponse(io.BytesIO):
+    def read(self, size=-1):
+        assert size == 65537
+        return super().read(size)
 def build(*handlers):
-    real = real_build(*handlers, urllib.request.ProxyHandler({}))
+    assert len(handlers) == 1 and type(handlers[0]).__name__ == "NoRedirect"
     class FixtureOpener:
         def open(self, request, **kwargs):
             assert request.get_method() == "GET" and request.data is None
-            assert request.full_url.startswith("https://api.telegram.org/bot")
-            assert request.full_url.endswith("/getMe")
-            local = "http://127.0.0.1:" + port + "/" + request.full_url.split(".org/", 1)[1]
-            return real.open(urllib.request.Request(local, method="GET"), **kwargs)
+            assert request.full_url == "https://api.telegram.org/bot" + os.environ["TELEGRAM_TOKEN"] + "/getMe"
+            assert kwargs == {"timeout": 15}
+            requests.append(request.get_method())
+            return FixtureResponse(json.dumps({"ok": True, "result": {"id": 847362915, "is_bot": True}}).encode())
     return FixtureOpener()
 urllib.request.build_opener = build
 sys.argv = [script]
-runpy.run_path(script, run_name="__main__")
+try:
+    runpy.run_path(script, run_name="__main__")
+except SystemExit as exc:
+    assert exc.code == 0
+assert requests == ["GET"]
 '''
-        try:
-            env = {"PATH": os.environ["PATH"], **configured_env(TG_TOKEN=PRIVATE[1])}
-            result = subprocess.run([sys.executable, "-I", "-S", "-c", bootstrap, str(server.server_port), str(SCRIPT)], env=env, capture_output=True, text=True, timeout=15)
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=5)
+        env = {"PATH": os.environ["PATH"], **configured_env(TG_TOKEN=PRIVATE[1])}
+        result = subprocess.run([sys.executable, "-I", "-S", "-c", bootstrap, str(SCRIPT)],
+                                env=env, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
-        self.assertEqual(requests, [("GET", "/bot" + PRIVATE[0] + "/getMe", None)])
         self.assertEqual(json.loads(result.stdout)["token"]["identity_state"], "observed")
         DiagnosticTests().assert_private(result.stdout)
 

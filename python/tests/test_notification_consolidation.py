@@ -185,6 +185,16 @@ class ConsolidationCandidateTests(unittest.TestCase):
         self.assertIn("全窗口统计未知", text)
         self.assertIsNone(receipt["total_fills"])
 
+    def test_off_intake_keeps_legacy_rows_byte_equivalent(self):
+        from merge_digest_candidates import _rows
+        legacy = candidate(cycle_count=2)
+        legacy.pop("source_run_id")
+        envelope = dict(runs=[legacy], notification_source_runs={"run-a": legacy})
+        for flag in (None, "false", "invalid"):
+            env = {} if flag is None else {"QRS_UNIFIED_NOTIFICATION_ENABLED": flag}
+            with patch.dict(os.environ, env, clear=True):
+                self.assertEqual(_rows(envelope), [legacy])
+
     def test_archive_resolves_raw_event_counts_in_both_input_orders(self):
         archive = candidate()
         raw = dict(archive["notification_event"], actually_ran=True)
@@ -209,7 +219,11 @@ class ConsolidationCandidateTests(unittest.TestCase):
 
     def test_window_aggregate_and_other_runs_events_are_rejected(self):
         from merge_digest_candidates import _rows
-        for value in (candidate(source_run_id=""), candidate(cycle_count=2),
+        missing_count = candidate()
+        missing_count.pop("order_count")
+        for value in (candidate(source_run_id=""), candidate(cycle_count=2), missing_count,
+                      candidate(actually_ran=False),
+                      candidate(order_count=True), candidate(fill_count=-1),
                       dict(candidate(), notification_events=[candidate("run-b")["notification_event"]])):
             # Do not let a singular event rescue an invalid aggregate identity.
             if value.get("source_run_id") == "":
@@ -270,7 +284,9 @@ class ConsolidationCandidateTests(unittest.TestCase):
         self.assertEqual(len(p.runs), 0)
         self.assertEqual(receipt["evidence_status"], "evidence_unknown")
         self.assertIsNone(receipt["total_fills"])
-        _, text, _, receipt = build([candidate(actually_ran=False)])
+        idle = candidate(actually_ran=False)
+        idle.pop("notification_event")
+        _, text, _, receipt = build([idle])
         self.assertEqual(text, "")
         self.assertEqual(receipt["evidence_status"], "verified_idle")
 
@@ -328,7 +344,9 @@ class ConsolidationCandidateTests(unittest.TestCase):
 class ConsolidationDeliveryTests(unittest.TestCase):
     def test_only_confirmed_ack_is_delivered_and_intent_is_recorded_before_transport(self):
         import send_daily_digest_telegram as sender
-        for ack, delivered in (({"ok": True}, False),
+        for ack, delivered in ((True, False), ({"ok": True}, False),
+                               ({"ok": True, "result": {"message_id": True, "chat": {"id": -123}}}, False),
+                               ({"ok": True, "result": {"message_id": "transport-ack:" + "a" * 64, "chat": {"id": -123}}}, False),
                                ({"ok": True, "result": {"message_id": 3, "chat": {"id": -123}}}, True),
                                ({"ok": True, "result": {"message_id": 3, "chat": {"id": -456}}}, False)):
             p, text, c, _ = build([candidate()])
