@@ -187,4 +187,29 @@ for (const [source, reason] of [
     assert.deepEqual(after.calendar, before.calendar);
   }
 }
+// A zero opening NAV empties the legacy return chain even when real observation
+// dates intersect. Date facts must survive both kinds of cashflow failure.
+for (const reason of ["invalid_return_period", "external_cashflow_required"]) {
+  const zeroOpeningInput = structuredClone(input);
+  zeroOpeningInput.histories[0].points[0].value = 0;
+  zeroOpeningInput.histories[0].points[1].value = 100;
+  zeroOpeningInput.histories[0].externalFlow.windows[0].records[0].effective_at = end;
+  if (reason === "external_cashflow_required") {
+    zeroOpeningInput.histories[0].externalFlow.windows[0].coverage = "incomplete";
+  }
+  zeroOpeningInput.benchmarks = [{ id: "synthetic-benchmark", points: [
+    { date: "2026-01-01", value: 100 }, { date: "2026-01-02", value: 100 },
+  ] }];
+  const before = performanceBlocks(zeroOpeningInput);
+  const after = applyCashflowPerformance(structuredClone(before), zeroOpeningInput, env);
+  assert.equal(after.returns.no_common_date, false, `${reason}: zero opening NAV still has shared observation dates`);
+  assert.equal(after.returns.unavailable_reason, reason);
+  assert.equal(after.summary.metric_reasons.twr, reason);
+  assert.equal(after.summary.twr_return_percent, null);
+  assert.equal(after.summary.max_drawdown.percent, null);
+  assert.deepEqual(after.returns.points, []);
+  assert.deepEqual(after.returns.benchmarks, []);
+  assert.deepEqual(after.assets, before.assets);
+  assert.deepEqual(after.calendar, before.calendar);
+}
 console.log("console_external_flow_validation: ok (synthetic only)");

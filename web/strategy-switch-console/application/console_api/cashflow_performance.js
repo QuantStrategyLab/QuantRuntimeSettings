@@ -116,10 +116,19 @@ export function applyCashflowPerformance(blocks, input, env) {
   const r = results[0];
   if (!r) return blocks;
   if (r.status !== "ok") {
+    // A failed return chain says nothing about observation-date overlap. Use
+    // real dates from every fixed member, never the asset union/forward-fill.
+    const memberDates = input.histories.map(h => new Set(sliceRange(h.points, input.range.toLowerCase(), input.today)
+      .filter(p => p.forwardFilled !== true && p.partial !== true && !p.forward_filled_accounts?.length)
+      .map(p => p.date)));
+    const benchmarkDates = input.benchmarks.map(b => new Set(sliceRange(b.points, input.range.toLowerCase(), input.today)
+      .map(p => p.date))).filter(dates => dates.size);
+    const noCommonDate = benchmarkDates.length > 0 && ![...(memberDates[0] || [])].some(date =>
+      memberDates.every(dates => dates.has(date)) && benchmarkDates.every(dates => dates.has(date)));
     Object.assign(blocks.summary, { twr_return_percent: null, max_drawdown: r.max_drawdown,
       unavailable_reason: r.unavailable_reason });
     if (blocks.summary.metric_reasons) blocks.summary.metric_reasons.twr = r.unavailable_reason;
-    Object.assign(blocks.returns, { unavailable_reason: r.unavailable_reason,
+    Object.assign(blocks.returns, { unavailable_reason: r.unavailable_reason, no_common_date: noCommonDate,
       points: [], benchmarks: [], aligned_start: null });
     return blocks;
   }
