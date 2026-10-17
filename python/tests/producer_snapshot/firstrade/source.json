@@ -1,0 +1,13 @@
+{
+  "repository": "QuantStrategyLab/FirstradePlatform",
+  "commit": "13a330c1488cc950fa1645c90f4fc9a7289f13a3",
+  "source_prefix": "notifications/",
+  "files": {
+    "unified.py": "64551d9db0828a90d6c8fde0cf7042e4e960d20f2580b8e256b0595c5b223db3",
+    "digest_snapshot/__init__.py": "19c2b049fd77b0009dfdda68dc5147ca0fb5cf8557cbc3916bd4f3b0cbb3b5b6",
+    "digest_snapshot/digest_archive.py": "b9a92299adfddff42c62f7d493845e0cbde91df7e475a5cb6bf2114446045b49",
+    "digest_snapshot/digest_candidates.py": "6272c0ca16ee63eecd9bcb25870df7f575d8fac3f487d3ab1ac69cc3831042a0",
+    "digest_snapshot/digest_routing.py": "60c3f258c4d1a03bc49c7d03b392c02c316541726dfacb0b1d4fae6dbd2e5017",
+    "digest_snapshot/unified_contract.py": "7ba48d1d7c74e66be8cd3ff983c2117002776e82cda6675a084cfe0dc51aecc0"
+  }
+}
