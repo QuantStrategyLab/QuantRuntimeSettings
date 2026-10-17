@@ -1,0 +1,861 @@
+{
+  "source_head": "782ac485bf8b98aa39600535d8c4197ffa3c7bd0",
+  "records": {
+    "immediate/zh/v1/idle": {
+      "render_sha256": "578d4fdfacf22f14a46bcbf0517bd266c1993a93ad9293f616c7dc145ce776d6",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "578d4fdfacf22f14a46bcbf0517bd266c1993a93ad9293f616c7dc145ce776d6"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": null,
+        "locale": "zh"
+      }
+    },
+    "immediate/zh/v1/orders": {
+      "render_sha256": "bd4d6bc0b61cf92ef67165ed7c939cd1952941a2b03005318502c1e0f6a9623b",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "bd4d6bc0b61cf92ef67165ed7c939cd1952941a2b03005318502c1e0f6a9623b"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 1,
+        "languages": null,
+        "locale": "zh"
+      }
+    },
+    "immediate/zh/v1/blocked": {
+      "render_sha256": "df0acd305a114ab588ef4973fd5def4f49a99bf82681c9aacd8ceecb76fa8063",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "df0acd305a114ab588ef4973fd5def4f49a99bf82681c9aacd8ceecb76fa8063"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": null,
+        "locale": "zh"
+      }
+    },
+    "immediate/zh/v1/unknown": {
+      "render_sha256": "8ad1f68d5944060f02da43c98109bce415b84b85b84f1a2c65f5e91bc738f18a",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "8ad1f68d5944060f02da43c98109bce415b84b85b84f1a2c65f5e91bc738f18a"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": null,
+        "languages": null,
+        "locale": "zh"
+      }
+    },
+    "immediate/zh/sections_v2/idle": {
+      "render_sha256": "69ad0fabaa24d3c1d8b817fbd3d941e44d10558565d386603ef32e219bcb3521",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "69ad0fabaa24d3c1d8b817fbd3d941e44d10558565d386603ef32e219bcb3521"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": null,
+        "locale": "zh"
+      }
+    },
+    "immediate/zh/sections_v2/orders": {
+      "render_sha256": "3a9e19ce49cce33d94e53f2004b3b8b1356c32461169a39920f139b397e8bc2b",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "3a9e19ce49cce33d94e53f2004b3b8b1356c32461169a39920f139b397e8bc2b"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 1,
+        "languages": null,
+        "locale": "zh"
+      }
+    },
+    "immediate/zh/sections_v2/blocked": {
+      "render_sha256": "87a165f4f3fddf06a2c47b75fd52d350cf6e58383d35916267c77398288d75b9",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "87a165f4f3fddf06a2c47b75fd52d350cf6e58383d35916267c77398288d75b9"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": null,
+        "locale": "zh"
+      }
+    },
+    "immediate/zh/sections_v2/unknown": {
+      "render_sha256": "d9a40d9169049568bf808dcee63f05a4dbe2f2e8f9f0f8bfa01144e2ba1a0188",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "d9a40d9169049568bf808dcee63f05a4dbe2f2e8f9f0f8bfa01144e2ba1a0188"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": null,
+        "languages": null,
+        "locale": "zh"
+      }
+    },
+    "immediate/en/v1/idle": {
+      "render_sha256": "b73f4c553a2e136064eb7d813c46c18facd9170d0f0a67ed5a60fd644ad1264a",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "b73f4c553a2e136064eb7d813c46c18facd9170d0f0a67ed5a60fd644ad1264a"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": null,
+        "locale": "en"
+      }
+    },
+    "immediate/en/v1/orders": {
+      "render_sha256": "85bf918cfd49719b1b25018ed5e911ff11397d43a74939e6518f494fe31e7b7c",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "85bf918cfd49719b1b25018ed5e911ff11397d43a74939e6518f494fe31e7b7c"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 1,
+        "languages": null,
+        "locale": "en"
+      }
+    },
+    "immediate/en/v1/blocked": {
+      "render_sha256": "b48e18c3bc7c125176d45d98b90cf5544eaeeaa3553cd962b76761a877fcf489",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "b48e18c3bc7c125176d45d98b90cf5544eaeeaa3553cd962b76761a877fcf489"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": null,
+        "locale": "en"
+      }
+    },
+    "immediate/en/v1/unknown": {
+      "render_sha256": "c9109dbb2ddf3da3eb1335e93740a7fbef023d633af48450612c90d1d3f651a8",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "c9109dbb2ddf3da3eb1335e93740a7fbef023d633af48450612c90d1d3f651a8"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": null,
+        "languages": null,
+        "locale": "en"
+      }
+    },
+    "immediate/en/sections_v2/idle": {
+      "render_sha256": "3de22da810bac9d03fe895a61747de07358fa025fe0af441170c815380994d9b",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "3de22da810bac9d03fe895a61747de07358fa025fe0af441170c815380994d9b"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": null,
+        "locale": "en"
+      }
+    },
+    "immediate/en/sections_v2/orders": {
+      "render_sha256": "06ae90520dcfb71c7bc0f05d3624cc67a26507d317937ee322d2a328e7c52399",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "06ae90520dcfb71c7bc0f05d3624cc67a26507d317937ee322d2a328e7c52399"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 1,
+        "languages": null,
+        "locale": "en"
+      }
+    },
+    "immediate/en/sections_v2/blocked": {
+      "render_sha256": "e64c635cf4dcd755faafdcbdf7becc97331853146676b604a09bb8ee3df94fbf",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "e64c635cf4dcd755faafdcbdf7becc97331853146676b604a09bb8ee3df94fbf"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": null,
+        "locale": "en"
+      }
+    },
+    "immediate/en/sections_v2/unknown": {
+      "render_sha256": "6d9b907906fa22228526954a381dcbfbb0c173005d4db2019b5d0dbb670fe60f",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "6d9b907906fa22228526954a381dcbfbb0c173005d4db2019b5d0dbb670fe60f"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": null,
+        "languages": null,
+        "locale": "en"
+      }
+    },
+    "daily_digest/zh/v1/idle": {
+      "render_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rc": 0,
+      "calls": [],
+      "receipt": {
+        "status": "skipped_empty",
+        "delivered": false,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "zh"
+      }
+    },
+    "daily_digest/zh/v1/orders": {
+      "render_sha256": "970e83e9b89d6ffd5dc7857d9890488ee6e15e24f5ce3f9430b3d83cb5e528ba",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "970e83e9b89d6ffd5dc7857d9890488ee6e15e24f5ce3f9430b3d83cb5e528ba"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 1,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "zh"
+      }
+    },
+    "daily_digest/zh/v1/blocked": {
+      "render_sha256": "88de384bdb19728695dc388b8bdb21fdc388928a7a0019eb32813fc9bf250729",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "88de384bdb19728695dc388b8bdb21fdc388928a7a0019eb32813fc9bf250729"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "zh"
+      }
+    },
+    "daily_digest/zh/v1/unknown": {
+      "render_sha256": "6e75106715c026c73f5cb02d682c00853250b36aeb10c70d8474856acc856fc9",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "6e75106715c026c73f5cb02d682c00853250b36aeb10c70d8474856acc856fc9"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": null,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "zh"
+      }
+    },
+    "daily_digest/zh/sections_v2/idle": {
+      "render_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rc": 0,
+      "calls": [],
+      "receipt": {
+        "status": "skipped_empty",
+        "delivered": false,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "zh"
+      }
+    },
+    "daily_digest/zh/sections_v2/orders": {
+      "render_sha256": "970e83e9b89d6ffd5dc7857d9890488ee6e15e24f5ce3f9430b3d83cb5e528ba",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "970e83e9b89d6ffd5dc7857d9890488ee6e15e24f5ce3f9430b3d83cb5e528ba"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 1,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "zh"
+      }
+    },
+    "daily_digest/zh/sections_v2/blocked": {
+      "render_sha256": "88de384bdb19728695dc388b8bdb21fdc388928a7a0019eb32813fc9bf250729",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "88de384bdb19728695dc388b8bdb21fdc388928a7a0019eb32813fc9bf250729"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "zh"
+      }
+    },
+    "daily_digest/zh/sections_v2/unknown": {
+      "render_sha256": "6e75106715c026c73f5cb02d682c00853250b36aeb10c70d8474856acc856fc9",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "6e75106715c026c73f5cb02d682c00853250b36aeb10c70d8474856acc856fc9"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": null,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "zh"
+      }
+    },
+    "daily_digest/en/v1/idle": {
+      "render_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rc": 0,
+      "calls": [],
+      "receipt": {
+        "status": "skipped_empty",
+        "delivered": false,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "en"
+      }
+    },
+    "daily_digest/en/v1/orders": {
+      "render_sha256": "970e83e9b89d6ffd5dc7857d9890488ee6e15e24f5ce3f9430b3d83cb5e528ba",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "970e83e9b89d6ffd5dc7857d9890488ee6e15e24f5ce3f9430b3d83cb5e528ba"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 1,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "en"
+      }
+    },
+    "daily_digest/en/v1/blocked": {
+      "render_sha256": "88de384bdb19728695dc388b8bdb21fdc388928a7a0019eb32813fc9bf250729",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "88de384bdb19728695dc388b8bdb21fdc388928a7a0019eb32813fc9bf250729"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "en"
+      }
+    },
+    "daily_digest/en/v1/unknown": {
+      "render_sha256": "6e75106715c026c73f5cb02d682c00853250b36aeb10c70d8474856acc856fc9",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "6e75106715c026c73f5cb02d682c00853250b36aeb10c70d8474856acc856fc9"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": null,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "en"
+      }
+    },
+    "daily_digest/en/sections_v2/idle": {
+      "render_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rc": 0,
+      "calls": [],
+      "receipt": {
+        "status": "skipped_empty",
+        "delivered": false,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "en"
+      }
+    },
+    "daily_digest/en/sections_v2/orders": {
+      "render_sha256": "970e83e9b89d6ffd5dc7857d9890488ee6e15e24f5ce3f9430b3d83cb5e528ba",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "970e83e9b89d6ffd5dc7857d9890488ee6e15e24f5ce3f9430b3d83cb5e528ba"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 1,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "en"
+      }
+    },
+    "daily_digest/en/sections_v2/blocked": {
+      "render_sha256": "88de384bdb19728695dc388b8bdb21fdc388928a7a0019eb32813fc9bf250729",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "88de384bdb19728695dc388b8bdb21fdc388928a7a0019eb32813fc9bf250729"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": 0,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "en"
+      }
+    },
+    "daily_digest/en/sections_v2/unknown": {
+      "render_sha256": "6e75106715c026c73f5cb02d682c00853250b36aeb10c70d8474856acc856fc9",
+      "rc": 0,
+      "calls": [
+        [
+          "requirements"
+        ],
+        [
+          "token"
+        ],
+        [
+          "chat"
+        ],
+        [
+          "send",
+          "6e75106715c026c73f5cb02d682c00853250b36aeb10c70d8474856acc856fc9"
+        ]
+      ],
+      "receipt": {
+        "status": "delivered",
+        "delivered": true,
+        "run_count": 1,
+        "total_fills": null,
+        "languages": [
+          "zh",
+          "en"
+        ],
+        "locale": "en"
+      }
+    }
+  }
+}

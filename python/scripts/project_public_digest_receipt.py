@@ -26,9 +26,9 @@ PUBLIC_ENUMS = {
     "total_fills_status": {"known", "unknown"},
     "evidence_status": {"has_runs", "verified_idle", "evidence_unknown"},
     "status": {"route_check", "dry_run", "blocked_missing_secrets", "delivered", "send_failed",
-               "skipped_duplicate", "blocked_resend_guard", "business_digest_failed", "skipped_empty"},
+               "skipped_duplicate", "blocked_resend_guard", "business_digest_failed", "skipped_empty", "sending"},
 }
-WINDOW_FIELDS = ("timezone", "business_day", "report_date", "start_local", "end_local", "start_utc", "end_utc")
+WINDOW_FIELDS = ("timezone", "business_day", "report_date", "start_local", "end_local", "start_utc", "end_utc", "window_id")
 COVERAGE_FIELDS = (
     "candidates_configured", "candidates_loaded", "candidates_count", "github_enabled",
     "github_sources_queried", "github_sources_matched", "has_source_failures", "is_complete_for_verified_idle",
@@ -103,6 +103,7 @@ def project_public_receipt(receipt: Mapping[str, Any], *, source_sha: str = "") 
             "reason": _enum(guard.get("reason"), {
                 "FIRST_SEND", "ALREADY_DELIVERED", "EXPLICIT_TEST_RESEND", "HISTORY_UNAVAILABLE",
                 "DELIVERY_UNCERTAIN", "CONFIGURATION_INVALID", "UNSUPPORTED_EVENT", "LOCAL_EXECUTION", "DRY_RUN",
+                "BUSINESS_WINDOW_NOT_CURRENT",
             }),
             "previous_failures": _count(guard.get("previous_failures")),
             "history_error": _enum(guard.get("history_error"), HISTORY_ERRORS | {""}),
@@ -120,7 +121,9 @@ def project_public_receipt(receipt: Mapping[str, Any], *, source_sha: str = "") 
                 continue
             value = window[key]
             if key == "timezone":
-                public["window"][key] = _enum(value, {"Asia/Shanghai"})
+                public["window"][key] = _enum(value, {"Asia/Shanghai", "Asia/Singapore"})
+            elif key == "window_id":
+                public["window"][key] = value if isinstance(value, str) and value == f"sgt-0600:{_date(window.get('business_day'))}" else None
             elif key in {"business_day", "report_date"}:
                 public["window"][key] = _date(value)
             else:

@@ -35,6 +35,7 @@ if str(SCRIPTS) not in sys.path:
 import daily_digest_notify as digest  # noqa: E402
 import daily_digest_delivery_axes as delivery_axes  # noqa: E402
 import merge_digest_candidates as candidate_contract  # noqa: E402
+from notification_mode import consolidation_enabled, routine_mode  # noqa: E402
 
 DEFAULT_PLATFORM_CONFIG = ROOT / "platform-config.json"
 NY_TZ = ZoneInfo("America/New_York")
@@ -78,6 +79,7 @@ class CollectResult:
     runs: list[digest.DigestRunEntry]
     coverage: digest.EvidenceCoverage
     merged_rows: list[dict[str, Any]] = field(default_factory=list)
+    notification_summary: dict[str, Any] | None = None
 
 
 def resolve_business_day(
@@ -94,6 +96,10 @@ def resolve_business_day(
     stamp = now or datetime.now(tz=timezone.utc)
     if stamp.tzinfo is None:
         stamp = stamp.replace(tzinfo=timezone.utc)
+    if consolidation_enabled():
+        local = stamp.astimezone(ZoneInfo("Asia/Singapore"))
+        end_day = local.date() - timedelta(days=local.hour < DIGEST_CUTOFF_HOUR_SHANGHAI)
+        return (end_day - timedelta(days=1)).isoformat()
     return stamp.astimezone(NY_TZ).date().isoformat()
 
 
@@ -114,7 +120,7 @@ def digest_window_for(business_day: str) -> dict[str, str]:
         day.year, day.month, day.day, DIGEST_CUTOFF_HOUR_SHANGHAI, tzinfo=SHANGHAI_TZ
     )
     end_local = start_local + timedelta(days=1)
-    return {
+    window = {
         "timezone": "Asia/Shanghai",
         "business_day": day.isoformat(),
         "report_date": end_local.date().isoformat(),
@@ -123,6 +129,9 @@ def digest_window_for(business_day: str) -> dict[str, str]:
         "start_utc": start_local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "end_utc": end_local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
+    if consolidation_enabled():
+        window.update(timezone="Asia/Singapore", window_id=f"sgt-0600:{business_day}")
+    return window
 
 
 def resolve_layout(raw: str | None = None) -> str:
@@ -774,6 +783,10 @@ def collect_digest_runs(
         (os.environ.get("DIGEST_CANDIDATES_GCS_URI") or "").strip()
     )
     partition_stats: dict[str, int] = {}
+    if consolidation_enabled():
+        import notification_candidate_adapter as adapter
+        current, stale = adapter.partition(loaded_rows, business_day)
+        loaded_rows = current + stale
     file_rows, stale_notes = partition_candidates_by_business_day(
         loaded_rows, business_day, config=config, locale=locale, stats=partition_stats
     )
@@ -784,15 +797,21 @@ def collect_digest_runs(
         missing_targets.append(dict(item, reason_code="EVIDENCE_STALE_BUSINESS_DAY"))
     expected_raw = os.environ.get("DIGEST_EXPECTED_TARGETS_JSON", "").strip()
     expected = json.loads(expected_raw) if expected_raw else digest_contract(config).get("aggregator", {}).get("expected_targets", [])
-    if os.environ.get("QSL_ROUTINE_NOTIFICATION_MODE") == "daily_digest" and not expected:
+    if routine_mode() == "daily_digest" and not expected:
         raise ValueError("digest_expected_targets_required")
     if not isinstance(expected, list):
         raise ValueError("digest_expected_targets_invalid")
+    if consolidation_enabled():
+        adapter.validate_expected(expected)
+        # In unified mode a different strategy/account on the same target is
+        # not evidence for the protected expected binding.
+        observed = {tuple(row.get(name) for name in adapter.IDENTITY[:4]) for row in file_rows}
     for row in expected:
         if not isinstance(row, Mapping) or not _target_key(row) or not row.get("strategy_profile"):
             raise ValueError("digest_expected_targets_invalid")
         key = _target_key(row)
-        if key not in current_targets and key not in stale_by_target:
+        absent = tuple(row.get(name) for name in adapter.IDENTITY[:4]) not in observed if consolidation_enabled() else key not in current_targets
+        if absent and key not in stale_by_target:
             reason = "EVIDENCE_UNREADABLE" if store_failures else (
                 "EVIDENCE_NOT_FOUND" if candidates_configured else "SOURCE_NOT_CONFIGURED"
             )
@@ -806,7 +825,11 @@ def collect_digest_runs(
         github_result = collect_from_github_workflows(
             business_day=business_day, config=config
         )
-    merged = merge_candidates(file_rows, github_result.rows)
+    notification_summary = None
+    if consolidation_enabled():
+        merged, notification_summary = adapter.aggregate(file_rows, expected)
+    else:
+        merged = merge_candidates(file_rows, github_result.rows)
     enriched = enrich_candidate_labels(merged, config, locale=locale)
     for row in enriched:
         if all(digest.resolve_count_field(row, name)[1] == "known" for name in ("fill_count", "order_count")):
@@ -832,11 +855,14 @@ def collect_digest_runs(
         suppressed_candidates_count=partition_stats.get("suppressed_candidates_count", 0),
         legacy_candidates_only=bool(partition_stats.get("suppressed_candidates_count") and not file_rows),
     )
-    return CollectResult(runs=runs, coverage=coverage, merged_rows=enriched)
+    return CollectResult(runs=runs, coverage=coverage, merged_rows=enriched, notification_summary=notification_summary)
 
 
 def _run_receipt_dict(entry: digest.DigestRunEntry) -> dict[str, Any]:
     payload = asdict(entry)
+    if not consolidation_enabled():
+        payload.pop("source_run_id", None)
+        payload.pop("approved_gate_reasons", None)
     # holdings are nested dataclasses already flattened by asdict
     payload["identity"] = {
         "platform_id": entry.platform_id,
@@ -909,6 +935,7 @@ def build_digest_payload(
         evidence_status=evidence_status,
         layout=resolve_layout(layout),
         window=digest_window_for(day),
+        notification_summary=collected.notification_summary,
     )
     from unified_daily_digest import enabled, render
     return payload, render(payload) if enabled() else digest.render_daily_digest(payload), collected
@@ -922,6 +949,8 @@ def build_receipt(
 ) -> dict[str, Any]:
     evidence_status = digest.resolve_evidence_status(payload)
     fills = digest.global_total_fills(payload)
+    if consolidation_enabled() and (collected.notification_summary or {}).get("counts_unknown"):
+        fills = None
     receipt = {
         "schema_version": "qsl.daily_digest_receipt.v1",
         "business_day": payload.business_day,
@@ -939,6 +968,10 @@ def build_receipt(
         "runs": [_run_receipt_dict(entry) for entry in payload.runs],
         "message_chars": message_chars,
     }
+    if consolidation_enabled():
+        receipt["notification_summary"] = dict(collected.notification_summary or {})
+        if receipt["notification_summary"].get("run_count_unknown"):
+            receipt["run_count"] = None
     # B11-b: additive dual-write of delivery axes (projection only).
     return delivery_axes.attach_delivery_axes(receipt)
 

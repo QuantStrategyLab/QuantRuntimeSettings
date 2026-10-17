@@ -514,6 +514,8 @@ class DigestRunEntry:
     section: str = ""
     # One atomic notification observation; never used as count evidence.
     block_reason: Mapping[str, object] | None = None
+    source_run_id: str = ""
+    approved_gate_reasons: tuple[Mapping[str, object], ...] = ()
 
     def __post_init__(self) -> None:
         if not str(self.platform_id).strip():
@@ -613,6 +615,7 @@ class DailyDigestInput:
     # "YYYY-MM-DD HH:MM" strings, see daily_digest_aggregator.digest_window_for).
     layout: DigestLayout | str = "v1"
     window: Mapping[str, Any] | None = None
+    notification_summary: Mapping[str, Any] | None = None
 
 
 def normalize_layout(raw: str | None) -> DigestLayout:
@@ -846,11 +849,24 @@ def _parse_block_reason(raw: object) -> dict[str, object] | None:
             "order_submitted_this_run": submitted}
 
 
-def block_reason_text(entry: DigestRunEntry) -> str:
-    """Keep both languages and the run-scoped submission fact on one line."""
+def block_reason_text(entry: DigestRunEntry, locale: DigestLocale | None = None) -> str:
+    """Explicit locale selects one language; default preserves legacy bytes."""
     reason = _parse_block_reason(entry.block_reason) if entry.platform_id in {"schwab", "ibkr"} else None
     if not reason:
         return ""
+    if locale is not None:
+        parts = []
+        if reason["reason_code"] == "consecutive_loss_limit_exceeded":
+            observed, limit = reason["observed_value"], reason["limit"]
+            parts.append(f"连续亏损 {observed} 次，超过上限 {limit} 次" if locale == "zh" else
+                         f"Consecutive losses {observed} exceed limit {limit}")
+        else:
+            parts.append("策略风控拦截" if locale == "zh" else "Strategy risk rejected")
+        if reason["order_submitted_this_run"] is False:
+            parts.append("本轮 0 单" if locale == "zh" else "0 orders this run")
+        elif reason["order_submitted_this_run"] is True:
+            parts.append("本轮已提交订单" if locale == "zh" else "Orders submitted this run")
+        return " · ".join(parts)
     parts = []
     if reason["reason_code"] == "consecutive_loss_limit_exceeded":
         observed, limit = reason["observed_value"], reason["limit"]
@@ -1127,7 +1143,8 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> li
         if tip_text:
             lines.append(f"- {_t(locale, 'tip_prefix')}: {tip_text}")
     lines.append(_trade_counts(entry, locale))
-    reason = block_reason_text(entry)
+    from notification_mode import consolidation_enabled
+    reason = block_reason_text(entry, locale if consolidation_enabled() else None)
     if reason:
         lines.append(reason)
     if entry.cycle_count_status == "unknown" or entry.cycle_count is None:
@@ -1363,7 +1380,8 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
         if entry.status == "alert":
             if is_blocked(entry) or counts_not_connected(entry):
                 detail = _default_conclusion(entry, locale) if is_blocked(entry) else ""
-                reason = block_reason_text(entry)
+                from notification_mode import consolidation_enabled
+                reason = block_reason_text(entry, locale if consolidation_enabled() else None)
                 if reason:
                     detail = f"{detail} · {reason}" if detail else reason
                 if counts_not_connected(entry):
@@ -1540,6 +1558,7 @@ def filter_runs_for_digest(
     New stubs must omit counts or set field_status/reason_code for unknown.
     """
 
+    from notification_mode import consolidation_enabled
     out: list[DigestRunEntry] = []
     for raw in candidates:
         ran = _parse_actually_ran(raw)
@@ -1573,6 +1592,8 @@ def filter_runs_for_digest(
                 rebalance_kind=_parse_rebalance_kind(raw.get("rebalance_kind")),
                 rebalance_conclusion=str(raw.get("rebalance_conclusion") or "").strip(),
                 block_reason=_parse_block_reason(raw.get("block_reason")) if raw.get("platform_id") in {"schwab", "ibkr"} else None,
+                source_run_id=str(raw.get("source_run_id") or "") if consolidation_enabled() else "",
+                approved_gate_reasons=tuple(raw.get("_validated_approved_gate_reasons", ())) if consolidation_enabled() else (),
                 tips=_parse_tips(raw.get("tips") or raw.get("tip")),
                 account_hint=str(raw.get("account_hint") or "").strip(),
                 opaque_account_uid=str(raw.get("opaque_account_uid") or "").strip(),
