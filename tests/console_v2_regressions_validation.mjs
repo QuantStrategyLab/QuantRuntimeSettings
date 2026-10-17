@@ -35,9 +35,12 @@ assert.deepEqual(dailyReturnsFromCumulative(points([-101, 0])), [], "negative in
 assert.deepEqual(dailyReturnsFromCumulative(points([-99.99999999999999, Number.MAX_VALUE])), [], "overflow must not enter the SVG");
 
 // Exercise the real existing projection: its latest balance differs from its interval P&L.
+// Freeze the fixture clock: the synthetic snapshot is stamped 12:00Z on the fixture day and
+// weekend dates are skipped, so the live clock made this assertion depend on time and weekday.
+const FIXTURE_NOW = Date.parse("2026-10-16T15:00:00Z");
 const query = new URLSearchParams({ scope: "all", range: "YTD" });
-const assets = consoleApiFixture("/api/performance/assets", query).body;
-const summary = consoleApiFixture("/api/performance/summary", query).body;
+const assets = consoleApiFixture("/api/performance/assets", query, "api-ready", "GET", FIXTURE_NOW).body;
+const summary = consoleApiFixture("/api/performance/summary", query, "api-ready", "GET", FIXTURE_NOW).body;
 assert.equal(latestAssetBalance(assets), 1570);
 assert.equal(summary.amount, 70);
 assert.notEqual(latestAssetBalance(assets), summary.amount);
