@@ -159,4 +159,32 @@ assert.ok(Math.abs(validCurrency.twr_return_percent - 10) < 1e-10);
 assert.equal(validCurrency.max_drawdown.percent, 0);
 assert.deepEqual(mixedBlocks.assets, mixedLegacy.assets);
 assert.deepEqual(mixedBlocks.calendar, mixedLegacy.calendar);
+
+// Calculation failures must preserve the existing benchmark date-alignment fact.
+// A shared date (or no benchmark) lets the empty curve show the real reason;
+// genuinely disjoint benchmark dates must still be reported as such.
+for (const [source, reason] of [
+  [invalidInput, "invalid_return_period"],
+  [incompleteInput, "external_cashflow_required"],
+]) {
+  for (const [dates, noCommonDate] of [
+    [["2026-01-01", "2026-01-02"], false],
+    [[], false],
+    [["2026-01-03"], true],
+  ]) {
+    const alignedInput = structuredClone(source);
+    alignedInput.benchmarks = dates.length
+      ? [{ id: "synthetic-benchmark", points: dates.map(date => ({ date, value: 100 })) }] : [];
+    const before = performanceBlocks(alignedInput);
+    assert.equal(before.returns.no_common_date, noCommonDate, "fixture has the intended date alignment");
+    const after = applyCashflowPerformance(structuredClone(before), alignedInput, env);
+    assert.equal(after.returns.no_common_date, noCommonDate, `${reason}: preserve benchmark date alignment`);
+    assert.equal(after.returns.unavailable_reason, reason);
+    assert.equal(after.summary.twr_return_percent, null);
+    assert.equal(after.summary.max_drawdown.percent, null);
+    assert.deepEqual(after.returns.points, []);
+    assert.deepEqual(after.assets, before.assets);
+    assert.deepEqual(after.calendar, before.calendar);
+  }
+}
 console.log("console_external_flow_validation: ok (synthetic only)");

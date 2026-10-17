@@ -120,7 +120,7 @@ export function applyCashflowPerformance(blocks, input, env) {
       unavailable_reason: r.unavailable_reason });
     if (blocks.summary.metric_reasons) blocks.summary.metric_reasons.twr = r.unavailable_reason;
     Object.assign(blocks.returns, { unavailable_reason: r.unavailable_reason,
-      points: [], benchmarks: [], aligned_start: null, no_common_date: true });
+      points: [], benchmarks: [], aligned_start: null });
     return blocks;
   }
   const benchmarks = input.benchmarks.map(b => ({ ...b, points: sliceRange(b.points, input.range.toLowerCase(), input.today) }));
