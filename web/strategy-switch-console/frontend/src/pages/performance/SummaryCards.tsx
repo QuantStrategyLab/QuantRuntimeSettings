@@ -7,6 +7,7 @@ import type { Range, SummaryResponse } from "../../api/contracts";
 import { AsOfStamp, Money, Percent, Skeleton, StatusBadge } from "../../components/primitives";
 import { KpiCard } from "../../components/KpiCard";
 import { renderableStatus } from "./shared";
+import { DIETZ_APPROX_LABEL_KEY, UNKNOWN_METHOD_LABEL_KEY, classifyCashflowMethod } from "./cashflowMethod";
 
 export interface SummaryCardsProps {
   scope: string;
@@ -40,7 +41,9 @@ function cardFooter(data: SummaryResponse, metricReason?: string | null) {
 
 function TwrCard({ data }: { data: SummaryResponse }) {
   const t = useT();
-  const title = t("perf.card.twr");
+  const methodClass = classifyCashflowMethod(data);
+  // An unrecognized method must not keep an unqualified TWR title.
+  const title = t(methodClass === "unknown" ? "perf.card.return_value" : "perf.card.twr");
   if (!renderableStatus(data.status)) {
     return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={cardFooter(data, data.metric_reasons?.twr)} />;
   }
@@ -49,7 +52,9 @@ function TwrCard({ data }: { data: SummaryResponse }) {
     const reason = data.metric_reasons?.twr || data.unavailable_reason;
     return <KpiCard title={title} value={<span className="flat">—</span>} sub={t(`reason.${reason || "unknown"}`)} footer={cardFooter(data)} />;
   }
-  return <KpiCard title={title} value={<Percent value={data.twr_return_percent} />} footer={cardFooter(data)} />;
+  const sub = methodClass === "dietz_approx" ? t(DIETZ_APPROX_LABEL_KEY)
+    : methodClass === "unknown" ? t(UNKNOWN_METHOD_LABEL_KEY) : undefined;
+  return <KpiCard title={title} value={<Percent value={data.twr_return_percent} />} sub={sub} footer={cardFooter(data)} />;
 }
 
 function AmountCard({ data }: { data: SummaryResponse }) {
@@ -66,17 +71,28 @@ function AmountCard({ data }: { data: SummaryResponse }) {
   return <KpiCard title={title} value={<Money value={data.amount} currency={data.currency} signed />} footer={footer} />;
 }
 
+/** Method tag for return-derived figures; null when the figure is a qualified exact TWR or a legacy response. */
+function methodTag(data: Parameters<typeof classifyCashflowMethod>[0], t: ReturnType<typeof useT>): string | null {
+  const cls = classifyCashflowMethod(data);
+  if (cls === "dietz_approx") return t(DIETZ_APPROX_LABEL_KEY);
+  if (cls === "unknown") return t(UNKNOWN_METHOD_LABEL_KEY);
+  return null;
+}
+
 function DrawdownCard({ data }: { data: SummaryResponse }) {
   const t = useT();
   const language = useLanguage();
-  const title = t("perf.drawdown_twr_title");
+  // Drawdown derives from the same return series; an unrecognized method must not keep a TWR title.
+  const title = t(classifyCashflowMethod(data) === "unknown" ? "perf.drawdown_plain_title" : "perf.drawdown_twr_title");
   const footer = cardFooter(data);
   if (data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable") {
     return <KpiCard title={title} value={<span className="currency-totals">
       {data.per_currency.map(item => {
         const dd = item.max_drawdown;
+        const tag = methodTag(item, t);
         return <span className="currency-total" key={item.currency}>
           <span className="kpi-sub">{item.currency}</span>
+          {tag && <span className="kpi-sub">{tag}</span>}
           {dd.percent === null ? <span className="flat">—</span> : <Percent value={-dd.percent || 0} />}
           <span className="kpi-sub">{dd.unavailable_reason ? t(`reason.${dd.unavailable_reason}`)
             : dd.peak_date && dd.trough_date ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) }) : null}</span>
@@ -95,7 +111,9 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
     dd.peak_date && dd.trough_date
       ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) })
       : undefined;
-  return <KpiCard title={title} value={<Percent value={-dd.percent || 0} />} sub={sub} footer={footer} />;
+  const methodLabel = methodTag(data, t);
+  const combinedSub = [methodLabel, sub].filter(Boolean).join(" · ") || undefined;
+  return <KpiCard title={title} value={<Percent value={-dd.percent || 0} />} sub={combinedSub} footer={footer} />;
 }
 
 function ExcessCard({ data }: { data: SummaryResponse }) {

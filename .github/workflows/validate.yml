@@ -163,6 +163,7 @@ jobs:
           node --experimental-strip-types tests/console_gap_contract_validation.mjs
           node --experimental-strip-types tests/console_returns_adapter_validation.mjs
           node --experimental-strip-types tests/console_display_gaps_validation.mjs
+          node --experimental-strip-types tests/console_cashflow_method_presentation_validation.mjs
           node --experimental-strip-types tests/console_runtime_daily_selection_validation.mjs
           node tests/console_performance_stats_validation.mjs
           node tests/account_settings_worker_validation.mjs
