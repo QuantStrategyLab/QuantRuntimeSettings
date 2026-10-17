@@ -1,6 +1,8 @@
 import { isAggregateAssetAccount } from "../../performance_math.js";
 import { MARKET_BENCHMARK_SERIES_IDS } from "../../infrastructure/market_benchmark/market_benchmark.js";
 import { businessDate, performanceBlocks } from "./performance.js";
+import { externalFlowEnabled } from "../account_facts/external_flow.js";
+import { applyCashflowPerformance } from "./cashflow_performance.js";
 const ENDPOINTS = {
   calendar: "calendar",
   summary: "summary",
@@ -176,6 +178,7 @@ export async function performanceResponse(request, env, deps) {
           failed.push(option.key);
           continue;
         }
+        if (externalFlowEnabled(env) && body.externalFlow) member.externalFlow = body.externalFlow;
         member.points = (body.series.points || []).flatMap((p) =>
           p.currency !== currency || number(p.net_assets) === null
             ? []
@@ -184,6 +187,8 @@ export async function performanceResponse(request, env, deps) {
                   date: p.observation_date,
                   value: number(p.net_assets),
                   externalFlow: null,
+                  ...(externalFlowEnabled(env) ? { observed_at: Number.isFinite(Date.parse(p.observed_finished_at))
+                    ? new Date(p.observed_finished_at).toISOString() : null } : {}),
                 },
               ],
         );
@@ -215,7 +220,7 @@ export async function performanceResponse(request, env, deps) {
     } catch {
       benchmarkFailed = true;
     }
-    const blocks = performanceBlocks({
+    const performanceInput = {
       now: Date.now(),
       freshnessThresholdHours: env.CONSOLE_ACCOUNT_FRESHNESS_HOURS,
       historyMaxStalenessDays: env.CONSOLE_HISTORY_MAX_STALENESS_DAYS,
@@ -227,7 +232,8 @@ export async function performanceResponse(request, env, deps) {
       year,
       month,
       failed: [...new Set(failed)],
-    });
+    };
+    const blocks = applyCashflowPerformance(performanceBlocks(performanceInput), performanceInput, env);
     const block = blocks[endpoint];
     if (["calendar", "summary", "returns", "assets"].includes(endpoint)) {
       block.coverage.truncated = truncated;

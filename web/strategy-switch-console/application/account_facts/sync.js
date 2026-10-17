@@ -7,6 +7,7 @@
  * the DO account_facts_put command (unchanged).
  */
 
+import { externalFlowEnabled, normalizeExternalFlow } from "./external_flow.js";
 import {
   ACCOUNT_FACTS_MAX_BODY_BYTES,
   ACCOUNT_FACTS_RETURN_UNAVAILABLE,
@@ -90,6 +91,19 @@ export async function syncAccountFactsResponse(request, env, deps) {
   if (payloadPlatform !== authorizedPlatform) {
     return json({ ok: false, error: "account_facts_sync_token_platform_mismatch" }, 403);
   }
+  let externalFlow;
+  if (raw && Object.hasOwn(raw, "externalFlow")) {
+    if (!externalFlowEnabled(env)) return json({ ok: false, error: "external_flow_disabled" }, 409);
+    try {
+      externalFlow = normalizeExternalFlow(raw.externalFlow);
+      const source = { ibkr: "ibkr_flex", schwab: "schwab_transactions", longbridge: "longbridge_cashflow" }[authorizedPlatform];
+      if (externalFlow.windows.some(w => w.source !== source)) throw new Error("external_flow_source_mismatch");
+    } catch (error) {
+      return accountFactsErrorResponse(error);
+    }
+    raw = { ...raw };
+    delete raw.externalFlow;
+  }
   let history;
   try {
     history = normalizeAccountFactsHistoryPayload(raw, { expectedPlatform: authorizedPlatform });
@@ -160,6 +174,7 @@ export async function syncAccountFactsResponse(request, env, deps) {
       target_id: resolved.binding.target_id,
       source_binding_id: resolved.binding.source_binding.id,
       history,
+      ...(externalFlow ? { externalFlow } : {}),
     });
   } catch (error) {
     return accountFactsErrorResponse(error);

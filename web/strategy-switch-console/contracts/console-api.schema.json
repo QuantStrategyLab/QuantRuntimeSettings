@@ -1207,6 +1207,18 @@
               }
             }
           }
+        },
+        "cashflow_per_currency": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cashflow_return_metrics"
+          }
+        },
+        "cashflow_method": {
+          "const": "modified_dietz"
+        },
+        "approximate": {
+          "const": true
         }
       },
       "required": [
@@ -1457,6 +1469,18 @@
               }
             }
           }
+        },
+        "cashflow_per_currency": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cashflow_return_metrics"
+          }
+        },
+        "cashflow_method": {
+          "const": "modified_dietz"
+        },
+        "approximate": {
+          "const": true
         }
       },
       "required": [
@@ -2875,6 +2899,108 @@
         "unavailable_reason"
       ],
       "additionalProperties": false
+    },
+    "cashflow_return_metrics": {
+      "type": "object",
+      "required": [
+        "currency",
+        "status",
+        "unavailable_reason",
+        "twr_return_percent",
+        "max_drawdown",
+        "points",
+        "return_kind",
+        "cashflow_method",
+        "approximate"
+      ],
+      "properties": {
+        "currency": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "twr_return_percent": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_drawdown": {
+          "type": "object",
+          "properties": {
+            "percent": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "peak_date": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "trough_date": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "unavailable_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "percent",
+            "peak_date",
+            "trough_date",
+            "unavailable_reason"
+          ]
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string"
+              },
+              "value": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "date",
+              "value"
+            ]
+          }
+        },
+        "return_kind": {
+          "enum": [
+            "twr",
+            "unadjusted_asset_ratio"
+          ]
+        },
+        "cashflow_method": {
+          "const": "modified_dietz"
+        },
+        "approximate": {
+          "const": true
+        },
+        "multi_day_intervals": {
+          "type": "boolean"
+        }
+      }
     },
     "equity_history_point": {
       "type": "object",

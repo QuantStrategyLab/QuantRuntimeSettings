@@ -2168,11 +2168,15 @@ async function runtimeInstancesResponse(request, env) {
   return json(await runtimeInstanceCommand(env, command));
 }
 
+import { externalFlowEnabled, initializeExternalFlow, normalizeExternalFlow, putExternalFlow, readExternalFlow } from "./application/account_facts/external_flow.js";
+
 export class RuntimeInstances {
   constructor(ctx, env) {
     this.directory = new KvDirectory(ctx.storage, env?.STRATEGY_SWITCH_CONFIG, env);
     this.storage = ctx.storage;
     this.sql = ctx.storage.sql;
+    this.externalFlowEnabled = externalFlowEnabled(env);
+    if (this.externalFlowEnabled) initializeExternalFlow(this.sql);
     initializeCredentialMaintenance(this.sql);
     // Latest native interval only; existing private read-model store, no new ledger.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS account_period_return (
@@ -3167,13 +3171,25 @@ export class RuntimeInstances {
     );
     const decision = decideAccountFactsPut(existingRow?.payload || null, history);
     if (decision.action === "reject") throw new HttpError(decision.reason, decision.status || 409);
+    let flowChanged = false;
+    if (command.externalFlow !== undefined) {
+      if (!this.externalFlowEnabled) throw new HttpError("external_flow_disabled", 409);
+      const flow = normalizeExternalFlow(command.externalFlow);
+      const source = { ibkr: "ibkr_flex", schwab: "schwab_transactions", longbridge: "longbridge_cashflow" }[context.platform];
+      const currencies = new Set(history.broker_reported_balances.map(b => b.currency));
+      if (flow.windows.some(w => w.source !== source || !currencies.has(w.currency)
+          || Date.parse(w.period_end) > Date.parse(history.observed_finished_at))) {
+        throw new HttpError("external_flow_observation_mismatch", 409);
+      }
+      flowChanged = !putExternalFlow(this.sql, context, flow).unchanged;
+    }
     if (decision.action === "keep") {
       // Latest table unchanged; still ensure the accepted day is retained.
       this.upsertAccountFactsDaily(context, history);
       return {
         ok: true,
         stored: true,
-        unchanged: true,
+        unchanged: !flowChanged,
         platform: command.platform,
         account_key: command.account_key,
         observation_date: existingRow.observation_date,
@@ -3334,7 +3350,9 @@ export class RuntimeInstances {
         account_scope: row.account_scope,
       });
     }
-    return { ok: true, days };
+    return { ok: true, days,
+      ...(this.externalFlowEnabled ? { externalFlow: readExternalFlow(this.sql, context) } : {}),
+    };
   }
 
   readAccountFactsObservation(command) {
