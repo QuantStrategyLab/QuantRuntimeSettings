@@ -31,6 +31,7 @@ import { Timeline } from "../../components/Timeline";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { useToast } from "../../components/Toast";
 import { resolveAccountChoice } from "./helpers";
+import { ReconciliationMaterials } from "./ReconciliationMaterials";
 import "./decisions.css";
 
 type View = "pending" | "decided";
@@ -726,6 +727,7 @@ export default function DecisionsPage() {
           </button>
         </div>
       </div>
+      <ReconciliationMaterials data={inbox.phase === "ready" ? inbox.data : null} language={language} t={t} />
       <div id="decisions-panel" role="tabpanel" aria-labelledby={`decisions-tab-${category}`} tabIndex={0}>
         {view === "pending" ? renderPending() : <HistoryPanel epoch={epoch} category={category} />}
       </div>
