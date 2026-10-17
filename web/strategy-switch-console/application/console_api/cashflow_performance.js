@@ -102,18 +102,27 @@ export function applyCashflowPerformance(blocks, input, env) {
   blocks.returns.cashflow_per_currency = perCurrency;
   if (blocks.summary.per_currency) blocks.summary.per_currency = blocks.summary.per_currency.map(old => {
     const r = results.find(x => x.currency === old.currency);
-    return r?.status === "ok" ? { ...old, max_drawdown: r.max_drawdown, twr_return_percent: r.twr_return_percent,
+    return r ? { ...old, max_drawdown: r.max_drawdown, twr_return_percent: r.twr_return_percent,
       cashflow_method: r.cashflow_method, approximate: true } : old;
   });
   if (currencies.length > 1) {
     blocks.returns.per_currency = (blocks.returns.per_currency || []).map(old => {
       const r = results.find(x => x.currency === old.currency);
-      return r?.status === "ok" ? { ...old, ...publicResult(r), benchmarks: [], aligned_start: r.index[0].date } : old;
+      return r ? { ...old, ...publicResult(r), status: old.status === "stale" ? "stale" : r.status,
+        benchmarks: [], aligned_start: r.index[0]?.date || null } : old;
     });
     return blocks;
   }
   const r = results[0];
-  if (!r || r.status !== "ok") return blocks;
+  if (!r) return blocks;
+  if (r.status !== "ok") {
+    Object.assign(blocks.summary, { twr_return_percent: null, max_drawdown: r.max_drawdown,
+      unavailable_reason: r.unavailable_reason });
+    if (blocks.summary.metric_reasons) blocks.summary.metric_reasons.twr = r.unavailable_reason;
+    Object.assign(blocks.returns, { unavailable_reason: r.unavailable_reason,
+      points: [], benchmarks: [], aligned_start: null, no_common_date: true });
+    return blocks;
+  }
   const benchmarks = input.benchmarks.map(b => ({ ...b, points: sliceRange(b.points, input.range.toLowerCase(), input.today) }));
   const aligned = alignReturns(r.index, benchmarks);
   Object.assign(blocks.summary, { twr_return_percent: r.twr_return_percent, max_drawdown: r.max_drawdown,

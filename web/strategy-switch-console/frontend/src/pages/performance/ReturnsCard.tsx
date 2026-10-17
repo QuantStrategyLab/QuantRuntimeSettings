@@ -7,6 +7,8 @@ import type { Point, Range, ReturnsResponse } from "../../api/contracts";
 import { AsOfStamp, EmptyState, ErrorState, MethodNote, Skeleton, StatusBadge } from "../../components/primitives";
 import { LineChart, type ChartSeries } from "../../charts/LineChart";
 import { renderableStatus } from "./shared";
+import { DIETZ_APPROX_LABEL_KEY, UNKNOWN_METHOD_LABEL_KEY, classifyCashflowMethod, isApproximateDietz } from "./cashflowMethod";
+import type { CashflowMethodMeta } from "../../api/contracts";
 
 export interface ReturnsCardProps {
   scope: string;
@@ -25,14 +27,21 @@ const BENCHMARK_LABEL_KEYS: Record<string, string> = {
   "罗素2000": "perf.benchmark_russell2000",
 };
 
-function kindLabel(returnKind: string): string {
-  return returnKind === "unadjusted_asset_ratio" ? "perf.return_kind_unadjusted" : "perf.return_kind_twr";
+function kindLabel(returnKind: string, method?: CashflowMethodMeta | null): string {
+  if (returnKind === "unadjusted_asset_ratio") return "perf.return_kind_unadjusted";
+  const methodClass = classifyCashflowMethod(method);
+  // An explicit Modified Dietz approximation must never be labeled as an unqualified exact TWR.
+  if (methodClass === "dietz_approx") return DIETZ_APPROX_LABEL_KEY;
+  // Present but unsupported/inconsistent method metadata is not a qualified TWR either.
+  if (methodClass === "unknown") return UNKNOWN_METHOD_LABEL_KEY;
+  return "perf.return_kind_twr";
 }
 
 function ReturnsChart({
   points,
   benchmarks,
   returnKind,
+  method,
   mode,
   ariaLabel,
   disabled,
@@ -40,6 +49,7 @@ function ReturnsChart({
   points: Point[];
   benchmarks: { id: string; points: Point[] }[];
   returnKind: string;
+  method?: CashflowMethodMeta | null;
   mode: Mode;
   ariaLabel: string;
   disabled?: { id: string; status: string; unavailable_reason: string | null }[];
@@ -57,7 +67,7 @@ function ReturnsChart({
   return (
     <div>
       <p className="card-note" style={{ marginTop: 0 }}>
-        <span className="perf-kind">{t(kindLabel(returnKind))}</span>
+        <span className="perf-kind">{t(kindLabel(returnKind, method))}</span>
       </p>
       <LineChart series={series} mode={mode} ariaLabel={ariaLabel} />
       {disabled && disabled.length > 0 && (
@@ -105,6 +115,7 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
                   points={entry.points}
                   benchmarks={entry.benchmarks}
                   returnKind={entry.return_kind}
+                  method={entry}
                   mode={mode}
                   ariaLabel={`${t("perf.returns_title")} ${entry.currency}`}
                 />
@@ -135,6 +146,7 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
           points={data.points}
           benchmarks={data.benchmarks}
           returnKind={data.return_kind}
+          method={data}
           mode={mode}
           ariaLabel={t("perf.returns_title")}
           disabled={data.benchmark_availability.filter(item => !renderableStatus(item.status))}
@@ -175,7 +187,14 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
         </span>
       </div>
       {body}
-      <MethodNote titleKey="perf.how_calculated" bodyKey="perf.method_body" />
+      <MethodNote
+        titleKey="perf.how_calculated"
+        bodyKey={meta && [meta, ...meta.per_currency].some(item => classifyCashflowMethod(item) === "unknown")
+          ? "perf.method_body_unknown"
+          : meta && (isApproximateDietz(meta) || meta.per_currency.some(isApproximateDietz))
+            ? "perf.method_body_dietz"
+            : "perf.method_body"}
+      />
     </div>
   );
 }

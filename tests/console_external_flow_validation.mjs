@@ -110,4 +110,53 @@ assert.equal(applyCashflowPerformance(performanceBlocks(two), two, env).summary.
 two.histories[1].currency = "USD";
 two.histories[1].points[1].observed_at = "2026-01-02T12:01:00.000Z";
 assert.equal(cashflowCurrencyResult(two.histories, two).twr_return_percent, null, "same date alone is not simultaneous NAV");
+
+// A complete source can still have an invalid Dietz denominator. Consumers must
+// receive that reason rather than the legacy missing-cashflow placeholder.
+const invalidInput = structuredClone(input);
+invalidInput.histories[0].externalFlow.windows[0].records[0] = { ...record, type: "withdrawal", amount: "-300" };
+const invalidLegacy = performanceBlocks(invalidInput);
+const invalidBlocks = applyCashflowPerformance(structuredClone(invalidLegacy), invalidInput, env);
+assert.equal(invalidBlocks.summary.cashflow_per_currency[0].unavailable_reason, "invalid_return_period");
+assert.equal(invalidBlocks.summary.metric_reasons.twr, "invalid_return_period");
+assert.equal(invalidBlocks.summary.unavailable_reason, "invalid_return_period");
+assert.equal(invalidBlocks.returns.unavailable_reason, "invalid_return_period");
+assert.equal(invalidBlocks.summary.twr_return_percent, null);
+assert.equal(invalidBlocks.summary.max_drawdown.percent, null);
+assert.equal(invalidBlocks.summary.max_drawdown.unavailable_reason, "invalid_return_period");
+assert.deepEqual(invalidBlocks.returns.points, []);
+assert.deepEqual(invalidBlocks.assets, invalidLegacy.assets);
+assert.deepEqual(invalidBlocks.calendar, invalidLegacy.calendar);
+if (invalidBlocks.summary.per_currency.length) {
+  assert.equal(invalidBlocks.summary.per_currency[0].max_drawdown.unavailable_reason, "invalid_return_period");
+}
+const staleInput = { ...invalidInput, today: "2026-02-01" };
+const staleBlocks = applyCashflowPerformance(performanceBlocks(staleInput), staleInput, env);
+assert.equal(staleBlocks.summary.status, "stale");
+assert.equal(staleBlocks.returns.status, "stale");
+const incompleteInput = structuredClone(invalidInput);
+incompleteInput.histories[0].externalFlow.windows[0].coverage = "incomplete";
+const incompleteBlocks = applyCashflowPerformance(performanceBlocks(incompleteInput), incompleteInput, env);
+assert.equal(incompleteBlocks.summary.metric_reasons.twr, "external_cashflow_required");
+assert.equal(incompleteBlocks.returns.unavailable_reason, "external_cashflow_required");
+const mixedInput = structuredClone(invalidInput);
+mixedInput.histories.push({ ...structuredClone(input.histories[0]), id: "valid-usdt", currency: "USDT",
+  externalFlow: payload({ ...window, currency: "USDT" }) });
+const mixedLegacy = performanceBlocks(mixedInput);
+const mixedBlocks = applyCashflowPerformance(structuredClone(mixedLegacy), mixedInput, env);
+assert.equal(mixedBlocks.summary.unavailable_reason, "mixed_currency");
+assert.equal(mixedBlocks.summary.metric_reasons.twr, "mixed_currency");
+assert.equal(mixedBlocks.summary.twr_return_percent, null);
+assert.equal(mixedBlocks.returns.unavailable_reason, "mixed_currency");
+assert.deepEqual(mixedBlocks.returns.points, []);
+const invalidCurrency = mixedBlocks.returns.per_currency.find(r => r.currency === "USD");
+const validCurrency = mixedBlocks.returns.per_currency.find(r => r.currency === "USDT");
+assert.equal(invalidCurrency.unavailable_reason, "invalid_return_period");
+assert.deepEqual(invalidCurrency.points, []);
+assert.equal(invalidCurrency.max_drawdown.percent, null);
+assert.equal(validCurrency.unavailable_reason, null);
+assert.ok(Math.abs(validCurrency.twr_return_percent - 10) < 1e-10);
+assert.equal(validCurrency.max_drawdown.percent, 0);
+assert.deepEqual(mixedBlocks.assets, mixedLegacy.assets);
+assert.deepEqual(mixedBlocks.calendar, mixedLegacy.calendar);
 console.log("console_external_flow_validation: ok (synthetic only)");

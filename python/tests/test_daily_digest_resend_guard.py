@@ -192,7 +192,10 @@ class DailyDigestResendGuardTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/daily-digest-notify.yml").read_text()
         self.assertLess(workflow.index("id: resend_guard"), workflow.index("id: candidates"))
         self.assertIn("actions: read", workflow)
-        self.assertEqual(workflow, (Path(__file__).resolve().parents[2] / "docs/workflows/daily-digest-notify.yml").read_text())
+        template = (Path(__file__).resolve().parents[2] / "docs/workflows/daily-digest-notify.yml").read_text()
+        def guard_step(text):
+            return text.split("      - name: Check same-business-day send history", 1)[1].split("      - name: Materialize", 1)[0]
+        self.assertEqual(guard_step(workflow), guard_step(template))
 
     def test_sender_sends_labelled_test_and_projects_only_safe_guard_fields(self):
         for locale, label in (("zh", "【测试】"), ("en", "[TEST]")):

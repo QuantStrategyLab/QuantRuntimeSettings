@@ -49,6 +49,7 @@ export interface DecisionFields {
   diff: DecisionDiff[];
 }
 export interface InboxItem extends DecisionFields {
+  presentation?: RecoveryMaterialPresentation;
   id: string;
   short_id: string;
   application_status?: string | null;
@@ -72,12 +73,33 @@ export interface InboxResponse {
     source: string;
     status: "ok" | "stale" | "unavailable" | "read_failed";
     error_state?: InboxErrorState;
+    current_reconciliation_observation?: CurrentReconciliationObservation;
     failure_reason?: "unauthorized" | "unknown" | "kv_list_daily_limit_exceeded" | "kv_directory_uninitialized" | "kv_directory_unavailable" | "kv_directory_truncated" | "kv_directory_migration_pending" | "kv_directory_migration_failed" | "kv_directory_record_unavailable";
   }[];
   items: InboxItem[];
   coverage: string;
   no_order: true;
   execution_authority_granted: false;
+}
+export interface RecoveryMaterialPresentation {
+  material_kind: "historical_recovery_approval_material" | "recovery_approval_material";
+  label: { zh: string; en: string };
+  decision_status: "approved" | "rejected" | "undecided" | "unknown";
+  decision_status_label: { zh: string; en: string };
+  strategy_profile: string;
+  source_generated_at: string | null;
+  source_computed_at: string | null;
+  last_observed_at: string | null;
+}
+export interface CurrentReconciliationObservation {
+  label: { zh: string; en: string };
+  connection_status: "connected" | "not_connected";
+  data_status: "ready" | "stale" | "unavailable" | "unknown";
+  comparison_status: "matched" | "mismatched" | "incomparable" | "unknown";
+  status_label: { zh: string; en: string };
+  generated_at: string | null;
+  computed_at: string | null;
+  last_observed_at: string | null;
 }
 export interface DecisionHistoryItem {
   id: string;
@@ -251,6 +273,25 @@ export interface Point {
   date: string;
   value: number;
   breakBefore?: boolean;
+  contributing_accounts?: string[];
+  missing_accounts?: string[];
+  forward_filled_accounts?: string[];
+  partial?: boolean;
+  membership_changed?: boolean;
+}
+export interface HistoryCoverage {
+  omitted_dates: number;
+  missing_accounts?: string[];
+  max_staleness_days?: number;
+  partial_points?: number;
+  missing_points?: number;
+  forward_filled_points?: number;
+  truncated?: boolean;
+  read_failures?: string[];
+  membership_changed?: boolean;
+  return_comparison?: "within_contributing_cohort_only" | "fixed_contributing_cohort";
+  excluded_accounts?: string[];
+  fx?: string;
 }
 export interface CalendarCell {
   date?: string;
@@ -277,12 +318,15 @@ export interface DailyChange {
   status: Status;
   unavailable_reason: Reason | null;
 }
-export interface SummaryResponse extends PerformanceMeta {
+/** Optional cash-flow method metadata from the API; absent on older responses. */
+export interface CashflowMethodMeta {
+  cashflow_method?: "modified_dietz" | string | null;
+  approximate?: boolean | null;
+}
+export interface SummaryResponse extends PerformanceMeta, CashflowMethodMeta {
   cashflow_per_currency?: CashflowReturnMetrics[];
-  cashflow_method?: "modified_dietz";
-  approximate?: boolean;
   metric_reasons?: { twr: Reason | null };
-  per_currency?: (CurrencyTotal & { max_drawdown: Drawdown })[];
+  per_currency?: (CurrencyTotal & { max_drawdown: Drawdown } & CashflowMethodMeta)[];
   twr_return_percent: number | null;
   amount: number | null;
   simple_weighted_return_percent: number | null;
@@ -302,26 +346,24 @@ export interface SummaryResponse extends PerformanceMeta {
     unavailable_reason: Reason | null;
   }[];
 }
-export interface ReturnsResponse extends PerformanceMeta {
+export interface ReturnsResponse extends PerformanceMeta, CashflowMethodMeta {
   cashflow_per_currency?: CashflowReturnMetrics[];
-  cashflow_method?: "modified_dietz";
-  approximate?: boolean;
   aligned_start: string | null;
   return_kind: "twr" | "unadjusted_asset_ratio";
   points: Point[];
   benchmarks: { id: string; points: Point[] }[];
   no_common_date: boolean;
-  per_currency: {
+  per_currency: ({
     currency: string;
     as_of?: string | null;
-    coverage?: { omitted_dates: number };
+    coverage?: HistoryCoverage;
     return_kind: string;
     status: Status;
     unavailable_reason: Reason | null;
     aligned_start: string | null;
     points: Point[];
     benchmarks: { id: string; points: Point[] }[];
-  }[];
+  } & CashflowMethodMeta)[];
   benchmark_availability: {
     id: string;
     status: Status;
@@ -332,8 +374,17 @@ export interface ReturnsResponse extends PerformanceMeta {
 export interface AssetsResponse extends PerformanceMeta {
   curve_status?: Status;
   curve_unavailable_reason?: Reason | null;
+  curve_coverage?: HistoryCoverage | null;
   per_currency?: CurrencyTotal[];
   points: Point[];
+  history_per_currency?: {
+    currency: string;
+    as_of: string | null;
+    coverage: HistoryCoverage;
+    status: Status;
+    unavailable_reason: Reason | null;
+    points: Point[];
+  }[];
 }
 export interface HoldingsResponse extends PerformanceMeta {
   label_key: "performance.current_holdings_unrealized";

@@ -1,0 +1,233 @@
+{
+  "summary": {
+    "schema_version": "console_api.v1",
+    "scope": "synthetic",
+    "range": "ALL",
+    "status": "ok",
+    "unavailable_reason": null,
+    "as_of": "2026-10-17",
+    "coverage": {
+      "account_aliases": [
+        "synthetic"
+      ],
+      "currencies": [
+        "USD"
+      ],
+      "excluded_accounts": [],
+      "omitted_dates": 0,
+      "cashflows": "complete",
+      "fx": "native_currency",
+      "trading_dates": "stored_observation_date_weekends_excluded_holidays_unknown",
+      "truncated": false,
+      "read_failures": []
+    },
+    "currency": "USD",
+    "value_kind": "asset_change",
+    "account_freshness": [
+      {
+        "platform": "longbridge",
+        "account_alias": "synthetic",
+        "account_ref": "longbridge:synthetic",
+        "as_of": "2026-10-17T10:08:47.969Z",
+        "freshness": "fresh",
+        "fresh": true,
+        "stale": false,
+        "unavailable_reason": null
+      }
+    ],
+    "freshness_summary": {
+      "fresh": 1,
+      "stale": 0,
+      "unknown": 0,
+      "threshold_hours": 36
+    },
+    "twr_return_percent": 10.000000000000009,
+    "amount": 115,
+    "simple_weighted_return_percent": null,
+    "max_drawdown": {
+      "percent": 0,
+      "peak_date": "2026-10-16",
+      "trough_date": "2026-10-16",
+      "unavailable_reason": null
+    },
+    "metric_reasons": {
+      "twr": null
+    },
+    "per_currency": [
+      {
+        "total": 215,
+        "account_count": 1,
+        "expected_account_count": 1,
+        "as_of": "2026-10-17T10:08:47.969Z",
+        "stale": false,
+        "status": "ok",
+        "unavailable_reason": null,
+        "currency": "USD",
+        "excluded_account_count": 0,
+        "observation_date": "2026-10-17",
+        "max_drawdown": {
+          "percent": 0,
+          "peak_date": "2026-10-16",
+          "trough_date": "2026-10-16",
+          "unavailable_reason": null
+        },
+        "twr_return_percent": 10.000000000000009,
+        "cashflow_method": "modified_dietz",
+        "approximate": true
+      }
+    ],
+    "best_day": null,
+    "worst_day": null,
+    "excess_returns": [],
+    "cashflow_per_currency": [
+      {
+        "currency": "USD",
+        "status": "ok",
+        "unavailable_reason": null,
+        "twr_return_percent": 10.000000000000009,
+        "max_drawdown": {
+          "percent": 0,
+          "peak_date": "2026-10-16",
+          "trough_date": "2026-10-16",
+          "unavailable_reason": null
+        },
+        "points": [
+          {
+            "date": "2026-10-16",
+            "value": 0,
+            "breakBefore": false
+          },
+          {
+            "date": "2026-10-17",
+            "value": 10.000000000000009,
+            "breakBefore": false
+          }
+        ],
+        "return_kind": "twr",
+        "cashflow_method": "modified_dietz",
+        "approximate": true,
+        "multi_day_intervals": false
+      }
+    ],
+    "cashflow_method": "modified_dietz",
+    "approximate": true
+  },
+  "returns": {
+    "schema_version": "console_api.v1",
+    "scope": "synthetic",
+    "range": "ALL",
+    "status": "ok",
+    "unavailable_reason": null,
+    "as_of": "2026-10-17",
+    "coverage": {
+      "account_aliases": [
+        "synthetic"
+      ],
+      "currencies": [
+        "USD"
+      ],
+      "excluded_accounts": [],
+      "omitted_dates": 0,
+      "cashflows": "complete",
+      "fx": "native_currency",
+      "trading_dates": "stored_observation_date_weekends_excluded_holidays_unknown",
+      "truncated": false,
+      "read_failures": []
+    },
+    "currency": "USD",
+    "value_kind": "asset_change",
+    "account_freshness": [
+      {
+        "platform": "longbridge",
+        "account_alias": "synthetic",
+        "account_ref": "longbridge:synthetic",
+        "as_of": "2026-10-17T10:08:47.969Z",
+        "freshness": "fresh",
+        "fresh": true,
+        "stale": false,
+        "unavailable_reason": null
+      }
+    ],
+    "freshness_summary": {
+      "fresh": 1,
+      "stale": 0,
+      "unknown": 0,
+      "threshold_hours": 36
+    },
+    "aligned_start": "2026-10-16",
+    "return_kind": "twr",
+    "points": [
+      {
+        "date": "2026-10-16",
+        "value": 0,
+        "breakBefore": false
+      },
+      {
+        "date": "2026-10-17",
+        "value": 10.000000000000009,
+        "breakBefore": false
+      }
+    ],
+    "benchmarks": [],
+    "per_currency": [],
+    "no_common_date": false,
+    "benchmark_availability": [
+      {
+        "id": "标普500",
+        "status": "unavailable",
+        "unavailable_reason": "benchmark_history_missing",
+        "as_of": null
+      },
+      {
+        "id": "纳斯达克100",
+        "status": "unavailable",
+        "unavailable_reason": "benchmark_history_missing",
+        "as_of": null
+      },
+      {
+        "id": "道琼斯工业平均指数",
+        "status": "unavailable",
+        "unavailable_reason": "benchmark_history_missing",
+        "as_of": null
+      },
+      {
+        "id": "罗素2000",
+        "status": "unavailable",
+        "unavailable_reason": "benchmark_history_missing",
+        "as_of": null
+      }
+    ],
+    "cashflow_per_currency": [
+      {
+        "currency": "USD",
+        "status": "ok",
+        "unavailable_reason": null,
+        "twr_return_percent": 10.000000000000009,
+        "max_drawdown": {
+          "percent": 0,
+          "peak_date": "2026-10-16",
+          "trough_date": "2026-10-16",
+          "unavailable_reason": null
+        },
+        "points": [
+          {
+            "date": "2026-10-16",
+            "value": 0,
+            "breakBefore": false
+          },
+          {
+            "date": "2026-10-17",
+            "value": 10.000000000000009,
+            "breakBefore": false
+          }
+        ],
+        "return_kind": "twr",
+        "cashflow_method": "modified_dietz",
+        "approximate": true,
+        "multi_day_intervals": false
+      }
+    ],
+    "cashflow_method": "modified_dietz",
+    "approximate": true
+  }
+}

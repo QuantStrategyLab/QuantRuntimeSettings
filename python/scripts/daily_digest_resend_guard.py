@@ -42,7 +42,8 @@ def report_date() -> str:
 
 
 def unified_mode(env: Mapping[str, str]) -> bool:
-    return env.get("QSL_ROUTINE_NOTIFICATION_MODE", "immediate") == "daily_digest"
+    from notification_mode import routine_mode
+    return routine_mode(env) == "daily_digest"
 
 
 @dataclass(frozen=True)
@@ -264,6 +265,28 @@ def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False
                 return Decision("skip", "ALREADY_DELIVERED", history_attempts=attempt)
             if any(receipt.get("status") in {"send_failed", "business_digest_failed", "sending"} for receipt in same_report_day):
                 return Decision("blocked", "DELIVERY_UNCERTAIN", history_attempts=attempt)
+            from notification_mode import consolidation_enabled
+            if consolidation_enabled(env):
+                no_attempt = {"blocked_missing_secrets", "skipped_duplicate", "blocked_resend_guard", "skipped_empty"}
+                if any(receipt.get("status") not in no_attempt for receipt in same_report_day):
+                    return Decision("blocked", "DELIVERY_UNCERTAIN", history_attempts=attempt)
+                same_window = [receipt for _, receipt in history
+                               if receipt.get("business_day") == business_day
+                               and receipt.get("recipient_scope", "default") == scope
+                               and receipt.get("dry_run") is False]
+                if any(receipt.get("delivered") is True for receipt in same_window):
+                    return Decision("skip", "ALREADY_DELIVERED", history_attempts=attempt)
+                if any(receipt.get("status") in {"send_failed", "business_digest_failed", "sending"} for receipt in same_window):
+                    return Decision("blocked", "DELIVERY_UNCERTAIN", history_attempts=attempt)
+                if any(receipt.get("status") not in no_attempt for receipt in same_window):
+                    return Decision("blocked", "DELIVERY_UNCERTAIN", history_attempts=attempt)
+                # Historical previews remain available via dry-run. A manual
+                # date override cannot create a second summary for an old window
+                # after its receipts have fallen outside the history lookback.
+                from notification_snapshot.unified_contract import sgt_business_window
+                current = sgt_business_window(datetime.now(timezone.utc)).business_day - timedelta(days=1)
+                if business_day != current.isoformat():
+                    return Decision("blocked", "BUSINESS_WINDOW_NOT_CURRENT", history_attempts=attempt)
             return Decision("send", "FIRST_SEND", history_attempts=attempt)
         same_day = [receipt for _, receipt in history if receipt.get("business_day") == business_day
                     and receipt.get("dry_run") is False and not receipt.get("test_message", False)]

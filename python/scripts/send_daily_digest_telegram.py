@@ -456,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"::error::Daily digest not sent: resend guard {guard.reason}.", file=sys.stderr)
         return 0 if guard.decision == "skip" else 1
     from unified_daily_digest import enabled as unified_enabled
+    from notification_mode import consolidation_enabled
     maintenance_client = maintenance.MaintenanceClient.from_environment(os.environ, dry_run=dry_run)
     reminder = maintenance_client.read_due() if maintenance_client else None
     business_failed = False
@@ -499,11 +500,13 @@ def main(argv: list[str] | None = None) -> int:
             "missing": [],
         }
     )
+    if consolidation_enabled() and payload is not None and (payload.notification_summary or {}).get("run_count_unknown"):
+        receipt["run_count"] = None
 
     receipt["report_date"] = resend_guard.report_date()
     receipt["recipient_scope"] = os.environ.get("DIGEST_RECIPIENT_SCOPE", "default")
     if unified_enabled():
-        receipt["languages"] = ["zh", "en"]
+        receipt["languages"] = [receipt["locale"]] if consolidation_enabled() else ["zh", "en"]
     if unified_enabled() and not text and reminder is None:
         receipt.update(status="skipped_empty", delivered=False)
         if args.write_receipt:
@@ -576,10 +579,22 @@ def main(argv: list[str] | None = None) -> int:
     if unified_enabled() and reminder is not None:
         from unified_daily_digest import render
         if payload is not None:
-            text = render(payload, max_units=max(256, 3900 - len(reminder.block("zh")) - len(reminder.block("en")) - 20))
-    combined = (text + "\n\n" if text else "") + (reminder.block("zh") + "\n" + reminder.block("en") if unified_enabled() else reminder.block(receipt["locale"])) if reminder is not None else text
+            if consolidation_enabled():
+                reminder_units = len(reminder.block(receipt["locale"]).encode("utf-16-le")) // 2
+                text = render(payload, max_units=max(256, 3900 - reminder_units - 20))
+            else:
+                text = render(payload, max_units=max(256, 3900 - len(reminder.block("zh")) - len(reminder.block("en")) - 20))
+    combined = (text + "\n\n" if text else "") + (reminder.block("zh") + "\n" + reminder.block("en") if unified_enabled() and not consolidation_enabled() else reminder.block(receipt["locale"])) if reminder is not None else text
     compatible = maintenance.can_combine_reminder(text=combined, chat_id=chat_id)
     reserved = bool(reminder is not None and maintenance_client and compatible and maintenance_client.reserve(reminder))
+    if consolidation_enabled() and not reserved and not text and not business_failed:
+        receipt.update(status="skipped_empty", delivered=False)
+        if args.write_receipt:
+            _write_receipt(args.write_receipt, receipt)
+        return 0
+    if consolidation_enabled() and args.write_receipt:
+        receipt.update(status="sending", delivered=False)
+        _write_receipt(args.write_receipt, receipt)
     if reserved:
         ok = maintenance.send_strict_telegram(token=token, chat_id=chat_id, text=combined)
         delivery = maintenance_client.ack(reminder, "delivered" if ok else "unknown")
@@ -591,7 +606,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.write_receipt: _write_receipt(args.write_receipt, receipt)
         return 1
     else:
-        ok = send_telegram_message(token=token, chat_id=chat_id, text=text)
+        transport = maintenance.send_strict_telegram if consolidation_enabled() else send_telegram_message
+        ok = transport(token=token, chat_id=chat_id, text=text)
     receipt["delivered"] = ok
     receipt["status"] = "business_digest_failed" if business_failed else "delivered" if ok else "send_failed"
     delivery_axes.attach_delivery_axes(receipt)

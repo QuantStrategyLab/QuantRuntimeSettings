@@ -47,9 +47,10 @@ new dependencies, storage migration or changes to broker execution. Existing
 Schwab holdings without provenance remain readable for backward compatibility.
 
 Keep current publisher stripping enabled. Receiver release needs separate
-approval (merging console runtime changes to `main` triggers automatic deploy),
-followed by deployed-revision/read-only health evidence and actual restricted
-runtime-report evidence, before any separately approved publisher enablement.
+approval (the console deploys only via a manual `deploy-strategy-switch-console.yml`
+`workflow_dispatch`, not on merge), followed by deployed-revision/read-only health
+evidence and actual restricted runtime-report evidence, before any separately
+approved publisher enablement.
 See [holdings rollout and rollback](account-facts-holdings-rollout.md). After new
 rows have been stored, a receiver downgrade that rejects `currency_source` can
 also reject retained history; retain this compatibility unless a separate
@@ -115,9 +116,10 @@ or successful coverage. No generated account payload is uploaded as an artifact.
 `owner_confirmed`，不补货币、不推断来源；无来源的旧行仍可读，IBKR 不变。
 发布器将运行时未知货币投影为所有者确认的 USD，删除字段会丢失这一区别，
 因此显式校验并保留；不改发布器、固定版本、存储结构或部署流程。
-继续保持剥离。接收端合并会自动部署，需另行批准；再核验已部署版本、只读健康
-和受限真实运行报告，最后单独批准发布器启用。写入带来源的历史后，直接降级到
-拒绝该字段的接收端会影响历史读取，需独立兼容或迁移方案。合成测试不证明生产
+继续保持剥离。接收端部署需另行批准，且控制台仅通过手动触发
+`deploy-strategy-switch-console.yml`（`workflow_dispatch`）部署，合并不触发部署；
+再核验已部署版本、只读健康和受限真实运行报告，最后单独批准发布器启用。写入带来源的历史后，
+直接降级到拒绝该字段的接收端会影响历史读取，需独立兼容或迁移方案。合成测试不证明生产
 采用，也未执行真实降级。
 
 源清单记录仓库、完整 SHA、文件路径和内容摘要；生成器检查版本及字节一致，

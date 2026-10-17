@@ -1,3 +1,4 @@
+import "./console_equity_history_validation.mjs";
 import assert from "node:assert/strict";
 import "./console_external_flow_validation.mjs";
 import "./external_flow_receiver_validation.mjs";
@@ -163,3 +164,4 @@ assert.equal(
 
 await import("./console_currency_totals_validation.mjs");
 await import("./console_currency_totals_ui_validation.mjs");
+await import("./console_asset_history_ui_validation.mjs");

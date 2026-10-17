@@ -31,6 +31,7 @@ import { Timeline } from "../../components/Timeline";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { useToast } from "../../components/Toast";
 import { resolveAccountChoice } from "./helpers";
+import { ReconciliationMaterials } from "./ReconciliationMaterials";
 import "./decisions.css";
 
 type View = "pending" | "decided";
@@ -54,6 +55,14 @@ const CATEGORY_TABS: Category[] = [
 ];
 
 const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, normal: 2 };
+
+const STALE_HINT_AGE_MS = 30 * 86_400_000;
+/** Display-only staleness hint; items are never closed, deleted or reprioritized here. */
+function showsStaleHint(item: InboxItem): boolean {
+  if (item.evidence_freshness?.status === "stale") return true;
+  const created = item.created_at ? Date.parse(item.created_at) : NaN;
+  return Number.isFinite(created) && Date.now() - created > STALE_HINT_AGE_MS;
+}
 
 function subjectIdOf(item: InboxItem): string {
   const binding = item.decision_binding;
@@ -606,6 +615,7 @@ export default function DecisionsPage() {
             {item.expires_at && (
               <span>{t("decisions.expires_at", { value: formatDateTime(item.expires_at, language).text })}</span>
             )}
+            {showsStaleHint(item) && <span className="decision-stale-hint">{t("decisions.stale_hint")}</span>}
           </div>
         </div>
         {diffRows.length > 0 && (
@@ -676,6 +686,7 @@ export default function DecisionsPage() {
                         )}
                         <span>{item.account_alias ? names.account(item.account_alias, item.platform) : t("decisions.account_global")}</span>
                         {fresh && <span>{fresh}</span>}
+                        {showsStaleHint(item) && <span className="decision-stale-hint">{t("decisions.stale_hint")}</span>}
                       </span>
                     </span>
                     <Badge tone={expired ? "unknown" : "warn"}>
@@ -726,6 +737,7 @@ export default function DecisionsPage() {
           </button>
         </div>
       </div>
+      <ReconciliationMaterials data={inbox.phase === "ready" ? inbox.data : null} language={language} t={t} />
       <div id="decisions-panel" role="tabpanel" aria-labelledby={`decisions-tab-${category}`} tabIndex={0}>
         {view === "pending" ? renderPending() : <HistoryPanel epoch={epoch} category={category} />}
       </div>

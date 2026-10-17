@@ -44,7 +44,7 @@
   text-align: left;
   border-right: 1px solid var(--line);
 }
-.health-grid tr > th:first-child .card-note { display: block; }
+.health-grid tbody th, .health-grid tbody td { vertical-align: middle; }
 .health-grid button.health-cell { width: 32px; height: 32px; }
 .scroll-hint { display: none; }
 @media (max-width: 768px) {
