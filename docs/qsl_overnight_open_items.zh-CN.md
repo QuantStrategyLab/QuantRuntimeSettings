@@ -1,4 +1,4 @@
-# QSL 隔夜残留清单（收尾盘点）
+# QSL 历史工程与验收边界（2026-09-07—2026-10-14）
 
 > 盘点日：2026-09-07 晚。用户已授权工程收尾与费用清理；**不**自动新开 live、**不**在无凭据时调券商。
 > 2026-09-08 校正：本轮核对源码与 GitHub 合并状态；保留的历史部署、费用清理和变量配置报告不作为本轮独立运行核验。
@@ -56,25 +56,15 @@
 
 本节接续原清单，保留上文 2026-09-07/08 的历史日期和边界；不是重新验收旧部署。源码盘点基线为 QRS `d35b2f83f4ebb7bc1c78fdad054534b4dfd1d3f9`。除明确列出的证据外，本次没有真实行情重采、模型调用、券商操作或生产配置变更。
 
-六主线是工作管理分类，**不替代每个冻结候选的 P0–P6 生命周期**。表中“高/中/低”是任务优先级，不是候选阶段。每仓仅一个 writer；独立只读或离线工作可并行，公共契约、共享环境及同账户资金操作串行。
+每仓仅一个 writer；独立只读或离线工作可并行，公共契约、共享环境及同账户资金操作串行。
 
-2026-10-06 22:41 UTC 复审：6.2–6.8 保留当日先前快照；当前阶段、依赖与下一步以[6.9 依赖复审](#dependency-review-20261006)为准。旧快照里的“当前 main”“仍缺口”不覆盖后续有日期的更新。原六主线和任务 ID 不变，汇报中的七个工作分组只用于拆分展示，不新增第七主线。
+### 6.1 证据分层与实施边界
 
-2026-10-07 接续：最新阶段增量与四条交付展示映射见[6.10 逐阶段进度](#four-line-stage-review-20261007)；下文 6.9 及其英文摘要作为 2026-10-06 历史快照保留。四条展示线同样不替代原六主线或新增任务 ID。
-
-2026-10-07 09:02 UTC 接续：[6.11 网站机制首批展示](#account-metadata-display-20261007)记录四批架构方案已确认后的本地实现与最新有限页面证据；6.10的发布等待和仅计划描述按该节日期保留，当前阶段以6.11为准。
-
-2026-10-07 09:56 UTC 纠偏：[6.12 保留原页面](#opus-audit-copy-removal-20261007)记录撤回内部审计文案和新增说明块的本地候选；数据架构继续推进，不把架构审查文本加入Opus页面。
-
-2026-10-14 接续：[6.15 本轮收尾进度](#system-closeout-20261014)记录原审计十项任务、运行采用、通知自然窗口及 Pigbibi 外部阻塞的当前证据。旧日期快照保留；工程条目数不替代整体完成度或业务验收。
-
-### 6.1 使用方法与逐阶段维护
-
-- 任务 ID 保持稳定。按任务指定前置、边界和完成证据推进；“可立即实施”仅指具备有界离线下一步，不额外授权 Git 发布、真实数据/模型调用、部署、通知、账户或资金动作。
+“可立即实施”仅指具备有界离线下一步，不额外授权 Git 发布、真实数据/模型调用、部署、通知、账户或资金动作。
 - 层级状态按“设计 / 实现 / 采用 / 业务”记录。实现可包含合成测试；采用要说明合并、消费者、部署各自证据；业务必须是相应真实来源/周期验收。CI 不能填满其余层级。
-- 每完成一个阶段、定向验证或审计复查，更新同一任务的结果、证据日期、剩余项和下一步，再进入后续阶段。失败、负结果与未运行项一并保留。
-- 新 finding 先核是否同根因、同目标或已有任务，归入原 ID；需要新范围时先写理由、涉及边界、前置与完成标准。不能以无限增加检查、追 pin、框架或 receipt/hash 链代替解决原问题。
-- 已完成项关闭；等待输入项列具体缺什么；观察期列外部完成条件，不用重复重跑制造进展。明确非目标不自动成为待开发事项。
+- 失败、负结果与未运行项一并保留。
+- 不能以无限增加检查、追 pin、框架或 receipt/hash 链代替解决原问题。
+- 不用重复重跑制造进展。明确非目标不自动成为待开发事项。
 
 以下状态截至 2026-10-06。任务的“完成证据”是关闭条件，不表示已经取得。
 
@@ -147,7 +137,7 @@
 - **AI两项新finding**：SOXL的[调用后保存顺序](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/scripts/run_new_research.py#L1489-L1524)、[run/attempt临时根](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/.github/workflows/strategy_optimization_watcher.yml#L1032-L1054)、[最终清理](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/.github/workflows/strategy_optimization_watcher.yml#L1167-L1179)、[gateway dedupe](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/service/ai_gateway_service.py#L1823-L1845)；LB的[patch复制与局部验证](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/scripts/run_monthly_codex_audit.py#L1541-L1655)。边界不扩大到CN/GlobalETF、其他已存在幂等链或全部source CI/merge控制
 - **通知合并**：[Binance345](https://github.com/QuantStrategyLab/BinancePlatform/pull/345)、[IBKR576](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/576)、[Firstrade361](https://github.com/QuantStrategyLab/FirstradePlatform/pull/361)、[Schwab468](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/468)。它们不证明统一bot、全路径dedup或实际Telegram送达
 
-English summary: Six workstreams organize the audit; P0–P6 remains the per-candidate lifecycle. Every stage and review updates the existing task with dated evidence, remaining work and the next bounded step. Design, implementation, consumer adoption and real business acceptance are separate. Preserve historical snapshots and immutable identities; close completed work and leave blocked/observing work bounded by explicit conditions.
+English summary: Design, implementation, consumer adoption and real business acceptance are separate. Preserve historical snapshots and immutable identities.
 
 <a id="dependency-review-20261006"></a>
 
@@ -250,11 +240,11 @@ English update: The same six workstreams and 23 task IDs remain; seven presentat
 
 <a id="four-line-stage-review-20261007"></a>
 
-### 6.10 2026-10-07 四线展示与逐阶段进度
+### 6.10 2026-10-07 历史分组与验收记录
 
 QRS 健康与账户设置的阶段更新截至 2026-10-07 07:38 UTC；其他项目沿用本节明确标注的 07:20 UTC 及更早证据，不暗示重新验收。QRS 远端 `main` 已只读核为 `fbb384f1357d5e39d2b63cc9583945607e7d5c11`，tree `d798491df545e2afad41f48371ded0be83ae00a9`，已包含健康修复 #540。保留 6.2–6.9 历史快照，当前阶段以本节的有日期增量为准。
 
-健康批次已完成合并、部署及有限页面核验。账户设置 ACK 两文件补丁与本轮阶段文档正在独立 fresh-base 候选中串行集成，提交前仍属本地，不能提前记作 ACK 已合并或部署；不修改旧健康冻结工作区。**源码、本地验证、合并、部署、真实业务验收分别记账。** 每完成一个后续阶段，须更新原任务的结果、日期、证据、剩余依赖和下一步；四线摘要不能省略未关闭项。
+健康批次已完成合并、部署及有限页面核验。账户设置 ACK 两文件补丁与本轮阶段文档正在独立 fresh-base 候选中串行集成，提交前仍属本地，不能提前记作 ACK 已合并或部署；不修改旧健康冻结工作区。**源码、本地验证、合并、部署、真实业务验收分别记账。**
 
 #### 6.10.1 四条交付展示线与原任务的对应
 
@@ -326,7 +316,7 @@ QRS 健康与账户设置的阶段更新截至 2026-10-07 07:38 UTC；其他项�
 
 待办决定的当前缺口包括：普通 GET 无法完整返回已拒绝 promotion、旧材料收据或精确所选账户；前端不能以 HTTP 200、队列消失或刷新函数返回判定原决定成功。计划中的固定收据只证明人工意向已持久化，不授予策略应用、账户启用、下单或 runtime resume 权限；网络恢复/刷新不得自动 POST。这些计划与合成现状探针不计作实现测试通过。
 
-#### 6.10.6 接续次序与本轮关闭边界
+#### 6.10.6 历史工程与采用边界
 
 1. 健康 #540 的合并、部署及有限页面核验已完成；本轮只在 fresh base 串行集成已复审账户设置 ACK 窄补丁和最新阶段文档，验证与提交前复核通过前仍属本地候选。待办决定实现和基准 UI 不在此批；各阶段单独留证，不把不同候选合成未经验证的发布 tree
 2. PAPER 当前一个账户/业务日的自然同步和页面有限核验不重复补跑。Schwab 源码/CI 阶段完成，下一步针对 incomplete 的准确原因，仍缺真实 POST/ACK、页面归属及自然完整周期；prepare success 不提前关闭 UI-04
@@ -434,11 +424,11 @@ English: PR #544 and its exact CI/deploy completed while preserving the #543 fro
 
 <a id="system-closeout-20261014"></a>
 
-### 6.15 2026-10-14 本轮收尾进度
+### 6.15 2026-10-14 历史工程与验收记录
 
 后续停车条件及本批修复的复审见[6.16](#closeout-blocker-audit-20261014)；本节保留原观察时点，不能用其较早版本覆盖之后读回。
 
-本节继续现有任务及[总接续 #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)、[统一通知 #634](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/634)，不另建任务登记或路线图。量化与 Pigbibi 并行，**Gdei 前端保持暂停**。只更新已取得的证据；源码合并、CI、运行采用、真实业务及自然观察分别记录，旧报告不覆盖本节之后的新事实。
+源码合并、CI、运行采用、真实业务及自然观察分别记录，旧报告不覆盖本节之后的新事实。
 
 #### 原报告十项任务与研究状态
 
@@ -497,7 +487,7 @@ d40 的首次订阅 discovery、project filter、有限 TTL 与签名 challenge 
 
 ### 6.16 2026-10-14 停车条件复审与接续
 
-本轮审计的问题是：哪些缺口确实阻止最终验收，哪些只是未完成的准备工作。当前证据支持保留真实身份、历史一致性、资金与材料许可保护；应纠正将普通工程字段或宿主入口未知笼统归为“只能等”的处理。已授权的源码、离线验证、GitHub 发布与原目标接续继续推进。前端仍暂停。
+本轮审计的问题是：哪些缺口确实阻止最终验收，哪些只是未完成的准备工作。当前证据支持保留真实身份、历史一致性、资金与材料许可保护；应纠正将普通工程字段或宿主入口未知笼统归为“只能等”的处理。已授权的源码、离线验证、GitHub 发布与原目标接续继续推进。
 
 | 项目 | 不能整体关闭的实际依据 | 本轮处理与后续动作 |
 | --- | --- | --- |
@@ -506,13 +496,11 @@ d40 的首次订阅 discovery、project filter、有限 TTL 与签名 challenge 
 | 共享核心 refresh 密钥轮换 | 原 core2.0.6 没有刷新期间的短期双签，不符合已有 refresh 合同；该缺陷不解释首次注册入口缺失 | [AIGateway #19](https://github.com/Pigbibi/PersonalAIService/pull/19) / 源 `9aeaa93e` / [main CI 38562473071](https://github.com/Pigbibi/PersonalAIService/actions/runs/38562473071) 成功，90 项相关测试通过；最多60秒、旧/新有效期取最早、连续刷新不延长旧 key。真实 Quant wrapper2.0.7 精确绑定 core2.0.7 的 [AAB #343](https://github.com/QuantStrategyLab/QuantAIService/pull/343) / `4769cf6d` / [main CI 38565557305](https://github.com/QuantStrategyLab/QuantAIService/actions/runs/38565557305) 成功。准确正式 wheel 源已核，生产接续另行记录 |
 | private-store / Binance | URI 已采用，原 intake 预检成功，但最新自然 run 仍早于采用。Binance 新增四输入在仓库、现有 Environment、可用组织 Secret 名称清单均未找到；前缀写权限与实际 source identity 尚未证明 | 默认关闭 producer [#378](https://github.com/QuantStrategyLab/BinancePlatform/pull/378) / `76937ed0` / [main CI 38564050801](https://github.com/QuantStrategyLab/BinancePlatform/actions/runs/38564050801) 成功，28 项相关测试通过。它保留 source 时间与 scope、fills未知、单次 SDK 写入和 unknown 防重。现有 `RUNTIME_TARGET_ENABLED` 只读值为 true，不代表完整配置/guard 已通过；工作流没有 Environment，不能在别的 Environment 填值后冒称该 job 可见。须核准确受保护映射与原 prefix 权限；不能再只说等 cron，也不为候选改变交易开关 |
 | 基准同步 runfailed | 原 [38490437510](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38490437510) 实际是 `409 market_benchmark_point_conflict`，不是网络或 token 原因。[本次只读 38566351201](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38566351201) 候选12点/12键、重复0、内部冲突0，既有4点/重合4键，其中2键收盘价不同、新键8；POST0 | [QRS #646](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/646) / `f7dd6b32` / [main Validate 38566039379](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38566039379) 与 contracts CI 成功，原 dry-run 改为有界、无价格/原始响应的计数核验。真实历史一致性拒绝正确；不能删历史、静默覆盖、过滤冲突造绿或把 dry-run 成功当定时同步恢复。后续须决定/实现可追溯的历史修订规则或保留冻结历史的来源规则 |
-| Medical / Franchise 人工验证 | 两站安全验证确需本人正常操作；Medical 的 Mac 会话与生产 D1 接续尚未证明。Franchise 原业务 workflow headless/no-state，没有已核可见原 runner 验证入口；可见模式源码不等于生产窗口就绪 | Medical 原窗口仅在开始核 readiness、结束返回旧报告，是可修工程缺口。[#40](https://github.com/Pigbibi/MedicalClaimAssistant/pull/40) / `89dc2b1e` / [main CI 38564401492](https://github.com/Pigbibi/MedicalClaimAssistant/actions/runs/38564401492) 成功，81 项相关测试通过；窗口后复用原正向登录证据核查，失败明确非成功，HUMAN_REQUIRED 原退出语义保留。真实门户仍未验，不代验证码。Franchise 不应只催用户等待：须先核原 runner 可见入口、相同出口和状态接续；不能盲开 state，现有 finally 会在失败后保存会话 |
 | B1/B2 与后续 B4/E1 | RS-04 路径已选择、原 PDF 已取得、close-fill 费用测量已交付，不能继续将其列为阻塞。真实现金/费用/风险 cap、PIT/许可、holdout、累计 trials/journal 与实际 runner 尚未冻结 | 参数和 trial 单位可先形成具体推荐草案，调用差分/现金会计桥与合成反例可在现有工程授权内准备；内部 required 字段不全都等于新增人工审批。真实限制、费率、未见 holdout 和材料权限不代填，不先跑新研究或提前 B4/实际候选E1 |
-| ARC 与其余 Pigbibi 运行身份 | [#103](https://github.com/Pigbibi/ActionsReliabilityController/issues/103) 六仓实际身份仍有明确未知；[#104](https://github.com/Pigbibi/ActionsReliabilityController/issues/104) 缺实际 ARC caller、项目/材料/模型/费用与严格回执合同，不能借 Ctrip/UES grant | 保持实际业务调用/生产切换停车；现有 client/schema、凭据引用路径及默认关闭 adapter 的合成契约可准备。健康、repo main、CI、runner online 与实际加载/真实业务分别留证，不另造框架或扩大材料授权 |
 
 自然观察保持原日程：下一名义 digest cron 为 `2026-10-14T22:00:00Z`（新加坡10月15日06:00），Actions 可能延迟；截至本节计数诊断时仍无 URI 采用后自然结果。完整 coverage、四段式通知及 bot/chat/topic 同一性仍待各自证据。Flex 已登记；机器维护读取 HTTP403 的归因与送达仍未知，不由页面登记反推提醒已送达。
 
-本次 QRS 写集不含前端源码/资产或 Deploy paths，不触发该前端 Deploy。工程合并与诊断不代替网站当前资产、现金、收益、控制面来源和日覆盖验收；用户暂停的前端工作按原要求保留。
+本次 QRS 写集不含前端源码/资产或 Deploy paths，不触发该前端 Deploy。工程合并与诊断不代替网站当前资产、现金、收益、控制面来源和日覆盖验收。
 
 #### 两服务实际接续：2026-10-14 13:03:04 UTC
 
@@ -543,7 +531,3 @@ private-store、通知、OAuth/Events、Medical/Franchise及共享服务升级�
 #### 暂缓前端的源码复审
 
 本轮只读复审原UI-01–05/DATA-01–02，不浏览器验收、构建或部署前端。QRS [#611](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/611)、[#616](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/616)、[#617](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/617)、[#631](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/631)、[#640](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/640) 已合并：当前main已有严格设置ACK、持仓receiver/面板、历史实际天数、FX显式刷新及14日卡片；收益receiver/UI与四个价格指数接线也已存在。10月7日未发布ACK计划和10月11日持仓/历史提示/FX缺口不能机械恢复。真实资产/持仓/期间收益资格、来源日覆盖、应用读回和完整双语/手机场景仍分别未验；代码存在不填这些事实。
-
-Gdei两仓默认分支是master。WechatApp准确源 `c16ccea7` 仍将类别注册为marketplace、发布/编辑分支判断ershou，源码缺陷成立；本机旧dirty已含修复与未追踪回归，尚未按新基线整合/发布，本轮未测试。Web准确源 `392b594c` 的Cet固定image/jpg与mock PNG签名不一致，实际渲染影响本轮未验；本机分型/视觉候选保持。它们因用户要求暂停，不能借审计恢复或覆盖dirty；不将MIME差异直接报成浏览器故障。
-
-本轮Pigbibi八仓准确main的工程CI均success，六仓运行身份仍有ARC自然source、Medical权限/绑定、PhotoStory旧活动artifact与Telecom/Hotline安装locator缺口。Franchise/Medical失败与新Hotline/PhotoStory业务run success分开报告；job结论不证明登录、提交、Worker来源或业务完整。现有[#103](https://github.com/Pigbibi/ActionsReliabilityController/issues/103)、[#104](https://github.com/Pigbibi/ActionsReliabilityController/issues/104)、[Franchise #37](https://github.com/Pigbibi/FranchiseLeadWorkflows/issues/37)、[Medical #39](https://github.com/Pigbibi/MedicalClaimAssistant/issues/39) 按实际未验层级继续open。

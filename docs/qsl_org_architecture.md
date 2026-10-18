@@ -2,7 +2,7 @@
 
 This document defines the repository governance and compatibility boundaries used by QuantRuntimeSettings. It does not report deployed account state or certify trading safety.
 
-For coordination and dated research facts, use the existing [P0–P6 policy](QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md).
+For dated research facts, see the existing [P0–P6 reference](QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md).
 
 ## Repository layers
 

@@ -247,7 +247,7 @@ dry-run receipt 同样写入 `token_source_kind` / `chat_source_kind` / `warning
 
 ## 2026-10-06 单入口与降噪验收（仍有效）
 
-任务状态见[六主线清单](qsl_overnight_open_items.zh-CN.md) `NOTIFY-01`–`NOTIFY-03`。
+历史通知验收记录见[历史工程与验收边界](qsl_overnight_open_items.zh-CN.md) `NOTIFY-01`–`NOTIFY-03`。
 
 - 同名 env/secret **不等于**已迁移到同一有效 bot；需 equality-only 核验。
 - 健康无单 / dry-run 成功不单独刷屏；真实订单与异常仍可达。

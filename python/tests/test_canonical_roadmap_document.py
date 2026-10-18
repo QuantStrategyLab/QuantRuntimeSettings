@@ -14,10 +14,10 @@ class CanonicalRoadmapDocumentTest(unittest.TestCase):
         text = CANONICAL_ROADMAP.read_text(encoding="utf-8")
 
         for required_text in (
-            "唯一入口",
-            "一个**主控会话**",
-            "多个有边界的 **driver**",
-            "唯一 driver",
+            "ARCHITECTURE_AND_DATED_EVIDENCE_REFERENCE",
+            "运行时、券商和策略事实仍须在操作前从相应事实源重新读取。",
+            "不得擅自扩大到其他阶段、仓库或执行目标。",
+            "每仓只有一个 writer，公共契约、共享环境和同账户资金操作串行。",
             "NO_DRIVER_PARKED",
             "P0",
             "retired review caller 的本地清理",
