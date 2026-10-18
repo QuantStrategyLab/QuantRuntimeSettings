@@ -151,17 +151,36 @@ export function LineChart({
               {tick.date.slice(5)}
             </text>
           ))}
-          {visible.map(item => (
-            <path
-              key={item.id}
-              d={toPath(item.points.map(point => ({ x: xFor(prepared.index.get(point.date)!), y: yFor(point.value), breakBefore: point.breakBefore })))}
-              fill="none"
-              stroke={item.color}
-              strokeWidth={item.primary ? 2.5 : 1.4}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          ))}
+          {visible.map(item => {
+            const coords = item.points.map(point => ({
+              date: point.date,
+              x: xFor(prepared.index.get(point.date)!),
+              y: yFor(point.value),
+              breakBefore: point.breakBefore,
+            }));
+            const segments: { date: string; x: number; y: number }[][] = [];
+            for (const point of coords) {
+              if (point.breakBefore || segments.length === 0) segments.push([]);
+              segments[segments.length - 1]!.push(point);
+            }
+            return (
+              <g key={item.id}>
+                <path
+                  d={toPath(coords)}
+                  fill="none"
+                  stroke={item.color}
+                  strokeWidth={item.primary ? 2.5 : 1.4}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+                {segments
+                  .filter(segment => segment.length === 1 && Number.isFinite(segment[0]!.y))
+                  .map(([point]) => (
+                    <circle key={`${item.id}-${point!.date}`} cx={point!.x} cy={point!.y} r="3" fill={item.color} />
+                  ))}
+              </g>
+            );
+          })}
           {cursor !== null && (
             <line x1={xFor(cursor)} x2={xFor(cursor)} y1={PAD.top} y2={HEIGHT - PAD.bottom} stroke="var(--muted)" strokeWidth="1" />
           )}
