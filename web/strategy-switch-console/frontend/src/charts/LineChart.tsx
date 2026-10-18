@@ -51,14 +51,20 @@ export function LineChart({
       let base: number | null = null;
       const points = item.points.map(point => {
         let value = point.value;
+        // Eligibility for singleton markers is judged on the raw observation:
+        // the cumulative rebasing below would coerce null/false/numeric
+        // strings into finite numbers and mis-present them as valid points.
+        const observed = typeof point.value === "number" && Number.isFinite(point.value);
         if (mode === "cumulative") {
           if (base === null) base = value;
           value = value - base;
         }
-        return { date: point.date, value, breakBefore: point.breakBefore };
+        return { date: point.date, value, breakBefore: point.breakBefore, observed };
       });
       if (mode === "daily") {
-        return { ...item, points: dailyReturnsFromCumulative(item.points) };
+        // dailyReturnsFromCumulative only emits intervals derived from valid
+        // finite numeric observations, so its output points stay eligible.
+        return { ...item, points: dailyReturnsFromCumulative(item.points).map(point => ({ ...point, observed: true })) };
       }
       return { ...item, points };
     });
@@ -157,8 +163,9 @@ export function LineChart({
               x: xFor(prepared.index.get(point.date)!),
               y: yFor(point.value),
               breakBefore: point.breakBefore,
+              observed: point.observed,
             }));
-            const segments: { date: string; x: number; y: number }[][] = [];
+            const segments: { date: string; x: number; y: number; observed: boolean }[][] = [];
             for (const point of coords) {
               if (point.breakBefore || segments.length === 0) segments.push([]);
               segments[segments.length - 1]!.push(point);
@@ -174,7 +181,7 @@ export function LineChart({
                   strokeLinecap="round"
                 />
                 {segments
-                  .filter(segment => segment.length === 1 && Number.isFinite(segment[0]!.y))
+                  .filter(segment => segment.length === 1 && segment[0]!.observed && Number.isFinite(segment[0]!.y))
                   .map(([point]) => (
                     <circle key={`${item.id}-${point!.date}`} cx={point!.x} cy={point!.y} r="3" fill={item.color} />
                   ))}
