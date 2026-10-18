@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,64 @@ MODULE_SPEC.loader.exec_module(check_qsl_compat)
 
 
 class QSLCompatCheckerTest(unittest.TestCase):
+    def test_canonical_ai_workspace_identity_preserves_optional_and_managed_boundaries(self):
+        ref = "65c8bcf432f578f657c12d5dab0e16ebec0bef5a"
+        cases = [
+            # Original failure: four unmanaged declarations even if the
+            # canonical remote has been cloned into the old alias directory.
+            ("AIAuditBridge", "AIAuditBridge", "QuantStrategyLab/QuantAIService", ref, False, False, "unmanaged"),
+            ("QuantAIService", None, None, ref, False, False, "unmanaged"),
+            ("QuantAIService", "AIAuditBridge", "QuantStrategyLab/QuantAIService", ref, False, False, "unmanaged"),
+            ("QuantAIService", "QuantAIService", "Pigbibi/QuantAIService", ref, False, False, "unmanaged"),
+            ("UnknownAI", "QuantAIService", "QuantStrategyLab/QuantAIService", ref, False, False, "unmanaged"),
+            ("QuantAIService", "QuantAIService", "QuantStrategyLab/QuantAIService", ref, False, True, None),
+            ("QuantAIService", "QuantAIService", "QuantStrategyLab/QuantAIService", ref, True, False, "forbidden dependency direction"),
+            ("QuantAIService", "QuantAIService", "QuantStrategyLab/QuantAIService", "main", False, False, "forbidden ref"),
+            ("QuantAIService", "QuantAIService", "QuantStrategyLab/QuantAIService", ref[:12], False, False, "forbidden short/invalid ref"),
+        ]
+        for repository, dirname, remote, pin, base, allowed, failure in cases:
+            with self.subTest(repository=repository, dirname=dirname, remote=remote, pin=pin, base=base), \
+                    tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                consumer = root / "QuantStrategyPlugins"
+                consumer.mkdir()
+                requirement = f"ai-gateway-client @ git+https://github.com/QuantStrategyLab/{repository}.git@{pin}"
+                (consumer / "qsl.toml").write_text(
+                    'tier = "strategy-lib"\nupgrade_ring = "ring_b"\n[compat]\nbundle = "2026.07.1"\n'
+                    f'requires = ["pandas>=2.0", "yfinance>=0.2.40", "{requirement}"]\n', encoding="utf-8",
+                )
+                (consumer / "pyproject.toml").write_text(
+                    '[project]\nname = "quant-strategy-plugins"\ndependencies = '
+                    + repr([requirement] if base else []) + '\n[project.optional-dependencies]\nai = '
+                    + repr([requirement]) + '\n', encoding="utf-8",
+                )
+                url = f"https://github.com/QuantStrategyLab/{repository}.git?rev={pin}"
+                (consumer / "uv.lock").write_text(
+                    'version = 1\n[[package]]\nname = "ai-gateway-client"\n'
+                    f'source = {{ git = "{url}#{pin}" }}\n[[package]]\n'
+                    'name = "quant-strategy-plugins"\nsource = { editable = "." }\n'
+                    '[package.metadata]\nrequires-dist = [{ name = "ai-gateway-client", '
+                    f'marker = "extra == \'ai\'", git = "{url}" }}]\n', encoding="utf-8",
+                )
+                if dirname is not None:
+                    identity = root / dirname
+                    subprocess.run(["git", "init", "-q", str(identity)], check=True)
+                    subprocess.run(["git", "-C", str(identity), "remote", "add", "origin",
+                                    f"https://github.com/{remote}.git"], check=True)
+                    (identity / "qsl.toml").write_text(
+                        'tier = "ops/tooling"\nupgrade_ring = "ring_e"\nruntime_dependency = false\n'
+                        '[compat]\nbundle = "2026.07.0"\n', encoding="utf-8",
+                    )
+                result = check_qsl_compat._check(repo_root=consumer, compat_root=ROOT, scope="current")
+                self.assertEqual(result[0], allowed, result[1])
+                if failure:
+                    self.assertTrue(any(failure in issue for issue in result[1]), result[1])
+                else:
+                    self.assertEqual((result[1], result[2]), ([], []))
+                if repository == "AIAuditBridge":
+                    self.assertEqual(len(result[1]), 4, result[1])
+                    self.assertTrue(all("unmanaged" in issue for issue in result[1]))
+
     def _make_repo_root(self, qsl_toml: str, pyproject: str) -> Path:
         root = Path(tempfile.mkdtemp())
         (root / "qsl.toml").write_text(qsl_toml, encoding="utf-8")

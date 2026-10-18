@@ -88,7 +88,7 @@ jobs:
             fi
           done < qsl-bundle-repos.tsv
 
-      - name: Prepare CN research dependency identity
+      - name: Prepare optional AI dependency identity
         id: research_dependency
         if: steps.workspace.outputs.scope == 'current'
         env:
@@ -101,28 +101,47 @@ jobs:
           import subprocess
           import tomllib
           from pathlib import Path
+          from scripts.check_qsl_compat import (
+              GitRef, _extract_git_refs, _gather_declared_current_refs,
+              _is_research_extra_only_dependency, _load_qsl_config,
+          )
 
           workspace = Path(os.environ["RUNNER_TEMP"]) / "qsl-workspace"
-          manifest = workspace / "CnEquityStrategies" / "pyproject.toml"
-          if not manifest.exists():
-              raise SystemExit(0)
-          project = tomllib.loads(manifest.read_text(encoding="utf-8")).get("project", {})
-          research = project.get("optional-dependencies", {}).get("research", [])
           pattern = re.compile(
               r"^ai-gateway-client\s*@\s*git\+https://github\.com/"
-              r"QuantStrategyLab/(?:AIAuditBridge|QuantAIService)\.git@([0-9a-f]{40})$"
+              r"QuantStrategyLab/(AIAuditBridge|QuantAIService)\.git@([0-9a-f]{40})$"
           )
-          matches = [pattern.fullmatch(item.strip()) for item in research if isinstance(item, str)]
-          matches = [match for match in matches if match]
-          if not matches:
+          refs = set()
+          for consumer, extra in (("CnEquityStrategies", "research"), ("QuantStrategyPlugins", "ai")):
+              repo_root = workspace / consumer
+              manifest = repo_root / "pyproject.toml"
+              if not manifest.exists():
+                  continue
+              project = tomllib.loads(manifest.read_text(encoding="utf-8")).get("project", {})
+              requirements = project.get("optional-dependencies", {}).get(extra, [])
+              candidates = [item.strip() for item in requirements if isinstance(item, str)
+                            and re.match(r"^ai[-_.]gateway[-_.]client\b", item.strip(), re.IGNORECASE)]
+              if not candidates:
+                  continue
+              if len(candidates) != 1 or not (match := pattern.fullmatch(candidates[0])):
+                  raise SystemExit(f"{consumer} optional {extra} AI identity is unapproved or ambiguous")
+              repository, ref = match.groups()
+              pin = GitRef(repo=repository, ref=ref, source="pyproject.toml", line_no=None)
+              declared = {item.ref for item in _gather_declared_current_refs(_load_qsl_config(repo_root))
+                          if item.repo == repository}
+              locked = {item.ref for item in _extract_git_refs(repo_root / "uv.lock") if item.repo == repository}
+              if declared != {ref} or locked != {ref} or not _is_research_extra_only_dependency(repo_root, pin):
+                  raise SystemExit(f"{consumer} AI identity lacks matching optional manifest/lock/declaration proof")
+              refs.add(ref)
+          if not refs:
               raise SystemExit(0)
-          if len(matches) != 1:
-              raise SystemExit("CN research AIAuditBridge dependency is missing or ambiguous")
-          ref = matches[0].group(1)
-          destination = Path(os.environ["GITHUB_WORKSPACE"]).parent / "AIAuditBridge"
+          if len(refs) != 1:
+              raise SystemExit("optional AI consumers declare conflicting identity pins")
+          ref = refs.pop()
+          destination = Path(os.environ["GITHUB_WORKSPACE"]).parent / "QuantAIService"
           if destination.exists() or destination.is_symlink():
               raise SystemExit(f"refusing to overwrite existing dependency identity checkout: {destination}")
-          Path(os.environ["RUNNER_TEMP"], "qsl-aiauditbridge-identity-created").write_text(
+          Path(os.environ["RUNNER_TEMP"], "qsl-quantaiservice-identity-created").write_text(
               str(destination), encoding="utf-8"
           )
           subprocess.run(
@@ -132,8 +151,19 @@ jobs:
           subprocess.run(["git", "-C", str(destination), "checkout", "--detach", ref], check=True)
           actual = subprocess.check_output(["git", "-C", str(destination), "rev-parse", "HEAD"], text=True).strip()
           if actual != ref:
-              raise SystemExit(f"AIAuditBridge identity checkout mismatch: expected {ref}, got {actual}")
-          Path("qsl-aiauditbridge-identity.tsv").write_text(f"AIAuditBridge\t{actual}\n", encoding="utf-8")
+              raise SystemExit(f"QuantAIService identity checkout mismatch: expected {ref}, got {actual}")
+          origin = subprocess.check_output(
+              ["git", "-C", str(destination), "remote", "get-url", "origin"], text=True
+          ).strip().rstrip("/").removesuffix(".git")
+          if origin not in {"https://github.com/QuantStrategyLab/QuantAIService",
+                            "git@github.com:QuantStrategyLab/QuantAIService",
+                            "ssh://git@github.com/QuantStrategyLab/QuantAIService"}:
+              raise SystemExit("QuantAIService identity checkout has an unexpected origin")
+          identity = tomllib.loads((destination / "qsl.toml").read_text(encoding="utf-8"))
+          if (identity.get("tier") != "ops/tooling" or identity.get("upgrade_ring") != "ring_e"
+                  or identity.get("runtime_dependency") is not False):
+              raise SystemExit("QuantAIService identity must remain non-runtime ops/tooling")
+          Path("qsl-quantaiservice-identity.tsv").write_text(f"QuantAIService\t{actual}\n", encoding="utf-8")
           PY
 
       - name: Generate QSL compatibility report
@@ -183,10 +213,10 @@ jobs:
                       repo, sha = line.split("\t", 1)
                       handle.write(f"- `{repo}`: `{sha}`\n")
 
-          identity_refs = Path("qsl-aiauditbridge-identity.tsv")
+          identity_refs = Path("qsl-quantaiservice-identity.tsv")
           if identity_refs.exists():
               with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as handle:
-                  handle.write("\n### Research dependency identity checkout\n")
+                  handle.write("\n### Optional AI dependency identity checkout\n")
                   for line in identity_refs.read_text(encoding="utf-8").splitlines():
                       repo, sha = line.split("\t", 1)
                       handle.write(f"- `{repo}`: `{sha}` (identity-only)\n")
@@ -198,14 +228,14 @@ jobs:
           QSL_BUNDLE: ${{ steps.workspace.outputs.bundle }}
           QSL_WORKSPACE: ${{ steps.workspace.outputs.workspace }}
 
-      - name: Clean up research dependency identity
+      - name: Clean up optional AI dependency identity
         if: always()
         run: |
           set -euo pipefail
-          marker="${RUNNER_TEMP}/qsl-aiauditbridge-identity-created"
+          marker="${RUNNER_TEMP}/qsl-quantaiservice-identity-created"
           if [ -f "$marker" ]; then
             destination="$(realpath -m "$(cat "$marker")")"
-            expected="$(realpath -m "${GITHUB_WORKSPACE}/../AIAuditBridge")"
+            expected="$(realpath -m "${GITHUB_WORKSPACE}/../QuantAIService")"
             if [ "$destination" = "$expected" ]; then
               rm -rf "$destination" "$marker"
             else
