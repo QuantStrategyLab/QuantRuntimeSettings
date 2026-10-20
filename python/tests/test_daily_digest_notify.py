@@ -166,16 +166,16 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertNotIn("Asia/Shanghai", text)
         self.assertNotIn("通道", text)
         self.assertNotIn("QuantSentinel", text)
-        self.assertIn("[schwab live] 💓 【心跳检测】", text)
+        self.assertIn("[Schwab / 实盘 / 半导体趋势收益] 💓 【心跳检测】", text)
         self.assertNotIn("[schwab-primary]", text)
-        self.assertIn("🧭 策略: 半导体趋势收益", text)
+        self.assertIn("半导体趋势收益", text)
         self.assertIn("💰 账户总权益: USD 990.06", text)
         self.assertIn("💼 持仓", text)
         self.assertIn("- SOXL: $635.92 / 4股", text)
         self.assertIn("🎯 信号: SOXX 站上 140 日门槛线", text)
         self.assertIn("小账户提示", text)
         self.assertIn("✅ 无需调仓", text)
-        self.assertIn("平台: schwab", text)
+        self.assertNotIn("平台: schwab", text)
         self.assertNotIn("今日有运行但无成交", text)
 
     def test_rich_rebalance_block_ibkr_style(self):
@@ -208,7 +208,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("收盘日报", text)
-        self.assertIn("[ibkr U00000001] ⏳ 【待确认】", text)
+        self.assertIn("[IBKR / 账户 / 纳斯达克增长收益] ⏳ 【待确认】", text)
         self.assertIn("纳斯达克增长收益", text)
         self.assertIn("USD 569.16", text)
         self.assertIn("TQQQ: $312.40 / 4股", text)
@@ -236,7 +236,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
-        self.assertIn("[ibkr U00000001] ⚠️ 【未下单】", text)
+        self.assertIn("[IBKR / 账户 / 纳斯达克增长收益] ⚠️ 【未下单】", text)
         self.assertIn("低于最小订单金额:TQQQ", text)
 
     def test_english_observation_labels(self):
@@ -263,7 +263,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("Heartbeat", text)
-        self.assertIn("[schwab live] 💓 [Heartbeat]", text)
+        self.assertIn("[Schwab / live / Semiconductor Trend Income] 💓 [Heartbeat]", text)
         self.assertNotIn("[schwab-primary]", text)
         self.assertIn("Account equity: USD 990.06", text)
         self.assertIn("4sh", text)
@@ -392,7 +392,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
-        self.assertIn("[schwab 000000a1] 💓 【心跳检测】", text)  # no scope → platform + short uid
+        self.assertIn("[Schwab / 账户 / 半导体趋势收益] 💓 【心跳检测】", text)  # no raw UID fallback
         self.assertNotIn("[schwab-primary]", text)
         self.assertIn("半导体趋势收益", text)
         self.assertIn("✅ 无需调仓", text)
@@ -429,12 +429,10 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "📡 量化哨兵 · 心跳\n"
             "业务日: 2026-10-09\n"
             "今日有运行，成交数未知（证据未覆盖）。\n"
-            "[schwab live] 💓 【心跳检测】\n"
-            "🧭 策略: 半导体趋势收益\n"
+            "[Schwab / 实盘 / 半导体趋势收益] ⚠️ 【需核对】\n"
             "💰 账户总权益: USD 989.34\n"
             "数据缺失：EVIDENCE_NOT_FOUND（未找到当天的成交或订单证据）\n"
-            "✅ 无需调仓\n"
-            "平台: schwab"
+            "✅ 无需调仓"
         )
         self.assertEqual(text, expected)
 
@@ -482,17 +480,17 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertNotIn("should-not-appear", text)
         # Header once; each platform block keeps its own strategy/equity/platform.
         self.assertEqual(text.count("量化哨兵 · 心跳"), 1)
-        self.assertIn("平台: schwab", text)
-        self.assertIn("平台: ibkr", text)
-        self.assertIn("🧭 策略: 半导体趋势收益", text)
-        self.assertIn("🧭 策略: 纳斯达克增长收益", text)
+        self.assertNotIn("平台: schwab", text)
+        self.assertNotIn("平台: ibkr", text)
+        self.assertIn("半导体趋势收益", text)
+        self.assertIn("纳斯达克增长收益", text)
         self.assertIn("💰 账户总权益: USD 989.34", text)
         self.assertIn("💰 账户总权益: USD 569.16", text)
-        self.assertIn("[schwab live] 💓 【心跳检测】", text)
-        self.assertIn("[ibkr U00000001] 💓 【心跳检测】", text)
+        self.assertIn("[Schwab / 实盘 / 半导体趋势收益] ⚠️ 【需核对】", text)
+        self.assertIn("[IBKR / 账户 / 纳斯达克增长收益] 💓 【心跳检测】", text)
         # Blank line between observation blocks.
-        schwab_idx = text.index("平台: schwab")
-        ibkr_idx = text.index("[ibkr U00000001]")
+        schwab_idx = text.index("[Schwab /")
+        ibkr_idx = text.index("[IBKR / 账户 / 纳斯达克增长收益]")
         between = text[schwab_idx:ibkr_idx]
         self.assertIn("\n\n", between)
         # Exact multi-platform shape for zh locale — every block has [account] tag.
@@ -500,21 +498,17 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "📡 量化哨兵 · 心跳\n"
             "业务日: 2026-10-09\n"
             "今日有运行，成交数未知（证据未覆盖）。\n"
-            "[schwab live] 💓 【心跳检测】\n"
-            "🧭 策略: 半导体趋势收益\n"
+            "[Schwab / 实盘 / 半导体趋势收益] ⚠️ 【需核对】\n"
             "💰 账户总权益: USD 989.34\n"
             "数据缺失：EVIDENCE_NOT_FOUND（未找到当天的成交或订单证据）\n"
             "✅ 无需调仓\n"
-            "平台: schwab\n"
             "\n"
-            "[ibkr U00000001] 💓 【心跳检测】\n"
-            "🧭 策略: 纳斯达克增长收益\n"
+            "[IBKR / 账户 / 纳斯达克增长收益] 💓 【心跳检测】\n"
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
             "- TQQQ: $312.40 / 4股\n"
             "无交易\n"
-            "✅ 无需调仓\n"
-            "平台: ibkr"
+            "✅ 无需调仓"
         )
         self.assertEqual(text, expected)
 
@@ -645,15 +639,13 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 收盘日报\n"
             "业务日: 2026-10-09\n"
-            "[ibkr U00000001] 🔔 【调仓指令】\n"
-            "🧭 策略: 纳斯达克增长收益\n"
+            "[IBKR / 账户 / 纳斯达克增长收益] 🔔 【调仓指令】\n"
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
             "- TQQQ: $312.40 / 4股\n"
             "成交 1 笔 / 订单 1 笔\n"
             "✅ 成交成功 1个标的: TQQQ 1\n"
-            "📈 [市价买入] TQQQ: 1股 ✅ 已成交（状态: Filled）\n"
-            "平台: ibkr"
+            "📈 [市价买入] TQQQ: 1股 ✅ 已成交（状态: Filled）"
         )
         self.assertEqual(text, expected)
         self.assertNotIn("窗口", text)
@@ -687,7 +679,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("收盘日报", text)
-        self.assertIn("[schwab live] 🔔 【调仓指令】", text)
+        self.assertIn("[Schwab / 实盘 / 半导体趋势收益] 🔔 【调仓指令】", text)
         self.assertIn("✅ 成交 2", text)
         self.assertNotIn("窗口", text)
         self.assertNotIn("通道", text)
@@ -738,21 +730,17 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "📡 量化哨兵 · 收盘日报\n"
             "业务日: 2026-10-09\n"
             "今日有运行，成交数未知（证据未覆盖）。\n"
-            "[schwab live] 💓 【心跳检测】\n"
-            "🧭 策略: 半导体趋势收益\n"
+            "[Schwab / 实盘 / 半导体趋势收益] ⚠️ 【需核对】\n"
             "💰 账户总权益: USD 989.34\n"
             "数据缺失：EVIDENCE_NOT_FOUND（未找到当天的成交或订单证据）\n"
             "✅ 无需调仓\n"
-            "平台: schwab\n"
             "\n"
-            "[ibkr U00000001] 🔔 【调仓指令】\n"
-            "🧭 策略: 纳斯达克增长收益\n"
+            "[IBKR / 账户 / 纳斯达克增长收益] 🔔 【调仓指令】\n"
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
             "- TQQQ: $312.40 / 4股\n"
             "成交 1 笔 / 订单 1 笔\n"
-            "✅ 成交成功 1个标的: TQQQ 1\n"
-            "平台: ibkr"
+            "✅ 成交成功 1个标的: TQQQ 1"
         )
         self.assertEqual(text, expected)
 
@@ -790,9 +778,9 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-09", locale="zh", runs=runs
             )
         )
-        self.assertIn("[schwab live] 💓 【心跳检测】", text)
-        self.assertIn("[ibkr live] 💓 【心跳检测】", text)
-        self.assertIn("[firstrade paper] 💓 【心跳检测】", text)
+        self.assertIn("[Schwab / 实盘 / 半导体趋势收益] 💓 【心跳检测】", text)
+        self.assertIn("[IBKR / 实盘 / 纳斯达克增长收益] 💓 【心跳检测】", text)
+        self.assertIn("[Firstrade / 模拟 / 未命名策略] 💓 【心跳检测】", text)
         self.assertNotIn("[000000a1]", text)
         self.assertNotIn("[schwab-primary]", text)
         self.assertNotIn("[live]", text)  # bare scope alone is not the tag
@@ -820,7 +808,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-09", locale="zh", runs=runs
             )
         )
-        self.assertIn("[ibkr U00000001] ⚠️ 【未下单】", text)
+        self.assertIn("[IBKR / 账户 / 纳斯达克增长收益] ⚠️ 【未下单】", text)
         self.assertIn("- 🎯 信号: 无需操作", text)
         self.assertNotIn("no_action", text)
         self.assertNotIn("\nno_order\n", text)

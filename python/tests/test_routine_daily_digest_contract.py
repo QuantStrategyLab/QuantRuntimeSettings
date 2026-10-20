@@ -48,8 +48,8 @@ class RoutineDailyDigestContractTests(unittest.TestCase):
                 self.assertEqual(code, 0)
                 send.assert_called_once()
                 text = send.call_args.kwargs["text"]
-                self.assertIn("schwab", text)
-                self.assertIn("ibkr", text)
+                self.assertIn("Schwab", text)
+                self.assertIn("IBKR", text)
                 self.assertEqual(text.count(conclusion), 2)
                 self.assertIn(unknown, text)
 
