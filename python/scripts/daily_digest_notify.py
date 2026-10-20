@@ -18,9 +18,10 @@ from __future__ import annotations
 
 from display_names import display_name
 
+import math
 import re
 
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from typing import Any, Literal, Mapping, Sequence
 
 DigestLocale = Literal["zh", "en"]
@@ -76,6 +77,9 @@ _TEXTS: dict[str, dict[str, str]] = {
         "block_heartbeat": "💓 【心跳检测】",
         "block_rebalance": "🔔 【调仓指令】",
         "block_no_order": "⚠️ 【未下单】",
+        "block_noop": "✅ 【无需操作】",
+        "block_attention": "⚠️ 【需核对】",
+        "block_reason_unknown": "已拦截，具体原因未知",
         "block_pending": "⏳ 【待确认】",
         "block_blocked": "⚠️ 【已拦截】",
         "strategy_label": "🧭 策略",
@@ -161,6 +165,9 @@ _TEXTS: dict[str, dict[str, str]] = {
         "block_heartbeat": "💓 [Heartbeat]",
         "block_rebalance": "🔔 [Rebalance]",
         "block_no_order": "⚠️ [No order]",
+        "block_noop": "✅ [No action needed]",
+        "block_attention": "⚠️ [Needs review]",
+        "block_reason_unknown": "Blocked; specific reason unknown",
         "block_pending": "⏳ [Pending]",
         "block_blocked": "⚠️ [Blocked]",
         "strategy_label": "🧭 Strategy",
@@ -332,6 +339,8 @@ def _t(locale: DigestLocale, key: str) -> str:
 
 
 def _optional_float(raw: Any) -> float | None:
+    if type(raw) is bool:
+        return raw  # Preserve invalid source type for the display validator.
     if raw is None or raw == "":
         return None
     try:
@@ -343,7 +352,7 @@ def _optional_float(raw: Any) -> float | None:
 def _optional_nonneg_int(raw: Any) -> int | None:
     """Parse an optional non-negative int; None stays unknown."""
 
-    if raw is None or raw == "":
+    if raw is None or raw == "" or type(raw) is bool:
         return None
     try:
         value = int(raw)
@@ -354,25 +363,35 @@ def _optional_nonneg_int(raw: Any) -> int | None:
     return value
 
 
-def _format_qty(qty: float | None) -> str | None:
+def _finite_number(value: object) -> bool:
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def _format_qty(qty: float | None, *, locale: DigestLocale = "zh") -> str | None:
     if qty is None:
         return None
+    if not _finite_number(qty):
+        return _t(locale, "counts_unknown")
     if float(qty).is_integer():
         return str(int(qty))
     text = f"{qty:.6f}".rstrip("0").rstrip(".")
     return text or "0"
 
 
-def _format_money(value: float, *, currency: str = "USD") -> str:
+def _format_money(value: float, *, currency: str = "USD", locale: DigestLocale = "zh") -> str:
     code = (currency or "USD").strip().upper() or "USD"
+    if not _finite_number(value):
+        return f"{code} {_t(locale, 'counts_unknown')}"
     amount = f"{value:,.2f}"
     if code == "USD":
         return f"${amount}"
     return f"{code} {amount}"
 
 
-def _format_equity(value: float, *, currency: str = "USD") -> str:
+def _format_equity(value: float, *, currency: str = "USD", locale: DigestLocale = "zh") -> str:
     code = (currency or "USD").strip().upper() or "USD"
+    if not _finite_number(value):
+        return f"{code} {_t(locale, 'counts_unknown')}"
     amount = f"{value:,.2f}"
     return f"{code} {amount}"
 
@@ -516,8 +535,11 @@ class DigestRunEntry:
     block_reason: Mapping[str, object] | None = None
     source_run_id: str = ""
     approved_gate_reasons: tuple[Mapping[str, object], ...] = ()
+    presentation_attention: InitVar[bool] = False
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, presentation_attention: bool = False) -> None:
+        # Rendering-only state must not enter asdict/receipt or routing facts.
+        object.__setattr__(self, "_presentation_attention", presentation_attention)
         if not str(self.platform_id).strip():
             raise ValueError("platform_id required")
         if not str(self.strategy_profile).strip():
@@ -913,18 +935,44 @@ def label_delivery_text(text: str, locale: str, *, test: bool = False, previous_
     return "\n".join(prefix + [text])
 
 
+def _presentation_needs_attention(entry: DigestRunEntry) -> bool:
+    return (getattr(entry, "_presentation_attention", False)
+            or entry.evidence_persistence_status not in {"", "persisted"}
+            or entry.evidence_delivery_status not in {"", "delivered_to_central", "delivered_idle"})
+
+
+def _healthy_zero_activity(entry: DigestRunEntry) -> bool:
+    """Only known, healthy execution facts qualify as zero activity."""
+    tokens = {"", "no_action", "no_signal", "no_rebalance", "no_order", "hold"}
+    return (entry.status == "ok" and not is_blocked(entry) and not _presentation_needs_attention(entry)
+            and all(type(value) is int and value == 0 and status == "known" for value, status in
+                    ((entry.order_count, entry.order_count_status), (entry.fill_count, entry.fill_count_status)))
+            and type(entry.cycle_count) is int and entry.cycle_count_status == "known"
+            and not entry.missing_evidence_reason and entry.reason_code in tokens
+            and entry.execution_status in {"", "no_action", "no_op", "completed", "executed", "ok_no_order"})
+
+
+def _verified_noop(entry: DigestRunEntry) -> bool:
+    tokens = {"", "no_action", "no_signal", "no_rebalance", "no_order", "hold"}
+    return (_healthy_zero_activity(entry) and entry.signal_summary in tokens
+            and entry.rebalance_conclusion in tokens)
+
+
 def _block_title(entry: DigestRunEntry, locale: DigestLocale) -> str:
     if is_blocked(entry):
         return _t(locale, "block_blocked")
     kind = entry.rebalance_kind or ""
+    if (entry.status != "ok" or _presentation_needs_attention(entry)
+            or (kind != "pending" and entry.missing_evidence_reason)):
+        return _t(locale, "block_attention")
     if kind == "rebalance":
         return _t(locale, "block_rebalance")
     if kind == "no_order":
-        return _t(locale, "block_no_order")
+        return _t(locale, "block_noop" if _verified_noop(entry) else "block_no_order")
     if kind == "pending":
         return _t(locale, "block_pending")
     if kind == "no_rebalance":
-        return _t(locale, "block_heartbeat")
+        return _t(locale, "block_heartbeat" if _healthy_zero_activity(entry) else "block_attention")
     fill = entry.fill_count if entry.fill_count_status != "unknown" else None
     order = entry.order_count if entry.order_count_status != "unknown" else None
     if (fill is not None and fill > 0) or (order is not None and order > 0):
@@ -1077,9 +1125,9 @@ def _holding_line(holding: DigestHolding, locale: DigestLocale) -> str:
     pieces: list[str] = []
     if holding.market_value is not None:
         pieces.append(
-            _format_money(holding.market_value, currency=holding.currency)
+            _format_money(holding.market_value, currency=holding.currency, locale=locale)
         )
-    qty = _format_qty(holding.quantity)
+    qty = _format_qty(holding.quantity, locale=locale)
     if qty is not None:
         pieces.append(f"{qty}{_t(locale, 'shares_unit')}")
     if pieces:
@@ -1109,25 +1157,25 @@ def _default_conclusion(entry: DigestRunEntry, locale: DigestLocale) -> str:
     return ""
 
 
-def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> list[str]:
+def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale, *, context: str = "") -> list[str]:
     lines: list[str] = []
     title = _block_title(entry, locale)
-    tag = account_block_tag(entry)
-    if tag:
-        lines.append(f"[{tag}] {title}")
-    else:
-        lines.append(title)
-    lines.append(f"{_t(locale, 'strategy_label')}: {_display_strategy(entry, locale)}")
+    if not context:
+        from unified_daily_digest import _run_display_labels
+        context = _run_display_labels([entry], locale)[0]
+    lines.append(f"[{context}] {title}")
     if entry.equity is not None:
         lines.append(
             f"{_t(locale, 'equity_label')}: "
-            f"{_format_equity(entry.equity, currency=entry.equity_currency)}"
+            f"{_format_equity(entry.equity, currency=entry.equity_currency, locale=locale)}"
         )
     if entry.holdings:
         lines.append(_holdings_header(entry.holdings_scope, locale))
         for holding in entry.holdings:
             lines.append(_holding_line(holding, locale))
-    if entry.signal_summary.strip() and not (is_blocked(entry) and entry.signal_summary in {"blocked", "risk_blocked"}):
+    redundant_signal = (entry.rebalance_kind in {"no_order", "no_rebalance"} and _verified_noop(entry)
+                        and entry.signal_summary in {"no_action", "no_signal", "no_rebalance"})
+    if entry.signal_summary.strip() and not redundant_signal and not (is_blocked(entry) and entry.signal_summary in {"blocked", "risk_blocked"}):
         signal_raw = entry.signal_summary.strip()
         signal_display = _localize_producer_token(
             locale, signal_raw, _SIGNAL_TOKEN_DISPLAY
@@ -1144,22 +1192,29 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> li
             lines.append(f"- {_t(locale, 'tip_prefix')}: {tip_text}")
     lines.append(_trade_counts(entry, locale))
     from notification_mode import consolidation_enabled
-    reason = block_reason_text(entry, locale if consolidation_enabled() else None)
+    from notification_approved_gates import render_reasons
+    reason = render_reasons(entry.approved_gate_reasons, locale)
+    if not reason:
+        reason = block_reason_text(entry, locale if consolidation_enabled() else None)
+        parsed = _parse_block_reason(entry.block_reason)
+        if is_blocked(entry) and (not parsed or parsed["reason_code"] == "strategy_risk_rejected"):
+            reason = " · ".join(filter(None, (reason, _t(locale, "block_reason_unknown"))))
     if reason:
         lines.append(reason)
     if entry.cycle_count_status == "unknown" or entry.cycle_count is None:
         lines.append(_format_count_part(locale, label_key="cycles_label", value=entry.cycle_count,
                                        status=entry.cycle_count_status))
     conclusion = _default_conclusion(entry, locale)
-    if conclusion and entry.rebalance_conclusion != "blocked":
+    redundant_conclusion = (entry.rebalance_kind == "no_order" and _verified_noop(entry)
+                            and entry.rebalance_conclusion in {"", "no_order", "no_action", "no_signal", "no_rebalance"})
+    if conclusion and entry.rebalance_conclusion != "blocked" and not redundant_conclusion:
         lines.append(conclusion)
-    lines.append(f"{_t(locale, 'platform_tag')}: {entry.platform_id}")
     return lines
 
 
-def _render_run_line(entry: DigestRunEntry, locale: DigestLocale) -> list[str]:
+def _render_run_line(entry: DigestRunEntry, locale: DigestLocale, *, context: str = "") -> list[str]:
     if has_observation(entry):
-        return _render_observation_block(entry, locale)
+        return _render_observation_block(entry, locale, context=context)
     return [
         _t(locale, "platform_line").format(
             platform=entry.platform_id,
@@ -1302,8 +1357,9 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
         else:
             lines.append(_t(locale, "ran_section"))
 
-    for index, entry in enumerate(runs):
-        block = _render_run_line(entry, locale)
+    from unified_daily_digest import _run_display_labels
+    for index, (entry, context) in enumerate(zip(runs, _run_display_labels(runs, locale))):
+        block = _render_run_line(entry, locale, context=context)
         # Separate multi-platform / multi-run blocks for readability.
         # Observation blocks always get a blank line; thin list rows stay compact.
         if index > 0 and (
@@ -1328,11 +1384,12 @@ def _entry_section(entry: DigestRunEntry) -> str:
 
 
 def _render_section_runs(entries: Sequence[DigestRunEntry], locale: DigestLocale) -> list[str]:
+    from unified_daily_digest import _run_display_labels
     lines: list[str] = []
-    for index, entry in enumerate(entries):
+    for index, (entry, context) in enumerate(zip(entries, _run_display_labels(entries, locale))):
         if index > 0:
             lines.append("")
-        lines.extend(_render_run_line(entry, locale))
+        lines.extend(_render_run_line(entry, locale, context=context))
     return lines
 
 
@@ -1545,6 +1602,44 @@ def _parse_section(raw: Any) -> str:
     return value if value in DIGEST_SECTIONS else ""
 
 
+def _legacy_gate_reasons(raw: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
+    """Display existing bound archive evidence without changing alert routing."""
+    if not raw.get("approved_gate_reasons"):
+        return ()
+    from notification_candidate_adapter import event_facts_for, partition
+    from notification_approved_gates import validated_reasons
+    try:
+        # Reuse the existing projection, identity and business-window contract.
+        current, _ = partition([raw], str(raw.get("business_day") or ""))
+        return tuple(validated_reasons(current[0], event_facts_for(current[0]))) if current else ()
+    except (KeyError, TypeError, ValueError):
+        return ()
+
+
+def _legacy_presentation_attention(raw: Mapping[str, object]) -> bool:
+    """Keep urgent/invalid nested evidence visible without reclassifying facts."""
+    from notification_candidate_adapter import _bind_identity, events_for
+    from notification_snapshot.unified_contract import ORDER_EVENT_KINDS, ROUTINE_EVENT_KINDS, sgt_business_window
+    try:
+        row = dict(raw)
+        events = events_for(row)
+        _bind_identity(row, events)
+        for event in events:
+            if event.coverage_status != "known":
+                return True
+            if sgt_business_window(event.occurred_at).business_day.isoformat() != row.get("business_day"):
+                return True
+            if event.event_kind not in ROUTINE_EVENT_KINDS | ORDER_EVENT_KINDS:
+                return True
+            if event.event_kind in ORDER_EVENT_KINDS and all(
+                resolve_count_field(row, name) == (0, "known") for name in ("order_count", "fill_count")
+            ):
+                return True
+        return False
+    except (KeyError, TypeError, ValueError):
+        return True
+
+
 def filter_runs_for_digest(
     candidates: Sequence[Mapping[str, object]],
 ) -> list[DigestRunEntry]:
@@ -1593,7 +1688,8 @@ def filter_runs_for_digest(
                 rebalance_conclusion=str(raw.get("rebalance_conclusion") or "").strip(),
                 block_reason=_parse_block_reason(raw.get("block_reason")) if raw.get("platform_id") in {"schwab", "ibkr"} else None,
                 source_run_id=str(raw.get("source_run_id") or "") if consolidation_enabled() else "",
-                approved_gate_reasons=tuple(raw.get("_validated_approved_gate_reasons", ())) if consolidation_enabled() else (),
+                approved_gate_reasons=tuple(raw.get("_validated_approved_gate_reasons", ())) if consolidation_enabled() else _legacy_gate_reasons(raw),
+                presentation_attention=False if consolidation_enabled() else _legacy_presentation_attention(raw),
                 tips=_parse_tips(raw.get("tips") or raw.get("tip")),
                 account_hint=str(raw.get("account_hint") or "").strip(),
                 opaque_account_uid=str(raw.get("opaque_account_uid") or "").strip(),

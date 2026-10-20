@@ -326,7 +326,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
             )
             self.assertEqual(len(payload.runs), 1)
             self.assertEqual(payload.runs[0].strategy_label, "半导体趋势收益")
-            self.assertIn("💓 【心跳检测】", text)
+            self.assertIn("⚠️ 【需核对】", text)
             self.assertIn("账户总权益: USD 990.06", text)
             self.assertIn("SOXL: $635.92 / 4股", text)
             self.assertIn("✅ 无需调仓", text)

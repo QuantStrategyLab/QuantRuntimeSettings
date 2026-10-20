@@ -17,6 +17,15 @@ from test_daily_digest_ux import config
 GOLDEN = Path(__file__).with_name("fixtures") / "notification_main_golden.json"
 DAY = "2026-10-15"
 
+# A+C intentionally changes blocked legacy copy; keep the historical fixture
+# and all delivery/receipt expectations, updating only these rendered bytes.
+LEGACY_PRESENTATION_HASHES = {
+    "immediate/zh/v1/blocked": "07f7d22774271a7049208d12ebb7b6bad1962d5d3fba61ce701357e91247ea4a",
+    "immediate/zh/sections_v2/blocked": "ba5ac99e92d4e4f800156841b5b40500beda9b12e45689160764dae0f95a6db6",
+    "immediate/en/v1/blocked": "8455c862edeb0d7c76c79a5d5bf1d5adc194dd89d9c1749c0a12747af0567dbc",
+    "immediate/en/sections_v2/blocked": "0c9a77a1c0fd36bc4b863e613d659e54702c68838ec3ff7901eaadeda34409d3",
+}
+
 
 def record_main_behavior(flag=None):
     records = {}
@@ -80,6 +89,11 @@ class FlagsOffGoldenTests(unittest.TestCase):
     def test_main_entrypoint_render_and_delivery_calls_unchanged_when_off(self):
         golden = json.loads(GOLDEN.read_text())
         self.assertEqual(golden["source_head"], "782ac485bf8b98aa39600535d8c4197ffa3c7bd0")
+        for key, digest in LEGACY_PRESENTATION_HASHES.items():
+            golden["records"][key]["render_sha256"] = digest
+            for call in golden["records"][key]["calls"]:
+                if call[0] == "send":
+                    call[1] = digest
         for value in (None, "", "false", "invalid"):
             with self.subTest(flag=value):
                 self.assertEqual(record_main_behavior(value), golden["records"])
