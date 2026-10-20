@@ -1,10 +1,10 @@
 """Compact bilingual digest. Pure rendering; never split one digest into sends."""
 from __future__ import annotations
 
-import os
+import re
 from notification_mode import consolidation_enabled, routine_mode
 from display_names import display_name
-from daily_digest_notify import DailyDigestInput, _trade_counts, block_reason_text, counts_not_connected, is_blocked
+from daily_digest_notify import DailyDigestInput, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale
 
 
 def enabled() -> bool:
@@ -74,11 +74,75 @@ def render(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
     return "\n".join(lines)
 
 
+def _safe_display_text(value: object) -> str:
+    """Only display labels; never fall back to broker, storage or binding IDs."""
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split())
+    if (not text.isprintable() or "://" in text
+            or re.search(r"\b[Uu][0-9]{5,}\b", text)
+            or re.fullmatch(r"[0-9a-fA-F-]{12,}", text)):
+        return ""
+    return text[:70]
+
+
+def _run_display_labels(rows, locale):
+    """Resolve names with existing mappings; ordinals distinguish collisions."""
+    missing = "\0"
+    parts, accounts = [], {}
+    for index, row in enumerate(rows):
+        account = ""
+        for key in dict.fromkeys((row.account_hint, row.account_scope, row.execution_mode)):
+            if not key:
+                continue
+            fallback = display_name("account_aliases", key, locale, fallback=missing)
+            candidate = display_name("accounts", key, locale, fallback=fallback, platform=row.platform_id)
+            account = _safe_display_text(candidate)
+            if account:
+                break
+        account = account or ("账户" if locale == "zh" else "Account")
+        # These protected keys stay internal; display ordinals never replace them.
+        identity = row.opaque_account_uid or row.target_id or row.account_hint or ("row", index)
+        group = (row.platform_id, account)
+        identities = accounts.setdefault(group, [])
+        if identity not in identities:
+            identities.append(identity)
+        platform = _safe_display_text(display_name("platforms", row.platform_id, locale,
+            fallback="未知平台" if locale == "zh" else "Unknown platform"))
+        fallback = "未命名策略" if locale == "zh" else "Unnamed strategy"
+        strategy = _safe_display_text(display_name("strategies", row.strategy_profile, locale, fallback=fallback)) or fallback
+        parts.append((platform or ("未知平台" if locale == "zh" else "Unknown platform"), account, strategy, group, identity))
+    # Reserve configured names first so a generated ordinal cannot hide one.
+    reserved, resolved = {}, {}
+    for platform, account in accounts:
+        reserved.setdefault(platform, set()).add(account)
+    for group, identities in accounts.items():
+        platform, account = group
+        ordinal = 1
+        for identity in identities:
+            candidate = account
+            if len(identities) > 1:
+                while f"{account} {ordinal}" in reserved[platform]:
+                    ordinal += 1
+                candidate = f"{account} {ordinal}"
+                reserved[platform].add(candidate)
+                ordinal += 1
+            resolved[group, identity] = candidate
+    return [" / ".join((platform, resolved[group, identity], strategy))
+            for platform, account, strategy, group, identity in parts]
+
+
+def _known_count(row, name):
+    value = getattr(row, name + "_count")
+    return type(value) is int and value >= 0 and getattr(row, name + "_count_status") == "known"
+
+
 def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     """One selected language and one message, including healthy zero-order runs."""
     if not payload.runs:
         return ""
-    zh = not str(payload.locale).lower().startswith("en")
+    locale = normalize_locale(payload.locale)
+    zh = locale == "zh"
     summary = payload.notification_summary or {}
     coverage = payload.evidence_coverage
     complete = bool(coverage and coverage.is_complete_for_verified_idle and not summary.get("counts_scope_unknown", summary.get("counts_unknown")))
@@ -88,12 +152,11 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     counts = []
     for name, label in (("order", "订单" if zh else "Orders"), ("fill", "成交" if zh else "Fills")):
         values = [getattr(row, name + "_count") for row in payload.runs]
-        known = complete and all(value is not None and getattr(row, name + "_count_status") == "known"
-                                 for row, value in zip(payload.runs, values))
+        known = complete and all(_known_count(row, name) for row in payload.runs)
         value = str(sum(values)) if known else ("全窗口统计未知" if zh else "whole-window count unknown")
         counts.append(f"{label}：{value}" if zh else f"{label}: {value}")
     lines.append(" · ".join(counts))
-    if complete and all(row.order_count == 0 and row.order_count_status == "known" for row in payload.runs):
+    if complete and all(_known_count(row, "order") and row.order_count == 0 for row in payload.runs):
         lines.append(("本轮 0 单" if len(payload.runs) == 1 else "窗口内各轮均为 0 单") if zh else
                      ("0 orders this run" if len(payload.runs) == 1 else "0 orders in every observed run"))
     for platform, source in summary.get("source_inventory", {}).items():
@@ -105,14 +168,26 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     immediate = summary.get("immediate_events", 0)
     if immediate:
         lines.append(f"即时事件 {immediate} 项（仅记录）" if zh else f"Immediate events: {immediate} (record only)")
-    for row in payload.runs:
+    attention_lines, healthy_lines, seen = [], [], set()
+    for row, label in zip(payload.runs, _run_display_labels(payload.runs, locale)):
         if not is_blocked(row):
+            detail = ("需核对" if zh else "Needs review") if row.status == "alert" else ("已运行" if zh else "Observed run")
+            if counts_not_connected(row):
+                detail += "，统计未接入" if zh else "; counting not connected"
+            elif not all(_known_count(row, name) for name in ("order", "fill")):
+                detail += "，统计未知" if zh else "; counts unknown"
+            line = f"• {label}：{detail}" if zh else f"• {label}: {detail}"
+            if line not in seen:
+                (attention_lines if row.status == "alert" else healthy_lines).append(line)
+                seen.add(line)
             continue
         from notification_approved_gates import render_reasons
-        detail = render_reasons(row.approved_gate_reasons, "zh" if zh else "en") or block_reason_text(row, "zh" if zh else "en")
+        detail = render_reasons(row.approved_gate_reasons, locale) or block_reason_text(row, locale)
         detail = detail or ("已拦截，具体原因未知" if zh else "Blocked; specific reason unknown")
-        label = display_name("platforms", row.platform_id, "zh" if zh else "en")
         lines.append(f"• {label}：{detail}" if zh else f"• {label}: {detail}")
+    # Risk and attention details precede repeated healthy context under the budget.
+    lines.extend(attention_lines)
+    lines.extend(healthy_lines)
     if not complete:
         lines.append("覆盖不完整，缺失统计保留未知" if zh else "Coverage incomplete; missing counts remain unknown")
     result = [lines[0]]
