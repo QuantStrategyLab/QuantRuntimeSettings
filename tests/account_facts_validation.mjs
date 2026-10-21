@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test, RuntimeInstances } from "../web/strategy-switch-console/worker.js";
 import {
   ACCOUNT_FACTS_BINDINGS_KEY,
   ACCOUNT_FACTS_BINDINGS_SCHEMA,
@@ -1675,6 +1675,52 @@ assert.equal(JSON.stringify(schwabOutputRow).includes(schwabAccountHash), false)
 const schwabHistoryRead = await getHistory("schwab", schwabAccount.key, "USD", sessionHeaders, env);
 assert.equal(schwabHistoryRead.status, 200, await schwabHistoryRead.clone().text());
 assert.equal(JSON.stringify(await schwabHistoryRead.json()).includes(schwabAccountHash), false);
+
+// Real HTTP -> DO/SQLite, with no balance payload projection.
+{
+  const day = new Date().toISOString().slice(0, 10);
+  const query = `https://switch.example/api/account-facts/history?platform=schwab&account_key=${schwabAccount.key}&currency=USD&projection=identity&from=${day}&to=${day}`;
+  const projected = await worker.fetch(new Request(query, { headers: sessionHeaders }), env);
+  assert.equal(projected.status, 200);
+  const body = await projected.json();
+  assert.equal(body.target_id, schwabBinding.target_id);
+  assert.equal(body.source_binding_id, schwabBinding.source_binding.id);
+  assert.equal(body.records[0].target_id_matches, true);
+  assert.equal(body.records[0].source_binding_id_matches, true);
+  assert.equal(body.records[0].account_scope_matches, true);
+  assert.equal(body.records[0].record_revision, null);
+  assert.equal(JSON.stringify(body).includes(schwabAccountHash), false);
+  assert.equal(Object.hasOwn(body, "series"), false);
+
+  // Use the actual storage method to audit its SELECT and reject a poisoned payload getter.
+  const instance = Object.create(RuntimeInstances.prototype);
+  const command = { action: "account_facts_history_read", projection: "identity", platform: "schwab",
+    account_key: schwabAccount.key, account_scope: schwabBinding.account_scope,
+    account_selector: schwabBinding.account_selector, broker_account_hash: schwabAccountHash,
+    target_id: schwabBinding.target_id, source_binding_id: schwabBinding.source_binding.id,
+    from: day, to: day };
+  const row = { observation_date: day, observed_finished_at: new Date().toISOString(),
+    target_id: "previous-target", source_binding_id: null, account_scope: schwabBinding.account_scope };
+  Object.defineProperty(row, "payload_json", { get() { throw new Error("assets must not be read"); } });
+  let selected = 0;
+  instance.sql = { exec(sql, ...params) {
+    selected++;
+    assert.doesNotMatch(sql, /payload_json|SELECT\s+\*/i);
+    assert.match(sql, /observation_date >= \? AND observation_date <= \?/);
+    assert.deepEqual(params, ["schwab", schwabAccount.key, day, day]);
+    return { toArray: () => [row] };
+  } };
+  const mismatch = instance.readAccountFactsDailyHistory(command).records[0];
+  assert.equal(mismatch.target_id_matches, false);
+  assert.equal(mismatch.source_binding_id_matches, null);
+  assert.equal(mismatch.account_scope_matches, true);
+  assert.equal(selected, 1);
+  instance.sql = { exec() { return { toArray: () => [] }; } };
+  assert.equal(instance.readAccountFactsDailyHistory(command).records[0].target_id_matches, null);
+  instance.sql = { exec() { return { toArray: () => [row, row] }; } };
+  assert.equal(instance.readAccountFactsDailyHistory(command).records[0].target_id_matches, null);
+  assert.throws(() => instance.readAccountFactsDailyHistory({ ...command, to: "2026-02-30" }), /identity_query/);
+}
 
 // Synthetic Firstrade producer contract: exact private identity at every boundary.
 const ftAccount = { key: "ft-synthetic", label: "Synthetic", target_name: "ft-synthetic",

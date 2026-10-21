@@ -128,6 +128,8 @@ import {
 import {
   accountFactsResponse as accountFactsResponseImpl,
   accountFactsHistoryResponse as accountFactsHistoryResponseImpl,
+  accountFactsIdentityDates,
+  accountFactsIdentityRecords,
 } from "./application/account_facts/read.js";
 import {
   syncAccountFactsResponse as syncAccountFactsResponseImpl,
@@ -3324,6 +3326,27 @@ export class RuntimeInstances {
   readAccountFactsDailyHistory(command) {
     const context = this.accountFactsStorageContext(command);
     const { platform, account_key: accountKey } = context;
+    if (command.projection !== undefined) {
+      const dates = accountFactsIdentityDates(command.from, command.to);
+      if (command.projection !== "identity" || platform !== SCHWAB_ACCOUNT_FACTS_PLATFORM || !dates) {
+        throw new HttpError("invalid_account_facts_identity_query", 400);
+      }
+      // Deliberately exclude payload_json: identity inspection must not read assets.
+      const rows = this.sql.exec(
+        `SELECT observation_date, observed_finished_at, target_id, source_binding_id, account_scope
+         FROM account_facts_daily WHERE platform = ? AND account_key = ?
+         AND observation_date >= ? AND observation_date <= ? ORDER BY observation_date ASC`,
+        platform, accountKey, dates[0], dates.at(-1),
+      ).toArray();
+      const same = (value, expected) => typeof value === "string" && value.length > 0 && value.length <= 512
+        ? value === expected : null;
+      return { ok: true, records: accountFactsIdentityRecords(rows.map((row) => ({
+        observation_date: row.observation_date, observed_finished_at: row.observed_finished_at,
+        target_id_matches: same(row.target_id, context.target_id),
+        source_binding_id_matches: same(row.source_binding_id, context.source_binding_id),
+        account_scope_matches: same(row.account_scope, context.account_scope),
+      })), dates) };
+    }
     const rows = this.sql.exec(
       `SELECT payload_json, observed_finished_at, observation_date, target_id, source_binding_id, account_scope
        FROM account_facts_daily WHERE platform = ? AND account_key = ? ORDER BY observation_date ASC`,

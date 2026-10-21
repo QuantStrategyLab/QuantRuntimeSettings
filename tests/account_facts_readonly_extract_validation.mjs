@@ -119,4 +119,61 @@ function baseDeps(overrides = {}) {
   assert.ok(Array.isArray(body.accounts));
 }
 
+// The identity projection must never fall through to financial history.
+{
+  const option = { key: "synthetic", account_scope: "live", target_name: "target",
+    service_name: "service", deployment_selector: "deployment", account_selector: "selector" };
+  const binding = { ...option, platform: "schwab", account_key: option.key,
+    target_id: "synthetic-target", broker_account_hash: "private-hash-sentinel",
+    source_binding: { id: "f".repeat(64) } };
+  const params = "platform=schwab&account_key=synthetic&currency=USD&projection=identity&from=2026-10-15&to=2026-10-16";
+  let commands = [];
+  const deps = baseDeps({
+    loadAccountOptionsConfig: async () => ({ options: { schwab: [option] } }),
+    loadAccountFactsBindings: async () => ({ bindings: [binding] }),
+    runtimeInstanceCommand: async (_env, command) => {
+      commands.push(command);
+      return { records: [
+        { observation_date: "2026-10-15", observed_finished_at: "2026-10-15T19:45:05.443766Z",
+          target_id_matches: true, source_binding_id_matches: false, account_scope_matches: null,
+          record_revision: "invented", payload_json: "private-asset-sentinel" },
+      ], unexpected: "private-asset-sentinel" };
+    },
+  });
+  const invoke = async (query = params, overrides = {}) => {
+    const url = new URL(`https://console.example/api/account-facts/history?${query}`);
+    return accountFactsHistoryResponse(new Request(url), { ACCOUNT_FACTS_READ_MODEL_ENABLED: "true" }, url, { ...deps, ...overrides });
+  };
+  const response = await invoke();
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.projection, "identity");
+  assert.deepEqual(Object.keys(body).sort(), ["ok", "projection", "records", "source_binding_id", "target_id"]);
+  assert.equal(body.target_id, binding.target_id);
+  assert.equal(body.source_binding_id, binding.source_binding.id);
+  assert.deepEqual(body.records, [
+    { observation_date: "2026-10-15", observed_finished_at: "2026-10-15T19:45:05.443766Z",
+      target_id_matches: true, source_binding_id_matches: false, account_scope_matches: null, record_revision: null },
+    { observation_date: "2026-10-16", observed_finished_at: null,
+      target_id_matches: null, source_binding_id_matches: null, account_scope_matches: null, record_revision: null },
+  ]);
+  assert.equal(JSON.stringify(body).includes("sentinel"), false);
+  assert.equal(commands[0].projection, "identity");
+  assert.equal(commands[0].from, "2026-10-15");
+  for (const query of [params.replace("identity", "unknown"), params.replace("schwab", "ibkr"),
+    params.replace("USD", "EUR"), params.replace("2026-10-16", "2026-10-18"),
+    params.replace("2026-10-15", "2026-02-30"), params + "&from=2026-10-15"]) {
+    commands = [];
+    assert.equal((await invoke(query)).status, 400);
+    assert.equal(commands.length, 0);
+  }
+  commands = [];
+  assert.equal((await invoke(params, { readSession: async () => null })).status, 401);
+  assert.equal((await invoke(params, { loadAccountFactsBindings: async () => null })).status, 409);
+  assert.equal(commands.length, 0);
+  const failed = await invoke(params, { runtimeInstanceCommand: async () => { throw new Error("private-asset-sentinel"); } });
+  assert.equal(failed.status, 503);
+  assert.equal((await failed.text()).includes("private-asset-sentinel"), false);
+}
+
 console.log("account_facts_readonly_extract_validation: ok");
