@@ -584,6 +584,11 @@ def main(argv: list[str] | None = None) -> int:
                 text = render(payload, max_units=max(256, 3900 - reminder_units - 20))
             else:
                 text = render(payload, max_units=max(256, 3900 - len(reminder.block("zh")) - len(reminder.block("en")) - 20))
+    elif reminder is not None and payload is not None and any(
+        row.routine_decision or row.routine_decisions for row in payload.runs
+    ):
+        reminder_units = len(reminder.block(receipt["locale"]).encode("utf-16-le")) // 2
+        text = digest.render_daily_digest(payload, max_units=max(256, 3900 - reminder_units - 20))
     combined = (text + "\n\n" if text else "") + (reminder.block("zh") + "\n" + reminder.block("en") if unified_enabled() and not consolidation_enabled() else reminder.block(receipt["locale"])) if reminder is not None else text
     compatible = maintenance.can_combine_reminder(text=combined, chat_id=chat_id)
     reserved = bool(reminder is not None and maintenance_client and compatible and maintenance_client.reserve(reminder))

@@ -1262,9 +1262,6 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale, *, co
         if tip_text:
             lines.append(f"- {_t(locale, 'tip_prefix')}: {tip_text}")
     lines.append(_trade_counts(entry, locale))
-    decision = routine_decision_text(entry, locale)
-    if decision:
-        lines.append(decision)
     from notification_mode import consolidation_enabled
     from notification_approved_gates import render_reasons
     reason = render_reasons(entry.approved_gate_reasons, locale)
@@ -1371,7 +1368,28 @@ def _render_stale_candidates(
     return lines
 
 
-def render_daily_digest(payload: DailyDigestInput) -> str:
+def _append_routine_observations(text: str, runs: Sequence[DigestRunEntry], locale: DigestLocale,
+                                 *, max_units: int) -> str:
+    """Add ordinary plans only after all existing status/coverage information."""
+    from unified_daily_digest import _run_display_labels, _units
+    plans = [f"• {label}：{line}" if locale == "zh" else f"• {label}: {line}"
+             for entry, label in zip(runs, _run_display_labels(runs, locale))
+             for line in routine_decision_text(entry, locale).splitlines()]
+    if not plans:
+        return text
+    result = [text]
+    for index, line in enumerate(plans):
+        omitted = len(plans) - index
+        suffix = f"其余 {omitted} 项计划观察已省略" if locale == "zh" else f"{omitted} more plan observations omitted"
+        if _units("\n".join(result + [line, suffix])) > max_units:
+            if _units("\n".join(result + [suffix])) <= max_units:
+                result.append(suffix)
+            break
+        result.append(line)
+    return "\n".join(result)
+
+
+def render_daily_digest(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
     """Render one Telegram message body (never includes tokens or chat ids).
 
     Omits schedule window and channel footer lines (product preference).
@@ -1379,7 +1397,7 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     """
 
     if normalize_layout(str(payload.layout)) == "sections_v2":
-        return render_daily_digest_sections(payload)
+        return render_daily_digest_sections(payload, max_units=max_units)
     locale = normalize_locale(str(payload.locale))
     runs = tuple(payload.runs)
     lines: list[str] = []
@@ -1450,7 +1468,7 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     if candidate_failure_line:
         lines.append("")
         lines.append(candidate_failure_line)
-    return "\n".join(lines)
+    return _append_routine_observations("\n".join(lines), runs, locale, max_units=max_units)
 
 
 def _entry_section(entry: DigestRunEntry) -> str:
@@ -1476,7 +1494,7 @@ def _is_weekend(day: str) -> bool:
         return False
 
 
-def render_daily_digest_sections(payload: DailyDigestInput) -> str:
+def render_daily_digest_sections(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
     """NOTIFY-04 B1 layout: one report, four sections, Shanghai cut-off window.
 
     Sections: ⚠️ attention → 📈 US daily → 💰 DCA → 🪙 crypto intraday → 🧾
@@ -1586,7 +1604,7 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
         )
     if coverage is not None and coverage.candidate_failures:
         lines.append(_t(locale, "candidate_source_failures").format(count=len(coverage.candidate_failures)))
-    return "\n".join(lines)
+    return _append_routine_observations("\n".join(lines), runs, locale, max_units=max_units)
 
 
 def _parse_holdings(raw: Any) -> tuple[DigestHolding, ...]:

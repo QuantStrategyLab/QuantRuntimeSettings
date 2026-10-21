@@ -1,5 +1,7 @@
 """Wholly synthetic notification regressions; no bundled account mapping reads."""
 import copy
+import contextlib
+import io
 import json
 import math
 import os
@@ -124,10 +126,20 @@ class RoutineNotificationContractTests(unittest.TestCase):
                 self.assertEqual((payload.runs[0].order_count, payload.runs[0].fill_count), (0, 0))
         for invalid in ([first, decision(observed_value=True)], "private", [first] * 101):
             self.assertEqual(digest._parse_routine_decisions(invalid), ())
-        _, text, _ = self.render([row(status="alert", rebalance_conclusion="blocked",
-            routine_decisions=[decision(symbol=f"DEMO{i}", observed_value=i, limit=1000) for i in range(100)])], unified=True)
-        self.assertIn("已拦截，具体原因未知", text)
-        self.assertIn("已省略", text)
+        for unified in (False, True):
+            for layout in ("v1", "sections_v2"):
+                for locale in ("zh", "en"):
+                    payload, text, _ = self.render([row(status="alert", rebalance_conclusion="blocked",
+                        routine_decisions=[decision(symbol=f"DEMO{i}", observed_value=i, limit=1000) for i in range(100)])],
+                        unified=unified, layout=layout, locale=locale)
+                    from unified_daily_digest import _units
+                    self.assertIn("具体原因未知" if locale == "zh" else "specific reason unknown", text)
+                    self.assertIn("已省略" if locale == "zh" else "omitted", text)
+                    self.assertLessEqual(_units(text), 3900)
+                    if not unified:
+                        compact = digest.render_daily_digest(payload, max_units=700)
+                        self.assertLessEqual(_units(compact), 700)
+                        self.assertIn("具体原因未知" if locale == "zh" else "specific reason unknown", compact)
 
     def test_malformed_or_contradictory_minimum_observations_never_render_as_proof(self):
         bad = [decision(observed_value=v) for v in (True, math.nan, math.inf, -1, 50, 70, 10**1000)]
@@ -140,6 +152,36 @@ class RoutineNotificationContractTests(unittest.TestCase):
             execution_status="reconciliation_required", routine_decision=decision())])
         self.assertIn("⚠️", text)
         self.assertEqual((payload.runs[0].order_count, payload.runs[0].fill_count), (1, 1))
+
+    def test_legacy_sender_reserves_reminder_budget_and_uses_one_mock_send(self):
+        import send_daily_digest_telegram as sender
+        from test_credential_maintenance_notify import ENV, META
+        payload, text, collected = self.render([row(status="alert", rebalance_conclusion="blocked",
+            routine_decisions=[decision(symbol=f"DEMO{i}", observed_value=i, limit=1000) for i in range(100)])])
+        client = sender.maintenance.MaintenanceClient.from_environment(ENV)
+        route = dict(token_source_kind="env", chat_source_kind="env", warnings=[], missing=[],
+                     token_alias_used=None, chat_alias_used=None, secret_name_contract="synthetic-name")
+        responses = [META, dict(granted=True, claim_id="synthetic-claim", phase="7", delivery="reserved"),
+                     dict(phase="7", delivery="delivered")]
+        with mock.patch.dict(os.environ, ENV, clear=True), \
+             mock.patch.object(sender.resend_guard, "evaluate", return_value=sender.resend_guard.Decision("send", "FIRST_SEND")), \
+             mock.patch.object(sender.maintenance.MaintenanceClient, "from_environment", return_value=client), \
+             mock.patch.object(client, "_request", side_effect=responses), \
+             mock.patch.object(sender.aggregator, "build_digest_payload", return_value=(payload, text, collected)), \
+             mock.patch.object(sender, "diagnose_telegram_route", return_value=route), \
+             mock.patch.object(sender, "missing_delivery_requirements", return_value=[]), \
+             mock.patch.object(sender, "resolve_telegram_token", return_value="synthetic-token"), \
+             mock.patch.object(sender, "resolve_telegram_chat_id", return_value="-123"), \
+             mock.patch.object(sender.maintenance, "send_strict_telegram", return_value=True) as send, \
+             mock.patch.object(sender, "send_telegram_message") as legacy, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(sender.main(["--no-github"]), 0)
+        self.assertEqual(send.call_count, 1)
+        legacy.assert_not_called()
+        from unified_daily_digest import _units
+        combined = send.call_args.kwargs["text"]
+        self.assertLessEqual(_units(combined), 3900)
+        self.assertIn("具体原因未知", combined)
+        self.assertIn("IBKR Flex", combined)
 
     def test_trusted_same_platform_alias_wins_over_masked_hint_without_becoming_identity(self):
         for unified in (False, True):
