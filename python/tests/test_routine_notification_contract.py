@@ -164,7 +164,8 @@ class RoutineNotificationContractTests(unittest.TestCase):
         responses = [META, dict(granted=True, claim_id="synthetic-claim", phase="7", delivery="reserved"),
                      dict(phase="7", delivery="delivered")]
         with mock.patch.dict(os.environ, ENV, clear=True), \
-             mock.patch.object(sender.resend_guard, "evaluate", return_value=sender.resend_guard.Decision("send", "FIRST_SEND")), \
+             mock.patch.object(sender.resend_guard, "evaluate", return_value=sender.resend_guard.Decision(
+                 "send", "EXPLICIT_TEST_RESEND", test_message=True, previous_failures=3)), \
              mock.patch.object(sender.maintenance.MaintenanceClient, "from_environment", return_value=client), \
              mock.patch.object(client, "_request", side_effect=responses), \
              mock.patch.object(sender.aggregator, "build_digest_payload", return_value=(payload, text, collected)), \
@@ -182,6 +183,8 @@ class RoutineNotificationContractTests(unittest.TestCase):
         self.assertLessEqual(_units(combined), 3900)
         self.assertIn("具体原因未知", combined)
         self.assertIn("IBKR Flex", combined)
+        self.assertEqual(combined.count(digest._t("zh", "test_label")), 1)
+        self.assertEqual(combined.count(digest._t("zh", "guard_recovery").format(count=3)), 1)
 
     def test_trusted_same_platform_alias_wins_over_masked_hint_without_becoming_identity(self):
         for unified in (False, True):
