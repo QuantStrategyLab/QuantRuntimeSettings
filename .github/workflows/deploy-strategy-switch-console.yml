@@ -142,7 +142,9 @@ jobs:
                 responseShape.version_entry = shape(entry, ['version_id', 'percentage']);
                 checkpoint = 'deployment_percentage';
                 if (!entry) fail();
-                if (!Number.isFinite(entry.percentage) || entry.percentage <= 0 || entry.percentage > 100) fail();
+                // Wrangler 4.106.0 permits an idle version at 0%; retain it.
+                // Every weight remains finite/in-range and the total must be 100.
+                if (!Number.isFinite(entry.percentage) || entry.percentage < 0 || entry.percentage > 100) fail();
                 checkpoint = 'deployment_version_id';
                 return { version_id: uuid(entry.version_id), percentage: entry.percentage };
               });

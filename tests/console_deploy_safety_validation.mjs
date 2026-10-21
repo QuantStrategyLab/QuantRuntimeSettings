@@ -192,4 +192,24 @@ assert.equal(wrongEnvelope.checkpoint, "envelope_success");
 assert.deepEqual(wrongEnvelope.response_shape, { envelope: { type: "null" } });
 const streamFailure = await failure([new Response(new ReadableStream({ start(controller) { controller.error(new Error(sentinel)); } }), { headers: { "content-type": "application/json" } })]);
 assert.equal(streamFailure.checkpoint, "response_body");
+// The pinned Wrangler accepts 0..100, including an explicitly idle version.
+// https://github.com/cloudflare/workers-sdk/blob/wrangler%404.106.0/packages/wrangler/src/versions/deploy.ts#L570
+// This fixture is not the value from the earlier safe live diagnostic.
+for (const percentages of [[0, 100], [100, 0]]) {
+  const result = await execute([{ success: true, result: { deployments: [{ ...deployment, versions: [
+    { version_id: versionId, percentage: percentages[0] }, { version_id: deploymentId, percentage: percentages[1] },
+  ] }] } }, normal[1]]);
+  assert.equal(result.process.exitCode, 0, "an idle version must not invalidate a complete deployment");
+  assert.deepEqual(JSON.parse(result.stdout[0]).active.versions.map(v => v.percentage), percentages, "preserve the zero weight without calling it positive traffic");
+}
+for (const percentage of [-0.01, 100.01, "0", null, false]) {
+  const error = await failure([{ success: true, result: { deployments: [{ ...deployment, versions: [
+    { version_id: versionId, percentage }, { version_id: deploymentId, percentage: 100 },
+  ] }] } }]);
+  assert.equal(error.checkpoint, "deployment_percentage");
+}
+const zeroTotal = await failure([{ success: true, result: { deployments: [{ ...deployment, versions: [
+  { version_id: versionId, percentage: 0 }, { version_id: deploymentId, percentage: 0 },
+] }] } }]);
+assert.equal(zeroTotal.checkpoint, "deployment_percentage_total", "all-zero traffic is still invalid");
 console.log(`console_deploy_safety_validation: PASS (manual-only; 16 original write gates; exclusive preflight; 2 exact Binance gates; ${cases} offline reader cases)`);
