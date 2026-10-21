@@ -138,26 +138,69 @@ assert.equal(sourceCase({ FAKE_SELECTED_HEAD: "b".repeat(40) }, false).selected,
 assert.match(rollback, /environment: runtime-strategy-switch/);
 assert.doesNotMatch(rollback, /actions\/checkout|npm ci|worker\.js|secret put|sync-strategy-profiles/);
 const restoreStep = steps.find(step => step.startsWith("Restore fixed pre-release Worker version\n"));
-const restoreShell = shellBody(restoreStep);
+const restoreScript = restoreStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)?.[1]
+  ?.split("\n").map(line => line.slice(10)).join("\n");
+assert.ok(restoreScript);
+assert.doesNotMatch(rollback, /npx|wrangler.*rollback|force=true|RUNNER_TEMP/);
+const RestoreFunction = Object.getPrototypeOf(async function () {}).constructor;
+const runRestore = new RestoreFunction("process", "fetch", "console", restoreScript);
+const restoreTarget = "c88234c2-292a-40d4-b624-500f145e3f7d";
+const restoreId = "00000000-0000-4000-8000-000000000001";
+const restoreSentinel = "PRIVATE_RESTORE_SENTINEL_DO_NOT_OUTPUT";
+const restoreBody = { success: true, errors: [], result: { id: restoreId, strategy: "percentage",
+  versions: [{ version_id: restoreTarget, percentage: 100 }], author_email: restoreSentinel, unknown: { secret: restoreSentinel } } };
 let restoreCases = 0;
-function restoreCase(delta, expected, expectedNpx = false) {
-  const temp = mkdtempSync(join(tmpdir(), "console-restore-guard-"));
-  try {
-    const trace = join(temp, "npx-argv");
-    const env = { PATH: process.env.PATH, RUNNER_TEMP: temp, TRACE: trace, GITHUB_REF: "refs/heads/main",
-      RELEASE_SOURCE_SHA: "", CLOUDFLARE_ACCOUNT_ID: "a".repeat(32), CLOUDFLARE_API_TOKEN: "PRIVATE_AUTH_SENTINEL", FAKE_NPX_EXIT: "0", ...delta };
-    const fakeNpx = `npx() { printf '%s\\0' "$@" > "$TRACE"; return "$FAKE_NPX_EXIT"; };\n`;
-    const result = spawnSync("bash", ["-c", fakeNpx + restoreShell], { env, encoding: "utf8" });
-    assert.equal(result.status === 0, expected, result.stderr);
-    assert.equal(existsSync(trace), expectedNpx);
-    assert.ok(!(result.stdout + result.stderr).includes("PRIVATE_AUTH_SENTINEL"));
-    if (expectedNpx) assert.deepEqual(readFileSync(trace, "utf8").split("\0").slice(0, -1), ["wrangler@4.106.0", "rollback", "c88234c2-292a-40d4-b624-500f145e3f7d", "--name", "qsl-strategy-switch-console", "--config", "wrangler.toml", "--message", "Restore verified pre-release c88234c2 baseline"]);
-    restoreCases++;
-  } finally { rmSync(temp, { recursive: true, force: true }); }
+async function restoreCase({ env = {}, status = 200, body = restoreBody, raw, headers = {}, fetchError = false, streamError = false } = {}, expected = true, expectedCalls = 1) {
+  const calls = [], stdout = [], stderr = [];
+  const process = { env: { GITHUB_REF: "refs/heads/main", RELEASE_SOURCE_SHA: "",
+    CLOUDFLARE_ACCOUNT_ID: "a".repeat(32), CLOUDFLARE_API_TOKEN: restoreSentinel, ...env }, exitCode: 0 };
+  await runRestore(process, async (url, options) => {
+    calls.push({ url, options });
+    if (fetchError) throw new Error(restoreSentinel);
+    const payload = raw ?? JSON.stringify(body);
+    const stream = streamError ? new ReadableStream({ pull(controller) { controller.error(new Error(restoreSentinel)); } }) : payload;
+    return new Response(stream, { status, headers: { "content-type": "application/json", ...headers } });
+  }, { log: value => stdout.push(value), error: value => stderr.push(value) });
+  assert.equal(process.exitCode === 0, expected, stderr.join("\n"));
+  assert.equal(calls.length, expectedCalls, "fixed single request; never retry an error or uncertain response");
+  assert.ok(!(stdout.join("") + stderr.join("")).includes(restoreSentinel));
+  assert.ok(!(stdout.join("") + stderr.join("")).includes("a".repeat(32)));
+  if (calls.length) {
+    const { url, options } = calls[0];
+    assert.equal(url, `https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console/deployments?force=false`);
+    assert.equal(options.method, "POST");
+    assert.equal(options.redirect, "error");
+    assert.ok(options.signal instanceof AbortSignal);
+    assert.deepEqual(options.headers, { Authorization: `Bearer ${restoreSentinel}`, Accept: "application/json", "Content-Type": "application/json" });
+    assert.deepEqual(JSON.parse(options.body), { strategy: "percentage", versions: [{ version_id: restoreTarget, percentage: 100 }],
+      annotations: { "workers/message": "Restore verified pre-release c88234c2 baseline" } });
+  }
+  if (expected) assert.deepEqual(JSON.parse(stdout[0]), { status: "restore_response_verified", deployment_id: restoreId, version_id: restoreTarget, percentage: 100, force: false });
+  else {
+    assert.equal(stdout.length, 0);
+    const error = JSON.parse(stderr[0]);
+    assert.equal(error.retry, false);
+    assert.equal(error.outcome, expectedCalls ? "UNKNOWN_REQUIRES_READBACK" : "NOT_ATTEMPTED");
+  }
+  restoreCases++;
 }
-restoreCase({}, true, true);
-for (const delta of [{ GITHUB_REF: "refs/heads/unapproved" }, { RELEASE_SOURCE_SHA: approved }, { CLOUDFLARE_API_TOKEN: "" }, { CLOUDFLARE_ACCOUNT_ID: "bad" }]) restoreCase(delta, false);
-restoreCase({ FAKE_NPX_EXIT: "1" }, false, true);
+await restoreCase();
+for (const env of [{ GITHUB_REF: "refs/heads/unapproved" }, { GITHUB_REF: "refs/tags/main" },
+  { RELEASE_SOURCE_SHA: approved }, { CLOUDFLARE_API_TOKEN: "" }, { CLOUDFLARE_ACCOUNT_ID: "bad" }]) await restoreCase({ env }, false, 0);
+// Provider's changed-secret rejection must stop, not trigger Wrangler's force fallback.
+await restoreCase({ status: 400, body: { success: false, errors: [{ code: 10220, message: restoreSentinel }] } }, false);
+for (const status of [302, 403, 429, 500]) await restoreCase({ status, raw: restoreSentinel }, false);
+for (const delta of [{ fetchError: true }, { streamError: true }, { raw: restoreSentinel },
+  { headers: { "content-type": "text/html" } }, { headers: { "content-encoding": "gzip" } },
+  { headers: { "content-length": "65537" } }, { headers: { "content-length": "12x" } },
+  { headers: { "content-length": "1" } }, { raw: "x".repeat(65537) }]) await restoreCase(delta, false);
+for (const mutate of [body => { body.success = false; }, body => { body.errors = [{ message: restoreSentinel }]; },
+  body => { body.result.id = restoreSentinel; }, body => { body.result.strategy = "other"; },
+  body => { body.result.versions[0].version_id = "b".repeat(36); }, body => { body.result.versions[0].percentage = 99; },
+  body => { body.result.versions.push(body.result.versions[0]); }]) {
+  const body = structuredClone(restoreBody); mutate(body); await restoreCase({ body }, false);
+}
+await restoreCase({ headers: { "content-length": String(Buffer.byteLength(JSON.stringify(restoreBody))) } });
 
 // Execute the exact workflow body with fake HTTP, not a rewritten projection.
 const script = preflight.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)?.[1]

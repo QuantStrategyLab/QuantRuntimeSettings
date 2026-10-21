@@ -787,7 +787,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
-      WRANGLER_SEND_METRICS: "false"
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -796,19 +795,63 @@ jobs:
 
       - name: Restore fixed pre-release Worker version
         run: |
-          set -euo pipefail
-          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ -n "$RELEASE_SOURCE_SHA" ]; then
-            echo "invalid_console_baseline_restore_mode" >&2
-            exit 2
-          fi
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [[ ! "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]]; then
-            echo "console_baseline_restore_identity_missing" >&2
-            exit 2
-          fi
-          # Fresh explicit config avoids project or identity discovery. No checkout,
-          # Worker import, build, secret write, profile sync or arbitrary version.
-          restore_dir="$RUNNER_TEMP/console-baseline-rollback"
-          mkdir -p "$restore_dir"
-          printf 'name = "qsl-strategy-switch-console"\n' > "$restore_dir/wrangler.toml"
-          cd "$restore_dir"
-          npx wrangler@4.106.0 rollback c88234c2-292a-40d4-b624-500f145e3f7d --name qsl-strategy-switch-console --config wrangler.toml --message "Restore verified pre-release c88234c2 baseline"
+          node --input-type=module <<'JS'
+          // One fixed deployment request. In particular, never retry with force:
+          // Wrangler 4.106.0 rollback can implicitly do that after API error 10220.
+          // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/create/
+          const target = 'c88234c2-292a-40d4-b624-500f145e3f7d';
+          const fail = () => { throw new Error('console_restore_failed'); };
+          let stage = 'configuration';
+          let httpStatus = null;
+          let requested = false;
+          try {
+            const token = process.env.CLOUDFLARE_API_TOKEN;
+            const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+            if (process.env.GITHUB_REF !== 'refs/heads/main' || process.env.RELEASE_SOURCE_SHA
+              || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
+            stage = 'request';
+            requested = true;
+            const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console/deployments?force=false`, {
+              method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
+              headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ strategy: 'percentage', versions: [{ version_id: target, percentage: 100 }],
+                annotations: { 'workers/message': 'Restore verified pre-release c88234c2 baseline' } }),
+            });
+            httpStatus = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
+            stage = 'http_status';
+            if (!response.ok) { await response.body?.cancel(); fail(); }
+            stage = 'response_bounds';
+            if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
+              || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail();
+            const length = response.headers.get('content-length');
+            if (length !== null && (!/^\d+$/.test(length) || Number(length) > 65536)) fail();
+            const reader = response.body?.getReader();
+            if (!reader) fail();
+            const decoder = new TextDecoder('utf-8', { fatal: true });
+            let size = 0, text = '';
+            try {
+              for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                size += value.byteLength;
+                if (size > 65536) fail();
+                text += decoder.decode(value, { stream: true });
+              }
+              text += decoder.decode();
+            } finally { await reader.cancel(); }
+            if (length !== null && size !== Number(length)) fail();
+            stage = 'response_schema';
+            const body = JSON.parse(text), result = body?.result;
+            if (body?.success !== true || !Array.isArray(body.errors) || body.errors.length
+              || typeof result?.id !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(result.id)
+              || result.strategy !== 'percentage' || !Array.isArray(result.versions) || result.versions.length !== 1
+              || result.versions[0]?.version_id !== target || result.versions[0]?.percentage !== 100) fail();
+            console.log(JSON.stringify({ status: 'restore_response_verified', deployment_id: result.id, version_id: target, percentage: 100, force: false }));
+          } catch {
+            // A failed/unknown response after POST may follow a committed change.
+            // No automatic retry and no provider body, identity or error text.
+            console.error(JSON.stringify({ error: 'console_restore_failed', stage, http_status: httpStatus,
+              outcome: requested ? 'UNKNOWN_REQUIRES_READBACK' : 'NOT_ATTEMPTED', retry: false }));
+            process.exitCode = 1;
+          }
+          JS
