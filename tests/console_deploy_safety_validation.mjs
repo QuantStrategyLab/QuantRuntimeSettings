@@ -100,7 +100,7 @@ async function execute(responses = normal, envDelta = {}) {
     const response = responses[calls.length - 1];
     if (response instanceof Error) throw response;
     if (response instanceof Response) return response;
-    assert.ok(response, "no retry or page expansion");
+    assert.ok(calls.length <= responses.length, "no retry or page expansion");
     return new Response(JSON.stringify(response), { headers: { "content-type": "application/json" } });
   }, { log: value => stdout.push(value), error: value => stderr.push(value) });
   cases++;
@@ -125,11 +125,15 @@ async function failure(responses, envDelta, expectedCalls = 1) {
   assert.equal(result.process.exitCode, 1);
   assert.equal(result.stdout.length, 0, "no partial success output");
   const last = responses[expectedCalls - 1];
-  assert.deepEqual(result.stderr.map(value => JSON.parse(value)), [{ ok: false, error: "worker_preflight_failed",
+  const error = JSON.parse(result.stderr[0]);
+  assert.deepEqual({ ok: error.ok, error: error.error, stage: error.stage, http_status: error.http_status }, { ok: false, error: "worker_preflight_failed",
     stage: ["configuration", "deployments", "versions"][expectedCalls],
     http_status: expectedCalls === 0 || last instanceof Error ? null : last instanceof Response ? last.status : 200,
-  }]);
+  });
+  assert.match(error.checkpoint, /^[a-z0-9_]{1,40}$/, "a fixed checkpoint identifies the failing contract without exception text");
+  assert.ok(error.response_shape && typeof error.response_shape === "object");
   assert.equal(result.calls.length, expectedCalls);
+  return error;
 }
 await failure(normal, { CLOUDFLARE_API_TOKEN: "" }, 0);
 await failure(normal, { CLOUDFLARE_ACCOUNT_ID: "../" + sentinel }, 0);
@@ -156,4 +160,35 @@ const gradual = await execute([{ success: true, result: { deployments: [{ ...dep
   { version_id: versionId, percentage: 60 }, { version_id: deploymentId, percentage: 40 },
 ] }] } }, normal[1]]);
 assert.equal(JSON.parse(gradual.stdout[0]).active.versions.length, 2, "preserve split traffic, never infer a single rollback");
+
+// Minimal projections of the provider's published 200 examples, not a live response.
+// https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/
+// https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/
+const officialExamples = await execute([
+  { success: true, result: { deployments: [{ id: "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e", created_on: "2019-12-27T18:11:19.117Z",
+    versions: [{ version_id: "023e105f-2a42-4f8b-a1c1-73f6a2a30c0f", percentage: 100 }] }] } },
+  { success: true, result: { items: [{ id: "18f97339-c287-4872-9bdd-e2135c07ec12", metadata: { created_on: "2022-11-08T17:19:29.176266Z" } }] } },
+]);
+assert.equal(officialExamples.process.exitCode, 0);
+// The documented date-time format includes numeric offsets (RFC 3339 section 5.6).
+for (const dateTime of ["2026-10-17T12:58:15.5561237+08:00", "2026-10-16t23:28:15.5561237-05:30", "2026-10-17t04:58:15z"]) {
+  const result = await execute([{ success: true, result: { deployments: [{ ...deployment, created_on: dateTime }] } }, normal[1]]);
+  assert.equal(result.process.exitCode, 0, "valid explicit offsets must not fail a UTC-only regex");
+  assert.equal(JSON.parse(result.stdout[0]).active.created_on, dateTime, "retain original precision and offset");
+}
+for (const bad of [null, {}, "2026-02-30T00:00:00Z", "2025-02-29T00:00:00+01:00", "2026-10-17T24:00:00Z", "2026-10-17T04:58:15+24:00", "2026-10-17T04:58:15+08:60", "2026-10-17T04:58:15Z\n"]) {
+  const error = await failure([{ success: true, result: { deployments: [{ ...deployment, created_on: bad }] } }]);
+  assert.equal(error.checkpoint, "deployment_time");
+}
+const hiddenKey = await failure([{ success: true, result: { [sentinel]: [sentinel] }, [sentinel]: sentinel }]);
+assert.equal(hiddenKey.checkpoint, "deployments_list");
+assert.deepEqual(hiddenKey.response_shape, {
+  envelope: { type: "object", fields: { success: { type: "boolean" }, result: { type: "object", fields: {}, other_key_count: 1 } }, other_key_count: 1 },
+  result: { type: "object", fields: {}, other_key_count: 1 },
+});
+const wrongEnvelope = await failure([null]);
+assert.equal(wrongEnvelope.checkpoint, "envelope_success");
+assert.deepEqual(wrongEnvelope.response_shape, { envelope: { type: "null" } });
+const streamFailure = await failure([new Response(new ReadableStream({ start(controller) { controller.error(new Error(sentinel)); } }), { headers: { "content-type": "application/json" } })]);
+assert.equal(streamFailure.checkpoint, "response_body");
 console.log(`console_deploy_safety_validation: PASS (manual-only; 16 original write gates; exclusive preflight; 2 exact Binance gates; ${cases} offline reader cases)`);
