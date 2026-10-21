@@ -55,14 +55,34 @@ jobs:
           // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/
           const fail = () => { throw new Error('worker_preflight_failed'); };
           const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value) ? value : fail();
-          const time = value => typeof value === 'string'
-            && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(value)
-            && Number.isFinite(Date.parse(value))
-            && new Date(value).toISOString().slice(0, 19) === value.slice(0, 19) ? value : fail();
+          const time = value => {
+            // date-time permits explicit offsets. Validate the local calendar too:
+            // Date.parse alone normalizes invalid dates such as February 30.
+            const match = typeof value === 'string' && /^(\d{4}-\d{2}-\d{2})[Tt](\d{2}:\d{2}:\d{2})(?:\.\d{1,9})?([Zz]|[+-]\d{2}:\d{2})$/.exec(value);
+            if (!match) fail();
+            const wall = `${match[1]}T${match[2]}Z`;
+            const offset = match[3];
+            if (!Number.isFinite(Date.parse(wall)) || new Date(wall).toISOString().slice(0, 19) !== wall.slice(0, 19)
+              || (offset.length > 1 && (Number(offset.slice(1, 3)) > 23 || Number(offset.slice(4)) > 59))
+              || !Number.isFinite(Date.parse(value.toUpperCase()))) fail();
+            return value; // Do not truncate fractional precision or rewrite the offset.
+          };
           const list = (value, minimum = 0) => Array.isArray(value) && value.length >= minimum && value.length <= 10 ? value : fail();
           const distinct = values => new Set(values).size === values.length || fail();
+          // Only fixed schema names, types and bounded counts. Never emit unknown
+          // key names: even a JSON key can contain account data or a credential.
+          const shape = (value, keys = []) => {
+            const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+            if (type === 'array') return { type, count: Math.min(value.length, 11) };
+            if (type !== 'object') return { type };
+            const fields = {};
+            for (const key of keys) if (Object.hasOwn(value, key)) fields[key] = shape(value[key]);
+            return { type, fields, other_key_count: Math.min(Object.keys(value).length - Object.keys(fields).length, 11) };
+          };
           let stage = 'configuration';
           let httpStatus = null;
+          let checkpoint = 'configuration';
+          let responseShape = {};
           try {
             const token = process.env.CLOUDFLARE_API_TOKEN;
             const account = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -72,15 +92,24 @@ jobs:
             async function read(endpoint) {
               stage = endpoint;
               httpStatus = null;
+              checkpoint = 'request';
+              responseShape = {};
               const response = await fetch(`${base}/${endpoint}?page=1&per_page=10`, {
                 method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000),
                 headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
               });
               httpStatus = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
-              if (!response.ok || !/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) {
+              checkpoint = 'http_status';
+              if (!response.ok) {
                 await response.body?.cancel();
                 fail();
               }
+              checkpoint = 'response_content_type';
+              if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) {
+                await response.body?.cancel();
+                fail();
+              }
+              checkpoint = 'response_body';
               const reader = response.body.getReader();
               const chunks = [];
               let length = 0;
@@ -89,29 +118,57 @@ jobs:
                   const { value, done } = await reader.read();
                   if (done) break;
                   length += value.byteLength;
-                  if (length > 65536) { await reader.cancel(); fail(); }
+                  if (length > 65536) { checkpoint = 'response_size'; await reader.cancel(); fail(); }
                   chunks.push(value);
                 }
               } finally { reader.releaseLock(); }
-              const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));
-              if (body.success !== true) fail();
+              checkpoint = 'response_utf8';
+              const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+              checkpoint = 'response_json';
+              const body = JSON.parse(text);
+              responseShape.envelope = shape(body, ['success', 'result', 'errors', 'messages']);
+              checkpoint = 'envelope_success';
+              if (body?.success !== true) fail();
+              responseShape.result = shape(body.result, ['deployments', 'items']);
               return body.result;
             }
             // The first deployment is actively serving traffic (provider contract).
-            const deployments = list((await read('deployments')).deployments, 1).map(item => {
-              const versions = list(item.versions, 1).map(entry => {
+            const deploymentResult = await read('deployments');
+            checkpoint = 'deployments_list';
+            const deployments = list(deploymentResult?.deployments, 1).map(item => {
+              responseShape.entry = shape(item, ['id', 'created_on', 'versions']);
+              checkpoint = 'deployment_versions';
+              const versions = list(item?.versions, 1).map(entry => {
+                responseShape.version_entry = shape(entry, ['version_id', 'percentage']);
+                checkpoint = 'deployment_percentage';
+                if (!entry) fail();
                 if (!Number.isFinite(entry.percentage) || entry.percentage <= 0 || entry.percentage > 100) fail();
+                checkpoint = 'deployment_version_id';
                 return { version_id: uuid(entry.version_id), percentage: entry.percentage };
               });
+              checkpoint = 'deployment_version_duplicate';
               distinct(versions.map(entry => entry.version_id));
+              checkpoint = 'deployment_percentage_total';
               if (Math.abs(versions.reduce((sum, entry) => sum + entry.percentage, 0) - 100) > 0.000001) fail();
-              return { id: uuid(item.id), created_on: time(item.created_on), versions };
+              checkpoint = 'deployment_id';
+              const id = uuid(item.id);
+              checkpoint = 'deployment_time';
+              return { id, created_on: time(item.created_on), versions };
             });
+            checkpoint = 'deployment_duplicate';
             distinct(deployments.map(item => item.id));
             // Do not use deployable=true: that API option ignores pagination.
-            const versions = list((await read('versions')).items).map(item => ({
-              id: uuid(item.id), created_on: time(item.metadata?.created_on),
-            }));
+            const versionResult = await read('versions');
+            checkpoint = 'versions_list';
+            const versions = list(versionResult?.items).map(item => {
+              responseShape.entry = shape(item, ['id', 'metadata']);
+              responseShape.metadata = shape(item?.metadata, ['created_on']);
+              checkpoint = 'version_id';
+              const id = uuid(item?.id);
+              checkpoint = 'version_time';
+              return { id, created_on: time(item.metadata?.created_on) };
+            });
+            checkpoint = 'version_duplicate';
             distinct(versions.map(item => item.id));
             console.log(JSON.stringify({
               ok: true, worker, read_only: true, active: deployments[0],
@@ -121,7 +178,8 @@ jobs:
             }));
           } catch {
             // Never print provider bodies, author/config fields, auth or exception text.
-            console.error(JSON.stringify({ ok: false, error: 'worker_preflight_failed', stage, http_status: httpStatus }));
+            console.error(JSON.stringify({ ok: false, error: 'worker_preflight_failed', stage, http_status: httpStatus,
+              checkpoint, response_shape: responseShape }));
             process.exitCode = 1;
           }
           JS
