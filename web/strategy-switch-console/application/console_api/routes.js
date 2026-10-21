@@ -24,6 +24,12 @@ export async function consoleApiResponse(request, env, deps) {
   }
   if (request.method !== "GET")
     return json({ ok: false, error: "method_not_allowed" }, 405);
+  const includeInbox = path === "/api/accounts" && url.searchParams.has("include");
+  if (includeInbox && (url.searchParams.getAll("include").length !== 1
+    || url.searchParams.get("include") !== "decisions-inbox"
+    || [...url.searchParams.keys()].some(key => key !== "include"))) {
+    return json({ ok: false, error: "invalid_accounts_include" }, 400);
+  }
   let page;
   try {
     page = pageQuery(url);
@@ -63,7 +69,7 @@ export async function consoleApiResponse(request, env, deps) {
         actor: session.login,
       });
       const queue = await inbox(request, env, deps);
-      return json({
+      const accountBody = {
         status: queue.status === "read_failed" ? "partial" : "ok",
         coverage: "configured_accounts_explicit_decision_bindings",
         unassigned_decision_count: queue.items.filter(
@@ -89,7 +95,10 @@ export async function consoleApiResponse(request, env, deps) {
             last_change_at: row?.last_change_at || null,
           };
         }),
-      });
+      };
+      // The accounts projection already needs this exact inbox for its counts.
+      // Share only this request's value; fresh review/POST paths stay separate.
+      return json(includeInbox ? { accounts: accountBody, inbox: queue } : accountBody);
     }
     const alias = url.searchParams.get("account"),
       platform = url.searchParams.get("platform");
