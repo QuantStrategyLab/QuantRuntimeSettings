@@ -13,6 +13,16 @@ on:
         required: true
         type: boolean
         default: false
+      read_only_preflight:
+        description: "Read deployment/version metadata only. Do not deploy or synchronize anything."
+        required: true
+        type: boolean
+        default: false
+      skip_binance_receiver_checks:
+        description: "Skip only Binance readiness GETs and receiver-credential POST; retain all other checks."
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,7 +32,102 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.read_only_preflight
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Read bounded Worker version metadata
+        run: |
+          node --input-type=module <<'JS'
+          // Same deployment identity, fixed API host/Worker, GET only, first page only.
+          // Native API avoids CLI telemetry, credential discovery and raw CLI logs.
+          // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/
+          // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/
+          const fail = () => { throw new Error('worker_preflight_failed'); };
+          const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value) ? value : fail();
+          const time = value => typeof value === 'string'
+            && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(value)
+            && Number.isFinite(Date.parse(value))
+            && new Date(value).toISOString().slice(0, 19) === value.slice(0, 19) ? value : fail();
+          const list = (value, minimum = 0) => Array.isArray(value) && value.length >= minimum && value.length <= 10 ? value : fail();
+          const distinct = values => new Set(values).size === values.length || fail();
+          let stage = 'configuration';
+          let httpStatus = null;
+          try {
+            const token = process.env.CLOUDFLARE_API_TOKEN;
+            const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+            if (!token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
+            const worker = 'qsl-strategy-switch-console';
+            const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${worker}`;
+            async function read(endpoint) {
+              stage = endpoint;
+              httpStatus = null;
+              const response = await fetch(`${base}/${endpoint}?page=1&per_page=10`, {
+                method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000),
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+              });
+              httpStatus = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
+              if (!response.ok || !/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) {
+                await response.body?.cancel();
+                fail();
+              }
+              const reader = response.body.getReader();
+              const chunks = [];
+              let length = 0;
+              try {
+                for (;;) {
+                  const { value, done } = await reader.read();
+                  if (done) break;
+                  length += value.byteLength;
+                  if (length > 65536) { await reader.cancel(); fail(); }
+                  chunks.push(value);
+                }
+              } finally { reader.releaseLock(); }
+              const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));
+              if (body.success !== true) fail();
+              return body.result;
+            }
+            // The first deployment is actively serving traffic (provider contract).
+            const deployments = list((await read('deployments')).deployments, 1).map(item => {
+              const versions = list(item.versions, 1).map(entry => {
+                if (!Number.isFinite(entry.percentage) || entry.percentage <= 0 || entry.percentage > 100) fail();
+                return { version_id: uuid(entry.version_id), percentage: entry.percentage };
+              });
+              distinct(versions.map(entry => entry.version_id));
+              if (Math.abs(versions.reduce((sum, entry) => sum + entry.percentage, 0) - 100) > 0.000001) fail();
+              return { id: uuid(item.id), created_on: time(item.created_on), versions };
+            });
+            distinct(deployments.map(item => item.id));
+            // Do not use deployable=true: that API option ignores pagination.
+            const versions = list((await read('versions')).items).map(item => ({
+              id: uuid(item.id), created_on: time(item.metadata?.created_on),
+            }));
+            distinct(versions.map(item => item.id));
+            console.log(JSON.stringify({
+              ok: true, worker, read_only: true, active: deployments[0],
+              recent_deployments: deployments, recent_versions: versions,
+              active_versions_in_first_version_page: deployments[0].versions.every(active => versions.some(item => item.id === active.version_id)),
+              rollback_compatibility: 'NOT_VERIFIED', next_pages_read: false,
+            }));
+          } catch {
+            // Never print provider bodies, author/config fields, auth or exception text.
+            console.error(JSON.stringify({ ok: false, error: 'worker_preflight_failed', stage, http_status: httpStatus }));
+            process.exitCode = 1;
+          }
+          JS
+
   deploy:
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 15
@@ -441,13 +546,13 @@ jobs:
           printf '%s' "$M0_RESEARCH_SYNC_TOKEN" | npx wrangler@4.106.0 secret put M0_RESEARCH_SYNC_TOKEN --config wrangler.toml
 
       - name: Wait for optional Binance account-facts readiness stability
-        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != '' && !inputs.skip_binance_receiver_checks
         env:
           BINANCE_ACCOUNT_FACTS_DEPLOYMENT_READINESS: "true"
         run: node scripts/verify_binance_account_facts_receiver.mjs
 
       - name: Verify optional Binance account-facts receiver credentials
-        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != '' && !inputs.skip_binance_receiver_checks
         run: node scripts/verify_binance_account_facts_receiver.mjs
 
       - name: Sync bundled strategy profiles to KV
