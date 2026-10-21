@@ -421,8 +421,6 @@ const ACCOUNT_DIAGNOSIS_TARGETS = Object.freeze({
     recheckWorkflow: "runtime-target-lifecycle.yml",
   }),
 });
-const ACCOUNT_DIAGNOSIS_WORKFLOW_REPOSITORY = "QuantStrategyLab/QuantAIService";
-const ACCOUNT_DIAGNOSIS_WORKFLOW = "codex_audit.yml";
 const ACCOUNT_DIAGNOSIS_TRIGGERS = ["incident", "manual_check"];
 const ACCOUNT_DIAGNOSIS_STATUSES = ["queued", "running", "succeeded", "failed", "unknown"];
 const ACCOUNT_DIAGNOSIS_REASON_CODES = ["diagnosis_ready", "capacity_unavailable", "codex_unavailable", "invalid_response"];
@@ -431,7 +429,7 @@ const ACCOUNT_DIAGNOSIS_SUMMARY_MAX_CHARS = 600;
 const ACCOUNT_DIAGNOSIS_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const ACCOUNT_DIAGNOSIS_AUTO_ENABLED_ENV = "ACCOUNT_DIAGNOSIS_AUTO_ENABLED";
 const ACCOUNT_DIAGNOSIS_DO_ACTIONS = new Set([
-  "diagnosis_create", "diagnosis_latest", "diagnosis_read", "diagnosis_mark_dispatch", "diagnosis_claim", "diagnosis_result", "diagnosis_mark_recheck",
+  "diagnosis_create", "diagnosis_latest", "diagnosis_read", "diagnosis_mark_dispatch", "diagnosis_claim", "diagnosis_result", "diagnosis_mark_recheck", "diagnosis_native_intent", "diagnosis_native_save", "diagnosis_native_cancel",
 ]);
 /** Stable 409/qualification reason codes for /api/account-diagnosis (P0-08). */
 const ACCOUNT_DIAGNOSIS_CONFLICT_REASON_TEXT = Object.freeze({
@@ -446,6 +444,7 @@ const ACCOUNT_DIAGNOSIS_CONFLICT_REASON_TEXT = Object.freeze({
   account_diagnosis_source_unavailable: "生命周期来源不可用（非 ready/stale）。",
   account_diagnosis_observation_missing: "缺少观测时间，无法确认诊断资格。",
   account_diagnosis_incident_requires_attention: "incident 触发需要已确认的监测关注项。",
+  account_diagnosis_native_binding_conflict: "诊断原生任务身份或材料绑定冲突。",
   account_diagnosis_workflow_binding_conflict: "诊断工作流运行绑定冲突。",
   account_diagnosis_schema_incompatible: "诊断上下文 schema 不兼容。",
 });
@@ -2070,6 +2069,8 @@ function accountDiagnosisTaskFromRow(row) {
     checks: JSON.parse(row.checks_json),
     state_fingerprint: row.state_fingerprint,
     status: row.status,
+    native: row.native_json ? JSON.parse(row.native_json) : null,
+    backend_kind: row.native_json ? "native" : "legacy",
     workflow_run_id: row.workflow_run_id || null,
     workflow_run_attempt: row.workflow_run_attempt || null,
     job_id: row.job_id || null,
@@ -2236,6 +2237,7 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL
     )`);
     try { this.sql.exec("ALTER TABLE account_diagnosis_tasks ADD COLUMN auto_source TEXT NOT NULL DEFAULT 'manual'"); } catch { /* already present */ }
+    try { this.sql.exec("ALTER TABLE account_diagnosis_tasks ADD COLUMN native_json TEXT"); } catch { /* already present */ }
     this.sql.exec("CREATE INDEX IF NOT EXISTS account_diagnosis_tasks_fingerprint ON account_diagnosis_tasks (target_id, state_fingerprint, updated_at)");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS research_promotion_applications (
       application_id TEXT PRIMARY KEY,
@@ -4127,6 +4129,9 @@ export class RuntimeInstances {
       }
       if (command.action === "diagnosis_create") {
         const autoSource = command.auto_source === "source_sync" ? "source_sync" : "manual";
+        // Unclosed work keeps its original obligation regardless of age or fingerprint.
+        const unresolved = this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE target_id = ? AND status IN ('queued', 'running', 'unknown') ORDER BY updated_at DESC LIMIT 1", command.target_id).toArray()[0];
+        if (unresolved) return { ok: true, created: false, task: accountDiagnosisTaskFromRow(unresolved) };
         const existing = autoSource === "source_sync"
           ? this.sql.exec(
             "SELECT * FROM account_diagnosis_tasks WHERE target_id = ? AND auto_source = ? AND updated_at >= ? ORDER BY updated_at DESC LIMIT 1",
@@ -4184,36 +4189,71 @@ export class RuntimeInstances {
       const row = this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0];
       if (!row) throw new HttpError("account_diagnosis_request_not_found", 404);
       if (command.action === "diagnosis_read") return { ok: true, task: accountDiagnosisTaskFromRow(row) };
-      if (command.action === "diagnosis_mark_dispatch") {
-        if (row.dispatch_state !== "pending") return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
-        this.sql.exec("UPDATE account_diagnosis_tasks SET dispatch_state = ?, updated_at = ? WHERE request_id = ?", command.dispatch_state, command.updated_at, requestId);
-        return { ok: true, changed: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
-      }
-      if (command.action === "diagnosis_claim") {
-        const claimed = row.status === "queued" && ["pending", "sent", "unknown"].includes(row.dispatch_state);
-        if (claimed) {
-          this.sql.exec(
-            "UPDATE account_diagnosis_tasks SET status = 'running', workflow_run_id = ?, workflow_run_attempt = ?, updated_at = ? WHERE request_id = ?",
-            command.workflow_run_id, command.workflow_run_attempt, command.updated_at, requestId,
-          );
+      if (command.action === "diagnosis_native_intent") {
+        if (row.native_json) {
+          const old = JSON.parse(row.native_json);
+          if (canonicalResearchTaskJson(old.binding) !== canonicalResearchTaskJson(command.native.binding)
+            || old.request_sha256 !== command.native.request_sha256) throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+          return { ok: true, created: false, task: accountDiagnosisTaskFromRow(row) };
         }
-        return { ok: true, claimed };
+        if (row.workflow_run_id || row.workflow_run_attempt || row.status !== "queued" || row.dispatch_state !== "pending") {
+          throw new HttpError("account_diagnosis_legacy_retired", 409);
+        }
+        this.sql.exec("UPDATE account_diagnosis_tasks SET native_json = ?, updated_at = ? WHERE request_id = ?",
+          JSON.stringify(command.native), command.updated_at, requestId);
+        return { ok: true, created: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
       }
-      if (command.action === "diagnosis_result") {
-        const sameRun = row.workflow_run_id === command.workflow_run_id && row.workflow_run_attempt === command.workflow_run_attempt;
-        if (["succeeded", "failed", "unknown"].includes(row.status)) {
-          if (!sameRun) throw accountDiagnosisConflict("account_diagnosis_workflow_binding_conflict");
+      if (command.action === "diagnosis_native_cancel") {
+        if (!row.native_json) throw new HttpError("account_diagnosis_legacy_retired", 409);
+        const native = JSON.parse(row.native_json);
+        // The first durable terminal receipt or cancellation wins atomically.
+        if (native.receipt) return { ok: true, send_cancel: false, task: accountDiagnosisTaskFromRow(row) };
+        const send = Boolean(native.task_id && !native.cancel_sent);
+        native.cancel_requested = true;
+        native.cancel_sent = native.cancel_sent || send;
+        native.phase = "hold";
+        this.sql.exec("UPDATE account_diagnosis_tasks SET native_json = ?, status = 'unknown', summary = '', reason_code = '', recheck_dispatch_state = 'not_requested', updated_at = ? WHERE request_id = ?",
+          JSON.stringify(native), command.updated_at, requestId);
+        return { ok: true, send_cancel: send, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
+      }
+      if (command.action === "diagnosis_native_save") {
+        if (!row.native_json) throw new HttpError("account_diagnosis_legacy_retired", 409);
+        const old = JSON.parse(row.native_json), next = command.native;
+        for (const field of ["version", "binding", "request", "input_sha256", "request_sha256", "operation_key", "deadline"]) {
+          if (canonicalResearchTaskJson(old[field]) !== canonicalResearchTaskJson(next[field])) throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+        }
+        if ((old.task_id && old.task_id !== next.task_id) || (old.task_deadline !== null && old.task_deadline !== next.task_deadline)
+          || (old.claim && canonicalResearchTaskJson(old.claim) !== canonicalResearchTaskJson(next.claim))
+          || (old.cancel_sent && !next.cancel_sent) || (old.cancel_requested && !next.cancel_requested)
+          || !ACCOUNT_DIAGNOSIS_STATUSES.includes(command.status)) {
+          throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+        }
+        if (old.receipt) {
+          if (old.receipt !== next.receipt) throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
           return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
         }
-        if (row.status !== "running" || !sameRun) throw accountDiagnosisConflict("account_diagnosis_workflow_binding_conflict");
-        const recheckState = command.status === "succeeded" ? "pending" : "not_requested";
-        this.sql.exec(
-          `UPDATE account_diagnosis_tasks
-           SET status = ?, job_id = ?, summary = ?, reason_code = ?, recheck_dispatch_state = ?, updated_at = ?
-           WHERE request_id = ?`,
-          command.status, command.job_id || null, command.summary, command.reason_code, recheckState, command.updated_at, requestId,
-        );
+        if (command.status === "succeeded" && (old.cancel_requested || old.cancel_sent
+          || Date.now() / 1000 >= Math.min(old.deadline, next.task_deadline ?? Infinity))) {
+          throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+        }
+        const recheck = command.status === "succeeded" ? "pending" : row.recheck_dispatch_state;
+        this.sql.exec("UPDATE account_diagnosis_tasks SET native_json = ?, status = ?, summary = ?, reason_code = ?, dispatch_state = 'sent', recheck_dispatch_state = ?, updated_at = ? WHERE request_id = ?",
+          JSON.stringify(next), command.status, command.summary, command.reason_code, recheck, command.updated_at, requestId);
         return { ok: true, changed: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
+      }
+      if (command.action === "diagnosis_mark_dispatch") {
+        if (row.dispatch_state !== "pending") return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
+        if (command.dispatch_state === "unknown" && row.native_json) {
+          const native = { ...JSON.parse(row.native_json), phase: "hold" };
+          this.sql.exec("UPDATE account_diagnosis_tasks SET dispatch_state = 'unknown', status = 'unknown', native_json = ?, updated_at = ? WHERE request_id = ?",
+            JSON.stringify(native), command.updated_at, requestId);
+        } else {
+          this.sql.exec("UPDATE account_diagnosis_tasks SET dispatch_state = ?, updated_at = ? WHERE request_id = ?", command.dispatch_state, command.updated_at, requestId);
+        }
+        return { ok: true, changed: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
+      }
+      if (command.action === "diagnosis_claim" || command.action === "diagnosis_result") {
+        throw new HttpError("account_diagnosis_legacy_retired", 409);
       }
       if (command.action === "diagnosis_mark_recheck") {
         if (row.recheck_dispatch_state !== "pending") return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
@@ -9398,16 +9438,223 @@ function accountDiagnosisInternalTask(task) {
   };
 }
 
+function accountDiagnosisNativeContext(env) {
+  try {
+    const binding = JSON.parse(env.ACCOUNT_DIAGNOSIS_NATIVE_BINDING_JSON || "null");
+    const expected = ["schema_version", "project", "resource", "audience", "provider", "profile", "model", "worker"];
+    if (!binding || Object.keys(binding).sort().join() !== expected.sort().join()
+      || binding.schema_version !== "qrs.account-diagnosis-native.v1"
+      || binding.project !== "QuantStrategyLab/QuantRuntimeSettings"
+      || expected.filter(key => key !== "schema_version").some(key => typeof binding[key] !== "string"
+        || !binding[key] || binding[key].length > 200 || /\s/.test(binding[key]))
+      || binding.profile.length > 100 || binding.profile.includes(":")) throw Error();
+    const url = new URL(binding.resource);
+    if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.search || url.hash
+      || binding.resource.endsWith("/")) throw Error();
+    const transport = env.ACCOUNT_DIAGNOSIS_NATIVE_TRANSPORT;
+    // This seam carries existing approved submit/read authentication. Neither
+    // an old GitHub dispatch token nor the QRS callback token can substitute it.
+    if (!transport || typeof transport.fetch !== "function") throw Error();
+    return { binding, transport };
+  } catch {
+    throw new HttpError("account_diagnosis_native_not_configured", 503);
+  }
+}
+
+function accountDiagnosisNativeRequest(task, binding) {
+  const input = accountDiagnosisInternalTask(task);
+  const properties = { status: { enum: ["succeeded", "failed", "unknown"] },
+    summary: { type: "string", minLength: 1, maxLength: ACCOUNT_DIAGNOSIS_SUMMARY_MAX_CHARS },
+    reason_code: { enum: ACCOUNT_DIAGNOSIS_REASON_CODES }, advisory_only: { const: true },
+    execution_authority_granted: { const: false } };
+  return { mode: "agent", profile: binding.profile, model: binding.model,
+    objective: "Diagnose only the supplied account/runtime availability checks. Return an advisory report, not a health or execution approval. Do not access accounts, change configuration, repair, trade, deploy, publish, or notify.",
+    materials: [input], timeout_seconds: 600,
+    output_schema: { type: "object", additionalProperties: false, required: Object.keys(properties), properties } };
+}
+
+async function accountDiagnosisNativeIO(context, method, path, body, headers = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await context.transport.fetch(new Request(context.binding.resource + path, {
+      method, redirect: "manual", signal: controller.signal,
+      headers: { "Content-Type": "application/json", ...headers },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }));
+    if (!response.ok || !response.body) throw Error();
+    const reader = response.body.getReader();
+    const chunks = [];
+    let length = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.length;
+      if (length > 64 * 1024) { await reader.cancel(); throw Error(); }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new HttpError("account_diagnosis_native_outcome_unknown", 502);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function accountDiagnosisNativeStop(env, context, task) {
+  const reserved = await runtimeInstanceCommand(env, { action: "diagnosis_native_cancel", actor: "native-diagnosis-caller",
+    request_id: task.request_id, updated_at: new Date().toISOString() });
+  if (reserved.send_cancel) {
+    try { await accountDiagnosisNativeIO(context, "POST", `/v1/tasks/${encodeURIComponent(reserved.task.native.task_id)}/cancel`, {}); } catch { /* Unknown cancellation is never retried. */ }
+  }
+  return reserved;
+}
+
+async function accountDiagnosisNativeReadback(env, context, task, record, cancelRequested = false) {
+  const native = task.native;
+  if (!native || canonicalResearchTaskJson(native.binding) !== canonicalResearchTaskJson(context.binding)) {
+    throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+  }
+  const taskId = record?.id;
+  const validId = typeof taskId === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(taskId);
+  if (!validId || (native.task_id && taskId !== native.task_id)
+    || record.owner !== native.binding.project || record.provider !== native.binding.provider
+    || record.result_kind !== "advisory" || record.revision !== 1
+    || !Number.isFinite(record.deadline) || (native.task_deadline !== null && native.task_deadline !== record.deadline)
+    || await sha256Hex(canonicalResearchTaskJson(record.request ?? null)) !== native.request_sha256) {
+    throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+  }
+  const next = structuredClone(native);
+  next.task_id = taskId;
+  next.task_deadline = record.deadline;
+  if (record.worker !== null && record.worker !== undefined || record.attempt !== null && record.attempt !== undefined) {
+    if (record.worker !== native.binding.worker || typeof record.attempt !== "string" || !record.attempt || record.attempt.length > 200) {
+      throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+    }
+    const claim = [record.worker, record.attempt, record.revision];
+    if (native.claim && canonicalResearchTaskJson(native.claim) !== canonicalResearchTaskJson(claim)) {
+      throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+    }
+    next.claim = claim;
+  } else if (native.claim) {
+    throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+  }
+  const expired = Date.now() / 1000 >= Math.min(native.deadline, record.deadline);
+  let status = "queued", summary = "", reason = "", terminal = false;
+  const negativeTerminal = ["failed", "invalid_output", "cancelled"].includes(record.status);
+  if (((cancelRequested || expired || native.cancel_requested || native.cancel_sent) && !negativeTerminal)
+    || record.status === "cancel_requested" || record.status === "outcome_unknown") {
+    status = "unknown";
+    next.phase = "hold";
+  } else if (["queued", "submitting", "running"].includes(record.status)) {
+    status = record.status === "running" ? "running" : "queued";
+    if (status === "running" && !next.claim) throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+    next.phase = "pending";
+  } else if (record.status === "completed") {
+    const output = record.output;
+    if (!next.claim || !output || Object.keys(output).sort().join() !== "advisory_only,execution_authority_granted,reason_code,status,summary"
+      || !["succeeded", "failed", "unknown"].includes(output.status)
+      || typeof output.summary !== "string" || !output.summary.trim() || output.summary.length > ACCOUNT_DIAGNOSIS_SUMMARY_MAX_CHARS
+      || !ACCOUNT_DIAGNOSIS_REASON_CODES.includes(output.reason_code)
+      || output.advisory_only !== true || output.execution_authority_granted !== false) {
+      throw new HttpError("invalid_account_diagnosis_result", 400);
+    }
+    next.output_sha256 = await sha256Hex(canonicalResearchTaskJson(output));
+    next.phase = "terminal";
+    status = output.status; summary = output.summary.trim(); reason = output.reason_code;
+    terminal = true;
+  } else if (["failed", "invalid_output", "cancelled"].includes(record.status)) {
+    next.phase = "terminal"; status = "failed"; terminal = true;
+    summary = "Native diagnosis did not produce an accepted advisory result."; reason = "invalid_response";
+  } else {
+    throw new HttpError("invalid_account_diagnosis_result", 400);
+  }
+  // All terminal adoption is still bounded by the original operation deadline.
+  if (terminal && status === "succeeded" && Date.now() / 1000 >= Math.min(native.deadline, record.deadline)) {
+    return accountDiagnosisNativeStop(env, context, { ...task, native: next });
+  }
+  if (terminal) next.receipt = await sha256Hex(canonicalResearchTaskJson({ task_id: taskId, claim: next.claim,
+    revision: record.revision, request_sha256: next.request_sha256, output_sha256: next.output_sha256,
+    native_status: record.status, status, summary, reason }));
+  const saved = await runtimeInstanceCommand(env, { action: "diagnosis_native_save", actor: "native-diagnosis-caller",
+    request_id: task.request_id, native: next, status, summary, reason_code: reason, updated_at: new Date().toISOString() });
+  if ((cancelRequested || native.cancel_requested || expired) && !terminal) return accountDiagnosisNativeStop(env, context, saved.task);
+  if (terminal && status === "succeeded" && saved.changed) {
+    // Durable result persistence may itself cross expiry; no recheck then.
+    if (Date.now() / 1000 >= Math.min(native.deadline, record.deadline)) {
+      return accountDiagnosisNativeStop(env, context, saved.task);
+    }
+    try {
+      await dispatchAccountDiagnosisRecheck(env, saved.task);
+      await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "native-diagnosis-caller",
+        request_id: task.request_id, recheck_dispatch_state: "sent", updated_at: new Date().toISOString() });
+    } catch {
+      await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "native-diagnosis-caller",
+        request_id: task.request_id, recheck_dispatch_state: "unknown", updated_at: new Date().toISOString() });
+    }
+  }
+  return saved;
+}
+
+async function reconcileAccountDiagnosis(env, requestId, cancel = false) {
+  const context = accountDiagnosisNativeContext(env);
+  const current = await runtimeInstanceCommand(env, { action: "diagnosis_read", actor: "native-diagnosis-caller", request_id: requestId });
+  let task = current.task;
+  if (!task?.native) throw new HttpError("account_diagnosis_legacy_retired", 409);
+  if (canonicalResearchTaskJson(task.native.binding) !== canonicalResearchTaskJson(context.binding)) {
+    throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+  }
+  if (task.native.phase === "terminal") return { ...current, changed: false };
+  if (cancel) {
+    const stopped = await accountDiagnosisNativeStop(env, context, task);
+    task = stopped.task;
+    if (task.native.receipt || task.native.task_id) return stopped;
+  }
+  if (task.native.task_id && (Date.now() / 1000 >= Math.min(task.native.deadline, task.native.task_deadline ?? Infinity)
+    || (task.native.cancel_requested && !task.native.cancel_sent))) return accountDiagnosisNativeStop(env, context, task);
+  try {
+    let taskId = task.native.task_id;
+    if (!taskId) {
+      const found = await accountDiagnosisNativeIO(context, "GET", "/v1/tasks/lookup", undefined,
+        { "Idempotency-Key": task.native.operation_key, "X-Request-SHA256": task.native.request_sha256 });
+      if (!found || Object.keys(found).join() !== "id" || typeof found.id !== "string" || !/^[A-Za-z0-9_-]{1,200}$/.test(found.id)) {
+        throw new HttpError("account_diagnosis_native_outcome_unknown", 502);
+      }
+      taskId = found.id;
+    }
+    const record = await accountDiagnosisNativeIO(context, "GET", `/v1/tasks/${encodeURIComponent(taskId)}`);
+    if (record.id !== taskId) throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+    return accountDiagnosisNativeReadback(env, context, task, record, cancel);
+  } catch (error) {
+    // A read/validation failure retains the original obligation beyond24h.
+    try {
+      await runtimeInstanceCommand(env, { action: "diagnosis_native_save", actor: "native-diagnosis-caller",
+        request_id: requestId, native: { ...task.native, phase: "hold" }, status: "unknown", summary: "", reason_code: "",
+        updated_at: new Date().toISOString() });
+    } catch { /* Never overwrite a concurrently accepted immutable terminal receipt. */ }
+    throw error;
+  }
+}
+
 async function dispatchAccountDiagnosis(env, requestId) {
-  const token = String(env.RUNTIME_SETTINGS_DISPATCH_TOKEN || "");
-  if (!token) throw new HttpError("account_diagnosis_dispatch_unavailable", 503);
-  const url = `https://api.github.com/repos/${ACCOUNT_DIAGNOSIS_WORKFLOW_REPOSITORY}/actions/workflows/${ACCOUNT_DIAGNOSIS_WORKFLOW}/dispatches`;
-  const response = await fetchWithTimeout(url, {
-    method: "POST",
-    headers: githubHeaders(token),
-    body: JSON.stringify({ ref: "main", inputs: { account_diagnosis_request_id: requestId } }),
-  });
-  if (!response.ok) throw new HttpError("account_diagnosis_dispatch_unverified", 502);
+  const context = accountDiagnosisNativeContext(env);
+  const current = await runtimeInstanceCommand(env, { action: "diagnosis_read", actor: "native-diagnosis-caller", request_id: requestId });
+  const request = accountDiagnosisNativeRequest(current.task, context.binding);
+  const native = { version: "qrs.native-diagnosis.v1", binding: context.binding, request,
+    input_sha256: await sha256Hex(canonicalResearchTaskJson(request.materials)),
+    request_sha256: await sha256Hex(canonicalResearchTaskJson(request)), operation_key: "qrs-account-diagnosis:" + requestId,
+    deadline: Date.now() / 1000 + 600, task_id: null, task_deadline: null, claim: null,
+    output_sha256: null, receipt: null, cancel_requested: false, cancel_sent: false, phase: "intent" };
+  const intent = await runtimeInstanceCommand(env, { action: "diagnosis_native_intent", actor: "native-diagnosis-caller",
+    request_id: requestId, native, updated_at: new Date().toISOString() });
+  if (!intent.created) return intent; // Never replay POST, even after a lost reply.
+  if (Date.now() / 1000 >= intent.task.native.deadline) return accountDiagnosisNativeStop(env, context, intent.task);
+  const record = await accountDiagnosisNativeIO(context, "POST", "/v1/tasks", request,
+    { "Idempotency-Key": native.operation_key });
+  return accountDiagnosisNativeReadback(env, context, intent.task, record);
 }
 
 function accountDiagnosisAutoEnabled(env) {
@@ -9437,6 +9684,7 @@ async function accountDiagnosisIdentityForTarget(env, targetId) {
 
 async function maybeAutoDispatchAccountDiagnosis(env, source) {
   if (!accountDiagnosisAutoEnabled(env)) return;
+  try { accountDiagnosisNativeContext(env); } catch { return; }
   const now = Date.now();
   const freshness = controlPlaneSnapshotFreshness(source, executionEvidenceStaleTtlSeconds(env), now);
   if (freshness.data_status !== "ready") return;
@@ -9523,7 +9771,7 @@ async function accountDiagnosisResponse(request, env, url) {
     return json({ ok: false, error: "invalid_account_diagnosis_request" }, 400);
   }
   if (!ACCOUNT_DIAGNOSIS_TRIGGERS.includes(raw.trigger)) return json({ ok: false, error: "invalid_account_diagnosis_trigger" }, 400);
-  if (!env.RUNTIME_SETTINGS_DISPATCH_TOKEN) return json({ ok: false, error: "account_diagnosis_dispatch_unavailable" }, 503);
+  try { accountDiagnosisNativeContext(env); } catch { return json({ ok: false, error: "account_diagnosis_native_not_configured" }, 503); }
   try {
     const context = await accountDiagnosisContext(env, raw.platform, raw.key);
     if (raw.trigger === "incident" && !context.attention) {
@@ -9578,40 +9826,16 @@ async function accountDiagnosisInternalResponse(request, env, url) {
     return json({ ok: false, error: "invalid_account_diagnosis_request" }, 400);
   }
   try {
-    if (raw.status === "running" && Object.keys(raw).sort().join(",") === "request_id,status,workflow_run_attempt,workflow_run_id") {
-      if (!/^[1-9][0-9]{0,20}$/.test(String(raw.workflow_run_id)) || !/^[1-9][0-9]{0,5}$/.test(String(raw.workflow_run_attempt))) throw new HttpError("invalid_account_diagnosis_claim", 400);
-      const result = await runtimeInstanceCommand(env, { action: "diagnosis_claim", actor: "aab-account-diagnosis", request_id: requestId, workflow_run_id: String(raw.workflow_run_id), workflow_run_attempt: String(raw.workflow_run_attempt), updated_at: new Date().toISOString() });
-      return json({ ok: true, claimed: Boolean(result.claimed) });
-    }
-    const allowed = ["job_id", "request_id", "status", "summary", "reason_code", "workflow_run_id", "workflow_run_attempt"];
-    if (!ACCOUNT_DIAGNOSIS_STATUSES.slice(2).includes(raw.status) || !allowed.includes("job_id")
-      || !Object.keys(raw).every(key => allowed.includes(key))
-      || Object.keys(raw).length < 6
-      || !ACCOUNT_DIAGNOSIS_REASON_CODES.includes(raw.reason_code)
-      || !/^[1-9][0-9]{0,20}$/.test(String(raw.workflow_run_id))
-      || !/^[1-9][0-9]{0,5}$/.test(String(raw.workflow_run_attempt))
-      || typeof raw.summary !== "string" || !raw.summary.trim() || raw.summary.length > ACCOUNT_DIAGNOSIS_SUMMARY_MAX_CHARS
-      || (raw.job_id !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(String(raw.job_id)))) {
+    if (Object.keys(raw).sort().join() !== "action,request_id" || !["readback", "cancel"].includes(raw.action)) {
       throw new HttpError("invalid_account_diagnosis_result", 400);
     }
-    const result = await runtimeInstanceCommand(env, {
-      action: "diagnosis_result", actor: "aab-account-diagnosis", request_id: requestId,
-      status: raw.status, workflow_run_id: String(raw.workflow_run_id), workflow_run_attempt: String(raw.workflow_run_attempt),
-      job_id: raw.job_id === undefined ? null : String(raw.job_id), summary: raw.summary.trim(), reason_code: raw.reason_code,
-      updated_at: new Date().toISOString(),
-    });
-    if (result.changed && raw.status === "succeeded") {
-      try {
-        await dispatchAccountDiagnosisRecheck(env, result.task);
-        await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "aab-account-diagnosis", request_id: requestId, recheck_dispatch_state: "sent", updated_at: new Date().toISOString() });
-      } catch {
-        await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "aab-account-diagnosis", request_id: requestId, recheck_dispatch_state: "unknown", updated_at: new Date().toISOString() });
-      }
-    }
-    return json({ ok: true, replayed: !result.changed, recheck_status: result.task?.recheck_dispatch_state || "not_requested" });
+    const result = await reconcileAccountDiagnosis(env, requestId, raw.action === "cancel");
+    const latest = await runtimeInstanceCommand(env, { action: "diagnosis_read", actor: "native-diagnosis-caller", request_id: requestId });
+    return json({ ok: true, replayed: !result.changed, recheck_status: latest.task.recheck_dispatch_state,
+      task: accountDiagnosisPublicTask(latest.task) });
   } catch (error) {
-    if (error instanceof HttpError) return json(accountDiagnosisErrorPayload(error), error.status || 409);
-    return json({ ok: false, error: error.message || "invalid_account_diagnosis_result", reason_code: error.message || "invalid_account_diagnosis_result" }, error.status || 409);
+    if (error instanceof HttpError) return json(accountDiagnosisErrorPayload(error), error.status);
+    return json({ ok: false, error: "account_diagnosis_native_outcome_unknown" }, 502);
   }
 }
 
@@ -16481,6 +16705,7 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  dispatchAccountDiagnosis,
   humanDecisionReceipt,
   researchPromotionMaterialKey,
   researchPromotionReviewMaterial,
