@@ -90,7 +90,7 @@ def main() -> int:
             config_path = ROOT / "platform-config.json"
             fallback = json.loads(config_path.read_text())["notifications"]["quant_sentinel"]["daily_digest"].get("aggregator", {}).get("expected_targets", [])
         result = inspect_bindings(os.environ, fallback)
-    except (OSError, ValueError, TypeError, KeyError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
         result = {"schema_version": 1, "status": "invalid", "reason": "source_configuration_unreadable"}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")

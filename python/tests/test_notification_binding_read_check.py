@@ -126,6 +126,43 @@ class NotificationBindingReadCheckTests(unittest.TestCase):
             self.assertEqual(json.loads(console.getvalue()), json.loads(out.read_text()))
             self.assertNotIn("synthetic-opaque-a", out.read_text())
 
+    def test_cli_fallback_errors_still_write_anonymous_certificate(self):
+        fallback_sources = [
+            {"notifications": {"quant_sentinel": {"daily_digest": value}}}
+            for value in (None, [])
+        ] + [
+            {"notifications": {"quant_sentinel": {"daily_digest": {"aggregator": value}}}}
+            for value in (None, [])
+        ]
+        expected = {"schema_version": 1, "status": "invalid", "reason": "source_configuration_unreadable"}
+        for fallback in fallback_sources:
+            with self.subTest(fallback=fallback), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "platform-config.json").write_text(json.dumps(fallback))
+                out = root / "certificate.json"
+                console = io.StringIO()
+                with patch.dict(check.os.environ, {}, clear=True), \
+                        patch.object(sys, "argv", ["check", "--out", str(out)]), \
+                        patch.object(check, "ROOT", root), contextlib.redirect_stdout(console):
+                    self.assertEqual(check.main(), 1)
+                self.assertEqual(json.loads(out.read_text()), expected)
+                self.assertEqual(json.loads(console.getvalue()), expected)
+        # Deterministic across Python implementations with different recursion limits.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "platform-config.json").write_text("synthetic-private-malformed-source")
+            out = root / "certificate.json"
+            console = io.StringIO()
+            with patch.dict(check.os.environ, {}, clear=True), \
+                    patch.object(sys, "argv", ["check", "--out", str(out)]), \
+                    patch.object(check, "ROOT", root), \
+                    patch.object(check.json, "loads", side_effect=RecursionError("synthetic-private-error")), \
+                    contextlib.redirect_stdout(console):
+                self.assertEqual(check.main(), 1)
+            self.assertEqual(json.loads(out.read_text()), expected)
+            self.assertEqual(json.loads(console.getvalue()), expected)
+            self.assertNotIn("synthetic-private", out.read_text())
+
     def test_read_only_workflow_uses_only_existing_named_configuration(self):
         source = (ROOT / ".github/workflows/notification-binding-read-check.yml").read_text()
         self.assertIn("workflow_dispatch:", source)
