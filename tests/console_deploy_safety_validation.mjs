@@ -124,7 +124,11 @@ async function failure(responses, envDelta, expectedCalls = 1) {
   const result = await execute(responses, envDelta);
   assert.equal(result.process.exitCode, 1);
   assert.equal(result.stdout.length, 0, "no partial success output");
-  assert.deepEqual(result.stderr, ['{"ok":false,"error":"worker_preflight_failed"}']);
+  const last = responses[expectedCalls - 1];
+  assert.deepEqual(result.stderr.map(value => JSON.parse(value)), [{ ok: false, error: "worker_preflight_failed",
+    stage: ["configuration", "deployments", "versions"][expectedCalls],
+    http_status: expectedCalls === 0 || last instanceof Error ? null : last instanceof Response ? last.status : 200,
+  }]);
   assert.equal(result.calls.length, expectedCalls);
 }
 await failure(normal, { CLOUDFLARE_API_TOKEN: "" }, 0);
