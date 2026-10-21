@@ -124,6 +124,7 @@ async function failure(responses, envDelta, expectedCalls = 1) {
   const result = await execute(responses, envDelta);
   assert.equal(result.process.exitCode, 1);
   assert.equal(result.stdout.length, 0, "no partial success output");
+  assert.equal(result.stderr.length, 1, "one bounded diagnostic only");
   const last = responses[expectedCalls - 1];
   const error = JSON.parse(result.stderr[0]);
   assert.deepEqual({ ok: error.ok, error: error.error, stage: error.stage, http_status: error.http_status }, { ok: false, error: "worker_preflight_failed",
