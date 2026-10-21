@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 const workflow = readFileSync(new URL("../.github/workflows/deploy-strategy-switch-console.yml", import.meta.url), "utf8");
 const triggers = workflow.slice(workflow.indexOf("\non:\n"), workflow.indexOf("\npermissions:"));
 assert.deepEqual([...triggers.matchAll(/^  (\w+):/gm)].map(match => match[1]), ["workflow_dispatch"], "merges must not deploy");
-for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_preflight", "skip_binance_receiver_checks"]) {
+for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_preflight", "skip_binance_receiver_checks", "rollback_to_pre_release"]) {
   const block = triggers.match(new RegExp(`      ${input}:\\n([\\s\\S]*?)(?=\\n      \\w+:|$)`))?.[1];
   assert.ok(block, input);
   assert.match(block, /type: boolean/);
   assert.match(block, /default: false/);
 }
+assert.match(triggers, /      source_sha:\n[\s\S]*?type: string\n        default: ""/);
 const steps = workflow.split(/\n      - name: /).slice(1);
 const writers = steps.filter(step => /\bsecret put\b|\/api\/internal\/sync-strategy-profiles/.test(step));
 assert.equal(writers.length, 16, "inspect every secret and profile writer");
@@ -33,7 +37,8 @@ for (const step of writers) {
 assert.doesNotMatch(workflow, /catalog-change|steps\.catalog/);
 
 const preflight = workflow.match(/^  preflight:\n([\s\S]*?)(?=^  deploy:)/m)?.[1];
-const deploy = workflow.match(/^  deploy:\n([\s\S]*)$/m)?.[1];
+const deploy = workflow.match(/^  deploy:\n([\s\S]*?)(?=^  rollback:|(?![\s\S]))/m)?.[1];
+const rollback = workflow.match(/^  rollback:\n([\s\S]*)$/m)?.[1];
 assert.ok(preflight && deploy, "reader and deployment have separate jobs");
 function evaluate(gate, inputs = {}, token = "configured", event = "workflow_dispatch") {
   const expression = gate.replaceAll("github.event_name", JSON.stringify(event))
@@ -44,10 +49,15 @@ function evaluate(gate, inputs = {}, token = "configured", event = "workflow_dis
 }
 const preflightGate = preflight.match(/^    if: (.+)$/m)?.[1];
 const deployGate = deploy.match(/^    if: (.+)$/m)?.[1];
+assert.ok(rollback, "normal fixed-baseline recovery is available without a new source or rule exception");
+const rollbackGate = rollback.match(/^    if: (.+)$/m)?.[1];
 for (const event of ["push", "workflow_dispatch"]) {
   for (const read_only_preflight of [false, true]) {
+    for (const rollback_to_pre_release of [false, true]) {
     assert.equal(evaluate(preflightGate, { read_only_preflight }, "", event), event === "workflow_dispatch" && read_only_preflight);
-    assert.equal(evaluate(deployGate, { read_only_preflight }, "", event), event === "workflow_dispatch" && !read_only_preflight);
+    assert.equal(evaluate(deployGate, { read_only_preflight, rollback_to_pre_release }, "", event), event === "workflow_dispatch" && !read_only_preflight && !rollback_to_pre_release);
+    assert.equal(evaluate(rollbackGate, { read_only_preflight, rollback_to_pre_release }, "", event), event === "workflow_dispatch" && !read_only_preflight && rollback_to_pre_release);
+    }
   }
 }
 const binanceChecks = [
@@ -71,6 +81,126 @@ assert.match(deploy, /npx wrangler@4\.106\.0 deploy --config wrangler\.toml/);
 assert.match(preflight, /environment: runtime-strategy-switch/);
 assert.doesNotMatch(preflight, /secret put|sync-strategy-profiles|wrangler.*deploy|npm|npx|uses: actions\/checkout|SYNC_TOKEN|WRANGLER_CONFIG/);
 assert.deepEqual([...preflight.matchAll(/^      ([A-Z_]+):/gm)].map(match => match[1]), ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]);
+
+// Execute the exact selection shell with a fake Git boundary, never checkout the
+// test repository or evaluate any selected Worker. Real object identities are
+// separately frozen by the release evidence and the required ancestry check.
+const approved = "e2aab576d6874feeaf87df3411411ad04ee02d4f";
+const approvedTree = "968b323ca75ee48d0c92bfe0b7f4110c3d27df72";
+const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
+const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
+assert.ok(selectionStep);
+assert.ok(deploy.indexOf("Select reviewed historical main source") < deploy.indexOf("Setup Python"), "reject unapproved source before running project code");
+assert.match(deploy, /fetch-depth: 0/);
+const shellBody = step => step.match(/        run: \|\n([\s\S]*)/)[1].split("\n").map(line => line.slice(10)).join("\n");
+const selectShell = shellBody(selectionStep);
+const fakeGit = `git() {
+  printf '%s\\n' "$*" >> "$TRACE"
+  case "$*" in
+    'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
+    'cat-file -e ${approved}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
+    'merge-base --is-ancestor ${approved} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
+    'rev-parse ${approved}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    '-c advice.detachedHead=false checkout --detach ${approved}') touch "$SELECTED" ;;
+    *) return 91 ;;
+  esac
+};\n`;
+let sourceCases = 0;
+function sourceCase(delta, expected) {
+  const temp = mkdtempSync(join(tmpdir(), "console-source-guard-"));
+  try {
+    const trace = join(temp, "trace"), selected = join(temp, "selected");
+    const env = { PATH: process.env.PATH, GITHUB_REF: "refs/heads/main", GITHUB_SHA: control,
+      RELEASE_SOURCE_SHA: approved, TRACE: trace, SELECTED: selected, FAKE_CONTROL_HEAD: control,
+      FAKE_SELECTED_HEAD: approved, FAKE_TREE: approvedTree, FAKE_OBJECT_EXIT: "0", FAKE_ANCESTRY_EXIT: "0", ...delta };
+    const result = spawnSync("bash", ["-c", fakeGit + selectShell], { env, encoding: "utf8" });
+    assert.equal(result.status === 0, expected, result.stderr);
+    assert.ok(!result.stdout.includes("PRIVATE_SOURCE_SENTINEL") && !result.stderr.includes("PRIVATE_SOURCE_SENTINEL"));
+    const calls = existsSync(trace) ? readFileSync(trace, "utf8").trim().split("\n") : [];
+    sourceCases++;
+    return { calls, selected: existsSync(selected) };
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+}
+const validSource = sourceCase({}, true);
+assert.equal(validSource.selected, true);
+assert.ok(validSource.calls.indexOf(`merge-base --is-ancestor ${approved} ${control}`) < validSource.calls.findIndex(line => line.includes("checkout --detach")));
+assert.deepEqual(sourceCase({ RELEASE_SOURCE_SHA: "" }, true).calls, [], "default keeps the original checkout");
+for (const source of ["main", "refs/heads/main", "2e63c3173c04b7b48871e7d75077492e172448cf", "a".repeat(40), approved.toUpperCase(), "$(printf PRIVATE_SOURCE_SENTINEL)", approved + "\n"]) {
+  const rejected = sourceCase({ RELEASE_SOURCE_SHA: source }, false);
+  assert.deepEqual(rejected.calls, [], "unapproved source must not reach Git");
+}
+for (const delta of [{ GITHUB_REF: "refs/heads/unapproved" }, { GITHUB_REF: "refs/tags/main" }]) assert.deepEqual(sourceCase(delta, false).calls, []);
+for (const delta of [{ FAKE_CONTROL_HEAD: "b".repeat(40) }, { FAKE_OBJECT_EXIT: "1" }, { FAKE_ANCESTRY_EXIT: "1" }, { FAKE_TREE: "c".repeat(40) }]) {
+  assert.equal(sourceCase(delta, false).selected, false, "object/control/ancestry/tree rejection precedes selection");
+}
+assert.equal(sourceCase({ FAKE_SELECTED_HEAD: "b".repeat(40) }, false).selected, true, "verify the actual selected checkout too");
+
+assert.match(rollback, /environment: runtime-strategy-switch/);
+assert.doesNotMatch(rollback, /actions\/checkout|npm ci|worker\.js|secret put|sync-strategy-profiles/);
+const restoreStep = steps.find(step => step.startsWith("Restore fixed pre-release Worker version\n"));
+const restoreScript = restoreStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)?.[1]
+  ?.split("\n").map(line => line.slice(10)).join("\n");
+assert.ok(restoreScript);
+assert.doesNotMatch(rollback, /npx|wrangler.*rollback|force=true|RUNNER_TEMP/);
+const RestoreFunction = Object.getPrototypeOf(async function () {}).constructor;
+const runRestore = new RestoreFunction("process", "fetch", "console", restoreScript);
+const restoreTarget = "c88234c2-292a-40d4-b624-500f145e3f7d";
+const restoreId = "00000000-0000-4000-8000-000000000001";
+const restoreSentinel = "PRIVATE_RESTORE_SENTINEL_DO_NOT_OUTPUT";
+const restoreBody = { success: true, errors: [], result: { id: restoreId, strategy: "percentage",
+  versions: [{ version_id: restoreTarget, percentage: 100 }], author_email: restoreSentinel, unknown: { secret: restoreSentinel } } };
+let restoreCases = 0;
+async function restoreCase({ env = {}, status = 200, body = restoreBody, raw, headers = {}, fetchError = false, streamError = false } = {}, expected = true, expectedCalls = 1) {
+  const calls = [], stdout = [], stderr = [];
+  const process = { env: { GITHUB_REF: "refs/heads/main", RELEASE_SOURCE_SHA: "",
+    CLOUDFLARE_ACCOUNT_ID: "a".repeat(32), CLOUDFLARE_API_TOKEN: restoreSentinel, ...env }, exitCode: 0 };
+  await runRestore(process, async (url, options) => {
+    calls.push({ url, options });
+    if (fetchError) throw new Error(restoreSentinel);
+    const payload = raw ?? JSON.stringify(body);
+    const stream = streamError ? new ReadableStream({ pull(controller) { controller.error(new Error(restoreSentinel)); } }) : payload;
+    return new Response(stream, { status, headers: { "content-type": "application/json", ...headers } });
+  }, { log: value => stdout.push(value), error: value => stderr.push(value) });
+  assert.equal(process.exitCode === 0, expected, stderr.join("\n"));
+  assert.equal(calls.length, expectedCalls, "fixed single request; never retry an error or uncertain response");
+  assert.ok(!(stdout.join("") + stderr.join("")).includes(restoreSentinel));
+  assert.ok(!(stdout.join("") + stderr.join("")).includes("a".repeat(32)));
+  if (calls.length) {
+    const { url, options } = calls[0];
+    assert.equal(url, `https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console/deployments?force=false`);
+    assert.equal(options.method, "POST");
+    assert.equal(options.redirect, "error");
+    assert.ok(options.signal instanceof AbortSignal);
+    assert.deepEqual(options.headers, { Authorization: `Bearer ${restoreSentinel}`, Accept: "application/json", "Content-Type": "application/json" });
+    assert.deepEqual(JSON.parse(options.body), { strategy: "percentage", versions: [{ version_id: restoreTarget, percentage: 100 }],
+      annotations: { "workers/message": "Restore verified pre-release c88234c2 baseline" } });
+  }
+  if (expected) assert.deepEqual(JSON.parse(stdout[0]), { status: "restore_response_verified", deployment_id: restoreId, version_id: restoreTarget, percentage: 100, force: false });
+  else {
+    assert.equal(stdout.length, 0);
+    const error = JSON.parse(stderr[0]);
+    assert.equal(error.retry, false);
+    assert.equal(error.outcome, expectedCalls ? "UNKNOWN_REQUIRES_READBACK" : "NOT_ATTEMPTED");
+  }
+  restoreCases++;
+}
+await restoreCase();
+for (const env of [{ GITHUB_REF: "refs/heads/unapproved" }, { GITHUB_REF: "refs/tags/main" },
+  { RELEASE_SOURCE_SHA: approved }, { CLOUDFLARE_API_TOKEN: "" }, { CLOUDFLARE_ACCOUNT_ID: "bad" }]) await restoreCase({ env }, false, 0);
+// Provider's changed-secret rejection must stop, not trigger Wrangler's force fallback.
+await restoreCase({ status: 400, body: { success: false, errors: [{ code: 10220, message: restoreSentinel }] } }, false);
+for (const status of [302, 403, 429, 500]) await restoreCase({ status, raw: restoreSentinel }, false);
+for (const delta of [{ fetchError: true }, { streamError: true }, { raw: restoreSentinel },
+  { headers: { "content-type": "text/html" } }, { headers: { "content-encoding": "gzip" } },
+  { headers: { "content-length": "65537" } }, { headers: { "content-length": "12x" } },
+  { headers: { "content-length": "1" } }, { raw: "x".repeat(65537) }]) await restoreCase(delta, false);
+for (const mutate of [body => { body.success = false; }, body => { body.errors = [{ message: restoreSentinel }]; },
+  body => { body.result.id = restoreSentinel; }, body => { body.result.strategy = "other"; },
+  body => { body.result.versions[0].version_id = "b".repeat(36); }, body => { body.result.versions[0].percentage = 99; },
+  body => { body.result.versions.push(body.result.versions[0]); }]) {
+  const body = structuredClone(restoreBody); mutate(body); await restoreCase({ body }, false);
+}
+await restoreCase({ headers: { "content-length": String(Buffer.byteLength(JSON.stringify(restoreBody))) } });
 
 // Execute the exact workflow body with fake HTTP, not a rewritten projection.
 const script = preflight.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)?.[1]
@@ -212,4 +342,4 @@ const zeroTotal = await failure([{ success: true, result: { deployments: [{ ...d
   { version_id: versionId, percentage: 0 }, { version_id: deploymentId, percentage: 0 },
 ] }] } }]);
 assert.equal(zeroTotal.checkpoint, "deployment_percentage_total", "all-zero traffic is still invalid");
-console.log(`console_deploy_safety_validation: PASS (manual-only; 16 original write gates; exclusive preflight; 2 exact Binance gates; ${cases} offline reader cases)`);
+console.log(`console_deploy_safety_validation: PASS (manual-only; 16 original write gates; exclusive preflight/deploy/restore; 2 exact Binance gates; ${cases} offline reader cases; ${sourceCases} source cases; ${restoreCases} restore cases)`);
