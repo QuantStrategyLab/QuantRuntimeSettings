@@ -82,7 +82,7 @@ async function reset({ native = true, transport = true, auto = false, extra = {}
   loseSubmit = false; loseCancel = false; loseLookup = false; replyFault = null; serverLifetime = 600; mutate = record => record;
   const env = { ...bindings, ACCOUNT_DIAGNOSIS_AUTO_ENABLED: String(auto), ...extra };
   if (!native) delete env.ACCOUNT_DIAGNOSIS_NATIVE_BINDING_JSON;
-  runtimeOptions = { modules: true, modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
+  runtimeOptions = { cf: false, modules: true, modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
     scriptPath: fileURLToPath(new URL("../web/strategy-switch-console/worker.js", import.meta.url)),
     compatibilityDate: "2026-06-08", bindings: env,
     ...(native && transport ? { serviceBindings: { ACCOUNT_DIAGNOSIS_NATIVE_TRANSPORT: nativeService } } : {}),
