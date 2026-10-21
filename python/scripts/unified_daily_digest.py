@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from notification_mode import consolidation_enabled, routine_mode
 from display_names import display_name
-from daily_digest_notify import DailyDigestInput, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale
+from daily_digest_notify import DailyDigestInput, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale, routine_decision_text
 
 
 def enabled() -> bool:
@@ -80,7 +80,8 @@ def _safe_display_text(value: object) -> str:
         return ""
     text = " ".join(value.split())
     if (not text.isprintable() or "://" in text
-            or re.search(r"\b[Uu][0-9]{5,}\b", text)
+            or re.search(r"[Dd]?[Uu][0-9]{5,}", text)
+            or text.isdecimal()
             or re.fullmatch(r"[0-9a-fA-F-]{12,}", text)):
         return ""
     return text[:70]
@@ -91,8 +92,13 @@ def _run_display_labels(rows, locale):
     missing = "\0"
     parts, accounts = [], {}
     for index, row in enumerate(rows):
-        account = ""
+        # A canonical display alias must hit this platform's trusted mapping.
+        # Neither the alias nor its identity/binding keys are display fallbacks.
+        account = _safe_display_text(display_name("accounts", row.account_alias, locale,
+                    fallback=missing, platform=row.platform_id)) if row.account_alias else ""
         for key in dict.fromkeys((row.account_hint, row.account_scope, row.execution_mode)):
+            if account:
+                break
             if not key:
                 continue
             fallback = display_name("account_aliases", key, locale, fallback=missing)
@@ -168,8 +174,12 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     immediate = summary.get("immediate_events", 0)
     if immediate:
         lines.append(f"即时事件 {immediate} 项（仅记录）" if zh else f"Immediate events: {immediate} (record only)")
-    attention_lines, healthy_lines, seen = [], [], set()
+    attention_lines, healthy_lines, routine_lines, seen = [], [], [], set()
     for row, label in zip(payload.runs, _run_display_labels(payload.runs, locale)):
+        decision = routine_decision_text(row, locale)
+        if decision:
+            routine_lines.extend(f"• {label}：{line}" if zh else f"• {label}: {line}"
+                                 for line in decision.splitlines())
         if not is_blocked(row):
             detail = ("需核对" if zh else "Needs review") if row.status == "alert" else ("已运行" if zh else "Observed run")
             if counts_not_connected(row):
@@ -188,6 +198,7 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     # Risk and attention details precede repeated healthy context under the budget.
     lines.extend(attention_lines)
     lines.extend(healthy_lines)
+    lines.extend(routine_lines)
     if not complete:
         lines.append("覆盖不完整，缺失统计保留未知" if zh else "Coverage incomplete; missing counts remain unknown")
     result = [lines[0]]

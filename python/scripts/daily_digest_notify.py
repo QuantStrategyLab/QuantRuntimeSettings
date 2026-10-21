@@ -535,6 +535,10 @@ class DigestRunEntry:
     block_reason: Mapping[str, object] | None = None
     source_run_id: str = ""
     approved_gate_reasons: tuple[Mapping[str, object], ...] = ()
+    account_alias: str = ""
+    # Display-only plan observation; never approves a risk gate or supplies counts.
+    routine_decision: Mapping[str, object] | None = None
+    routine_decisions: tuple[Mapping[str, object], ...] = ()
     presentation_attention: InitVar[bool] = False
 
     def __post_init__(self, presentation_attention: bool = False) -> None:
@@ -696,6 +700,8 @@ def has_observation(entry: DigestRunEntry) -> bool:
         or entry.rebalance_conclusion.strip()
         or entry.rebalance_kind
         or entry.block_reason
+        or entry.routine_decision
+        or entry.routine_decisions
         or entry.tips
     )
 
@@ -850,6 +856,63 @@ def is_blocked(entry: DigestRunEntry) -> bool:
     return bool(entry.block_reason) or entry.rebalance_conclusion in {"blocked", "risk_blocked"} or entry.signal_summary in {"blocked", "risk_blocked"}
 
 
+def _parse_routine_decision(raw: object) -> dict[str, object] | None:
+    """Keep a minimum-notional observation separate from risk/receipt facts."""
+    if not isinstance(raw, Mapping) or raw.get("reason_code") != "min_notional":
+        return None
+    observed, limit = raw.get("observed_value"), raw.get("limit")
+    for value in (observed, limit):
+        try:
+            if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value < 0):
+                return None
+        except OverflowError:
+            return None
+    if limit is not None and limit <= 0:
+        return None
+    if observed is not None and limit is not None and observed >= limit:
+        return None
+    currency, symbol = raw.get("currency", ""), raw.get("symbol", "")
+    if not isinstance(currency, str) or currency and not re.fullmatch(r"[A-Z]{3}", currency):
+        return None
+    if not isinstance(symbol, str) or symbol and not re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,15}", symbol):
+        return None
+    return dict(reason_code="min_notional", observed_value=observed, limit=limit,
+                currency=currency, symbol=symbol)
+
+
+def _routine_decision_text(reason: Mapping[str, object], locale: DigestLocale) -> str:
+    unknown = "未知" if locale == "zh" else "unknown"
+    # Never infer currency from account currency or manufacture a missing value.
+    unit = reason["currency"] or ("币种未知" if locale == "zh" else "currency unknown")
+    observed = str(reason["observed_value"]) if reason["observed_value"] is not None else unknown
+    limit = str(reason["limit"]) if reason["limit"] is not None else unknown
+    symbol = f" {reason['symbol']}" if reason["symbol"] else ""
+    if locale == "zh":
+        return f"最小订单金额{symbol}：计划金额 {observed} {unit}；门槛 {limit} {unit}；决定：跳过该计划"
+    return f"Minimum order notional{symbol}: planned amount {observed} {unit}; minimum {limit} {unit}; decision: skip this plan"
+
+
+def _parse_routine_decisions(raw: object) -> tuple[Mapping[str, object], ...]:
+    if not isinstance(raw, (list, tuple)) or len(raw) > 100:
+        return ()
+    result = []
+    for item in raw:
+        clean = _parse_routine_decision(item)
+        if clean is None:
+            return ()
+        if clean not in result:
+            result.append(clean)
+    return tuple(result)
+
+
+def routine_decision_text(entry: DigestRunEntry, locale: DigestLocale) -> str:
+    reasons = list(_parse_routine_decisions(entry.routine_decisions))
+    single = _parse_routine_decision(entry.routine_decision)
+    if single and single not in reasons:
+        reasons.append(single)
+    return "\n".join(_routine_decision_text(reason, locale) for reason in reasons)
+
+
 def _parse_block_reason(raw: object) -> dict[str, object] | None:
     """Ignore malformed/unknown producer facts without changing legacy copy."""
     if not isinstance(raw, Mapping):
@@ -944,11 +1007,17 @@ def _presentation_needs_attention(entry: DigestRunEntry) -> bool:
 def _healthy_zero_activity(entry: DigestRunEntry) -> bool:
     """Only known, healthy execution facts qualify as zero activity."""
     tokens = {"", "no_action", "no_signal", "no_rebalance", "no_order", "hold"}
+    # Producer count provenance and missing optional account equity are not
+    # execution failures. Every component must be recognized; urgent/unknown
+    # reasons cannot be hidden behind a known provenance prefix.
+    diagnostic_tokens = {"ibkr_execution_counts_projected", "schwab_no_submission_verified",
+                         "account_facts_absent", "account_facts_equity_absent"}
+    reasons = set(entry.reason_code.split("+"))
     return (entry.status == "ok" and not is_blocked(entry) and not _presentation_needs_attention(entry)
             and all(type(value) is int and value == 0 and status == "known" for value, status in
                     ((entry.order_count, entry.order_count_status), (entry.fill_count, entry.fill_count_status)))
             and type(entry.cycle_count) is int and entry.cycle_count_status == "known"
-            and not entry.missing_evidence_reason and entry.reason_code in tokens
+            and not entry.missing_evidence_reason and reasons <= tokens | diagnostic_tokens
             and entry.execution_status in {"", "no_action", "no_op", "completed", "executed", "ok_no_order"})
 
 
@@ -1175,6 +1244,8 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale, *, co
             lines.append(_holding_line(holding, locale))
     redundant_signal = (entry.rebalance_kind in {"no_order", "no_rebalance"} and _verified_noop(entry)
                         and entry.signal_summary in {"no_action", "no_signal", "no_rebalance"})
+    redundant_signal = redundant_signal or (entry.signal_summary == entry.rebalance_conclusion
+                                            and entry.signal_summary in {"reconciliation_required", "unknown"})
     if entry.signal_summary.strip() and not redundant_signal and not (is_blocked(entry) and entry.signal_summary in {"blocked", "risk_blocked"}):
         signal_raw = entry.signal_summary.strip()
         signal_display = _localize_producer_token(
@@ -1297,7 +1368,28 @@ def _render_stale_candidates(
     return lines
 
 
-def render_daily_digest(payload: DailyDigestInput) -> str:
+def _append_routine_observations(text: str, runs: Sequence[DigestRunEntry], locale: DigestLocale,
+                                 *, max_units: int) -> str:
+    """Add ordinary plans only after all existing status/coverage information."""
+    from unified_daily_digest import _run_display_labels, _units
+    plans = [f"• {label}：{line}" if locale == "zh" else f"• {label}: {line}"
+             for entry, label in zip(runs, _run_display_labels(runs, locale))
+             for line in routine_decision_text(entry, locale).splitlines()]
+    if not plans:
+        return text
+    result = [text]
+    for index, line in enumerate(plans):
+        omitted = len(plans) - index
+        suffix = f"其余 {omitted} 项计划观察已省略" if locale == "zh" else f"{omitted} more plan observations omitted"
+        if _units("\n".join(result + [line, suffix])) > max_units:
+            if _units("\n".join(result + [suffix])) <= max_units:
+                result.append(suffix)
+            break
+        result.append(line)
+    return "\n".join(result)
+
+
+def render_daily_digest(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
     """Render one Telegram message body (never includes tokens or chat ids).
 
     Omits schedule window and channel footer lines (product preference).
@@ -1305,7 +1397,7 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     """
 
     if normalize_layout(str(payload.layout)) == "sections_v2":
-        return render_daily_digest_sections(payload)
+        return render_daily_digest_sections(payload, max_units=max_units)
     locale = normalize_locale(str(payload.locale))
     runs = tuple(payload.runs)
     lines: list[str] = []
@@ -1376,7 +1468,7 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     if candidate_failure_line:
         lines.append("")
         lines.append(candidate_failure_line)
-    return "\n".join(lines)
+    return _append_routine_observations("\n".join(lines), runs, locale, max_units=max_units)
 
 
 def _entry_section(entry: DigestRunEntry) -> str:
@@ -1402,7 +1494,7 @@ def _is_weekend(day: str) -> bool:
         return False
 
 
-def render_daily_digest_sections(payload: DailyDigestInput) -> str:
+def render_daily_digest_sections(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
     """NOTIFY-04 B1 layout: one report, four sections, Shanghai cut-off window.
 
     Sections: ⚠️ attention → 📈 US daily → 💰 DCA → 🪙 crypto intraday → 🧾
@@ -1512,7 +1604,7 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
         )
     if coverage is not None and coverage.candidate_failures:
         lines.append(_t(locale, "candidate_source_failures").format(count=len(coverage.candidate_failures)))
-    return "\n".join(lines)
+    return _append_routine_observations("\n".join(lines), runs, locale, max_units=max_units)
 
 
 def _parse_holdings(raw: Any) -> tuple[DigestHolding, ...]:
@@ -1687,11 +1779,14 @@ def filter_runs_for_digest(
                 rebalance_kind=_parse_rebalance_kind(raw.get("rebalance_kind")),
                 rebalance_conclusion=str(raw.get("rebalance_conclusion") or "").strip(),
                 block_reason=_parse_block_reason(raw.get("block_reason")) if raw.get("platform_id") in {"schwab", "ibkr"} else None,
+                routine_decision=_parse_routine_decision(raw.get("routine_decision")),
+                routine_decisions=_parse_routine_decisions(raw.get("routine_decisions")),
                 source_run_id=str(raw.get("source_run_id") or "") if consolidation_enabled() else "",
                 approved_gate_reasons=tuple(raw.get("_validated_approved_gate_reasons", ())) if consolidation_enabled() else _legacy_gate_reasons(raw),
                 presentation_attention=False if consolidation_enabled() else _legacy_presentation_attention(raw),
                 tips=_parse_tips(raw.get("tips") or raw.get("tip")),
                 account_hint=str(raw.get("account_hint") or "").strip(),
+                account_alias=str(raw.get("account_alias") or "").strip(),
                 opaque_account_uid=str(raw.get("opaque_account_uid") or "").strip(),
                 target_id=str(raw.get("target_id") or "").strip(),
                 account_scope=str(
