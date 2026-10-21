@@ -23,6 +23,16 @@ on:
         required: true
         type: boolean
         default: false
+      source_sha:
+        description: "Optional reviewed historical main source. Only e2aab576 is approved for this release."
+        required: false
+        type: string
+        default: ""
+      rollback_to_pre_release:
+        description: "Restore only the verified pre-release c88234c2 version; never build or sync. Read-only mode takes priority."
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -187,7 +197,7 @@ jobs:
           JS
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.rollback_to_pre_release
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 15
@@ -224,7 +234,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: 0
+
+      - name: Select reviewed historical main source
+        env:
+          RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          # Empty input preserves the original workflow-ref deployment behavior.
+          if [ -z "$RELEASE_SOURCE_SHA" ]; then exit 0; fi
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$RELEASE_SOURCE_SHA" != "e2aab576d6874feeaf87df3411411ad04ee02d4f" ]; then
+            echo "unapproved_console_release_source" >&2
+            exit 2
+          fi
+          control_sha="$(git rev-parse HEAD)"
+          if [ "$control_sha" != "$GITHUB_SHA" ]; then
+            echo "console_control_source_mismatch" >&2
+            exit 2
+          fi
+          git cat-file -e "${RELEASE_SOURCE_SHA}^{commit}"
+          git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$control_sha"
+          expected_tree="968b323ca75ee48d0c92bfe0b7f4110c3d27df72"
+          if [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" != "$expected_tree" ]; then
+            echo "console_release_tree_mismatch" >&2
+            exit 2
+          fi
+          git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
+          if [ "$(git rev-parse HEAD)" != "$RELEASE_SOURCE_SHA" ] || [ "$(git rev-parse 'HEAD^{tree}')" != "$expected_tree" ]; then
+            echo "console_selected_source_mismatch" >&2
+            exit 2
+          fi
+          printf 'Reviewed console source: %s tree: %s\n' "$RELEASE_SOURCE_SHA" "$expected_tree"
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -737,3 +777,38 @@ jobs:
             echo "Live strategy profile catalog is stale. Waiting for deployed Worker propagation..." >&2
             sleep 5
           done
+
+  rollback:
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && inputs.rollback_to_pre_release
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Restore fixed pre-release Worker version
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ -n "$RELEASE_SOURCE_SHA" ]; then
+            echo "invalid_console_baseline_restore_mode" >&2
+            exit 2
+          fi
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [[ ! "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]]; then
+            echo "console_baseline_restore_identity_missing" >&2
+            exit 2
+          fi
+          # Fresh explicit config avoids project or identity discovery. No checkout,
+          # Worker import, build, secret write, profile sync or arbitrary version.
+          restore_dir="$RUNNER_TEMP/console-baseline-rollback"
+          mkdir -p "$restore_dir"
+          printf 'name = "qsl-strategy-switch-console"\n' > "$restore_dir/wrangler.toml"
+          cd "$restore_dir"
+          npx wrangler@4.106.0 rollback c88234c2-292a-40d4-b624-500f145e3f7d --name qsl-strategy-switch-console --config wrangler.toml --message "Restore verified pre-release c88234c2 baseline"
