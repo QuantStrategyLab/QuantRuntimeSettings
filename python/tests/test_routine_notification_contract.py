@@ -132,7 +132,7 @@ class RoutineNotificationContractTests(unittest.TestCase):
             self.assertEqual(payload.runs[0].opaque_account_uid, "synthetic-account")
 
     def test_alias_unknown_cross_platform_unsafe_and_collisions_keep_safe_fallback(self):
-        from unified_daily_digest import _run_display_labels
+        from unified_daily_digest import _run_display_labels, _safe_display_text
         for alias in ("unmapped-demo", "same-alias"):
             _, text, _ = self.render([row(account_alias=alias)])
             self.assertNotIn(alias, text)
@@ -142,7 +142,9 @@ class RoutineNotificationContractTests(unittest.TestCase):
             with mock.patch.object(display_names, "_defaults", return_value={
                     **NAMES, "accounts": {"ibkr": {"unsafe-demo": unsafe}}}):
                 _, text, _ = self.render([row(account_alias="unsafe-demo")])
-                self.assertNotIn(unsafe, text)
+                self.assertEqual(_safe_display_text(unsafe), "")
+                self.assertNotIn(f" / {unsafe} / ", text)
+                self.assertIn(" / 账户 / ", text)
         entries = digest.filter_runs_for_digest([row(account_alias="canonical-demo"),
             row(account_alias="canonical-demo", opaque_account_uid="another-synthetic-account", target_id="another-target")])
         labels = _run_display_labels(entries, "en")
