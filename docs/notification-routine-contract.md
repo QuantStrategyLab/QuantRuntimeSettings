@@ -30,6 +30,12 @@ currency display as unknown. Negative, nonfinite, boolean or contradictory
 amounts are rejected. This field cannot claim zero orders or fills, approve a
 risk block, suppress an urgent event, or clear a reconciliation state.
 
+For several skipped plans, `routine_decisions` accepts up to 100 observations
+with the same shape, each with its own symbol and amount. Identical observations
+are shown once. Different plans retain separate comparisons; their amounts are
+never summed against one per-order threshold. `routine_decision` remains a
+compatible single-plan input.
+
 Verified zero-order no-action runs remain normal when their reason consists
 only of the documented count provenance and missing optional account-equity
 diagnostics. Unknown counts, receipt problems, mixed urgent reasons, failed

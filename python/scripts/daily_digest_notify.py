@@ -538,6 +538,7 @@ class DigestRunEntry:
     account_alias: str = ""
     # Display-only plan observation; never approves a risk gate or supplies counts.
     routine_decision: Mapping[str, object] | None = None
+    routine_decisions: tuple[Mapping[str, object], ...] = ()
     presentation_attention: InitVar[bool] = False
 
     def __post_init__(self, presentation_attention: bool = False) -> None:
@@ -700,6 +701,7 @@ def has_observation(entry: DigestRunEntry) -> bool:
         or entry.rebalance_kind
         or entry.block_reason
         or entry.routine_decision
+        or entry.routine_decisions
         or entry.tips
     )
 
@@ -872,16 +874,13 @@ def _parse_routine_decision(raw: object) -> dict[str, object] | None:
     currency, symbol = raw.get("currency", ""), raw.get("symbol", "")
     if not isinstance(currency, str) or currency and not re.fullmatch(r"[A-Z]{3}", currency):
         return None
-    if not isinstance(symbol, str) or symbol and not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,15}", symbol):
+    if not isinstance(symbol, str) or symbol and not re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,15}", symbol):
         return None
     return dict(reason_code="min_notional", observed_value=observed, limit=limit,
                 currency=currency, symbol=symbol)
 
 
-def routine_decision_text(entry: DigestRunEntry, locale: DigestLocale) -> str:
-    reason = _parse_routine_decision(entry.routine_decision)
-    if not reason:
-        return ""
+def _routine_decision_text(reason: Mapping[str, object], locale: DigestLocale) -> str:
     unknown = "未知" if locale == "zh" else "unknown"
     # Never infer currency from account currency or manufacture a missing value.
     unit = reason["currency"] or ("币种未知" if locale == "zh" else "currency unknown")
@@ -891,6 +890,27 @@ def routine_decision_text(entry: DigestRunEntry, locale: DigestLocale) -> str:
     if locale == "zh":
         return f"最小订单金额{symbol}：计划金额 {observed} {unit}；门槛 {limit} {unit}；决定：跳过该计划"
     return f"Minimum order notional{symbol}: planned amount {observed} {unit}; minimum {limit} {unit}; decision: skip this plan"
+
+
+def _parse_routine_decisions(raw: object) -> tuple[Mapping[str, object], ...]:
+    if not isinstance(raw, (list, tuple)) or len(raw) > 100:
+        return ()
+    result = []
+    for item in raw:
+        clean = _parse_routine_decision(item)
+        if clean is None:
+            return ()
+        if clean not in result:
+            result.append(clean)
+    return tuple(result)
+
+
+def routine_decision_text(entry: DigestRunEntry, locale: DigestLocale) -> str:
+    reasons = list(_parse_routine_decisions(entry.routine_decisions))
+    single = _parse_routine_decision(entry.routine_decision)
+    if single and single not in reasons:
+        reasons.append(single)
+    return "\n".join(_routine_decision_text(reason, locale) for reason in reasons)
 
 
 def _parse_block_reason(raw: object) -> dict[str, object] | None:
@@ -1742,6 +1762,7 @@ def filter_runs_for_digest(
                 rebalance_conclusion=str(raw.get("rebalance_conclusion") or "").strip(),
                 block_reason=_parse_block_reason(raw.get("block_reason")) if raw.get("platform_id") in {"schwab", "ibkr"} else None,
                 routine_decision=_parse_routine_decision(raw.get("routine_decision")),
+                routine_decisions=_parse_routine_decisions(raw.get("routine_decisions")),
                 source_run_id=str(raw.get("source_run_id") or "") if consolidation_enabled() else "",
                 approved_gate_reasons=tuple(raw.get("_validated_approved_gate_reasons", ())) if consolidation_enabled() else _legacy_gate_reasons(raw),
                 presentation_attention=False if consolidation_enabled() else _legacy_presentation_attention(raw),

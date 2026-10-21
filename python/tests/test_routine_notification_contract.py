@@ -111,6 +111,24 @@ class RoutineNotificationContractTests(unittest.TestCase):
                 self.assertIsNone(payload.runs[0].order_count)
                 self.assertIsNone(payload.runs[0].fill_count)
 
+    def test_each_plan_keeps_its_own_amount_and_duplicate_observations_are_displayed_once(self):
+        first, second = decision(), decision(symbol="02834", observed_value=17.5, currency="HKD")
+        for unified in (False, True):
+            for locale in ("zh", "en"):
+                payload, text, _ = self.render([row(routine_decision=first,
+                    routine_decisions=[first, second, first])], locale=locale, unified=unified)
+                self.assertEqual(text.count("12.5 USD"), 1)
+                self.assertEqual(text.count("17.5 HKD"), 1)
+                self.assertIn("50.0 HKD", text)
+                self.assertNotIn("30.0", text)
+                self.assertEqual((payload.runs[0].order_count, payload.runs[0].fill_count), (0, 0))
+        for invalid in ([first, decision(observed_value=True)], "private", [first] * 101):
+            self.assertEqual(digest._parse_routine_decisions(invalid), ())
+        _, text, _ = self.render([row(status="alert", rebalance_conclusion="blocked",
+            routine_decisions=[decision(symbol=f"DEMO{i}", observed_value=i, limit=1000) for i in range(100)])], unified=True)
+        self.assertIn("已拦截，具体原因未知", text)
+        self.assertIn("已省略", text)
+
     def test_malformed_or_contradictory_minimum_observations_never_render_as_proof(self):
         bad = [decision(observed_value=v) for v in (True, math.nan, math.inf, -1, 50, 70, 10**1000)]
         bad += [decision(limit=v) for v in (True, math.nan, math.inf, -1, 0)]

@@ -354,6 +354,12 @@
         "routine_decision": {
           "$ref": "#/$defs/routine_decision"
         },
+        "routine_decisions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {"$ref": "#/$defs/routine_decision"},
+          "description": "Separate per-plan observations in this source run; never sum different plans into one threshold comparison."
+        },
         "source_run_id": {
           "type": "string",
           "minLength": 1
@@ -379,7 +385,7 @@
         "observed_value": {"type": ["number", "null"], "minimum": 0},
         "limit": {"type": ["number", "null"], "exclusiveMinimum": 0},
         "currency": {"type": "string", "pattern": "^([A-Z]{3})?$"},
-        "symbol": {"type": "string", "pattern": "^([A-Z][A-Z0-9.-]{0,15})?$"}
+        "symbol": {"type": "string", "pattern": "^([A-Z0-9][A-Z0-9.-]{0,15})?$"}
       }
     },
     "block_reason": {

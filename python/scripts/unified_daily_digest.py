@@ -174,17 +174,18 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     immediate = summary.get("immediate_events", 0)
     if immediate:
         lines.append(f"即时事件 {immediate} 项（仅记录）" if zh else f"Immediate events: {immediate} (record only)")
-    attention_lines, healthy_lines, seen = [], [], set()
+    attention_lines, healthy_lines, routine_lines, seen = [], [], [], set()
     for row, label in zip(payload.runs, _run_display_labels(payload.runs, locale)):
         decision = routine_decision_text(row, locale)
+        if decision:
+            routine_lines.extend(f"• {label}：{line}" if zh else f"• {label}: {line}"
+                                 for line in decision.splitlines())
         if not is_blocked(row):
             detail = ("需核对" if zh else "Needs review") if row.status == "alert" else ("已运行" if zh else "Observed run")
             if counts_not_connected(row):
                 detail += "，统计未接入" if zh else "; counting not connected"
             elif not all(_known_count(row, name) for name in ("order", "fill")):
                 detail += "，统计未知" if zh else "; counts unknown"
-            if decision:
-                detail += ("；" if zh else "; ") + decision
             line = f"• {label}：{detail}" if zh else f"• {label}: {detail}"
             if line not in seen:
                 (attention_lines if row.status == "alert" else healthy_lines).append(line)
@@ -193,12 +194,11 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         from notification_approved_gates import render_reasons
         detail = render_reasons(row.approved_gate_reasons, locale) or block_reason_text(row, locale)
         detail = detail or ("已拦截，具体原因未知" if zh else "Blocked; specific reason unknown")
-        if decision:
-            detail += ("；" if zh else "; ") + decision
         lines.append(f"• {label}：{detail}" if zh else f"• {label}: {detail}")
     # Risk and attention details precede repeated healthy context under the budget.
     lines.extend(attention_lines)
     lines.extend(healthy_lines)
+    lines.extend(routine_lines)
     if not complete:
         lines.append("覆盖不完整，缺失统计保留未知" if zh else "Coverage incomplete; missing counts remain unknown")
     result = [lines[0]]

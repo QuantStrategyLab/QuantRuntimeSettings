@@ -59,6 +59,7 @@ _OBSERVATION_FIELDS = (
     "account_scope",
     "execution_mode",
     "routine_decision",
+    "routine_decisions",
 )
 
 
