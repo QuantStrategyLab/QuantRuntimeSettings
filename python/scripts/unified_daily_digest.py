@@ -80,8 +80,8 @@ def _safe_display_text(value: object) -> str:
         return ""
     text = " ".join(value.split())
     if (not text.isprintable() or "://" in text
-            or re.search(r"\b[Dd]?[Uu][0-9]{5,}\b", text)
-            or re.fullmatch(r"[0-9]{5,}", text)
+            or re.search(r"[Dd]?[Uu][0-9]{5,}", text)
+            or text.isdecimal()
             or re.fullmatch(r"[0-9a-fA-F-]{12,}", text)):
         return ""
     return text[:70]

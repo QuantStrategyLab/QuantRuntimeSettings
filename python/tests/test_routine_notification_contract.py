@@ -137,7 +137,8 @@ class RoutineNotificationContractTests(unittest.TestCase):
             _, text, _ = self.render([row(account_alias=alias)])
             self.assertNotIn(alias, text)
             self.assertNotIn("Schwab demo", text)
-        for unsafe in ("U00000001", "DU00000001", "00000001", "https://private.invalid", "0123456789abcdef"):
+        for unsafe in ("U00000001", "DU00000001", "IBKR_U00000001", "DU00000001_main",
+                       "账户U00000001", "1", "1234", "00000001", "https://private.invalid", "0123456789abcdef"):
             with mock.patch.object(display_names, "_defaults", return_value={
                     **NAMES, "accounts": {"ibkr": {"unsafe-demo": unsafe}}}):
                 _, text, _ = self.render([row(account_alias="unsafe-demo")])
