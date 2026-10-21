@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { __test } from "../web/strategy-switch-console/worker.js";
 import { validate } from "./console_api_contract_validation.mjs";
+import { consoleApiResponse } from "../web/strategy-switch-console/application/console_api/routes.js";
 const require = createRequire(
   new URL("../web/strategy-switch-console/package.json", import.meta.url),
 );
@@ -210,6 +211,18 @@ try {
   assert.equal(accounts.status, 200);
   validate("accounts", accounts.body);
   assert.equal(accounts.body.accounts[0].pending_draft_count, 4);
+  const combined = await call("/api/accounts?include=decisions-inbox", { cookie: reader });
+  assert.equal(combined.status, 200);
+  assert.deepEqual(combined.body.accounts, accounts.body, "combined accounts retain the existing body");
+  validate("accounts", combined.body.accounts);
+  validate("inbox", combined.body.inbox);
+  assert.deepEqual(combined.body.inbox, (await call("/api/decisions-inbox", { cookie: reader })).body);
+  assert.equal((await call("/api/accounts?include=decisions-inbox", { cookie: null })).status, 401);
+  assert.equal((await call("/api/accounts?include=decisions-inbox", { method: "POST", body: {} })).status, 405);
+  for (const query of ["include=", "include=other", "include=decisions-inbox&include=decisions-inbox",
+    "include=decisions-inbox&decision_subject_id=synthetic", "include=decisions-inbox&limit=25"]) {
+    assert.equal((await call(`/api/accounts?${query}`)).status, 400);
+  }
   const kv = await mf.getKVNamespace("STRATEGY_SWITCH_CONFIG");
   await kv.put("current_strategies_cache", JSON.stringify({ ts: Date.now(), data: {
     longbridge: { "synthetic-alpha": { strategy_profile: "synthetic-growth" } },
@@ -301,3 +314,91 @@ try {
   await mf.dispose();
 }
 console.log("console_api_worker_validation: PASS");
+
+// Count real route + inbox orchestration, with synthetic read ports. These are
+// source-call counts, not production KV list/get or billing measurements.
+const counts = { metadata: 0, owner: 0, promotion: 0, recovery: 0, credential: 0, outbound: 0 };
+let generation = 0, ownerFailure = false, credentialForbidden = false;
+let authoritativeFailure = false;
+const json = (body, status = 200) => Response.json(body, { status });
+const deps = {
+  json,
+  readSession: async () => ({ allowed: true, login: "synthetic-reader" }),
+  accountOptions: async () => ({ options: { longbridge: [account] } }),
+  command: async (_env, command) => {
+    assert.equal(command.action, "console_account_metadata");
+    counts.metadata++;
+    if (authoritativeFailure) throw Error("synthetic_authoritative_unavailable");
+    return { rows: [{ platform: "longbridge", account_key: account.key, pending_draft_count: generation }] };
+  },
+  owner: async () => {
+    counts.owner++;
+    if (ownerFailure) throw Error("private_source_sentinel_must_not_escape");
+    return json({ data_status: "ready", candidates: [] });
+  },
+  promotion: async () => { counts.promotion++; return json({ data_status: "ready", tickets: [] }); },
+  recovery: async () => { counts.recovery++; return json({ data_status: "ready", recoveries: [] }); },
+  credential: async () => { counts.credential++; return credentialForbidden
+    ? json({ ok: false, error: "admin required" }, 403) : json({ requires_action: false }); },
+};
+const request = (path) => new Request(`https://synthetic.invalid${path}`);
+const read = async (path, ports = deps, env = {}) => {
+  const response = await consoleApiResponse(request(path), env, ports);
+  return { status: response.status, body: await response.json() };
+};
+const resetCounts = () => Object.keys(counts).forEach(key => { counts[key] = 0; });
+const nativeFetch = globalThis.fetch;
+globalThis.fetch = () => { counts.outbound++; throw Error("external_network_forbidden"); };
+try {
+  const oldAccounts = await read("/api/accounts");
+  const oldInbox = await read("/api/decisions-inbox");
+  assert.deepEqual(counts, { metadata: 1, owner: 2, promotion: 2, recovery: 2, credential: 2, outbound: 0 });
+  resetCounts();
+  const result = await read("/api/accounts?include=decisions-inbox");
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body, { accounts: oldAccounts.body, inbox: oldInbox.body });
+  assert.deepEqual(counts, { metadata: 1, owner: 1, promotion: 1, recovery: 1, credential: 1, outbound: 0 });
+  generation = 7;
+  assert.equal((await read("/api/accounts?include=decisions-inbox")).body.accounts.accounts[0].pending_draft_count, 7,
+    "the next request re-reads current metadata; no cross-request cache");
+  const other = await read("/api/accounts?include=decisions-inbox", { ...deps,
+    readSession: async () => ({ allowed: true, login: "synthetic-other" }),
+    command: async (env, command) => { assert.equal(command.actor, "synthetic-other");
+      assert.equal(env.scope, "other"); return { rows: [] }; },
+  }, { scope: "other" });
+  assert.equal(other.body.accounts.accounts[0].pending_draft_count, 0, "env/actor do not inherit another request");
+  ownerFailure = true;
+  const partial = await read("/api/accounts?include=decisions-inbox");
+  assert.equal(partial.body.accounts.status, "partial");
+  assert.equal(partial.body.accounts.accounts[0].pending_draft_count, 7);
+  assert.equal(partial.body.accounts.accounts[0].pending_decision_count, null);
+  assert.equal(partial.body.inbox.status, "read_failed");
+  assert.equal(partial.body.inbox.sources.find(source => source.source === "owner").status, "read_failed");
+  assert.equal(JSON.stringify(partial.body).includes("private_source_sentinel_must_not_escape"), false);
+  assert.deepEqual(partial.body.accounts, (await read("/api/accounts")).body, "original partial/error semantics preserved");
+  ownerFailure = false;
+  credentialForbidden = true;
+  const forbiddenSource = await read("/api/accounts?include=decisions-inbox");
+  assert.equal(forbiddenSource.body.inbox.status, "read_failed");
+  assert.deepEqual(forbiddenSource.body.inbox, (await read("/api/decisions-inbox")).body,
+    "a nested source 403 retains the original inbox classification");
+  credentialForbidden = false;
+  const beforeDenied = { ...counts };
+  assert.equal((await read("/api/accounts?include=decisions-inbox", {
+    ...deps, readSession: async () => ({ allowed: false }),
+  })).status, 401);
+  assert.deepEqual(counts, beforeDenied, "outer authentication fails before source reads");
+  for (const query of ["include=wrong", "include=decisions-inbox&include=decisions-inbox",
+    "include=decisions-inbox&material=synthetic", "include=decisions-inbox&cursor=0"]) {
+    assert.equal((await read(`/api/accounts?${query}`)).status, 400);
+    assert.deepEqual(counts, beforeDenied, "invalid combined queries do not reach source ports");
+  }
+  authoritativeFailure = true;
+  const failed = await read("/api/accounts?include=decisions-inbox");
+  assert.equal(failed.status, 503);
+  assert.equal(Object.hasOwn(failed.body, "accounts"), false, "authoritative failure does not fabricate accounts");
+  assert.equal(counts.outbound, 0);
+} finally {
+  globalThis.fetch = nativeFetch;
+}
+console.log("accounts_inbox_route_counts: PASS (synthetic source ports; not live KV measurements)");
