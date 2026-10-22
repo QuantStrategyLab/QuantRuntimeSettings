@@ -15,8 +15,8 @@ try {
     import { renderToStaticMarkup } from 'react-dom/server';
     import { ReturnsCard } from './src/pages/performance/ReturnsCard';
     import { I18nProvider } from './src/i18n';
-    export const render = language => renderToStaticMarkup(createElement(I18nProvider, { language },
-      createElement(ReturnsCard, { scope: 'all', range: 'ALL', epoch: 0 })));`,
+    export const render = (language, scope = 'all') => renderToStaticMarkup(createElement(I18nProvider, { language },
+      createElement(ReturnsCard, { scope, range: 'ALL', epoch: 0 })));`,
     resolveDir: root }, bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", define: { "import.meta.env": "{}" },
     plugins: [{ name: "controlled-read", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents:
@@ -32,37 +32,75 @@ try {
     "标普500": "S&P 500", "纳斯达克100": "Nasdaq-100",
     "道琼斯工业平均指数": "Dow Jones Industrial Average", "罗素2000": "Russell 2000",
   };
+  const benchmarkIds = Object.keys(benchmarkLabels);
+  const benchmarkSeries = benchmarkIds.map(id => ({ id, points: mixedReturns.per_currency[1].points }));
+  const twrPoints = mixedReturns.per_currency[1].points;
+  const setReturns = value => { globalThis.__gapReturns = value; globalThis.__gapCharts = []; };
+
   for (const language of ["zh", "en"]) {
-    const benchmarks = Object.keys(benchmarkLabels).map(id => ({ id, points: mixedReturns.per_currency[1].points }));
-    globalThis.__gapReturns = { ...mixedReturns, per_currency: mixedReturns.per_currency.map(entry => ({ ...entry,
-      benchmarks: entry.currency === "USDT" ? benchmarks : entry.benchmarks })) };
-    globalThis.__gapCharts = [];
+    // 1. Mixed-currency USDT entry: currency switch, asset balance, no US-equity benchmarks.
+    setReturns({ ...mixedReturns, per_currency: mixedReturns.per_currency.map(entry => ({ ...entry,
+      benchmarks: entry.currency === "USDT" ? benchmarkSeries : entry.benchmarks })) });
     const html = render(language);
-    assert.equal(globalThis.__gapCharts.length, 1, "a mixed-currency aggregate must not hide the valid USDT group");
+    assert.equal(globalThis.__gapCharts.length, 1, "one curve for the selected currency");
+    assert.equal(globalThis.__gapCharts[0].series.length, 1, "crypto asset balance never overlays US benchmarks");
     assert.equal(globalThis.__gapCharts[0].series[0].points.length, 7);
+    assert.equal(globalThis.__gapCharts[0].series[0].label, language === "zh" ? "组合 · USDT" : "Portfolio · USDT",
+      "legend uses the portfolio name and currency, not 本范围");
+    assert.ok(html.includes(">USD</button>") && html.includes(">USDT</button>"), "currency switch renders both currencies");
+    assert.ok(html.includes(language === "zh" ? 'aria-label="币种"' : 'aria-label="Currency"'), "currency switch is labelled");
+    assert.ok(html.includes(language === "zh" ? "资产余额" : "Asset balance"), "unadjusted curve is labelled as asset balance");
+    assert.ok(!html.includes(language === "zh" ? "时间加权收益率（TWR）" : "Time-weighted return (TWR)"));
+    assert.doesNotMatch(html, /非 TWR|未经出入金|not TWR|unadjusted for cash flows/i);
+    assert.ok(html.includes(language === "zh" ? "加密账户按 7×24 交易" : "Crypto accounts trade 24/7"),
+      "crypto explains why US benchmarks are absent");
+    for (const label of Object.values(benchmarkLabels)) assert.ok(!html.includes(label), "no US index label for a crypto entry");
+    assert.doesNotMatch(html, /perf-currency-block/);
+    assert.doesNotMatch(html, /state\.|reason\.|perf\./);
+
+    // 2. Store failure cannot be bypassed by retained currency groups.
+    setReturns({ ...mixedReturns, status: "unavailable", unavailable_reason: "stored_records_unreadable" });
+    render(language);
+    assert.equal(globalThis.__gapCharts.length, 0);
+    setReturns({ ...mixedReturns, per_currency: [] });
+    assert.doesNotMatch(render(language), /perf-currency-switch/);
+
+    // 3. Qualified TWR in USD: one or two relevant US benchmarks are visible by default; the rest are opt-in.
+    setReturns({ ...mixedReturns, status: "ok", unavailable_reason: null, per_currency: [], currency: "USD",
+      return_kind: "twr", points: twrPoints, aligned_start: "2026-10-09", no_common_date: false, benchmarks: benchmarkSeries,
+      benchmark_availability: benchmarkIds.map(id => ({ id, status: "ok", unavailable_reason: null, as_of: "2026-10-15" })) });
+    const twrHtml = render(language);
+    assert.equal(globalThis.__gapCharts[0].series.length, 5, "account plus four benchmark series");
+    assert.deepEqual(globalThis.__gapCharts[0].defaultVisible, ["纳斯达克100", "标普500"],
+      "US equity defaults to two relevant benchmarks; Dow/Russell stay opt-in");
     for (const series of globalThis.__gapCharts[0].series.slice(1))
       assert.equal(series.label, language === "zh" ? series.id : benchmarkLabels[series.id], "localize real benchmark ids without changing identity");
-    assert.match(html, /USD<\/h3>/);
-    assert.match(html, /USDT<\/h3>/);
-    assert.ok(html.includes(language === "zh" ? "非 TWR" : "not TWR"));
-    assert.ok(!html.includes(language === "zh" ? "时间加权收益率（TWR）" : "Time-weighted return (TWR)"));
-    assert.doesNotMatch(html, /state\.|reason\.|perf\./);
-    globalThis.__gapReturns = { ...mixedReturns, status: "unavailable", unavailable_reason: "stored_records_unreadable" };
-    globalThis.__gapCharts = [];
-    render(language);
-    assert.equal(globalThis.__gapCharts.length, 0, "a store failure cannot be bypassed by retained groups");
-    globalThis.__gapReturns = { ...mixedReturns, per_currency: [] };
-    assert.doesNotMatch(render(language), /perf-currency-block/);
-    globalThis.__gapReturns = { ...mixedReturns, status: "partial", unavailable_reason: "external_cashflow_required",
-      no_common_date: false, per_currency: [], points: mixedReturns.per_currency[1].points, benchmarks: [],
-      benchmark_availability: [{ id: "标普500", status: "unavailable", unavailable_reason: "benchmark_history_unreadable" }] };
+    assert.ok(twrHtml.includes(language === "zh" ? "时间加权收益率（TWR）" : "Time-weighted return (TWR)"));
+    assert.ok(!twrHtml.includes(language === "zh" ? "资产余额 · 未与基准比较" : "Asset balance · no benchmark comparison"));
+    if (language === "en") assert.doesNotMatch(twrHtml, /[一-鿿]/);
+
+    // 4. A missing default benchmark is reported honestly; the account curve still renders.
+    setReturns({ ...mixedReturns, status: "partial", unavailable_reason: "external_cashflow_required", per_currency: [],
+      currency: "USD", return_kind: "twr", points: twrPoints, aligned_start: "2026-10-09", no_common_date: false, benchmarks: [],
+      benchmark_availability: [{ id: "标普500", status: "unavailable", unavailable_reason: "benchmark_history_unreadable", as_of: null }] });
     const disabled = render(language);
     assert.ok(disabled.includes(language === "zh" ? "标普500" : "S&amp;P 500"), "disabled benchmark labels use the same locale");
-    if (language === "en") assert.doesNotMatch(disabled, /[\u4e00-\u9fff]/);
+    assert.equal(globalThis.__gapCharts[0].series.length, 1);
+    if (language === "en") assert.doesNotMatch(disabled, /[一-鿿]/);
+
+    // 5. Crypto scope: even a qualified TWR is never compared with US equity indices.
+    setReturns({ ...mixedReturns, status: "ok", unavailable_reason: null, per_currency: [], currency: "USDT",
+      return_kind: "twr", points: twrPoints, aligned_start: "2026-10-09", no_common_date: false, benchmarks: benchmarkSeries,
+      benchmark_availability: benchmarkIds.map(id => ({ id, status: "ok", unavailable_reason: null, as_of: "2026-10-15" })) });
+    const cryptoTwr = render(language, "binance:main");
+    assert.equal(globalThis.__gapCharts[0].series.length, 1, "crypto scope suppresses every US benchmark series");
+    assert.ok(cryptoTwr.includes(language === "zh" ? "加密账户按 7×24 交易" : "Crypto accounts trade 24/7"));
+    for (const label of Object.values(benchmarkLabels)) assert.ok(!cryptoTwr.includes(label));
+    assert.doesNotMatch(cryptoTwr, /state\.|reason\.|perf\./);
   }
 } finally {
   delete globalThis.__gapReturns;
   delete globalThis.__gapCharts;
   await rm(directory, { recursive: true, force: true });
 }
-console.log("console_returns_adapter_validation: PASS (zh/en, 7 USDT points, no TWR, failed/empty groups)");
+console.log("console_returns_adapter_validation: PASS (zh/en, currency switch, asset-balance labelling, crypto benchmark suppression, two US defaults, failed/empty groups)");

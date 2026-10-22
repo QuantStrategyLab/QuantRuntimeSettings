@@ -33,6 +33,7 @@ import { latestAssetBalance } from "../../lib/performance";
 import { renderableStatus } from "../../lib/status";
 import { useNavigate, useScope } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
+import { useScopeLabel } from "../../lib/useScopeLabel";
 import {
   AsOfStamp,
   DateText,
@@ -213,8 +214,10 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
 function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
   const t = useT();
   const navigate = useNavigate();
+  const scopeLabel = useScopeLabel();
   const open = () => navigate({ page: "performance" });
   let body: ReactNode;
+  let title = t("overview.equity_trend");
   let note: ReactNode = null;
   if (state.phase === "loading") {
     body = <Skeleton height={220} />;
@@ -222,11 +225,14 @@ function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
     body = <ErrorState onRetry={state.reload} />;
   } else {
     const data = state.data;
+    // An unadjusted asset ratio is not a return: label the balance curve honestly and never call it TWR.
+    const returnQualified = data.return_kind === "twr" && classifyCashflowMethod(data) !== "unknown";
+    if (!returnQualified) title = t("perf.asset_balance_title");
     if (usable(data.status) && data.points.length > 0) {
       const series: ChartSeries[] = [
-        { id: "main", label: t("perf.returns_main_series"), color: "var(--accent)", points: data.points, primary: true },
+        { id: "main", label: scopeLabel, color: "var(--accent)", points: data.points, primary: true },
       ];
-      body = <LineChart series={series} mode="cumulative" ariaLabel={t("overview.equity_trend")} />;
+      body = <LineChart series={series} mode="cumulative" ariaLabel={title} alignStart={data.aligned_start} />;
     } else {
       // The reason line lives in the page-level metric note (shared with the KPI cards) to avoid repeating it here.
       body = (
@@ -257,7 +263,7 @@ function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
       }}
     >
       <div className="overview-card-head">
-        <h2 className="card-title">{t("overview.equity_trend")}</h2>
+        <h2 className="card-title">{title}</h2>
         <span className="card-note">{t("overview.open_performance")} →</span>
       </div>
       {body}
