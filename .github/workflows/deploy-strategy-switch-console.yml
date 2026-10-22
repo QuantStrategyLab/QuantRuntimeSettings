@@ -231,7 +231,7 @@ jobs:
             const body = JSON.parse(text);
             if (body?.success !== true || (body.errors !== undefined && (!Array.isArray(body.errors) || body.errors.length))) fail();
             const kind = x => x === null ? 'null' : Array.isArray(x) ? 'array' : typeof x;
-            const keys = ['resources','metadata','number','annotations','startup_time_ms','bindings','script','script_runtime','etag','handlers','last_deployed_from','placement_mode','compatibility_date','compatibility_flags','usage_model','limits','migration_tag','exports','name','type','namespace_id','class_name','script_name','environment','text','json','dispatch_namespace','id','raw','tag','version_id','secret_name','store_id'];
+            const keys = ['resources','metadata','number','annotations','startup_time_ms','bindings','script','script_runtime','etag','handlers','named_handlers','last_deployed_from','placement_mode','compatibility_date','compatibility_flags','usage_model','limits','migration_tag','exports','name','type','namespace_id','class_name','script_name','environment','text','json','dispatch_namespace','id','raw','tag','version_id','secret_name','store_id'];
             const shape = x => {
               if (!x || kind(x) !== 'object') return { kind: kind(x) };
               const entries = Object.entries(x); if (entries.length > 128) fail();
@@ -730,12 +730,26 @@ jobs:
               if (!value || Object.keys(value).some(key => !['bindings', 'script', 'script_runtime'].includes(key))
                 || !Array.isArray(value.bindings) || !value.bindings.length || value.bindings.length > 128 || !runtime || !script
                 || Object.keys(runtime).some(key => !['compatibility_date', 'compatibility_flags', 'usage_model', 'limits', 'migration_tag', 'exports'].includes(key))
-                || Object.keys(script).some(key => !['etag', 'handlers', 'last_deployed_from', 'placement_mode'].includes(key))
+                || Object.keys(script).some(key => !['etag', 'handlers', 'named_handlers', 'last_deployed_from', 'placement_mode'].includes(key))
                 || typeof script.etag !== 'string' || !script.etag || script.etag.length > 256
                 || !(script.handlers === null || (Array.isArray(script.handlers) && script.handlers.every(x => typeof x === 'string')))
                 || !/^\d{4}-\d{2}-\d{2}$/.test(runtime.compatibility_date ?? '')
                 || (runtime.compatibility_flags !== undefined && (!Array.isArray(runtime.compatibility_flags) || runtime.compatibility_flags.some(x => typeof x !== 'string')))
                 || !['standard', 'bundled', 'unbound'].includes(runtime.usage_model)) fail();
+              // Current API also reports named exports (including DO classes).
+              // Validate their identity/handler shape and compare them below; do
+              // not discard this field merely to accept a newer response schema.
+              if (script.named_handlers !== undefined) {
+                if (!Array.isArray(script.named_handlers) || script.named_handlers.length > 128) fail();
+                const exports = new Set();
+                for (const item of script.named_handlers) {
+                  if (!item || Object.keys(item).some(key => !['name', 'handlers'].includes(key))
+                    || typeof item.name !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(item.name) || exports.has(item.name)
+                    || (item.handlers !== undefined && (!Array.isArray(item.handlers) || item.handlers.length > 32
+                      || item.handlers.some(handler => typeof handler !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(handler))))) fail();
+                  exports.add(item.name);
+                }
+              }
               const names = new Set();
               for (const binding of value.bindings) {
                 if (!binding || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(binding.name ?? '') || names.has(binding.name)
@@ -776,7 +790,9 @@ jobs:
             if (uploaded === prior) fail();
             stage = 'uploaded_configuration'; const next = resources(await request(`/versions/${uploaded}`), uploaded);
             const comparable = value => ({ bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
-              script_runtime: value.script_runtime, handlers: value.script.handlers, placement_mode: value.script.placement_mode ?? null });
+              script_runtime: value.script_runtime, handlers: value.script.handlers,
+              named_handlers: value.script.named_handlers === undefined ? null : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name)),
+              placement_mode: value.script.placement_mode ?? null });
             if (canonical(comparable(next)) !== canonical(comparable(old)) || next.script.etag === old.script.etag) fail();
             // Same-Worker workflow concurrency serializes our release controls. These fresh
             // GETs detect observed external drift; Cloudflare offers no compare-and-swap

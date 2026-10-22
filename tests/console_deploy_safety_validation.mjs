@@ -100,8 +100,8 @@ async function schemaCase(payload, expected=true, status=200, env={}) {
  assert.ok(!JSON.stringify({stdout,stderr}).includes(secret));assert.ok(!JSON.stringify({stdout,stderr}).includes("a".repeat(32)));schemaCases++;
  return stdout.length?JSON.parse(stdout[0]):JSON.parse(stderr[0]);
 }
-const schemaFixture={success:true,result:{id:"2beea000-cce5-43a5-9255-9724f7318e83",resources:{bindings:[{name:"PRIVATE_SCHEMA_SENTINEL",type:"kv_namespace",namespace_id:"PRIVATE_SCHEMA_SENTINEL"},{name:"OTHER",type:"secret_text",text:"PRIVATE_SCHEMA_SENTINEL"}],script:{etag:"PRIVATE_SCHEMA_SENTINEL",handlers:["fetch"]},script_runtime:{compatibility_date:"2026-06-08",usage_model:"standard"}}}};
-const projected=await schemaCase(schemaFixture);assert.equal(projected.binding_count,2);assert.equal(projected.binding_categories[0].shape.fields.namespace_id,"string");
+const schemaFixture={success:true,result:{id:"2beea000-cce5-43a5-9255-9724f7318e83",resources:{bindings:[{name:"PRIVATE_SCHEMA_SENTINEL",type:"kv_namespace",namespace_id:"PRIVATE_SCHEMA_SENTINEL"},{name:"OTHER",type:"secret_text",text:"PRIVATE_SCHEMA_SENTINEL"}],script:{etag:"PRIVATE_SCHEMA_SENTINEL",handlers:["fetch"],named_handlers:[{name:"PRIVATE_SCHEMA_SENTINEL",handlers:[]}]},script_runtime:{compatibility_date:"2026-06-08",usage_model:"standard"}}}};
+const projected=await schemaCase(schemaFixture);assert.equal(projected.script.fields.named_handlers,"array");assert.equal(projected.binding_count,2);assert.equal(projected.binding_categories[0].shape.fields.namespace_id,"string");
 const wrongId=structuredClone(schemaFixture);wrongId.result.id="PRIVATE_SCHEMA_SENTINEL";assert.equal((await schemaCase(wrongId)).result_id_matches,false);
 const unknownSchema=structuredClone(schemaFixture);unknownSchema.result.resources.PRIVATE_SCHEMA_SENTINEL="PRIVATE_SCHEMA_SENTINEL";unknownSchema.result.resources.bindings[0].type="PRIVATE_SCHEMA_SENTINEL";
 assert.equal((await schemaCase(unknownSchema)).resources.unknown_fields,1);
@@ -272,7 +272,7 @@ const remoteBindings=[{name:"STRATEGY_SWITCH_CONFIG",type:"kv_namespace",namespa
  {name:"STRATEGY_SWITCH_RUNTIME_INSTANCES",type:"durable_object_namespace",namespace_id:"c".repeat(32),class_name:"RuntimeInstances"},
  {name:"FLAG",type:"plain_text",text:privateRelease},{name:"DATA",type:"json",json:{private:privateRelease}},{name:"SECRET",type:"secret_text"}];
 const runtime={compatibility_date:"2026-06-08",compatibility_flags:[],usage_model:"standard",limits:{},migration_tag:"runtime-instances-v1",exports:{RuntimeInstances:{type:"durable-object",storage:"sqlite"}}};
-const resource=etag=>({bindings:structuredClone(remoteBindings),script_runtime:structuredClone(runtime),script:{etag,handlers:["fetch","scheduled"],last_deployed_from:"api"}});
+const resource=etag=>({bindings:structuredClone(remoteBindings),script_runtime:structuredClone(runtime),script:{etag,handlers:["fetch","scheduled"],named_handlers:[{name:"RuntimeInstances",handlers:[]}],last_deployed_from:"api"}});
 const wrap=result=>({success:true,errors:[],result}), dep=(id,v)=>({id,strategy:"percentage",versions:[{version_id:v,percentage:100}]});
 const responseSequence=()=>[wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:priorVersion,resources:resource("old-code")}),
  wrap({items:[{id:priorVersion}]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
@@ -311,11 +311,17 @@ for(const [at,change] of [
  [1,x=>{x.result.resources.bindings[0].namespace_id={private:privateRelease};}],
  [1,x=>{delete x.result.resources.bindings[2].text;}],[1,x=>{delete x.result.resources.bindings[3].json;}],
  [1,x=>{x.result.resources.bindings[4].text=privateRelease;}],
+ [1,x=>{x.result.resources.script.named_handlers={};}],
+ [1,x=>{delete x.result.resources.script.named_handlers[0].name;}],
+ [1,x=>{x.result.resources.script.named_handlers[0].handlers="PRIVATE_RELEASE_SENTINEL";}],
+ [1,x=>{x.result.resources.script.named_handlers.push(x.result.resources.script.named_handlers[0]);}],
  [1,x=>{x.result.resources.script_runtime.unknown=privateRelease;}],[1,x=>{x.result.resources.bindings[0].type="service";}],[1,x=>{x.result.resources.assets={};}],
  [2,x=>{x.result.items[0].id=newVersion;}],[3,x=>{x.result.id="untrusted";}],
  [4,x=>{x.result.resources.bindings[0].namespace_id="e".repeat(32);}],[4,x=>{x.result.resources.bindings.pop();}],[4,x=>{x.result.resources.bindings[2].text="different";}],
  [4,x=>{x.result.resources.script_runtime.compatibility_date="2026-06-09";}],[4,x=>{x.result.resources.script_runtime.limits={cpu_ms:1};}],
- [4,x=>{x.result.resources.script_runtime.migration_tag="changed";}],[4,x=>{x.result.resources.script.handlers=["fetch"];}],[4,x=>{x.result.resources.script.etag="old-code";}],
+ [4,x=>{x.result.resources.script_runtime.migration_tag="changed";}],[4,x=>{x.result.resources.script.named_handlers[0].name="ChangedExport";}],
+ [4,x=>{x.result.resources.script.named_handlers[0].handlers=["alarm"];}],
+ [4,x=>{x.result.resources.script.handlers=["fetch"];}],[4,x=>{x.result.resources.script.etag="old-code";}],
  [5,x=>{x.result.deployments[0].versions[0].version_id=newVersion;}],[6,x=>{x.result.items[0].id=priorVersion;}],[7,x=>{x.result.versions[0].percentage=99;}],[8,x=>{x.result.deployments[0].id=priorDeployment;}]
 ])await releaseCase({mutate:r=>change(r[at])},false,at+1);
 for (const corrupt of [b=>{delete b.namespace_id;},b=>{b.namespace_id={private:privateRelease};}]) {
