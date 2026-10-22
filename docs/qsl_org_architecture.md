@@ -1,5 +1,7 @@
 # QSL Org Architecture & Health Checks
 
+[Documentation index](README.md) · [Package architecture](ARCHITECTURE.md). This document covers repository governance and compatibility; read it alongside the package architecture for the consumed revision.
+
 This document defines the repository governance and compatibility boundaries used by QuantRuntimeSettings. It does not report deployed account state or certify trading safety.
 
 For dated research facts, see the existing [P0–P6 reference](QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md).

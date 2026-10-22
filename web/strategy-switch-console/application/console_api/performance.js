@@ -371,7 +371,7 @@ export function performanceBlocks({
   } : {};
   const assetHistories = historyCurves.map(curve => ({
     currency: curve.currency,
-    as_of: curve.as_of,
+    as_of: curve.asset_points.at(-1)?.date || null,
     coverage: curve.coverage,
     status: !curve.asset_points.length ? "no_data"
       : curve.status === "stale" ? "stale"

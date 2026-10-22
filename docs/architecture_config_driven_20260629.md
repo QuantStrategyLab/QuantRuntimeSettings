@@ -1,5 +1,7 @@
 # QuantRuntimeSettings 配置驱动架构设计规范
 
+[English overview and documentation index](README.md#english-overview-of-the-dated-configuration-design)。本文保留 2026-06-29 的设计背景与迁移阶段，不作为当前部署状态或步骤完成证明；当前包架构入口见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
 ## 问题诊断
 
 当前增加一个平台/域/策略需要修改至少 **6 个文件、50+ 处硬编码**，导致 72 次 commit/天。

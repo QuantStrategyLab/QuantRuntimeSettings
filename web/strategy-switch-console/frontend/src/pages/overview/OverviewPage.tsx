@@ -196,8 +196,8 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
     return <KpiCard title={title} value={<KpiState status="read_failed" />} onClick={open} />;
   }
   const data = state.data;
-  const { configured, observed, runs } = data.counts;
-  const value = runs === null ? <span className="flat">—</span> : <>{observed}/{configured}</>;
+  const { configured, observed } = data.counts;
+  const value = observed === 0 ? <KpiState status="no_data" /> : <>{observed}/{configured}</>;
   return (
     <KpiCard
       title={title}
