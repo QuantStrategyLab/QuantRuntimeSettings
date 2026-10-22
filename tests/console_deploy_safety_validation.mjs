@@ -139,6 +139,18 @@ for(const [mutate,flag]of diagnosticCases){
  assert.ok(Object.values(result.contracts).every(x=>typeof x==="boolean"));
  if(flag==="date_ymd")assert.equal(result.contracts.date_midnight_utc,true);
 }
+for(const [item,flag,fieldType]of [
+ [{name:"PRIVATE_SCHEMA_SENTINEL",handlers:null},"named_handler_list_bounds","null"],
+ [{name:"PRIVATE_SCHEMA_SENTINEL",handlers:[123]},"named_handler_identifiers","array"],
+ [{name:null,handlers:[]},"named_name_format","array"],
+ [{name:"PRIVATE_SCHEMA_SENTINEL",handlers:[],PRIVATE_SCHEMA_SENTINEL:"PRIVATE_SCHEMA_SENTINEL"},"named_item_keys","array"],
+]){
+ const changed=structuredClone(validSchema);changed.result.resources.script.named_handlers=[item];
+ const result=await schemaCase(changed);assert.equal(result.contracts[flag],false,flag);
+ assert.equal(result.named_handler_categories[0].shape.fields.handlers,fieldType);
+ assert.equal(result.named_handler_categories[0].count,1);
+ assert.ok(!JSON.stringify(result).includes("PRIVATE_SCHEMA_SENTINEL"));
+}
 
 // Execute the exact selection shell with a fake Git boundary, never checkout the
 // test repository or evaluate any selected Worker. Real object identities are
