@@ -955,10 +955,16 @@ jobs:
             if (!object(deployment) || !Object.hasOwn(deployment, 'id')) fail('missing_id');
             if (!isUuid(deployment.id)) fail('invalid_id');
             const deploymentId = deployment.id;
-            if (deployment.strategy !== 'percentage') fail('invalid_strategy');
-            if (!Array.isArray(deployment.versions) || deployment.versions.length !== 1) fail('invalid_versions');
-            if (deployment.versions[0]?.version_id !== uploaded) fail('version_mismatch');
-            if (deployment.versions[0]?.percentage !== 100) fail('percentage_mismatch');
+            // Wrangler 4.106.0 createDeployment declares a result of { id: string }:
+            // https://github.com/cloudflare/workers-sdk/blob/wrangler%404.106.0/packages/deploy-helpers/src/deploy/helpers/versions-api.ts#L123
+            // Echo fields may be omitted, but present fields (including null) must
+            // match. Only the exact active id/version/100% readback proves success.
+            if (Object.hasOwn(deployment, 'strategy') && deployment.strategy !== 'percentage') fail('invalid_strategy');
+            if (Object.hasOwn(deployment, 'versions')) {
+              if (!Array.isArray(deployment.versions) || deployment.versions.length !== 1) fail('invalid_versions');
+              if (deployment.versions[0]?.version_id !== uploaded) fail('version_mismatch');
+              if (deployment.versions[0]?.percentage !== 100) fail('percentage_mismatch');
+            }
             stage = 'readback'; await active(deploymentId, uploaded);
             console.log(JSON.stringify({ status: 'frontend_release_verified', prior_version: prior, version_id: uploaded,
               deployment_id: deploymentId, percentage: 100, bindings_equal: true, runtime_equal: true,
