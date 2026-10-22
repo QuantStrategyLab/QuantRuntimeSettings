@@ -107,7 +107,14 @@ jobs:
               }
               result.json_parse = true;
               result.envelope_success = body?.success === true;
-              result.envelope_errors_empty = body?.errors === undefined
+              result.errors_type = body?.errors === undefined ? 'absent'
+                : body.errors === null ? 'null' : Array.isArray(body.errors) ? 'array' : typeof body.errors;
+              result.errors_count = Array.isArray(body.errors) ? body.errors.length : null;
+              result.messages_type = body?.messages === undefined ? 'absent'
+                : body.messages === null ? 'null' : Array.isArray(body.messages) ? 'array' : typeof body.messages;
+              result.messages_count = Array.isArray(body.messages) ? body.messages.length : null;
+              // Counts and types only; never print error or message content.
+              result.envelope_errors_empty = body?.errors === undefined || body?.errors === null
                 || (Array.isArray(body.errors) && body.errors.length === 0);
               const value = body?.result;
               result.result_is_object = value !== null && typeof value === 'object' && !Array.isArray(value);
