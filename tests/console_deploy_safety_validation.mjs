@@ -560,9 +560,9 @@ for (const [change, checkpoint] of [
  [x=>{delete x.result;},"missing_id"], [x=>{x.result=null;},"missing_id"],
  [x=>{delete x.result.id;},"missing_id"], [x=>{x.result.id=privateRelease;},"invalid_id"],
  [x=>{x.result.id={token:privateRelease};},"invalid_id"],
- [x=>{delete x.result.strategy;},"invalid_strategy"], [x=>{x.result.strategy=privateRelease;},"invalid_strategy"],
+ [x=>{x.result.strategy=null;},"invalid_strategy"], [x=>{x.result.strategy=privateRelease;},"invalid_strategy"],
  [x=>{x.result.strategy={token:privateRelease};},"invalid_strategy"],
- [x=>{delete x.result.versions;},"invalid_versions"], [x=>{x.result.versions={token:privateRelease};},"invalid_versions"],
+ [x=>{x.result.versions=null;},"invalid_versions"], [x=>{x.result.versions={token:privateRelease};},"invalid_versions"],
  [x=>{x.result.versions=[];},"invalid_versions"], [x=>{x.result.versions.push({percentage:0});},"invalid_versions"],
  [x=>{delete x.result.versions[0].version_id;},"version_mismatch"],
  [x=>{x.result.versions[0].version_id=priorVersion;},"version_mismatch"],
@@ -574,6 +574,41 @@ for (const [change, checkpoint] of [
  [x=>{x.success=false;},"envelope_success"], [x=>{x.errors={token:privateRelease};},"envelope_errors"],
  [x=>{x.errors=[{code:123,message:privateRelease,[privateRelease]:privateRelease}];},"envelope_errors"],
 ]) await activationCase({mutate:r=>change(r[8])},checkpoint);
+// FE-RELEASE-10: Wrangler 4.106.0 types createDeployment's result as { id }.
+// Omitted echo fields require the same exact active id/version/100% readback.
+let omittedActivationCases = 0;
+for (const fields of [["strategy"], ["versions"], ["strategy", "versions"]]) {
+ const omit = r => { for (const field of fields) delete r[8].result[field]; };
+ await activationCase({mutate:omit}); omittedActivationCases++;
+ for (const options of [
+  {failAt:9},
+  {change:x=>{x.success=false;}}, {change:x=>{x.errors=[{message:privateRelease}];}},
+  {change:x=>{x.result.deployments=[];}},
+  {change:x=>{x.result.deployments[0].id=priorDeployment;}},
+  {change:x=>{x.result.deployments[0].versions[0].version_id=priorVersion;}},
+  {change:x=>{x.result.deployments[0].versions[0].percentage=99;}},
+  {change:x=>{x.result.deployments[0].versions[0].percentage="100";}},
+  {change:x=>{x.result.deployments[0].strategy="other";}},
+  {change:x=>{x.result.deployments[0].versions.push({version_id:priorVersion,percentage:0});}},
+ ]) {
+  const run=await releaseCase({failAt:options.failAt,mutate:r=>{omit(r);options.change?.(r[9]);}},false,10);
+  const error=JSON.parse(run.stderr.at(-1));
+  assert.equal(error.stage,"readback");assert.equal(error.outcome,"UNKNOWN_REQUIRES_READBACK");
+  assert.equal(run.calls.filter(call=>call.options.method==="POST").length,2,"readback failure never retries writes");
+  omittedActivationCases++;
+ }
+ // A missing echo field cannot hide a contradictory field or an invalid id/envelope.
+ for (const [change,checkpoint] of [
+  [x=>{x.id=privateRelease;},"invalid_id"],
+  [x=>{x.strategy="other";},"invalid_strategy"],
+  [x=>{x.versions=[];},"invalid_versions"],
+  [x=>{x.versions=[{version_id:priorVersion,percentage:100}];},"version_mismatch"],
+  [x=>{x.versions=[{version_id:newVersion,percentage:99}];},"percentage_mismatch"],
+ ]) { await activationCase({mutate:r=>{omit(r);change(r[8].result);}},checkpoint); omittedActivationCases++; }
+ await activationCase({mutate:r=>{omit(r);r[8].errors=[{message:privateRelease}];}},"envelope_errors");
+ omittedActivationCases++;
+}
+console.log(`FE-RELEASE-10 omitted activation/readback: ${omittedActivationCases} cases passed`);
 const redacted = await activationCase({mutate:r=>{
  const x=r[8]; x[privateRelease]={token:privateRelease,account:privateRelease,url:"https://invalid/?token="+privateRelease};
  x.result.annotations={token:privateRelease};x.result.versions[0].token=privateRelease;
