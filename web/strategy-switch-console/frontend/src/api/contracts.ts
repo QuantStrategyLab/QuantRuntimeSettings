@@ -492,6 +492,8 @@ export interface NotificationReceiptItem {
 }
 export interface NotificationSendLog extends ReadOnlyProjection {
   status: "ok" | "partial" | "read_failed" | "not_connected";
+  read_status?: "complete" | "partial" | "no_data" | "unknown" | "read_failed" | "not_connected";
+  read_reason_codes?: string[];
   unavailable_reason: string | null;
   as_of: string | null;
   items: NotificationReceiptItem[];

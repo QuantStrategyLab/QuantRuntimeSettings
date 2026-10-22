@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc --noEmit && vite build && node scripts/check-budget.mjs",
     "sync:v2-assets": "node scripts/sync-v2-asset-map.mjs",
-    "test:operations": "node --experimental-strip-types ../../../tests/console_v2_operations_validation.mjs && node --experimental-strip-types ../../../tests/console_v2_regressions_validation.mjs && node --experimental-strip-types ../../../tests/console_v2_preferences_accounts_validation.mjs && node --test ../../../tests/fe8b_fix03_ui_validation.mjs && npm run test:performance",
+    "test:operations": "node --experimental-strip-types ../../../tests/console_v2_operations_validation.mjs && node --experimental-strip-types ../../../tests/console_v2_regressions_validation.mjs && node --experimental-strip-types ../../../tests/console_v2_preferences_accounts_validation.mjs && node --test ../../../tests/fe8b_fix03_ui_validation.mjs ../../../tests/console_notification_receipts_ui_validation.mjs && npm run test:performance",
     "dev:synthetic": "node scripts/dev-synthetic.mjs",
     "test:performance": "node --experimental-strip-types ../../../tests/console_performance_math_validation.mjs && node --experimental-strip-types ../../../tests/console_performance_data_validation.mjs"
   },
