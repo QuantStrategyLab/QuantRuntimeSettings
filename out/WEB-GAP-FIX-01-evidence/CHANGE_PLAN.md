@@ -13,11 +13,11 @@
 - included：该账户满足已有纳入条件且 totals.status=by_currency，确实参与现有汇总。
 - blocked：该账户自身具备纳入条件，但整个汇总不可用；reason=`aggregate_` + totals.reason。不得误报已纳入。
 - 缺失/无效快照日期为 null；stale 保留原日期并明确不可纳入，不能当作当前值。真实零金额仍可纳入；缺现金不阻断已知资产。不补0、不沿用旧值、不插值、不换汇、不改变已有 totals/accounts。
-- snapshot GET 的配置/绑定读取抛错必须返回固定脱敏 503（account_options_unreadable / account_facts_bindings_unreadable），不把读失败变成空清单。真实未配置仍保持既有空态。history 不在本卡写集。
+- snapshot GET 的配置/绑定读取抛错必须返回固定脱敏 503（account_options_unreadable / account_facts_bindings_unreadable），不把读失败变成空清单。真实未配置仍保持既有空态。history 不在本卡写集。独审发现真实 binding loader 内部吞错，snapshot GET 需通过可选 propagateReadErrors 参数传播 KV/JSON 错误，其他调用语义保持；补真实 Worker.fetch 回归。
 
 ## 最小写集与验证
 
-产品仅 `account_facts.js`（加法投影）、`application/account_facts/read.js`（snapshot GET 失败语义）；测试扩展既有 `account_facts_totals_validation.mjs` 与 `account_facts_readonly_extract_validation.mjs`，沿既有 CI 执行；更新 Worker README 中英文 API 说明。先执行新增用例观察 RED，再实现，覆盖成功/零/缺现金、模拟/重复/冲突/旧值/缺失/身份不符/独立源/汇总受阻、脱敏及读取失败。执行相关账户事实与 API 回归、配置校验、Python 套件、git diff --check，记录命令和退出码。
+产品仅 `account_facts.js`（加法投影）、`application/account_facts/read.js`（snapshot GET 失败语义）、`worker.js`（仅 snapshot binding loader 严格读取）；测试扩展既有 `account_facts_totals_validation.mjs` 、`account_facts_readonly_extract_validation.mjs` 与 `account_facts_validation.mjs`，沿既有 CI 执行；更新 Worker README 中英文 API 说明。先执行新增用例观察 RED，再实现，覆盖成功/零/缺现金、模拟/重复/冲突/旧值/缺失/身份不符/独立源/汇总受阻、脱敏及读取失败。执行相关账户事实与 API 回归、配置校验、Python 套件、git diff --check，记录命令和退出码。
 
 ## 交付与边界
 
