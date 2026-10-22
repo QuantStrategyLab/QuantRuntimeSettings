@@ -731,7 +731,8 @@ jobs:
           node --input-type=module <<'JS'
           import { readFile } from 'node:fs/promises';
           import { createHash } from 'node:crypto';
-          const fail = () => { throw new Error('frontend_release_stopped'); };
+          let checkpoint = 'configuration';
+          const fail = label => { if (label) checkpoint = label; throw new Error('frontend_release_stopped'); };
           const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value) ? value : fail();
           const canonical = value => JSON.stringify(value, function (_key, item) {
             return item && typeof item === 'object' && !Array.isArray(item)
@@ -744,30 +745,62 @@ jobs:
             const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
             // Fixed host/Worker, bounded response, no pagination or retry. Remote configuration
             // stays in process memory; never write it or include it in an error/receipt.
+            // Allowlisted names only: unknown keys, strategy values and header parameters
+            // can themselves contain credentials. Never serialize raw provider objects.
+            const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+            const safeKeys = (value, allowed) => object(value)
+              ? [...new Set(Object.keys(value).map(key => allowed.includes(key) ? key : '[redacted]'))] : [];
+            const isUuid = value => typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
+            function responseEvidence(body, contentType) {
+              const result = body?.result;
+              console.error(JSON.stringify({ stage, http_status: httpStatus, content_type: contentType,
+                top_level_keys: safeKeys(body, ['success', 'result', 'errors', 'messages', 'result_info']),
+                result_id_present: object(result) && Object.hasOwn(result, 'id'), result_id_uuid: isUuid(result?.id),
+                strategy: result?.strategy === 'percentage' ? 'percentage' : result?.strategy == null ? null : '[redacted]',
+                versions_count: Array.isArray(result?.versions) ? result.versions.length : null,
+                percentages: Array.isArray(result?.versions) ? result.versions.slice(0, 10).map(entry =>
+                  typeof entry?.percentage === 'number' && Number.isFinite(entry.percentage) ? entry.percentage : null) : [],
+                errors_keys: [...new Set((Array.isArray(body?.errors) ? body.errors.slice(0, 10) : [body?.errors])
+                  .flatMap(error => safeKeys(error, ['code', 'message', 'error_chain'])))],
+                errors_count: Array.isArray(body?.errors) ? body.errors.length : body?.errors == null ? 0 : null }));
+            }
             async function request(path, method = 'GET', body) {
-              const response = await fetch(base + path, { method, body, redirect: 'error', signal: AbortSignal.timeout(20000),
-                headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'identity', ...(typeof body === 'string' ? { 'Content-Type': 'application/json' } : {}) } });
-              httpStatus = response.status;
-              if (!response.ok) { await response.body?.cancel(); fail(); }
-              if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
-                || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail();
-              const length = response.headers.get('content-length');
-              if (length !== null && (!/^\d+$/.test(length) || Number(length) > 524288)) fail();
-              const reader = response.body?.getReader(); if (!reader) fail();
-              let size = 0, text = ''; const decoder = new TextDecoder('utf-8', { fatal: true });
+              httpStatus = null;
+              checkpoint = 'request';
+              let evidenceBody = null, contentType = null;
               try {
-                for (;;) {
-                  const { done, value } = await reader.read(); if (done) break;
-                  size += value.byteLength; if (size > 524288) fail();
-                  text += decoder.decode(value, { stream: true });
-                }
-                text += decoder.decode();
-              } finally { await reader.cancel(); }
-              if (length !== null && Number(length) !== size) fail();
-              const result = JSON.parse(text);
-              // The versions list reports errors: null, not []. Both mean no errors.
-              if (result?.success !== true || (result.errors != null && (!Array.isArray(result.errors) || result.errors.length))) fail();
-              return result.result;
+                const response = await fetch(base + path, { method, body, redirect: 'error', signal: AbortSignal.timeout(20000),
+                  headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'identity', ...(typeof body === 'string' ? { 'Content-Type': 'application/json' } : {}) } });
+                httpStatus = response.status;
+                const jsonType = /^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '');
+                contentType = jsonType ? 'application/json' : response.headers.has('content-type') ? '[redacted]' : null;
+                if (!response.ok) { await response.body?.cancel(); fail('http_status'); }
+                if (!jsonType) { await response.body?.cancel(); fail('response_content_type'); }
+                if (!['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail('response_content_encoding');
+                const length = response.headers.get('content-length');
+                if (length !== null && (!/^\d+$/.test(length) || Number(length) > 524288)) fail('response_content_length');
+                const reader = response.body?.getReader(); if (!reader) fail('response_body');
+                let size = 0, text = ''; const decoder = new TextDecoder('utf-8', { fatal: true });
+                try {
+                  for (;;) {
+                    checkpoint = 'response_stream';
+                    const { done, value } = await reader.read(); if (done) break;
+                    size += value.byteLength; if (size > 524288) fail('response_size');
+                    checkpoint = 'response_utf8'; text += decoder.decode(value, { stream: true });
+                  }
+                  checkpoint = 'response_utf8'; text += decoder.decode();
+                } finally { await reader.cancel(); }
+                if (length !== null && Number(length) !== size) fail('response_length_mismatch');
+                checkpoint = 'response_json'; const result = JSON.parse(text);
+                evidenceBody = result;
+                // The versions list reports errors: null, not []. Both mean no errors.
+                if (result?.success !== true) fail('envelope_success');
+                if (result.errors != null && (!Array.isArray(result.errors) || result.errors.length)) fail('envelope_errors');
+                checkpoint = 'result_validation';
+                return result.result;
+              } finally {
+                if (stage === 'activate') responseEvidence(evidenceBody, contentType);
+              }
             }
             async function active(id, version) {
               const value = await request('/deployments?page=1&per_page=10'), list = value?.deployments;
@@ -911,16 +944,20 @@ jobs:
               stage = 'activate'; deployAttempted = true;
               const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
                 versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': 'Reviewed frontend only; fixed e2a backend and retained configuration' } }));
-              const deploymentId = uuid(deployment?.id);
-              if (deployment.strategy !== 'percentage' || !Array.isArray(deployment.versions) || deployment.versions.length !== 1
-                || deployment.versions[0]?.version_id !== uploaded || deployment.versions[0]?.percentage !== 100) fail();
+              if (!object(deployment) || !Object.hasOwn(deployment, 'id')) fail('missing_id');
+              if (!isUuid(deployment.id)) fail('invalid_id');
+              const deploymentId = deployment.id;
+              if (deployment.strategy !== 'percentage') fail('invalid_strategy');
+              if (!Array.isArray(deployment.versions) || deployment.versions.length !== 1) fail('invalid_versions');
+              if (deployment.versions[0]?.version_id !== uploaded) fail('version_mismatch');
+              if (deployment.versions[0]?.percentage !== 100) fail('percentage_mismatch');
               stage = 'readback'; await active(deploymentId, uploaded);
               console.log(JSON.stringify({ status: 'frontend_release_verified', prior_version: prior, version_id: uploaded,
                 deployment_id: deploymentId, percentage: 100, bindings_equal: true, runtime_equal: true,
                 bundle_sha256: bundleSha256, force: false, provider_cas: false }));
             }
           } catch {
-            console.error(JSON.stringify({ error: 'frontend_release_stopped', stage, http_status: httpStatus,
+            console.error(JSON.stringify({ error: 'frontend_release_stopped', stage, checkpoint, http_status: httpStatus,
               upload_attempted: uploadAttempted, deploy_attempted: deployAttempted, uploaded_version: uploaded,
               outcome: deployAttempted ? 'UNKNOWN_REQUIRES_READBACK' : uploadAttempted ? 'UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED' : 'NOT_ATTEMPTED', retry: false }));
             process.exitCode = 1;

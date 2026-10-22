@@ -385,7 +385,7 @@ async function releaseCase({mutate=()=>{},env={},failAt=-1,responseAt=-1,respons
   assert.deepEqual(JSON.parse(stdout[0]),{status:"frontend_release_already_active",deployment_id:priorDeployment,version_id:priorVersion,
    percentage:100,bundle_sha256:createHash("sha256").update(bundle).digest("hex"),upload_attempted:false,deploy_attempted:false});
  } else if(expected){const r=JSON.parse(stdout[0]);assert.equal(r.status,"frontend_release_verified");assert.equal(r.bundle_sha256,createHash("sha256").update(bundle).digest("hex"));assert.equal(r.version_id,newVersion);assert.equal(r.deployment_id,newDeployment);assert.equal(r.bindings_equal,true);assert.equal(r.runtime_equal,true);assert.equal(r.provider_cas,false);}
- else{assert.equal(stdout.length,0);const error=JSON.parse(stderr[0]);assert.equal(error.retry,false);
+ else{assert.equal(stdout.length,0);const error=JSON.parse(stderr.at(-1));assert.equal(error.retry,false);
   assert.equal(error.upload_attempted,!alreadyActive && calls.length>=5);
   assert.equal(error.deploy_attempted,!alreadyActive && calls.length>=9);
  }
@@ -479,6 +479,77 @@ for(const [at,response] of [
  [1,new Response("{}",{headers:{"content-type":"application/json","content-length":"524289"}})],[1,new Response("{}",{headers:{"content-type":"application/json","content-length":"1"}})],
  [1,new Response(new ReadableStream({pull(c){c.error(Error(privateRelease));}}),{headers:{"content-type":"application/json"}})]
 ])await releaseCase({responseAt:at,response},false,at+1);
+
+// FE-RELEASE-03: execute the production parser, preserving all gates and the
+// one-shot write sequence. Only allowlisted response metadata reaches stderr.
+let activationCases = 0;
+async function activationCase(options = {}, checkpoint = null) {
+ const run = await releaseCase(options, checkpoint === null, checkpoint === null ? 10 : 9);
+ const records = run.stderr.map(line => JSON.parse(line));
+ const evidence = records[0];
+ assert.equal(evidence.stage, "activate");
+ assert.deepEqual(Object.keys(evidence).sort(), ["stage", "http_status", "content_type", "top_level_keys",
+  "result_id_present", "result_id_uuid", "strategy", "versions_count", "percentages", "errors_keys", "errors_count"].sort());
+ assert.ok(!JSON.stringify(records).includes(newDeployment), "evidence never emits the deployment id");
+ if (checkpoint !== null) {
+  const error = records.at(-1);
+  assert.equal(error.checkpoint, checkpoint);
+  assert.equal(error.stage, "activate");
+  assert.equal(error.outcome, "UNKNOWN_REQUIRES_READBACK");
+  assert.equal(error.retry, false);
+  assert.equal(run.stdout.length, 0, "UNKNOWN must never produce a success receipt");
+  assert.equal(run.calls.filter(call => call.options.method === "POST").length, 2, "no retry or compensating write");
+ } else assert.equal(records.length, 1);
+ activationCases++;
+ return evidence;
+}
+const activationEvidence = await activationCase();
+assert.deepEqual(activationEvidence, {stage:"activate",http_status:200,content_type:"application/json",
+ top_level_keys:["success","errors","result"],result_id_present:true,result_id_uuid:true,strategy:"percentage",
+ versions_count:1,percentages:[100],errors_keys:[],errors_count:0});
+for (const [change, checkpoint] of [
+ [x=>{delete x.result;},"missing_id"], [x=>{x.result=null;},"missing_id"],
+ [x=>{delete x.result.id;},"missing_id"], [x=>{x.result.id=privateRelease;},"invalid_id"],
+ [x=>{x.result.id={token:privateRelease};},"invalid_id"],
+ [x=>{delete x.result.strategy;},"invalid_strategy"], [x=>{x.result.strategy=privateRelease;},"invalid_strategy"],
+ [x=>{x.result.strategy={token:privateRelease};},"invalid_strategy"],
+ [x=>{delete x.result.versions;},"invalid_versions"], [x=>{x.result.versions={token:privateRelease};},"invalid_versions"],
+ [x=>{x.result.versions=[];},"invalid_versions"], [x=>{x.result.versions.push({percentage:0});},"invalid_versions"],
+ [x=>{delete x.result.versions[0].version_id;},"version_mismatch"],
+ [x=>{x.result.versions[0].version_id=priorVersion;},"version_mismatch"],
+ [x=>{x.result.versions[0].version_id={token:privateRelease};},"version_mismatch"],
+ [x=>{delete x.result.versions[0].percentage;},"percentage_mismatch"],
+ [x=>{x.result.versions[0].percentage="100";},"percentage_mismatch"],
+ [x=>{x.result.versions[0].percentage={token:privateRelease};},"percentage_mismatch"],
+ [x=>{x.result.versions[0].percentage=99;},"percentage_mismatch"],
+ [x=>{x.success=false;},"envelope_success"], [x=>{x.errors={token:privateRelease};},"envelope_errors"],
+ [x=>{x.errors=[{code:123,message:privateRelease,[privateRelease]:privateRelease}];},"envelope_errors"],
+]) await activationCase({mutate:r=>change(r[8])},checkpoint);
+const redacted = await activationCase({mutate:r=>{
+ const x=r[8]; x[privateRelease]={token:privateRelease,account:privateRelease,url:"https://invalid/?token="+privateRelease};
+ x.result.annotations={token:privateRelease};x.result.versions[0].token=privateRelease;
+}});
+assert.ok(redacted.top_level_keys.includes("[redacted]"));
+const redactedErrors = await activationCase({mutate:r=>{r[8].errors=[{code:123,message:privateRelease,[privateRelease]:privateRelease}];}},"envelope_errors");
+assert.deepEqual(redactedErrors.errors_keys,["code","message","[redacted]"]);
+assert.equal(redactedErrors.errors_count,1);
+await activationCase({mutate:r=>{r[8].errors=null;}});
+for (const [response, checkpoint] of [
+ [new Response(privateRelease,{status:403,headers:{"content-type":"text/plain; token="+privateRelease}}),"http_status"],
+ [new Response(privateRelease,{headers:{"content-type":"text/html; token="+privateRelease}}),"response_content_type"],
+ [new Response("{}",{headers:{"content-type":"application/json","content-encoding":"gzip"}}),"response_content_encoding"],
+ [new Response("{}",{headers:{"content-type":"application/json","content-length":"524289"}}),"response_content_length"],
+ [new Response("{}",{headers:{"content-type":"application/json","content-length":"1"}}),"response_length_mismatch"],
+ [new Response("x".repeat(524289),{headers:{"content-type":"application/json"}}),"response_size"],
+ [new Response("{",{headers:{"content-type":"application/json"}}),"response_json"],
+ [new Response(new Uint8Array([255]),{headers:{"content-type":"application/json"}}),"response_utf8"],
+ [new Response(new ReadableStream({pull(c){c.error(Error(privateRelease));}}),{headers:{"content-type":"application/json"}}),"response_stream"],
+ [new Response(null,{status:204,headers:{"content-type":"application/json"}}),"response_body"],
+]) await activationCase({responseAt:8,response},checkpoint);
+await activationCase({failAt:8},"request");
+await activationCase({responseAt:8,response:new Response(JSON.stringify(wrap(dep(newDeployment,newVersion))), {
+ headers:{"content-type":"application/json; token="+privateRelease}})});
+console.log(`FE-RELEASE-03 activation evidence/checkpoints: ${activationCases} cases passed`);
 
 assert.match(rollback, /environment: runtime-strategy-switch/);
 assert.doesNotMatch(rollback, /actions\/checkout|npm ci|worker\.js|secret put|sync-strategy-profiles/);
