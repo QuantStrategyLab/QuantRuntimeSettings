@@ -229,9 +229,15 @@ function NotificationsCard({ epoch }: { epoch: number }) {
   if (state.phase === "loading") return <Skeleton height={72} />;
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
   const log = state.data;
-  if (log.status === "not_connected") return <EmptyState title={t("health.notifications_not_connected")} action={<StatusBadge status="not_connected" />} />;
-  if (log.status === "read_failed") return <ErrorState onRetry={state.reload} />;
-  if (!log.items.length) return <EmptyState title={t("health.notifications_empty")} />;
+  if (log.status === "not_connected" || log.read_status === "not_connected") return <EmptyState title={t("health.notifications_not_connected")} action={<StatusBadge status="not_connected" />} />;
+  if (log.status === "read_failed" || log.read_status === "read_failed") return <ErrorState onRetry={state.reload} />;
+  const incomplete = log.status === "partial" || log.read_status === "partial"
+    || log.read_status === "unknown" || log.truncated === true;
+  if (!log.items.length) return <>
+    {incomplete && <p role="alert">{t("health.notifications_partial")}</p>}
+    <EmptyState title={t(incomplete ? "health.notifications_empty_partial" : "health.notifications_empty")}
+      body={t("health.notifications_scope")} />
+  </>;
   const columns: Column<(typeof log.items)[number]>[] = [
     { id: "date", header: t("health.notification_business_day"), cell: row => row.business_day || "—", sortValue: row => row.business_day },
     { id: "status", header: t("common.status"), cell: row => <>
@@ -257,7 +263,7 @@ function NotificationsCard({ epoch }: { epoch: number }) {
       <summary>{t("health.notes")}</summary>
       <p>{t("health.notifications_scope")}</p>
     </details>
-    {log.status === "partial" && <p role="alert">{t("health.notifications_partial")}</p>}
+    {incomplete && <p role="alert">{t("health.notifications_partial")}</p>}
     <p className="scroll-hint">{t("health.table_scroll_hint")}</p>
     <div className="health-notifications"><DataTable columns={columns} rows={log.items} rowKey={row => row.id} caption={t("health.notifications_title")} /></div>
   </>;
