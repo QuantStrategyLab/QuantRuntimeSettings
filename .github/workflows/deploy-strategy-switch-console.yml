@@ -774,8 +774,8 @@ jobs:
                 httpStatus = response.status;
                 const jsonType = /^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '');
                 contentType = jsonType ? 'application/json' : response.headers.has('content-type') ? '[redacted]' : null;
-                if (!response.ok) { await response.body?.cancel(); fail('http_status'); }
-                if (!jsonType) { await response.body?.cancel(); fail('response_content_type'); }
+                if (!response.ok) { checkpoint = 'http_status'; await response.body?.cancel(); fail(); }
+                if (!jsonType) { checkpoint = 'response_content_type'; await response.body?.cancel(); fail(); }
                 if (!['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail('response_content_encoding');
                 const length = response.headers.get('content-length');
                 if (length !== null && (!/^\d+$/.test(length) || Number(length) > 524288)) fail('response_content_length');

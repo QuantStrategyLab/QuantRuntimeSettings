@@ -536,6 +536,10 @@ assert.equal(redactedErrors.errors_count,1);
 await activationCase({mutate:r=>{r[8].errors=null;}});
 for (const [response, checkpoint] of [
  [new Response(privateRelease,{status:403,headers:{"content-type":"text/plain; token="+privateRelease}}),"http_status"],
+ [new Response(new ReadableStream({start(c){c.error(Error(privateRelease));}}),
+  {status:403,headers:{"content-type":"application/json"}}),"http_status"],
+ [new Response(new ReadableStream({start(c){c.error(Error(privateRelease));}}),
+  {headers:{"content-type":"text/html"}}),"response_content_type"],
  [new Response(privateRelease,{headers:{"content-type":"text/html; token="+privateRelease}}),"response_content_type"],
  [new Response("{}",{headers:{"content-type":"application/json","content-encoding":"gzip"}}),"response_content_encoding"],
  [new Response("{}",{headers:{"content-type":"application/json","content-length":"524289"}}),"response_content_length"],
