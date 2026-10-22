@@ -16,4 +16,15 @@ P1：真实 binding 读取错误仍伪装为未配置。`application/account_fac
 
 ## 修正后增量复审
 
-待同一非作者审查者返回准确修正 head 的结论。
+结论：**PASS**。准确比较 `fa20266bb540d8bdccb5bb6a6323ae14dbf70f26..d404fb3e63ff3295d5d526fed27ea10ce0fd507d`。同一审查者确认 P1 修正：snapshot GET 严格 loader 的 KV/JSON 错误均固定脱敏 503；键不存在仍 200 未配置，其他调用保持默认行为，无新增缺陷。结合初审未受影响部分结论，本卡实现通过非作者独审。
+
+独立命令均 exit0：
+
+- `node tests/account_facts_validation.mjs`（含实际 Worker/Miniflare 与 coverage）
+- `node tests/account_facts_readonly_extract_validation.mjs`
+- `node tests/account_facts_sync_extract_validation.mjs`
+- `node --check web/strategy-switch-console/worker.js`
+- `git diff --check fa20266bb540d8bdccb5bb6a6323ae14dbf70f26 d404fb3e63ff3295d5d526fed27ea10ce0fd507d`
+- 原独立 `node --input-type=module` Worker.fetch 合成探针扩展三情形：throw→503、invalid_json→503、missing→200；错误响应无原异常正文，前两者未继续读取快照。
+
+沿用初审对来源、日期、纳入一致性及权限边界的结论。Skill 同上。审查者未修改文件、远端写入或部署。
