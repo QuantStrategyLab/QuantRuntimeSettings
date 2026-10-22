@@ -249,9 +249,46 @@ jobs:
                 if (found) found.count++; else categories.push({ signature, type, shape: fields, count: 1 });
               }
             }
+            // Fixed booleans identify the rejecting contract without revealing
+            // configuration values, binding identities or arbitrary field names.
+            const runtime = resources?.script_runtime, script = resources?.script;
+            const object = x => !!x && kind(x) === 'object';
+            const only = (x, keys) => object(x) && Object.keys(x).every(key => keys.includes(key));
+            const identifier = x => typeof x === 'string' && /^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(x);
+            const bindingName = x => typeof x === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(x);
+            const hex = x => typeof x === 'string' && /^[0-9a-f]{32}$/i.test(x);
+            const bounded = (x, n) => typeof x === 'string' && !!x && x.length <= n;
+            const list = Array.isArray(bindings) && bindings.length > 0 && bindings.length <= 128 ? bindings : null;
+            const all = check => !!list && list.every(check);
+            const named = script?.named_handlers;
+            const contracts = {
+              resources_keys: only(resources, ['bindings','script','script_runtime']),
+              runtime_keys: only(runtime, ['compatibility_date','compatibility_flags','usage_model','limits','migration_tag','exports']),
+              script_keys: only(script, ['etag','handlers','named_handlers','last_deployed_from','placement_mode']),
+              binding_list_bounds: !!list,
+              etag_bounds: bounded(script?.etag, 256),
+              default_handlers: script?.handlers === null || (Array.isArray(script?.handlers) && script.handlers.every(x => typeof x === 'string')),
+              date_ymd: typeof runtime?.compatibility_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(runtime.compatibility_date),
+              date_midnight_utc: typeof runtime?.compatibility_date === 'string' && /^\d{4}-\d{2}-\d{2}T00:00:00(?:\.0{1,3})?Z$/.test(runtime.compatibility_date),
+              compatibility_flags: runtime?.compatibility_flags === undefined || (Array.isArray(runtime.compatibility_flags) && runtime.compatibility_flags.every(x => typeof x === 'string')),
+              usage_model: ['standard','bundled','unbound'].includes(runtime?.usage_model),
+              named_handlers: named === undefined || (Array.isArray(named) && named.length <= 128 && named.every(item => only(item,['name','handlers']) && identifier(item.name) && (item.handlers === undefined || (Array.isArray(item.handlers) && item.handlers.length <= 32 && item.handlers.every(identifier)))) && new Set(named.map(item => item.name)).size === named.length),
+              binding_names: all(b => object(b) && bindingName(b.name)),
+              binding_names_unique: !!list && new Set(list.map(b => b?.name)).size === list.length,
+              binding_types: all(b => ['plain_text','json','secret_text','kv_namespace','durable_object_namespace'].includes(b?.type)),
+              kv_namespace_hex: all(b => b?.type !== 'kv_namespace' || hex(b.namespace_id)),
+              do_namespace_hex: all(b => b?.type !== 'durable_object_namespace' || hex(b.namespace_id)),
+              do_class_name: all(b => b?.type !== 'durable_object_namespace' || identifier(b.class_name)),
+              do_optional_references: all(b => b?.type !== 'durable_object_namespace' || ['script_name','environment','dispatch_namespace'].every(key => b[key] === undefined || bounded(b[key],128))),
+              plain_text_bounds: all(b => b?.type !== 'plain_text' || (typeof b.text === 'string' && b.text.length <= 131072)),
+              json_present: all(b => b?.type !== 'json' || Object.hasOwn(b,'json')),
+              secret_shape: all(b => b?.type !== 'secret_text' || only(b,['name','type'])),
+              required_kv: !!list && list.some(b => b?.name === 'STRATEGY_SWITCH_CONFIG' && b.type === 'kv_namespace'),
+              required_do: !!list && list.some(b => b?.name === 'STRATEGY_SWITCH_RUNTIME_INSTANCES' && b.type === 'durable_object_namespace'),
+            };
             console.log(JSON.stringify({ status: 'frontend_schema_categories', version_id: '2beea000-cce5-43a5-9255-9724f7318e83', result_id_matches: body.result?.id === '2beea000-cce5-43a5-9255-9724f7318e83', result: shape(body.result), resources: shape(resources),
               binding_container: kind(bindings), binding_count: Array.isArray(bindings) ? bindings.length : null,
-              binding_categories: categories.map(({ signature, ...item }) => item), script: shape(resources?.script), runtime: shape(resources?.script_runtime),
+              binding_categories: categories.map(({ signature, ...item }) => item), script: shape(resources?.script), runtime: shape(resources?.script_runtime), contracts,
               writes: 0, retry: false }));
           } catch {
             console.error(JSON.stringify({ error: 'frontend_schema_readback_failed', http_status: httpStatus, writes: 0, retry: false })); process.exitCode = 1;
