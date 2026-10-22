@@ -771,6 +771,50 @@ export function aggregateAccountFactsTotals(accountRows, physicalIdentities = ne
   };
 }
 
+// Membership in this endpoint's existing totals, not performance/history coverage.
+function accountFactsAssetCoverage(accounts, totals) {
+  return {
+    scope: "account_facts_totals",
+    source: "validated_account_facts_snapshot",
+    totals_status: totals.status,
+    totals_reason: totals.reason,
+    accounts: accounts.map(row => {
+      let status = "unavailable";
+      let reason;
+      if (row.broker_environment === "paper" || row.account_scope === "paper") {
+        status = "excluded";
+        reason = "paper_account";
+      } else if (row.aggregation_status === "duplicate") {
+        status = "excluded";
+        reason = "duplicate_account";
+      } else if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(row.platform)) reason = "source_not_supported";
+      else if (row.identity_mismatch) reason = "identity_mismatch";
+      else if (row.binding_status === "duplicate") reason = "duplicate_binding";
+      else if (row.binding_status !== "bound") reason = "binding_missing";
+      else if (row.aggregation_status === "conflict") reason = "duplicate_account_mapping";
+      else if (row.data_status === "unavailable") reason = "snapshot_missing_or_invalid";
+      else if (row.data_status !== "fresh") reason = "snapshot_stale";
+      else if (row.aggregation_status !== "included") reason = "physical_identity_unverified";
+      else if (!row.balances.length || row.balances.some(balance => balance.net_assets === null)) reason = "net_assets_missing";
+      else if (totals.status !== "by_currency") {
+        status = "blocked";
+        reason = `aggregate_${totals.reason}`;
+      } else {
+        status = "included";
+        reason = null;
+      }
+      return {
+        platform: row.platform,
+        account_key: row.account_key,
+        status,
+        reason,
+        observation_date: row.observation_date,
+        observed_finished_at: row.observed_finished_at,
+      };
+    }),
+  };
+}
+
 export function buildAccountFactsReadModel({
   accountOptions = {},
   bindings = null,
@@ -885,6 +929,7 @@ export function buildAccountFactsReadModel({
     ok: true,
     accounts,
     totals,
+    asset_coverage: accountFactsAssetCoverage(accounts, totals),
     return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
   };
 }
