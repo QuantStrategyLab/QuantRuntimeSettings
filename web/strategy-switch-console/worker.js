@@ -1,7 +1,7 @@
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
 import { sourceListFailure } from "./application/console_api/read_failures.js";
-import { strategyTargetExecution } from "./application/console_api/strategy_execution.js";
+import { strategyTargetExecution, accountExecutionEvidence } from "./application/console_api/strategy_execution.js";
 import { performanceResponse } from "./application/console_api/performance_routes.js";
 import { consoleApiResponse } from "./application/console_api/routes.js";
 import { runControls } from "./application/console_api/run_controls.js";
@@ -6053,18 +6053,27 @@ async function runtimeCatalogResponse(request, env) {
 
 async function loadCurrentStrategies(accountOptions, env) {
   const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
-  if (!token || !accountOptions) return {};
+  if (!token || !accountOptions) return executionEvidenceFallback(accountOptions, "not_connected");
   const repositories = platformRepositories(env);
 
   const variableCache = new Map();
   const readVariable = async (repository, scope, githubEnvironment, name) => {
     const cacheKey = [repository, scope, githubEnvironment || ""].join("|");
     if (!variableCache.has(cacheKey)) {
-      variableCache.set(cacheKey, fetchGithubVariables(token, repository, scope, githubEnvironment));
+      variableCache.set(cacheKey, (async () => {
+        let status = "ok";
+        const values = await fetchGithubVariables(token, repository, scope, githubEnvironment, {
+          reportReadErrors: true, onReadFailure: reason => { status = reason; },
+        });
+        return { values, status };
+      })());
     }
-    return (await variableCache.get(cacheKey)).get(name) || "";
+    const result = await variableCache.get(cacheKey);
+    return result.values?.get(name) || "";
   };
 
+  readVariable.readStatus = async (repository, scope, githubEnvironment) =>
+    (await variableCache.get([repository, scope, githubEnvironment || ""].join("|")))?.status || "ok";
   const currentStrategies = {};
   // Process platforms sequentially: each platform's account list is also
   // processed one at a time (not Promise.all). This keeps GitHub API
@@ -6082,22 +6091,37 @@ async function loadStrategiesForPlatform(platform, accountOptions, repositories,
   const options = Array.isArray(accountOptions[platform]) ? accountOptions[platform] : [];
   if (!options.length) return {};
   const repository = repositories[platform];
-  if (!repository) return {};
+  if (!repository) return executionEvidenceFallback({ [platform]: options }, "not_connected")[platform];
 
   // Process accounts sequentially within each platform to stay within
   // GitHub's concurrent request budget per token (~30 burst limit).
   const platformStrategies = {};
   for (const option of options) {
+    let status = "ok";
+    const trackedRead = async (...args) => {
+      const value = await readVariable(...args);
+      const result = await readVariable.readStatus?.(...args.slice(0, 3));
+      if (result && result !== "ok") status = result;
+      return value;
+    };
     const current = await resolveCurrentStrategyForAccount({
       platform,
       option,
       optionsCount: options.length,
       repository,
-      readVariable,
+      readVariable: trackedRead,
     });
-    if (current) platformStrategies[option.key] = current;
+    platformStrategies[option.key] = { ...current,
+      execution_evidence: accountExecutionEvidence(option, current || {}, { status, observedAt: new Date().toISOString() }) };
   }
   return platformStrategies;
+}
+
+function executionEvidenceFallback(accountOptions, status) {
+  return Object.fromEntries(Object.entries(accountOptions || {}).map(([platform, options]) => [platform,
+    Object.fromEntries(options.map(option => [option.key, {
+      execution_evidence: accountExecutionEvidence(option, {}, { status, observedAt: new Date().toISOString() }),
+    }]))]));
 }
 
 async function loadCurrentStrategiesSafely(accountOptions, env) {
@@ -6105,10 +6129,10 @@ async function loadCurrentStrategiesSafely(accountOptions, env) {
     return await withTimeout(
       loadCurrentStrategies(accountOptions, env),
       CURRENT_STRATEGIES_TIMEOUT_MS,
-      {},
+      executionEvidenceFallback(accountOptions, "read_failed"),
     );
   } catch {
-    return {};
+    return executionEvidenceFallback(accountOptions, "read_failed");
   }
 }
 
@@ -15279,11 +15303,11 @@ function requireSameOrigin(request, options = {}) {
   if (origin !== new URL(request.url).origin) throw new HttpError("cross-origin request rejected", 403);
 }
 
-async function fetchGithubVariables(token, repository, scope, githubEnvironment, { reportReadErrors = false } = {}) {
+async function fetchGithubVariables(token, repository, scope, githubEnvironment, { reportReadErrors = false, onReadFailure = () => {} } = {}) {
   const apiUrl = githubVariablesUrl(repository, scope, githubEnvironment);
   const values = new Map();
-  // Only effective-settings reads opt in. Other callers retain their existing fallback.
-  const failed = () => reportReadErrors ? null : new Map();
+  // Evidence-aware readers opt in. Other callers retain their existing fallback.
+  const failed = (reason = "read_failed") => { onReadFailure(reason); return reportReadErrors ? null : new Map(); };
   if (!apiUrl) return failed();
   try {
     // Follow the variable-list pages, never arbitrary URLs returned by an upstream.
@@ -15291,7 +15315,7 @@ async function fetchGithubVariables(token, repository, scope, githubEnvironment,
       const response = await fetchWithTimeout(`${apiUrl}?per_page=100&page=${page}`, {
         headers: githubHeaders(token),
       });
-      if (!response.ok) return failed();
+      if (!response.ok) return failed([401, 403].includes(response.status) ? "permission_denied" : "read_failed");
       const payload = await response.json();
       if (!Array.isArray(payload?.variables)) return failed();
       for (const item of payload.variables) {

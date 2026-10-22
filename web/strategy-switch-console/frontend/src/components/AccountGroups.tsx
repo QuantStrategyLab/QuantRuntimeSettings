@@ -1,4 +1,5 @@
-import { accountKey, groupAccounts, accountOption, type DirectoryConfig } from "../lib/accountDirectory";
+import { ExecutionEvidence } from "./ExecutionEvidence";
+import { accountKey, groupAccounts, type DirectoryConfig } from "../lib/accountDirectory";
 import { factForAccount } from "../lib/accountFacts";
 import { useDisplayNames } from "../lib/useDisplayNames";
 import { useT } from "../i18n";
@@ -45,11 +46,10 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
       <h3 className="account-broker-title">{names.account(account.rows[0].account_alias, group.platform)}</h3>
       {account.rows.map(row => {
         const strategy = names.currentStrategy(row);
-        const option = accountOption(config, row.platform, row.account_alias);
-        const lane = option?.broker_environment || "unknown";
+        const evidence = config?.currentStrategies?.[row.platform]?.[row.account_alias]?.execution_evidence;
         const enabled = config?.currentStrategies?.[row.platform]?.[row.account_alias]?.runtime_target_enabled;
         return <button type="button" className="account-strategy-link" key={accountKey(row)} title={accountKey(row) + (strategy ? ` / ${strategy}` : "")} onClick={() => onSelect(accountKey(row))}>
-          {lane && <span className="badge badge-accent" title={lane}>{names.lane(lane)}</span>}
+          <ExecutionEvidence evidence={evidence} />
           <span className="account-strategy-name">{strategy ? names.strategy(strategy) : t("common.unknown")}</span>
           {typeof enabled === "boolean" && <span className="account-row"><span>{t("overview.runtime_target")}</span><span>{t(enabled ? "overview.runtime_enabled" : "overview.runtime_disabled")}</span></span>}
           {row.pending_draft_count > 0 && <span className="account-row"><span>{t("accounts.col.drafts")}</span><span>{row.pending_draft_count}</span></span>}

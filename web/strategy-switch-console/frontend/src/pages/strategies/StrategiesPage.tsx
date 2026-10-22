@@ -1,3 +1,4 @@
+import { ExecutionEvidence } from "../../components/ExecutionEvidence";
 import { accountExecutionMode } from "../../lib/accountExecution";
 import { accountKey } from "../../lib/accountDirectory";
 import { useDisplayNames } from "../../lib/useDisplayNames";
@@ -50,11 +51,10 @@ function AccountExecution({ accounts }: { accounts: Strategy["configured_account
     <div className="strategy-execution">
       <div className="strategy-execution-title">{t("strategies.account_execution")}</div>
       {accounts.map(account => {
-        const key = accountExecutionMode(account, names.config);
         return (
           <div className="strategy-execution-account" key={accountKey(account)}>
             <span>{names.platform(account.platform)} · {names.account(account.account_alias, account.platform)}</span>
-            {key && <Badge tone={key === "live" ? "warn" : key === "unknown" ? "unknown" : "accent"}>{t(`strategies.execution.${key}`)}</Badge>}
+            <ExecutionEvidence evidence={account.execution_evidence} />
           </div>
         );
       })}

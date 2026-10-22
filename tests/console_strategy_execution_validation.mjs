@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
 import { strategySummary } from "../web/strategy-switch-console/application/console_api/operations.js";
-import { strategyTargetExecution } from "../web/strategy-switch-console/application/console_api/strategy_execution.js";
+import { strategyTargetExecution, accountExecutionEvidence } from "../web/strategy-switch-console/application/console_api/strategy_execution.js";
 
 // Synthetic configuration, never a runtime observation or authorization.
 const account = { platform: "binance", key: "synthetic-legacy" };
@@ -15,9 +15,12 @@ const profile = { profile: "synthetic-rotation", domain: "crypto",
 const deps = { profiles: async () => [profile],
   health: async () => Response.json({ data_status: "unavailable", strategies: [] }) };
 const request = new Request("https://console.example/api/strategies/summary");
-const summarize = async (current, policy = profile) => {
+const summarize = async (current, policy = profile, brokerEnvironment = "live") => {
   const body = await strategySummary(request, {}, { ...deps, profiles: async () => [policy] }, [account], {
-    binance: { [account.key]: { strategy_profile: profile.profile, ...current } },
+    binance: { [account.key]: { strategy_profile: profile.profile, ...current,
+      execution_evidence: accountExecutionEvidence({ broker_environment: brokerEnvironment }, {
+        source: "RUNTIME_TARGET_JSON", strategy_execution: current.strategy_execution || strategyTargetExecution(current),
+      }) } },
   });
   assert.equal(body.no_order, true);
   assert.equal(body.execution_authority_granted, false);
@@ -105,15 +108,21 @@ try {
     assert.doesNotMatch(html, /沿用既有账户|legacy account continuation|真实资金|real money|最近运行及成交状态未验证|recent runs and fills are unverified/,
       "verbose live warnings move to one page-level note");
     assert.doesNotMatch(html, /synthetic-rotation|strategies\.execution\./, "display names and translated copy only");
+    for (const execution_mode of ["paper", "live", "dry_run"]) {
+      const legacy = ui.render(language, card({ account_alias: account.key, platform: account.platform,
+        execution_mode, dry_run_only: false, live_status: "configured_live", mode_source: "STRATEGY_PROFILE" }));
+      assert.ok(legacy.includes(labels.unknown), "old inferred fields without explicit evidence remain unknown");
+      assert.ok(!legacy.includes("badge-warn"));
+    }
     const unknown = ui.render(language, card({ account_alias: account.key, platform: account.platform }));
     assert.ok(unknown.includes(labels.unknown), "old or incomplete responses must not silently say paper");
     assert.ok(!unknown.includes(labels.live));
     const dry = ui.render(language, card(await summarize({ execution_mode: "live", dry_run_only: true })));
     assert.ok(dry.includes(labels.dry));
-    assert.ok(!dry.includes(labels.live));
-    const paper = ui.render(language, card(await summarize({ execution_mode: "paper", dry_run_only: false })));
+    assert.ok(!dry.includes("badge-warn"));
+    const paper = ui.render(language, card(await summarize({ execution_mode: "paper", dry_run_only: false }, profile, "paper")));
     assert.ok(paper.includes(labels.paper));
-    assert.ok(!paper.includes(labels.live));
+    assert.ok(!paper.includes("badge-warn"));
     // The page states real-money exposure and the configuration source once,
     // outside the cards; the card itself keeps only the mode badge.
     const page = ui.renderCatalog(language, {
