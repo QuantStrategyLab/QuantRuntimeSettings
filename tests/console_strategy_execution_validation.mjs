@@ -70,7 +70,9 @@ try {
     import { I18nProvider } from './src/i18n';
     import { AccountDirectoryContext } from './src/app/context';
     const renderWithDirectory = (language, component) => renderToStaticMarkup(h(I18nProvider, { language },
-      h(AccountDirectoryContext.Provider, { value: { strategyProfiles: [{ profile: 'synthetic-rotation',
+      // A live submission label requires an explicit live broker environment.
+      h(AccountDirectoryContext.Provider, { value: { accountOptions: { binance: [{
+        key: 'synthetic-legacy', broker_environment: 'live' }] }, strategyProfiles: [{ profile: 'synthetic-rotation',
         label_zh: '合成轮动策略', label_en: 'Synthetic rotation' }] } }, component)));
     export const render = (language, strategy) => renderWithDirectory(language,
       h(StrategyCard, { strategy, summaryAsOf: null }));
