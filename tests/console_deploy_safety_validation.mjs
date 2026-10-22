@@ -108,6 +108,38 @@ assert.equal((await schemaCase(unknownSchema)).resources.unknown_fields,1);
 await schemaCase({...schemaFixture,success:false},false);await schemaCase("{",false);await schemaCase("x".repeat(524289),false);
 await schemaCase("PRIVATE_SCHEMA_SENTINEL",false,403);await schemaCase(schemaFixture,false,200,{GITHUB_REF:"refs/heads/other"});
 
+// These fixed predicates diagnose an actual rejecting constraint; they do not
+// authorize a different date, resource identity or usage model for publication.
+const validSchema=structuredClone(schemaFixture);
+validSchema.result.resources.bindings=[
+ {name:"STRATEGY_SWITCH_CONFIG",type:"kv_namespace",namespace_id:"1".repeat(32)},
+ {name:"STRATEGY_SWITCH_RUNTIME_INSTANCES",type:"durable_object_namespace",namespace_id:"2".repeat(32),class_name:"RuntimeInstance"},
+ {name:"PRIVATE_SCHEMA_SENTINEL",type:"secret_text"},
+ {name:"TEXT",type:"plain_text",text:"PRIVATE_SCHEMA_SENTINEL"},
+ {name:"JSON",type:"json",json:{private:"PRIVATE_SCHEMA_SENTINEL"}},
+];
+const validContracts=(await schemaCase(validSchema)).contracts;
+assert.ok(Object.values(validContracts).every(x=>typeof x==="boolean"));
+assert.deepEqual(Object.entries(validContracts).filter(([key,value])=>!value).map(([key])=>key),["date_midnight_utc"]);
+const diagnosticCases=[
+ [x=>x.script_runtime.compatibility_date="2026-06-08T00:00:00Z","date_ymd"],
+ [x=>x.script_runtime.usage_model="PRIVATE_SCHEMA_SENTINEL","usage_model"],
+ [x=>x.bindings[0].namespace_id="PRIVATE_SCHEMA_SENTINEL","kv_namespace_hex"],
+ [x=>x.bindings[1].namespace_id="11111111-1111-4111-8111-111111111111","do_namespace_hex"],
+ [x=>x.bindings[1].class_name="PRIVATE/SCHEMA/SENTINEL","do_class_name"],
+ [x=>x.bindings.push(structuredClone(x.bindings[0])),"binding_names_unique"],
+ [x=>x.script.named_handlers=[{name:"PRIVATE/SCHEMA/SENTINEL",handlers:[]}],"named_handlers"],
+ [x=>x.bindings[2].text="PRIVATE_SCHEMA_SENTINEL","secret_shape"],
+ [x=>x.script.PRIVATE_SCHEMA_SENTINEL="PRIVATE_SCHEMA_SENTINEL","script_keys"],
+ [x=>x.bindings[0].name="PRIVATE_SCHEMA_SENTINEL","required_kv"],
+];
+for(const [mutate,flag]of diagnosticCases){
+ const changed=structuredClone(validSchema);mutate(changed.result.resources);
+ const result=await schemaCase(changed);assert.equal(result.contracts[flag],false,flag);
+ assert.ok(Object.values(result.contracts).every(x=>typeof x==="boolean"));
+ if(flag==="date_ymd")assert.equal(result.contracts.date_midnight_utc,true);
+}
+
 // Execute the exact selection shell with a fake Git boundary, never checkout the
 // test repository or evaluate any selected Worker. Real object identities are
 // separately frozen by the release evidence and the required ancestry check.
