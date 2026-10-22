@@ -10,13 +10,20 @@ export function strategyTargetExecution(target = {}) {
   };
 }
 
-export function configuredStrategyExecution(current, profile, platform) {
+export function configuredStrategyExecution(current, profile, platform, account = {}) {
   // New read projections preserve raw target evidence before legacy mode inference.
   const evidence = current.strategy_execution || strategyTargetExecution(current);
   const { execution_mode: mode, dry_run_only: dryRunOnly } = evidence;
   const liveStatus = mode === "live" && dryRunOnly === false ? "configured_live"
     : mode === "paper" || mode === "dry_run" ? "not_live" : "unknown";
   const policy = profile.live_continuity;
+  const environment = ["live", "paper"].includes(account.broker_environment) ? account.broker_environment : null;
+  // STRATEGY_PROFILE can contain legacy mode inference based on an account name.
+  // Labels require the preserved raw target projection and a matching environment.
+  const explicit = ["RUNTIME_TARGET_JSON", "CLOUD_RUN_SERVICE_TARGETS_JSON"].includes(current.source)
+    && current.strategy_execution;
+  const label = explicit && (dryRunOnly === true || mode === "dry_run") ? "dry_run"
+    : explicit && dryRunOnly === false && environment === mode ? mode : "unknown";
   return {
     execution_mode: mode,
     dry_run_only: dryRunOnly,
@@ -27,6 +34,10 @@ export function configuredStrategyExecution(current, profile, platform) {
       ? "legacy_live_continuation" : null,
     mode_source: ["RUNTIME_TARGET_JSON", "CLOUD_RUN_SERVICE_TARGETS_JSON", "STRATEGY_PROFILE"].includes(current.source)
       ? current.source : null,
+    broker_environment: environment,
+    execution_label: label,
+    mode_unavailable_reason: label !== "unknown" ? null : !explicit || mode === "unknown" || dryRunOnly === null
+      ? "explicit_target_mode_missing" : environment === null ? "broker_environment_missing" : "mode_environment_conflict",
     runtime_observation_status: "unknown",
   };
 }

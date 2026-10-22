@@ -1,0 +1,40 @@
+✔ end-of-valuation deposit and withdrawal give exact chained TWR and cash-adjusted daily P/L (27.948915ms)
+✔ midperiod flow remains explicitly approximate and daily P/L retains the API investment denominator (3.047227ms)
+✔ missing cashflow coverage and disabled source never invent a zero flow or qualified TWR (7.650713ms)
+✔ eight real same-date balances are counted; missing and old valuations stay disclosed (1.332709ms)
+✔ Friday to Monday connects without fabricated weekend valuations; explicit breaks survive (0.436674ms)
+✔ account and benchmarks use a common observed axis and the same zero starting point (0.61022ms)
+✔ unadjusted asset balances are never benchmark comparisons (0.335124ms)
+✔ daily investment-denominator return is not replaced with the end-flow TWR (1.150892ms)
+✔ a shorter benchmark reports the real comparison cutoff without truncating summary or asset dates (2.600206ms)
+✔ a break on a filtered-out account date survives on the common comparison axis (1.355249ms)
+✔ Monday daily P/L combines weekend observations and their proven cash flows from Friday (1.31098ms)
+✔ cashflow updates inside the return range do not certify untouched calendar cells outside it (1.535452ms)
+✔ two observed accounts remain visible with six unbound accounts; an unknown cohort total stays null (110.478117ms)
+✔ disabled or unresolved daily bindings do not create observations or inferred runs (2.648199ms)
+✔ incomplete record preserves observed reports without declaring a complete total or success (3.763278ms)
+✔ source read errors preserves observed reports without declaring a complete total or success (2.334517ms)
+✔ unmatched reports preserves observed reports without declaring a complete total or success (2.389497ms)
+✔ conflicting reports preserves observed reports without declaring a complete total or success (1.159957ms)
+✔ a read failure retains other accounts' observed reports instead of inventing zero or success (2.154641ms)
+✔ a bound account without today's record is missing, not a known zero-run day (2.248911ms)
+✔ ambiguous ownership never reads or merges reports across bindings (1.766296ms)
+✔ mismatched account cannot become an observed run (4.20891ms)
+✔ mismatched platform cannot become an observed run (2.168201ms)
+✔ mismatched response date cannot become an observed run (0.852983ms)
+✔ mismatched record date cannot become an observed run (0.783082ms)
+✔ mismatched target cannot become an observed run (0.743416ms)
+✔ today follows New York's business date at 2026-10-22T02:00:00Z, not the browser's date (1.092395ms)
+✔ today follows New York's business date at 2026-11-01T03:59:59Z, not the browser's date (16.322013ms)
+✔ today follows New York's business date at 2026-11-01T06:30:00Z, not the browser's date (5.783433ms)
+✔ a complete eight-account cohort totals only stored reports, including an observed not-due day (12.235894ms)
+✔ a stale same-day failure remains stale and failed, never a fresh successful run (1.770773ms)
+✔ an incomplete blocked report remains blocked instead of failed or successful (1.544309ms)
+ℹ tests 32
+ℹ suites 0
+ℹ pass 32
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 438.541104

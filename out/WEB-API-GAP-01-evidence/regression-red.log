@@ -1,0 +1,208 @@
+✖ facts snapshot: loadAccountOptionsConfig failure is not an empty success (68.384205ms)
+✖ facts history: loadAccountOptionsConfig failure is not an empty success (1.737042ms)
+✖ facts snapshot: loadAccountFactsBindings failure is not an empty success (0.548098ms)
+✖ facts history: loadAccountFactsBindings failure is not an empty success (0.537675ms)
+✖ cash: retain native fields, negative and real zero; missing is unknown (0.264757ms)
+✖ cash: real read model projects absent Firstrade cash without exposing native identity (0.458675ms)
+✖ runtime diagnostics distinguish coverage from I/O and preserve partial runs (0.41083ms)
+✖ runtime: no record plus read failure is not no_data; transport and binding errors stay distinct (27.486395ms)
+✖ health: per-strategy time and source are separate from snapshot time; missing score stays null (1.279668ms)
+✖ mode labels require explicit target and consistent broker environment, never alias/profile inference (0.546089ms)
+✖ six performance APIs: failed facts cannot masquerade as absent holdings/fills (13.740728ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 0
+ℹ fail 11
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 358.119046
+
+✖ failing tests:
+
+test at tests/web_api_gap_validation.mjs:22:40
+✖ facts snapshot: loadAccountOptionsConfig failure is not an empty success (68.384205ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 503
+  
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:31:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 503,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/web_api_gap_validation.mjs:22:40
+✖ facts history: loadAccountOptionsConfig failure is not an empty success (1.737042ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 503
+  
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:31:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 503,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/web_api_gap_validation.mjs:22:40
+✖ facts snapshot: loadAccountFactsBindings failure is not an empty success (0.548098ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 503
+  
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:31:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 503,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/web_api_gap_validation.mjs:22:40
+✖ facts history: loadAccountFactsBindings failure is not an empty success (0.537675ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 503
+  
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:31:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 503,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/web_api_gap_validation.mjs:37:1
+✖ cash: retain native fields, negative and real zero; missing is unknown (0.264757ms)
+  TypeError: facts.accountFactsCashByCurrency is not a function
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:43:26)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at tests/web_api_gap_validation.mjs:51:1
+✖ cash: real read model projects absent Firstrade cash without exposing native identity (0.458675ms)
+  Error: invalid_account_facts_bindings
+      at reject (file:///Users/lisiyi/Projects/QuantRuntimeSettings/web/strategy-switch-console/account_facts.js:106:9)
+      at normalizeAccountFactsBindings (file:///Users/lisiyi/Projects/QuantRuntimeSettings/web/strategy-switch-console/account_facts.js:376:56)
+      at Module.buildAccountFactsReadModel (file:///Users/lisiyi/Projects/QuantRuntimeSettings/web/strategy-switch-console/account_facts.js:781:7)
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:62:23)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'invalid_account_facts_bindings',
+    status: 400
+  }
+
+test at tests/web_api_gap_validation.mjs:83:1
+✖ runtime diagnostics distinguish coverage from I/O and preserve partial runs (0.41083ms)
+  TypeError: daily.runtimeDailyReadDiagnostics is not a function
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:86:22)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at tests/web_api_gap_validation.mjs:103:1
+✖ runtime: no record plus read failure is not no_data; transport and binding errors stay distinct (27.486395ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'no_data'
+  - 'read_failed'
+  
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:105:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'no_data',
+    expected: 'read_failed',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/web_api_gap_validation.mjs:121:1
+✖ health: per-strategy time and source are separate from snapshot time; missing score stays null (1.279668ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + undefined
+  - '2026-10-01'
+  
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:134:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: '2026-10-01',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/web_api_gap_validation.mjs:148:1
+✖ mode labels require explicit target and consistent broker environment, never alias/profile inference (0.546089ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + undefined
+  - 'live'
+  
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:158:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'live',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/web_api_gap_validation.mjs:168:1
+✖ six performance APIs: failed facts cannot masquerade as absent holdings/fills (13.740728ms)
+  AssertionError [ERR_ASSERTION]: holdings
+  + actual - expected
+  
+  + 'no_data'
+  - 'unavailable'
+  
+      at TestContext.<anonymous> (file:///Users/lisiyi/Projects/QuantRuntimeSettings/tests/web_api_gap_validation.mjs:181:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'no_data',
+    expected: 'unavailable',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,0 +1,27 @@
+[
+  {
+    "command": "node tests/console_api_worker_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-followup-01.log"
+  },
+  {
+    "command": "node tests/console_design_api_validation.mjs",
+    "exit_code": 1,
+    "log": "validation-followup-02.log"
+  },
+  {
+    "command": "node tests/runtime_daily_worker_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-followup-03.log"
+  },
+  {
+    "command": "node web/strategy-switch-console/frontend/node_modules/typescript/bin/tsc -p tests/tsconfig.console-gaps.json",
+    "exit_code": 0,
+    "log": "validation-followup-04.log"
+  },
+  {
+    "command": "git diff --check",
+    "exit_code": 0,
+    "log": "validation-followup-05.log"
+  }
+]

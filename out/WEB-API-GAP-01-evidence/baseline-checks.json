@@ -1,0 +1,22 @@
+[
+  {
+    "command": "node tests/console_performance_data_validation.mjs",
+    "exit_code": 0,
+    "log": "baseline-1.log"
+  },
+  {
+    "command": "node tests/console_api_contract_validation.mjs",
+    "exit_code": 0,
+    "log": "baseline-2.log"
+  },
+  {
+    "command": "node tests/console_strategy_execution_validation.mjs",
+    "exit_code": 0,
+    "log": "baseline-3.log"
+  },
+  {
+    "command": "node tests/runtime_daily_worker_validation.mjs",
+    "exit_code": 0,
+    "log": "baseline-4.log"
+  }
+]

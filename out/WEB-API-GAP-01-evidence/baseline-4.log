@@ -1,0 +1,5 @@
+runtime_daily_worker_validation ok
+runtime daily health integration: PASS (production projection, exact binding, synthetic Worker/KV/UI, conflicts, supplied schedule boundaries)
+Schwab closed-session health: PASS (6 closed + 6 negative producer outputs, null next due, privacy, source/lifecycle/error priority, NY midnight and DST)
+Schwab daily integration: PASS (59 producer/negative cases plus auth, binding, drift, privacy, legacy isolation and public health)
+Schwab source-binding header: PASS (new-day drift, current-ID positive control, malformed/duplicate/body-only rejection, zero-write and no-ID-echo guards)

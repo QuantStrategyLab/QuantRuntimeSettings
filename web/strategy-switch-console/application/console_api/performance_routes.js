@@ -235,6 +235,12 @@ export async function performanceResponse(request, env, deps) {
     };
     const blocks = applyCashflowPerformance(performanceBlocks(performanceInput), performanceInput, env);
     const block = blocks[endpoint];
+    // Failed facts are not proof that a holdings source has never been connected.
+    // History/benchmark failures are unrelated to the current positions read.
+    if (endpoint === "holdings" && !factsResponse.ok && !block.rows.length) {
+      block.status = "unavailable";
+      block.unavailable_reason = "stored_records_unreadable";
+    }
     if (["calendar", "summary", "returns", "assets"].includes(endpoint)) {
       block.coverage.truncated = truncated;
       block.coverage.read_failures = readFailures;

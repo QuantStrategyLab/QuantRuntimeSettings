@@ -1,0 +1,22 @@
+console_api_contract_validation: PASS
+console_api_worker_validation: PASS
+accounts_inbox_route_counts: PASS (synthetic source ports; not live KV measurements)
+✔ facts snapshot: loadAccountOptionsConfig failure is not an empty success (1.58654ms)
+✔ facts history: loadAccountOptionsConfig failure is not an empty success (0.624766ms)
+✔ facts snapshot: loadAccountFactsBindings failure is not an empty success (0.297742ms)
+✔ facts history: loadAccountFactsBindings failure is not an empty success (0.291593ms)
+✔ cash: retain native fields, negative and real zero; missing is unknown (0.389757ms)
+✔ cash: real read model projects absent Firstrade cash without exposing native identity (2.89925ms)
+✔ runtime diagnostics distinguish coverage from I/O and preserve partial runs (3.553296ms)
+✔ runtime: no record plus read failure is not no_data; transport and binding errors stay distinct (3.794048ms)
+✔ health: per-strategy time and source are separate from snapshot time; missing score stays null (1.126154ms)
+✔ mode labels require explicit target and consistent broker environment, never alias/profile inference (0.501046ms)
+✔ six performance APIs: failed facts cannot masquerade as absent holdings/fills (8.56099ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 35.177439

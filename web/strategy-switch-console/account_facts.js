@@ -771,6 +771,24 @@ export function aggregateAccountFactsTotals(accountRows, physicalIdentities = ne
   };
 }
 
+// Only call with an already identity-validated stored projection. Native cash
+// balances and available funds are different facts; never substitute the latter.
+export function accountFactsCashByCurrency(projected) {
+  const balances = projected?.broker_reported_balances || [];
+  const cash = projected?.cash || [];
+  const currencies = [...new Set([...balances, ...cash].map(row => row.currency))].sort();
+  return currencies.map(currency => {
+    const cashRow = cash.find(row => row.currency === currency);
+    const balance = balances.find(row => row.currency === currency);
+    const source = typeof cashRow?.cash_balance === "string" ? "cash.cash_balance"
+      : typeof balance?.total_cash === "string" ? "balances.total_cash" : null;
+    return { currency, amount: source === "cash.cash_balance" ? cashRow.cash_balance
+      : source === "balances.total_cash" ? balance.total_cash : null,
+    status: source ? "known" : "unknown", source_field: source,
+    unavailable_reason: source ? null : "cash_balance_not_reported" };
+  });
+}
+
 export function buildAccountFactsReadModel({
   accountOptions = {},
   bindings = null,
@@ -852,6 +870,7 @@ export function buildAccountFactsReadModel({
         observed_finished_at: projected?.observed_finished_at || null,
         balances: projected?.broker_reported_balances || [],
         cash: projected?.cash || [],
+        cash_by_currency: accountFactsCashByCurrency(projected),
         ...(platform === ACCOUNT_FACTS_PLATFORM
           && projected?.data_status === "fresh"
           && Array.isArray(projected?.financing)

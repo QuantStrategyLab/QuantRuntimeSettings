@@ -1,0 +1,1 @@
+console_currency_totals_validation: PASS (native totals, zero/empty/partial, timestamp thresholds, per-account flags, qualified drawdown, honest reasons, read-only adapter)

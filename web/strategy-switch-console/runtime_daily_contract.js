@@ -1,5 +1,30 @@
 export const RUNTIME_DAILY_TIMEZONE = "America/New_York";
 
+// Public fixed codes only. Producer diagnostics can contain private object paths.
+export function runtimeDailyPublicReadError(error) {
+  if (["report_read_error", "coverage_unconfirmed", "report_rejected", "read_failed", "read_truncated", "list_failed", "listing_truncated"].includes(error)) return error;
+  return error === "listing truncated" ? "listing_truncated" : "source_read_error";
+}
+
+/** Reading completeness is independent of freshness and execution outcome. */
+export function runtimeDailyReadDiagnostics(body) {
+  const codes = (body.read_error_codes || []).map(runtimeDailyPublicReadError);
+  const count = Number.isSafeInteger(body.read_error_count) && body.read_error_count >= 0 ? body.read_error_count : null;
+  const unmatched = Number.isSafeInteger(body.unmatched_count) && body.unmatched_count >= 0 ? body.unmatched_count : null;
+  const ioError = codes.some(code => ["report_read_error", "read_failed", "list_failed", "source_read_error"].includes(code))
+    || (count > codes.length);
+  const record = body.record;
+  const incomplete = ioError || codes.length > 0 || count > 0 || unmatched > 0 || record?.conflict_count > 0
+    || (record && (record.completeness !== "complete" || record.status === "read_incomplete"));
+  const known = count !== null && unmatched !== null;
+  return {
+    read_status: incomplete ? record ? "partial" : "read_failed" : !known ? "unknown" : record ? "complete" : "no_data",
+    read_failure_reason: ioError ? "source_read_error" : incomplete ? "coverage_incomplete" : !known ? "coverage_unknown" : null,
+    read_error_count: count,
+    read_error_codes: codes,
+  };
+}
+
 export function runtimeDailyBusinessDate(now = Date.now()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: RUNTIME_DAILY_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit",

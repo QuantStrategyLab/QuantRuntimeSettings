@@ -1,0 +1,83 @@
+[
+  {
+    "command": "node --test tests/web_api_gap_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-01.log",
+    "latest_coverage": "also executed by successful console_api_worker_validation, including new schema and unknown-count assertions"
+  },
+  {
+    "command": "node tests/account_facts_readonly_extract_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-02.log"
+  },
+  {
+    "command": "node tests/account_facts_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-03.log"
+  },
+  {
+    "command": "node tests/console_api_contract_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-04.log"
+  },
+  {
+    "command": "node tests/console_api_worker_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-followup-01.log"
+  },
+  {
+    "command": "node tests/runtime_daily_worker_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-followup-03.log"
+  },
+  {
+    "command": "node tests/console_strategy_execution_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-07.log"
+  },
+  {
+    "command": "node tests/console_design_api_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-design-final.log"
+  },
+  {
+    "command": "node tests/console_gap_contract_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-09.log"
+  },
+  {
+    "command": "node --test tests/fe8a_runtime_today_validation.mjs tests/fe8a_performance_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-10.log"
+  },
+  {
+    "command": "node tests/console_performance_data_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-11.log"
+  },
+  {
+    "command": "node tests/console_external_flow_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-12.log"
+  },
+  {
+    "command": "node tests/console_performance_math_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-13.log"
+  },
+  {
+    "command": "node tests/console_currency_totals_validation.mjs",
+    "exit_code": 0,
+    "log": "validation-14.log"
+  },
+  {
+    "command": "git diff --check",
+    "exit_code": 0,
+    "log": "validation-followup-05.log"
+  },
+  {
+    "command": "node web/strategy-switch-console/frontend/node_modules/typescript/bin/tsc -p tests/tsconfig.console-gaps.json",
+    "exit_code": 0,
+    "log": "validation-followup-04.log"
+  }
+]

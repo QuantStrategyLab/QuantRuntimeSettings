@@ -1,0 +1,23 @@
+{
+  "baseline": "d14ac6c3d5d55f662834c7ddc54e9df06a5b5dab",
+  "changed_tracked_files": [
+    "tests/console_api_worker_validation.mjs",
+    "tests/console_design_api_validation.mjs",
+    "tests/console_grouping_runs_validation.mjs",
+    "tests/runtime_daily_worker_validation.mjs",
+    "web/strategy-switch-console/account_facts.js",
+    "web/strategy-switch-console/application/account_facts/read.js",
+    "web/strategy-switch-console/application/console_api/operations.js",
+    "web/strategy-switch-console/application/console_api/performance_routes.js",
+    "web/strategy-switch-console/application/console_api/strategy_execution.js",
+    "web/strategy-switch-console/contracts/console-api.schema.json",
+    "web/strategy-switch-console/runtime_daily_contract.js",
+    "web/strategy-switch-console/worker.js"
+  ],
+  "new_test": "tests/web_api_gap_validation.mjs",
+  "no_frontend_change": true,
+  "no_workflow_change": true,
+  "no_production_config_change": true,
+  "deploy_trigger": "workflow_dispatch_only",
+  "chrome": "not_applicable"
+}

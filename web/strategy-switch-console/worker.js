@@ -11,7 +11,7 @@ import { recoveryMaterialPresentation, currentReconciliationObservationPresentat
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
 import { V2_ASSETS, V2_PAGE_HTML, V2_BUILD_ID } from "./v2_asset_map.js";
 import { CycleHealthError, canonicalCycleJson, cycleHealthSha256, normalizeCycleHealth, normalizeCycleInstant, compareCycleInstants, cycleCoverageComplete, cycleHealthAttemptKey, cycleHealthFaultCategory, cycleHealthFaultTime } from "./runtime_cycle_health.js";
-import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
+import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue, runtimeDailyPublicReadError, runtimeDailyReadDiagnostics } from "./runtime_daily_contract.js";
 import {
   BINANCE_FACTS_KEY, BINANCE_FACTS_MAX_BYTES, BinanceFactsError,
   normalizeBinanceFactsBinding, binanceFactsOptionMatches, assertBinanceFactsSourceBinding,
@@ -8899,20 +8899,17 @@ function runtimeDailyReadStatus(stored, now) {
     const fresh = observedMs !== null && observedMs <= now + RUNTIME_DAILY_FUTURE_SKEW_MS && now - observedMs <= RUNTIME_DAILY_STALE_MS;
     dataStatus = fresh ? "fresh" : "stale";
   }
-  return {
+  const body = {
     data_status: dataStatus,
     read_error_count: stored.read_errors.length,
     // These producer codes contain no object paths, identities or exception text.
     // Unknown legacy diagnostics remain private and retain an explicit error.
-    read_error_codes: stored.read_errors.map(error => {
-      if (["report_read_error", "coverage_unconfirmed", "report_rejected", "read_failed", "read_truncated", "list_failed"].includes(error)) return error;
-      if (error === "listing truncated") return "listing_truncated";
-      return "source_read_error";
-    }),
+    read_error_codes: stored.read_errors.map(runtimeDailyPublicReadError),
     unmatched_count: stored.unmatched_reports.length,
     record: runtimeDailyPublicRecord(record),
     fills: { source: "not_connected", records: [], count: null },
   };
+  return { ...body, ...runtimeDailyReadDiagnostics(body) };
 }
 
 async function syncRuntimeDailyResponse(request, env) {
@@ -9030,7 +9027,8 @@ async function runtimeDailyResponse(request, env, url) {
     history: includeHistory ? await runtimeDailyHistory(env, target) : null,
   };
   if (stored === null || stored === undefined) {
-    return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
+    const empty = { data_status: "unavailable", record: null, fills: null, read_error_count: 0, read_error_codes: [], unmatched_count: 0 };
+    return json({ ...base, ...empty, ...runtimeDailyReadDiagnostics(empty) });
   }
   let projection;
   try {

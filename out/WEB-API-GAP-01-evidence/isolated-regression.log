@@ -1,0 +1,19 @@
+✔ facts snapshot: loadAccountOptionsConfig failure is not an empty success (63.456619ms)
+✔ facts history: loadAccountOptionsConfig failure is not an empty success (1.173457ms)
+✔ facts snapshot: loadAccountFactsBindings failure is not an empty success (0.43904ms)
+✔ facts history: loadAccountFactsBindings failure is not an empty success (0.477698ms)
+✔ cash: retain native fields, negative and real zero; missing is unknown (0.525468ms)
+✔ cash: real read model projects absent Firstrade cash without exposing native identity (4.326336ms)
+✔ runtime diagnostics distinguish coverage from I/O and preserve partial runs (26.279516ms)
+✔ runtime: no record plus read failure is not no_data; transport and binding errors stay distinct (3.49789ms)
+✔ health: per-strategy time and source are separate from snapshot time; missing score stays null (0.934212ms)
+✔ mode labels require explicit target and consistent broker environment, never alias/profile inference (0.535413ms)
+✔ six performance APIs: failed facts cannot masquerade as absent holdings/fills (17.892144ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 338.777888

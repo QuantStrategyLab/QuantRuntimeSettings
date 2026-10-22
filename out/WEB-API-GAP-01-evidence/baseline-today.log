@@ -1,0 +1,28 @@
+✔ two observed accounts remain visible with six unbound accounts; an unknown cohort total stays null (99.482545ms)
+✔ disabled or unresolved daily bindings do not create observations or inferred runs (1.325523ms)
+✔ incomplete record preserves observed reports without declaring a complete total or success (1.243215ms)
+✔ source read errors preserves observed reports without declaring a complete total or success (1.022774ms)
+✔ unmatched reports preserves observed reports without declaring a complete total or success (1.06779ms)
+✔ conflicting reports preserves observed reports without declaring a complete total or success (0.934696ms)
+✔ a read failure retains other accounts' observed reports instead of inventing zero or success (1.294745ms)
+✔ a bound account without today's record is missing, not a known zero-run day (0.945309ms)
+✔ ambiguous ownership never reads or merges reports across bindings (0.674336ms)
+✔ mismatched account cannot become an observed run (1.120171ms)
+✔ mismatched platform cannot become an observed run (0.919794ms)
+✔ mismatched response date cannot become an observed run (0.745576ms)
+✔ mismatched record date cannot become an observed run (0.685075ms)
+✔ mismatched target cannot become an observed run (0.62635ms)
+✔ today follows New York's business date at 2026-10-22T02:00:00Z, not the browser's date (0.79767ms)
+✔ today follows New York's business date at 2026-11-01T03:59:59Z, not the browser's date (0.714803ms)
+✔ today follows New York's business date at 2026-11-01T06:30:00Z, not the browser's date (0.707005ms)
+✔ a complete eight-account cohort totals only stored reports, including an observed not-due day (2.128889ms)
+✔ a stale same-day failure remains stale and failed, never a fresh successful run (0.895574ms)
+✔ an incomplete blocked report remains blocked instead of failed or successful (0.860203ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 132.269154

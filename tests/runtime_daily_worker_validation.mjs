@@ -507,6 +507,8 @@ assert.equal(quotaLists, 0, "date-only reads spend no list quota");
 assert.equal(dateOnlyBody.history, null, "omitted discovery is distinct from empty coverage");
 assert.deepEqual(dateOnlyBody.record, coverageRead.record, "source evidence is unchanged");
 assert.deepEqual(dateOnlyBody.read_error_codes, []);
+assert.equal(dateOnlyBody.read_status, "complete");
+assert.equal(dateOnlyBody.read_failure_reason, null);
 const diagnosticProjection = projection({ read_errors: ["coverage_unconfirmed", "private/path/fixture", "read_failed"] }, {
   business_date: coverageDayB, observed_at: `${coverageDayB}T20:00:00Z`, status: "read_incomplete", completeness: "incomplete",
 });
@@ -518,6 +520,9 @@ const diagnosticBody = await diagnostic.json();
 assert.equal(diagnostic.status, 200);
 assert.deepEqual(diagnosticBody.read_error_codes, ["coverage_unconfirmed", "source_read_error", "read_failed"]);
 assert.equal(diagnosticBody.read_error_count, 3);
+assert.equal(diagnosticBody.read_status, "partial");
+assert.equal(diagnosticBody.read_failure_reason, "source_read_error");
+assert.equal(diagnosticBody.record.runs.length, 1, "reading errors retain available runs");
 assert.equal(diagnosticBody.record.completeness, "incomplete");
 assert.ok(!JSON.stringify(diagnosticBody).includes("private/path/fixture"));
 for (const selection of ["include_history=maybe", "include_history=false&include_history=true"]) {

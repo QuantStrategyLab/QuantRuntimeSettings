@@ -1,0 +1,5 @@
+console_api_contract_validation: PASS
+console_strategy_execution_validation: PASS
+console_design_api_validation: PASS
+console_notification_receipts_validation: PASS (public ZIP, receipt provenance, GET-only, auth, send/blocked/skipped/failure, empty/error, no guessed send time, cache)
+console_grouping_runs_validation: PASS (8 unconnected + 2 missing, separate block/failure, unknown reasons, platform/account ordering, per-row flags, coverage identity, honest fills, notification states zh/en)

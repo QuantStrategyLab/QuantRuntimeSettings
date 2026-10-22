@@ -1,5 +1,5 @@
 /** Read-only page projections. Missing observations never imply a successful run. */
-import { RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate } from "../../runtime_daily_contract.js";
+import { RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate, runtimeDailyReadDiagnostics } from "../../runtime_daily_contract.js";
 import { configuredStrategyExecution } from "./strategy_execution.js";
 import { runStatus, runStateCounts } from "./run_status.js";
 export const READ_ONLY = { no_order: true, execution_authority_granted: false };
@@ -15,6 +15,7 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
   const rows = await Promise.all(accounts.map(async (account) => {
     const base = { account_alias: account.key, platform: account.platform,
       status: "not_connected", unavailable_reason: "runtime_daily_not_connected",
+      read_status: "not_connected", read_failure_reason: "runtime_daily_not_connected", read_error_count: null, read_error_codes: [],
       as_of: null, activity: null, completeness: null, run_count: null, runs: [] };
     const matches = bindings.filter(b => b.platform === account.platform && b.account_key === account.key && b.status === "bound");
     if (matches.length !== 1) return base;
@@ -23,19 +24,30 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
     url.searchParams.set("platform", account.platform);
     url.searchParams.set("account_key", account.key);
     url.searchParams.set("include_history", "false");
+    let failureReason = "source_read_error";
     try {
       const response = await deps.daily(new Request(url, { headers: request.headers }), env);
       if (response.status === 404) return base;
-      if (!response.ok) throw Error("daily_read_failed");
+      if (!response.ok) {
+        if ([401, 403].includes(response.status)) failureReason = "unauthorized";
+        throw Error("daily_read_failed");
+      }
       const body = await response.json();
-      if (body.account_key !== account.key || body.platform !== account.platform || body.date !== date)
+      if (body.account_key !== account.key || body.platform !== account.platform || body.date !== date) {
+        failureReason = "daily_binding_mismatch";
         throw Error("daily_binding_mismatch");
-      if (!body.record) return { ...base, status: "no_data", unavailable_reason: "today_record_missing" };
+      }
+      const diagnostics = runtimeDailyReadDiagnostics(body);
+      if (!body.record) return { ...base, ...diagnostics,
+        status: diagnostics.read_status === "no_data" ? "no_data" : "read_failed",
+        unavailable_reason: diagnostics.read_status === "no_data" ? "today_record_missing" : "stored_records_unreadable" };
       const record = body.record;
-      if (record.business_date !== date || record.target_key !== matches[0].target_key)
+      if (record.business_date !== date || record.target_key !== matches[0].target_key) {
+        failureReason = "daily_binding_mismatch";
         throw Error("daily_record_mismatch");
-      const incomplete = record.completeness !== "complete" || body.read_error_count > 0 || body.unmatched_count > 0 || record.conflict_count > 0;
-      return { ...base, status: body.data_status !== "fresh" ? "stale" : incomplete ? "partial" : "ok",
+      }
+      const incomplete = diagnostics.read_status !== "complete";
+      return { ...base, ...diagnostics, status: body.data_status !== "fresh" ? "stale" : incomplete ? "partial" : "ok",
         unavailable_reason: body.data_status !== "fresh" ? "runtime_daily_stale" : incomplete ? "runtime_daily_incomplete" : null,
         as_of: record.observed_at, activity: record.status,
         run_status_reason: typeof record.block_reason_code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(record.block_reason_code) ? record.block_reason_code : null,
@@ -46,7 +58,8 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
           execution_lane: run.execution_lane, errors_present: run.errors_present, ...(run.issue ? { issue: run.issue } : {}) })),
       };
     } catch {
-      return { ...base, status: "read_failed", unavailable_reason: "stored_records_unreadable" };
+      return { ...base, status: "read_failed", unavailable_reason: "stored_records_unreadable",
+        read_status: "read_failed", read_failure_reason: failureReason };
     }
   }));
   for (const row of rows) {
@@ -72,14 +85,23 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
     : health.data_status === "stale" ? "stale" : "not_connected";
   const strategies = profiles.map(profile => {
       const observation = (health.strategies || []).find(s => s.profile === profile.profile);
+      const readable = observation && ["ok", "stale"].includes(status);
+      const freshness = readable ? observation.freshness : null;
+      const rowStatus = readable && freshness?.status === "stale" ? "stale" : status;
       return { profile: profile.profile, domain: profile.domain,
         allowed_execution_modes: profile.allowed_execution_modes || [],
         configured_accounts: accounts.filter(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile === profile.profile)
           .map(a => ({ account_alias: a.key, platform: a.platform, account_ref: `${a.platform}:${a.key}`,
-            ...configuredStrategyExecution(currentStrategies[a.platform][a.key], profile, a.platform) })),
+            ...configuredStrategyExecution(currentStrategies[a.platform][a.key], profile, a.platform, a) })),
         health_status: status === "ok" || status === "stale" ? observation?.status || null : null,
         health_score: status === "ok" || status === "stale" ? observation?.score ?? null : null,
-        status: observation ? status : status === "read_failed" ? status : "not_connected",
+        health_as_of: readable ? observation.as_of || null : null,
+        health_freshness: { status: freshness?.status || "unknown", age_seconds: freshness?.age_seconds ?? null },
+        health_source: readable ? "stored_strategy_health_snapshot" : null,
+        // Only immutable revision hashes, never arbitrary producer text or paths.
+        health_source_revision: readable && /^[a-f0-9]{7,64}$/i.test(observation.source_revision || "") ? observation.source_revision : null,
+        health_components: readable ? observation.components || null : null,
+        status: observation ? rowStatus : status === "read_failed" ? status : "not_connected",
         unavailable_reason: observation && status !== "read_failed" ? null : invalid
           ? "stored_records_unreadable" : "strategy_health_not_connected" };
     });
@@ -88,6 +110,7 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
     account_assignment_status: accounts.every(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile) ? "complete"
       : accounts.some(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile) ? "partial" : "unavailable",
     as_of: health.computed_at || health.generated_at || null,
+    health_score_scale: { minimum: 0, maximum: 100, methodology: "not_provided", execution_authority_granted: false },
     coverage: "configured_catalog_and_stored_health_not_runtime_deployment", strategies, ...READ_ONLY };
 }
 export function notificationLog(env = {}, deps = {}) {

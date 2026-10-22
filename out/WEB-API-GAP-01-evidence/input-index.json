@@ -1,0 +1,20 @@
+{
+  "baseline": "d14ac6c3d5d55f662834c7ddc54e9df06a5b5dab",
+  "input": "out/WEB-DESIGN-REVIEW-01-evidence/inputs/WEB-GAP-01.md",
+  "sha256": "705268de2c9360ff398633843163c3589ec0a541595dadc716cdbed94025f189",
+  "chrome": "not_applicable",
+  "production_api_read": "not_attempted_no_approved_session_in_executor",
+  "baseline_checks": [
+    {
+      "command": "node tests/fe8a_runtime_today_validation.mjs",
+      "exit_code": 0,
+      "log": "baseline-today.log"
+    },
+    {
+      "command": "node tests/account_facts_readonly_extract_validation.mjs",
+      "exit_code": 0,
+      "log": "baseline-facts-read.log"
+    }
+  ],
+  "dependency_setup": "npm ci --ignore-scripts --no-audit --no-fund; worker and frontend; both exit 0; lockfiles unchanged"
+}
