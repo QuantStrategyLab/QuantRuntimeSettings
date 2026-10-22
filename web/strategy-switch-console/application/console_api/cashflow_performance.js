@@ -1,4 +1,4 @@
-import { cleanPoints, dateMs, sliceRange, alignReturns } from "../../performance_math.js";
+import { cleanPoints, dateMs, sliceRange, alignReturns, hasGap } from "../../performance_math.js";
 import { externalFlowEnabled, instant, normalizeExternalFlow } from "../account_facts/external_flow.js";
 import { maxDrawdown } from "./performance.js";
 
@@ -45,8 +45,10 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
   // Omitting another member's real valuation must not manufacture a daily return.
   if (common.length !== dates.length) return unavailable("snapshot_history_missing");
   const index = [{ date: common[0], value: 1 }];
+  const periods = [];
   let growth = 1;
   let multiDay = false;
+  let approximate = false;
   for (let i = 1; i < common.length; i++) {
     const prev = maps.map(m => m.get(common[i - 1])), next = maps.map(m => m.get(common[i]));
     if ([...prev, ...next].some(p => p.forwardFilled === true || p.partial === true || p.forward_filled_accounts?.length)) {
@@ -63,6 +65,7 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
     if (flows.some(f => f === null)) return unavailable("external_cashflow_required");
     const v0 = prev.reduce((s, p) => s + p.value, 0), v1 = next.reduce((s, p) => s + p.value, 0);
     const records = flows.flat();
+    approximate ||= records.some(record => instant(record.effective_at) !== instant(end));
     // A cross-account transfer needs both marked legs in this exact cohort and
     // interval. Unpaired legs and unsettled in-transit capital stay unavailable.
     const transfers = new Map();
@@ -83,11 +86,15 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
     if (!(v0 > 0) || v1 < 0 || !(denominator > 0) || !Number.isFinite(r) || r < -1) return unavailable("invalid_return_period");
     growth *= 1 + r;
     if (!Number.isFinite(growth)) return unavailable("invalid_return_period");
-    index.push({ date: common[i], value: growth, breakBefore: dateMs(common[i]) - dateMs(common[i - 1]) > 86400000 });
+    periods.push({ date: common[i], previous_date: common[i - 1], opening_value: v0, amount: v1 - v0 - net,
+      net_flow: net, return_percent: r * 100, value_kind: "pnl", status: "ok", unavailable_reason: null });
+    index.push({ date: common[i], value: growth,
+      breakBefore: hasGap(index.at(-1), { date: common[i] }) || next.some(point => point.breakBefore === true) });
   }
   return { currency, status: "ok", unavailable_reason: null, twr_return_percent: (growth - 1) * 100,
     max_drawdown: maxDrawdown(index), index, points: alignReturns(index, []).primary,
-    return_kind: "twr", cashflow_method: "modified_dietz", approximate: true, multi_day_intervals: multiDay };
+    return_kind: "twr", ...(approximate ? { cashflow_method: "modified_dietz", approximate: true } : {}),
+    periods, multi_day_intervals: multiDay };
 }
 
 // Leave the legacy response byte-for-byte equivalent when OFF or no source data
@@ -96,20 +103,20 @@ export function applyCashflowPerformance(blocks, input, env) {
   if (!externalFlowEnabled(env) || !input.histories.some(h => h.externalFlow)) return blocks;
   const currencies = [...new Set(input.histories.map(h => h.currency))];
   const results = currencies.map(c => cashflowCurrencyResult(input.histories.filter(h => h.currency === c), input));
-  const publicResult = r => { const { index, ...rest } = r; return rest; };
+  const publicResult = r => { const { index, periods, ...rest } = r; return rest; };
   const perCurrency = results.map(publicResult);
   blocks.summary.cashflow_per_currency = perCurrency;
   blocks.returns.cashflow_per_currency = perCurrency;
   if (blocks.summary.per_currency) blocks.summary.per_currency = blocks.summary.per_currency.map(old => {
     const r = results.find(x => x.currency === old.currency);
     return r ? { ...old, max_drawdown: r.max_drawdown, twr_return_percent: r.twr_return_percent,
-      cashflow_method: r.cashflow_method, approximate: true } : old;
+      cashflow_method: r.cashflow_method, approximate: r.approximate } : old;
   });
   if (currencies.length > 1) {
     blocks.returns.per_currency = (blocks.returns.per_currency || []).map(old => {
       const r = results.find(x => x.currency === old.currency);
       return r ? { ...old, ...publicResult(r), status: old.status === "stale" ? "stale" : r.status,
-        benchmarks: [], aligned_start: r.index[0]?.date || null } : old;
+        as_of: r.index.at(-1)?.date || null, benchmarks: [], aligned_start: r.index[0]?.date || null } : old;
     });
     return blocks;
   }
@@ -137,17 +144,52 @@ export function applyCashflowPerformance(blocks, input, env) {
   const benchmarks = input.benchmarks.map(b => ({ ...b, points: sliceRange(b.points, input.range.toLowerCase(), input.today) }));
   const aligned = alignReturns(r.index, benchmarks);
   Object.assign(blocks.summary, { twr_return_percent: r.twr_return_percent, max_drawdown: r.max_drawdown,
-    cashflow_method: r.cashflow_method, approximate: true });
+    amount: r.periods.reduce((sum, period) => sum + period.amount, 0), value_kind: "pnl",
+    cashflow_method: r.cashflow_method, approximate: r.approximate });
   if (blocks.summary.metric_reasons) blocks.summary.metric_reasons.twr = null;
-  // Legacy daily P/L/calendar use another denominator; they remain untouched.
+  const crypto = input.accounts.every(account => account.platform === "binance");
+  const daily = r.periods.flatMap(({ date }) => {
+    if (!crypto && [0, 6].includes(new Date(dateMs(date)).getUTCDay())) return [];
+    let previous = dateMs(date) - 86400000;
+    if (!crypto) while ([0, 6].includes(new Date(previous).getUTCDay())) previous -= 86400000;
+    const previousDate = new Date(previous).toISOString().slice(0, 10);
+    const periods = r.periods.filter(period => period.date > previousDate && period.date <= date);
+    if (periods[0]?.previous_date !== previousDate || periods.at(-1)?.date !== date) return [];
+    const amount = periods.reduce((sum, period) => sum + period.amount, 0);
+    const flow = periods.reduce((sum, period) => sum + period.net_flow, 0);
+    const denominator = periods[0].opening_value + flow;
+    return [{ date, amount, return_percent: denominator > 0 ? amount / denominator * 100 : null,
+      value_kind: "pnl", status: denominator > 0 ? "ok" : "partial",
+      unavailable_reason: denominator > 0 ? null : "invalid_return_period" }];
+  });
+  const byDate = new Map(daily.map(period => [period.date, period]));
+  blocks.calendar.cells = blocks.calendar.cells.map(cell => byDate.has(cell.date)
+    ? { ...cell, ...byDate.get(cell.date), currency: r.currency } : cell);
+  if (blocks.calendar.cells.some(cell => byDate.has(cell.date))) {
+    const unresolved = blocks.calendar.cells.find(cell => cell.amount !== null && (cell.value_kind !== "pnl" || cell.status !== "ok"));
+    const missing = blocks.calendar.cells.some(cell => cell.date > r.index[0].date && cell.date <= r.index.at(-1).date
+      && cell.status === "no_data");
+    Object.assign(blocks.calendar, { value_kind: unresolved?.value_kind === "asset_change" ? "asset_change" : "pnl",
+      status: blocks.calendar.status === "stale" ? "stale" : unresolved || missing ? "partial" : "ok",
+      unavailable_reason: unresolved?.unavailable_reason || (missing ? "snapshot_history_missing" : null),
+      coverage: { ...blocks.calendar.coverage, cashflows: unresolved ? "unknown" : "complete" } });
+  }
+  const ranked = [...byDate.values()].filter(period => period.return_percent !== null)
+    .sort((first, second) => second.return_percent - first.return_percent);
+  blocks.summary.best_day = ranked[0] || null;
+  blocks.summary.worst_day = ranked.at(-1) || null;
   blocks.summary.excess_returns = [];
   for (const block of [blocks.summary, blocks.returns]) {
     block.unavailable_reason = null;
     block.status = block.status === "stale" ? "stale" : "ok";
     block.coverage = { ...block.coverage, cashflows: "complete" };
   }
+  const comparisonTruncated = aligned.primary.at(-1)?.date < r.index.at(-1)?.date;
   Object.assign(blocks.returns, { points: aligned.primary, benchmarks: aligned.benchmarks,
+    as_of: aligned.primary.at(-1)?.date || null,
+    status: comparisonTruncated && blocks.returns.status !== "stale" ? "partial" : blocks.returns.status,
+    unavailable_reason: comparisonTruncated ? "benchmark_history_missing" : null,
     aligned_start: aligned.start, no_common_date: aligned.noCommonDate, return_kind: "twr",
-    cashflow_method: r.cashflow_method, approximate: true });
+    value_kind: "pnl", cashflow_method: r.cashflow_method, approximate: r.approximate });
   return blocks;
 }
