@@ -89,8 +89,8 @@ CHANGE_PLAN 非作者审查 PASS 后实施；补丁及加法 schema 补核也 PA
 
 - 先写 11 项聚焦回归，RED 退出 1；第一版有一处 binding fixture 缺 schema，随后修正并保留两份 RED 日志。有效 fixture 的失败证据覆盖原假空态/读取错误/元数据缺失/持仓语义，部分新增字段在旧代码不存在。
 - GREEN 退出 0，覆盖两 facts 路由的配置/绑定异常、现金负数/真实零/缺值、部分运行/无记录/401/403/503/绑定不符、健康逐项 stale/null、显式模式与六 performance API。
-- 既有账户事实、runtime daily（含 health 集成）、API/Worker/schema、策略模式、gap contract、performance 数据/数学/现金流/分币种测试通过；tsc 与 git diff --check 通过。具体命令与退出码见 [初轮检查](WEB-API-GAP-01-evidence/validation-checks.json)、[返修检查](WEB-API-GAP-01-evidence/validation-followup.json)。初轮两失败保留，最后 design 验证见 validation-design-final.log（退出 0）；其导入的 grouping fixture 也补齐真实读取计数。
-- 并发写入出现后按 using-git-worktrees 隔离，本卡补丁迁至 `~/codex-jobs/worktrees/web-api-gap-01-qrs`；他人前端/risk 改动未带入。原地只精确撤回本卡 tracked hunks，不覆盖他人工作；迁移 patch 留作证据。
+- 既有账户事实、runtime daily（含 health 集成）、API/Worker/schema、策略模式、gap contract、performance 数据/数学/现金流/分币种测试通过；tsc 与 git diff --check 通过。具体命令与退出码见 [初轮检查](WEB-API-GAP-01-evidence/validation-checks.json)、[返修检查](WEB-API-GAP-01-evidence/validation-followup.json)、[最终有效结果](WEB-API-GAP-01-evidence/validation-final.json)。初轮两失败保留，最后 design 验证见 validation-design-final.log（退出 0）；其导入的 grouping fixture 也补齐真实读取计数。
+- 并发写入出现后按 using-git-worktrees 隔离，本卡补丁迁至 `~/codex-jobs/worktrees/web-api-gap-01-qrs`；他人前端/risk 改动未带入。原地只精确撤回本卡 tracked hunks，不覆盖他人工作；迁移 patch 以 owned-migration.patch.gz 原样保存；部分日志仅去除尾空格，诊断和退出结果不变，见 evidence-format.json。
 - 未运行全仓 Python 套件：本批不改 Python，远端既有 Validate 将按仓库配置执行。PR、CI、合并与生产部署各自记录，不互相替代。
 
 ## PR 与远端状态
