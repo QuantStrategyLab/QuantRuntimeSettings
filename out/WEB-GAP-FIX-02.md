@@ -1,6 +1,6 @@
 # WEB-GAP-FIX-02
 
-状态：**实现完成、非作者独审 PASS；PR/远端CI待执行。未部署。**
+状态：**实现完成、非作者独审 PASS；[PR #760](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/760) 已创建，远端CI等待中。未部署。**
 
 ## 结果与改动
 
@@ -37,7 +37,7 @@ Worker/frontend `npm ci --prefix ...` 均退出0，依赖锁无改动；分别�
 
 ## 独审与PR
 
-非作者 `/root/web_gap_fix_02_independent_review` 已只读独审 **PASS，无需返修**，并独立运行daily/Schwab集成、账户选择回归和diff检查，均exit0。[独审记录](WEB-GAP-FIX-02-evidence/independent-review.md) 与 [实现SHA256](WEB-GAP-FIX-02-evidence/implementation-hashes.json) 已核对一致。接下来创建PR与启用标准auto-merge，等待现有严格main基线、js/python必需检查；不使用admin或跳过保护。
+非作者 `/root/web_gap_fix_02_independent_review` 已只读独审 **PASS，无需返修**，并独立运行daily/Schwab集成、账户选择回归和diff检查，均exit0。[独审记录](WEB-GAP-FIX-02-evidence/independent-review.md) 与 [实现SHA256](WEB-GAP-FIX-02-evidence/implementation-hashes.json) 已核对一致。[PR #760](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/760) 已创建（实现提交 `061ade5c`）。本次文档提交后对精确head启用标准auto-merge，等待现有严格main基线、js/python必需检查；不使用admin或跳过保护。产品文件未在独审后变化。提交/push/PR命令回执见 [git-publication.json](WEB-GAP-FIX-02-evidence/git-publication.json)。
 
 ## 权限、部署与未验证项
 
