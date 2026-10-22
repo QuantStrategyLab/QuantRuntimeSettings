@@ -294,6 +294,15 @@ try {
       const read = await readDaily(); assert.equal(read.status, 200);
       const snapshot = await read.json();
       assert.equal(snapshot.record.status, item.projection.records[0].status);
+      const partialRead = ["read_incomplete", "schedule_missing", "due_missing_report", "wrong_target_rejected"].includes(item.name);
+      assert.deepEqual(snapshot.read_summary, {
+        source: "stored_runtime_daily_projection",
+        status: partialRead ? "partial" : "complete",
+        reason: partialRead ? "runtime_daily_incomplete" : null,
+        observed_run_count: snapshot.record.runs.length,
+        total_run_count: partialRead ? null : snapshot.record.runs.length,
+      }, `${item.name}: read coverage stays separate from failed, pending, preview, submitted, and no-trade outcomes`);
+
       assert.equal(Object.hasOwn(snapshot.record.schedule, "reason"), false, "other schedule reasons remain private");
       assert.equal(snapshot.unmatched_count, item.projection.unmatched_reports.length);
       assert.deepEqual(snapshot.fills, { source: "not_connected", records: [], count: null });

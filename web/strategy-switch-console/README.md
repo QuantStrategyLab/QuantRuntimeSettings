@@ -410,6 +410,24 @@ details, retaining only safe run-issue classifications. Limits remain 64 KiB,
 20 runs and 20 list entries; oversized input is rejected. Missing data is not a
 no-trade claim. Fills remain `not_connected`, empty records and null count.
 
+Daily GET responses add `read_summary` from the existing stored, validated daily
+projection (`source: stored_runtime_daily_projection`). `status` is `complete`,
+`partial`, `no_data`, or `read_failed`; `reason` is null or a fixed public code.
+`observed_run_count` counts only retained source runs; `total_run_count` is known
+only for a complete projection. A partial HTTP 200 preserves all available runs
+and uses reason `runtime_daily_incomplete` with a null total. Missing keys remain
+HTTP 200 / `no_data` / `runtime_daily_record_missing`, with both counts null.
+KV/JSON failures and invalid stored projections remain HTTP 503 / `read_failed`,
+with their existing fixed error code as reason and both counts null. Auth,
+selection, and binding errors retain their existing responses. No exception text,
+private diagnostics, interpolation, or replacement zero is added. An explicitly
+complete schedule can report a real zero. This summary describes the saved
+projection, not proof that its producer discovered every real run; completeness
+also does not imply successful execution or freshness. Existing `record`, `runs`,
+`read_error_codes`, `data_status` and source timestamps remain unchanged. Historical
+cells can therefore have a partial source read and several observed runs at once.
+History-directory coverage (`history`, including null when not read) is separate.
+
 For the exact bound Schwab source, public schedules retain only the safe reason
 codes `no_cron_on_business_date` and `market_closed`. After the existing identity,
 lifecycle/deployment freshness, current New York date, completeness, run-issue and
