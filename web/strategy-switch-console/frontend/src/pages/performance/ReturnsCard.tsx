@@ -128,6 +128,9 @@ function ReturnsChart({
       )}
       {note && <p className="card-note">{t(note)}</p>}
       <LineChart
+        // A new currency/benchmark set must re-apply the default visibility instead of
+        // inheriting hidden state from the previous entry.
+        key={`${view.currency ?? "native"}:${benchmarks.series.map(item => item.id).join(",")}`}
         series={series}
         mode={mode}
         ariaLabel={ariaLabel}
