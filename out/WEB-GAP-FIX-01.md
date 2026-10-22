@@ -1,6 +1,6 @@
 # WEB-GAP-FIX-01
 
-状态：实现完成，非作者独审 PASS；正在发布 PR/auto-merge。不部署。
+状态：实现完成，非作者独审 PASS；[PR #759](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/759) 已创建，等待必需 CI 后自动合并。不部署。
 
 ## 结果与改动
 
@@ -36,7 +36,7 @@
 
 ## 独审与集成
 
-非作者 `/root/web_gap_fix_01_independent_review` 对实现 `fa20266bb540d8bdccb5bb6a6323ae14dbf70f26` 初审 FAIL：真实 loader 内部吞掉 KV/JSON 异常，stub 测试未覆盖。已补真实 Worker.fetch 回归，修正前 RED（200≠503），通过 snapshot 专用 propagateReadErrors 选项修正；真实键不存在仍 200 未配置。原 FAIL 保留在 [独审记录](WEB-GAP-FIX-01-evidence/independent-review.md)，同一审查者已复核 `fa20266b..d404fb3e63ff3295d5d526fed27ea10ce0fd507d` 并 PASS，独立 Worker throw/invalid_json/missing 三情形和账户事实/只读/同步回归均 exit0；此后仅更新证据文档。现有必需检查为 js/python、要求跟上 main；不绕过保护。PR #758 有相邻加法修复，本卡从 main 独立实施，不吸收其未合并写集。
+非作者 `/root/web_gap_fix_01_independent_review` 对实现 `fa20266bb540d8bdccb5bb6a6323ae14dbf70f26` 初审 FAIL：真实 loader 内部吞掉 KV/JSON 异常，stub 测试未覆盖。已补真实 Worker.fetch 回归，修正前 RED（200≠503），通过 snapshot 专用 propagateReadErrors 选项修正；真实键不存在仍 200 未配置。原 FAIL 保留在 [独审记录](WEB-GAP-FIX-01-evidence/independent-review.md)，同一审查者已复核 `fa20266b..d404fb3e63ff3295d5d526fed27ea10ce0fd507d` 并 PASS，独立 Worker throw/invalid_json/missing 三情形和账户事实/只读/同步回归均 exit0；此后仅更新证据文档。PR：[QuantStrategyLab/QuantRuntimeSettings#759](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/759)。现有必需检查为 js/python、要求跟上 main；不绕过保护。最终 CI/合并状态以远端 PR 回读及本机最终报告为准。PR #758 有相邻加法修复，本卡从 main 独立实施，不吸收其未合并写集。
 
 部署工作流 `.github/workflows/deploy-strategy-switch-console.yml` 仅 `workflow_dispatch`，本卡未修改任何 workflow，且不 dispatch。本机测试和 CI 不等于生产数据已补齐或已上线。
 
