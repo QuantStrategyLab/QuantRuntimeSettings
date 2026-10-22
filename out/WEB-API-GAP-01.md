@@ -95,7 +95,7 @@ CHANGE_PLAN 非作者审查 PASS 后实施；补丁及加法 schema 补核也 PA
 
 ## PR 与远端状态
 
-PR：待创建。只提交本卡后端/测试、此报告和本卡证据；不提交原有 out、依赖目录或其他任务。auto-merge 仅沿用既有规则，不用 admin 绕过检查；部署 workflow 仅 workflow_dispatch，不触发它。
+PR：[QuantRuntimeSettings #758](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/758)。远端 Validate 正在执行，auto-merge 等待检查；此处为发布时状态，最终 readback 将补入本地证据。只提交本卡后端/测试、此报告和本卡证据；不提交原有 out、依赖目录或其他任务。auto-merge 仅沿用既有规则，不用 admin 绕过检查；部署 workflow 仅 workflow_dispatch，不触发它。
 
 ## 实际使用 Skill
 
