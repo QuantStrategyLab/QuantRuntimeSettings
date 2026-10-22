@@ -10865,12 +10865,13 @@ async function runtimeCycleHealthSourceResponse(request, env) {
   }
 }
 
-async function loadAccountFactsBindings(env) {
+async function loadAccountFactsBindings(env, { propagateReadErrors = false } = {}) {
   if (!hasConfigStore(env)) return null;
   let raw;
   try {
     raw = await readConfigJson(env, ACCOUNT_FACTS_BINDINGS_KEY);
-  } catch {
+  } catch (error) {
+    if (propagateReadErrors) throw error;
     return null;
   }
   if (!raw) return null;
@@ -10964,7 +10965,7 @@ async function accountFactsResponse(request, env) {
     hasConfigStore,
     hasRuntimeInstanceStore,
     loadAccountOptionsConfig,
-    loadAccountFactsBindings,
+    loadAccountFactsBindings: (env) => loadAccountFactsBindings(env, { propagateReadErrors: true }),
     loadStoredAccountFactsMap,
     runtimeInstanceCommand,
     periodReturnCommand,
