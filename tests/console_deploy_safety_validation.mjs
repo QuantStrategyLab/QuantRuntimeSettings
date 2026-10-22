@@ -316,7 +316,17 @@ assert.doesNotMatch(publishStep, /npx|triggers deploy|secret put|script-settings
 assert.match(workflow, /group: strategy-switch-console-deploy\n  cancel-in-progress: false/);
 const releaseScript = publishStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1].split("\n").map(l=>l.slice(10)).filter(l=>!l.startsWith("import ")).join("\n");
 const runRelease = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console","readFile","createHash",releaseScript);
-const priorVersion="2beea000-cce5-43a5-9255-9724f7318e83", priorDeployment="6107ffd9-4c76-4bc5-be85-a12caf2af766";
+assert.doesNotMatch(publishStep, /2beea000|6107ffd9|pre_upload_latest|latest\(prior\)/);
+assert.match(publishStep, /stage = 'pre_upload_active'; await active\(priorDeployment, prior\)/);
+assert.match(publishStep, /stage = 'pre_deploy_latest'; await latest\(uploaded\)/);
+assert.match(publishStep, /stage = 'activate'; deployAttempted = true/);
+const priorVersion="00000000-0000-4000-8000-000000000010", priorDeployment="00000000-0000-4000-8000-000000000011";
+const syntheticBundle=Buffer.from("export default { fetch(){} }; // synthetic bundle");
+const scriptResponse=(body,headers={})=>new Response(body,{headers:{"content-type":"application/javascript",...headers}});
+function multipartScript(body=syntheticBundle, mutate=()=>{}) {
+ const form=new FormData();form.append("worker.js",new File([body],"worker.js",{type:"application/javascript+module"}));mutate(form);
+ return new Response(form,{headers:{"cf-entrypoint":"worker.js"}});
+}
 const newVersion="00000000-0000-4000-8000-000000000002", newDeployment="00000000-0000-4000-8000-000000000003", privateRelease="PRIVATE_RELEASE_SENTINEL";
 const remoteBindings=[{name:"STRATEGY_SWITCH_CONFIG",type:"kv_namespace",namespace_id:"b".repeat(32)},
  {name:"STRATEGY_SWITCH_RUNTIME_INSTANCES",type:"durable_object_namespace",namespace_id:"c".repeat(32),class_name:"RuntimeInstances"},
@@ -324,42 +334,92 @@ const remoteBindings=[{name:"STRATEGY_SWITCH_CONFIG",type:"kv_namespace",namespa
 const runtime={compatibility_date:"2026-06-08",compatibility_flags:[],usage_model:"standard",limits:{},migration_tag:"runtime-instances-v1",exports:{RuntimeInstances:{type:"durable-object",storage:"sqlite"}}};
 const resource=etag=>({bindings:structuredClone(remoteBindings),script_runtime:structuredClone(runtime),script:{etag,handlers:["fetch","scheduled"],named_handlers:[{name:"RuntimeInstances",handlers:[]}],last_deployed_from:"api"}});
 const wrap=result=>({success:true,errors:[],result}), dep=(id,v)=>({id,strategy:"percentage",versions:[{version_id:v,percentage:100}]});
-const responseSequence=()=>[wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:priorVersion,resources:resource("old-code")}),
- wrap({items:[{id:priorVersion}]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
- wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({items:[{id:newVersion}]}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})];
-const apiSequence=[["/deployments?page=1&per_page=10","GET"],[`/versions/${priorVersion}`,"GET"],["/versions?page=1&per_page=10","GET"],["/versions?bindings_inherit=strict","POST"],
+const responseSequence=(alreadyActive)=>[wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:priorVersion,resources:resource("old-code")}),
+ scriptResponse(alreadyActive ? syntheticBundle : "export default {}; // " + privateRelease),
+ ...(alreadyActive ? [wrap({deployments:[dep(priorDeployment,priorVersion)]})] : [wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
+ wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({items:[{id:newVersion}]}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})])];
+const apiSequence=[["/deployments?page=1&per_page=10","GET"],[`/versions/${priorVersion}`,"GET"],["/content/v2","GET"],["/deployments?page=1&per_page=10","GET"],["/versions?bindings_inherit=strict","POST"],
  [`/versions/${newVersion}`,"GET"],["/deployments?page=1&per_page=10","GET"],["/versions?page=1&per_page=10","GET"],["/deployments?force=false","POST"],["/deployments?page=1&per_page=10","GET"]];
 let releaseCases=0;
-async function releaseCase({mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false}={}, expected=true,count=9){
- const responses=responseSequence();mutate(responses);const calls=[],stdout=[],stderr=[];
+async function releaseCase({mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle}={}, expected=true,count=alreadyActive?4:10){
+ const responses=responseSequence(alreadyActive);mutate(responses);const calls=[],stdout=[],stderr=[];
  const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"d".repeat(32),...env},exitCode:0};
  await runRelease(process,async(url,options)=>{const i=calls.length;calls.push({url,options});if(i===failAt)throw Error(privateRelease);if(i===responseAt)return response;
-  assert.ok(i<responses.length,"no retry/page expansion");return new Response(JSON.stringify(responses[i]),{headers:{"content-type":"application/json"}});
- },{log:x=>stdout.push(x),error:x=>stderr.push(x)},async path=>{assert.equal(path,"/synthetic/console-frontend-bundle/worker.js");if(readError)throw Error(privateRelease);return Buffer.from("export default { fetch(){} }; // synthetic bundle");},createHash);
+  assert.ok(i<responses.length,"no retry/page expansion");return responses[i] instanceof Response ? responses[i] : new Response(JSON.stringify(responses[i]),{headers:{"content-type":"application/json"}});
+ },{log:x=>stdout.push(x),error:x=>stderr.push(x)},async path=>{assert.equal(path,"/synthetic/console-frontend-bundle/worker.js");if(readError)throw Error(privateRelease);return bundle;},createHash);
  assert.equal(process.exitCode===0,expected,stderr.join("\n"));assert.equal(calls.length,count);
  assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));assert.ok(!JSON.stringify({stdout,stderr}).includes("a".repeat(32)));
  for(const [i,{url,options}] of calls.entries()){
   assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+apiSequence[i][0]);
   assert.equal(options.headers["Accept-Encoding"],"identity");assert.equal(options.method,apiSequence[i][1]);assert.equal(options.redirect,"error");assert.ok(options.signal instanceof AbortSignal);assert.equal(options.headers.Authorization,`Bearer ${privateRelease}`);
-  if(i===3){assert.ok(options.body instanceof FormData);assert.deepEqual([...options.body.keys()],["metadata","worker.js"]);const m=JSON.parse(options.body.get("metadata"));
+  if(options.method==="GET")assert.equal(options.body,undefined);
+  if(i===4){assert.ok(options.body instanceof FormData);assert.deepEqual([...options.body.keys()],["metadata","worker.js"]);const m=JSON.parse(options.body.get("metadata"));
    assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
    assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
-  if(i===7)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":"Reviewed frontend only; fixed e2a backend and retained configuration"}});
+  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":"Reviewed frontend only; fixed e2a backend and retained configuration"}});
  }
- if(expected){const r=JSON.parse(stdout[0]);assert.equal(r.version_id,newVersion);assert.equal(r.deployment_id,newDeployment);assert.equal(r.bindings_equal,true);assert.equal(r.runtime_equal,true);assert.equal(r.provider_cas,false);}
- else{assert.equal(stdout.length,0);assert.equal(JSON.parse(stderr[0]).retry,false);}
+ if(expected && alreadyActive){
+  assert.deepEqual(calls.map(c=>c.options.method),["GET","GET","GET","GET"]);
+  assert.deepEqual(JSON.parse(stdout[0]),{status:"frontend_release_already_active",deployment_id:priorDeployment,version_id:priorVersion,
+   percentage:100,bundle_sha256:createHash("sha256").update(bundle).digest("hex"),upload_attempted:false,deploy_attempted:false});
+ } else if(expected){const r=JSON.parse(stdout[0]);assert.equal(r.status,"frontend_release_verified");assert.equal(r.bundle_sha256,createHash("sha256").update(bundle).digest("hex"));assert.equal(r.version_id,newVersion);assert.equal(r.deployment_id,newDeployment);assert.equal(r.bindings_equal,true);assert.equal(r.runtime_equal,true);assert.equal(r.provider_cas,false);}
+ else{assert.equal(stdout.length,0);const error=JSON.parse(stderr[0]);assert.equal(error.retry,false);
+  assert.equal(error.upload_attempted,!alreadyActive && calls.length>=5);
+  assert.equal(error.deploy_attempted,!alreadyActive && calls.length>=9);
+ }
  releaseCases++;return {calls,stdout,stderr};
 }
 await releaseCase();await releaseCase({env:{STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"e".repeat(32)}}); // H's namespace drift no longer affects inherited configuration
+await releaseCase({mutate:r=>r[0].result.deployments.push(dep(newDeployment,newVersion))}); // Only the first deployment is active.
+// Repeated content must return without either write, including multipart module responses.
+await releaseCase({alreadyActive:true});
+await releaseCase({alreadyActive:true,responseAt:2,response:multipartScript()});
+await releaseCase({responseAt:2,response:multipartScript("export default {}; // different")});
+await releaseCase({alreadyActive:true,responseAt:2,response:scriptResponse(syntheticBundle,{"content-type":"text/javascript; charset=utf-8","content-length":String(syntheticBundle.length)})});
+for (const drift of [d=>{d.id=newDeployment;},d=>{d.versions[0].version_id=newVersion;},d=>{d.versions[0].percentage=99;}]) {
+ await releaseCase({alreadyActive:true,mutate:r=>drift(r[3].result.deployments[0])},false,4);
+}
+await releaseCase({alreadyActive:true,failAt:3},false,4);
+for (const change of [
+ x=>{x.result.deployments=[];}, x=>{x.result.deployments=Array(11).fill(dep(priorDeployment,priorVersion));},
+ x=>{x.result.deployments[0].strategy="other";}, x=>{x.result.deployments[0].versions=[];},
+ x=>{x.result.deployments[0].versions.push({version_id:newVersion,percentage:0});},
+ x=>{x.result.deployments[0].versions[0].version_id="not-a-uuid";},
+ x=>{x.result.deployments[0].versions[0].percentage="100";}, x=>{x.result.deployments[0].versions[0].percentage=99;}
+]) await releaseCase({mutate:r=>change(r[0])},false,1);
+await releaseCase({mutate:r=>{for(const x of r)if(!(x instanceof Response))x.errors=null;}});
+for (const body of [Buffer.alloc(0),Buffer.alloc(10485761)]) await releaseCase({bundle:body},false,2);
+for (const response of [
+ scriptResponse("",{}), scriptResponse(privateRelease,{"content-type":"text/html"}),
+ scriptResponse(privateRelease,{"content-type":"application/json"}), scriptResponse(privateRelease,{"content-encoding":"gzip"}),
+ scriptResponse(privateRelease,{"content-length":"10485761"}), scriptResponse(privateRelease,{"content-length":"invalid"}),
+ scriptResponse(privateRelease,{"content-length":"1"}), scriptResponse("x".repeat(10485761)),
+ new Response(privateRelease,{status:403}),new Response(null,{status:204,headers:{"content-type":"application/javascript"}}),
+ scriptResponse(new ReadableStream({pull(c){c.error(Error(privateRelease));}})),
+ scriptResponse("malformed",{"content-type":"multipart/form-data; boundary=synthetic"}),
+ scriptResponse("x".repeat(10551297),{"content-type":"multipart/form-data; boundary=synthetic"}),
+ scriptResponse("x",{"content-type":"multipart/form-data; boundary=synthetic","content-length":"10551297"}),
+ multipartScript(syntheticBundle,f=>f.append("extra.js",new File(["extra"],"extra.js",{type:"application/javascript+module"}))),
+ multipartScript(syntheticBundle,f=>f.append("worker.js",new File([syntheticBundle],"worker.js",{type:"application/javascript+module"}))),
+ multipartScript(syntheticBundle,f=>f.set("worker.js",new File([syntheticBundle],"other.js",{type:"application/javascript+module"}))),
+ multipartScript(syntheticBundle,f=>f.set("worker.js",new File([syntheticBundle],"worker.js",{type:"text/html"}))),
+ multipartScript(syntheticBundle,f=>f.set("worker.js","not-a-file")),
+ multipartScript(Buffer.alloc(0)),multipartScript(Buffer.alloc(10485761)),
+]) await releaseCase({responseAt:2,response},false,3);
+const wrongEntrypoint=multipartScript();wrongEntrypoint.headers.set("cf-entrypoint","other.js");
+await releaseCase({responseAt:2,response:wrongEntrypoint},false,3);
+// Hash byte content, preserving even invalid UTF-8 rather than decoding/re-encoding.
+const binaryBundle=Buffer.from([0xff,0xfe,0x00,0x0d,0x0a]);
+await releaseCase({alreadyActive:true,bundle:binaryBundle,responseAt:2,response:scriptResponse(binaryBundle)});
 const handlerList = Array.from({length:33},(_,i)=>`handler${i}`);
-const largerAbi = responses => {for(const i of [1,4])responses[i].result.resources.script.named_handlers[0].handlers=[...handlerList];};
+const largerAbi = responses => {for(const i of [1,5])responses[i].result.resources.script.named_handlers[0].handlers=[...handlerList];};
 await releaseCase({mutate:largerAbi});
 for(const drift of [handlers=>handlers.pop(),handlers=>handlers.push("newHandler"),handlers=>{handlers[32]="changedHandler";}]){
- await releaseCase({mutate:r=>{largerAbi(r);drift(r[4].result.resources.script.named_handlers[0].handlers);}},false,5);
+ await releaseCase({mutate:r=>{largerAbi(r);drift(r[5].result.resources.script.named_handlers[0].handlers);}},false,6);
 }
 await releaseCase({mutate:r=>{largerAbi(r);r[1].result.resources.script.named_handlers[0].handlers[32]=null;}},false,2);
-await releaseCase({mutate:r=>{largerAbi(r);r[4].result.resources.script.named_handlers[0].PRIVATE_RELEASE_SENTINEL=true;}},false,5);
+await releaseCase({mutate:r=>{largerAbi(r);r[5].result.resources.script.named_handlers[0].PRIVATE_RELEASE_SENTINEL=true;}},false,6);
 const oversizedResource=resource("old-code");
 oversizedResource.script.named_handlers[0].handlers=Array.from({length:50000},(_,i)=>`handler${i}`);
 const oversizedResourceJson=JSON.stringify(wrap({id:priorVersion,resources:oversizedResource}));
@@ -367,9 +427,9 @@ assert.ok(Buffer.byteLength(oversizedResourceJson)>524288);
 await releaseCase({responseAt:1,response:new Response(oversizedResourceJson,{headers:{"content-type":"application/json"}})},false,2);
 for(const env of [{GITHUB_REF:"refs/heads/unapproved"},{CLOUDFLARE_API_TOKEN:""},{CLOUDFLARE_ACCOUNT_ID:"bad"}])await releaseCase({env},false,0);
 await releaseCase({readError:true},false,2);
-for(let i=0;i<9;i++)await releaseCase({failAt:i},false,i+1);
+for(let i=0;i<10;i++)await releaseCase({failAt:i},false,i+1);
 for(const [at,change] of [
- [0,x=>{x.result.deployments[0].id=newDeployment;}],[1,x=>{x.result.id=newVersion;}],[1,x=>{x.result.resources.bindings.push(x.result.resources.bindings[0]);}],
+ [0,x=>{x.result.deployments[0].id="invalid";}],[1,x=>{x.result.id=newVersion;}],[1,x=>{x.result.resources.bindings.push(x.result.resources.bindings[0]);}],
  [1,x=>{delete x.result.resources.bindings[0].namespace_id;}],[1,x=>{delete x.result.resources.bindings[1].class_name;}],
  [1,x=>{x.result.resources.bindings[0].namespace_id={private:privateRelease};}],
  [1,x=>{delete x.result.resources.bindings[2].text;}],[1,x=>{delete x.result.resources.bindings[3].json;}],
@@ -379,20 +439,20 @@ for(const [at,change] of [
  [1,x=>{x.result.resources.script.named_handlers[0].handlers="PRIVATE_RELEASE_SENTINEL";}],
  [1,x=>{x.result.resources.script.named_handlers.push(x.result.resources.script.named_handlers[0]);}],
  [1,x=>{x.result.resources.script_runtime.unknown=privateRelease;}],[1,x=>{x.result.resources.bindings[0].type="service";}],[1,x=>{x.result.resources.assets={};}],
- [2,x=>{x.result.items[0].id=newVersion;}],[3,x=>{x.result.id="untrusted";}],
- [4,x=>{x.result.resources.bindings[0].namespace_id="e".repeat(32);}],[4,x=>{x.result.resources.bindings.pop();}],[4,x=>{x.result.resources.bindings[2].text="different";}],
- [4,x=>{x.result.resources.script_runtime.compatibility_date="2026-06-09";}],[4,x=>{x.result.resources.script_runtime.limits={cpu_ms:1};}],
- [4,x=>{x.result.resources.script_runtime.migration_tag="changed";}],[4,x=>{x.result.resources.script.named_handlers[0].name="ChangedExport";}],
- [4,x=>{x.result.resources.script.named_handlers[0].handlers=["alarm"];}],
- [4,x=>{x.result.resources.script.handlers=["fetch"];}],[4,x=>{x.result.resources.script.etag="old-code";}],
- [5,x=>{x.result.deployments[0].versions[0].version_id=newVersion;}],[6,x=>{x.result.items[0].id=priorVersion;}],[7,x=>{x.result.versions[0].percentage=99;}],[8,x=>{x.result.deployments[0].id=priorDeployment;}]
+ [3,x=>{x.result.deployments[0].id=newDeployment;}],[4,x=>{x.result.id="untrusted";}],
+ [5,x=>{x.result.resources.bindings[0].namespace_id="e".repeat(32);}],[5,x=>{x.result.resources.bindings.pop();}],[5,x=>{x.result.resources.bindings[2].text="different";}],
+ [5,x=>{x.result.resources.script_runtime.compatibility_date="2026-06-09";}],[5,x=>{x.result.resources.script_runtime.limits={cpu_ms:1};}],
+ [5,x=>{x.result.resources.script_runtime.migration_tag="changed";}],[5,x=>{x.result.resources.script.named_handlers[0].name="ChangedExport";}],
+ [5,x=>{x.result.resources.script.named_handlers[0].handlers=["alarm"];}],
+ [5,x=>{x.result.resources.script.handlers=["fetch"];}],[5,x=>{x.result.resources.script.etag="old-code";}],
+ [6,x=>{x.result.deployments[0].versions[0].version_id=newVersion;}],[7,x=>{x.result.items[0].id=priorVersion;}],[8,x=>{x.result.versions[0].percentage=99;}],[9,x=>{x.result.deployments[0].id=priorDeployment;}]
 ])await releaseCase({mutate:r=>change(r[at])},false,at+1);
 for (const corrupt of [b=>{delete b.namespace_id;},b=>{b.namespace_id={private:privateRelease};}]) {
- await releaseCase({mutate:r=>{for(const i of [1,4])corrupt(r[i].result.resources.bindings[0]);}},false,2);
+ await releaseCase({mutate:r=>{for(const i of [1,5])corrupt(r[i].result.resources.bindings[0]);}},false,2);
 }
-await releaseCase({mutate:r=>{for(const i of [1,4])delete r[i].result.resources.bindings[1].class_name;}},false,2);
+await releaseCase({mutate:r=>{for(const i of [1,5])delete r[i].result.resources.bindings[1].class_name;}},false,2);
 for(const [at,response] of [
- [0,new Response(privateRelease,{status:403})],[3,new Response(privateRelease,{status:500})],[7,new Response(JSON.stringify({success:false,errors:[{code:10220,message:privateRelease}]}),{status:400})],
+ [0,new Response(privateRelease,{status:403})],[4,new Response(privateRelease,{status:500})],[8,new Response(JSON.stringify({success:false,errors:[{code:10220,message:privateRelease}]}),{status:400})],
  [1,new Response("{",{headers:{"content-type":"application/json"}})],[1,new Response("x".repeat(524289),{headers:{"content-type":"application/json"}})],
  [1,new Response(privateRelease,{headers:{"content-type":"text/html"}})],[1,new Response("{}",{headers:{"content-type":"application/json","content-encoding":"gzip"}})],
  [1,new Response("{}",{headers:{"content-type":"application/json","content-length":"524289"}})],[1,new Response("{}",{headers:{"content-type":"application/json","content-length":"1"}})],
