@@ -8890,8 +8890,21 @@ async function runtimeDailyHistory(env, target) {
   }
 }
 
+function runtimeDailyReadSummary(status, reason, observedRunCount = null) {
+  return {
+    source: "stored_runtime_daily_projection", status, reason,
+    observed_run_count: observedRunCount,
+    total_run_count: status === "complete" ? observedRunCount : null,
+  };
+}
+
 function runtimeDailyReadStatus(stored, now) {
   const record = stored.records[0];
+  // Preserve partial observations without turning their length into a day total.
+  // Read completeness and execution outcome/freshness are separate facts.
+  const complete = stored.completeness === "complete" && record.completeness === "complete"
+    && !stored.read_errors.length && !stored.unmatched_reports.length && !record.conflicts.length
+    && record.kind !== "incomplete" && !["read_incomplete", "missing_report", "insufficient", "conflict"].includes(record.status);
   const observedMs = runtimeDailyInstant(stored.observed_at);
   const today = record.business_date === runtimeDailyToday(now);
   let dataStatus = "historical";
@@ -8901,6 +8914,8 @@ function runtimeDailyReadStatus(stored, now) {
   }
   return {
     data_status: dataStatus,
+    read_summary: runtimeDailyReadSummary(complete ? "complete" : "partial",
+      complete ? null : "runtime_daily_incomplete", record.runs.length),
     read_error_count: stored.read_errors.length,
     // These producer codes contain no object paths, identities or exception text.
     // Unknown legacy diagnostics remain private and retain an explicit error.
@@ -9018,7 +9033,8 @@ async function runtimeDailyResponse(request, env, url) {
   try {
     stored = await readConfigJson(env, runtimeDailyKey(businessDate, target));
   } catch {
-    return json({ ok: false, error: "runtime_daily_read_failed" }, 503);
+    return json({ ok: false, error: "runtime_daily_read_failed",
+      read_summary: runtimeDailyReadSummary("read_failed", "runtime_daily_read_failed") }, 503);
   }
   const base = {
     ok: true,
@@ -9030,18 +9046,21 @@ async function runtimeDailyResponse(request, env, url) {
     history: includeHistory ? await runtimeDailyHistory(env, target) : null,
   };
   if (stored === null || stored === undefined) {
-    return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
+    return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0,
+      read_summary: runtimeDailyReadSummary("no_data", "runtime_daily_record_missing") });
   }
   let projection;
   try {
     projection = normalizeRuntimeDailyProjection(runtimeDailyStoredProjection(stored, target, binding));
   } catch (error) {
     if (error.message === "runtime_daily_binding_changed") return json({ ok: false, error: error.message }, 409);
-    return json({ ok: false, error: "runtime_daily_record_invalid" }, 503);
+    return json({ ok: false, error: "runtime_daily_record_invalid",
+      read_summary: runtimeDailyReadSummary("read_failed", "runtime_daily_record_invalid") }, 503);
   }
   if (projection.records[0].business_date !== businessDate || projection.platform !== target.platform
     || projection.records[0].target_key !== target.target_key) {
-    return json({ ok: false, error: "runtime_daily_record_invalid" }, 503);
+    return json({ ok: false, error: "runtime_daily_record_invalid",
+      read_summary: runtimeDailyReadSummary("read_failed", "runtime_daily_record_invalid") }, 503);
   }
   return json({ ...base, ...runtimeDailyReadStatus(projection, Date.now()) });
 }

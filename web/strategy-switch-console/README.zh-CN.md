@@ -270,6 +270,18 @@ LongBridge 原7字段 evidence 和 unmatched-report 协议保留。Schwab 严格
 receipt 内部字段不对 GET 公开，仅保留安全的运行异常分类。64KiB/20 runs/20列表项预算不变，超限拒绝。
 缺当日对象是空数据，不是无交易；`fills` 永远为 `not_connected`、空 records、null count。
 
+每日 GET 新增 `read_summary`，来源是既有已校验日投影，`source` 固定为
+`stored_runtime_daily_projection`。`status` 为 `complete`、`partial`、`no_data` 或
+`read_failed`，`reason` 为 null 或固定公开原因。`observed_run_count` 只计已保留的源运行，
+`total_run_count` 仅在投影完整时有值。HTTP 200 可同时是 partial：保留全部已读运行，原因
+`runtime_daily_incomplete`，总次数为 null。缺键仍200/no_data，原因
+`runtime_daily_record_missing`，两个次数均 null。KV/JSON读取失败或已存投影无效仍503/read_failed，
+原因沿用既有固定错误码，两个次数均 null。认证、选择和绑定错误沿用原响应。不泄漏异常或私有诊断，
+不插值、不以0补读失败；只有明确完整的调度记录可给出真实零次。摘要仅描述已保存投影，不能证明生产者
+发现了全部真实运行；完整读取也不表示执行成功或数据新鲜。既有 record、runs、read_error_codes、
+data_status 和源时间保持。因此历史格子的读取不完整与已观察到多次运行可以同时成立。
+历史目录覆盖（history，未读取时为null）单独表达，不并入某一天的读取摘要。
+
 精确绑定的 Schwab 来源仅公开安全 schedule reason 白名单 `no_cron_on_business_date`、`market_closed`。
 既有身份、lifecycle/部署新鲜度、纽约当前业务日、完整性、运行异常及通道检查全部通过后，当前业务日观察到、
 日期/时区/原因/时间字段一致的明确无当日后续运行或休市记录，可在 `next_due_at: null` 时显示“健康”。
