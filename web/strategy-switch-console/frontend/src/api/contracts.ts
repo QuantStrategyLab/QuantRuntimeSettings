@@ -583,3 +583,65 @@ export interface CashflowReturnMetrics {
   approximate: boolean;
   multi_day_intervals?: boolean;
 }
+
+/**
+ * Read-only projection of GET /api/account-facts. Broker-reported amounts stay
+ * decimal strings exactly as returned; null net_assets means the broker did not
+ * report a value, never zero. Per-currency rows are never summed across
+ * currencies and cash is never relabeled as buying power or available margin.
+ */
+export interface AccountFactsBalance {
+  currency: string;
+  net_assets: string | null;
+  total_cash?: string | null;
+  source_tag?: string;
+  currency_source?: string;
+}
+export interface AccountFactsCash {
+  currency: string;
+  cash_balance?: string;
+  available_cash?: string;
+  frozen_cash?: string;
+  settling_cash?: string;
+  source_tag?: string;
+  currency_source?: string;
+}
+export interface AccountFactsAccount {
+  platform: string;
+  account_key: string;
+  binding_status: "bound" | "missing" | "duplicate";
+  identity_status: "partial_identity" | "missing_identity";
+  identity_mismatch: boolean;
+  data_status: "fresh" | "stale" | "unavailable";
+  broker_environment: string | null;
+  account_scope: string | null;
+  observation_date: string | null;
+  observed_started_at: string | null;
+  observed_finished_at: string | null;
+  /**
+   * Authoritative backend aggregation conclusion for this row: only "included"
+   * rows are verified unique physical accounts that may join any sum. Missing
+   * or unknown values are treated as unverified, never as included.
+   */
+  aggregation_status?: "included" | "unverified" | "conflict" | "duplicate";
+  balances: AccountFactsBalance[];
+  cash: AccountFactsCash[];
+}
+export interface AccountFactsResponse extends ReadOnlyProjection {
+  ok: true;
+  accounts: AccountFactsAccount[];
+  totals: {
+    status: "by_currency" | "unavailable";
+    reason: string | null;
+    by_currency: {
+      currency: string;
+      net_assets: string;
+      available_cash: string | null;
+      cash_balance: string | null;
+      account_count: number;
+    }[];
+  };
+  account_options_revision: number | null;
+  enabled: true;
+  configured: boolean;
+}

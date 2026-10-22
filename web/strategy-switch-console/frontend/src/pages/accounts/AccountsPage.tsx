@@ -1,8 +1,8 @@
-import { AccountGroups } from "../../components/AccountGroups";
+import { AccountGroups, type AccountFactsView } from "../../components/AccountGroups";
 import { findAccount } from "../../lib/accountDirectory";
 import { useState } from "react";
 import { getJson } from "../../api/client";
-import { loadAccounts, loadTodayRuns } from "../../api/endpoints";
+import { loadAccountFacts, loadAccounts, loadTodayRuns } from "../../api/endpoints";
 import { useNavigate } from "../../app/context";
 import { useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
@@ -19,10 +19,14 @@ export default function AccountsPage({ account, tab }: { account: string | null;
   const accountsState = useApi(() => loadAccounts(), [epoch]);
   const configState = useApi(() => getJson<ConsoleConfig>("/api/config").catch(() => null), [epoch]);
   const todayState = useApi(() => loadTodayRuns(), [epoch]);
+  const factsState = useApi(() => loadAccountFacts(), [epoch]);
 
   const config = configState.phase === "ready" ? configState.data : null;
   const accounts = accountsState.phase === "ready" ? accountsState.data.accounts : [];
   const selected = account ? findAccount(accounts, account) : undefined;
+  const facts: AccountFactsView = factsState.phase === "ready"
+    ? { rows: factsState.data.accounts, phase: "ready" }
+    : { rows: [], phase: factsState.phase };
 
   const todayFailed =
     todayState.phase === "error" || (todayState.phase === "ready" && todayState.data.status === "read_failed");
@@ -41,7 +45,7 @@ export default function AccountsPage({ account, tab }: { account: string | null;
   } else if (accounts.length === 0) {
     listBody = <EmptyState title={t("overview.no_accounts")} />;
   } else {
-    listBody = <AccountGroups accounts={accounts} config={config} onSelect={select} />;
+    listBody = <AccountGroups accounts={accounts} config={config} facts={facts} onSelect={select} />;
   }
 
   return (
@@ -69,6 +73,7 @@ export default function AccountsPage({ account, tab }: { account: string | null;
             config={config}
             todayRun={todayRun}
             todayFailed={todayFailed}
+            facts={facts}
             onBack={() => navigate({ account: null })}
           />
         )}
