@@ -767,7 +767,8 @@ jobs:
               } finally { await reader.cancel(); }
               if (length !== null && Number(length) !== size) fail();
               const result = JSON.parse(text);
-              if (result?.success !== true || (result.errors !== undefined && (!Array.isArray(result.errors) || result.errors.length))) fail();
+              // The versions list reports errors: null, not []. Both mean no errors.
+              if (result?.success !== true || (result.errors != null && (!Array.isArray(result.errors) || result.errors.length))) fail();
               return result.result;
             }
             async function active(id, version) {
