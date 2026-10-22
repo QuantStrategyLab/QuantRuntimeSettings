@@ -1,4 +1,4 @@
-import { alignReturns, chainReturns, cleanPoints, dateMs, rebase, sliceRange } from "../../performance_math.js";
+import { alignReturns, chainReturns, cleanPoints, dateMs, hasGap, rebase, sliceRange } from "../../performance_math.js";
 
 const DAY = 86_400_000;
 export const DEFAULT_HISTORY_MAX_STALENESS_DAYS = 3;
@@ -45,7 +45,7 @@ export function aggregateEquityHistory(histories, currency, { maxStalenessDays }
       forward_filled_accounts: forwarded,
       partial,
       membership_changed: membershipChanged,
-      breakBefore: !!previous && (membershipChanged || dateMs(date) - dateMs(previous.date) > DAY ||
+      breakBefore: !!previous && (membershipChanged || hasGap(previous, { date }) ||
         values.some(({ point }) => point.date === date && point.breakBefore)),
     });
   }
@@ -71,21 +71,24 @@ export function equityHistoryCurve(group, { range = "ALL", today, benchmarks = [
   const qualified = points.length > 1 && !membershipChanged && !points.some(p => p.partial) &&
     results.every(r => !r.unknownFlow && !r.invalidPeriod);
   const result = results[0] || { index: [], unknownFlow: false, invalidPeriod: false };
+  const comparison = alignReturns(result.index, benchmarks);
   const aligned = membershipChanged
     ? { start: points[0]?.date, primary: results.flatMap(r => rebase(r.index)), benchmarks: [], noCommonDate: false }
-    : alignReturns(result.index, benchmarks);
+    : qualified ? comparison
+      : { start: points[0]?.date, primary: rebase(result.index), benchmarks: [], noCommonDate: comparison.noCommonDate };
   const byDate = new Map(points.map(p => [p.date, p]));
   const returnPoints = aligned.primary.map(p => ({ ...byDate.get(p.date), ...p,
     breakBefore: p.breakBefore || byDate.get(p.date).membership_changed }));
+  const comparisonTruncated = qualified && returnPoints.at(-1)?.date < points.at(-1)?.date;
   const invalid = results.some(r => r.invalidPeriod);
   const stale = points.length > 0 && dateMs(today) - dateMs(points.at(-1).date) > group.maxStalenessDays * DAY;
   const reason = !points.length ? "snapshot_history_missing"
     : invalid ? "invalid_return_period"
       : points.length < 2 ? "insufficient_observations"
-        : !qualified ? "external_cashflow_required" : null;
+        : !qualified ? "external_cashflow_required" : comparisonTruncated ? "benchmark_history_missing" : null;
   return {
     currency: group.currency,
-    as_of: points.at(-1)?.date || null,
+    as_of: returnPoints.at(-1)?.date || null,
     coverage: {
       omitted_dates: group.omittedDates,
       missing_accounts: group.missingAccounts,
@@ -97,7 +100,7 @@ export function equityHistoryCurve(group, { range = "ALL", today, benchmarks = [
       return_comparison: membershipChanged ? "within_contributing_cohort_only" : "fixed_contributing_cohort",
       fx: "not_applied",
     },
-    status: !points.length ? "no_data" : stale ? "stale" : qualified ? "ok" : "partial",
+    status: !points.length ? "no_data" : stale ? "stale" : qualified && !comparisonTruncated ? "ok" : "partial",
     unavailable_reason: reason,
     return_kind: qualified ? "twr" : "unadjusted_asset_ratio",
     aligned_start: aligned.start || null,
