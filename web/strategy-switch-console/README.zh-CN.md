@@ -652,3 +652,7 @@ Firstrade 资料使用 `firstrade_account_snapshot_history.v1` / `firstrade_acco
 首次配置时，若 binding Secret 还不存在，可由原批准云端只读保存 `FIRSTRADE_ACCOUNT_FACTS_RUNTIME_JSON` 到同一受保护环境。它包含 `service_name`、`serving_source_sha` 与原 `runtime_target`（platform/service/deployment/scope/唯一原生 selector），不得从页面名称或报告复制预期身份。绑定 workflow 精确匹配现有账户选项的 service、deployment 和 scope；新来源摘要只由原部署/范围/原生身份确定，已有准确绑定保留，冲突拒绝。既有 `RUNTIME_SETTINGS_GH_TOKEN` 仅在 Firstrade 模式注入，用 stdin 写发送端四项 Secret 和接收端 binding Secret，并核名称/公开变量读回；发送开关保持 false。随后沿用原 KV 写入/精确读回，不调用券商、不刷新认证、不改 IAM、调度或流量。部分写入失败/未知立即停车，不能盲重准备；专用同步 token 须先在原 Secret Manager 和接收环境安全配置，真实服务采用/缓存资格/余额发布仍单独验证。
 
 持仓发布顺序与回退边界：[分阶段发布说明](../../docs/account-facts-holdings-rollout.md)。
+
+### 通知回执读取完整性
+
+GET `/api/notifications/send-log` 增加 `read_status` 和固定 `read_reason_codes`，与逐条回执的送达结果分别表达。`complete` 仅指已列出的运行都有可读公开回执、且已完成运行列表未超过既有5次上限；不证明已送达、覆盖当前业务日或其他通知流程。只有明确为空的已完成运行列表（`total_count=0`）才为 `no_data`。列表总数未知时，空列表为 `unknown`，有条目则为 `partial`。截断、列表缺行、回执缺失/过期、发送步骤跳过均为 `partial`；访问/读取失败时，仍有可读条目则为 `partial`，否则为 `read_failed`。缺仓库/凭据为 `not_connected`。顶层旧 `status` 在覆盖不完整/未知时也返回 `partial`，`unavailable_reason` 区分 `notification_receipts_incomplete` 与 `notification_receipts_read_failed`。部分条目、原送达布尔值和日期均保留。`as_of` 是读取时间，`workflow_updated_at` 是流程元数据；公开回执没有发送时间时 `sent_at` 保持 null。不推算时间、金额、零值、送达证据或缺失记录。该投影仅执行 GET，不发送通知，不更改源权限或生产配置。

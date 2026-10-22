@@ -2711,6 +2711,33 @@
         },
         "execution_authority_granted": {
           "const": false
+        },
+        "read_status": {
+          "description": "Completeness of the bounded recent completed daily-digest run receipt read; never proves delivery or current-business-day coverage.",
+          "enum": [
+            "complete",
+            "partial",
+            "no_data",
+            "unknown",
+            "read_failed",
+            "not_connected"
+          ]
+        },
+        "read_reason_codes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "notification_log_not_connected",
+              "notification_receipts_read_failed",
+              "run_listing_coverage_unknown",
+              "run_listing_truncated",
+              "run_listing_incomplete",
+              "receipt_missing",
+              "receipt_expired",
+              "sender_skipped",
+              "no_completed_workflow_runs"
+            ]
+          }
         }
       },
       "required": [

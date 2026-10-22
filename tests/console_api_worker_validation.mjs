@@ -249,6 +249,10 @@ try {
     const read = await call(path, { cookie: reader });
     assert.equal(read.status, 200);
     validate(schema, read.body);
+    if (schema === "notification_log") {
+      assert.equal(read.body.read_status, "not_connected");
+      assert.deepEqual(read.body.read_reason_codes, ["notification_log_not_connected"]);
+    }
     assert.equal(read.body.no_order, true);
     assert.equal(read.body.execution_authority_granted, false);
     assert.equal((await call(path, { cookie: null })).status, 401);

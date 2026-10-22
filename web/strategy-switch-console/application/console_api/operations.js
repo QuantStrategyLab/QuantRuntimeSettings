@@ -93,6 +93,7 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
 export function notificationLog(env = {}, deps = {}) {
   return deps.notificationReceipts ? deps.notificationReceipts(env) : {
     status: "not_connected", unavailable_reason: "notification_log_not_connected",
+    read_status: "not_connected", read_reason_codes: ["notification_log_not_connected"],
     as_of: null, items: [], next_cursor: null, coverage: "no_delivery_source", ...READ_ONLY,
   };
 }
