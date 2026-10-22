@@ -43,8 +43,8 @@ try {
       assert.match(html, /123/);
       assert.match(html, /456/);
       assert.doesNotMatch(html, /579/, "native amounts are never combined");
-      assert.ok(html.includes(language === "zh" ? "USD 资产总额" : "USD total assets"));
-      assert.ok(html.includes(language === "zh" ? "USDT 资产总额" : "USDT total assets"));
+      assert.ok(html.includes(language === "zh" ? "USD 资产合计" : "USD asset total"));
+      assert.ok(html.includes(language === "zh" ? "USDT 资产合计" : "USDT asset total"));
       assert.doesNotMatch(html, /已观测小计|Observed subtotal/, "internal subtotal wording is gone");
       assert.doesNotMatch(html, /reason\.|state\.|perf\./);
       if (language === "en") assert.doesNotMatch(html, /[\u4e00-\u9fff]/);
@@ -54,7 +54,7 @@ try {
       assert.doesNotMatch(render(language), /123|456/, "failed reads cannot expose retained balances as current");
     }
     const partial = ui.totals(language, [{ ...blocks.assets.per_currency[0], status: "partial", unavailable_reason: "valuation_date_mismatch" }]);
-    assert.ok(partial.includes(language === "zh" ? "USD 资产" : "USD assets"));
+    assert.ok(partial.includes(language === "zh" ? "USD 资产合计" : "USD asset total"));
     assert.ok(partial.includes(language === "zh" ? "估值不完整" : "Valuation incomplete"));
     assert.ok(partial.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"));
     const fresh = ui.freshness(language, { fresh: 1, stale: 1, unknown: 1, threshold_hours: 36 });

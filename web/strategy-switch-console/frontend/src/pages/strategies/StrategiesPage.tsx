@@ -1,3 +1,4 @@
+import { accountExecutionMode } from "../../lib/accountExecution";
 import { accountKey } from "../../lib/accountDirectory";
 import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useState } from "react";
@@ -49,14 +50,11 @@ function AccountExecution({ accounts }: { accounts: Strategy["configured_account
     <div className="strategy-execution">
       <div className="strategy-execution-title">{t("strategies.account_execution")}</div>
       {accounts.map(account => {
-        const live = account.execution_mode === "live" && account.live_status === "configured_live";
-        const key = live ? account.continuation_reason === "legacy_live_continuation" ? "legacy_live" : "live"
-          : account.execution_mode === "live" ? "live_unknown"
-          : account.execution_mode === "paper" || account.execution_mode === "dry_run" ? account.execution_mode : "unknown";
+        const key = accountExecutionMode(account, names.config);
         return (
           <div className="strategy-execution-account" key={accountKey(account)}>
             <span>{names.platform(account.platform)} · {names.account(account.account_alias, account.platform)}</span>
-            {key && <Badge tone={account.execution_mode === "live" ? "warn" : "accent"}>{t(`strategies.execution.${key}`)}</Badge>}
+            {key && <Badge tone={key === "live" ? "warn" : key === "unknown" ? "unknown" : "accent"}>{t(`strategies.execution.${key}`)}</Badge>}
           </div>
         );
       })}
@@ -104,6 +102,7 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
 
 function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
   const t = useT();
+  const names = useDisplayNames();
   const state = useApi(loadStrategySummary, [refreshEpoch]);
   if (state.phase === "loading") {
     return (
@@ -129,7 +128,7 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
     return <EmptyState title={t("strategies.empty")} />;
   }
   const hasLive = summary.strategies.some(strategy =>
-    strategy.configured_accounts.some(account => account.execution_mode === "live"));
+    strategy.configured_accounts.some(account => accountExecutionMode(account, names.config) === "live"));
   return (
     <section className="section-stack">
       <div className="catalog-meta">

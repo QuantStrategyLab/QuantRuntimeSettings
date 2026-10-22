@@ -46,7 +46,7 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
       {account.rows.map(row => {
         const strategy = names.currentStrategy(row);
         const option = accountOption(config, row.platform, row.account_alias);
-        const lane = option?.broker_environment || config?.currentStrategies?.[row.platform]?.[row.account_alias]?.execution_mode;
+        const lane = option?.broker_environment || "unknown";
         const enabled = config?.currentStrategies?.[row.platform]?.[row.account_alias]?.runtime_target_enabled;
         return <button type="button" className="account-strategy-link" key={accountKey(row)} title={accountKey(row) + (strategy ? ` / ${strategy}` : "")} onClick={() => onSelect(accountKey(row))}>
           {lane && <span className="badge badge-accent" title={lane}>{names.lane(lane)}</span>}
