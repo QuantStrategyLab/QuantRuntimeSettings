@@ -201,6 +201,64 @@ jobs:
           }
           JS
 
+      - name: Read fixed frontend baseline schema categories
+        if: inputs.release_frontend_assets
+        run: |
+          node --input-type=module <<'JS'
+          // Read-only diagnostic: keys, types and counts only. Never binding names,
+          // values, raw errors, credentials or response bodies. One fixed GET.
+          const fail = () => { throw new Error('frontend_schema_readback_failed'); };
+          let httpStatus = null;
+          try {
+            const account = process.env.CLOUDFLARE_ACCOUNT_ID, token = process.env.CLOUDFLARE_API_TOKEN;
+            if (process.env.GITHUB_REF !== 'refs/heads/main' || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
+            const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console/versions/2beea000-cce5-43a5-9255-9724f7318e83`, {
+              method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000),
+              headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'identity' },
+            });
+            httpStatus = response.status;
+            if (!response.ok) { await response.body?.cancel(); fail(); }
+            if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '') || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail();
+            const length = response.headers.get('content-length');
+            if (length !== null && (!/^\d+$/.test(length) || Number(length) > 524288)) fail();
+            const reader = response.body?.getReader(); if (!reader) fail();
+            let size = 0, text = ''; const decoder = new TextDecoder('utf-8', { fatal: true });
+            try {
+              for (;;) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > 524288) fail(); text += decoder.decode(value, { stream: true }); }
+              text += decoder.decode();
+            } finally { await reader.cancel(); }
+            if (length !== null && Number(length) !== size) fail();
+            const body = JSON.parse(text);
+            if (body?.success !== true || (body.errors !== undefined && (!Array.isArray(body.errors) || body.errors.length))) fail();
+            const kind = x => x === null ? 'null' : Array.isArray(x) ? 'array' : typeof x;
+            const keys = ['resources','metadata','number','annotations','startup_time_ms','bindings','script','script_runtime','etag','handlers','last_deployed_from','placement_mode','compatibility_date','compatibility_flags','usage_model','limits','migration_tag','exports','name','type','namespace_id','class_name','script_name','environment','text','json','dispatch_namespace','id','raw','tag','version_id','secret_name','store_id'];
+            const shape = x => {
+              if (!x || kind(x) !== 'object') return { kind: kind(x) };
+              const entries = Object.entries(x); if (entries.length > 128) fail();
+              return { kind: 'object', fields: Object.fromEntries(entries.filter(([k]) => keys.includes(k)).map(([k,v]) => [k,kind(v)])), unknown_fields: entries.filter(([k]) => !keys.includes(k)).length };
+            };
+            const resources = body.result?.resources, bindings = resources?.bindings;
+            const categories = [];
+            const types = ['plain_text','json','secret_text','kv_namespace','durable_object_namespace','service','r2_bucket','d1','ai','browser','analytics_engine','version_metadata','secret_key','secrets_store_secret','queue','workflow','assets'];
+            if (Array.isArray(bindings)) {
+              if (bindings.length > 128) fail();
+              for (const binding of bindings) {
+                const type = types.includes(binding?.type) ? binding.type : 'OTHER';
+                const fields = shape(binding); const signature = JSON.stringify({ type, shape: fields });
+                const found = categories.find(item => item.signature === signature);
+                if (found) found.count++; else categories.push({ signature, type, shape: fields, count: 1 });
+              }
+            }
+            console.log(JSON.stringify({ status: 'frontend_schema_categories', version_id: '2beea000-cce5-43a5-9255-9724f7318e83', result_id_matches: body.result?.id === '2beea000-cce5-43a5-9255-9724f7318e83', result: shape(body.result), resources: shape(resources),
+              binding_container: kind(bindings), binding_count: Array.isArray(bindings) ? bindings.length : null,
+              binding_categories: categories.map(({ signature, ...item }) => item), script: shape(resources?.script), runtime: shape(resources?.script_runtime),
+              writes: 0, retry: false }));
+          } catch {
+            console.error(JSON.stringify({ error: 'frontend_schema_readback_failed', http_status: httpStatus, writes: 0, retry: false })); process.exitCode = 1;
+          }
+          JS
+
+
   deploy:
     if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.rollback_to_pre_release
     runs-on: ubuntu-latest
