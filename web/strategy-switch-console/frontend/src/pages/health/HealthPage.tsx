@@ -283,11 +283,11 @@ export default function HealthPage() {
         </button>
       </header>
 
+      <p className="card-note">{t("health.global_scope_note")}</p>
       <StatStrip summary={summary} credential={credential} />
 
       <section className="card">
         <h2 className="card-title">{t("health.grid_title")}</h2>
-        <p className="card-note">{t("health.global_scope_note")}</p>
         {(accounts.phase === "loading" || dailyBindings.phase === "loading") && <Skeleton height={160} />}
         {accounts.phase === "error" && <ErrorState onRetry={accounts.reload} />}
         {dailyBindings.phase === "error" && <ErrorState onRetry={dailyBindings.reload} />}
