@@ -1,0 +1,161 @@
+name: Diagnose Console Release Shape
+
+# Read-only diagnostic for the frontend release guard that stopped at
+# `pre_upload_latest`. It reproduces the exact release transport checks for the
+# three endpoints the release reads, plus one comparison fetch of the version
+# list without an explicit Accept-Encoding. It never uploads, deploys, activates
+# a version, writes KV, or prints response bodies, ids, account ids or tokens.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Read release transport shape
+        run: |
+          node --input-type=module <<'JS'
+          // Fixed host, Worker and version IDs. GET only, bounded reads, no retry,
+          // no pagination. Output is limited to types, encodings, sizes, item counts
+          // and booleans so a failed predicate can be identified without exposing
+          // response content or account data.
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          if (!token || !/^[0-9a-f]{32}$/i.test(account ?? '')) {
+            console.error(JSON.stringify({ ok: false, error: 'diagnose_configuration_failed' }));
+            process.exitCode = 1;
+            process.exit();
+          }
+          const prior = '2beea000-cce5-43a5-9255-9724f7318e83';
+          const priorDeployment = '6107ffd9-4c76-4bc5-be85-a12caf2af766';
+          const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
+          const limit = 524288;
+
+          async function probe(path, { identity }) {
+            const result = { path, accept_encoding: identity ? 'identity' : 'default', status: null };
+            try {
+              const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+              if (identity) headers['Accept-Encoding'] = 'identity';
+              const response = await fetch(base + path, {
+                method: 'GET', redirect: 'error', signal: AbortSignal.timeout(20000), headers,
+              });
+              result.status = response.status;
+              result.http_ok = response.ok;
+              const contentType = response.headers.get('content-type') ?? '';
+              const contentEncoding = response.headers.get('content-encoding') ?? '';
+              const contentLength = response.headers.get('content-length');
+              result.content_type_json = /^application\/json(?:\s*;|$)/i.test(contentType);
+              result.content_type_value = contentType;
+              result.content_encoding_allowed = ['', 'identity'].includes(contentEncoding);
+              result.content_encoding_value = contentEncoding;
+              result.content_length_present = contentLength !== null;
+              result.content_length_numeric = contentLength === null || /^\d+$/.test(contentLength);
+              result.content_length_within_limit = contentLength === null || Number(contentLength) <= limit;
+              result.content_length_value = contentLength !== null && /^\d+$/.test(contentLength) ? Number(contentLength) : null;
+              if (!response.ok) {
+                await response.body?.cancel();
+                result.ok = false;
+                return result;
+              }
+              const reader = response.body?.getReader();
+              if (!reader) { result.stream_readable = false; return result; }
+              result.stream_readable = true;
+              let size = 0;
+              let text = '';
+              const decoder = new TextDecoder('utf-8', { fatal: true });
+              try {
+                for (;;) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  size += value.byteLength;
+                  if (size > limit) break;
+                  text += decoder.decode(value, { stream: true });
+                }
+                if (size <= limit) text += decoder.decode();
+              } finally {
+                await reader.cancel();
+              }
+              result.stream_bytes = size;
+              result.stream_within_limit = size <= limit;
+              result.content_length_matches_stream = contentLength === null || Number(contentLength) === size;
+              if (size > limit) { result.ok = false; return result; }
+              let body;
+              try {
+                body = JSON.parse(text);
+              } catch {
+                result.json_parse = false;
+                result.ok = false;
+                return result;
+              }
+              result.json_parse = true;
+              result.envelope_success = body?.success === true;
+              result.envelope_errors_empty = body?.errors === undefined
+                || (Array.isArray(body.errors) && body.errors.length === 0);
+              const value = body?.result;
+              result.result_is_object = value !== null && typeof value === 'object' && !Array.isArray(value);
+              if (!result.result_is_object) { result.ok = false; return result; }
+              if (path.startsWith('/versions?')) {
+                const items = value.items;
+                result.items_is_array = Array.isArray(items);
+                result.items_count = Array.isArray(items) ? items.length : null;
+                result.items_count_in_range = Array.isArray(items) && items.length >= 1 && items.length <= 10;
+                result.first_id_is_prior = Array.isArray(items) && items[0]?.id === prior;
+              }
+              if (path.startsWith('/deployments?')) {
+                const deployments = value.deployments;
+                result.deployments_is_array = Array.isArray(deployments);
+                result.deployments_count = Array.isArray(deployments) ? deployments.length : null;
+                result.deployments_count_in_range = Array.isArray(deployments) && deployments.length >= 1 && deployments.length <= 10;
+                result.first_deployment_is_prior = Array.isArray(deployments) && deployments[0]?.id === priorDeployment;
+              }
+              if (/^\/versions\/[0-9a-f-]{36}$/i.test(path)) {
+                result.version_id_is_prior = value.id === prior;
+              }
+              result.ok = true;
+              return result;
+            } catch (error) {
+              result.ok = false;
+              result.error = error?.name === 'TimeoutError' ? 'timeout' : 'request_failed';
+              return result;
+            }
+          }
+
+          const probes = [];
+          probes.push(await probe('/deployments?page=1&per_page=10', { identity: true }));
+          probes.push(await probe(`/versions/${prior}`, { identity: true }));
+          probes.push(await probe('/versions?page=1&per_page=10', { identity: true }));
+          probes.push(await probe('/versions?page=1&per_page=10', { identity: false }));
+          const checkedKeys = new Set([
+            'http_ok', 'content_type_json', 'content_encoding_allowed', 'content_length_numeric',
+            'content_length_within_limit', 'stream_readable', 'stream_within_limit',
+            'content_length_matches_stream', 'json_parse', 'envelope_success',
+            'envelope_errors_empty', 'items_is_array', 'items_count_in_range',
+            'first_id_is_prior', 'deployments_is_array', 'deployments_count_in_range',
+            'first_deployment_is_prior', 'version_id_is_prior',
+          ]);
+          const failedChecks = [];
+          for (const item of probes) {
+            for (const [key, value] of Object.entries(item)) {
+              if (checkedKeys.has(key) && value === false) failedChecks.push(`${item.path}:${key}`);
+            }
+          }
+          console.log(JSON.stringify({ ok: failedChecks.length === 0, read_only: true, probes, failed_checks: failedChecks }));
+          JS
