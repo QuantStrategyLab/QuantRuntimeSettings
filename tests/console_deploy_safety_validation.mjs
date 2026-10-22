@@ -83,6 +83,31 @@ assert.match(preflight, /environment: runtime-strategy-switch/);
 assert.doesNotMatch(preflight, /secret put|sync-strategy-profiles|wrangler.*deploy|npm|npx|uses: actions\/checkout|SYNC_TOKEN|WRANGLER_CONFIG/);
 assert.deepEqual([...preflight.matchAll(/^      ([A-Z_]+):/gm)].map(match => match[1]), ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]);
 
+// The schema diagnostic is read-only, fixed to the same historical version,
+// and is gated inside the existing preflight job. Its projection never emits values.
+const schemaStep = steps.find(s => s.startsWith("Read fixed frontend baseline schema categories\n"));
+assert.ok(schemaStep && preflight.includes("Read fixed frontend baseline schema categories"));
+assert.match(schemaStep, /^        if: inputs\.release_frontend_assets$/m);
+const schemaScript = schemaStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1].split("\n").map(l=>l.slice(10)).join("\n");
+const runSchema = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console",schemaScript);
+let schemaCases = 0;
+async function schemaCase(payload, expected=true, status=200, env={}) {
+ const stdout=[],stderr=[],calls=[]; const secret="PRIVATE_SCHEMA_SENTINEL";
+ const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:secret,...env},exitCode:0};
+ await runSchema(process,async(url,options)=>{calls.push({url,options});return new Response(typeof payload==="string"?payload:JSON.stringify(payload),{status,headers:{"content-type":"application/json"}});},{log:x=>stdout.push(x),error:x=>stderr.push(x)});
+ assert.equal(process.exitCode===0,expected);assert.equal(calls.length,env.GITHUB_REF?0:1);
+ if(calls.length){assert.equal(calls[0].options.method,"GET");assert.equal(calls[0].options.redirect,"error");assert.equal(calls[0].url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console/versions/2beea000-cce5-43a5-9255-9724f7318e83`);}
+ assert.ok(!JSON.stringify({stdout,stderr}).includes(secret));assert.ok(!JSON.stringify({stdout,stderr}).includes("a".repeat(32)));schemaCases++;
+ return stdout.length?JSON.parse(stdout[0]):JSON.parse(stderr[0]);
+}
+const schemaFixture={success:true,result:{id:"2beea000-cce5-43a5-9255-9724f7318e83",resources:{bindings:[{name:"PRIVATE_SCHEMA_SENTINEL",type:"kv_namespace",namespace_id:"PRIVATE_SCHEMA_SENTINEL"},{name:"OTHER",type:"secret_text",text:"PRIVATE_SCHEMA_SENTINEL"}],script:{etag:"PRIVATE_SCHEMA_SENTINEL",handlers:["fetch"]},script_runtime:{compatibility_date:"2026-06-08",usage_model:"standard"}}}};
+const projected=await schemaCase(schemaFixture);assert.equal(projected.binding_count,2);assert.equal(projected.binding_categories[0].shape.fields.namespace_id,"string");
+const wrongId=structuredClone(schemaFixture);wrongId.result.id="PRIVATE_SCHEMA_SENTINEL";assert.equal((await schemaCase(wrongId)).result_id_matches,false);
+const unknownSchema=structuredClone(schemaFixture);unknownSchema.result.resources.PRIVATE_SCHEMA_SENTINEL="PRIVATE_SCHEMA_SENTINEL";unknownSchema.result.resources.bindings[0].type="PRIVATE_SCHEMA_SENTINEL";
+assert.equal((await schemaCase(unknownSchema)).resources.unknown_fields,1);
+await schemaCase({...schemaFixture,success:false},false);await schemaCase("{",false);await schemaCase("x".repeat(524289),false);
+await schemaCase("PRIVATE_SCHEMA_SENTINEL",false,403);await schemaCase(schemaFixture,false,200,{GITHUB_REF:"refs/heads/other"});
+
 // Execute the exact selection shell with a fake Git boundary, never checkout the
 // test repository or evaluate any selected Worker. Real object identities are
 // separately frozen by the release evidence and the required ancestry check.
@@ -512,4 +537,4 @@ const zeroTotal = await failure([{ success: true, result: { deployments: [{ ...d
   { version_id: versionId, percentage: 0 }, { version_id: deploymentId, percentage: 0 },
 ] }] } }]);
 assert.equal(zeroTotal.checkpoint, "deployment_percentage_total", "all-zero traffic is still invalid");
-console.log(`console_deploy_safety_validation: PASS (manual-only; 16 original write gates; exclusive preflight/deploy/restore; 2 exact Binance gates; ${cases} offline reader cases; ${sourceCases} source cases; ${restoreCases} restore cases; ${overlayCases} overlay cases; ${configCases} config cases; ${releaseCases} isolated release cases)`);
+console.log(`console_deploy_safety_validation: PASS (manual-only; 16 original write gates; exclusive preflight/deploy/restore; 2 exact Binance gates; ${cases} offline reader cases; ${sourceCases} source cases; ${restoreCases} restore cases; ${overlayCases} overlay cases; ${configCases} config cases; ${releaseCases} isolated release cases; ${schemaCases} schema readback cases)`);
