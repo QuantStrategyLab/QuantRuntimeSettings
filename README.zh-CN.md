@@ -1,5 +1,7 @@
 # QuantRuntimeSettings
 
+[文档索引](docs/README.md)：架构适用范围、早期设计英文概要与控制台操作入口。
+
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。

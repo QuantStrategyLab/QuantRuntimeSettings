@@ -1,5 +1,15 @@
 # Strategy Switch Console Worker
 
+## Reading by task
+
+[Documentation index](../../docs/README.md) · [中文目录](README.zh-CN.md#按任务阅读)
+
+- **Install and configure:** [platform directory](#platform-directory-configuration), [required secrets](#required-secrets), [GitHub OAuth](#github-oauth-app), [Wrangler deployment](#deploy-with-wrangler).
+- **Interfaces:** [operator model](#operator-model), [account dropdowns](#account-dropdowns), [strategy profiles](#strategy-profile-alignment), [account facts/history](#account-facts-and-history-disabled-by-default), [API reference](../../docs/console-api.md).
+- **Operate safely:** [stop-only boundary](#current-stop-only-boundary), [human decisions/readback](#human-decision-receipts-and-exact-read-back), [recovery intent](#existing-live-recovery-verification), [token scope](#token-scope).
+
+These links group the existing sections; their permission, unknown-result and configuration-only limits still apply. Deployment examples require separately authorized target configuration.
+
 [简体中文](README.zh-CN.md)
 
 [Control-plane source retirement](../../docs/control-plane-source-retirement.md)
