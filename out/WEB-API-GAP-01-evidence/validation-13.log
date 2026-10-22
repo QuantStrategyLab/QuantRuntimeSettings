@@ -1,0 +1,1 @@
+console_performance_math_validation: PASS (rebasing, alignment, gaps, deposits, withdrawals, weighted multi-account TWR, unknown flows, empty/single, all range boundaries; synthetic only)

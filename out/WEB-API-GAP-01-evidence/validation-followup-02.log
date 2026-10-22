@@ -1,0 +1,23 @@
+console_api_contract_validation: PASS
+console_strategy_execution_validation: PASS
+console_design_api_validation: PASS
+console_notification_receipts_validation: PASS (public ZIP, receipt provenance, GET-only, auth, send/blocked/skipped/failure, empty/error, no guessed send time, cache)
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+0 !== 2
+
+    at file:///Users/lisiyi/codex-jobs/worktrees/web-api-gap-01-qrs/tests/console_grouping_runs_validation.mjs:18:64
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 0,
+  expected: 2,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v26.3.0

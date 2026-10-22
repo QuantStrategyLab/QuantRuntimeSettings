@@ -1,0 +1,10 @@
+{
+  "pr": 758,
+  "url": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/758",
+  "branch": "codex/web-api-gap-01",
+  "implementation_commit": "ba77dedf",
+  "evidence_format_commit": "e6f6b909",
+  "production_deployment": "not_requested_or_triggered",
+  "remote_ci": "pending_at_publication",
+  "auto_merge": "pending_checks"
+}

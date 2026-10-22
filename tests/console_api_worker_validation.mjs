@@ -234,6 +234,7 @@ try {
     account_alias: account.key, platform: "longbridge", account_ref: `longbridge:${account.key}`,
     execution_mode: "unknown", dry_run_only: null, live_status: "unknown", continuation_reason: null,
     mode_source: null, runtime_observation_status: "unknown",
+    broker_environment: "paper", execution_label: "unknown", mode_unavailable_reason: "explicit_target_mode_missing",
   }], "summary and /api/config share currentStrategies rather than the declared default");
   for (const [path, schema] of [
     ["/api/runtime/today", "today_runs"], ["/api/strategies/summary", "strategy_summary"],
@@ -402,3 +403,4 @@ try {
   globalThis.fetch = nativeFetch;
 }
 console.log("accounts_inbox_route_counts: PASS (synthetic source ports; not live KV measurements)");
+await import("./web_api_gap_validation.mjs");

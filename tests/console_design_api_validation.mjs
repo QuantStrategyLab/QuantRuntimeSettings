@@ -17,7 +17,8 @@ const record = { business_date: runtimeDailyBusinessDate(now), target_key: bindi
   completeness: "complete",
   status: "no_signal", runs: [{ run_id: "synthetic-run", started_at: null, finished_at: null,
     activity: "no_signal", execution_lane: "paper", errors_present: false }] };
-const dailyBody = { account_key: account.key, platform: account.platform, date: runtimeDailyBusinessDate(now), data_status: "fresh", record };
+const dailyBody = { account_key: account.key, platform: account.platform, date: runtimeDailyBusinessDate(now), data_status: "fresh",
+  read_error_count: 0, read_error_codes: [], unmatched_count: 0, record };
 const deps = { dailyBindings: async () => [binding], daily: async req => {
   assert.equal(new URL(req.url).searchParams.get("date"), "2026-10-15");
   return Response.json(dailyBody);

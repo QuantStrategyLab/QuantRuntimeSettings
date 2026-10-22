@@ -1,0 +1,1 @@
+console_performance_data_validation: PASS (existing history adapters, all currencies, missing FX, isolated read failures, identity mismatch, gaps, unknown flows, wallet; synthetic only)

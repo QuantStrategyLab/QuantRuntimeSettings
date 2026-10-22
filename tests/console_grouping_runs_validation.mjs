@@ -13,7 +13,8 @@ const accounts = Array.from({ length: 10 }, (_, i) => ({ platform: i < 2 ? "long
 const bindings = accounts.slice(0, 2).map(account => ({ platform: account.platform, account_key: account.key, target_key: account.key, status: "bound" }));
 const summary = await todaySummary(new Request("https://console.example/api/runtime/today"), {}, {
   dailyBindings: async () => bindings,
-  daily: async request => { const url = new URL(request.url); return Response.json({ platform: url.searchParams.get("platform"), account_key: url.searchParams.get("account_key"), date: url.searchParams.get("date"), record: null }); },
+  daily: async request => { const url = new URL(request.url); return Response.json({ platform: url.searchParams.get("platform"), account_key: url.searchParams.get("account_key"), date: url.searchParams.get("date"), record: null,
+    read_error_count: 0, read_error_codes: [], unmatched_count: 0 }); },
 }, accounts, now);
 assert.equal(summary.counts.by_state.not_connected, 8); assert.equal(summary.counts.by_state.no_data, 2);
 assert.equal(summary.counts.by_state.failed, 0); assert.equal(summary.counts.runs, null);

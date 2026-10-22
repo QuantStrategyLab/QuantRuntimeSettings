@@ -1,0 +1,17 @@
+[
+  {
+    "file": "regression-red-valid-fixtures.log",
+    "original_sha256": "6c7e69594102c35bfd19f76e57b2e07bd7de16b1267d4457197d50c2e83060d7",
+    "normalization": "trailing whitespace only; diagnostics and outcomes unchanged"
+  },
+  {
+    "file": "regression-red.log",
+    "original_sha256": "cc77097c04847a2454784dbcc8661c33d06ce16ba6d6b2fa813a67d76f367b2b",
+    "normalization": "trailing whitespace only; diagnostics and outcomes unchanged"
+  },
+  {
+    "file": "owned-migration.patch.gz",
+    "uncompressed_sha256": "3a3e72ab20078f5c0e186ff10c3eb74bf94b1aebd9d0591a5ccfeac13049150b",
+    "normalization": "none; exact original patch gzip compressed"
+  }
+]

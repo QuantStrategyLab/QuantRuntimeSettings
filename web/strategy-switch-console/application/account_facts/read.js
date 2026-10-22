@@ -88,13 +88,13 @@ export async function accountFactsResponse(request, env, deps) {
   try {
     accountConfig = await loadAccountOptionsConfig(env);
   } catch {
-    accountConfig = { options: {} };
+    return json({ ok: false, error: "account_options_unreadable" }, 503);
   }
   let bindings = null;
   try {
     bindings = await loadAccountFactsBindings(env);
   } catch {
-    bindings = null;
+    return json({ ok: false, error: "account_facts_bindings_unreadable" }, 503);
   }
   let storedByAccount;
   try {
@@ -179,7 +179,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   try {
     accountConfig = await loadAccountOptionsConfig(env);
   } catch {
-    accountConfig = { options: {} };
+    return json({ ok: false, error: "account_options_unreadable" }, 503);
   }
   const options = Array.isArray(accountConfig?.options?.[platform]) ? accountConfig.options[platform] : [];
   const matches = options.filter((item) => item?.key === accountKey);
@@ -188,7 +188,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   try {
     bindings = await loadAccountFactsBindings(env);
   } catch {
-    bindings = null;
+    return json({ ok: false, error: "account_facts_bindings_unreadable" }, 503);
   }
   const binding = bindings?.bindings?.find(
     (item) => item.platform === platform && item.account_key === accountKey,

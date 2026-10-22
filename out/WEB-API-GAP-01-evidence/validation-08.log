@@ -1,0 +1,20 @@
+console_api_contract_validation: PASS
+console_strategy_execution_validation: PASS
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+'partial' !== 'ok'
+
+    at file:///Users/lisiyi/codex-jobs/worktrees/web-api-gap-01-qrs/tests/console_design_api_validation.mjs:29:8 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'partial',
+  expected: 'ok',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v26.3.0

@@ -1,0 +1,6 @@
+(node:83334) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/lisiyi/codex-jobs/worktrees/web-api-gap-01-qrs/tests/fixtures/console-gaps.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/lisiyi/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+console_api_contract_validation: PASS
+console_gap_contract_validation: PASS (M0 12, currency 7, ten identities, failure/unknown/control semantics)

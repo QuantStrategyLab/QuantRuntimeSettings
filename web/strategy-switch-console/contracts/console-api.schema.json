@@ -2320,6 +2320,49 @@
                   "string",
                   "null"
                 ]
+              },
+              "read_status": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "read_failed",
+                  "unknown",
+                  "no_data",
+                  "not_connected"
+                ]
+              },
+              "read_failure_reason": {
+                "enum": [
+                  null,
+                  "source_read_error",
+                  "coverage_incomplete",
+                  "coverage_unknown",
+                  "unauthorized",
+                  "daily_binding_mismatch",
+                  "runtime_daily_not_connected"
+                ]
+              },
+              "read_error_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "read_error_codes": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "report_read_error",
+                    "coverage_unconfirmed",
+                    "report_rejected",
+                    "read_failed",
+                    "read_truncated",
+                    "list_failed",
+                    "listing_truncated",
+                    "source_read_error"
+                  ]
+                }
               }
             },
             "required": [
@@ -2443,6 +2486,29 @@
                     },
                     "runtime_observation_status": {
                       "const": "unknown"
+                    },
+                    "broker_environment": {
+                      "enum": [
+                        "live",
+                        "paper",
+                        null
+                      ]
+                    },
+                    "execution_label": {
+                      "enum": [
+                        "live",
+                        "paper",
+                        "dry_run",
+                        "unknown"
+                      ]
+                    },
+                    "mode_unavailable_reason": {
+                      "enum": [
+                        null,
+                        "explicit_target_mode_missing",
+                        "broker_environment_missing",
+                        "mode_environment_conflict"
+                      ]
                     }
                   },
                   "required": [
@@ -2476,6 +2542,104 @@
                   "string",
                   "null"
                 ]
+              },
+              "health_as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "health_source": {
+                "enum": [
+                  "stored_strategy_health_snapshot",
+                  null
+                ]
+              },
+              "health_source_revision": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-fA-F0-9]{7,64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "health_freshness": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "fresh",
+                      "stale",
+                      "unknown"
+                    ]
+                  },
+                  "age_seconds": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "status",
+                  "age_seconds"
+                ]
+              },
+              "health_components": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "performance": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "maximum": 100
+                      },
+                      "risk": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "maximum": 100
+                      },
+                      "decay": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "maximum": 100
+                      },
+                      "stability": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "maximum": 100
+                      },
+                      "operations": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "maximum": 100
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -2504,6 +2668,29 @@
             "complete",
             "partial",
             "unavailable"
+          ]
+        },
+        "health_score_scale": {
+          "type": "object",
+          "properties": {
+            "minimum": {
+              "const": 0
+            },
+            "maximum": {
+              "const": 100
+            },
+            "methodology": {
+              "const": "not_provided"
+            },
+            "execution_authority_granted": {
+              "const": false
+            }
+          },
+          "required": [
+            "minimum",
+            "maximum",
+            "methodology",
+            "execution_authority_granted"
           ]
         }
       },
