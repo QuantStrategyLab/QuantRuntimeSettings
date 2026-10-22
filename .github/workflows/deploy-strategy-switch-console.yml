@@ -733,8 +733,6 @@ jobs:
           import { createHash } from 'node:crypto';
           const fail = () => { throw new Error('frontend_release_stopped'); };
           const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value) ? value : fail();
-          const prior = '2beea000-cce5-43a5-9255-9724f7318e83';
-          const priorDeployment = '6107ffd9-4c76-4bc5-be85-a12caf2af766';
           const canonical = value => JSON.stringify(value, function (_key, item) {
             return item && typeof item === 'object' && !Array.isArray(item)
               ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item;
@@ -773,9 +771,52 @@ jobs:
             }
             async function active(id, version) {
               const value = await request('/deployments?page=1&per_page=10'), list = value?.deployments;
-              if (!Array.isArray(list) || !list.length || list.length > 10 || list[0]?.id !== id
+              if (!Array.isArray(list) || !list.length || list.length > 10
                 || list[0]?.strategy !== 'percentage' || !Array.isArray(list[0]?.versions) || list[0].versions.length !== 1
-                || list[0].versions[0]?.version_id !== version || list[0].versions[0]?.percentage !== 100) fail();
+                || list[0].versions[0]?.percentage !== 100) fail();
+              const current = { id: uuid(list[0].id), version: uuid(list[0].versions[0].version_id) };
+              if (id !== undefined && (current.id !== id || current.version !== version)) fail();
+              return current;
+            }
+            async function activeBundleHash() {
+              // Script content only; never use a caller-supplied URL or log its body.
+              // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/content/methods/get/
+              const response = await fetch(base + '/content/v2', { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(20000),
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/javascript, multipart/form-data', 'Accept-Encoding': 'identity' } });
+              httpStatus = response.status;
+              if (!response.ok) { await response.body?.cancel(); fail(); }
+              const contentType = response.headers.get('content-type') ?? '';
+              const javascript = type => /^(?:application\/javascript(?:\+module)?|text\/javascript)(?:\s*;\s*charset=utf-8)?$/i.test(type);
+              const multipart = /^multipart\/form-data\s*;\s*boundary=(?:"[A-Za-z0-9'()+_,.\/:=? -]{1,70}"|[A-Za-z0-9'()+_,.\/:=?-]{1,70})$/i.test(contentType);
+              const limit = multipart ? 10551296 : 10485760; // 10 MiB script + at most 64 KiB multipart overhead.
+              const length = response.headers.get('content-length');
+              try {
+                if ((!javascript(contentType) && !multipart) || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '')
+                  || (length !== null && (!/^\d+$/.test(length) || Number(length) > limit))) fail();
+              } catch { await response.body?.cancel(); fail(); }
+              const reader = response.body?.getReader(); if (!reader) fail();
+              const chunks = []; let size = 0;
+              try {
+                for (;;) {
+                  const { done, value } = await reader.read(); if (done) break;
+                  size += value.byteLength; if (size > limit) fail();
+                  chunks.push(value);
+                }
+              } finally { await reader.cancel(); }
+              if (!size || (length !== null && Number(length) !== size)) fail();
+              let script = Buffer.concat(chunks);
+              if (multipart) {
+                // This release uploads one module. Extra/duplicate parts must not
+                // make an otherwise matching entrypoint look like an identical bundle.
+                const parts = [...(await new Response(script, { headers: { 'Content-Type': contentType } }).formData()).entries()];
+                const entrypoint = response.headers.get('cf-entrypoint');
+                if (parts.length !== 1 || parts[0][0] !== 'worker.js' || !(parts[0][1] instanceof File)
+                  || parts[0][1].name !== 'worker.js' || !javascript(parts[0][1].type)
+                  || (entrypoint !== null && entrypoint !== 'worker.js')) fail();
+                script = Buffer.from(await parts[0][1].arrayBuffer());
+              }
+              if (!script.byteLength || script.byteLength > 10485760 || size - script.byteLength > 65536) fail();
+              return createHash('sha256').update(script).digest('hex');
             }
             async function latest(version) {
               const value = await request('/versions?page=1&per_page=10'), list = value?.items;
@@ -830,46 +871,54 @@ jobs:
                 || !value.bindings.some(b => b.name === 'STRATEGY_SWITCH_RUNTIME_INSTANCES' && b.type === 'durable_object_namespace')) fail();
               return value;
             }
-            stage = 'pre_release_active'; await active(priorDeployment, prior);
+            stage = 'pre_release_active'; const { id: priorDeployment, version: prior } = await active();
             stage = 'pre_release_configuration'; const old = resources(await request(`/versions/${prior}`), prior);
             stage = 'bundle';
             const bundle = await readFile(`${process.env.RUNNER_TEMP}/console-frontend-bundle/worker.js`);
             if (!bundle.byteLength || bundle.byteLength > 10485760) fail();
-            // The bundler is offline (--dry-run). Inherit EVERY existing binding, including
-            // secrets, without supplying any value or trusting current Environment inputs.
-            // Script-version inherit resolves 'latest', not a historical ID: require the
-            // fixed version to be latest immediately before upload. This is NOT provider CAS.
-            const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name })),
-              compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
-              annotations: { 'workers/message': 'Reviewed frontend 456853b over fixed e2a backend; retained bindings' } };
-            for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
-            const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
-            form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
-            stage = 'pre_upload_latest'; await latest(prior);
-            stage = 'upload'; uploadAttempted = true;
-            uploaded = uuid((await request('/versions?bindings_inherit=strict', 'POST', form))?.id);
-            if (uploaded === prior) fail();
-            stage = 'uploaded_configuration'; const next = resources(await request(`/versions/${uploaded}`), uploaded);
-            const comparable = value => ({ bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
-              script_runtime: value.script_runtime, handlers: value.script.handlers,
-              named_handlers: value.script.named_handlers === undefined ? null : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name)),
-              placement_mode: value.script.placement_mode ?? null });
-            if (canonical(comparable(next)) !== canonical(comparable(old)) || next.script.etag === old.script.etag) fail();
-            // Same-Worker workflow concurrency serializes our release controls. These fresh
-            // GETs detect observed external drift; Cloudflare offers no compare-and-swap
-            // precondition here. No automatic retry or force fallback on an unknown result.
-            stage = 'pre_deploy_active'; await active(priorDeployment, prior);
-            stage = 'pre_deploy_latest'; await latest(uploaded);
-            stage = 'activate'; deployAttempted = true;
-            const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
-              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': 'Reviewed frontend only; fixed e2a backend and retained configuration' } }));
-            const deploymentId = uuid(deployment?.id);
-            if (deployment.strategy !== 'percentage' || !Array.isArray(deployment.versions) || deployment.versions.length !== 1
-              || deployment.versions[0]?.version_id !== uploaded || deployment.versions[0]?.percentage !== 100) fail();
-            stage = 'readback'; await active(deploymentId, uploaded);
-            console.log(JSON.stringify({ status: 'frontend_release_verified', prior_version: prior, version_id: uploaded,
-              deployment_id: deploymentId, percentage: 100, bindings_equal: true, runtime_equal: true,
-              bundle_sha256: createHash('sha256').update(bundle).digest('hex'), force: false, provider_cas: false }));
+            const bundleSha256 = createHash('sha256').update(bundle).digest('hex');
+            stage = 'pre_upload_content'; const activeSha256 = await activeBundleHash();
+            if (activeSha256 === bundleSha256) {
+              stage = 'readback'; await active(priorDeployment, prior);
+              console.log(JSON.stringify({ status: 'frontend_release_already_active', deployment_id: priorDeployment, version_id: prior,
+                percentage: 100, bundle_sha256: bundleSha256, upload_attempted: false, deploy_attempted: false }));
+            } else {
+              // The bundler is offline (--dry-run). Inherit EVERY existing binding, including
+              // secrets, without supplying any value or trusting current Environment inputs.
+              // Script-version inherit resolves 'latest', not a historical ID. The uploaded
+              // configuration comparison below verifies the active baseline was retained.
+              const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name })),
+                compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
+                annotations: { 'workers/message': 'Reviewed frontend 456853b over fixed e2a backend; retained bindings' } };
+              for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
+              const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
+              form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
+              stage = 'pre_upload_active'; await active(priorDeployment, prior);
+              stage = 'upload'; uploadAttempted = true;
+              uploaded = uuid((await request('/versions?bindings_inherit=strict', 'POST', form))?.id);
+              if (uploaded === prior) fail();
+              stage = 'uploaded_configuration'; const next = resources(await request(`/versions/${uploaded}`), uploaded);
+              const comparable = value => ({ bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
+                script_runtime: value.script_runtime, handlers: value.script.handlers,
+                named_handlers: value.script.named_handlers === undefined ? null : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name)),
+                placement_mode: value.script.placement_mode ?? null });
+              if (canonical(comparable(next)) !== canonical(comparable(old)) || next.script.etag === old.script.etag) fail();
+              // Same-Worker workflow concurrency serializes our release controls. These fresh
+              // GETs detect observed external drift; Cloudflare offers no compare-and-swap
+              // precondition here. No automatic retry or force fallback on an unknown result.
+              stage = 'pre_deploy_active'; await active(priorDeployment, prior);
+              stage = 'pre_deploy_latest'; await latest(uploaded);
+              stage = 'activate'; deployAttempted = true;
+              const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
+                versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': 'Reviewed frontend only; fixed e2a backend and retained configuration' } }));
+              const deploymentId = uuid(deployment?.id);
+              if (deployment.strategy !== 'percentage' || !Array.isArray(deployment.versions) || deployment.versions.length !== 1
+                || deployment.versions[0]?.version_id !== uploaded || deployment.versions[0]?.percentage !== 100) fail();
+              stage = 'readback'; await active(deploymentId, uploaded);
+              console.log(JSON.stringify({ status: 'frontend_release_verified', prior_version: prior, version_id: uploaded,
+                deployment_id: deploymentId, percentage: 100, bindings_equal: true, runtime_equal: true,
+                bundle_sha256: bundleSha256, force: false, provider_cas: false }));
+            }
           } catch {
             console.error(JSON.stringify({ error: 'frontend_release_stopped', stage, http_status: httpStatus,
               upload_attempted: uploadAttempted, deploy_attempted: deployAttempted, uploaded_version: uploaded,
