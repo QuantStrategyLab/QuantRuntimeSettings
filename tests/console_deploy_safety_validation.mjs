@@ -163,9 +163,9 @@ assert.equal(largerProjection.named_handler_max_entries,33);
 // separately frozen by the release evidence and the required ancestry check.
 const approved = "e2aab576d6874feeaf87df3411411ad04ee02d4f";
 const approvedTree = "968b323ca75ee48d0c92bfe0b7f4110c3d27df72";
-const frontend = "456853b6655e05bd18ede58cdab54bd0b02a4a34";
-const frontendTree = "a98498a60753cadc7b010f2e9d9c5a5e34f812f4";
-const frontendBlob = "e5c9239bd1da99f0272464a23118c2784926d923";
+const frontend = "506656d07e54061c533cb167d72d6ba05503f8eb";
+const frontendTree = "90464f5eb9a00abaed716eaf52c8ce427337f274";
+const frontendBlob = "1796fa939af35aa7e089ab867be4b59fa17cc5f5";
 const assetPath = "web/strategy-switch-console/v2_asset_map.js";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
@@ -231,6 +231,15 @@ for (const delta of [{ FAKE_FRONTEND_OBJECT_EXIT: "1" }, { FAKE_FRONTEND_ANCESTR
   assert.equal(sourceCase({ RELEASE_FRONTEND_ASSETS: "true", ...delta }, false).selected, false);
 }
 
+// The superseded frontend baseline is no longer an admissible release source.
+for (const delta of [
+  { FAKE_FRONTEND_TREE: "a98498a60753cadc7b010f2e9d9c5a5e34f812f4" },
+  { FAKE_FRONTEND_BLOB: "e5c9239bd1da99f0272464a23118c2784926d923" },
+]) {
+  assert.equal(sourceCase({ RELEASE_FRONTEND_ASSETS: "true", ...delta }, false).selected, false,
+    "old frontend baseline must reject before selecting the backend");
+}
+
 // Execute the actual overlay shell. Only Git metadata/working-diff boundaries
 // are synthetic; hash-object validates the real reviewed map bytes.
 const overlayStep = steps.find(step => step.startsWith("Overlay fixed reviewed frontend assets\n"));
@@ -269,7 +278,11 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
 }
 overlayCase();
 for (const delta of [{ GITHUB_REF: "refs/heads/unapproved" }, { FAKE_HEAD: frontend }, { FAKE_TREE: frontendTree },
-  { FAKE_FRONTEND_TREE: approvedTree }, { FAKE_DIFF: assetPath + "\nweb/strategy-switch-console/worker.js" },
+  { FAKE_FRONTEND_TREE: approvedTree },
+  { FAKE_FRONTEND_TREE: "a98498a60753cadc7b010f2e9d9c5a5e34f812f4" },
+  { FAKE_DIFF: assetPath + "\nweb/strategy-switch-console/worker.js" },
+  { FAKE_DIFF: assetPath + "\nplatform-config.json" },
+  { FAKE_DIFF: assetPath + "\nweb/strategy-switch-console/wrangler.toml" },
   { FAKE_DIFF: "" }, { FAKE_UNTRACKED: "unreviewed-runtime.js" }]) overlayCase(delta, false);
 overlayCase({}, false, Buffer.concat([reviewedMap, Buffer.from("\n// corrupt synthetic input")]));
 
