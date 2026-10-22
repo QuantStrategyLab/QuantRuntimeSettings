@@ -56,6 +56,18 @@ AI 与监测系统只能创建不可变、无订单的 `qsl.research_task.v1` �
 
 只有全部非模拟账户绑定、资料新鲜、物理身份可核实且资产值完整时，`totals.status` 才为 `by_currency`。币种分别合计，不隐含换汇。`cash_balance` 与 `available_cash` 分开且允许为 null；缺现金不否定已知资产，也不补零。看板只有在配置集合相同、快照尚未过期时才使用完整合计，否则继续显示明确标注的部分资产合计。这些投影不授予交易权限，也不证明投资收益。
 
+## 美股交易时段配置
+
+`platform-config.json.domains.us_equity` 定义可配置交易时段。所有时间均使用 `market_timezone`（`America/New_York`）当地时间，随夏令时变化。
+
+| 键 | 用途 | 默认值 |
+|---|---|---|
+| `trade_date_boundary` | 交易日期的分界时间 | `20:00` |
+| `maintenance_pause` | 每日维护暂停的起止时间 | `["20:00", "21:00"]` |
+| `sessions` | 每个时段的 `start`、`end` 和布尔值 `enabled` 开关 | `overnight` 21:00–04:00、`pre` 04:00–09:30、`regular` 09:30–16:00、`post` 16:00–20:00 |
+
+默认只有 `regular.enabled=true`，扩展时段均为 `false`；结束时间早于开始时间表示跨午夜。这些键为美股 23x5 准备配置，本改动不接入平台 consumer，不改变现有交易或调度行为，`scheduling.profiles` 保持不变。
+
 ## 仓库结构
 
 - `python/`：Python 工具链（脚本、测试、pyproject.toml）— 校验、代码生成、部署工具。
