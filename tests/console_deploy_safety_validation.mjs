@@ -151,6 +151,12 @@ for(const [item,flag,fieldType]of [
  assert.equal(result.named_handler_categories[0].count,1);
  assert.ok(!JSON.stringify(result).includes("PRIVATE_SCHEMA_SENTINEL"));
 }
+const largerSchema=structuredClone(validSchema);
+largerSchema.result.resources.script.named_handlers[0].handlers=Array.from({length:33},(_,i)=>`handler${i}`);
+const largerProjection=await schemaCase(largerSchema);
+assert.equal(largerProjection.contracts.named_handlers,true);
+assert.equal(largerProjection.contracts.named_handler_list_bounds,true);
+assert.equal(largerProjection.named_handler_max_entries,33);
 
 // Execute the exact selection shell with a fake Git boundary, never checkout the
 // test repository or evaluate any selected Worker. Real object identities are
@@ -346,6 +352,19 @@ async function releaseCase({mutate=()=>{},env={},failAt=-1,responseAt=-1,respons
  releaseCases++;return {calls,stdout,stderr};
 }
 await releaseCase();await releaseCase({env:{STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"e".repeat(32)}}); // H's namespace drift no longer affects inherited configuration
+const handlerList = Array.from({length:33},(_,i)=>`handler${i}`);
+const largerAbi = responses => {for(const i of [1,4])responses[i].result.resources.script.named_handlers[0].handlers=[...handlerList];};
+await releaseCase({mutate:largerAbi});
+for(const drift of [handlers=>handlers.pop(),handlers=>handlers.push("newHandler"),handlers=>{handlers[32]="changedHandler";}]){
+ await releaseCase({mutate:r=>{largerAbi(r);drift(r[4].result.resources.script.named_handlers[0].handlers);}},false,5);
+}
+await releaseCase({mutate:r=>{largerAbi(r);r[1].result.resources.script.named_handlers[0].handlers[32]=null;}},false,2);
+await releaseCase({mutate:r=>{largerAbi(r);r[4].result.resources.script.named_handlers[0].PRIVATE_RELEASE_SENTINEL=true;}},false,5);
+const oversizedResource=resource("old-code");
+oversizedResource.script.named_handlers[0].handlers=Array.from({length:50000},(_,i)=>`handler${i}`);
+const oversizedResourceJson=JSON.stringify(wrap({id:priorVersion,resources:oversizedResource}));
+assert.ok(Buffer.byteLength(oversizedResourceJson)>524288);
+await releaseCase({responseAt:1,response:new Response(oversizedResourceJson,{headers:{"content-type":"application/json"}})},false,2);
 for(const env of [{GITHUB_REF:"refs/heads/unapproved"},{CLOUDFLARE_API_TOKEN:""},{CLOUDFLARE_ACCOUNT_ID:"bad"}])await releaseCase({env},false,0);
 await releaseCase({readError:true},false,2);
 for(let i=0;i<9;i++)await releaseCase({failAt:i},false,i+1);
