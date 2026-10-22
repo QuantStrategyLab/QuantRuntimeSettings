@@ -28,8 +28,13 @@ on:
         required: false
         type: string
         default: ""
+      release_frontend_assets:
+        description: "Release only the fixed reviewed frontend map over the approved e2a backend. No secret/profile sync."
+        required: true
+        type: boolean
+        default: false
       rollback_to_pre_release:
-        description: "Restore only the verified pre-release c88234c2 version; never build or sync. Read-only mode takes priority."
+        description: "Restore only the verified pre-frontend 2beea000 version; never build or sync. Read-only mode takes priority."
         required: true
         type: boolean
         default: false
@@ -200,7 +205,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.rollback_to_pre_release
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       WORKER_DIR: web/strategy-switch-console
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -239,8 +244,22 @@ jobs:
       - name: Select reviewed historical main source
         env:
           RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_FRONTEND_ASSETS: ${{ inputs.release_frontend_assets }}
+          SYNC_SECRETS: ${{ inputs.sync_secrets }}
+          SYNC_STRATEGY_PROFILES: ${{ inputs.sync_strategy_profiles }}
+          SKIP_BINANCE_RECEIVER_CHECKS: ${{ inputs.skip_binance_receiver_checks }}
         run: |
           set -euo pipefail
+          frontend_mode="${RELEASE_FRONTEND_ASSETS:-false}"
+          case "$frontend_mode" in true|false) ;; *) exit 2 ;; esac
+          if [ "$frontend_mode" = "true" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$RELEASE_SOURCE_SHA" != "e2aab576d6874feeaf87df3411411ad04ee02d4f" ] \
+              || [ "$SYNC_SECRETS" != "false" ] || [ "$SYNC_STRATEGY_PROFILES" != "false" ] \
+              || [ "$SKIP_BINANCE_RECEIVER_CHECKS" != "true" ]; then
+              echo "invalid_frontend_release_mode" >&2
+              exit 2
+            fi
+          fi
           # Empty input preserves the original workflow-ref deployment behavior.
           if [ -z "$RELEASE_SOURCE_SHA" ]; then exit 0; fi
           if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$RELEASE_SOURCE_SHA" != "e2aab576d6874feeaf87df3411411ad04ee02d4f" ]; then
@@ -251,6 +270,16 @@ jobs:
           if [ "$control_sha" != "$GITHUB_SHA" ]; then
             echo "console_control_source_mismatch" >&2
             exit 2
+          fi
+          if [ "$frontend_mode" = "true" ]; then
+            frontend_sha="456853b6655e05bd18ede58cdab54bd0b02a4a34"
+            git cat-file -e "${frontend_sha}^{commit}"
+            git merge-base --is-ancestor "$frontend_sha" "$control_sha"
+            if [ "$(git rev-parse "${frontend_sha}^{tree}")" != "a98498a60753cadc7b010f2e9d9c5a5e34f812f4" ] \
+              || [ "$(git rev-parse "${frontend_sha}:web/strategy-switch-console/v2_asset_map.js")" != "e5c9239bd1da99f0272464a23118c2784926d923" ]; then
+              echo "frontend_release_source_mismatch" >&2
+              exit 2
+            fi
           fi
           git cat-file -e "${RELEASE_SOURCE_SHA}^{commit}"
           git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$control_sha"
@@ -303,6 +332,35 @@ jobs:
           python3 python/scripts/build_platform_config.py
           python3 python/scripts/build_platform_config.py --check
 
+      - name: Overlay fixed reviewed frontend assets
+        if: inputs.release_frontend_assets
+        run: |
+          set -euo pipefail
+          backend="e2aab576d6874feeaf87df3411411ad04ee02d4f"
+          frontend="456853b6655e05bd18ede58cdab54bd0b02a4a34"
+          asset="web/strategy-switch-console/v2_asset_map.js"
+          blob="e5c9239bd1da99f0272464a23118c2784926d923"
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$(git rev-parse HEAD)" != "$backend" ] \
+            || [ "$(git rev-parse 'HEAD^{tree}')" != "968b323ca75ee48d0c92bfe0b7f4110c3d27df72" ] \
+            || [ "$(git rev-parse "${frontend}^{tree}")" != "a98498a60753cadc7b010f2e9d9c5a5e34f812f4" ]; then
+            echo "frontend_overlay_source_mismatch" >&2
+            exit 2
+          fi
+          staged_asset="$(mktemp)"
+          trap 'rm -f "$staged_asset"' EXIT
+          git show "${frontend}:${asset}" > "$staged_asset"
+          if [ "$(git hash-object "$staged_asset")" != "$blob" ]; then
+            echo "frontend_overlay_blob_mismatch" >&2
+            exit 2
+          fi
+          cp "$staged_asset" "$asset"
+          if [ "$(git diff --name-only "$backend")" != "$asset" ] \
+            || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "frontend_overlay_extra_source_change" >&2
+            exit 2
+          fi
+          printf 'Frontend map: %s; backend source: %s\n' "$blob" "$backend"
+
       - name: Validate Worker assets
         run: |
           set -euo pipefail
@@ -310,6 +368,13 @@ jobs:
           node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
           node --check --input-type=module < web/strategy-switch-console/v2_asset_map.js
           node --check --input-type=module < web/strategy-switch-console/worker.js
+
+      - name: Validate fixed backend with reviewed frontend
+        if: inputs.release_frontend_assets
+        run: |
+          set -euo pipefail
+          node tests/console_v2_assets_validation.mjs
+          node tests/console_v2_worker_validation.mjs
 
       - name: Validate optional Binance account-facts binding
         if: env.BINANCE_ACCOUNT_FACTS_BINDING_JSON != ''
@@ -330,6 +395,7 @@ jobs:
       - name: Prepare Wrangler config
         env:
           UX1_RESEARCH_JOB_TOKEN: ${{ secrets.UX1_RESEARCH_JOB_TOKEN }}
+          RELEASE_FRONTEND_ASSETS: ${{ inputs.release_frontend_assets }}
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] && [ -z "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]; then
@@ -512,6 +578,13 @@ jobs:
                   raise SystemExit("wrangler.toml.example must contain a [vars] section.")
               rendered_vars = "".join(f"{key} = {json.dumps(value)}\n" for key, value in ux1_vars.items())
               text = text.replace(vars_header, vars_header + rendered_vars, 1)
+          if os.environ.get("RELEASE_FRONTEND_ASSETS") == "true":
+              # --keep-vars preserves remote values only when no local values
+              # override them. This release changes code/assets, never flags.
+              import re
+              text, count = re.subn(r"(?ms)^\[vars\]\n.*?(?=^\[|\Z)", "[vars]\n\n", text)
+              if count != 1:
+                  raise SystemExit("frontend_release_vars_section_mismatch")
           target.write_text(text, encoding="utf-8")
           PY
 
@@ -529,9 +602,153 @@ jobs:
             exit 2
           fi
 
-      - name: Deploy Worker
+      - name: Build frontend-only Worker bundle without publishing
+        if: inputs.release_frontend_assets
         working-directory: web/strategy-switch-console
-        run: npx wrangler@4.106.0 deploy --config wrangler.toml
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          set -euo pipefail
+          npx wrangler@4.106.0 deploy --dry-run --config wrangler.toml --outdir "$RUNNER_TEMP/console-frontend-bundle"
+
+      - name: Publish fixed frontend-only Worker version
+        if: inputs.release_frontend_assets
+        run: |
+          node --input-type=module <<'JS'
+          import { readFile } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          const fail = () => { throw new Error('frontend_release_stopped'); };
+          const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value) ? value : fail();
+          const prior = '2beea000-cce5-43a5-9255-9724f7318e83';
+          const priorDeployment = '6107ffd9-4c76-4bc5-be85-a12caf2af766';
+          const canonical = value => JSON.stringify(value, function (_key, item) {
+            return item && typeof item === 'object' && !Array.isArray(item)
+              ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item;
+          });
+          let stage = 'configuration', httpStatus = null, uploadAttempted = false, deployAttempted = false, uploaded = null;
+          try {
+            const account = process.env.CLOUDFLARE_ACCOUNT_ID, token = process.env.CLOUDFLARE_API_TOKEN;
+            if (process.env.GITHUB_REF !== 'refs/heads/main' || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
+            const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
+            // Fixed host/Worker, bounded response, no pagination or retry. Remote configuration
+            // stays in process memory; never write it or include it in an error/receipt.
+            async function request(path, method = 'GET', body) {
+              const response = await fetch(base + path, { method, body, redirect: 'error', signal: AbortSignal.timeout(20000),
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'identity', ...(typeof body === 'string' ? { 'Content-Type': 'application/json' } : {}) } });
+              httpStatus = response.status;
+              if (!response.ok) { await response.body?.cancel(); fail(); }
+              if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
+                || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail();
+              const length = response.headers.get('content-length');
+              if (length !== null && (!/^\d+$/.test(length) || Number(length) > 524288)) fail();
+              const reader = response.body?.getReader(); if (!reader) fail();
+              let size = 0, text = ''; const decoder = new TextDecoder('utf-8', { fatal: true });
+              try {
+                for (;;) {
+                  const { done, value } = await reader.read(); if (done) break;
+                  size += value.byteLength; if (size > 524288) fail();
+                  text += decoder.decode(value, { stream: true });
+                }
+                text += decoder.decode();
+              } finally { await reader.cancel(); }
+              if (length !== null && Number(length) !== size) fail();
+              const result = JSON.parse(text);
+              if (result?.success !== true || (result.errors !== undefined && (!Array.isArray(result.errors) || result.errors.length))) fail();
+              return result.result;
+            }
+            async function active(id, version) {
+              const value = await request('/deployments?page=1&per_page=10'), list = value?.deployments;
+              if (!Array.isArray(list) || !list.length || list.length > 10 || list[0]?.id !== id
+                || list[0]?.strategy !== 'percentage' || !Array.isArray(list[0]?.versions) || list[0].versions.length !== 1
+                || list[0].versions[0]?.version_id !== version || list[0].versions[0]?.percentage !== 100) fail();
+            }
+            async function latest(version) {
+              const value = await request('/versions?page=1&per_page=10'), list = value?.items;
+              if (!Array.isArray(list) || !list.length || list.length > 10 || list[0]?.id !== version) fail();
+            }
+            function resources(version, id) {
+              if (version?.id !== id) fail();
+              const value = version.resources, runtime = value?.script_runtime, script = value?.script;
+              if (!value || Object.keys(value).some(key => !['bindings', 'script', 'script_runtime'].includes(key))
+                || !Array.isArray(value.bindings) || !value.bindings.length || value.bindings.length > 128 || !runtime || !script
+                || Object.keys(runtime).some(key => !['compatibility_date', 'compatibility_flags', 'usage_model', 'limits', 'migration_tag', 'exports'].includes(key))
+                || Object.keys(script).some(key => !['etag', 'handlers', 'last_deployed_from', 'placement_mode'].includes(key))
+                || typeof script.etag !== 'string' || !script.etag || script.etag.length > 256
+                || !(script.handlers === null || (Array.isArray(script.handlers) && script.handlers.every(x => typeof x === 'string')))
+                || !/^\d{4}-\d{2}-\d{2}$/.test(runtime.compatibility_date ?? '')
+                || (runtime.compatibility_flags !== undefined && (!Array.isArray(runtime.compatibility_flags) || runtime.compatibility_flags.some(x => typeof x !== 'string')))
+                || !['standard', 'bundled', 'unbound'].includes(runtime.usage_model)) fail();
+              const names = new Set();
+              for (const binding of value.bindings) {
+                if (!binding || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(binding.name ?? '') || names.has(binding.name)
+                  || !['plain_text', 'json', 'secret_text', 'kv_namespace', 'durable_object_namespace'].includes(binding.type)) fail();
+                if (binding.type === 'kv_namespace' && !/^[0-9a-f]{32}$/i.test(typeof binding.namespace_id === 'string' ? binding.namespace_id : '')) fail();
+                if (binding.type === 'durable_object_namespace' && (
+                  !/^[0-9a-f]{32}$/i.test(typeof binding.namespace_id === 'string' ? binding.namespace_id : '')
+                  || typeof binding.class_name !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(binding.class_name)
+                  || ['script_name', 'environment', 'dispatch_namespace'].some(key => binding[key] !== undefined && (typeof binding[key] !== 'string' || !binding[key] || binding[key].length > 128)))) fail();
+                if (binding.type === 'plain_text' && (typeof binding.text !== 'string' || binding.text.length > 131072)) fail();
+                if (binding.type === 'json' && !Object.hasOwn(binding, 'json')) fail();
+                if (binding.type === 'secret_text' && Object.keys(binding).some(key => !['name', 'type'].includes(key))) fail();
+                names.add(binding.name);
+              }
+              // Existing resources only: no resource provisioning or DO migration request.
+              if (!value.bindings.some(b => b.name === 'STRATEGY_SWITCH_CONFIG' && b.type === 'kv_namespace')
+                || !value.bindings.some(b => b.name === 'STRATEGY_SWITCH_RUNTIME_INSTANCES' && b.type === 'durable_object_namespace')) fail();
+              return value;
+            }
+            stage = 'pre_release_active'; await active(priorDeployment, prior);
+            stage = 'pre_release_configuration'; const old = resources(await request(`/versions/${prior}`), prior);
+            stage = 'bundle';
+            const bundle = await readFile(`${process.env.RUNNER_TEMP}/console-frontend-bundle/worker.js`);
+            if (!bundle.byteLength || bundle.byteLength > 10485760) fail();
+            // The bundler is offline (--dry-run). Inherit EVERY existing binding, including
+            // secrets, without supplying any value or trusting current Environment inputs.
+            // Script-version inherit resolves 'latest', not a historical ID: require the
+            // fixed version to be latest immediately before upload. This is NOT provider CAS.
+            const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name })),
+              compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
+              annotations: { 'workers/message': 'Reviewed frontend 456853b over fixed e2a backend; retained bindings' } };
+            for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
+            const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
+            form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
+            stage = 'pre_upload_latest'; await latest(prior);
+            stage = 'upload'; uploadAttempted = true;
+            uploaded = uuid((await request('/versions?bindings_inherit=strict', 'POST', form))?.id);
+            if (uploaded === prior) fail();
+            stage = 'uploaded_configuration'; const next = resources(await request(`/versions/${uploaded}`), uploaded);
+            const comparable = value => ({ bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
+              script_runtime: value.script_runtime, handlers: value.script.handlers, placement_mode: value.script.placement_mode ?? null });
+            if (canonical(comparable(next)) !== canonical(comparable(old)) || next.script.etag === old.script.etag) fail();
+            // Same-Worker workflow concurrency serializes our release controls. These fresh
+            // GETs detect observed external drift; Cloudflare offers no compare-and-swap
+            // precondition here. No automatic retry or force fallback on an unknown result.
+            stage = 'pre_deploy_active'; await active(priorDeployment, prior);
+            stage = 'pre_deploy_latest'; await latest(uploaded);
+            stage = 'activate'; deployAttempted = true;
+            const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
+              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': 'Reviewed frontend only; fixed e2a backend and retained configuration' } }));
+            const deploymentId = uuid(deployment?.id);
+            if (deployment.strategy !== 'percentage' || !Array.isArray(deployment.versions) || deployment.versions.length !== 1
+              || deployment.versions[0]?.version_id !== uploaded || deployment.versions[0]?.percentage !== 100) fail();
+            stage = 'readback'; await active(deploymentId, uploaded);
+            console.log(JSON.stringify({ status: 'frontend_release_verified', prior_version: prior, version_id: uploaded,
+              deployment_id: deploymentId, percentage: 100, bindings_equal: true, runtime_equal: true,
+              bundle_sha256: createHash('sha256').update(bundle).digest('hex'), force: false, provider_cas: false }));
+          } catch {
+            console.error(JSON.stringify({ error: 'frontend_release_stopped', stage, http_status: httpStatus,
+              upload_attempted: uploadAttempted, deploy_attempted: deployAttempted, uploaded_version: uploaded,
+              outcome: deployAttempted ? 'UNKNOWN_REQUIRES_READBACK' : uploadAttempted ? 'UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED' : 'NOT_ATTEMPTED', retry: false }));
+            process.exitCode = 1;
+          }
+          JS
+
+      - name: Deploy Worker
+        if: ${{ !inputs.release_frontend_assets }}
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          npx wrangler@4.106.0 deploy --config wrangler.toml
 
       # Secret writes require an explicit manual opt-in.
       - name: Sync UX1 research job token
@@ -787,6 +1004,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_FRONTEND_ASSETS: ${{ inputs.release_frontend_assets }}
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -799,7 +1017,7 @@ jobs:
           // One fixed deployment request. In particular, never retry with force:
           // Wrangler 4.106.0 rollback can implicitly do that after API error 10220.
           // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/create/
-          const target = 'c88234c2-292a-40d4-b624-500f145e3f7d';
+          const target = '2beea000-cce5-43a5-9255-9724f7318e83';
           const fail = () => { throw new Error('console_restore_failed'); };
           let stage = 'configuration';
           let httpStatus = null;
@@ -807,7 +1025,7 @@ jobs:
           try {
             const token = process.env.CLOUDFLARE_API_TOKEN;
             const account = process.env.CLOUDFLARE_ACCOUNT_ID;
-            if (process.env.GITHUB_REF !== 'refs/heads/main' || process.env.RELEASE_SOURCE_SHA
+            if (process.env.GITHUB_REF !== 'refs/heads/main' || process.env.RELEASE_SOURCE_SHA || process.env.RELEASE_FRONTEND_ASSETS === 'true'
               || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
             stage = 'request';
             requested = true;
@@ -815,7 +1033,7 @@ jobs:
               method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
               headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
               body: JSON.stringify({ strategy: 'percentage', versions: [{ version_id: target, percentage: 100 }],
-                annotations: { 'workers/message': 'Restore verified pre-release c88234c2 baseline' } }),
+                annotations: { 'workers/message': 'Restore verified pre-frontend 2beea000 baseline' } }),
             });
             httpStatus = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
             stage = 'http_status';

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, existsSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const workflow = readFileSync(new URL("../.github/workflows/deploy-strategy-switch-console.yml", import.meta.url), "utf8");
 const triggers = workflow.slice(workflow.indexOf("\non:\n"), workflow.indexOf("\npermissions:"));
 assert.deepEqual([...triggers.matchAll(/^  (\w+):/gm)].map(match => match[1]), ["workflow_dispatch"], "merges must not deploy");
-for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_preflight", "skip_binance_receiver_checks", "rollback_to_pre_release"]) {
+for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_preflight", "skip_binance_receiver_checks", "release_frontend_assets", "rollback_to_pre_release"]) {
   const block = triggers.match(new RegExp(`      ${input}:\\n([\\s\\S]*?)(?=\\n      \\w+:|$)`))?.[1];
   assert.ok(block, input);
   assert.match(block, /type: boolean/);
@@ -64,7 +65,7 @@ const binanceChecks = [
   "Wait for optional Binance account-facts readiness stability",
   "Verify optional Binance account-facts receiver credentials",
 ];
-const skipGates = steps.filter(step => /inputs\.skip_binance_receiver_checks/.test(step));
+const skipGates = steps.filter(step => /^        if: .*inputs\.skip_binance_receiver_checks/m.test(step));
 assert.deepEqual(skipGates.map(step => step.split("\n")[0]), binanceChecks, "only these two network checks may be skipped");
 for (const step of skipGates) {
   const gate = step.match(/^        if: (.+)$/m)?.[1];
@@ -87,6 +88,10 @@ assert.deepEqual([...preflight.matchAll(/^      ([A-Z_]+):/gm)].map(match => mat
 // separately frozen by the release evidence and the required ancestry check.
 const approved = "e2aab576d6874feeaf87df3411411ad04ee02d4f";
 const approvedTree = "968b323ca75ee48d0c92bfe0b7f4110c3d27df72";
+const frontend = "456853b6655e05bd18ede58cdab54bd0b02a4a34";
+const frontendTree = "a98498a60753cadc7b010f2e9d9c5a5e34f812f4";
+const frontendBlob = "e5c9239bd1da99f0272464a23118c2784926d923";
+const assetPath = "web/strategy-switch-console/v2_asset_map.js";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
 assert.ok(selectionStep);
@@ -99,8 +104,12 @@ const fakeGit = `git() {
   case "$*" in
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
     'cat-file -e ${approved}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
+    'cat-file -e ${frontend}^{commit}') return "$FAKE_FRONTEND_OBJECT_EXIT" ;;
     'merge-base --is-ancestor ${approved} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
+    'merge-base --is-ancestor ${frontend} ${control}') return "$FAKE_FRONTEND_ANCESTRY_EXIT" ;;
     'rev-parse ${approved}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
+    'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
     '-c advice.detachedHead=false checkout --detach ${approved}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
@@ -112,7 +121,9 @@ function sourceCase(delta, expected) {
     const trace = join(temp, "trace"), selected = join(temp, "selected");
     const env = { PATH: process.env.PATH, GITHUB_REF: "refs/heads/main", GITHUB_SHA: control,
       RELEASE_SOURCE_SHA: approved, TRACE: trace, SELECTED: selected, FAKE_CONTROL_HEAD: control,
-      FAKE_SELECTED_HEAD: approved, FAKE_TREE: approvedTree, FAKE_OBJECT_EXIT: "0", FAKE_ANCESTRY_EXIT: "0", ...delta };
+      FAKE_SELECTED_HEAD: approved, FAKE_TREE: approvedTree, FAKE_OBJECT_EXIT: "0", FAKE_ANCESTRY_EXIT: "0",
+      RELEASE_FRONTEND_ASSETS: "false", SYNC_SECRETS: "false", SYNC_STRATEGY_PROFILES: "false", SKIP_BINANCE_RECEIVER_CHECKS: "true",
+      FAKE_FRONTEND_OBJECT_EXIT: "0", FAKE_FRONTEND_ANCESTRY_EXIT: "0", FAKE_FRONTEND_TREE: frontendTree, FAKE_FRONTEND_BLOB: frontendBlob, ...delta };
     const result = spawnSync("bash", ["-c", fakeGit + selectShell], { env, encoding: "utf8" });
     assert.equal(result.status === 0, expected, result.stderr);
     assert.ok(!result.stdout.includes("PRIVATE_SOURCE_SENTINEL") && !result.stderr.includes("PRIVATE_SOURCE_SENTINEL"));
@@ -134,6 +145,165 @@ for (const delta of [{ FAKE_CONTROL_HEAD: "b".repeat(40) }, { FAKE_OBJECT_EXIT: 
   assert.equal(sourceCase(delta, false).selected, false, "object/control/ancestry/tree rejection precedes selection");
 }
 assert.equal(sourceCase({ FAKE_SELECTED_HEAD: "b".repeat(40) }, false).selected, true, "verify the actual selected checkout too");
+assert.equal(sourceCase({ RELEASE_FRONTEND_ASSETS: "true" }, true).selected, true);
+for (const delta of [{ RELEASE_SOURCE_SHA: "" }, { SYNC_SECRETS: "true" }, { SYNC_STRATEGY_PROFILES: "true" },
+  { SKIP_BINANCE_RECEIVER_CHECKS: "false" }, { GITHUB_REF: "refs/heads/unapproved" }]) {
+  assert.deepEqual(sourceCase({ RELEASE_FRONTEND_ASSETS: "true", ...delta }, false).calls, [], "invalid frontend modes reject before Git/project code");
+}
+assert.deepEqual(sourceCase({ RELEASE_FRONTEND_ASSETS: "true\n" }, false).calls, []);
+for (const delta of [{ FAKE_FRONTEND_OBJECT_EXIT: "1" }, { FAKE_FRONTEND_ANCESTRY_EXIT: "1" },
+  { FAKE_FRONTEND_TREE: "a".repeat(40) }, { FAKE_FRONTEND_BLOB: "a".repeat(40) }]) {
+  assert.equal(sourceCase({ RELEASE_FRONTEND_ASSETS: "true", ...delta }, false).selected, false);
+}
+
+// Execute the actual overlay shell. Only Git metadata/working-diff boundaries
+// are synthetic; hash-object validates the real reviewed map bytes.
+const overlayStep = steps.find(step => step.startsWith("Overlay fixed reviewed frontend assets\n"));
+assert.ok(overlayStep);
+assert.match(overlayStep, /^        if: inputs\.release_frontend_assets$/m);
+assert.ok(deploy.indexOf("Build config & assets") < deploy.indexOf("Overlay fixed reviewed frontend assets"));
+assert.ok(deploy.indexOf("Overlay fixed reviewed frontend assets") < deploy.indexOf("Validate fixed backend with reviewed frontend"));
+assert.match(deploy, /Validate fixed backend with reviewed frontend[\s\S]*?node tests\/console_v2_assets_validation\.mjs\n          node tests\/console_v2_worker_validation\.mjs/);
+const overlayShell = shellBody(overlayStep), reviewedMap = readFileSync(new URL("../" + assetPath, import.meta.url));
+const fakeOverlayGit = `git() {
+  case "$*" in
+    'rev-parse HEAD') printf '%s' "$FAKE_HEAD" ;;
+    'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
+    'show ${frontend}:${assetPath}') cat "$FROZEN_MAP" ;;
+    hash-object*) command git "$@" ;;
+    'diff --name-only ${approved}') printf '%s' "$FAKE_DIFF" ;;
+    'ls-files --others --exclude-standard') printf '%s' "$FAKE_UNTRACKED" ;;
+    *) return 91 ;;
+  esac
+};\n`;
+let overlayCases = 0;
+function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
+  const temp = mkdtempSync(join(tmpdir(), "console-frontend-overlay-"));
+  try {
+    const dest = join(temp, assetPath), frozen = join(temp, "frozen-map");
+    mkdirSync(join(temp, "web/strategy-switch-console"), { recursive: true });
+    writeFileSync(dest, "old synthetic map"); writeFileSync(frozen, bytes);
+    const env = { PATH: process.env.PATH, GITHUB_REF: "refs/heads/main", FAKE_HEAD: approved, FAKE_TREE: approvedTree,
+      FAKE_FRONTEND_TREE: frontendTree, FAKE_DIFF: assetPath, FAKE_UNTRACKED: "", FROZEN_MAP: frozen, ...delta };
+    const result = spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], { cwd: temp, env, encoding: "utf8" });
+    assert.equal(result.status === 0, expected, result.stderr);
+    if (expected) assert.deepEqual(readFileSync(dest), reviewedMap);
+    overlayCases++;
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+}
+overlayCase();
+for (const delta of [{ GITHUB_REF: "refs/heads/unapproved" }, { FAKE_HEAD: frontend }, { FAKE_TREE: frontendTree },
+  { FAKE_FRONTEND_TREE: approvedTree }, { FAKE_DIFF: assetPath + "\nweb/strategy-switch-console/worker.js" },
+  { FAKE_DIFF: "" }, { FAKE_UNTRACKED: "unreviewed-runtime.js" }]) overlayCase(delta, false);
+overlayCase({}, false, Buffer.concat([reviewedMap, Buffer.from("\n// corrupt synthetic input")]));
+
+// Run the actual config renderer with only synthetic configuration. In frontend
+// mode no local vars may overwrite remote flags; all other TOML stays the same.
+const prepareStep = steps.find(step => step.startsWith("Prepare Wrangler config\n"));
+const preparePython = prepareStep.match(/python3 - <<'PY'\n([\s\S]*?)\n          PY/)[1].split("\n").map(line => line.slice(10)).join("\n");
+const exampleConfig = readFileSync(new URL("../web/strategy-switch-console/wrangler.toml.example", import.meta.url), "utf8");
+let configCases = 0;
+const renderedConfigs = [];
+for (const frontendMode of ["false", "true"]) {
+  const temp = mkdtempSync(join(tmpdir(), "console-frontend-config-"));
+  try {
+    writeFileSync(join(temp, "wrangler.toml.example"), exampleConfig);
+    const result = spawnSync("python3", ["-c", preparePython], { env: { PATH: process.env.PATH,
+      WORKER_DIR: temp, RELEASE_FRONTEND_ASSETS: frontendMode, STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: "a".repeat(32),
+      ACCOUNT_FACTS_READ_MODEL_ENABLED: "true", ACCOUNT_FACTS_SYNC_TOKEN: "SYNTHETIC_CONFIG_SENTINEL", RUNTIME_DAILY_READ_MODEL_ENABLED: "false" }, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const text = readFileSync(join(temp, "wrangler.toml"), "utf8");
+    const parsed = spawnSync("python3", ["-c", "import json,sys,tomllib;print(json.dumps(tomllib.loads(sys.stdin.read())))"], { input: text, encoding: "utf8" });
+    assert.equal(parsed.status, 0, parsed.stderr);
+    renderedConfigs.push(JSON.parse(parsed.stdout));
+    if (frontendMode === "true") {
+      assert.match(text, /\[vars\]\n\n\[triggers\]/);
+      assert.doesNotMatch(text, /ACCOUNT_FACTS_READ_MODEL_ENABLED =/);
+    } else assert.match(text, /ACCOUNT_FACTS_READ_MODEL_ENABLED = "true"/);
+    assert.ok(!result.stdout.includes("SYNTHETIC_CONFIG_SENTINEL") && !result.stderr.includes("SYNTHETIC_CONFIG_SENTINEL"));
+    configCases++;
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+}
+assert.deepEqual(renderedConfigs[1].vars, {}, "no locally rendered flag may override a retained remote var");
+const normalWithoutVars = { ...renderedConfigs[0] }, frontendWithoutVars = { ...renderedConfigs[1] };
+delete normalWithoutVars.vars; delete frontendWithoutVars.vars;
+assert.deepEqual(frontendWithoutVars, normalWithoutVars, "namespace, DO migration, trigger and all other configuration stay unchanged");
+const publishStep = steps.find(s => s.startsWith("Publish fixed frontend-only Worker version\n"));
+const bundleStep = steps.find(s => s.startsWith("Build frontend-only Worker bundle without publishing\n"));
+const normalDeploy = steps.find(s => s.startsWith("Deploy Worker\n"));
+assert.match(normalDeploy, /if: \$\{\{ !inputs\.release_frontend_assets \}\}/);
+assert.match(normalDeploy, /npx wrangler@4\.106\.0 deploy --config wrangler\.toml\n/);
+assert.match(bundleStep, /WRANGLER_SEND_METRICS: "false"/);
+assert.match(bundleStep, /deploy --dry-run --config wrangler\.toml --outdir/);
+for (const s of [bundleStep,publishStep]) assert.match(s, /^        if: inputs\.release_frontend_assets$/m);
+assert.doesNotMatch(publishStep, /npx|triggers deploy|secret put|script-settings|\/schedules|\/routes/);
+assert.match(workflow, /group: strategy-switch-console-deploy\n  cancel-in-progress: false/);
+const releaseScript = publishStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1].split("\n").map(l=>l.slice(10)).filter(l=>!l.startsWith("import ")).join("\n");
+const runRelease = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console","readFile","createHash",releaseScript);
+const priorVersion="2beea000-cce5-43a5-9255-9724f7318e83", priorDeployment="6107ffd9-4c76-4bc5-be85-a12caf2af766";
+const newVersion="00000000-0000-4000-8000-000000000002", newDeployment="00000000-0000-4000-8000-000000000003", privateRelease="PRIVATE_RELEASE_SENTINEL";
+const remoteBindings=[{name:"STRATEGY_SWITCH_CONFIG",type:"kv_namespace",namespace_id:"b".repeat(32)},
+ {name:"STRATEGY_SWITCH_RUNTIME_INSTANCES",type:"durable_object_namespace",namespace_id:"c".repeat(32),class_name:"RuntimeInstances"},
+ {name:"FLAG",type:"plain_text",text:privateRelease},{name:"DATA",type:"json",json:{private:privateRelease}},{name:"SECRET",type:"secret_text"}];
+const runtime={compatibility_date:"2026-06-08",compatibility_flags:[],usage_model:"standard",limits:{},migration_tag:"runtime-instances-v1",exports:{RuntimeInstances:{type:"durable-object",storage:"sqlite"}}};
+const resource=etag=>({bindings:structuredClone(remoteBindings),script_runtime:structuredClone(runtime),script:{etag,handlers:["fetch","scheduled"],last_deployed_from:"api"}});
+const wrap=result=>({success:true,errors:[],result}), dep=(id,v)=>({id,strategy:"percentage",versions:[{version_id:v,percentage:100}]});
+const responseSequence=()=>[wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:priorVersion,resources:resource("old-code")}),
+ wrap({items:[{id:priorVersion}]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
+ wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({items:[{id:newVersion}]}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})];
+const apiSequence=[["/deployments?page=1&per_page=10","GET"],[`/versions/${priorVersion}`,"GET"],["/versions?page=1&per_page=10","GET"],["/versions?bindings_inherit=strict","POST"],
+ [`/versions/${newVersion}`,"GET"],["/deployments?page=1&per_page=10","GET"],["/versions?page=1&per_page=10","GET"],["/deployments?force=false","POST"],["/deployments?page=1&per_page=10","GET"]];
+let releaseCases=0;
+async function releaseCase({mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false}={}, expected=true,count=9){
+ const responses=responseSequence();mutate(responses);const calls=[],stdout=[],stderr=[];
+ const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"d".repeat(32),...env},exitCode:0};
+ await runRelease(process,async(url,options)=>{const i=calls.length;calls.push({url,options});if(i===failAt)throw Error(privateRelease);if(i===responseAt)return response;
+  assert.ok(i<responses.length,"no retry/page expansion");return new Response(JSON.stringify(responses[i]),{headers:{"content-type":"application/json"}});
+ },{log:x=>stdout.push(x),error:x=>stderr.push(x)},async path=>{assert.equal(path,"/synthetic/console-frontend-bundle/worker.js");if(readError)throw Error(privateRelease);return Buffer.from("export default { fetch(){} }; // synthetic bundle");},createHash);
+ assert.equal(process.exitCode===0,expected,stderr.join("\n"));assert.equal(calls.length,count);
+ assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));assert.ok(!JSON.stringify({stdout,stderr}).includes("a".repeat(32)));
+ for(const [i,{url,options}] of calls.entries()){
+  assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+apiSequence[i][0]);
+  assert.equal(options.headers["Accept-Encoding"],"identity");assert.equal(options.method,apiSequence[i][1]);assert.equal(options.redirect,"error");assert.ok(options.signal instanceof AbortSignal);assert.equal(options.headers.Authorization,`Bearer ${privateRelease}`);
+  if(i===3){assert.ok(options.body instanceof FormData);assert.deepEqual([...options.body.keys()],["metadata","worker.js"]);const m=JSON.parse(options.body.get("metadata"));
+   assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
+   assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
+   assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
+  if(i===7)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":"Reviewed frontend only; fixed e2a backend and retained configuration"}});
+ }
+ if(expected){const r=JSON.parse(stdout[0]);assert.equal(r.version_id,newVersion);assert.equal(r.deployment_id,newDeployment);assert.equal(r.bindings_equal,true);assert.equal(r.runtime_equal,true);assert.equal(r.provider_cas,false);}
+ else{assert.equal(stdout.length,0);assert.equal(JSON.parse(stderr[0]).retry,false);}
+ releaseCases++;return {calls,stdout,stderr};
+}
+await releaseCase();await releaseCase({env:{STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"e".repeat(32)}}); // H's namespace drift no longer affects inherited configuration
+for(const env of [{GITHUB_REF:"refs/heads/unapproved"},{CLOUDFLARE_API_TOKEN:""},{CLOUDFLARE_ACCOUNT_ID:"bad"}])await releaseCase({env},false,0);
+await releaseCase({readError:true},false,2);
+for(let i=0;i<9;i++)await releaseCase({failAt:i},false,i+1);
+for(const [at,change] of [
+ [0,x=>{x.result.deployments[0].id=newDeployment;}],[1,x=>{x.result.id=newVersion;}],[1,x=>{x.result.resources.bindings.push(x.result.resources.bindings[0]);}],
+ [1,x=>{delete x.result.resources.bindings[0].namespace_id;}],[1,x=>{delete x.result.resources.bindings[1].class_name;}],
+ [1,x=>{x.result.resources.bindings[0].namespace_id={private:privateRelease};}],
+ [1,x=>{delete x.result.resources.bindings[2].text;}],[1,x=>{delete x.result.resources.bindings[3].json;}],
+ [1,x=>{x.result.resources.bindings[4].text=privateRelease;}],
+ [1,x=>{x.result.resources.script_runtime.unknown=privateRelease;}],[1,x=>{x.result.resources.bindings[0].type="service";}],[1,x=>{x.result.resources.assets={};}],
+ [2,x=>{x.result.items[0].id=newVersion;}],[3,x=>{x.result.id="untrusted";}],
+ [4,x=>{x.result.resources.bindings[0].namespace_id="e".repeat(32);}],[4,x=>{x.result.resources.bindings.pop();}],[4,x=>{x.result.resources.bindings[2].text="different";}],
+ [4,x=>{x.result.resources.script_runtime.compatibility_date="2026-06-09";}],[4,x=>{x.result.resources.script_runtime.limits={cpu_ms:1};}],
+ [4,x=>{x.result.resources.script_runtime.migration_tag="changed";}],[4,x=>{x.result.resources.script.handlers=["fetch"];}],[4,x=>{x.result.resources.script.etag="old-code";}],
+ [5,x=>{x.result.deployments[0].versions[0].version_id=newVersion;}],[6,x=>{x.result.items[0].id=priorVersion;}],[7,x=>{x.result.versions[0].percentage=99;}],[8,x=>{x.result.deployments[0].id=priorDeployment;}]
+])await releaseCase({mutate:r=>change(r[at])},false,at+1);
+for (const corrupt of [b=>{delete b.namespace_id;},b=>{b.namespace_id={private:privateRelease};}]) {
+ await releaseCase({mutate:r=>{for(const i of [1,4])corrupt(r[i].result.resources.bindings[0]);}},false,2);
+}
+await releaseCase({mutate:r=>{for(const i of [1,4])delete r[i].result.resources.bindings[1].class_name;}},false,2);
+for(const [at,response] of [
+ [0,new Response(privateRelease,{status:403})],[3,new Response(privateRelease,{status:500})],[7,new Response(JSON.stringify({success:false,errors:[{code:10220,message:privateRelease}]}),{status:400})],
+ [1,new Response("{",{headers:{"content-type":"application/json"}})],[1,new Response("x".repeat(524289),{headers:{"content-type":"application/json"}})],
+ [1,new Response(privateRelease,{headers:{"content-type":"text/html"}})],[1,new Response("{}",{headers:{"content-type":"application/json","content-encoding":"gzip"}})],
+ [1,new Response("{}",{headers:{"content-type":"application/json","content-length":"524289"}})],[1,new Response("{}",{headers:{"content-type":"application/json","content-length":"1"}})],
+ [1,new Response(new ReadableStream({pull(c){c.error(Error(privateRelease));}}),{headers:{"content-type":"application/json"}})]
+])await releaseCase({responseAt:at,response},false,at+1);
 
 assert.match(rollback, /environment: runtime-strategy-switch/);
 assert.doesNotMatch(rollback, /actions\/checkout|npm ci|worker\.js|secret put|sync-strategy-profiles/);
@@ -144,7 +314,7 @@ assert.ok(restoreScript);
 assert.doesNotMatch(rollback, /npx|wrangler.*rollback|force=true|RUNNER_TEMP/);
 const RestoreFunction = Object.getPrototypeOf(async function () {}).constructor;
 const runRestore = new RestoreFunction("process", "fetch", "console", restoreScript);
-const restoreTarget = "c88234c2-292a-40d4-b624-500f145e3f7d";
+const restoreTarget = "2beea000-cce5-43a5-9255-9724f7318e83";
 const restoreId = "00000000-0000-4000-8000-000000000001";
 const restoreSentinel = "PRIVATE_RESTORE_SENTINEL_DO_NOT_OUTPUT";
 const restoreBody = { success: true, errors: [], result: { id: restoreId, strategy: "percentage",
@@ -173,7 +343,7 @@ async function restoreCase({ env = {}, status = 200, body = restoreBody, raw, he
     assert.ok(options.signal instanceof AbortSignal);
     assert.deepEqual(options.headers, { Authorization: `Bearer ${restoreSentinel}`, Accept: "application/json", "Content-Type": "application/json" });
     assert.deepEqual(JSON.parse(options.body), { strategy: "percentage", versions: [{ version_id: restoreTarget, percentage: 100 }],
-      annotations: { "workers/message": "Restore verified pre-release c88234c2 baseline" } });
+      annotations: { "workers/message": "Restore verified pre-frontend 2beea000 baseline" } });
   }
   if (expected) assert.deepEqual(JSON.parse(stdout[0]), { status: "restore_response_verified", deployment_id: restoreId, version_id: restoreTarget, percentage: 100, force: false });
   else {
@@ -186,7 +356,7 @@ async function restoreCase({ env = {}, status = 200, body = restoreBody, raw, he
 }
 await restoreCase();
 for (const env of [{ GITHUB_REF: "refs/heads/unapproved" }, { GITHUB_REF: "refs/tags/main" },
-  { RELEASE_SOURCE_SHA: approved }, { CLOUDFLARE_API_TOKEN: "" }, { CLOUDFLARE_ACCOUNT_ID: "bad" }]) await restoreCase({ env }, false, 0);
+  { RELEASE_SOURCE_SHA: approved }, { RELEASE_FRONTEND_ASSETS: "true" }, { CLOUDFLARE_API_TOKEN: "" }, { CLOUDFLARE_ACCOUNT_ID: "bad" }]) await restoreCase({ env }, false, 0);
 // Provider's changed-secret rejection must stop, not trigger Wrangler's force fallback.
 await restoreCase({ status: 400, body: { success: false, errors: [{ code: 10220, message: restoreSentinel }] } }, false);
 for (const status of [302, 403, 429, 500]) await restoreCase({ status, raw: restoreSentinel }, false);
@@ -342,4 +512,4 @@ const zeroTotal = await failure([{ success: true, result: { deployments: [{ ...d
   { version_id: versionId, percentage: 0 }, { version_id: deploymentId, percentage: 0 },
 ] }] } }]);
 assert.equal(zeroTotal.checkpoint, "deployment_percentage_total", "all-zero traffic is still invalid");
-console.log(`console_deploy_safety_validation: PASS (manual-only; 16 original write gates; exclusive preflight/deploy/restore; 2 exact Binance gates; ${cases} offline reader cases; ${sourceCases} source cases; ${restoreCases} restore cases)`);
+console.log(`console_deploy_safety_validation: PASS (manual-only; 16 original write gates; exclusive preflight/deploy/restore; 2 exact Binance gates; ${cases} offline reader cases; ${sourceCases} source cases; ${restoreCases} restore cases; ${overlayCases} overlay cases; ${configCases} config cases; ${releaseCases} isolated release cases)`);
