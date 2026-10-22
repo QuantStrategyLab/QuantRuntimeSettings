@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { __test as settingsWorker } from "../web/strategy-switch-console/worker.js";
 import "./account_native_display_validation.mjs";
 import "./reconciliation_material_presentation_validation.mjs";
 import { readFileSync } from "node:fs";
@@ -91,6 +92,25 @@ assert.match(accountsPage, /item\.dca_supported === true/);
 assert.match(accountsPage, /t\("定投设置"\)/);
 assert.match(accountsPage, /saveScoped\("strategy"/);
 assert.match(accountsPage, /maxLength=\{32\}/);
+// Exercise the actual backend value shape against its unchanged legacy UI consumer.
+const originalSettingsFetch = globalThis.fetch;
+try {
+  for (const profile of ["russell_top50_leader_rotation", "crypto_btc_dca"]) {
+    globalThis.fetch = async (url, options) => {
+      assert.match(String(url), /^https:\/\/api\.github\.com\/repos\//);
+      assert.equal(options.method || "GET", "GET");
+      return Response.json({ variables: [{ name: "STRATEGY_PROFILE", value: profile }] });
+    };
+    const { effective, effectiveRead } = await settingsWorker.effectiveAccountSettings(
+      { RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-only" },
+      { platform: "longbridge", config: { key: "synthetic-account", target_name: "synthetic-account" } },
+    );
+    assert.equal(effective.strategy_profile.value, profile);
+    assert.equal(effectiveRead.dca_mode.reason, "dca_not_applicable");
+    assert.equal(effectiveRead.dca_base_investment_usd.reason, "dca_not_applicable");
+    assert.equal(dcaSettingsReadout(effective), null, "source metadata must not create an unverified DCA plan");
+  }
+} finally { globalThis.fetch = originalSettingsFetch; }
 assert.equal(dcaSettingsReadout(null), null);
 assert.equal(dcaSettingsReadout({ strategy_profile: { status: "known", value: "russell_top50_leader_rotation" } }), null);
 assert.equal(dcaSettingsReadout({ strategy_profile: { status: "known", value: "crypto_btc_dca" } }), null);

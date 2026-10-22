@@ -1,5 +1,13 @@
 # 策略切换控制台
 
+## 有效账户设置来源
+
+登录后的 `GET /api/account-settings` 保留原 `effective` 值结构，另加独立的七字段 `effective_read` 元数据。每项元数据包含 `source=github_runtime_configuration`、`reason` 和 `source_as_of=null`。source 说明现有按账户匹配的 GitHub 运行配置解析路径，不代表某个具体变量、已部署状态或券商回读；reader 没有可靠的逐字段源时间戳。原 known 值、解析优先级、身份、草稿和写入权限保持原语义。非 DCA 的值字段仍省略，避免旧客户端误显示未核实的定投计划。
+
+缺少 reader 配置、仓库映射或账户配置时，逐字段 unknown，原因分别为 `reader_not_configured`、`repository_not_configured`、`account_config_unavailable`。HTTP、网络、JSON 或列表结构读取失败（包括后续分页失败）时，七字段均为 `runtime_configuration_read_failed`，不沿用前页值，不暴露上游异常正文。读取成功但无法解析字段时为 `runtime_setting_unresolved`，不能据此区分缺失、非法或未匹配。DCA 仅在平台不支持或已知策略不支持时为 `dca_not_applicable`；策略未知时为 `strategy_profile_unresolved`。读取失败优先。known 的 `reason=null`，显式0和false保留原值；unknown 有效值不包含 `value`，元数据不包含值。
+
+`GET /api/account-settings/diff` 的每行增加 `current_source`、`current_reason`、`current_source_as_of`，unknown 的 `current=null`。无元数据的旧输入返回空来源/时间及 `effective_field_unavailable`。HTTP 200 只表示成功读取状态投影，不证明全部有效值已知；鉴权、存储失败及身份冲突的原 HTTP/状态语义保留。不补0、不插值、不沿用旧值、不推断默认值。这些接口不修改账户参数，也不证明生产源权限或部署健康。
+
 ## 按任务阅读
 
 [文档索引](../../docs/README.md) · [English contents](README.md#reading-by-task)
