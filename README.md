@@ -1,5 +1,7 @@
 # QuantRuntimeSettings
 
+[Documentation index](docs/README.md) — architecture scope, dated design overview and console tasks.
+
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
