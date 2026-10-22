@@ -74,28 +74,38 @@ function DayDetail({ selection, cell }: { selection: Selection; cell: CellState 
   } else {
     const record: RuntimeDailyRecord = cell.snapshot.record;
     const runs = record.runs ?? [];
+    const activityCounts = new Map<string, number>();
+    for (const run of runs) {
+      const labelKey = run.activity === "blocked" ? "health.run_state.blocked" : `state.${run.activity || "unknown"}`;
+      const label = t(labelKey);
+      activityCounts.set(label, (activityCounts.get(label) || 0) + 1);
+    }
     body = (
       <>
         <div className="health-day-detail-meta">
           {record.status === "blocked" ? <Badge tone="warn">{t("health.run_state.blocked")}</Badge> : <StatusBadge status={record.status} />}
           {cellKind(cell.snapshot) === "blocked" && <span>{t(record.block_reason_code ? `reason.${record.block_reason_code}` : "reason.unknown")}</span>}
-          <span>{t("health.run_count")}: {record.runs ? runs.length : "—"}</span>
+          <span>{t("health.day_detail_summary", { count: record.runs ? runs.length : 0 })}</span>
+          {[...activityCounts].map(([label, count]) => <span key={label} className="card-note">{count} {label}</span>)}
         </div>
         {runs.length > 0 && (
-          <ul className="health-day-runs">
-            {runs.map((run, index) => {
-              const started = formatDateTime(run.started_at, language).text;
-              const finished = formatDateTime(run.finished_at, language).text;
-              return (
-                <li key={index}>
-                  <span className="num">{t("health.detail.started")} {started}</span>
-                  <span className="num">{t("health.detail.finished")} {finished}</span>
-                  <span>{t(run.activity === "blocked" ? "health.run_state.blocked" : `state.${run.activity || "unknown"}`)}</span>
-                  {run.errors_present === true && run.activity !== "blocked" && <Badge tone="error">{t("health.grid.failed")}</Badge>}
-                </li>
-              );
-            })}
-          </ul>
+          <details className="health-day-runs">
+            <summary>{t("health.day_detail_runs")}</summary>
+            <ul>
+              {runs.map((run, index) => {
+                const started = formatDateTime(run.started_at, language).text;
+                const finished = formatDateTime(run.finished_at, language).text;
+                return (
+                  <li key={index}>
+                    <span className="num">{t("health.detail.started")} {started}</span>
+                    <span className="num">{t("health.detail.finished")} {finished}</span>
+                    <span>{t(run.activity === "blocked" ? "health.run_state.blocked" : `state.${run.activity || "unknown"}`)}</span>
+                    {run.errors_present === true && run.activity !== "blocked" && <Badge tone="error">{t("health.grid.failed")}</Badge>}
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
         )}
       </>
     );

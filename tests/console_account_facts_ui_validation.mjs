@@ -54,16 +54,16 @@ try {
       assets: "资产", cash: "现金", cashSemantics: "不是购买力",
       notConnected: "未接入", noData: "暂无数据", readFailed: "读取失败", unknown: "未知状态",
       identity: "账户身份未核验", conflict: "观测不一致",
-      total: "平台合计", subtotal: "已观测小计", subtotalNote: "不代表完整平台总额",
-      partial: "部分数据", stale: "数据偏旧", coverage: (c, e) => `覆盖 ${c}/${e} 账户`,
+      total: "平台合计", subtotal: "合计", subtotalNote: "仅统计已核验且估值日期一致的账户。",
+      partial: "估值不完整", stale: "数据偏旧", coverage: (c, e) => `其中 ${c} 个账户有数据`,
       dietz: "Modified Dietz（近似）", methodUnknown: "收益口径未知",
     },
     en: {
       assets: "Assets", cash: "Cash", cashSemantics: "not buying power",
       notConnected: "Not connected", noData: "No data", readFailed: "Read failed", unknown: "Unknown status",
       identity: "identity unverified", conflict: "Conflicting observations",
-      total: "Platform total", subtotal: "Observed subtotal", subtotalNote: "Not a complete platform total",
-      partial: "Partial", stale: "Stale", coverage: (c, e) => `Covers ${c}/${e} accounts`,
+      total: "Platform total", subtotal: "Total", subtotalNote: "Only verified accounts with the same valuation date are included.",
+      partial: "Valuation incomplete", stale: "Stale", coverage: (c, e) => `${c} accounts with data`,
       dietz: "Modified Dietz (approximate)", methodUnknown: "Return method unknown",
     },
   };
@@ -100,6 +100,8 @@ try {
 
   let checks = 0;
   const ok = (...args) => { assert.ok(...args); checks += 1; };
+  // A complete rollup no longer prints an internal covered/expected count.
+  const hasCoverage = html => /(?:其中 \d+ 个账户有数据|\d+ accounts with data)/.test(html);
 
   for (const language of ["zh", "en"]) {
     const s = TEXT[language];
@@ -189,8 +191,8 @@ try {
     ok(complete.includes(`${s.total} · USD`), "full same-day verified coverage is a platform total");
     ok(complete.includes("USD 1,434.56"), "same-currency same-day accounts sum exactly (1234.56 + 200.00)");
     ok(complete.includes("USD 150.25"), "cash sums independently (100.25 + 50.00)");
-    ok(complete.includes(s.coverage(2, 2)), "coverage counts every verified account");
-    ok(!complete.includes(s.subtotal), "complete coverage is not downgraded to a subtotal");
+    ok(!hasCoverage(complete), "full coverage omits the partial-coverage count");
+    ok(!complete.includes(s.partial), "complete coverage is not downgraded to a partial total");
 
     // 8b. Exact platform sums survive large magnitudes without float drift.
     const bigSum = ui.platform(language, [
@@ -204,14 +206,14 @@ try {
     const twinB = { ...otherFact(), account_key: "ibkr-twin-b" };
     const twins = ui.platform(language, [twinA, twinB], 2, "ready");
     ok(twins.includes("USD 400.00"), "same-valued distinct accounts are both summed");
-    ok(twins.includes(s.coverage(2, 2)), "identical content never merges distinct identities");
+    ok(!hasCoverage(twins) && twins.includes(`${s.total} · USD`), "identical content never merges distinct identities");
 
     // 10. The same facts row reached through two directory aliases counts once;
     // dedupe is by row reference, never by content.
     const shared = baseFact();
     const deduped = ui.platform(language, [shared, shared], 1, "ready");
     ok(deduped.includes("USD 1,234.56") && !deduped.includes("2,469.12"), "one physical account is summed once");
-    ok(deduped.includes(s.coverage(1, 1)), "aliases of one identity count once");
+    ok(!hasCoverage(deduped) && deduped.includes(`${s.total} · USD`), "aliases of one identity count once");
 
     // 11. Partial coverage stays an observed subtotal and only counts summed accounts.
     const partial = ui.platform(language, [baseFact()], 2, "ready");
@@ -243,7 +245,7 @@ try {
     const livePaper = ui.platform(language, [baseFact(), paperFact], 2, "ready");
     ok(livePaper.includes("USD 1,234.56") && !livePaper.includes("1,434.56"),
       "paper amounts are never added into the live platform total");
-    ok(livePaper.includes(s.coverage(1, 1)), "paper accounts leave both the numerator and the denominator");
+    ok(!hasCoverage(livePaper), "paper accounts leave both the numerator and the denominator");
     ok(livePaper.includes(`${s.total} · USD`), "a fully covered live scope is still a complete total");
     const paperOnly = ui.platform(language, [paperFact], 1, "ready");
     ok(!paperOnly.includes('class="account-facts-currency"'), "a paper-only platform has no live total block");
@@ -261,7 +263,7 @@ try {
     const dupAlias = { ...baseFact(), account_key: "ibkr-alias", aggregation_status: "duplicate" };
     const aliasPair = ui.platform(language, [baseFact(), dupAlias], 2, "ready");
     ok(aliasPair.includes("USD 1,234.56") && !aliasPair.includes("2,469.12"), "a known duplicate is never summed twice");
-    ok(aliasPair.includes(s.coverage(1, 1)), "a known duplicate leaves both coverage counts");
+    ok(!hasCoverage(aliasPair), "a known duplicate leaves both coverage counts");
     ok(aliasPair.includes(`${s.total} · USD`), "full coverage of deduplicated accounts is a complete total");
 
     // 12f. Paper and duplicate overlap: the excluded set is a union — a row
@@ -271,7 +273,7 @@ try {
     const paperNew = { ...otherFact(), account_key: "ibkr-paper-new",
       broker_environment: "paper", account_scope: "paper", aggregation_status: "included" };
     const overlap = ui.platform(language, [baseFact(), paperOld, paperNew], 3, "ready");
-    ok(overlap.includes(s.coverage(1, 1)), "a paper duplicate leaves the scope once, not twice");
+    ok(!hasCoverage(overlap), "a paper duplicate leaves the scope once, not twice");
     ok(overlap.includes(`${s.total} · USD`), "the single live account fully covers its own scope");
     // A live directory account with no facts row must keep the subtotal partial.
     const overlapMissing = ui.platform(language, [baseFact(), paperOld, paperNew], 4, "ready");
@@ -287,7 +289,7 @@ try {
       broker_environment: "paper", account_scope: "paper", aggregation_status: "conflict",
       balances: [{ currency: "USD", net_assets: "201.00" }] };
     const paperConflict = ui.platform(language, [baseFact(), paperConflictA, paperConflictB], 3, "ready");
-    ok(paperConflict.includes(s.coverage(1, 1)) && paperConflict.includes(`${s.total} · USD`),
+    ok(!hasCoverage(paperConflict) && paperConflict.includes(`${s.total} · USD`),
       "conflicting paper rows never degrade the live total");
     const liveConflictRow = { ...otherFact(), account_key: "ibkr-live-conflict", aggregation_status: "conflict" };
     const liveConflict = ui.platform(language, [baseFact(), liveConflictRow], 2, "ready");
@@ -402,7 +404,7 @@ try {
     ] } };
     const aliasGroup = ui.groups(language, [dirRow("ibkr-main"), dirRow("ibkr-alias")], aliasConfig,
       { rows: [baseFact(), dupAlias], phase: "ready" });
-    ok(aliasGroup.includes(s.coverage(1, 1)), "producer-known duplicate aliases count once in coverage");
+    ok(!hasCoverage(aliasGroup) && aliasGroup.includes(`${s.total} · USD`), "producer-known duplicate aliases count once in coverage");
     ok(!aliasGroup.includes(s.identity), "a canonical included row keeps the shared card amounts");
     ok((aliasGroup.match(/USD 1,234\.56/g) || []).length === 2, "the amount appears once on the card and once in the total");
 
@@ -426,7 +428,7 @@ try {
     const nullKpi = kpi({ cashflow_method: null, approximate: null });
     ok(nullKpi.includes(s.methodUnknown) && !nullKpi.includes(s.dietz), "explicit null metadata is unknown, never bare TWR");
     const absentKpi = kpi({});
-    ok(absentKpi.includes(">TWR<"), "absent metadata keeps the plain TWR tag");
+    ok(absentKpi.includes(language === "zh" ? ">时间加权收益<" : ">Time-weighted return<"), "absent metadata keeps the plain TWR tag");
     ok(!absentKpi.includes(s.methodUnknown) && !absentKpi.includes(s.dietz));
     ok(kpi({ cashflow_method: "future_method", approximate: true }).includes(s.methodUnknown), "unsupported method is unknown");
   }

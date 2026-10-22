@@ -60,8 +60,10 @@
 
 .decision-history-more { margin-top: 12px; }
 
-.reconciliation-materials { margin-block: 16px; }
+.reconciliation-materials { margin-top: 12px; }
 .reconciliation-materials > .card-title:not(:first-child) { margin-top: 24px; }
+.reconciliation-detail > summary { color: var(--muted); }
+.decision-source-foot { margin-top: 8px; }
 .reconciliation-ref { color: var(--muted); font-size: 12px; }
 .decision-stale-hint { color: var(--muted); }
 .reconciliation-material + .reconciliation-material { border-top: 1px solid var(--line); padding-top: 12px; }

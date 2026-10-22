@@ -52,9 +52,12 @@ test("P1: healthy current balances still show independent partial history in zh/
   for (const language of ["zh", "en"]) {
     const html = ui.assets(language, assets);
     assert.ok(html.includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"));
-    assert.ok(html.includes(language === "zh" ? "前值填充" : "Forward-filled"));
-    assert.ok(html.includes(language === "zh" ? "不代表当日新估值" : "not a new valuation for that date"));
+    assert.ok(html.includes(language === "zh"
+      ? "部分账户历史缺失，曲线仅含已覆盖账户。"
+      : "Some accounts lack history; the curve covers only available accounts."));
+    assert.ok(html.includes(language === "zh" ? "账户历史不完整" : "accounts have incomplete history"));
     assert.ok(html.includes(language === "zh" ? "合成账户甲" : "Synthetic Alpha"), "shared display-name configuration is used");
+    assert.doesNotMatch(html, /前值填充|Forward-filled|不代表当日新估值|not a new valuation/i, "internal wording stays out of the default view");
     assert.doesNotMatch(html, /synthetic-a|synthetic-b|perf\.|reason\.|state\./);
     if (language === "en") assert.doesNotMatch(html, /[\u4e00-\u9fff]/);
     const { curve_coverage, history_per_currency, ...legacy } = assets;

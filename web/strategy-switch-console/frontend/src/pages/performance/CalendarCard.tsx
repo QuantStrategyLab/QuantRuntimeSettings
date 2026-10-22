@@ -62,7 +62,7 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
     <div className="card">
       <div className="perf-card-head">
         <h2 className="card-title">{t("perf.calendar_title")}</h2>
-        {assetChange && <Badge tone="accent">{t("perf.value_kind_asset_change")}</Badge>}
+        {assetChange && <Badge tone="accent">{t("perf.calendar_asset_balance")}</Badge>}
         <div className="segmented" role="group" aria-label={t("perf.calendar_title")}>
           <button
             type="button"

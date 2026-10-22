@@ -88,6 +88,9 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
   const title = t(classifyCashflowMethod(data) === "unknown" ? "perf.drawdown_plain_title" : "perf.drawdown_twr_title");
   const footer = cardFooter(data);
   if (data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable") {
+    // One shared status line keeps every KPI card the same height; per-currency detail stays in a tooltip.
+    const reasons = [...new Set(data.per_currency.map(item => item.max_drawdown.unavailable_reason))]
+      .filter((value): value is NonNullable<typeof value> => value != null);
     return <KpiCard title={title} value={<span className="currency-totals">
       {data.per_currency.map(item => {
         const dd = item.max_drawdown;
@@ -96,10 +99,14 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
           <span className="kpi-sub">{item.currency}</span>
           {tag && <span className="kpi-sub">{tag}</span>}
           {dd.percent === null ? <span className="flat">—</span> : <Percent value={-dd.percent || 0} />}
-          <span className="kpi-sub">{dd.unavailable_reason ? t(`reason.${dd.unavailable_reason}`)
-            : dd.peak_date && dd.trough_date ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) }) : null}</span>
+          <span className="kpi-sub">{dd.peak_date && dd.trough_date
+            ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) })
+            : null}</span>
         </span>;
       })}
+      {reasons.length > 0 && <span className="kpi-sub" title={reasons.map(reason => t(`reason.${reason}`)).join(" · ")}>
+        {t(`reason.${reasons[0]}`)}
+      </span>}
     </span>} />;
   }
   if (!renderableStatus(data.status)) {
@@ -219,7 +226,7 @@ export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProp
   const data = state.data;
   return (
     <div className="section-stack">
-      {data.unavailable_reason && <p className="metric-note">{data.unavailable_reason === "mixed_currency" ? t("perf.native_totals_note") : t(`reason.${data.unavailable_reason}`)}</p>}
+      {data.unavailable_reason && <p className="metric-note">{t(`reason.${data.unavailable_reason}`)}</p>}
       <div className="perf-kpi-grid">
         <TwrCard data={data} />
         <AmountCard data={data} />

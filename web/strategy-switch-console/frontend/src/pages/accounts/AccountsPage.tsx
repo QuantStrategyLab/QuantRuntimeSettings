@@ -6,7 +6,7 @@ import { loadAccountFacts, loadAccounts, loadTodayRuns } from "../../api/endpoin
 import { useNavigate } from "../../app/context";
 import { useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
-import { EmptyState, ErrorState, Skeleton, StatusBadge } from "../../components/primitives";
+import { Badge, EmptyState, ErrorState, Skeleton } from "../../components/primitives";
 import { type ConsoleConfig } from "./helpers";
 import { AccountDetail } from "./AccountDetail";
 import "./accounts.css";
@@ -52,17 +52,21 @@ export default function AccountsPage({ account, tab }: { account: string | null;
     <div className="page">
       <header className="page-header">
         <h1 className="page-title">{t("accounts.title")}</h1>
-        {accountsState.phase === "ready" && accountsState.data.status === "partial" && <StatusBadge status="partial" />}
+        {accountsState.phase === "ready" && accountsState.data.status === "partial" && (
+          <Badge tone="warn">{t("state.partial_valuation")}</Badge>
+        )}
         <button type="button" className="button button-secondary" onClick={() => setEpoch(value => value + 1)}>
           {t("common.refresh")}
         </button>
       </header>
-      {accountsState.phase === "ready" && accountsState.data.unassigned_decision_count > 0 && (
-        <p className="card-note" style={{ margin: 0 }}>
+      {!selected && accountsState.phase === "ready" && accountsState.data.unassigned_decision_count > 0 && (
+        <p className="card-note accounts-unassigned">
           {t("accounts.unassigned_note", { count: accountsState.data.unassigned_decision_count })}
+          <button type="button" className="button button-secondary button-sm" onClick={() => navigate({ page: "decisions" })}>
+            {t("accounts.go_todos")}
+          </button>
         </p>
       )}
-      {!selected && <p className="card-note">{t("accounts.select_account")}</p>}
       <div className={`accounts-split${selected ? " detail-open" : ""}`}>
         <div className="accounts-list">{listBody}</div>
         {selected && (

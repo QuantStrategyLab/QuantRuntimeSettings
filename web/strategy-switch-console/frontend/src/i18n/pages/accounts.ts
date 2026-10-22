@@ -1,9 +1,12 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
-  "accounts.unassigned_note": "另有 {count} 条待办未绑定到具体账户",
+  "accounts.unassigned_note": "{count} 条待办未绑定账户",
+  "accounts.go_todos": "去待办",
   "accounts.select_account": "选择一个账户查看详情",
   "accounts.select_account_hint": "从账户列表中选择要查看的账户。",
   "accounts.back_to_list": "返回账户列表",
+  "accounts.identity": "账户标识",
+  "accounts.data_notes": "数据说明",
   "accounts.draft_value": "草案：{value}",
 
   "accounts.section.strategy": "策略",
@@ -47,10 +50,13 @@ export const zh: Record<string, string> = {
   "controls.stop_consequence": "停止只阻止新的触发；不会撤单、平仓或清除在途请求。",
 };
 export const en: Record<string, string> = {
-  "accounts.unassigned_note": "{count} more to-do(s) are not bound to a specific account",
+  "accounts.unassigned_note": "{count} to-dos are not linked to an account",
+  "accounts.go_todos": "Open to-dos",
   "accounts.select_account": "Select an account to see details",
   "accounts.select_account_hint": "Pick an account from the list.",
   "accounts.back_to_list": "Back to accounts",
+  "accounts.identity": "Account ID",
+  "accounts.data_notes": "Data notes",
   "accounts.draft_value": "Draft: {value}",
 
   "accounts.section.strategy": "Strategy",

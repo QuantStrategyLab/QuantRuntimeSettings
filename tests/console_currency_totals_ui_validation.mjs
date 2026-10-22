@@ -43,7 +43,9 @@ try {
       assert.match(html, /123/);
       assert.match(html, /456/);
       assert.doesNotMatch(html, /579/, "native amounts are never combined");
-      assert.ok(html.includes(language === "zh" ? "不换汇" : "without FX conversion"));
+      assert.ok(html.includes(language === "zh" ? "USD 资产总额" : "USD total assets"));
+      assert.ok(html.includes(language === "zh" ? "USDT 资产总额" : "USDT total assets"));
+      assert.doesNotMatch(html, /已观测小计|Observed subtotal/, "internal subtotal wording is gone");
       assert.doesNotMatch(html, /reason\.|state\.|perf\./);
       if (language === "en") assert.doesNotMatch(html, /[\u4e00-\u9fff]/);
     }
@@ -52,10 +54,13 @@ try {
       assert.doesNotMatch(render(language), /123|456/, "failed reads cannot expose retained balances as current");
     }
     const partial = ui.totals(language, [{ ...blocks.assets.per_currency[0], status: "partial", unavailable_reason: "valuation_date_mismatch" }]);
-    assert.ok(partial.includes(language === "zh" ? "已观测小计" : "observed subtotal"));
-    assert.ok(partial.includes(language === "zh" ? "估值日期不同" : "valuation dates differ"));
+    assert.ok(partial.includes(language === "zh" ? "USD 资产" : "USD assets"));
+    assert.ok(partial.includes(language === "zh" ? "估值不完整" : "Valuation incomplete"));
+    assert.ok(partial.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"));
     const fresh = ui.freshness(language, { fresh: 1, stale: 1, unknown: 1, threshold_hours: 36 });
-    assert.ok(fresh.includes(language === "zh" ? "新鲜 1 · 偏旧 1 · 未知 1" : "fresh 1 · stale 1 · unknown 1"));
+    assert.ok(fresh.includes(language === "zh" ? "1 个账户数据偏旧" : "1 accounts have stale data"));
+    const freshZero = ui.freshness(language, { fresh: 2, stale: 0, unknown: 1, threshold_hours: 36 });
+    assert.equal(freshZero, "", "freshness summary stays hidden when no account is stale");
     globalThis.__currencyState = { phase: "ready", data: blocks.summary };
     const missing = ui.summary(language);
     assert.ok(missing.includes(language === "zh" ? "缺少完整出入金记录" : "Complete cash-flow records are missing"));

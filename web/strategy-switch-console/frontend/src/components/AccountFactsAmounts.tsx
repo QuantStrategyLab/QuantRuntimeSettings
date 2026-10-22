@@ -1,6 +1,6 @@
 import type { AccountFactsAccount } from "../api/contracts";
 import { useT } from "../i18n";
-import { usePrefs } from "../app/context";
+import { useNavigate, usePrefs } from "../app/context";
 import {
   accountFactDisplay,
   formatMoneyText,
@@ -8,7 +8,7 @@ import {
   isReadableFact,
   platformCurrencyTotals,
 } from "../lib/accountFacts";
-import { AsOfStamp, Skeleton, StatusBadge } from "./primitives";
+import { AsOfStamp, Badge, Skeleton, StatusBadge } from "./primitives";
 import "./account-facts.css";
 
 export type FactsPhase = "loading" | "error" | "ready";
@@ -99,6 +99,7 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
   phase: FactsPhase;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   if (phase === "loading") return <div className="account-facts"><Skeleton height={14} /></div>;
   if (phase === "error") return <FactsStateRow label={t("facts.platform_total")} stateKey="state.read_failed" />;
   const totals = platformCurrencyTotals(rows, expected);
@@ -116,13 +117,23 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
         : anyReadable
           ? "facts.identity_unverified"
           : "state.no_data";
+    if (stateKey === "facts.identity_unverified") {
+      return (
+        <div className="account-facts">
+          <span className="account-row"><span>{t("facts.platform_total")}</span><span>{t(stateKey)}</span></span>
+          <button type="button" className="button button-secondary button-sm" onClick={() => navigate({ page: "accounts" })}>
+            {t("facts.identity_action")}
+          </button>
+        </div>
+      );
+    }
     return <FactsStateRow label={t("facts.platform_total")} stateKey={stateKey} />;
   }
   return (
     <div className="account-facts account-facts-platform">
       {totals.map(total => (
         <div className="account-facts-currency" key={total.currency}>
-          <span className="account-row" title={total.complete ? undefined : t("facts.platform_subtotal_note")}>
+          <span className="account-row">
             <span>{t(total.complete ? "facts.platform_total" : "facts.platform_subtotal")} · {total.currency}</span>
             <MoneyText value={total.netAssets} currency={total.currency} />
           </span>
@@ -131,13 +142,17 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
             <MoneyText value={total.cashBalance} currency={total.currency} />
           </span>
           <div className="kpi-foot">
-            {!total.complete && <StatusBadge status="partial" />}
+            {!total.complete && <Badge tone="warn">{t("facts.partial_badge")}</Badge>}
             {total.stale && <StatusBadge status="stale" />}
-            <span className="asof">{t("facts.coverage", { covered: total.covered, expected: total.expected })}</span>
+            {total.covered < total.expected && <span className="asof">{t("facts.coverage", { covered: total.covered, expected: total.expected })}</span>}
             {total.observationDate && <span className="asof">{t("common.as_of", { value: total.observationDate })}</span>}
           </div>
         </div>
       ))}
+      {totals.some(total => !total.complete) && <details className="account-facts-notes">
+        <summary>{t("accounts.data_notes")}</summary>
+        <p>{t("facts.platform_subtotal_note")}</p>
+      </details>}
     </div>
   );
 }
