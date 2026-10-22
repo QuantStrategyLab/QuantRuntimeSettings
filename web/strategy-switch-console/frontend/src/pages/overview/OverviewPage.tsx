@@ -7,6 +7,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { getJson } from "../../api/client";
 import type {
+  AccountFactsResponse,
   AccountsResponse,
   AssetsResponse,
   CalendarResponse,
@@ -16,6 +17,7 @@ import type {
   TodayRunSummary,
 } from "../../api/contracts";
 import {
+  loadAccountFacts,
   loadAccounts,
   loadInbox,
   loadPerformanceAssets,
@@ -43,6 +45,8 @@ import {
 } from "../../components/primitives";
 import { KpiCard } from "../../components/KpiCard";
 import { LineChart, type ChartSeries } from "../../charts/LineChart";
+import { DIETZ_APPROX_LABEL_KEY, UNKNOWN_METHOD_LABEL_KEY, classifyCashflowMethod } from "../performance/cashflowMethod";
+import type { AccountFactsView } from "../../components/AccountGroups";
 import "./overview.css";
 
 type Api<T> = AsyncState<T> & { reload: () => void };
@@ -92,6 +96,15 @@ function AssetKpi({ state }: { state: Api<AssetsResponse> }) {
   return <KpiCard title={title} value={value} sub={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined} footer={footer} />;
 }
 
+/** Method tag for the range-return KPI, matching the performance page cards. */
+function returnMethodLabel(data: SummaryResponse, t: ReturnType<typeof useT>): string {
+  const cls = classifyCashflowMethod(data);
+  if (cls === "dietz_approx") return t(DIETZ_APPROX_LABEL_KEY);
+  // Present but unrecognized method metadata is never shown as an unqualified TWR.
+  if (cls === "unknown") return t(UNKNOWN_METHOD_LABEL_KEY);
+  return t("overview.twr_tag");
+}
+
 function ReturnKpi({ state }: { state: Api<SummaryResponse> }) {
   const t = useT();
   const title = t("overview.range_return", { range: t(`perf.range.${RANGE}`) });
@@ -105,10 +118,10 @@ function ReturnKpi({ state }: { state: Api<SummaryResponse> }) {
     </>
   );
   if (!usable(data.status)) {
-    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} sub={t("overview.twr_tag")} footer={footer} />;
+    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} sub={returnMethodLabel(data, t)} footer={footer} />;
   }
   const value = data.twr_return_percent === null ? <span className="flat">—</span> : <Percent value={data.twr_return_percent} />;
-  return <KpiCard title={title} value={value} sub={data.twr_return_percent === null && data.metric_reasons?.twr ? t(`reason.${data.metric_reasons.twr}`) : t("overview.twr_tag")} footer={footer} />;
+  return <KpiCard title={title} value={value} sub={data.twr_return_percent === null && data.metric_reasons?.twr ? t(`reason.${data.metric_reasons.twr}`) : returnMethodLabel(data, t)} footer={footer} />;
 }
 
 function LastDayKpi({ state }: { state: Api<CalendarResponse> }) {
@@ -321,7 +334,7 @@ function TodoPreviewCard({ state }: { state: Api<InboxResponse> }) {
 
 /* ---------- my accounts ---------- */
 
-function AccountsCard({ accounts, config }: { accounts: Api<AccountsResponse>; config: Api<LegacyConfig | null> }) {
+function AccountsCard({ accounts, config, facts }: { accounts: Api<AccountsResponse>; config: Api<LegacyConfig | null>; facts: Api<AccountFactsResponse> }) {
   const t = useT();
   const navigate = useNavigate();
   let body: ReactNode;
@@ -339,7 +352,10 @@ function AccountsCard({ accounts, config }: { accounts: Api<AccountsResponse>; c
     body = <EmptyState title={t("overview.no_accounts")} />;
   } else {
     const cfg = config.phase === "ready" ? config.data : null;
-    body = <AccountGroups accounts={accounts.data.accounts} config={cfg} onSelect={key => navigate({ page: "accounts", account: key })} />;
+    const factsView: AccountFactsView = facts.phase === "ready"
+      ? { rows: facts.data.accounts, phase: "ready" }
+      : { rows: [], phase: facts.phase };
+    body = <AccountGroups accounts={accounts.data.accounts} config={cfg} facts={factsView} onSelect={key => navigate({ page: "accounts", account: key })} />;
   }
   return (
     <div className="card">
@@ -365,6 +381,7 @@ export default function OverviewPage() {
   const todayRuns = useApi(() => loadTodayRuns(), [epoch]);
   const returns = useApi(() => loadPerformanceReturns(scope, RANGE), [scope, epoch]);
   const accounts = useApi(() => loadAccounts(), [epoch]);
+  const facts = useApi(() => loadAccountFacts(), [epoch]);
   const config = useApi(() => getJson<LegacyConfig>("/api/config").catch(() => null), [epoch]);
   const metricReasons = [...new Set([assets, summary, calendar, returns].flatMap(state =>
     state.phase === "ready" && state.data.unavailable_reason ? [state.data.unavailable_reason] : []))];
@@ -389,7 +406,7 @@ export default function OverviewPage() {
         <TrendCard state={returns} />
         <TodoPreviewCard state={inbox} />
       </div>
-      <AccountsCard accounts={accounts} config={config} />
+      <AccountsCard accounts={accounts} config={config} facts={facts} />
     </div>
   );
 }

@@ -1,0 +1,4 @@
+.account-facts { display: grid; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.account-facts .account-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.account-facts .account-row > span:first-child { color: var(--muted); }
+.account-facts .kpi-foot { justify-content: flex-start; }

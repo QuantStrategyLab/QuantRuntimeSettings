@@ -2,11 +2,14 @@ import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useEffect, useRef, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import { loadSettingsDiff } from "../../api/endpoints";
+import { factForAccount } from "../../lib/accountFacts";
 import { useNavigate } from "../../app/context";
 import { setNavigationGuard } from "../../app/router";
 import { useT, type Translate } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { AsOfStamp, Badge, StatusBadge } from "../../components/primitives";
+import { AccountFactsAmounts } from "../../components/AccountFactsAmounts";
+import type { AccountFactsView } from "../../components/AccountGroups";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { Tabs } from "../../components/Tabs";
 import { platformLabel, type AccountRow, type ConsoleConfig, type EditMap } from "./helpers";
@@ -29,6 +32,7 @@ export function AccountDetail({
   config,
   todayRun,
   todayFailed,
+  facts,
   onBack,
 }: {
   account: AccountRow;
@@ -36,6 +40,7 @@ export function AccountDetail({
   config: ConsoleConfig | null;
   todayRun: TodayRun | undefined;
   todayFailed: boolean;
+  facts: AccountFactsView;
   onBack: () => void;
 }) {
   const t = useT();
@@ -96,6 +101,7 @@ export function AccountDetail({
             <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{runBadge}</span>
           </div>
         </div>
+        <AccountFactsAmounts fact={factForAccount(facts.rows, account.platform, account.account_alias)} phase={facts.phase} />
       </section>
       <Tabs
         id="account-detail"
