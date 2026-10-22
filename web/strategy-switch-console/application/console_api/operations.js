@@ -76,7 +76,8 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
         allowed_execution_modes: profile.allowed_execution_modes || [],
         configured_accounts: accounts.filter(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile === profile.profile)
           .map(a => ({ account_alias: a.key, platform: a.platform, account_ref: `${a.platform}:${a.key}`,
-            ...configuredStrategyExecution(currentStrategies[a.platform][a.key], profile, a.platform) })),
+            ...configuredStrategyExecution(currentStrategies[a.platform][a.key], profile, a.platform),
+            execution_evidence: currentStrategies[a.platform][a.key].execution_evidence })),
         health_status: status === "ok" || status === "stale" ? observation?.status || null : null,
         health_score: status === "ok" || status === "stale" ? observation?.score ?? null : null,
         status: observation ? status : status === "read_failed" ? status : "not_connected",

@@ -1,0 +1,52 @@
+{
+  "recorded_at": "2026-10-22T22:50:02.664950+00:00",
+  "receipts": [
+    {
+      "command": "npm run test:operations --prefix web/strategy-switch-console/frontend",
+      "exit_code": 0,
+      "local_log": "/tmp/web-gap-06-operations-final.log"
+    },
+    {
+      "command": "npm run build --prefix web/strategy-switch-console/frontend",
+      "exit_code": 0,
+      "local_log": "/tmp/web-gap-06-build-final.log"
+    },
+    {
+      "command": "npm run sync:v2-assets --prefix web/strategy-switch-console/frontend",
+      "exit_code": 0,
+      "local_log": null
+    },
+    {
+      "command": "node tests/console_v2_assets_validation.mjs",
+      "exit_code": 0,
+      "local_log": null
+    },
+    {
+      "command": "node tests/console_v2_i18n_validation.mjs",
+      "exit_code": 0,
+      "local_log": null
+    },
+    {
+      "command": "node tests/console_strategy_execution_validation.mjs",
+      "exit_code": 0,
+      "local_log": null
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/console_runtime_state_validation.mjs",
+      "exit_code": 0,
+      "local_log": "/tmp/web-gap-06-runtime.log"
+    },
+    {
+      "command": "node tests/strategy_switch_worker_validation.mjs",
+      "exit_code": 0,
+      "local_log": "/tmp/web-gap-06-worker.log"
+    },
+    {
+      "command": "python3 -m unittest discover -s python/tests -v",
+      "exit_code": 1,
+      "local_log": "/tmp/web-gap-06-python.log"
+    }
+  ],
+  "python_limit": "11 pre-existing failures: system Bash lacks mapfile; baseline reproduced",
+  "independent_review": "PASS"
+}

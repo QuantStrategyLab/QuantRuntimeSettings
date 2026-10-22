@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
 
+import { accountExecutionEvidence, strategyTargetExecution } from "../web/strategy-switch-console/application/console_api/strategy_execution.js";
+
 const root = new URL("../web/strategy-switch-console/frontend/", import.meta.url).pathname;
 const directory = await mkdtemp(join(tmpdir(), "fe8b-fix03-"));
 try {
@@ -73,32 +75,36 @@ try {
     assert.deepEqual(data, original);
   });
 
-  test("execution display joins broker environment by platform and alias, preserves unknown evidence", () => {
+  test("execution display requires explicit configuration, and old or conflicting inputs stay unknown", () => {
     for (const language of ["zh", "en"]) {
       const labels = language === "zh" ? { paper: "模拟", live: "实盘", dry_run: "演练", unknown: "执行模式未知" }
         : { paper: "Paper", live: "Live", dry_run: "Dry run", unknown: "Execution mode unknown" };
+      const explicit = (environment, target) => ({ ...account, execution_evidence: accountExecutionEvidence(
+        { broker_environment: environment }, { source: "RUNTIME_TARGET_JSON", strategy_execution: strategyTargetExecution(target) }) });
       const cases = [
-        [account, configFor("paper"), "paper"], [account, configFor("live"), "live"],
-        [{ ...account, execution_mode: "dry_run", dry_run_only: true }, configFor("paper"), "dry_run"],
-        [{ ...account, dry_run_only: true }, configFor("live"), "dry_run"],
-        [{ ...account, execution_mode: "paper" }, configFor("live"), "paper"],
-        [account, null, "unknown"], [account, configFor("unknown"), "unknown"],
-        [account, { accountOptions: { ibkr: [{ key: "paper", broker_environment: "live" }] } }, "unknown"],
-        [{ ...account, execution_mode: "unknown" }, configFor("paper"), "unknown"],
-        [{ ...account, live_status: "unknown" }, configFor("live"), "unknown"],
-        [{ ...account, dry_run_only: null }, configFor("live"), "unknown"],
+        [explicit("paper", account), configFor("paper"), "paper"],
+        [explicit("live", account), configFor("live"), "live"],
+        [explicit("live", { execution_mode: "dry_run" }), configFor("live"), "dry_run"],
+        [explicit("live", { execution_mode: "live", dry_run_only: true }), configFor("live"), "dry_run"],
+        [explicit("live", { execution_mode: "paper" }), configFor("live"), "unknown"],
+        [explicit(undefined, account), configFor("live"), "unknown"],
+        [explicit("live", { execution_mode: "live" }), configFor("live"), "unknown"],
+        [account, null, "unknown"], [account, configFor("paper"), "unknown"],
+        [{ ...account, execution_mode: "paper", mode_source: "STRATEGY_PROFILE" }, configFor("paper"), "unknown"],
       ];
       for (const [row, config, expected] of cases) {
         const before = structuredClone(row);
         const html = ui.render(language, "strategies", {}, config, ready(summary(row)));
         assert.match(html, new RegExp(`class="strategy-execution-account"[\\s\\S]*?>${labels[expected]}<`));
-        if (expected !== "live") assert.ok(!html.includes(`>${labels.live}<`));
+        if (expected !== "live") assert.ok(!html.match(/class="strategy-execution-account"([\s\S]*?)<\/div>/)[1].includes('class="badge badge-warn"'));
         assert.deepEqual(row, before);
       }
-      const groups = ui.render(language, "groups", { accounts: [account], config: configFor("paper"), onSelect: () => {} });
+      const paperConfig = configFor("paper");
+      paperConfig.currentStrategies = { longbridge: { paper: { execution_evidence: explicit("paper", account).execution_evidence } } };
+      const groups = ui.render(language, "groups", { accounts: [account], config: paperConfig, onSelect: () => {} });
       assert.match(groups, new RegExp(`>${labels.paper}<`, "i"));
       const missing = ui.render(language, "groups", { accounts: [account], config: { currentStrategies: { longbridge: { paper: { execution_mode: "live" } } } }, onSelect: () => {} });
-      assert.ok(missing.includes(language === "zh" ? "未知" : "Unknown"));
+      assert.ok(missing.includes(labels.unknown));
       assert.ok(!missing.includes(`>${labels.live}<`));
     }
   });

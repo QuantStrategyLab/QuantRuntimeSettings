@@ -447,6 +447,18 @@ export interface TodayRunSummary extends ReadOnlyProjection {
       activity: string; execution_lane: string; errors_present: boolean | null }[];
   }[];
 }
+export interface AccountExecutionEvidence {
+  value: "live" | "paper" | "dry_run" | "unknown";
+  status: "confirmed" | "config_missing" | "not_connected" | "read_failed" | "permission_denied";
+  reason_codes: string[];
+  broker_environment: "live" | "paper" | null;
+  execution_mode: "live" | "paper" | "dry_run" | null;
+  dry_run_only: boolean | null;
+  environment_source: string | null;
+  configuration_source: string | null;
+  observed_at: string | null;
+  runtime_observation_status: "unknown";
+}
 export interface StrategySummary extends ReadOnlyProjection {
   status: "ok" | "partial" | "stale" | "not_connected" | "read_failed";
   as_of: string | null;
@@ -459,6 +471,7 @@ export interface StrategySummary extends ReadOnlyProjection {
     allowed_execution_modes: string[];
     configured_accounts: {
       account_alias: string; platform: string; account_ref?: string;
+      execution_evidence?: AccountExecutionEvidence;
       execution_mode?: "live" | "paper" | "dry_run" | "unknown";
       dry_run_only?: boolean | null;
       live_status?: "configured_live" | "not_live" | "unknown";
