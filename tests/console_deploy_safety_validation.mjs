@@ -358,9 +358,9 @@ const wrap=result=>({success:true,errors:[],result}), dep=(id,v)=>({id,strategy:
 const responseSequence=(alreadyActive)=>[wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:priorVersion,resources:resource("old-code")}),
  scriptResponse(alreadyActive ? syntheticBundle : "export default {}; // " + privateRelease),
  ...(alreadyActive ? [wrap({deployments:[dep(priorDeployment,priorVersion)]})] : [wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
- wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({items:[{id:newVersion}]}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})])];
+ wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion,resources:resource("new-code")}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})])];
 const apiSequence=[["/deployments?page=1&per_page=10","GET"],[`/versions/${priorVersion}`,"GET"],["/content/v2","GET"],["/deployments?page=1&per_page=10","GET"],["/versions?bindings_inherit=strict","POST"],
- [`/versions/${newVersion}`,"GET"],["/deployments?page=1&per_page=10","GET"],["/versions?page=1&per_page=10","GET"],["/deployments?force=false","POST"],["/deployments?page=1&per_page=10","GET"]];
+ [`/versions/${newVersion}`,"GET"],["/deployments?page=1&per_page=10","GET"],[`/versions/${newVersion}`,"GET"],["/deployments?force=false","POST"],["/deployments?page=1&per_page=10","GET"]];
 let releaseCases=0;
 async function releaseCase({mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle}={}, expected=true,count=alreadyActive?4:10){
  const responses=responseSequence(alreadyActive);mutate(responses);const calls=[],stdout=[],stderr=[];
@@ -466,7 +466,7 @@ for(const [at,change] of [
  [5,x=>{x.result.resources.script_runtime.migration_tag="changed";}],[5,x=>{x.result.resources.script.named_handlers[0].name="ChangedExport";}],
  [5,x=>{x.result.resources.script.named_handlers[0].handlers=["alarm"];}],
  [5,x=>{x.result.resources.script.handlers=["fetch"];}],[5,x=>{x.result.resources.script.etag="old-code";}],
- [6,x=>{x.result.deployments[0].versions[0].version_id=newVersion;}],[7,x=>{x.result.items[0].id=priorVersion;}],[8,x=>{x.result.versions[0].percentage=99;}],[9,x=>{x.result.deployments[0].id=priorDeployment;}]
+ [6,x=>{x.result.deployments[0].versions[0].version_id=newVersion;}],[7,x=>{x.result.id=priorVersion;}],[8,x=>{x.result.versions[0].percentage=99;}],[9,x=>{x.result.deployments[0].id=priorDeployment;}]
 ])await releaseCase({mutate:r=>change(r[at])},false,at+1);
 for (const corrupt of [b=>{delete b.namespace_id;},b=>{b.namespace_id={private:privateRelease};}]) {
  await releaseCase({mutate:r=>{for(const i of [1,5])corrupt(r[i].result.resources.bindings[0]);}},false,2);
@@ -479,6 +479,26 @@ for(const [at,response] of [
  [1,new Response("{}",{headers:{"content-type":"application/json","content-length":"524289"}})],[1,new Response("{}",{headers:{"content-type":"application/json","content-length":"1"}})],
  [1,new Response(new ReadableStream({pull(c){c.error(Error(privateRelease));}}),{headers:{"content-type":"application/json"}})]
 ])await releaseCase({responseAt:at,response},false,at+1);
+
+// FE-RELEASE-06: the final version confirmation reads the uploaded ID directly.
+// List order and membership cannot affect it; only a matching result.id passes.
+for (const result of [{}, null, {id:priorVersion}, {id:null}, {id:newVersion + "\n"},
+ {items:[{id:newVersion}]}, {items:[{id:priorVersion},{id:newVersion}]}]) {
+ const rejected = await releaseCase({mutate:r=>{r[7].result=result;}},false,8);
+ const error = JSON.parse(rejected.stderr.at(-1));
+ assert.equal(error.error,"frontend_release_stopped");
+ assert.equal(error.stage,"pre_deploy_latest");assert.equal(error.checkpoint,"result_validation");
+ assert.equal(error.uploaded_version,newVersion);assert.equal(error.deploy_attempted,false);
+ assert.equal(rejected.calls.filter(c=>c.options.method==="POST" && c.url.includes("/deployments")).length,0);
+}
+for (const status of [403,404,500]) {
+ const rejected = await releaseCase({responseAt:7,response:new Response(privateRelease,{status})},false,8);
+ const error = JSON.parse(rejected.stderr.at(-1));
+ assert.equal(error.error,"frontend_release_stopped");
+ assert.equal(error.stage,"pre_deploy_latest");assert.equal(error.checkpoint,"http_status");
+ assert.equal(error.http_status,status);assert.equal(error.uploaded_version,newVersion);
+ assert.equal(rejected.calls.filter(c=>c.options.method==="POST" && c.url.includes("/deployments")).length,0);
+}
 
 // FE-RELEASE-03: execute the production parser, preserving all gates and the
 // one-shot write sequence. Only allowlisted response metadata reaches stderr.

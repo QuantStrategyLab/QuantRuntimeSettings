@@ -852,8 +852,8 @@ jobs:
               return createHash('sha256').update(script).digest('hex');
             }
             async function latest(version) {
-              const value = await request('/versions?page=1&per_page=10'), list = value?.items;
-              if (!Array.isArray(list) || !list.length || list.length > 10 || list[0]?.id !== version) fail();
+              const item = await request('/versions/' + version);
+              if (item?.id !== version) fail();
             }
             function resources(version, id) {
               if (version?.id !== id) fail();
