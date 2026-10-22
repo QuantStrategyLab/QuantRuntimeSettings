@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useScope } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { formatDate, formatPercentagePoints } from "../../lib/format";
@@ -8,6 +9,7 @@ import { AsOfStamp, Money, Percent, Skeleton, StatusBadge } from "../../componen
 import { KpiCard } from "../../components/KpiCard";
 import { renderableStatus } from "./shared";
 import { DIETZ_APPROX_LABEL_KEY, UNKNOWN_METHOD_LABEL_KEY, classifyCashflowMethod } from "./cashflowMethod";
+import { benchmarkPolicy, type BenchmarkPolicy } from "./benchmarkPolicy";
 
 export interface SummaryCardsProps {
   scope: string;
@@ -116,7 +118,7 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
   return <KpiCard title={title} value={<Percent value={-dd.percent || 0} />} sub={combinedSub} footer={footer} />;
 }
 
-function ExcessCard({ data }: { data: SummaryResponse }) {
+function ExcessCard({ data, policy }: { data: SummaryResponse; policy: BenchmarkPolicy }) {
   const t = useT();
   const language = useLanguage();
   const title = t("perf.card.excess");
@@ -125,13 +127,18 @@ function ExcessCard({ data }: { data: SummaryResponse }) {
     return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />}
       footer={cardFooter(data, data.excess_returns?.find(item => item.unavailable_reason)?.unavailable_reason)} />;
   }
-  const primary = data.excess_returns.find(item => item.percentage_points !== null);
+  // Crypto and mixed scopes have no single relevant market index; never fall back to an unrelated one.
+  if (!policy.enabled) {
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t("perf.benchmark_not_applicable")} footer={footer} />;
+  }
+  const eligible = policy.defaults.flatMap(id => data.excess_returns.filter(item => item.benchmark === id));
+  const primary = eligible.find(item => item.percentage_points !== null);
   if (!primary || primary.percentage_points === null) {
-    const reason = data.excess_returns.find(item => item.unavailable_reason)?.unavailable_reason;
+    const reason = eligible.find(item => item.unavailable_reason)?.unavailable_reason;
     return <KpiCard title={title} value={<span className="flat">—</span>} sub={reason && reason !== data.unavailable_reason ? t(`reason.${reason}`) : undefined} footer={footer} />;
   }
   const pp = primary.percentage_points;
-  const rest = data.excess_returns.filter(item => item !== primary);
+  const rest = eligible.filter(item => item !== primary && item.percentage_points !== null);
   const sub = rest.length ? (
     <span className="perf-excess-list">
       {rest.map(item => (
@@ -174,6 +181,8 @@ function DayCard({ data, field, titleKey }: { data: SummaryResponse; field: "bes
 
 export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProps) {
   const t = useT();
+  const { options } = useScope();
+  const policy = benchmarkPolicy(scope, platform, options);
   const state = useApi(() => loadPerformanceSummary(scope, range, platform), [scope, platform, range, epoch]);
 
   if (state.phase === "loading") {
@@ -215,7 +224,7 @@ export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProp
         <TwrCard data={data} />
         <AmountCard data={data} />
         <DrawdownCard data={data} />
-        <ExcessCard data={data} />
+        <ExcessCard data={data} policy={policy} />
         <DayCard data={data} field="best_day" titleKey="perf.card.best_day" />
         <DayCard data={data} field="worst_day" titleKey="perf.card.worst_day" />
       </div>

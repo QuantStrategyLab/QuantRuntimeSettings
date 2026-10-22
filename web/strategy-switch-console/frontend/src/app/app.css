@@ -545,7 +545,9 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   pointer-events: none;
   position: absolute;
   z-index: 10;
-  white-space: nowrap;
+  max-width: min(240px, 70vw);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .chart-tooltip .tooltip-date { color: var(--muted); margin-bottom: 4px; }
 .chart-tooltip .tooltip-row { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
