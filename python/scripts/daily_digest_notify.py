@@ -1244,6 +1244,10 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale, *, co
             lines.append(_holding_line(holding, locale))
     redundant_signal = (entry.rebalance_kind in {"no_order", "no_rebalance"} and _verified_noop(entry)
                         and entry.signal_summary in {"no_action", "no_signal", "no_rebalance"})
+    # An alert may still carry a normal no-rebalance signal. Keep the final
+    # decision once, even though the alert must remain visible.
+    redundant_signal = redundant_signal or (entry.signal_summary == "no_rebalance"
+                                            and entry.rebalance_conclusion == "no_rebalance")
     redundant_signal = redundant_signal or (entry.signal_summary == entry.rebalance_conclusion
                                             and entry.signal_summary in {"reconciliation_required", "unknown"})
     if entry.signal_summary.strip() and not redundant_signal and not (is_blocked(entry) and entry.signal_summary in {"blocked", "risk_blocked"}):
@@ -1272,6 +1276,12 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale, *, co
             reason = " · ".join(filter(None, (reason, _t(locale, "block_reason_unknown"))))
     if reason:
         lines.append(reason)
+    elif (title == _t(locale, "block_attention") and entry.status == "alert"
+          and entry.order_count_status == entry.fill_count_status == "known"
+          and entry.order_count is not None and entry.fill_count is not None):
+        missing_code = entry.missing_evidence_reason or entry.reason_code
+        lines.append(missing_evidence_text(locale, missing_code) if missing_code in MISSING_EVIDENCE_REASONS else
+                     ("具体原因未随候选提供" if locale == "zh" else "Candidate did not provide a displayable reason"))
     if entry.cycle_count_status == "unknown" or entry.cycle_count is None:
         lines.append(_format_count_part(locale, label_key="cycles_label", value=entry.cycle_count,
                                        status=entry.cycle_count_status))
