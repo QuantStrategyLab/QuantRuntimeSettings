@@ -199,6 +199,13 @@ try {
   assert.equal(diff.status, 200);
   validate("settings_diff", diff.body);
   assert.equal(diff.body.rows.length, 7);
+  for (const row of diff.body.rows) {
+    assert.equal(row.current, null);
+    assert.equal(row.current_status, "unknown");
+    assert.equal(row.current_reason, "reader_not_configured");
+    assert.equal(row.current_source, "github_runtime_configuration");
+    assert.equal(row.current_source_as_of, null);
+  }
   const history = await call(
     "/api/account-settings/history?account=synthetic-alpha",
   );

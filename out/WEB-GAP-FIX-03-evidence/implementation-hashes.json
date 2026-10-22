@@ -1,0 +1,11 @@
+{
+  "tests/account_settings_worker_validation.mjs": "0b0fd17ea742b573608d33eb9fe24b3dac5fd7004fe1d6c93911c88ed01e190d",
+  "tests/console_api_worker_validation.mjs": "53980ca6e535bc875bb7f24e542a103934c292db0291d9a8657a8519c11a1111",
+  "tests/console_design_api_validation.mjs": "a5c3d1b5465f0a4ce978ff7a9e2c5db5ee88da3cc5bdaffb51a0b5a8c4dc021e",
+  "tests/console_presentation_validation.mjs": "cd154aabc9f4379923cf93f728d66774e08444043c5d9fe8ea30067da5f322fc",
+  "web/strategy-switch-console/README.md": "1418080884b6161bba9806083dfdf1aa793379e755cbbef97182a0fc9c4d37fb",
+  "web/strategy-switch-console/README.zh-CN.md": "7f0cc9fc80db204618cce5cf8be4c82f9dcf674868214ab43cf53c224440236e",
+  "web/strategy-switch-console/application/console_api/presentation.js": "74c6cda59400d23202d4f09264331e46a03327c277cab480d43f166046a2aaa2",
+  "web/strategy-switch-console/contracts/console-api.schema.json": "98463b6d93e271851572135bf845624f2a02972139e44c97ec6e9ebe137ea82f",
+  "web/strategy-switch-console/worker.js": "80286d7df1870543b46e24922e589273428dfaea3de4fe8e9095c2582a0c6b3c"
+}

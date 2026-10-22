@@ -1,5 +1,13 @@
 # Strategy Switch Console Worker
 
+## Effective account-setting sources
+
+Authenticated `GET /api/account-settings` preserves the existing `effective` value shape and adds a separate seven-field `effective_read` map. Each metadata entry has `source=github_runtime_configuration`, `reason`, and `source_as_of=null`. The source names the existing account-matched GitHub runtime-configuration resolver, not a specific variable, deployed state or broker readback. The reader has no reliable field source timestamp. Existing known values, resolver precedence, identity, draft and write authority are unchanged. Non-DCA value fields remain absent so existing clients do not display an unverified DCA plan.
+
+Missing reader configuration, repository mapping or account configuration produces unknown fields with `reader_not_configured`, `repository_not_configured` or `account_config_unavailable`. HTTP/network/JSON/list-shape failures, including a failed later page, produce `runtime_configuration_read_failed` for all seven fields without preserving earlier values or exposing upstream errors. A successful read that cannot resolve a field uses `runtime_setting_unresolved`; this does not distinguish absent, invalid or unmatched input. DCA fields use `dca_not_applicable` only for an unsupported platform or known non-DCA profile; an unresolved strategy uses `strategy_profile_unresolved`. Read failure takes priority. Known values have `reason=null`; explicit zero and false remain values. Unknown effective values have no `value`; metadata never contains values.
+
+`GET /api/account-settings/diff` exposes the same information per row as `current_source`, `current_reason`, `current_source_as_of`, with unknown `current=null`. Legacy inputs without metadata use null source/time and `effective_field_unavailable`. HTTP 200 means the state projection was read, not that all effective values are known; existing authentication, storage failure and identity-conflict HTTP/status semantics remain. No zero fill, interpolation, stale-value fallback or default inference is performed. These endpoints do not change account parameters or prove that production source permissions or deployment are healthy.
+
 ## Reading by task
 
 [Documentation index](../../docs/README.md) · [中文目录](README.zh-CN.md#按任务阅读)

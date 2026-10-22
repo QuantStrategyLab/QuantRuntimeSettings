@@ -402,6 +402,28 @@
               },
               "changed": {
                 "type": "boolean"
+              },
+              "current_source": {
+                "enum": [
+                  "github_runtime_configuration",
+                  null
+                ]
+              },
+              "current_reason": {
+                "enum": [
+                  "reader_not_configured",
+                  "repository_not_configured",
+                  "account_config_unavailable",
+                  "runtime_configuration_read_failed",
+                  "runtime_setting_unresolved",
+                  "dca_not_applicable",
+                  "strategy_profile_unresolved",
+                  "effective_field_unavailable",
+                  null
+                ]
+              },
+              "current_source_as_of": {
+                "type": "null"
               }
             },
             "required": [
@@ -711,6 +733,41 @@
         },
         "execution_authority_granted": {
           "const": false
+        },
+        "effective_read": {
+          "type": "object",
+          "properties": {
+            "strategy_profile": {
+              "$ref": "#/$defs/effective_setting_read"
+            },
+            "dca_mode": {
+              "$ref": "#/$defs/effective_setting_read"
+            },
+            "dca_base_investment_usd": {
+              "$ref": "#/$defs/effective_setting_read"
+            },
+            "reserved_cash_floor": {
+              "$ref": "#/$defs/effective_setting_read"
+            },
+            "reserved_cash_ratio": {
+              "$ref": "#/$defs/effective_setting_read"
+            },
+            "income_layer_enabled": {
+              "$ref": "#/$defs/effective_setting_read"
+            },
+            "option_overlay_enabled": {
+              "$ref": "#/$defs/effective_setting_read"
+            }
+          },
+          "required": [
+            "strategy_profile",
+            "dca_mode",
+            "dca_base_investment_usd",
+            "reserved_cash_floor",
+            "reserved_cash_ratio",
+            "income_layer_enabled",
+            "option_overlay_enabled"
+          ]
         }
       },
       "required": [
@@ -3266,6 +3323,42 @@
         "generated_at",
         "computed_at",
         "last_observed_at"
+      ]
+    },
+    "effective_setting_read": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "known",
+            "unknown"
+          ]
+        },
+        "source": {
+          "const": "github_runtime_configuration"
+        },
+        "reason": {
+          "enum": [
+            "reader_not_configured",
+            "repository_not_configured",
+            "account_config_unavailable",
+            "runtime_configuration_read_failed",
+            "runtime_setting_unresolved",
+            "dca_not_applicable",
+            "strategy_profile_unresolved",
+            "effective_field_unavailable",
+            null
+          ]
+        },
+        "source_as_of": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "status",
+        "source",
+        "reason",
+        "source_as_of"
       ]
     }
   }

@@ -5221,6 +5221,7 @@ function accountSettingsPayload(observed, effective, admin, extras = {}) {
     instance_revision: observed.instance_revision,
     identity: observed.identity,
     effective,
+    effective_read: extras.effectiveRead,
     draft: observed.draft,
     strategy_options: Array.isArray(extras.strategyOptions) ? extras.strategyOptions : [],
     current_option_supported: extras.currentOptionSupported === true,
@@ -5257,13 +5258,14 @@ async function accountSettingsResponse(request, env) {
 }
 
 async function presentAccountSettings(env, observed, admin) {
-  const effective = await effectiveAccountSettings(env, observed);
+  const { effective, effectiveRead } = await effectiveAccountSettings(env, observed);
   const profiles = await loadAccountDraftProfiles(env);
   const strategyOptions = profiles ? accountDraftStrategyChoices(observed.platform, observed.config, profiles) : [];
   const conflict = observed.draft?.status === "identity_conflict";
   const pending = !conflict && typeof observed.draft?.overrides?.strategy_profile === "string" ? observed.draft.overrides.strategy_profile : "";
   const trusted = effective.strategy_profile?.status === "known" && typeof effective.strategy_profile.value === "string" ? effective.strategy_profile.value : "";
   return accountSettingsPayload(observed, effective, admin, {
+    effectiveRead,
     strategyOptions,
     pendingStrategy: Boolean(pending),
     pendingOptionSupported: Boolean(pending) && optionOverlayDraftAllowed(observed.platform, profiles, pending),
@@ -5452,7 +5454,7 @@ async function saveAccountSettings(request, env) {
     command.expected_draft_revision = observed.draft.revision;
     if (raw.acknowledge_identity_conflict === true) command.acknowledge_identity_conflict = true;
     const profiles = await loadAccountDraftProfiles(env);
-    const beforeEffective = await effectiveAccountSettings(env, observed);
+    const { effective: beforeEffective } = await effectiveAccountSettings(env, observed);
     const trusted = beforeEffective.strategy_profile?.status === "known" && typeof beforeEffective.strategy_profile.value === "string" ? beforeEffective.strategy_profile.value : "";
     try {
       assertAccountDraftPatch(profiles, observed, raw.overrides, trusted, { acknowledgeIdentityConflict: raw.acknowledge_identity_conflict === true });
@@ -15277,26 +15279,28 @@ function requireSameOrigin(request, options = {}) {
   if (origin !== new URL(request.url).origin) throw new HttpError("cross-origin request rejected", 403);
 }
 
-async function fetchGithubVariables(token, repository, scope, githubEnvironment) {
+async function fetchGithubVariables(token, repository, scope, githubEnvironment, { reportReadErrors = false } = {}) {
   const apiUrl = githubVariablesUrl(repository, scope, githubEnvironment);
   const values = new Map();
-  if (!apiUrl) return values;
+  // Only effective-settings reads opt in. Other callers retain their existing fallback.
+  const failed = () => reportReadErrors ? null : new Map();
+  if (!apiUrl) return failed();
   try {
     // Follow the variable-list pages, never arbitrary URLs returned by an upstream.
     for (let page = 1; ; page += 1) {
       const response = await fetchWithTimeout(`${apiUrl}?per_page=100&page=${page}`, {
         headers: githubHeaders(token),
       });
-      if (!response.ok) return new Map();
+      if (!response.ok) return failed();
       const payload = await response.json();
-      if (!Array.isArray(payload?.variables)) return new Map();
+      if (!Array.isArray(payload?.variables)) return failed();
       for (const item of payload.variables) {
         if (typeof item.name === "string" && typeof item.value === "string") values.set(item.name, item.value);
       }
       if (!response.headers.get("Link")?.includes('rel="next"')) return values;
     }
   } catch {
-    return new Map();
+    return failed();
   }
 }
 
@@ -16205,6 +16209,7 @@ async function effectiveAccountSettings(env, observed) {
   const broker = observed.identity?.broker_environment === "live" || observed.identity?.broker_environment === "paper"
     ? { status: "known", value: observed.identity.broker_environment }
     : { status: "unknown" };
+  // Keep the legacy value shape: non-DCA settings remain absent for old clients.
   const effective = {
     strategy_profile: { status: "unknown" },
     broker_environment: broker,
@@ -16213,15 +16218,31 @@ async function effectiveAccountSettings(env, observed) {
     reserved_cash_floor: { status: "unknown" },
     reserved_cash_ratio: { status: "unknown" },
   };
+  const fields = ["strategy_profile", "dca_mode", "dca_base_investment_usd", "income_layer_enabled",
+    "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio"];
+  // This names the resolver path, not a particular variable, deployment or broker readback.
+  const finish = (reason = "runtime_setting_unresolved", dcaReason = reason) => ({
+    effective,
+    effectiveRead: Object.fromEntries(fields.map(field => [field, {
+      status: effective[field]?.status === "known" ? "known" : "unknown",
+      source: "github_runtime_configuration",
+      source_as_of: null,
+      reason: effective[field]?.status === "known" ? null : field.startsWith("dca_") ? dcaReason : reason,
+    }])),
+  });
   const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
   const repository = platformRepositories(env)?.[observed.platform];
-  if (!token || !repository || !observed.config) return effective;
+  if (!token) return finish("reader_not_configured");
+  if (!repository) return finish("repository_not_configured");
+  if (!observed.config) return finish("account_config_unavailable");
   const options = Array.isArray(observed.account_options?.[observed.platform]) ? observed.account_options[observed.platform] : [];
   const variableCache = new Map();
+  let readFailed = false;
   const readVariable = async (repo, scope, githubEnvironment, name) => {
     const cacheKey = [repo, scope, githubEnvironment || ""].join("|");
-    if (!variableCache.has(cacheKey)) variableCache.set(cacheKey, fetchGithubVariables(token, repo, scope, githubEnvironment));
+    if (!variableCache.has(cacheKey)) variableCache.set(cacheKey, fetchGithubVariables(token, repo, scope, githubEnvironment, { reportReadErrors: true }));
     const values = await variableCache.get(cacheKey);
+    if (values === null) readFailed = true;
     return values?.get(name) || "";
   };
   let current = null;
@@ -16234,9 +16255,11 @@ async function effectiveAccountSettings(env, observed) {
       readVariable,
     });
   } catch {
-    return effective;
+    return finish("runtime_configuration_read_failed");
   }
-  if (!current || typeof current !== "object") return effective;
+  // A failed later page must discard earlier values, never certify missing settings.
+  if (readFailed) return finish("runtime_configuration_read_failed");
+  if (!current || typeof current !== "object") current = {};
   if (typeof current.strategy_profile === "string" && current.strategy_profile) {
     effective.strategy_profile = { status: "known", value: current.strategy_profile };
   }
@@ -16255,8 +16278,10 @@ async function effectiveAccountSettings(env, observed) {
     const amount = typeof current.dca_base_investment_usd === "string" ? current.dca_base_investment_usd : "";
     effective.dca_mode = mode ? { status: "known", value: mode } : { status: "unknown" };
     effective.dca_base_investment_usd = amount ? { status: "known", value: amount } : { status: "unknown" };
+    return finish();
   }
-  return effective;
+  return finish("runtime_setting_unresolved", !DCA_SUPPORTED_PLATFORMS.has(observed.platform) || profile
+    ? "dca_not_applicable" : "strategy_profile_unresolved");
 }
 
 async function accountSettingsProfileRuntimeReadback(env, observed, resolved = null) {
@@ -16725,6 +16750,7 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  effectiveAccountSettings,
   dispatchAccountDiagnosis,
   humanDecisionReceipt,
   researchPromotionMaterialKey,
