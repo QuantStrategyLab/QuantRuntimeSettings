@@ -39,7 +39,11 @@ export function sliceRange(points, range, today) {
     return cleanPoints(points).filter(p => p.date >= start && p.date <= today);
 }
 export function hasGap(previous, point) {
-    return point.breakBefore === true || dateMs(point.date) - dateMs(previous.date) > DAY;
+    if (typeof point.breakBefore === "boolean") return point.breakBefore;
+    for (let time = dateMs(previous.date) + DAY; time < dateMs(point.date); time += DAY) {
+        if (![0, 6].includes(new Date(time).getUTCDay())) return true;
+    }
+    return false;
 }
 /** Rebase a positive index/price to percentage return; never fill missing dates. */
 export function rebase(points, start) {
@@ -101,7 +105,7 @@ export function aggregateEquity(accounts) {
             && (!previous || members[i].points[v.i - 1]?.date === previous.date));
         points.push({ date, value: values.reduce((sum, v) => sum + v.p.value, 0),
             externalFlow: flowKnown ? values.reduce((sum, v) => sum + v.p.externalFlow, 0) : null,
-            breakBefore: !!previous && (dateMs(date) - dateMs(previous.date) > DAY || values.some(v => v.p.breakBefore)) });
+            breakBefore: !!previous && (hasGap(previous, { date }) || values.some(v => v.p.breakBefore)) });
     }
     return { points, missingAccounts, omittedDates };
 }
@@ -112,10 +116,26 @@ export function alignReturns(primary, comparisons) {
     const dates = available.map(s => new Set(s.points.map(p => p.date)));
     const common = own.find(p => p.value > 0 && dates.every(d => d.has(p.date)))?.date;
     const start = common || own[0]?.date;
+    const axis = common ? new Set(own.filter(point => point.date >= common && dates.every(calendar => calendar.has(point.date))).map(point => point.date)) : null;
+    const onAxis = points => {
+        if (!axis) return points;
+        const selected = [];
+        let previous = null;
+        let interrupted = false;
+        for (const point of points) {
+            interrupted ||= previous !== null && hasGap(previous, point);
+            if (axis.has(point.date)) {
+                selected.push({ ...point, breakBefore: selected.length > 0 && interrupted });
+                interrupted = false;
+            }
+            previous = point;
+        }
+        return selected;
+    };
     return {
         start,
-        primary: rebase(own, start),
-        benchmarks: common ? available.map(s => ({ ...s, points: rebase(s.points, common) })) : [],
+        primary: rebase(onAxis(own), start),
+        benchmarks: common ? available.map(s => ({ ...s, points: rebase(onAxis(s.points), common) })) : [],
         noCommonDate: available.length > 0 && !common,
     };
 }
