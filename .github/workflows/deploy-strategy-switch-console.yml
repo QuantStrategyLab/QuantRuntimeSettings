@@ -261,6 +261,10 @@ jobs:
             const list = Array.isArray(bindings) && bindings.length > 0 && bindings.length <= 128 ? bindings : null;
             const all = check => !!list && list.every(check);
             const named = script?.named_handlers;
+            // Each valid identifier needs at least three JSON bytes (quotes
+            // plus one character). The existing 512 KiB response cap therefore
+            // bounds this list without inventing a provider limit of 32 items.
+            const handlerEntryLimit = Math.floor(524288 / 3);
             const namedList = Array.isArray(named) && named.length <= 128 ? named : null;
             const namedCategories = [];
             if (namedList) for (const item of namedList) {
@@ -279,12 +283,12 @@ jobs:
               date_midnight_utc: typeof runtime?.compatibility_date === 'string' && /^\d{4}-\d{2}-\d{2}T00:00:00(?:\.0{1,3})?Z$/.test(runtime.compatibility_date),
               compatibility_flags: runtime?.compatibility_flags === undefined || (Array.isArray(runtime.compatibility_flags) && runtime.compatibility_flags.every(x => typeof x === 'string')),
               usage_model: ['standard','bundled','unbound'].includes(runtime?.usage_model),
-              named_handlers: named === undefined || (Array.isArray(named) && named.length <= 128 && named.every(item => only(item,['name','handlers']) && identifier(item.name) && (item.handlers === undefined || (Array.isArray(item.handlers) && item.handlers.length <= 32 && item.handlers.every(identifier)))) && new Set(named.map(item => item.name)).size === named.length),
+              named_handlers: named === undefined || (Array.isArray(named) && named.length <= 128 && named.every(item => only(item,['name','handlers']) && identifier(item.name) && (item.handlers === undefined || (Array.isArray(item.handlers) && item.handlers.length <= handlerEntryLimit && item.handlers.every(identifier)))) && new Set(named.map(item => item.name)).size === named.length),
               named_list_bounds: named === undefined || !!namedList,
               named_item_keys: named === undefined || (!!namedList && namedList.every(item => only(item,['name','handlers']))),
               named_name_format: named === undefined || (!!namedList && namedList.every(item => identifier(item?.name))),
               named_names_unique: named === undefined || (!!namedList && new Set(namedList.map(item => item?.name)).size === namedList.length),
-              named_handler_list_bounds: named === undefined || (!!namedList && namedList.every(item => item?.handlers === undefined || (Array.isArray(item.handlers) && item.handlers.length <= 32))),
+              named_handler_list_bounds: named === undefined || (!!namedList && namedList.every(item => item?.handlers === undefined || (Array.isArray(item.handlers) && item.handlers.length <= handlerEntryLimit))),
               named_handler_identifiers: named === undefined || (!!namedList && namedList.every(item => item?.handlers === undefined || (Array.isArray(item.handlers) && item.handlers.every(identifier)))),
               binding_names: all(b => object(b) && bindingName(b.name)),
               binding_names_unique: !!list && new Set(list.map(b => b?.name)).size === list.length,
@@ -303,6 +307,7 @@ jobs:
               binding_container: kind(bindings), binding_count: Array.isArray(bindings) ? bindings.length : null,
               binding_categories: categories.map(({ signature, ...item }) => item), script: shape(resources?.script), runtime: shape(resources?.script_runtime), contracts,
               named_handler_categories: namedCategories.map(({ signature, ...item }) => item),
+              named_handler_max_entries: namedList ? Math.max(0, ...namedList.map(item => Array.isArray(item?.handlers) ? item.handlers.length : 0)) : null,
               writes: 0, retry: false }));
           } catch {
             console.error(JSON.stringify({ error: 'frontend_schema_readback_failed', http_status: httpStatus, writes: 0, retry: false })); process.exitCode = 1;
@@ -792,11 +797,15 @@ jobs:
               // not discard this field merely to accept a newer response schema.
               if (script.named_handlers !== undefined) {
                 if (!Array.isArray(script.named_handlers) || script.named_handlers.length > 128) fail();
+                // A handler identifier occupies at least three JSON bytes. The
+                // 512 KiB transport limit bounds the complete list; 32 is not
+                // an API contract and rejects the existing unchanged export.
+                const handlerEntryLimit = Math.floor(524288 / 3);
                 const exports = new Set();
                 for (const item of script.named_handlers) {
                   if (!item || Object.keys(item).some(key => !['name', 'handlers'].includes(key))
                     || typeof item.name !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(item.name) || exports.has(item.name)
-                    || (item.handlers !== undefined && (!Array.isArray(item.handlers) || item.handlers.length > 32
+                    || (item.handlers !== undefined && (!Array.isArray(item.handlers) || item.handlers.length > handlerEntryLimit
                       || item.handlers.some(handler => typeof handler !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(handler))))) fail();
                   exports.add(item.name);
                 }
