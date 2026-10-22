@@ -336,13 +336,17 @@ for (const s of [bundleStep,publishStep]) assert.match(s, /^        if: inputs\.
 assert.doesNotMatch(publishStep, /npx|triggers deploy|secret put|script-settings|\/schedules|\/routes/);
 assert.match(workflow, /group: strategy-switch-console-deploy\n  cancel-in-progress: false/);
 const releaseScript = publishStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1].split("\n").map(l=>l.slice(10)).filter(l=>!l.startsWith("import ")).join("\n");
-const runRelease = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console","readFile","createHash",releaseScript);
+const runRelease = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console","readFile","createHash","readdir",releaseScript);
 assert.doesNotMatch(publishStep, /2beea000|6107ffd9|pre_upload_latest|latest\(prior\)/);
 assert.match(publishStep, /stage = 'pre_upload_active'; await active\(priorDeployment, prior\)/);
 assert.match(publishStep, /stage = 'pre_deploy_latest'; await latest\(uploaded\)/);
 assert.match(publishStep, /stage = 'activate'; deployAttempted = true/);
 const priorVersion="00000000-0000-4000-8000-000000000010", priorDeployment="00000000-0000-4000-8000-000000000011";
-const syntheticBundle=Buffer.from("export default { fetch(){} }; // synthetic bundle");
+const syntheticBuildId = createHash("sha256").update("synthetic frontend").digest("hex");
+const syntheticAssetMap = `export const V2_BUILD_ID = "${syntheticBuildId}";`;
+const syntheticBundle=Buffer.from(`var V2_BUILD_ID = "${syntheticBuildId}";\nexport default { fetch(){} }; // synthetic bundle`);
+const bundleFiles = ["README.md", "worker.js", "worker.js.map"];
+const dirent = (name, regular=true) => ({name,isFile:()=>regular});
 const scriptResponse=(body,headers={})=>new Response(body,{headers:{"content-type":"application/javascript",...headers}});
 function multipartScript(body=syntheticBundle, mutate=()=>{}) {
  const form=new FormData();form.append("worker.js",new File([body],"worker.js",{type:"application/javascript+module"}));mutate(form);
@@ -357,43 +361,45 @@ const resource=etag=>({bindings:structuredClone(remoteBindings),script_runtime:s
 const wrap=result=>({success:true,errors:[],result}), dep=(id,v)=>({id,strategy:"percentage",versions:[{version_id:v,percentage:100}]});
 const responseSequence=(alreadyActive)=>[wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:priorVersion,resources:resource("old-code")}),
  scriptResponse(alreadyActive ? syntheticBundle : "export default {}; // " + privateRelease),
- ...(alreadyActive ? [wrap({deployments:[dep(priorDeployment,priorVersion)]})] : [wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
- wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion,resources:resource("new-code")}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})])];
+ wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
+ wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion,resources:resource("new-code")}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})];
 const apiSequence=[["/deployments?page=1&per_page=10","GET"],[`/versions/${priorVersion}`,"GET"],["/content/v2","GET"],["/deployments?page=1&per_page=10","GET"],["/versions?bindings_inherit=strict","POST"],
  [`/versions/${newVersion}`,"GET"],["/deployments?page=1&per_page=10","GET"],[`/versions/${newVersion}`,"GET"],["/deployments?force=false","POST"],["/deployments?page=1&per_page=10","GET"]];
 let releaseCases=0;
-async function releaseCase({mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle}={}, expected=true,count=alreadyActive?4:10){
+async function releaseCase({mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle,assetMap=syntheticAssetMap,files=bundleFiles.map(name=>dirent(name))}={}, expected=true,count=10){
  const responses=responseSequence(alreadyActive);mutate(responses);const calls=[],stdout=[],stderr=[];
- const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"d".repeat(32),...env},exitCode:0};
+ const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"d".repeat(32),...env},exitCode:0};
  await runRelease(process,async(url,options)=>{const i=calls.length;calls.push({url,options});if(i===failAt)throw Error(privateRelease);if(i===responseAt)return response;
   assert.ok(i<responses.length,"no retry/page expansion");return responses[i] instanceof Response ? responses[i] : new Response(JSON.stringify(responses[i]),{headers:{"content-type":"application/json"}});
- },{log:x=>stdout.push(x),error:x=>stderr.push(x)},async path=>{assert.equal(path,"/synthetic/console-frontend-bundle/worker.js");if(readError)throw Error(privateRelease);return bundle;},createHash);
+ },{log:x=>stdout.push(x),error:x=>stderr.push(x)},async path=>{if(readError)throw Error(privateRelease);
+  if(path==="web/strategy-switch-console/v2_asset_map.js")return assetMap;
+  assert.equal(path,"/synthetic/console-frontend-bundle/worker.js");return bundle;},createHash,
+  async(path,options)=>{assert.equal(path,"/synthetic/console-frontend-bundle");assert.deepEqual(options,{withFileTypes:true});return files;});
  assert.equal(process.exitCode===0,expected,stderr.join("\n"));assert.equal(calls.length,count);
  assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));assert.ok(!JSON.stringify({stdout,stderr}).includes("a".repeat(32)));
  for(const [i,{url,options}] of calls.entries()){
   assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+apiSequence[i][0]);
   assert.equal(options.headers["Accept-Encoding"],"identity");assert.equal(options.method,apiSequence[i][1]);assert.equal(options.redirect,"error");assert.ok(options.signal instanceof AbortSignal);assert.equal(options.headers.Authorization,`Bearer ${privateRelease}`);
   if(options.method==="GET")assert.equal(options.body,undefined);
-  if(i===4){assert.ok(options.body instanceof FormData);assert.deepEqual([...options.body.keys()],["metadata","worker.js"]);const m=JSON.parse(options.body.get("metadata"));
+  if(i===4){assert.deepEqual(Buffer.from(await options.body.get("worker.js").arrayBuffer()),bundle);assert.ok(options.body instanceof FormData);assert.deepEqual([...options.body.keys()],["metadata","worker.js"]);const m=JSON.parse(options.body.get("metadata"));
    assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
    assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
   if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":"Reviewed frontend only; fixed e2a backend and retained configuration"}});
  }
- if(expected && alreadyActive){
-  assert.deepEqual(calls.map(c=>c.options.method),["GET","GET","GET","GET"]);
-  assert.deepEqual(JSON.parse(stdout[0]),{status:"frontend_release_already_active",deployment_id:priorDeployment,version_id:priorVersion,
-   percentage:100,bundle_sha256:createHash("sha256").update(bundle).digest("hex"),upload_attempted:false,deploy_attempted:false});
- } else if(expected){const r=JSON.parse(stdout[0]);assert.equal(r.status,"frontend_release_verified");assert.equal(r.bundle_sha256,createHash("sha256").update(bundle).digest("hex"));assert.equal(r.version_id,newVersion);assert.equal(r.deployment_id,newDeployment);assert.equal(r.bindings_equal,true);assert.equal(r.runtime_equal,true);assert.equal(r.provider_cas,false);}
+ if(expected){const r=JSON.parse(stdout[0]);assert.equal(r.status,"frontend_release_verified");assert.equal(r.bundle_sha256,createHash("sha256").update(bundle).digest("hex"));assert.equal(r.version_id,newVersion);assert.equal(r.deployment_id,newDeployment);assert.equal(r.bindings_equal,true);assert.equal(r.runtime_equal,true);assert.equal(r.provider_cas,false);}
  else{assert.equal(stdout.length,0);const error=JSON.parse(stderr.at(-1));assert.equal(error.retry,false);
-  assert.equal(error.upload_attempted,!alreadyActive && calls.length>=5);
-  assert.equal(error.deploy_attempted,!alreadyActive && calls.length>=9);
+  assert.equal(error.upload_attempted,calls.length>=5);
+  assert.equal(error.deploy_attempted,calls.length>=9);
  }
  releaseCases++;return {calls,stdout,stderr};
 }
 await releaseCase();await releaseCase({env:{STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"e".repeat(32)}}); // H's namespace drift no longer affects inherited configuration
 await releaseCase({mutate:r=>r[0].result.deployments.push(dep(newDeployment,newVersion))}); // Only the first deployment is active.
-// Repeated content must return without either write, including multipart module responses.
+// FE-RELEASE-08: even identical entrypoint bytes must upload and activate.
+// /content/v2 is script-scoped, so its bytes cannot prove the active version.
+// This also covers frontend-only changes outside an unchanged entrypoint.
+assert.doesNotMatch(publishStep, /frontend_release_already_active|activeSha256/);
 await releaseCase({alreadyActive:true});
 await releaseCase({alreadyActive:true,responseAt:2,response:multipartScript()});
 await releaseCase({responseAt:2,response:multipartScript("export default {}; // different")});
@@ -411,6 +417,28 @@ for (const change of [
 ]) await releaseCase({mutate:r=>change(r[0])},false,1);
 await releaseCase({mutate:r=>{for(const x of r)if(!(x instanceof Response))x.errors=null;}});
 for (const body of [Buffer.alloc(0),Buffer.alloc(10485761)]) await releaseCase({bundle:body},false,2);
+// Fail before upload for an incomplete/unknown dry-run structure or stale build.
+for (const files of [[], bundleFiles.slice(1).map(name=>dirent(name)),
+ [...bundleFiles,"v2_asset_map.js"].map(name=>dirent(name)),
+ [dirent("README.md"),dirent("worker.js",false),dirent("worker.js.map")],
+ [dirent("README.md"),dirent("worker.js"),dirent("worker.js")]]) {
+ await releaseCase({files},false,2);
+}
+for (const assetMap of ["", syntheticAssetMap.replace(syntheticBuildId,"invalid"),
+ syntheticAssetMap.replace(syntheticBuildId,"f".repeat(64)), `${syntheticAssetMap}\n${syntheticAssetMap}`]) {
+ const rejected=await releaseCase({assetMap},false,2);
+ assert.equal(JSON.parse(rejected.stderr.at(-1)).checkpoint,"bundle_build_id");
+}
+for (const bundle of [Buffer.from("export default {};"),
+ Buffer.from(syntheticBundle.toString().replace(syntheticBuildId,"f".repeat(64)))]) {
+ await releaseCase({bundle},false,2);
+}
+// Two frontend builds with the same source entrypoint still take both writes.
+const nextBuildId=createHash("sha256").update("changed asset map and static asset").digest("hex");
+const changedFrontend=await releaseCase({assetMap:syntheticAssetMap.replace(syntheticBuildId,nextBuildId),
+ bundle:Buffer.from(syntheticBundle.toString().replace(syntheticBuildId,nextBuildId)), responseAt:2,response:scriptResponse(syntheticBundle)});
+assert.equal(changedFrontend.calls.filter(call=>call.options.method==="POST").length,2);
+
 for (const response of [
  scriptResponse("",{}), scriptResponse(privateRelease,{"content-type":"text/html"}),
  scriptResponse(privateRelease,{"content-type":"application/json"}), scriptResponse(privateRelease,{"content-encoding":"gzip"}),
@@ -421,6 +449,7 @@ for (const response of [
  scriptResponse("malformed",{"content-type":"multipart/form-data; boundary=synthetic"}),
  scriptResponse("x".repeat(10551297),{"content-type":"multipart/form-data; boundary=synthetic"}),
  scriptResponse("x",{"content-type":"multipart/form-data; boundary=synthetic","content-length":"10551297"}),
+ multipartScript(syntheticBundle,f=>f.delete("worker.js")),
  multipartScript(syntheticBundle,f=>f.append("extra.js",new File(["extra"],"extra.js",{type:"application/javascript+module"}))),
  multipartScript(syntheticBundle,f=>f.append("worker.js",new File([syntheticBundle],"worker.js",{type:"application/javascript+module"}))),
  multipartScript(syntheticBundle,f=>f.set("worker.js",new File([syntheticBundle],"other.js",{type:"application/javascript+module"}))),
@@ -431,7 +460,7 @@ for (const response of [
 const wrongEntrypoint=multipartScript();wrongEntrypoint.headers.set("cf-entrypoint","other.js");
 await releaseCase({responseAt:2,response:wrongEntrypoint},false,3);
 // Hash byte content, preserving even invalid UTF-8 rather than decoding/re-encoding.
-const binaryBundle=Buffer.from([0xff,0xfe,0x00,0x0d,0x0a]);
+const binaryBundle=Buffer.concat([Buffer.from([0xff,0xfe,0x00,0x0d,0x0a]),syntheticBundle]);
 await releaseCase({alreadyActive:true,bundle:binaryBundle,responseAt:2,response:scriptResponse(binaryBundle)});
 const handlerList = Array.from({length:33},(_,i)=>`handler${i}`);
 const largerAbi = responses => {for(const i of [1,5])responses[i].result.resources.script.named_handlers[0].handlers=[...handlerList];};
