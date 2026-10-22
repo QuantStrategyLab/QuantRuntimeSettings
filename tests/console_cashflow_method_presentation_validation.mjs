@@ -109,8 +109,12 @@ try {
     // 5. Two currencies: each entry keeps its own method metadata; nothing is merged.
     const two = fixture("two-currency-core");
     const twoCards = renderCards(language, two.summary);
-    ok(twoCards.includes(language === "zh" ? "按原币种分别展示，不换汇" : "Shown separately in native currencies"),
+    ok(twoCards.includes(language === "zh"
+      ? "多币种无法合并为单一金额；按币种分别展示"
+      : "Mixed currencies cannot be combined into one amount; each currency is shown separately"),
       "mixed-currency note shown");
+    ok(!twoCards.includes(language === "zh" ? "按原币种分别展示，不换汇" : "Shown separately in native currencies"),
+      "native-currency internal note stays out of the default view");
     ok(twoCards.indexOf("HKD") < twoCards.indexOf("USD"), "both currency rows rendered separately");
     ok(twoCards.indexOf(DIETZ[language]) > twoCards.indexOf("USD")
       && (twoCards.match(/Modified Dietz/g) || []).length === 1,

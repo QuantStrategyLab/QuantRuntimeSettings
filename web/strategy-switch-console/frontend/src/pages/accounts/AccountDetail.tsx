@@ -12,6 +12,7 @@ import { AccountFactsAmounts } from "../../components/AccountFactsAmounts";
 import type { AccountFactsView } from "../../components/AccountGroups";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { Tabs } from "../../components/Tabs";
+import { accountOption } from "../../lib/accountDirectory";
 import { platformLabel, type AccountRow, type ConsoleConfig, type EditMap } from "./helpers";
 import { DiffSummary, StrategyTab } from "./StrategyTab";
 import { ControlsTab } from "./ControlsTab";
@@ -70,6 +71,7 @@ export function AccountDetail({
   }, [dirty]);
 
   const active = normalizeTab(tab);
+  const selector = accountOption(config, account.platform, account.account_alias)?.account_selector?.trim();
 
   const runBadge = todayFailed ? (
     <StatusBadge status="read_failed" />
@@ -90,12 +92,18 @@ export function AccountDetail({
         </button>
       </div>
       <section className="card">
-        <h2 className="card-title" title={`${account.platform}:${account.account_alias}`}>{names.account(account.account_alias, account.platform)}</h2>
+        <h2 className="card-title">{names.account(account.account_alias, account.platform)}</h2>
         <div className="accounts-summary-rows">
           <div className="accounts-summary-row">
             <span>{t("common.platform")}</span>
             <span>{platformLabel(config, account.platform)}</span>
           </div>
+          {selector && (
+            <div className="accounts-summary-row">
+              <span>{t("accounts.identity")}</span>
+              <span className="num">{selector}</span>
+            </div>
+          )}
           <div className="accounts-summary-row">
             <span>{t("accounts.run_state")}</span>
             <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{runBadge}</span>

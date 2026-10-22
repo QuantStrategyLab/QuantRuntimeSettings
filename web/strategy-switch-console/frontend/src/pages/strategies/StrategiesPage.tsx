@@ -37,21 +37,14 @@ function AccountAliases({ accounts }: { accounts: Strategy["configured_accounts"
 
 function HealthValue({ strategy }: { strategy: Strategy }) {
   const t = useT();
-  return (
-    <>
-      <StatusBadge status={strategy.health_status} />
-      {strategy.health_score !== null && (
-        <span className="num">{t("strategies.health_score", { value: strategy.health_score })}</span>
-      )}
-    </>
-  );
+  if (strategy.health_score === null) return <>{t("common.na")}</>;
+  return <span className="num">{t("strategies.health_score", { value: strategy.health_score })}</span>;
 }
 
 function AccountExecution({ accounts }: { accounts: Strategy["configured_accounts"] }) {
   const t = useT();
   const names = useDisplayNames();
   if (accounts.length === 0) return null;
-  const hasLiveTarget = accounts.some(account => account.execution_mode === "live");
   return (
     <div className="strategy-execution">
       <div className="strategy-execution-title">{t("strategies.account_execution")}</div>
@@ -63,23 +56,18 @@ function AccountExecution({ accounts }: { accounts: Strategy["configured_account
         return (
           <div className="strategy-execution-account" key={accountKey(account)}>
             <span>{names.platform(account.platform)} · {names.account(account.account_alias, account.platform)}</span>
-            <Badge tone={account.execution_mode === "live" ? "warn" : "unknown"}>{t(`strategies.execution.${key}`)}</Badge>
+            {key && <Badge tone={account.execution_mode === "live" ? "warn" : "accent"}>{t(`strategies.execution.${key}`)}</Badge>}
           </div>
         );
       })}
-      {hasLiveTarget && <p className="strategy-execution-note">{t("strategies.live_exposure")}</p>}
-      <p className="strategy-execution-note">{t("strategies.execution_source")}</p>
     </div>
   );
 }
 
-function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAsOf: string | null }) {
+function StrategyCard({ strategy }: { strategy: Strategy }) {
   const t = useT();
   const names = useDisplayNames();
   const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.map(names.lane).join(" · ") : t("common.na");
-  const accountNames = strategy.configured_accounts.length > 0
-    ? strategy.configured_accounts.map(account => `${names.platform(account.platform)} · ${names.account(account.account_alias, account.platform)}`).join(" · ")
-    : t("common.none");
   return (
     <article className="card strategy-card">
       <div className="strategy-card-head">
@@ -110,26 +98,6 @@ function StrategyCard({ strategy, summaryAsOf }: { strategy: Strategy; summaryAs
           <StatusBadge status={strategy.status} reason={strategy.unavailable_reason} />
         </div>
       )}
-      <details className="strategy-details">
-        <summary>{t("strategies.details")}</summary>
-        <div className="strategy-details-body">
-          <dl className="strategy-rows">
-            <div className="strategy-row">
-              <dt>{t("strategies.modes")}</dt>
-              <dd>{modes}</dd>
-            </div>
-            <div className="strategy-row">
-              <dt>{t("strategies.accounts_using")}</dt>
-              <dd>{accountNames}</dd>
-            </div>
-            <div className="strategy-row">
-              <dt>{t("strategies.health")}</dt>
-              <dd><HealthValue strategy={strategy} /></dd>
-            </div>
-          </dl>
-          <AsOfStamp value={summaryAsOf} />
-        </div>
-      </details>
     </article>
   );
 }
@@ -160,15 +128,27 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
     }
     return <EmptyState title={t("strategies.empty")} />;
   }
+  const hasLive = summary.strategies.some(strategy =>
+    strategy.configured_accounts.some(account => account.execution_mode === "live"));
   return (
     <section className="section-stack">
       <div className="catalog-meta">
         {summary.status !== "ok" && <StatusBadge status={summary.status} />}
         <AsOfStamp value={summary.as_of} />
       </div>
+      {hasLive && (
+        <div className="card-note strategy-live-note">
+          <Badge tone="warn">{t("strategies.execution.live")}</Badge>
+          <span>{t("strategies.live_exposure")}</span>
+          <details>
+            <summary>{t("strategies.research_more")}</summary>
+            <p>{t("strategies.execution_source")}</p>
+          </details>
+        </div>
+      )}
       <div className="strategy-grid">
         {summary.strategies.map(strategy => (
-          <StrategyCard key={strategy.profile} strategy={strategy} summaryAsOf={summary.as_of} />
+          <StrategyCard key={strategy.profile} strategy={strategy} />
         ))}
       </div>
     </section>
@@ -237,20 +217,34 @@ function ResearchTab({ refreshEpoch }: { refreshEpoch: number }) {
           <article className="card research-item" key={`${entry.subject.kind}/${entry.subject.identifier}/${index}`}>
             <div className="research-item-head">
               <span className="research-item-title">{entry.subject.identifier}</span>
-              <Badge tone="accent">{t("strategies.research_only")}</Badge>
             </div>
-            {entry.observations.map((observation, observationIndex) => (
-              <div className="section-stack" key={observationIndex}>
-                <div className="catalog-meta">
-                  <StatusBadge status={observation.freshness.status} />
-                  <Badge tone="accent">{t(`research.state.${observation.research_context.state}`)}</Badge>
+            {entry.observations.map((observation, observationIndex) => {
+              const sourceLabels = observation.source_ids.map(id => {
+                const key = `research.source.${id}`;
+                const label = t(key);
+                return label === key ? t("research.source.generic") : label;
+              });
+              return (
+                <div className="section-stack" key={observationIndex}>
+                  <div className="catalog-meta">
+                    <Badge
+                      tone={observation.freshness.status === "stale" ? "warn" : "accent"}
+                      title={t(`state.${observation.freshness.status}`)}
+                    >
+                      {t(`research.state.${observation.research_context.state}`)}
+                    </Badge>
+                  </div>
+                  <p className="research-item-summary">{t("strategies.research_sources", { value: sourceLabels.join(" · ") || t("common.unknown") })}</p>
+                  <details className="research-item-more">
+                    <summary>{t("strategies.research_more")}</summary>
+                    <p>{observation.source_ids.join(" · ") || t("common.unknown")}</p>
+                  </details>
+                  <p className="research-item-summary">{t("strategies.research_as_of", { value: observation.as_of })}</p>
+                  <AsOfStamp value={observation.generated_at} />
+                  <AsOfStamp value={observation.expires_at} prefix="strategies.research_expires" />
                 </div>
-                <p className="research-item-summary">{t("strategies.research_sources", { value: observation.source_ids.join(" · ") || t("common.unknown") })}</p>
-                <p className="research-item-summary">{t("strategies.research_as_of", { value: observation.as_of })}</p>
-                <AsOfStamp value={observation.generated_at} />
-                <AsOfStamp value={observation.expires_at} prefix="strategies.research_expires" />
-              </div>
-            ))}
+              );
+            })}
           </article>
         ))}
       </div>

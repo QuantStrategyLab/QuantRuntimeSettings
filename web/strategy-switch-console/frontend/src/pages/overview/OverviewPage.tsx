@@ -36,6 +36,7 @@ import { useLanguage, useT } from "../../i18n";
 import { useScopeLabel } from "../../lib/useScopeLabel";
 import {
   AsOfStamp,
+  Badge,
   DateText,
   EmptyState,
   ErrorState,
@@ -86,7 +87,7 @@ function AssetKpi({ state }: { state: Api<AssetsResponse> }) {
   const data = state.data;
   if (data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable") {
     return <KpiCard title={title} value={<CurrencyTotals totals={data.per_currency} />}
-      sub={t("perf.native_totals_note")} footer={<FreshnessSummary counts={data.freshness_summary} />} />;
+      footer={<><FreshnessSummary counts={data.freshness_summary} />{data.as_of && <AsOfStamp value={data.as_of} />}</>} />;
   }
   const balance = latestAssetBalance(data);
   const status = balance === null && usable(data.status) ? "unavailable" : data.status;
@@ -203,7 +204,7 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
       title={title}
       value={value}
       sub={<DateText value={data.date} />}
-      footer={data.status === "partial" ? <StatusBadge status="partial" /> : undefined}
+      footer={data.status === "partial" ? <Badge tone="warn">{t("state.partial_runtime")}</Badge> : undefined}
       onClick={open}
     />
   );
@@ -244,7 +245,10 @@ function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
     if (data.status === "partial" || data.status === "stale") {
       note = (
         <p className="card-note">
-          <StatusBadge status={data.status} reason={data.unavailable_reason} /> <AsOfStamp value={data.as_of} />
+          {data.status === "partial"
+            ? <Badge tone="warn">{t("state.partial_valuation")}</Badge>
+            : <StatusBadge status={data.status} reason={data.unavailable_reason} />}
+          {" "}<AsOfStamp value={data.as_of} />
         </p>
       );
     }

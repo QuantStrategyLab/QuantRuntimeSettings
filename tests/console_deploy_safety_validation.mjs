@@ -163,9 +163,9 @@ assert.equal(largerProjection.named_handler_max_entries,33);
 // separately frozen by the release evidence and the required ancestry check.
 const approved = "e2aab576d6874feeaf87df3411411ad04ee02d4f";
 const approvedTree = "968b323ca75ee48d0c92bfe0b7f4110c3d27df72";
-const frontend = "506656d07e54061c533cb167d72d6ba05503f8eb";
-const frontendTree = "90464f5eb9a00abaed716eaf52c8ce427337f274";
-const frontendBlob = "1796fa939af35aa7e089ab867be4b59fa17cc5f5";
+const frontend = "cfbc221213f97e43259cb4ca24877fd47f1d18e6";
+const frontendTree = "8638b2fcd9ffe9679b75240ba0d79a653fc1dc91";
+const frontendBlob = "47e3a42e2d73fbf344c035f7be3b7c159f0de627";
 const assetPath = "web/strategy-switch-console/v2_asset_map.js";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));

@@ -6,9 +6,11 @@ export const zh: Record<string, string> = {
   "facts.identity_unverified": "账户身份未核验，金额不展示",
   "facts.observation_conflict": "同一身份的多份观测不一致，金额不展示",
   "facts.platform_total": "平台合计",
-  "facts.platform_subtotal": "已观测小计",
-  "facts.platform_subtotal_note": "仅计入已核验且同估值日的账户；缺失或跨日账户不相加，不代表完整平台总额。",
-  "facts.coverage": "覆盖 {covered}/{expected} 账户",
+  "facts.platform_subtotal": "合计",
+  "facts.platform_subtotal_note": "仅统计已核验且估值日期一致的账户。",
+  "facts.coverage": "其中 {covered} 个账户有数据",
+  "facts.partial_badge": "估值不完整",
+  "facts.identity_action": "去核验账户",
 };
 export const en: Record<string, string> = {
   "facts.assets": "Assets",
@@ -17,7 +19,9 @@ export const en: Record<string, string> = {
   "facts.identity_unverified": "Account identity unverified; amounts hidden",
   "facts.observation_conflict": "Conflicting observations for the same identity; amounts hidden",
   "facts.platform_total": "Platform total",
-  "facts.platform_subtotal": "Observed subtotal",
-  "facts.platform_subtotal_note": "Only verified accounts sharing the latest valuation date are summed; missing or cross-day accounts are not added. Not a complete platform total.",
-  "facts.coverage": "Covers {covered}/{expected} accounts",
+  "facts.platform_subtotal": "Total",
+  "facts.platform_subtotal_note": "Only verified accounts with the same valuation date are included.",
+  "facts.coverage": "{covered} accounts with data",
+  "facts.partial_badge": "Valuation incomplete",
+  "facts.identity_action": "Verify accounts",
 };

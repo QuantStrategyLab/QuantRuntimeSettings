@@ -12,9 +12,12 @@ export function useDisplayNames(override?: DirectoryConfig | null) {
     account: (alias: string | null | undefined, platform?: string | null) => {
       if (!alias) return t("common.account");
       const option = platform ? accountOption(config, platform, alias) : undefined;
-      const selector = option?.account_selector?.trim();
-      if (platform === "ibkr" && selector && /^U\d{5,}$/i.test(selector)) return selector.toUpperCase();
-      return accountName(alias, platform, language, option?.label && option.label !== alias ? option.label : t("common.account"));
+      const label = accountName(alias, platform, language, option?.label && option.label !== alias ? option.label : t("common.account"));
+      // Broker account numbers are identifiers, not display names; they live in account details.
+      if (/^U\d{5,}$/i.test(label.trim())) {
+        return platform === "ibkr" ? t("common.ibkr_account") : t("common.account");
+      }
+      return label;
     },
     strategy: (profile: string) => {
       const item = config?.strategyProfiles?.find(item => item.profile === profile);

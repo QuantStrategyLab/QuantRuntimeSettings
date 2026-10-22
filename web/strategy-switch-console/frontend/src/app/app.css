@@ -296,6 +296,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 button.kpi-card:hover { border-color: var(--accent); }
 .kpi-title { font-size: 12px; color: var(--muted); }
 .kpi-value { font-size: 24px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.kpi-value .flat { font-size: 20px; font-weight: 500; }
 .kpi-state { font-size: 15px; font-weight: 500; color: var(--muted); }
 .metric-note { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.6; }
 .kpi-sub { font-size: 12px; color: var(--muted); }
@@ -327,7 +328,11 @@ button.kpi-card:hover { border-color: var(--accent); }
 .asof { color: var(--muted); font-size: 12px; }
 
 .empty-state {
+  min-height: 120px;
   padding: 32px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   text-align: center;
   color: var(--muted);
 }
@@ -379,6 +384,17 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .data-table th.sortable { cursor: pointer; user-select: none; }
 .data-table th.sortable:hover { color: var(--ink); }
 .data-table td.num, .data-table th.num { text-align: right; }
+
+.card-details { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.card-details > summary { cursor: pointer; }
+.card-details p { margin: 4px 0 0; }
+.account-facts-notes { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.account-facts-notes summary { cursor: pointer; }
+
+@media (max-width: 768px) {
+  /* Long identifiers and status text wrap instead of forcing a wide table. */
+  .data-table th, .data-table td { white-space: normal; overflow-wrap: anywhere; }
+}
 
 /* ---------- Tabs ---------- */
 

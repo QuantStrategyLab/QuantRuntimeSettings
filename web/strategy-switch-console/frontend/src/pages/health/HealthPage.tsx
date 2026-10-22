@@ -72,6 +72,10 @@ function StatStrip({
     : undefined;
   const credentialData = credential.phase === "ready" ? credential.data : null;
   const credentialCount = credentialData && ATTENTION_PHASES.includes(credentialData.phase) ? 1 : 0;
+  const primaryStates = ["succeeded", "failed", "read_failed"] as const;
+  const stateEntries = stateCounts ? Object.entries(stateCounts) : [];
+  const primaryCounts = stateEntries.filter(([state]) => (primaryStates as readonly string[]).includes(state));
+  const secondaryCounts = stateEntries.filter(([state]) => !(primaryStates as readonly string[]).includes(state));
 
   return (
     <>
@@ -81,7 +85,7 @@ function StatStrip({
           value={
             <StatValue state={summary} render={() => t("health.account_fraction", { count: okCount, total: data?.counts.configured ?? 0 })} />
           }
-          sub={unconnectedNote}
+          sub={unconnectedNote ? <span title={t("health.kpi.today_runs_note_title")}>{unconnectedNote}</span> : undefined}
           footer={data?.as_of ? <AsOfStamp value={data.as_of} /> : undefined}
         />
         <KpiCard
@@ -95,7 +99,8 @@ function StatStrip({
         />
         <KpiCard
           title={t("health.kpi.credentials")}
-          value={<StatValue state={credential} render={() => t("health.stat.credentials", { count: credentialCount })} />}
+          value={<StatValue state={credential} render={() => String(credentialCount)} />}
+          sub={t("health.kpi.credentials_unit")}
         />
         <KpiCard
           title={t("health.kpi.recent_failure")}
@@ -104,12 +109,29 @@ function StatStrip({
             : failures.count > 0 ? t("health.failure_at_least", { count: failures.count }) : t("state.unknown")} />}
         />
       </div>
-      {stateCounts && <ul className="health-state-counts" aria-label={t("health.state_counts")}>
-        {Object.entries(stateCounts).map(([state, count]) => <li key={state}>
-          {t(`health.run_state.${state}`)}: <span className="num">{count}</span>
-        </li>)}
-      </ul>}
-      <p className="metric-note">{t("health.failure_window", { date: data?.date ?? "—" })}{!failures.complete && ` · ${t("health.failure_incomplete")}`}</p>
+      {stateCounts && (
+        <div className="health-state-summary">
+          <ul className="health-state-counts" aria-label={t("health.state_counts")}>
+            {primaryCounts.map(([state, count]) => <li key={state}>
+              {t(`health.run_state.${state}`)}: <span className="num">{count}</span>
+            </li>)}
+          </ul>
+          {secondaryCounts.length > 0 && (
+            <details className="health-state-details">
+              <summary>{t("health.state_details")}</summary>
+              <ul className="health-state-counts">
+                {secondaryCounts.map(([state, count]) => <li key={state}>
+                  {t(`health.run_state.${state}`)}: <span className="num">{count}</span>
+                </li>)}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+      <p className="metric-note" title={t("health.failure_window_detail")}>
+        {t("health.failure_window", { date: data?.date ?? "—" })}
+        {!failures.complete && ` · ${t("health.failure_incomplete")}`}
+      </p>
     </>
   );
 }
@@ -209,7 +231,7 @@ function NotificationsCard({ epoch }: { epoch: number }) {
   const log = state.data;
   if (log.status === "not_connected") return <EmptyState title={t("health.notifications_not_connected")} action={<StatusBadge status="not_connected" />} />;
   if (log.status === "read_failed") return <ErrorState onRetry={state.reload} />;
-  if (!log.items.length) return <EmptyState title={t("health.notifications_empty")} body={t("health.notifications_scope")} />;
+  if (!log.items.length) return <EmptyState title={t("health.notifications_empty")} />;
   const columns: Column<(typeof log.items)[number]>[] = [
     { id: "date", header: t("health.notification_business_day"), cell: row => row.business_day || "—", sortValue: row => row.business_day },
     { id: "status", header: t("common.status"), cell: row => <>
@@ -221,10 +243,20 @@ function NotificationsCard({ epoch }: { epoch: number }) {
     </> },
     { id: "sent", header: t("health.notification_sent_at"), cell: row => formatDateTime(row.sent_at, language).text },
     { id: "workflow_time", header: t("health.notification_workflow_time"), cell: row => formatDateTime(row.workflow_updated_at, language).text, sortValue: row => row.workflow_updated_at },
-    { id: "source", header: t("health.notification_source"), cell: row => <a href={row.source_url} target="_blank" rel="noreferrer">{t("health.notification_run", { id: row.source_run_id, attempt: row.source_run_attempt })}</a> },
+    {
+      id: "source",
+      header: t("health.notification_source"),
+      cell: row => <details className="notification-source">
+        <summary>{t("health.notification_source_summary")}</summary>
+        <a href={row.source_url} target="_blank" rel="noreferrer">{t("health.notification_run", { id: row.source_run_id, attempt: row.source_run_attempt })}</a>
+      </details>,
+    },
   ];
   return <>
-    <p className="card-note">{t("health.notifications_scope")}</p>
+    <details className="card-details health-notes">
+      <summary>{t("health.notes")}</summary>
+      <p>{t("health.notifications_scope")}</p>
+    </details>
     {log.status === "partial" && <p role="alert">{t("health.notifications_partial")}</p>}
     <p className="scroll-hint">{t("health.table_scroll_hint")}</p>
     <div className="health-notifications"><DataTable columns={columns} rows={log.items} rowKey={row => row.id} caption={t("health.notifications_title")} /></div>
@@ -269,7 +301,6 @@ export default function HealthPage() {
 
       <section className="card">
         <h2 className="card-title">{t("health.freshness_title")}</h2>
-        <p className="card-note">{t("health.global_scope_note")}</p>
         <p className="scroll-hint">{t("health.table_scroll_hint")}</p>
         <div className="health-freshness"><FreshnessTable summary={summary} /></div>
       </section>

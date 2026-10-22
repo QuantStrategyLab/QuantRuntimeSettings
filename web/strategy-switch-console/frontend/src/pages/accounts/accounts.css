@@ -20,6 +20,7 @@
 .accounts-alias-button:hover { text-decoration: underline; }
 
 .accounts-mobile-back { display: none; margin-bottom: 12px; }
+.accounts-unassigned { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
 
 .accounts-summary-rows { display: flex; flex-direction: column; gap: 8px; }
 .accounts-summary-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; align-items: center; flex-wrap: wrap; }

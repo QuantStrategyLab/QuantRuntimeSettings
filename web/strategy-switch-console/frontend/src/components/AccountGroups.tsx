@@ -52,8 +52,10 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
           {lane && <span className="badge badge-accent" title={lane}>{names.lane(lane)}</span>}
           <span className="account-strategy-name">{strategy ? names.strategy(strategy) : t("common.unknown")}</span>
           {typeof enabled === "boolean" && <span className="account-row"><span>{t("overview.runtime_target")}</span><span>{t(enabled ? "overview.runtime_enabled" : "overview.runtime_disabled")}</span></span>}
-          <span className="account-row"><span>{t("accounts.col.drafts")}</span><span>{row.pending_draft_count}</span></span>
-          <span className="account-row"><span>{t("accounts.col.todos")}</span><span>{row.pending_decision_count ?? "—"}</span></span>
+          {row.pending_draft_count > 0 && <span className="account-row"><span>{t("accounts.col.drafts")}</span><span>{row.pending_draft_count}</span></span>}
+          {row.pending_decision_count !== null && row.pending_decision_count > 0 && (
+            <span className="account-row"><span>{t("accounts.col.todos")}</span><span>{row.pending_decision_count}</span></span>
+          )}
           <span className="account-row"><span>{t("accounts.col.last_change")}</span><DateText value={row.last_change_at} /></span>
         </button>;
       })}

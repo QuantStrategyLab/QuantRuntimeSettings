@@ -33,6 +33,13 @@
 .strategy-execution-account { display: flex; gap: 6px 12px; flex-wrap: wrap; justify-content: space-between; align-items: center; }
 .strategy-execution-note { margin: 0; line-height: 1.5; }
 
+.strategy-live-note { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.strategy-live-note details { flex-basis: 100%; }
+.strategy-live-note summary, .research-item-more summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+.strategy-live-note p { margin: 4px 0 0; }
+.research-item-more { font-size: 12px; color: var(--muted); }
+.research-item-more p { margin: 4px 0 0; overflow-wrap: anywhere; }
+
 .strategy-details { border-top: 1px solid var(--line); padding-top: 8px; margin-top: auto; }
 .strategy-details summary { cursor: pointer; color: var(--muted); font-size: 13px; min-height: 32px; padding: 6px 0; }
 .strategy-details summary:hover { color: var(--ink); }
