@@ -239,7 +239,13 @@ assert.match(overlayStep, /^        if: inputs\.release_frontend_assets$/m);
 assert.ok(deploy.indexOf("Build config & assets") < deploy.indexOf("Overlay fixed reviewed frontend assets"));
 assert.ok(deploy.indexOf("Overlay fixed reviewed frontend assets") < deploy.indexOf("Validate fixed backend with reviewed frontend"));
 assert.match(deploy, /Validate fixed backend with reviewed frontend[\s\S]*?node tests\/console_v2_assets_validation\.mjs\n          node tests\/console_v2_worker_validation\.mjs/);
-const overlayShell = shellBody(overlayStep), reviewedMap = readFileSync(new URL("../" + assetPath, import.meta.url));
+const overlayShell = shellBody(overlayStep);
+const frozenMap = spawnSync("git", ["show", `${frontend}:${assetPath}`], { cwd: new URL("..", import.meta.url) });
+assert.equal(frozenMap.status, 0, "the approved historical frontend fixture must be available");
+const reviewedMap = frozenMap.stdout;
+const frozenHash = spawnSync("git", ["hash-object", "--stdin"], { input: reviewedMap, encoding: "utf8" });
+assert.equal(frozenHash.status, 0);
+assert.equal(frozenHash.stdout.trim(), frontendBlob, "verify the fixture against the unchanged approved blob");
 const fakeOverlayGit = `git() {
   case "$*" in
     'rev-parse HEAD') printf '%s' "$FAKE_HEAD" ;;
@@ -272,6 +278,8 @@ for (const delta of [{ GITHUB_REF: "refs/heads/unapproved" }, { FAKE_HEAD: front
   { FAKE_FRONTEND_TREE: approvedTree }, { FAKE_DIFF: assetPath + "\nweb/strategy-switch-console/worker.js" },
   { FAKE_DIFF: "" }, { FAKE_UNTRACKED: "unreviewed-runtime.js" }]) overlayCase(delta, false);
 overlayCase({}, false, Buffer.concat([reviewedMap, Buffer.from("\n// corrupt synthetic input")]));
+const currentMap = readFileSync(new URL("../" + assetPath, import.meta.url));
+if (!currentMap.equals(reviewedMap)) overlayCase({}, false, currentMap);
 
 // Run the actual config renderer with only synthetic configuration. In frontend
 // mode no local vars may overwrite remote flags; all other TOML stays the same.
