@@ -18,7 +18,7 @@ from daily_digest_delivery_axes import (
 
 PUBLIC_FIELDS = (
     "schema_version", "business_day", "report_date", "recipient_scope", "layout", "locale", "run_count", "total_fills", "total_fills_status",
-    "evidence_status", "message_chars", "status", "dry_run", "delivered", "test_message",
+    "evidence_status", "message_chars", "status", "dry_run", "delivered", "test_message", "business_digest_failed",
 )
 PUBLIC_ENUMS = {
     "schema_version": {"qsl.daily_digest_receipt.v1", "qsl.daily_digest_delivery_receipt.v1"},
@@ -85,7 +85,7 @@ def project_public_receipt(receipt: Mapping[str, Any], *, source_sha: str = "") 
         value = receipt[key]
         if key in PUBLIC_ENUMS:
             public[key] = _enum(value, PUBLIC_ENUMS[key], "evidence_unknown" if key == "evidence_status" else "unknown")
-        elif key in {"dry_run", "delivered", "test_message"}:
+        elif key in {"dry_run", "delivered", "test_message", "business_digest_failed"}:
             public[key] = value if type(value) is bool else None
         elif key in {"business_day", "report_date"}:
             public[key] = _date(value)
