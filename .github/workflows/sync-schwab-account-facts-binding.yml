@@ -3,6 +3,16 @@ name: Sync account-facts binding
 on:
   workflow_dispatch:
     inputs:
+      backup_primary_ibkr_binding:
+        description: Back up exactly one compared primary IBKR binding to private KV; no binding change
+        type: boolean
+        required: true
+        default: false
+      primary_backup_hashes:
+        description: Exact target/configured/candidate SHA256 JSON from the authenticated primary comparison
+        type: string
+        required: false
+        default: ''
       platform:
         description: Platform whose protected account-facts binding action will run.
         type: choice
@@ -54,17 +64,19 @@ jobs:
     env:
       STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ !inputs.inspect_ibkr_lifecycle && secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML || '' }}
+      CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ !inputs.backup_primary_ibkr_binding && !inputs.inspect_ibkr_lifecycle && secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML || '' }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       SCHWAB_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.platform == 'schwab' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || '' }}
       FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.platform == 'firstrade' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON || '' }}
       FIRSTRADE_ACCOUNT_FACTS_RUNTIME_JSON: ${{ inputs.platform == 'firstrade' && secrets.FIRSTRADE_ACCOUNT_FACTS_RUNTIME_JSON || '' }}
       GH_TOKEN: ${{ inputs.platform == 'firstrade' && secrets.RUNTIME_SETTINGS_GH_TOKEN || '' }}
-      IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'ibkr' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
+      IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'ibkr' && !inputs.backup_primary_ibkr_binding && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
       LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'longbridge' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
       FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'firstrade' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
       IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: ${{ inputs.platform == 'ibkr' && inputs.initialize_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && secrets.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON || '' }}
+      BACKUP_PRIMARY_IBKR_BINDING: ${{ inputs.backup_primary_ibkr_binding }}
+      IBKR_PRIMARY_BACKUP_HASHES: ${{ inputs.primary_backup_hashes }}
       BINDING_PLATFORM: ${{ inputs.platform || 'schwab' }}
       INSPECT_IBKR_BINDINGS: ${{ inputs.inspect_ibkr_bindings }}
       INSPECT_IBKR_LIFECYCLE: ${{ inputs.inspect_ibkr_lifecycle }}
@@ -92,7 +104,13 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Back up compared primary IBKR binding and verify private readback
+        if: ${{ inputs.backup_primary_ibkr_binding }}
+        working-directory: web/strategy-switch-console
+        run: node ./backup_ibkr_primary_binding.mjs
+
       - name: Prepare protected Wrangler credentials
+        if: ${{ !inputs.backup_primary_ibkr_binding }}
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
@@ -156,6 +174,7 @@ jobs:
           fi
 
       - name: Validate and sync exactly one protected binding
+        if: ${{ !inputs.backup_primary_ibkr_binding }}
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
