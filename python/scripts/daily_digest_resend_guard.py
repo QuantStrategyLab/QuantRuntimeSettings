@@ -116,7 +116,9 @@ def _read_marker(data: bytes, *, legacy_filename: str = "receipt.json") -> dict[
         raise ValueError("guard_marker_invalid")
     if receipt.get("business_day") is not None:
         date.fromisoformat(receipt["business_day"])
-    elif receipt.get("delivered") is True or receipt.get("status") == "send_failed":
+    elif (receipt.get("delivered") is True
+          or (receipt.get("dry_run") is False and not receipt.get("test_message", False)
+              and receipt.get("status") in {"send_failed", "business_digest_failed", "sending"})):
         raise ValueError("guard_marker_business_day_missing")
     if "test_message" in receipt and type(receipt["test_message"]) is not bool:
         raise ValueError("guard_marker_invalid")
@@ -290,9 +292,9 @@ def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False
             return Decision("send", "FIRST_SEND", history_attempts=attempt)
         same_day = [receipt for _, receipt in history if receipt.get("business_day") == business_day
                     and receipt.get("dry_run") is False and not receipt.get("test_message", False)]
-        if any(receipt.get("delivered") is True and receipt.get("status") == "delivered" for receipt in same_day):
+        if any(receipt.get("delivered") is True and receipt.get("status") in {"delivered", "business_digest_failed"} for receipt in same_day):
             return Decision("skip", "ALREADY_DELIVERED", previous_failures=previous_failures, history_attempts=attempt)
-        if any(receipt.get("status") == "send_failed" for receipt in same_day):
+        if any(receipt.get("status") in {"send_failed", "business_digest_failed", "sending"} for receipt in same_day):
             return Decision("blocked", "DELIVERY_UNCERTAIN", previous_failures=previous_failures, history_attempts=attempt)
         return Decision("send", "FIRST_SEND", previous_failures=previous_failures, history_attempts=attempt)
     except Exception as exc:
