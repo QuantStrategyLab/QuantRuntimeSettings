@@ -24,20 +24,28 @@ on:
         type: boolean
         default: false
       source_sha:
-        description: "Optional reviewed historical main source. Only e2aab576 is approved for this release."
+        description: "Reviewed source: e2aab576 (legacy) or 20dad166 (#764, requires release_frontend_assets)."
         required: false
         type: string
         default: ""
       release_frontend_assets:
-        description: "Release only the fixed reviewed frontend map over the approved e2a backend. No secret/profile sync."
+        description: "Retain live configuration: legacy e2a + frontend overlay, or fixed #764 full source/build. No secret/profile sync."
         required: true
         type: boolean
         default: false
       rollback_to_pre_release:
-        description: "Restore only the verified pre-frontend 2beea000 version; never build or sync. Read-only mode takes priority."
+        description: "Restore only the selected fixed baseline (legacy or FE-RELEASE-11); never build or sync. Read-only mode takes priority."
         required: true
         type: boolean
         default: false
+      rollback_version:
+        description: "Exact existing version to restore when rollback_to_pre_release is true. Never rebuild or force."
+        required: true
+        type: choice
+        default: "2beea000-cce5-43a5-9255-9724f7318e83"
+        options:
+          - "2beea000-cce5-43a5-9255-9724f7318e83"
+          - "c8dc4852-fa9d-4d14-bca3-7941587a494f"
 
 permissions:
   contents: read
@@ -366,6 +374,27 @@ jobs:
           set -euo pipefail
           frontend_mode="${RELEASE_FRONTEND_ASSETS:-false}"
           case "$frontend_mode" in true|false) ;; *) exit 2 ;; esac
+          if [ "$RELEASE_SOURCE_SHA" = "20dad166be317dd0d57e492ed06e56dfb82b7aef" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$frontend_mode" != "true" ] \
+              || [ "$SYNC_SECRETS" != "false" ] || [ "$SYNC_STRATEGY_PROFILES" != "false" ] \
+              || [ "$SKIP_BINANCE_RECEIVER_CHECKS" != "true" ]; then
+              echo "invalid_pr764_release_mode" >&2
+              exit 2
+            fi
+            control_sha="$(git rev-parse HEAD)"
+            if [ "$control_sha" != "$GITHUB_SHA" ]; then exit 2; fi
+            git cat-file -e "${RELEASE_SOURCE_SHA}^{commit}"
+            git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$control_sha"
+            expected_tree="7db7dbd1b1749b42187dbc1c9658669fa426ffa6"
+            if [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" != "$expected_tree" ] \
+              || [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" != "de87e1c1c6b62fa94bd514c8936a4ec32e14c0e4" ]; then
+              echo "pr764_release_source_mismatch" >&2
+              exit 2
+            fi
+            git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
+            if [ "$(git rev-parse HEAD)" != "$RELEASE_SOURCE_SHA" ] || [ "$(git rev-parse 'HEAD^{tree}')" != "$expected_tree" ]; then exit 2; fi
+            exit 0
+          fi
           if [ "$frontend_mode" = "true" ]; then
             if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$RELEASE_SOURCE_SHA" != "e2aab576d6874feeaf87df3411411ad04ee02d4f" ] \
               || [ "$SYNC_SECRETS" != "false" ] || [ "$SYNC_STRATEGY_PROFILES" != "false" ] \
@@ -447,7 +476,7 @@ jobs:
           python3 python/scripts/build_platform_config.py --check
 
       - name: Overlay fixed reviewed frontend assets
-        if: inputs.release_frontend_assets
+        if: inputs.release_frontend_assets && inputs.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef'
         run: |
           set -euo pipefail
           backend="e2aab576d6874feeaf87df3411411ad04ee02d4f"
@@ -727,6 +756,8 @@ jobs:
 
       - name: Publish fixed frontend-only Worker version
         if: inputs.release_frontend_assets
+        env:
+          RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           node --input-type=module <<'JS'
           import { readFile, readdir } from 'node:fs/promises';
@@ -742,6 +773,7 @@ jobs:
           try {
             const account = process.env.CLOUDFLARE_ACCOUNT_ID, token = process.env.CLOUDFLARE_API_TOKEN;
             if (process.env.GITHUB_REF !== 'refs/heads/main' || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
+            const pr764 = process.env.RELEASE_SOURCE_SHA === '20dad166be317dd0d57e492ed06e56dfb82b7aef';
             const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
             // Fixed host/Worker, bounded response, no pagination or retry. Remote configuration
             // stays in process memory; never write it or include it in an error/receipt.
@@ -920,6 +952,7 @@ jobs:
             const buildIds = [...assetMap.matchAll(/^export const V2_BUILD_ID = "([a-f0-9]{64})";$/gm)];
             const bundledIds = [...bundle.toString('utf8').matchAll(/^var V2_BUILD_ID = "([a-f0-9]{64})";$/gm)];
             if (buildIds.length !== 1 || bundledIds.length !== 1 || buildIds[0][1] !== bundledIds[0][1]) fail('bundle_build_id');
+            if (pr764 && buildIds[0][1] !== '96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6') fail('pr764_build_id');
             const bundleSha256 = createHash('sha256').update(bundle).digest('hex');
             // Never skip a release using script-scoped content. Even a complete byte
             // match cannot associate /content/v2 with the active deployment's version.
@@ -930,10 +963,17 @@ jobs:
             // configuration comparison below verifies the active baseline was retained.
             const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name })),
               compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
-              annotations: { 'workers/message': 'Reviewed frontend 456853b over fixed e2a backend; retained bindings' } };
+              annotations: { 'workers/message': pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : 'Reviewed frontend 456853b over fixed e2a backend; retained bindings' } };
             for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
             const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
             form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
+            if (pr764) {
+              // inherit resolves latest, including opaque secrets. Refuse a pending
+              // version instead of inferring secret equality from redacted metadata.
+              stage = 'inherit_baseline';
+              const items = (await request('/versions?page=1&per_page=10'))?.items;
+              if (!Array.isArray(items) || !items.length || items.length > 10 || items[0]?.id !== prior) fail('inherit_baseline_mismatch');
+            }
             stage = 'pre_upload_active'; await active(priorDeployment, prior);
             stage = 'upload'; uploadAttempted = true;
             uploaded = uuid((await request('/versions?bindings_inherit=strict', 'POST', form))?.id);
@@ -943,7 +983,18 @@ jobs:
               script_runtime: value.script_runtime, handlers: value.script.handlers,
               named_handlers: value.script.named_handlers === undefined ? null : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name)),
               placement_mode: value.script.placement_mode ?? null });
-            if (canonical(comparable(next)) !== canonical(comparable(old)) || next.script.etag === old.script.etag) fail();
+            const configHash = value => createHash('sha256').update(canonical(comparable(value))).digest('hex');
+            const configBefore = configHash(old), configUploaded = configHash(next);
+            if (configUploaded !== configBefore || next.script.etag === old.script.etag) fail('configuration_hash_mismatch');
+            if (pr764) {
+              // A different uploader between baseline and inherit can change hidden
+              // Secret values without changing their names/types. Require adjacent
+              // versions before activation; list is newest first, bounded to page 1.
+              stage = 'inherit_lineage';
+              const items = (await request('/versions?page=1&per_page=10'))?.items;
+              if (!Array.isArray(items) || items.length < 2 || items.length > 10
+                || items[0]?.id !== uploaded || items[1]?.id !== prior) fail('inherit_lineage_mismatch');
+            }
             // Same-Worker workflow concurrency serializes our release controls. These fresh
             // GETs detect observed external drift; Cloudflare offers no compare-and-swap
             // precondition here. No automatic retry or force fallback on an unknown result.
@@ -951,7 +1002,7 @@ jobs:
             stage = 'pre_deploy_latest'; await latest(uploaded);
             stage = 'activate'; deployAttempted = true;
             const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
-              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': 'Reviewed frontend only; fixed e2a backend and retained configuration' } }));
+              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': pr764 ? 'Reviewed PR764 full source; retained configuration' : 'Reviewed frontend only; fixed e2a backend and retained configuration' } }));
             if (!object(deployment) || !Object.hasOwn(deployment, 'id')) fail('missing_id');
             if (!isUuid(deployment.id)) fail('invalid_id');
             const deploymentId = deployment.id;
@@ -966,6 +1017,15 @@ jobs:
               if (deployment.versions[0]?.percentage !== 100) fail('percentage_mismatch');
             }
             stage = 'readback'; await active(deploymentId, uploaded);
+            if (pr764) {
+              stage = 'post_release_configuration';
+              const configAfter = configHash(resources(await request(`/versions/${uploaded}`), uploaded));
+              if (configAfter !== configBefore) fail('post_release_configuration_hash_mismatch');
+              // Version metadata hides secret values. Hash all comparable bindings/runtime/
+              // handlers/placement, never code etag or provider bookkeeping. No KV writes.
+              console.log(JSON.stringify({ status: 'pr764_configuration_verified', config_before_sha256: configBefore,
+                config_uploaded_sha256: configUploaded, config_after_sha256: configAfter, secret_values_read: false }));
+            }
             console.log(JSON.stringify({ status: 'frontend_release_verified', prior_version: prior, version_id: uploaded,
               deployment_id: deploymentId, percentage: 100, bindings_equal: true, runtime_equal: true,
               bundle_sha256: bundleSha256, force: false, provider_cas: false }));
@@ -1246,12 +1306,15 @@ jobs:
           node-version: "22"
 
       - name: Restore fixed pre-release Worker version
+        env:
+          ROLLBACK_VERSION: ${{ inputs.rollback_version }}
         run: |
           node --input-type=module <<'JS'
           // One fixed deployment request. In particular, never retry with force:
           // Wrangler 4.106.0 rollback can implicitly do that after API error 10220.
           // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/create/
-          const target = '2beea000-cce5-43a5-9255-9724f7318e83';
+          const target = process.env.ROLLBACK_VERSION || '2beea000-cce5-43a5-9255-9724f7318e83';
+          const fe11 = target === 'c8dc4852-fa9d-4d14-bca3-7941587a494f';
           const fail = () => { throw new Error('console_restore_failed'); };
           let stage = 'configuration';
           let httpStatus = null;
@@ -1260,44 +1323,62 @@ jobs:
             const token = process.env.CLOUDFLARE_API_TOKEN;
             const account = process.env.CLOUDFLARE_ACCOUNT_ID;
             if (process.env.GITHUB_REF !== 'refs/heads/main' || process.env.RELEASE_SOURCE_SHA || process.env.RELEASE_FRONTEND_ASSETS === 'true'
+              || (!fe11 && target !== '2beea000-cce5-43a5-9255-9724f7318e83')
               || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
-            stage = 'request';
-            requested = true;
-            const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console/deployments?force=false`, {
-              method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
-              headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
-              body: JSON.stringify({ strategy: 'percentage', versions: [{ version_id: target, percentage: 100 }],
-                annotations: { 'workers/message': 'Restore verified pre-frontend 2beea000 baseline' } }),
-            });
-            httpStatus = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
-            stage = 'http_status';
-            if (!response.ok) { await response.body?.cancel(); fail(); }
-            stage = 'response_bounds';
-            if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
-              || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail();
-            const length = response.headers.get('content-length');
-            if (length !== null && (!/^\d+$/.test(length) || Number(length) > 65536)) fail();
-            const reader = response.body?.getReader();
-            if (!reader) fail();
-            const decoder = new TextDecoder('utf-8', { fatal: true });
-            let size = 0, text = '';
-            try {
-              for (;;) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                size += value.byteLength;
-                if (size > 65536) fail();
-                text += decoder.decode(value, { stream: true });
-              }
-              text += decoder.decode();
-            } finally { await reader.cancel(); }
-            if (length !== null && size !== Number(length)) fail();
-            stage = 'response_schema';
-            const body = JSON.parse(text), result = body?.result;
-            if (body?.success !== true || !Array.isArray(body.errors) || body.errors.length
-              || typeof result?.id !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(result.id)
-              || result.strategy !== 'percentage' || !Array.isArray(result.versions) || result.versions.length !== 1
-              || result.versions[0]?.version_id !== target || result.versions[0]?.percentage !== 100) fail();
+            const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
+            async function request(path, method = 'GET', payload) {
+              const response = await fetch(base + path, {
+                method, redirect: 'error', signal: AbortSignal.timeout(15000),
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', ...(payload ? { 'Content-Type': 'application/json' } : {}) },
+                body: payload,
+              });
+              httpStatus = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
+              stage = 'http_status';
+              if (!response.ok) { await response.body?.cancel(); fail(); }
+              stage = 'response_bounds';
+              if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
+                || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail();
+              const length = response.headers.get('content-length');
+              if (length !== null && (!/^\d+$/.test(length) || Number(length) > 65536)) fail();
+              const reader = response.body?.getReader();
+              if (!reader) fail();
+              const decoder = new TextDecoder('utf-8', { fatal: true });
+              let size = 0, text = '';
+              try {
+                for (;;) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  size += value.byteLength;
+                  if (size > 65536) fail();
+                  text += decoder.decode(value, { stream: true });
+                }
+                text += decoder.decode();
+              } finally { await reader.cancel(); }
+              if (length !== null && size !== Number(length)) fail();
+              stage = 'response_schema';
+              const body = JSON.parse(text);
+              if (body?.success !== true || (body.errors != null && (!Array.isArray(body.errors) || body.errors.length))) fail();
+              return body.result;
+            }
+            if (fe11) {
+              stage = 'target_readback';
+              if ((await request(`/versions/${target}`))?.id !== target) fail();
+            }
+            stage = 'request'; requested = true;
+            const result = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
+              versions: [{ version_id: target, percentage: 100 }], annotations: { 'workers/message': fe11
+                ? 'Restore verified FE-RELEASE-11 c8dc4852 baseline' : 'Restore verified pre-frontend 2beea000 baseline' } }));
+            if (typeof result?.id !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(result.id)
+              || ((!fe11 || Object.hasOwn(result, 'strategy')) && result.strategy !== 'percentage')
+              || ((!fe11 || Object.hasOwn(result, 'versions')) && (!Array.isArray(result.versions) || result.versions.length !== 1
+                || result.versions[0]?.version_id !== target || result.versions[0]?.percentage !== 100))) fail();
+            if (fe11) {
+              stage = 'active_readback';
+              const current = (await request('/deployments?page=1&per_page=10'))?.deployments;
+              if (!Array.isArray(current) || !current.length || current.length > 10 || current[0]?.id !== result.id
+                || current[0]?.strategy !== 'percentage' || !Array.isArray(current[0]?.versions) || current[0].versions.length !== 1
+                || current[0].versions[0]?.version_id !== target || current[0].versions[0]?.percentage !== 100) fail();
+            }
             console.log(JSON.stringify({ status: 'restore_response_verified', deployment_id: result.id, version_id: target, percentage: 100, force: false }));
           } catch {
             // A failed/unknown response after POST may follow a committed change.
