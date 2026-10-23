@@ -161,6 +161,10 @@ assert.equal(largerProjection.named_handler_max_entries,33);
 // Execute the exact selection shell with a fake Git boundary, never checkout the
 // test repository or evaluate any selected Worker. Real object identities are
 // separately frozen by the release evidence and the required ancestry check.
+const pr764Source = "20dad166be317dd0d57e492ed06e56dfb82b7aef";
+const pr764Tree = "7db7dbd1b1749b42187dbc1c9658669fa426ffa6";
+const pr764Blob = "de87e1c1c6b62fa94bd514c8936a4ec32e14c0e4";
+const pr764Build = "96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6";
 const approved = "e2aab576d6874feeaf87df3411411ad04ee02d4f";
 const approvedTree = "968b323ca75ee48d0c92bfe0b7f4110c3d27df72";
 const frontend = "32df55c5373106dd602eb4409cba87f2e03fa3d5";
@@ -178,14 +182,15 @@ const fakeGit = `git() {
   printf '%s\\n' "$*" >> "$TRACE"
   case "$*" in
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
-    'cat-file -e ${approved}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
+    'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
     'cat-file -e ${frontend}^{commit}') return "$FAKE_FRONTEND_OBJECT_EXIT" ;;
-    'merge-base --is-ancestor ${approved} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
+    'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${frontend} ${control}') return "$FAKE_FRONTEND_ANCESTRY_EXIT" ;;
-    'rev-parse ${approved}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
+    'rev-parse ${pr764Source}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
     'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
-    '-c advice.detachedHead=false checkout --detach ${approved}') touch "$SELECTED" ;;
+    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -231,6 +236,20 @@ for (const delta of [{ FAKE_FRONTEND_OBJECT_EXIT: "1" }, { FAKE_FRONTEND_ANCESTR
   assert.equal(sourceCase({ RELEASE_FRONTEND_ASSETS: "true", ...delta }, false).selected, false);
 }
 
+// #764 uses the entire pinned source, never the old frontend overlay.
+const pr764Env = { RELEASE_SOURCE_SHA: pr764Source, RELEASE_FRONTEND_ASSETS: "true",
+  FAKE_TREE: pr764Tree, FAKE_SELECTED_HEAD: pr764Source, FAKE_PR764_BLOB: pr764Blob };
+assert.equal(sourceCase(pr764Env, true).selected, true);
+for (const delta of [{RELEASE_FRONTEND_ASSETS:"false"}, {SYNC_SECRETS:"true"}, {SYNC_STRATEGY_PROFILES:"true"},
+  {SKIP_BINANCE_RECEIVER_CHECKS:"false"}, {GITHUB_REF:"refs/heads/other"}]) {
+  assert.deepEqual(sourceCase({...pr764Env,...delta}, false).calls, []);
+}
+for (const delta of [{FAKE_TREE:"a".repeat(40)}, {FAKE_PR764_BLOB:"a".repeat(40)}, {FAKE_OBJECT_EXIT:"1"},
+  {FAKE_ANCESTRY_EXIT:"1"}, {FAKE_CONTROL_HEAD:"a".repeat(40)}]) {
+  assert.equal(sourceCase({...pr764Env,...delta}, false).selected, false);
+}
+assert.equal(sourceCase({...pr764Env,FAKE_SELECTED_HEAD:approved}, false).selected, true);
+
 // The superseded frontend baseline is no longer an admissible release source.
 for (const delta of [
   { FAKE_FRONTEND_TREE: "a98498a60753cadc7b010f2e9d9c5a5e34f812f4" },
@@ -244,7 +263,7 @@ for (const delta of [
 // are synthetic; hash-object validates the real reviewed map bytes.
 const overlayStep = steps.find(step => step.startsWith("Overlay fixed reviewed frontend assets\n"));
 assert.ok(overlayStep);
-assert.match(overlayStep, /^        if: inputs\.release_frontend_assets$/m);
+assert.match(overlayStep, /^        if: inputs\.release_frontend_assets && inputs\.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef'$/m);
 assert.ok(deploy.indexOf("Build config & assets") < deploy.indexOf("Overlay fixed reviewed frontend assets"));
 assert.ok(deploy.indexOf("Overlay fixed reviewed frontend assets") < deploy.indexOf("Validate fixed backend with reviewed frontend"));
 assert.match(deploy, /Validate fixed backend with reviewed frontend[\s\S]*?node tests\/console_v2_assets_validation\.mjs\n          node tests\/console_v2_worker_validation\.mjs/);
@@ -366,8 +385,20 @@ const responseSequence=(alreadyActive)=>[wrap({deployments:[dep(priorDeployment,
 const apiSequence=[["/deployments?page=1&per_page=10","GET"],[`/versions/${priorVersion}`,"GET"],["/content/v2","GET"],["/deployments?page=1&per_page=10","GET"],["/versions?bindings_inherit=strict","POST"],
  [`/versions/${newVersion}`,"GET"],["/deployments?page=1&per_page=10","GET"],[`/versions/${newVersion}`,"GET"],["/deployments?force=false","POST"],["/deployments?page=1&per_page=10","GET"]];
 let releaseCases=0;
-async function releaseCase({mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle,assetMap=syntheticAssetMap,files=bundleFiles.map(name=>dirent(name))}={}, expected=true,count=10){
- const responses=responseSequence(alreadyActive);mutate(responses);const calls=[],stdout=[],stderr=[];
+async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPredecessor=priorVersion,mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle,assetMap=syntheticAssetMap,files=bundleFiles.map(name=>dirent(name))}={}, expected=true,count=10){
+ if(pr764){
+  bundle=Buffer.from(bundle.toString().replace(syntheticBuildId,pr764Build));
+  assetMap=assetMap.replace(syntheticBuildId,pr764Build);
+  env={RELEASE_SOURCE_SHA:pr764Source,...env};
+ }
+ const responses=responseSequence(alreadyActive);
+ if(pr764)responses.push(wrap({id:newVersion,resources:resource("new-code")}));
+ mutate(responses);
+ if(pr764){
+  responses.splice(3,0,wrap({items:[{id:inheritVersion}]}));
+  responses.splice(7,0,wrap({items:[{id:newVersion},{id:inheritedPredecessor}]}));
+ }
+ const calls=[],stdout=[],stderr=[];
  const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"d".repeat(32),...env},exitCode:0};
  await runRelease(process,async(url,options)=>{const i=calls.length;calls.push({url,options});if(i===failAt)throw Error(privateRelease);if(i===responseAt)return response;
   assert.ok(i<responses.length,"no retry/page expansion");return responses[i] instanceof Response ? responses[i] : new Response(JSON.stringify(responses[i]),{headers:{"content-type":"application/json"}});
@@ -377,23 +408,48 @@ async function releaseCase({mutate=()=>{},env={},failAt=-1,responseAt=-1,respons
   async(path,options)=>{assert.equal(path,"/synthetic/console-frontend-bundle");assert.deepEqual(options,{withFileTypes:true});return files;});
  assert.equal(process.exitCode===0,expected,stderr.join("\n"));assert.equal(calls.length,count);
  assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));assert.ok(!JSON.stringify({stdout,stderr}).includes("a".repeat(32)));
- for(const [i,{url,options}] of calls.entries()){
-  assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+apiSequence[i][0]);
-  assert.equal(options.headers["Accept-Encoding"],"identity");assert.equal(options.method,apiSequence[i][1]);assert.equal(options.redirect,"error");assert.ok(options.signal instanceof AbortSignal);assert.equal(options.headers.Authorization,`Bearer ${privateRelease}`);
+ for(const [actual,{url,options}] of calls.entries()){
+  if(pr764 && actual===3){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
+  if(pr764 && actual===7){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
+  const i=actual-(pr764 && actual>3?1:0)-(pr764 && actual>7?1:0);
+  assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+(i===10?`/versions/${newVersion}`:apiSequence[i][0]));
+  assert.equal(options.headers["Accept-Encoding"],"identity");assert.equal(options.method,i===10?"GET":apiSequence[i][1]);assert.equal(options.redirect,"error");assert.ok(options.signal instanceof AbortSignal);assert.equal(options.headers.Authorization,`Bearer ${privateRelease}`);
   if(options.method==="GET")assert.equal(options.body,undefined);
   if(i===4){assert.deepEqual(Buffer.from(await options.body.get("worker.js").arrayBuffer()),bundle);assert.ok(options.body instanceof FormData);assert.deepEqual([...options.body.keys()],["metadata","worker.js"]);const m=JSON.parse(options.body.get("metadata"));
    assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
    assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
-  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":"Reviewed frontend only; fixed e2a backend and retained configuration"}});
+  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed frontend only; fixed e2a backend and retained configuration"}});
  }
- if(expected){const r=JSON.parse(stdout[0]);assert.equal(r.status,"frontend_release_verified");assert.equal(r.bundle_sha256,createHash("sha256").update(bundle).digest("hex"));assert.equal(r.version_id,newVersion);assert.equal(r.deployment_id,newDeployment);assert.equal(r.bindings_equal,true);assert.equal(r.runtime_equal,true);assert.equal(r.provider_cas,false);}
+ if(expected){
+  if(pr764){const h=JSON.parse(stdout[0]);assert.equal(h.status,"pr764_configuration_verified");
+   assert.match(h.config_before_sha256,/^[a-f0-9]{64}$/);assert.equal(h.config_before_sha256,h.config_uploaded_sha256);
+   assert.equal(h.config_before_sha256,h.config_after_sha256);assert.equal(h.secret_values_read,false);}
+  const r=JSON.parse(stdout.at(-1));assert.equal(r.status,"frontend_release_verified");assert.equal(r.bundle_sha256,createHash("sha256").update(bundle).digest("hex"));assert.equal(r.version_id,newVersion);assert.equal(r.deployment_id,newDeployment);assert.equal(r.bindings_equal,true);assert.equal(r.runtime_equal,true);assert.equal(r.provider_cas,false);}
  else{assert.equal(stdout.length,0);const error=JSON.parse(stderr.at(-1));assert.equal(error.retry,false);
-  assert.equal(error.upload_attempted,calls.length>=5);
-  assert.equal(error.deploy_attempted,calls.length>=9);
+  assert.equal(error.upload_attempted,calls.length>=(pr764?6:5));
+  assert.equal(error.deploy_attempted,calls.length>=(pr764?11:9));
  }
  releaseCases++;return {calls,stdout,stderr};
 }
+await releaseCase({pr764:true},true,13);
+await releaseCase({pr764:true,inheritVersion:newVersion},false,4);
+// Another uploader inserted a version with different opaque Secret values after
+// the first baseline GET. Equal visible resource hashes must not allow activation.
+await releaseCase({pr764:true,inheritedPredecessor:"00000000-0000-4000-8000-000000000099"},false,8);
+await releaseCase({pr764:true,assetMap:syntheticAssetMap.replace(syntheticBuildId,"f".repeat(64)),
+ bundle:Buffer.from(syntheticBundle.toString().replace(syntheticBuildId,"f".repeat(64)))},false,2);
+for(const index of [5,10]){
+ for(const mutate of [r=>r.bindings[2].text="changed",r=>r.script_runtime.compatibility_date="2026-06-09",
+  r=>r.bindings[0].namespace_id="e".repeat(32),r=>r.script.placement_mode="smart",r=>r.script.named_handlers=[]]){
+  const result=await releaseCase({pr764:true,mutate:r=>mutate(r[index].result.resources)},false,index+1+(index>=3?1:0)+(index>=6?1:0));
+  assert.equal(JSON.parse(result.stderr.at(-1)).deploy_attempted,index===10);
+ }
+}
+await releaseCase({pr764:true,failAt:12},false,13);
+// Canonical ordering is immaterial; resource values and handler contracts are not.
+await releaseCase({pr764:true,mutate:r=>{r[5].result.resources.bindings.reverse();r[10].result.resources.bindings.reverse();}},true,13);
+
 await releaseCase();await releaseCase({env:{STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"e".repeat(32)}}); // H's namespace drift no longer affects inherited configuration
 await releaseCase({mutate:r=>r[0].result.deployments.push(dep(newDeployment,newVersion))}); // Only the first deployment is active.
 // FE-RELEASE-08: even identical entrypoint bytes must upload and activate.
@@ -705,6 +761,42 @@ for (const mutate of [body => { body.success = false; }, body => { body.errors =
   const body = structuredClone(restoreBody); mutate(body); await restoreCase({ body }, false);
 }
 await restoreCase({ headers: { "content-length": String(Buffer.byteLength(JSON.stringify(restoreBody))) } });
+
+// FE-RELEASE-11 restores an existing exact version, then verifies the active id/version/100%.
+const fe11Target="c8dc4852-fa9d-4d14-bca3-7941587a494f";
+let fe11Cases=0;
+async function fe11Case({mutate=()=>{},env={},failAt=-1}={},expected=true,count=3){
+ const replies=[wrap({id:fe11Target}),wrap({id:restoreId}),wrap({deployments:[dep(restoreId,fe11Target)]})];
+ mutate(replies);const calls=[],stdout=[],stderr=[];
+ const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),
+  CLOUDFLARE_API_TOKEN:restoreSentinel,ROLLBACK_VERSION:fe11Target,...env},exitCode:0};
+ await runRestore(process,async(url,options)=>{const i=calls.length;calls.push({url,options});
+  if(i===failAt)throw Error(restoreSentinel);assert.ok(i<3,"never retry");
+  return new Response(JSON.stringify(replies[i]),{headers:{"content-type":"application/json"}});
+ },{log:x=>stdout.push(x),error:x=>stderr.push(x)});
+ assert.equal(process.exitCode===0,expected,stderr.join("\n"));assert.equal(calls.length,count);
+ assert.ok(!JSON.stringify({stdout,stderr}).includes(restoreSentinel));
+ for(const [i,{url,options}]of calls.entries()){
+  assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+
+   [`/versions/${fe11Target}`,"/deployments?force=false","/deployments?page=1&per_page=10"][i]);
+  assert.equal(options.redirect,"error");assert.equal(options.method,i===1?"POST":"GET");
+  if(i===1)assert.deepEqual(JSON.parse(options.body).versions,[{version_id:fe11Target,percentage:100}]);
+  else assert.equal(options.body,undefined);
+ }
+ if(expected){assert.equal(JSON.parse(stdout[0]).version_id,fe11Target);assert.equal(JSON.parse(stdout[0]).percentage,100);}
+ else{assert.equal(stdout.length,0);assert.equal(JSON.parse(stderr[0]).outcome,count>1?"UNKNOWN_REQUIRES_READBACK":"NOT_ATTEMPTED");}
+ fe11Cases++;
+}
+await fe11Case();
+for(const env of [{ROLLBACK_VERSION:"a".repeat(36)},{GITHUB_REF:"refs/heads/other"},{RELEASE_SOURCE_SHA:pr764Source},
+ {RELEASE_FRONTEND_ASSETS:"true"}])await fe11Case({env},false,0);
+await fe11Case({mutate:r=>r[0].result.id=priorVersion},false,1);
+for(const mutate of [r=>r[2].result.deployments[0].versions[0].version_id=priorVersion,
+ r=>r[2].result.deployments[0].versions[0].percentage=99,r=>r[2].result.deployments[0].id=priorDeployment,
+ r=>r[2].result.deployments[0].versions.push({version_id:priorVersion,percentage:0}),
+ r=>r[2].result.deployments=[]])await fe11Case({mutate},false,3);
+for(let i=0;i<3;i++)await fe11Case({failAt:i},false,i+1);
+console.log(`PR764 exact FE-RELEASE-11 restore: ${fe11Cases} cases passed`);
 
 // Execute the exact workflow body with fake HTTP, not a rewritten projection.
 const script = preflight.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)?.[1]
