@@ -29,7 +29,9 @@ const script = buildSync({ stdin: { contents: `
 
 for (const redirectsAgain of [false, true]) {
   const calls = [];
-  const mf = new Miniflare({ cf: false, modules: true, script, compatibilityDate: "2026-06-08",
+  const mf = new Miniflare({
+    cf: false,
+    modules: true, script, compatibilityDate: "2026-06-08",
     outboundService(request) {
       const url = new URL(request.url); calls.push(url.hostname + url.pathname);
       assert.equal(request.method, "GET");
