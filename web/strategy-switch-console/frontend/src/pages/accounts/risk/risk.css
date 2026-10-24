@@ -1,0 +1,19 @@
+.risk-heading, .risk-actions, .risk-input-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.risk-heading { justify-content: space-between; }
+.risk-levels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.risk-level { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-m); color: var(--ink); background: var(--surface); text-align: start; min-width: 0; cursor: pointer; }
+.risk-level.selected { border-color: var(--accent); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--accent); }
+.risk-level > span { font-size: 12px; }
+.risk-advanced > summary { cursor: pointer; font-weight: 600; padding: 12px 0; }
+.risk-parameters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.risk-parameter { border-top: 1px solid var(--line); padding: 14px 0; min-width: 0; }
+.risk-parameter > label { display: block; font-weight: 600; margin-bottom: 8px; }
+.risk-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 8px 0; }
+.risk-values dt { color: var(--muted); font-size: 12px; }
+.risk-values dd { margin: 4px 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.risk-input-row > .input { min-width: 0; max-width: 100%; width: 100%; }
+.risk-wire { margin-top: 8px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.risk-error { color: var(--danger); font-size: 13px; }
+.risk-gap { border-top: 1px solid var(--line); padding-top: 12px; overflow-wrap: anywhere; }
+.risk-level:focus-visible, .risk-advanced summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 768px) { .risk-levels, .risk-parameters, .risk-values { grid-template-columns: minmax(0, 1fr); } }

@@ -56,7 +56,10 @@ for(const file of fragments){
 }
 assert.deepEqual(Object.keys(dictionaries.zh).sort(),Object.keys(dictionaries.en).sort());
 for(const [lang,table] of Object.entries(dictionaries)) for(const [key,value] of Object.entries(table)) {
- assert.doesNotMatch(value,/审计|核对|证据|门禁|\baudit\b|\bevidence\b|\bgates?\b|expected_revision|server handler/i,`${lang}: ${key}`);
+ // DESIGN-03/09 require explicit audit uncertainty in the dedicated risk record section.
+ // Keep the default-page terminology check for every other key.
+ const riskAuditCopy = key === "risk.audit" || key.startsWith("risk.audit_") || key.startsWith("risk.audit.");
+ if (!riskAuditCopy) assert.doesNotMatch(value,/审计|核对|证据|门禁|\baudit\b|\bevidence\b|\bgates?\b|expected_revision|server handler/i,`${lang}: ${key}`);
  if(lang==='en')assert.doesNotMatch(value,/[\u3400-\u9fff]/,key);
  const placeholders = text => [...text.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort();
  assert.deepEqual(placeholders(value),placeholders(dictionaries[lang==='en'?'zh':'en'][key]),key);

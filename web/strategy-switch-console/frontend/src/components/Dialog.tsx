@@ -9,6 +9,8 @@ export interface ConfirmRequest {
   consequence?: ReactNode;
   tone?: "normal" | "danger";
   confirmLabel?: string;
+  /** Keep an unavailable operation disabled even after local acknowledgement. */
+  confirmDisabled?: boolean;
   /** Require checking this acknowledgement before confirming. */
   ackLabel?: string;
   /** Require typing this exact value (e.g. account alias) before confirming. */
@@ -30,7 +32,7 @@ export function ConfirmationDialog({ request, onResolve }: { request: ConfirmReq
 
   const typeOk = !request.typeToConfirm || typed.trim() === request.typeToConfirm.expected;
   const ackOk = !request.ackLabel || acked;
-  const canConfirm = typeOk && ackOk;
+  const canConfirm = typeOk && ackOk && !request.confirmDisabled;
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {

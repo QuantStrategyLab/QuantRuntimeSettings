@@ -216,6 +216,7 @@ function ResearchTab({ refreshEpoch }: { refreshEpoch: number }) {
           <article className="card research-item" key={`${entry.subject.kind}/${entry.subject.identifier}/${index}`}>
             <div className="research-item-head">
               <span className="research-item-title">{entry.subject.identifier}</span>
+              <Badge tone="warn">{t("risk.suggestion")}</Badge>
             </div>
             {entry.observations.map((observation, observationIndex) => {
               const sourceLabels = observation.source_ids.map(id => {

@@ -1,3 +1,4 @@
+import { riskPath, riskSettingsResponse } from "./application/risk_settings/routes.js";
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
 import { sourceListFailure } from "./application/console_api/read_failures.js";
@@ -801,6 +802,7 @@ export default {
       }
       if (url.pathname === "/login") return await startLogin(request, env);
       if (url.pathname === "/callback") return await finishLogin(request, env);
+      if (riskPath(url.pathname)) return riskSettingsResponse(request, env, { json, readSession, command: runtimeInstanceCommand });
       if (url.pathname.startsWith("/api/performance/")) {
         return await performanceResponse(request, env, {
           json, readSession, accountOptions: loadAccountOptionsConfig, facts: accountFactsResponse,
@@ -3997,6 +3999,12 @@ export class RuntimeInstances {
       if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
       let command;
       try { command = await request.json(); } catch { throw new HttpError("invalid_runtime_instance_request", 400); }
+      if (command?.action === "risk_settings_read") {
+        const { item, identity } = this.existingAccountInstance(command.platform, command.key);
+        const row = this.sql.exec("SELECT revision, bindings_json FROM risk_profile_authority WHERE id = 1").toArray()[0];
+        const binding = row ? this.storedRiskBindings(row).find(b => b.scope_id === riskProfileScopeId(item.platform, identity.target_name)) : null;
+        return json({ preference: binding?.profile_selection?.risk_preference ?? null, revision: row?.revision ?? null });
+      }
       if (["credential_maintenance_read", "credential_maintenance_save", "credential_maintenance_claim", "credential_maintenance_ack"].includes(command?.action)) {
         return json(this.storage.transactionSync(() => credentialMaintenanceCommand(this.sql, command)));
       }

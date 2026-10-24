@@ -16,11 +16,12 @@ import { accountOption } from "../../lib/accountDirectory";
 import { platformLabel, type AccountRow, type ConsoleConfig, type EditMap } from "./helpers";
 import { DiffSummary, StrategyTab } from "./StrategyTab";
 import { ControlsTab } from "./ControlsTab";
+import RiskSettings from "./risk/RiskSettings";
 import { HistoryTab } from "./HistoryTab";
 
 type TodayRun = TodayRunSummary["accounts"][number];
 
-const TAB_IDS = ["overview", "strategy", "controls", "history"] as const;
+const TAB_IDS = ["overview", "strategy", "risk", "controls", "history"] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 function normalizeTab(tab: string | null): TabId {
@@ -50,8 +51,9 @@ export function AccountDetail({
   const { confirmRequest, confirm, resolveConfirm } = useConfirmation();
   const [editing, setEditing] = useState(false);
   const [edits, setEdits] = useState<EditMap>({});
+  const active = normalizeTab(tab);
   const dirty = editing && Object.keys(edits).length > 0;
-  const diffState = useApi(() => loadSettingsDiff(account.account_alias, account.platform), [account.account_alias, account.platform]);
+  const diffState = useApi(() => loadSettingsDiff(account.account_alias, account.platform), [account.account_alias, account.platform], active !== "risk");
 
   // Unsaved draft edits block navigation away from this account via the shared guard.
   const confirmRef = useRef(confirm);
@@ -70,7 +72,6 @@ export function AccountDetail({
     return () => setNavigationGuard(null);
   }, [dirty]);
 
-  const active = normalizeTab(tab);
   const selector = accountOption(config, account.platform, account.account_alias)?.account_selector?.trim();
 
   const runBadge = todayFailed ? (
@@ -158,6 +159,7 @@ export function AccountDetail({
             confirm={confirm}
           />
         )}
+        {active === "risk" && <RiskSettings key={`${account.platform}:${account.account_alias}`} platform={account.platform} accountKey={account.account_alias} />}
         {active === "controls" && <ControlsTab account={account} config={config} confirm={confirm} />}
         {active === "history" && <HistoryTab account={account} />}
       </div>
