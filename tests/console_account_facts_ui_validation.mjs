@@ -51,19 +51,19 @@ try {
 
   const TEXT = {
     zh: {
-      assets: "资产", cash: "现金", cashSemantics: "不是购买力",
+      assets: "资产", cash: "现金", cashSemantics: "不代表购买力",
       notConnected: "未接入", noData: "暂无数据", readFailed: "读取失败", unknown: "未知状态",
-      identity: "账户身份未核验", conflict: "观测不一致",
-      total: "平台合计", subtotal: "合计", subtotalNote: "仅统计已核验且估值日期一致的账户。",
-      partial: "估值不完整", stale: "数据偏旧", coverage: (c, e) => `其中 ${c} 个账户有数据`,
-      dietz: "Modified Dietz（近似）", methodUnknown: "收益口径未知",
+      identity: "账户身份未核验", platformIdentity: "平台合计不可用：有账户身份未核验", conflict: "数据不一致",
+      total: "平台合计", subtotal: "部分合计", subtotalNote: "仅合计已核验且估值日期一致的账户。",
+      partial: "部分合计", stale: "待更新", coverage: (c, e) => `已计入 ${c}/${e} 个账户`,
+      dietz: "Modified Dietz（近似）", methodUnknown: "收益计算方式未知",
     },
     en: {
       assets: "Assets", cash: "Cash", cashSemantics: "not buying power",
       notConnected: "Not connected", noData: "No data", readFailed: "Read failed", unknown: "Unknown status",
-      identity: "identity unverified", conflict: "Conflicting observations",
-      total: "Platform total", subtotal: "Total", subtotalNote: "Only verified accounts with the same valuation date are included.",
-      partial: "Valuation incomplete", stale: "Stale", coverage: (c, e) => `${c} accounts with data`,
+      identity: "identity unverified", platformIdentity: "Platform total unavailable: some account identities are unverified", conflict: "Data conflicts",
+      total: "Platform total", subtotal: "Subtotal", subtotalNote: "Only verified accounts with the same valuation date are included.",
+      partial: "Subtotal", stale: "update pending", coverage: (c, e) => `Includes ${c} of ${e} accounts`,
       dietz: "Modified Dietz (approximate)", methodUnknown: "Return method unknown",
     },
   };
@@ -119,7 +119,7 @@ try {
 
     // 2. Stale data keeps its freshness signal next to the amounts.
     const staleFact = { ...baseFact(), data_status: "stale" };
-    ok(ui.card(language, staleFact, "ready").includes(s.stale), "stale badge stays visible");
+    ok(ui.card(language, staleFact, "ready").includes(s.stale), "stale date remains visibly marked as update pending");
 
     // 3. Missing and invalid values degrade to an em dash, never zero, never a crash.
     const missingNet = { ...baseFact(), balances: [{ currency: "USD", net_assets: null }], cash: [] };
@@ -219,7 +219,7 @@ try {
     const partial = ui.platform(language, [baseFact()], 2, "ready");
     ok(partial.includes(`${s.subtotal} · USD`), "uncovered accounts downgrade to observed subtotal");
     ok(partial.includes(s.subtotalNote), "subtotal note rules out a complete total");
-    ok(partial.includes(s.partial), "partial badge shown");
+    ok(partial.includes(s.partial), "partial subtotal remains explicitly labeled");
     ok(partial.includes(s.coverage(1, 2)), "only actually summed accounts count as covered");
 
     // 12. Cross-valuation-day accounts are excluded from the sum but shrink coverage.
@@ -316,7 +316,7 @@ try {
 
     // 14. Platform staleness survives the rollup.
     const stalePlatform = ui.platform(language, [staleFact], 1, "ready");
-    ok(stalePlatform.includes(s.stale), "a stale member keeps the platform stale badge");
+    ok(stalePlatform.includes(s.stale), "a stale member keeps the platform update-pending signal");
 
     // 15. A backend-marked identity conflict is excluded and blocks completeness.
     const conflictRow = { ...baseFact(), account_key: "ibkr-conflict", aggregation_status: "conflict" };
@@ -328,7 +328,7 @@ try {
     // 15b. Unverified identities (LongBridge live rows) never join a platform sum.
     const lbLive = { ...longbridgeFact(), broker_environment: "live", account_scope: "LIVE" };
     const unverifiedOnly = ui.platform(language, [lbLive], 1, "ready");
-    ok(unverifiedOnly.includes(s.identity), "an unverified-only platform shows the honest identity state");
+    ok(unverifiedOnly.includes(s.platformIdentity), "an unverified-only platform shows the honest identity state");
     ok(!unverifiedOnly.includes("1,234.56") && !unverifiedOnly.includes('class="account-facts-currency"'),
       "unverified rows never produce a platform total block");
     const mixedTrust = ui.platform(language, [baseFact(), lbLive], 2, "ready");

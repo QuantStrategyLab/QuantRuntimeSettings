@@ -48,14 +48,14 @@ try {
 
   for (const language of ["zh", "en"]) {
     const copy = language === "zh" ? {
-      incomplete: "回执覆盖不完整或未知。", emptyPartial: "当前没有可展示的回执，不能据此确认没有通知。",
-      empty: "暂无通知回执", failed: "读取失败", retry: "重试", disconnected: "通知发送记录未接入。",
-      scope: "仅覆盖最近 5 次主分支日报流程的公开发送回执", missing: "未找到回执",
+      incomplete: "部分通知记录可能缺失。", emptyPartial: "当前没有可展示的回执，不能据此确认没有通知。",
+      empty: "暂无通知记录", failed: "读取失败", retry: "重试", disconnected: "通知发送记录未接入。",
+      scope: "仅显示最近 5 次日报的发送结果，不含其他即时通知；记录更新时间与实际发送时间可能不同。", missing: "未找到发送记录",
     } : {
-      incomplete: "Receipt coverage is incomplete or unknown.",
+      incomplete: "Some notification records may be missing.",
       emptyPartial: "No receipts are available to display; this does not confirm that no notifications exist.",
-      empty: "No notification receipts", failed: "Read failed", retry: "Retry", disconnected: "The notification log is not connected.",
-      scope: "Public send receipts from the latest 5 main-branch daily digest workflows only", missing: "Receipt missing",
+      empty: "No notification records", failed: "Read failed", retry: "Retry", disconnected: "The notification log is not connected.",
+      scope: "Only send results from the latest 5 daily digest runs are shown. Other instant notifications are not included; the record update time may differ from the actual send time.", missing: "Notification record missing",
     };
 
     test(`${language}: empty partial/unknown/truncated reads retain the coverage warning in SSR`, () => {

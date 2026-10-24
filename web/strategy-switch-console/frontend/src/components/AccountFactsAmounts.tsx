@@ -8,7 +8,7 @@ import {
   isReadableFact,
   platformCurrencyTotals,
 } from "../lib/accountFacts";
-import { AsOfStamp, Badge, Skeleton, StatusBadge } from "./primitives";
+import { AsOfStamp, Skeleton } from "./primitives";
 import "./account-facts.css";
 
 export type FactsPhase = "loading" | "error" | "ready";
@@ -64,21 +64,22 @@ export function AccountFactsAmounts({ fact, phase, conflict = false, ambiguous =
   return (
     <div className="account-facts">
       {display.balances.map(row => (
-        <span className="account-row" key={`assets-${row.currency}`}>
+        <span className="account-row account-facts-assets" key={`assets-${row.currency}`}>
           <span>{t("facts.assets")} · {row.currency}</span>
           <MoneyText value={row.netAssets} currency={row.currency} />
         </span>
       ))}
       {display.cash.map(row => (
-        <span className="account-row" key={`cash-${row.currency}`} title={t("facts.cash_semantics")}>
+        <span className="account-row account-facts-cash" key={`cash-${row.currency}`} title={t("facts.cash_semantics")}>
           <span>{t("facts.cash")} · {row.currency}</span>
           <MoneyText value={row.cashBalance} currency={row.currency} />
         </span>
       ))}
-      <div className="kpi-foot">
-        {display.stale && <StatusBadge status="stale" />}
-        <AsOfStamp value={display.asOf} />
-      </div>
+      {(display.asOf || display.stale) && <div className="kpi-foot account-facts-freshness">
+        {display.asOf
+          ? <AsOfStamp value={display.asOf} prefix={display.stale ? "facts.as_of_stale" : "common.as_of"} />
+          : <span className="asof">{t("facts.stale_pending")}</span>}
+      </div>}
     </div>
   );
 }
@@ -115,11 +116,11 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
       : anyVerified
         ? "state.no_data"
         : anyReadable
-          ? "facts.identity_unverified"
+          ? "facts.platform_identity_unverified"
           : "state.no_data";
-    if (stateKey === "facts.identity_unverified") {
+    if (stateKey === "facts.platform_identity_unverified") {
       return (
-        <div className="account-facts">
+        <div className="account-facts account-facts-platform-state">
           <span className="account-row"><span>{t("facts.platform_total")}</span><span>{t(stateKey)}</span></span>
           <button type="button" className="button button-secondary button-sm" onClick={() => navigate({ page: "accounts" })}>
             {t("facts.identity_action")}
@@ -133,25 +134,26 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
     <div className="account-facts account-facts-platform">
       {totals.map(total => (
         <div className="account-facts-currency" key={total.currency}>
-          <span className="account-row">
+          <span className="account-row account-facts-assets">
             <span>{t(total.complete ? "facts.platform_total" : "facts.platform_subtotal")} · {total.currency}</span>
             <MoneyText value={total.netAssets} currency={total.currency} />
           </span>
-          <span className="account-row" title={t("facts.cash_semantics")}>
+          <span className="account-row account-facts-cash" title={t("facts.cash_semantics")}>
             <span>{t("facts.cash")} · {total.currency}</span>
             <MoneyText value={total.cashBalance} currency={total.currency} />
           </span>
-          <div className="kpi-foot">
-            {!total.complete && <Badge tone="warn">{t("facts.partial_badge")}</Badge>}
-            {total.stale && <StatusBadge status="stale" />}
+          <div className="kpi-foot account-facts-freshness">
             {total.covered < total.expected && <span className="asof">{t("facts.coverage", { covered: total.covered, expected: total.expected })}</span>}
-            {total.observationDate && <span className="asof">{t("common.as_of", { value: total.observationDate })}</span>}
+            {total.observationDate
+              ? <span className="asof">{t(total.stale ? "facts.as_of_stale" : "common.as_of", { value: total.observationDate })}</span>
+              : total.stale && <span className="asof">{t("facts.stale_pending")}</span>}
           </div>
         </div>
       ))}
-      {totals.some(total => !total.complete) && <details className="account-facts-notes">
+      {totals.some(total => !total.complete) && <details className="account-facts-notes account-platform-notes">
         <summary>{t("accounts.data_notes")}</summary>
         <p>{t("facts.platform_subtotal_note")}</p>
+        <p>{t("facts.cash_semantics")}</p>
       </details>}
     </div>
   );

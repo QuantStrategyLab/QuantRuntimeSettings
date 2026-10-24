@@ -54,11 +54,11 @@ try {
       assert.doesNotMatch(render(language), /123|456/, "failed reads cannot expose retained balances as current");
     }
     const partial = ui.totals(language, [{ ...blocks.assets.per_currency[0], status: "partial", unavailable_reason: "valuation_date_mismatch" }]);
-    assert.ok(partial.includes(language === "zh" ? "USD 资产合计" : "USD asset total"));
-    assert.ok(partial.includes(language === "zh" ? "估值不完整" : "Valuation incomplete"));
+    assert.ok(partial.includes(language === "zh" ? "USD 资产小计" : "USD asset subtotal"), "partial coverage is explicitly labeled a subtotal");
+    assert.ok(!partial.includes(language === "zh" ? "USD 资产合计" : "USD asset total"), "partial coverage cannot appear as a complete total");
     assert.ok(partial.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"));
     const fresh = ui.freshness(language, { fresh: 1, stale: 1, unknown: 1, threshold_hours: 36 });
-    assert.ok(fresh.includes(language === "zh" ? "1 个账户数据偏旧" : "1 accounts have stale data"));
+    assert.ok(fresh.includes(language === "zh" ? "1 个账户的数据可能不是最新" : "Data may be out of date for 1 accounts"));
     const freshZero = ui.freshness(language, { fresh: 2, stale: 0, unknown: 1, threshold_hours: 36 });
     assert.equal(freshZero, "", "freshness summary stays hidden when no account is stale");
     globalThis.__currencyState = { phase: "ready", data: blocks.summary };

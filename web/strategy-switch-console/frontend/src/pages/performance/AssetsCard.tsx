@@ -142,7 +142,7 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
         <h2 className="card-title">{t("perf.assets_title")}</h2>
         <span className="perf-head-meta">
           {status && status !== "ok" && renderableStatus(status) && <StatusBadge status={status} reason={reason} />}
-          {status && renderableStatus(status) && <AsOfStamp value={asOf} />}
+          {status && renderableStatus(status) && asOf && <AsOfStamp value={asOf} />}
         </span>
       </div>
       {totals}

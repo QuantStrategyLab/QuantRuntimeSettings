@@ -5,7 +5,7 @@ import { useApi } from "../../lib/hooks";
 import { formatDate, formatPercentagePoints } from "../../lib/format";
 import { loadPerformanceSummary } from "../../api/endpoints";
 import type { Range, SummaryResponse } from "../../api/contracts";
-import { AsOfStamp, Money, Percent, Skeleton, StatusBadge } from "../../components/primitives";
+import { AsOfStamp, Badge, Money, Percent, Skeleton } from "../../components/primitives";
 import { KpiCard } from "../../components/KpiCard";
 import { renderableStatus } from "./shared";
 import { DIETZ_APPROX_LABEL_KEY, UNKNOWN_METHOD_LABEL_KEY, classifyCashflowMethod } from "./cashflowMethod";
@@ -18,10 +18,10 @@ export interface SummaryCardsProps {
   epoch: number;
 }
 
-/** Status text replaces the main value when the block cannot support a number. */
-function KpiState({ status, reason }: { status: string; reason?: string | null }) {
+/** The shared summary carries the state once; unavailable values themselves stay compact. */
+function KpiState({ status }: { status: string; reason?: string | null }) {
   const t = useT();
-  return <span className="kpi-state" title={reason ? t(`reason.${reason}`) : undefined}>{t(`state.${status}`)}</span>;
+  return <span className="flat kpi-empty-value">—<span className="sr-only">{t(`state.${status}`)}</span></span>;
 }
 
 /** Inline per-metric reason; skipped when the shared note above the grid already carries the same reason. */
@@ -32,13 +32,8 @@ function MetricReason({ reason, shared }: { reason?: string | null; shared?: str
 }
 
 function cardFooter(data: SummaryResponse, metricReason?: string | null) {
-  return (
-    <>
-      <StatusBadge status={data.status} reason={data.unavailable_reason} />
-      <AsOfStamp value={data.as_of} />
-      <MetricReason reason={metricReason} shared={data.unavailable_reason} />
-    </>
-  );
+  if (!metricReason || metricReason === data.unavailable_reason) return null;
+  return <MetricReason reason={metricReason} shared={data.unavailable_reason} />;
 }
 
 function TwrCard({ data }: { data: SummaryResponse }) {
@@ -52,7 +47,7 @@ function TwrCard({ data }: { data: SummaryResponse }) {
   // asset_change scopes have no qualified TWR; a stated reason explains the blank instead of a fake 0.
   if (data.twr_return_percent === null) {
     const reason = data.metric_reasons?.twr || data.unavailable_reason;
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t(`reason.${reason || "unknown"}`)} footer={cardFooter(data)} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={reason && reason !== data.unavailable_reason ? t(`reason.${reason}`) : undefined} footer={cardFooter(data)} />;
   }
   const sub = methodClass === "dietz_approx" ? t(DIETZ_APPROX_LABEL_KEY)
     : methodClass === "unknown" ? t(UNKNOWN_METHOD_LABEL_KEY) : undefined;
@@ -88,9 +83,7 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
   const title = t(classifyCashflowMethod(data) === "unknown" ? "perf.drawdown_plain_title" : "perf.drawdown_twr_title");
   const footer = cardFooter(data);
   if (data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable") {
-    // One shared status line keeps every KPI card the same height; per-currency detail stays in a tooltip.
-    const reasons = [...new Set(data.per_currency.map(item => item.max_drawdown.unavailable_reason))]
-      .filter((value): value is NonNullable<typeof value> => value != null);
+    // Each currency retains its own drawdown reason and dates.
     return <KpiCard title={title} value={<span className="currency-totals">
       {data.per_currency.map(item => {
         const dd = item.max_drawdown;
@@ -99,14 +92,12 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
           <span className="kpi-sub">{item.currency}</span>
           {tag && <span className="kpi-sub">{tag}</span>}
           {dd.percent === null ? <span className="flat">—</span> : <Percent value={-dd.percent || 0} />}
+          <MetricReason reason={dd.unavailable_reason} shared={data.unavailable_reason} />
           <span className="kpi-sub">{dd.peak_date && dd.trough_date
             ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) })
             : null}</span>
         </span>;
       })}
-      {reasons.length > 0 && <span className="kpi-sub" title={reasons.map(reason => t(`reason.${reason}`)).join(" · ")}>
-        {t(`reason.${reasons[0]}`)}
-      </span>}
     </span>} />;
   }
   if (!renderableStatus(data.status)) {
@@ -205,28 +196,28 @@ export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProp
   if (state.phase === "error") {
     const titles = ["perf.card.twr", "perf.card.amount", "perf.card.max_drawdown", "perf.card.excess", "perf.card.best_day", "perf.card.worst_day"];
     return (
-      <div className="perf-kpi-grid">
-        {titles.map((key, index) => (
-          <KpiCard
-            key={key}
-            title={t(key)}
-            value={<KpiState status="read_failed" />}
-            footer={
-              index === 0 ? (
-                <button type="button" className="button button-secondary button-sm" onClick={state.reload}>
-                  {t("common.retry")}
-                </button>
-              ) : undefined
-            }
-          />
-        ))}
+      <div className="section-stack">
+        <p className="metric-note perf-summary-note">
+          {t("state.read_failed")}{" "}
+          <button type="button" className="button button-secondary button-sm" onClick={state.reload}>{t("common.retry")}</button>
+        </p>
+        <div className="perf-kpi-grid">
+          {titles.map(key => <KpiCard key={key} title={t(key)} value={<KpiState status="read_failed" />} />)}
+        </div>
       </div>
     );
   }
   const data = state.data;
   return (
     <div className="section-stack">
-      {data.unavailable_reason && <p className="metric-note">{t(`reason.${data.unavailable_reason}`)}</p>}
+      {(data.status !== "ok" || data.unavailable_reason || data.as_of) && (
+        <p className="metric-note perf-summary-note">
+          {data.status === "stale" && <Badge tone="warn">{t("facts.stale_pending")}</Badge>}{" "}
+          {data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : data.status !== "ok" && data.status !== "stale" ? t(`state.${data.status}`) : null}
+          {(data.unavailable_reason || data.status !== "ok") && data.as_of ? " · " : ""}
+          {data.as_of && <AsOfStamp value={data.as_of} />}
+        </p>
+      )}
       <div className="perf-kpi-grid">
         <TwrCard data={data} />
         <AmountCard data={data} />

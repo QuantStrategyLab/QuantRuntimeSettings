@@ -1,11 +1,11 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
   "strategies.details": "详细信息",
-  "strategies.research_unavailable": "研究资料暂不可用。",
+  "strategies.research_unavailable": "研究资料暂时不可用。",
   "strategies.research_sources": "来源：{value}",
   "strategies.research_as_of": "资料日期：{value}",
   "strategies.research_expires": "有效期至 {value}",
-  "strategies.research_more": "更多信息",
+  "strategies.research_more": "查看说明",
   "research.source.generic": "研究来源",
   "research.source.quant-advisor-research": "量化研究信号",
   "research.source.quant_advisor_research": "量化研究信号",
@@ -14,15 +14,15 @@ export const zh: Record<string, string> = {
   "research.state.source_verification_required": "来源待核实",
   "research.state.deferred": "暂缓研究",
   "state.unknown": "未知",
-  "strategies.research_empty": "暂无研究线索。",
+  "strategies.research_empty": "暂无研究资料。",
 };
 export const en: Record<string, string> = {
   "strategies.details": "Details",
-  "strategies.research_unavailable": "Research data unavailable.",
+  "strategies.research_unavailable": "Research data is temporarily unavailable.",
   "strategies.research_sources": "Sources: {value}",
   "strategies.research_as_of": "Data as of: {value}",
   "strategies.research_expires": "Expires {value}",
-  "strategies.research_more": "More info",
+  "strategies.research_more": "View notes",
   "research.source.generic": "Research source",
   "research.source.quant-advisor-research": "Quant research signal",
   "research.source.quant_advisor_research": "Quant research signal",
@@ -31,5 +31,5 @@ export const en: Record<string, string> = {
   "research.state.source_verification_required": "Source verification required",
   "research.state.deferred": "Research deferred",
   "state.unknown": "Unknown",
-  "strategies.research_empty": "No research leads yet.",
+  "strategies.research_empty": "No research data yet.",
 };

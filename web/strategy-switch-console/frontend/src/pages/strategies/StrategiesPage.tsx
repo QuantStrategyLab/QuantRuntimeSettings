@@ -221,7 +221,7 @@ function ResearchTab({ refreshEpoch }: { refreshEpoch: number }) {
               const sourceLabels = observation.source_ids.map(id => {
                 const key = `research.source.${id}`;
                 const label = t(key);
-                return label === key ? t("research.source.generic") : label;
+                return label === key ? id : label;
               });
               return (
                 <div className="section-stack" key={observationIndex}>
@@ -232,12 +232,11 @@ function ResearchTab({ refreshEpoch }: { refreshEpoch: number }) {
                     >
                       {t(`research.state.${observation.research_context.state}`)}
                     </Badge>
+                    {observation.freshness.status !== "fresh" && (
+                      <StatusBadge status={observation.freshness.status} />
+                    )}
                   </div>
                   <p className="research-item-summary">{t("strategies.research_sources", { value: sourceLabels.join(" · ") || t("common.unknown") })}</p>
-                  <details className="research-item-more">
-                    <summary>{t("strategies.research_more")}</summary>
-                    <p>{observation.source_ids.join(" · ") || t("common.unknown")}</p>
-                  </details>
                   <p className="research-item-summary">{t("strategies.research_as_of", { value: observation.as_of })}</p>
                   <AsOfStamp value={observation.generated_at} />
                   <AsOfStamp value={observation.expires_at} prefix="strategies.research_expires" />

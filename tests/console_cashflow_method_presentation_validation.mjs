@@ -43,7 +43,7 @@ try {
   const TWR_KIND = { zh: "时间加权收益率（TWR）", en: "Time-weighted return (TWR)" };
   const ASSET_BALANCE = { zh: "资产余额 · 未与基准比较", en: "Asset balance · no benchmark comparison" };
   const STALE = { zh: "数据偏旧", en: "Stale" };
-  const UNKNOWN = { zh: "收益口径未知", en: "Return method unknown" };
+  const UNKNOWN = { zh: "收益计算方式未知", en: "Return method unknown" };
 
   const renderCards = (language, data) => {
     globalThis.__dietzState = { phase: "ready", data, reload() {} };
@@ -67,7 +67,7 @@ try {
     const dietzReturns = renderReturns(language, dietz.returns);
     assert.equal(kindLabel(dietzReturns), DIETZ[language], "curve kind label matches the card label");
     checks += 1;
-    ok(dietzReturns.includes(language === "zh" ? "使用 Modified Dietz 近似法" : "the Modified Dietz approximation is used"),
+    ok(dietzReturns.includes(language === "zh" ? "采用 Modified Dietz 近似法" : "Modified Dietz is used and labeled as approximate"),
       "method note explains the approximation instead of contradicting it");
 
     // 2. Qualified TWR without method metadata keeps the plain TWR label.
@@ -82,7 +82,7 @@ try {
     const twrReturns = renderReturns(language, twr.returns);
     assert.equal(kindLabel(twrReturns), TWR_KIND[language]);
     checks += 1;
-    ok(!twrReturns.includes(language === "zh" ? "使用 Modified Dietz 近似法" : "the Modified Dietz approximation is used"),
+    ok(!twrReturns.includes(language === "zh" ? "采用 Modified Dietz 近似法" : "Modified Dietz is used and labeled as approximate"),
       "method note stays the original TWR explanation");
 
     // 3. Legacy response without any optional fields keeps working unchanged.
@@ -91,8 +91,8 @@ try {
     ok(!oldCards.includes(DIETZ[language]));
     ok(oldCards.includes("—"), "missing TWR stays an honest blank");
     ok(!oldCards.includes("+0.00%"), "unknown TWR is never shown as zero");
-    ok(oldCards.includes(language === "zh" ? "缺少完整出入金记录，暂不展示 TWR；金额按资产变动展示。"
-      : "Complete cash-flow records are missing; TWR is unavailable and amounts are shown as asset change."), "TWR-unavailable reason kept");
+    ok(oldCards.includes(language === "zh" ? "缺少完整出入金记录，无法计算 TWR 及其回撤。"
+      : "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."), "TWR-unavailable reason kept");
     const oldReturns = renderReturns(language, old.returns);
     assert.equal(kindLabel(oldReturns), ASSET_BALANCE[language], "unadjusted ratio is labelled as asset balance, not a return");
     checks += 1;
@@ -138,7 +138,7 @@ try {
     const stale = fixture("stale-core");
     const staleCards = renderCards(language, stale.summary);
     ok(staleCards.includes("+10.00%"));
-    ok(staleCards.includes(STALE[language]), "stale badge still visible on the card");
+    ok(staleCards.includes(language === "zh" ? "待更新" : "Update pending"), "summary retains one visible stale signal");
     ok(!staleCards.includes(DIETZ[language]), "no method metadata means no approximate label");
     const staleReturns = renderReturns(language, stale.returns);
     assert.equal(kindLabel(staleReturns), TWR_KIND[language]);
@@ -185,7 +185,7 @@ try {
     const umReturns = renderReturns(language, unknownMethod.returns);
     assert.equal(kindLabel(umReturns), UNKNOWN[language], "curve labeled unknown, not TWR");
     checks += 1;
-    ok(umReturns.includes(language === "zh" ? "暂无法确认这段收益的计算口径" : "cannot be confirmed"),
+    ok(umReturns.includes(language === "zh" ? "收益计算方式尚未确认" : "The return method is unconfirmed"),
       "method note explains the unknown method instead of the exact-TWR text");
 
     // 7d. Inconsistent metadata (modified_dietz without approximate:true) is also unknown.

@@ -5,10 +5,26 @@
 .perf-kpi-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  align-items: stretch;
+  align-items: start;
   gap: 12px;
 }
-.perf-kpi-grid > .kpi-card { height: 100%; }
+.perf-kpi-grid > .kpi-card { height: auto; min-height: 0; padding: 12px 14px; gap: 4px; }
+.perf-kpi-grid .kpi-value { font-size: 24px; line-height: 1.2; }
+.perf-kpi-grid .kpi-empty-value { font-size: 20px; }
+.perf-kpi-grid .kpi-reason { font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--muted); }
+.perf-summary-note { margin: 0; line-height: 1.5; }
+.perf-kpi-grid .kpi-sub, .perf-kpi-grid .kpi-reason, .perf-summary-note { overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+  .perf-tab-body .table-wrap { max-width: 100%; overflow-x: auto; }
+  .perf-tab-body .data-table { min-width: 640px; }
+  .perf-tab-body .data-table th,
+  .perf-tab-body .data-table td {
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+}
 
 .perf-card-head {
   display: flex;
@@ -79,7 +95,9 @@
 }
 
 @media (max-width: 480px) {
-  .perf-kpi-grid { grid-template-columns: 1fr; }
+  .perf-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .perf-kpi-grid > .kpi-card { padding: 10px; }
+  .perf-kpi-grid .kpi-value { font-size: 20px; }
   .perf-card-head .card-title { font-size: 16px; }
   .method-note[open] .card-note { max-height: 32vh; }
 }
