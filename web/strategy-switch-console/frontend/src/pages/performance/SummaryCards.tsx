@@ -5,7 +5,7 @@ import { useApi } from "../../lib/hooks";
 import { formatDate, formatPercentagePoints } from "../../lib/format";
 import { loadPerformanceSummary } from "../../api/endpoints";
 import type { Range, SummaryResponse } from "../../api/contracts";
-import { AsOfStamp, Badge, Money, Percent, Skeleton } from "../../components/primitives";
+import { AsOfStamp, ErrorState, Money, Percent, Skeleton, StatusBadge } from "../../components/primitives";
 import { KpiCard } from "../../components/KpiCard";
 import { renderableStatus } from "./shared";
 import { DIETZ_APPROX_LABEL_KEY, UNKNOWN_METHOD_LABEL_KEY, classifyCashflowMethod } from "./cashflowMethod";
@@ -197,10 +197,7 @@ export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProp
     const titles = ["perf.card.twr", "perf.card.amount", "perf.card.max_drawdown", "perf.card.excess", "perf.card.best_day", "perf.card.worst_day"];
     return (
       <div className="section-stack">
-        <p className="metric-note perf-summary-note">
-          {t("state.read_failed")}{" "}
-          <button type="button" className="button button-secondary button-sm" onClick={state.reload}>{t("common.retry")}</button>
-        </p>
+        <ErrorState onRetry={state.reload} />
         <div className="perf-kpi-grid">
           {titles.map(key => <KpiCard key={key} title={t(key)} value={<KpiState status="read_failed" />} />)}
         </div>
@@ -211,12 +208,25 @@ export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProp
   return (
     <div className="section-stack">
       {(data.status !== "ok" || data.unavailable_reason || data.as_of) && (
-        <p className="metric-note perf-summary-note">
-          {data.status === "stale" && <Badge tone="warn">{t("facts.stale_pending")}</Badge>}{" "}
-          {data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : data.status !== "ok" && data.status !== "stale" ? t(`state.${data.status}`) : null}
-          {(data.unavailable_reason || data.status !== "ok") && data.as_of ? " · " : ""}
-          {data.as_of && <AsOfStamp value={data.as_of} />}
-        </p>
+        <div className="metric-note perf-summary-note">
+          {data.status !== "ok" ? (
+            <>
+              <StatusBadge status={data.status} reason={data.unavailable_reason} />
+              {(data.unavailable_reason || data.as_of) && (
+                <details className="state-details">
+                  <summary>{t("common.details")}</summary>
+                  {data.unavailable_reason && <p>{t(`reason.${data.unavailable_reason}`)}</p>}
+                  {data.as_of && <p><AsOfStamp value={data.as_of} /></p>}
+                </details>
+              )}
+            </>
+          ) : (
+            <>
+              {data.unavailable_reason && <span>{t(`reason.${data.unavailable_reason}`)}</span>}
+              {data.as_of && <AsOfStamp value={data.as_of} />}
+            </>
+          )}
+        </div>
       )}
       <div className="perf-kpi-grid">
         <TwrCard data={data} />

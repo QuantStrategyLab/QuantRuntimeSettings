@@ -7,7 +7,7 @@ import { useNavigate } from "../../app/context";
 import { setNavigationGuard } from "../../app/router";
 import { useT, type Translate } from "../../i18n";
 import { useApi } from "../../lib/hooks";
-import { AsOfStamp, Badge, StatusBadge } from "../../components/primitives";
+import { AsOfStamp, Badge, ErrorState, StatusBadge } from "../../components/primitives";
 import { AccountFactsAmounts } from "../../components/AccountFactsAmounts";
 import type { AccountFactsView } from "../../components/AccountGroups";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
@@ -123,15 +123,7 @@ export function AccountDetail({
           <section className="card">
             <h2 className="card-title">{t("accounts.tab.overview")}</h2>
             {diffState.phase === "loading" && <div className="skeleton" style={{ height: 200 }} aria-hidden="true" />}
-            {diffState.phase === "error" && (
-              <div className="error-state" role="alert">
-                <div className="error-title">{t("state.read_failed")}</div>
-                <div>{t("error.generic")}</div>
-                <div style={{ marginTop: 12 }}>
-                  <button type="button" className="button button-secondary" onClick={diffState.reload}>{t("common.retry")}</button>
-                </div>
-              </div>
-            )}
+            {diffState.phase === "error" && <ErrorState onRetry={diffState.reload} />}
             {diffState.phase === "ready" && (
               <>
                 {diffState.data.identity_status === "identity_conflict" && (

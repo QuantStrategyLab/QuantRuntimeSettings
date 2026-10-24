@@ -1,6 +1,6 @@
 import { InboxReadFailed } from "../../components/InboxReadFailed";
 import { inboxFailureState } from "../../lib/inboxFailure";
-import { FreshnessSummary } from "../../components/CurrencyTotals";
+import { CurrencyTotals } from "../../components/CurrencyTotals";
 import { AccountGroups } from "../../components/AccountGroups";
 import type { DirectoryConfig } from "../../lib/accountDirectory";
 import { useState } from "react";
@@ -86,24 +86,7 @@ function AssetKpi({ state }: { state: Api<AssetsResponse> }) {
   if (state.phase === "error") return <KpiCard title={title} value={<KpiState status="read_failed" />} sub={t("state.read_failed")} />;
   const data = state.data;
   if (data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable") {
-    return <KpiCard title={title} value={<span className="currency-totals overview-currency-totals">
-      {data.per_currency.map(item => {
-        const reason = item.unavailable_reason ? t(`reason.${item.unavailable_reason}`) : null;
-        const status = item.total === null && item.status === "ok" ? "unavailable" : item.status;
-        const showStatus = status !== "ok" && !(item.total === null && reason);
-        return <span className="currency-total" key={item.currency}>
-          <span className="kpi-sub">{t(item.status === "partial" ? "perf.currency_subtotal" : "perf.currency_total", { currency: item.currency })}</span>
-          <span className="num">{item.total === null ? "—" : <Money value={item.total} currency={item.currency} />}</span>
-          {item.account_count > 0 && item.account_count < item.expected_account_count && <span className="kpi-sub">{t("perf.currency_accounts", { count: item.account_count })}</span>}
-          {Boolean(item.excluded_account_count) && <span className="kpi-sub">{t("perf.currency_excluded_accounts", { count: item.excluded_account_count! })}</span>}
-          {(showStatus || item.as_of) && <span className="kpi-foot">
-            {showStatus && (item.status === "partial" ? <Badge tone="warn">{t("state.partial_valuation")}</Badge> : <StatusBadge status={status} />)}
-            {item.as_of && <AsOfStamp value={item.as_of} />}
-          </span>}
-          {reason && <span className="kpi-sub">{reason}</span>}
-        </span>;
-      })}
-    </span>} footer={data.freshness_summary && data.freshness_summary.stale > 0 ? <FreshnessSummary counts={data.freshness_summary} /> : undefined} />;
+    return <KpiCard title={title} value={<CurrencyTotals totals={data.per_currency} freshness={data.freshness_summary} />} />;
   }
   const balance = latestAssetBalance(data);
   const status = balance === null && usable(data.status) ? "unavailable" : data.status;
@@ -267,23 +250,21 @@ function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
       ];
       body = <LineChart series={series} mode="cumulative" ariaLabel={title} alignStart={data.aligned_start} />;
     } else {
-      body = (
-        <EmptyState
-          title={t(`state.${usable(data.status) ? "no_data" : data.status}`)}
-          body={data.status !== "partial" && data.status !== "stale" && data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
-        />
-      );
+      // The card links to the performance page, so keep its placeholder short
+      // instead of nesting a second interactive element inside the card button.
+      body = <EmptyState title={t(`state.${usable(data.status) ? "no_data" : data.status}`)} />;
     }
     if (data.status === "partial" || data.status === "stale") {
+      // One short state stays visible; the performance page holds the full reason.
       note = (
-        <p className="card-note overview-trend-note">
-          {data.unavailable_reason
-            ? <span>{t(`reason.${data.unavailable_reason}`)}</span>
-            : data.status === "partial"
-              ? <Badge tone="warn">{t("state.partial_valuation")}</Badge>
-              : <StatusBadge status={data.status} />}
-          {data.as_of && <>{" "}<AsOfStamp value={data.as_of} /></>}
-        </p>
+        <div className="card-note overview-trend-note">
+          {data.status === "partial"
+            ? <Badge tone="warn" title={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}>
+                {t("state.partial_valuation")}
+              </Badge>
+            : <StatusBadge status={data.status} reason={data.unavailable_reason} />}
+          {data.as_of && <AsOfStamp value={data.as_of} />}
+        </div>
       );
     }
   }
@@ -432,9 +413,11 @@ export default function OverviewPage() {
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">{t("nav.overview")}</h1>
-        <button type="button" className="button button-secondary overview-refresh" onClick={refresh}>
-          {t("common.refresh")}
-        </button>
+        <div className="page-header-actions">
+          <button type="button" className="button button-secondary" onClick={refresh}>
+            {t("common.refresh")}
+          </button>
+        </div>
       </div>
       <section className="overview-summary" aria-label={t("overview.asset_summary")}>
         <div className="overview-primary-kpi"><AssetKpi state={assets} /></div>

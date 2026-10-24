@@ -408,6 +408,42 @@ try {
     ok(!aliasGroup.includes(s.identity), "a canonical included row keeps the shared card amounts");
     ok((aliasGroup.match(/USD 1,234\.56/g) || []).length === 2, "the amount appears once on the card and once in the total");
 
+    // 18d. Known built-in IBKR titles follow the language switch; arbitrary
+    // custom aliases and generic tickers are never translated.
+    const builtInConfig = { accountOptions: { ibkr: [
+      { key: "synthetic-global", label: "Global ETF" },
+      { key: "synthetic-russell", label: "Russell Top 50" },
+      { key: "synthetic-custom", label: "My Custom Alias" },
+      { key: "synthetic-soxl", label: "SOXL" },
+    ] } };
+    const builtInHtml = ui.groups(language, [
+      dirRow("synthetic-global"), dirRow("synthetic-russell"), dirRow("synthetic-custom"), dirRow("synthetic-soxl"),
+    ], builtInConfig, { rows: [], phase: "ready" });
+    ok(builtInHtml.includes(language === "zh" ? "全球ETF" : "Global ETF"), "Global ETF follows the language switch");
+    ok(builtInHtml.includes(language === "zh" ? "罗素Top50" : "Russell Top 50"), "Russell Top 50 follows the language switch");
+    ok(builtInHtml.includes("My Custom Alias"), "custom aliases are never translated");
+    ok(builtInHtml.includes("SOXL"), "generic tickers keep their identifier");
+    if (language === "zh") ok(!builtInHtml.includes("Russell Top 50") && !builtInHtml.includes("Global ETF"), "known built-ins use Chinese titles");
+
+    // 18e. Unknown execution configuration is summarized once in card details,
+    // not repeated on the card rows; runtime-target state stays configuration-only.
+    const unknownConfig = { currentStrategies: { ibkr: { "ibkr-main": {
+      runtime_target_enabled: true,
+      execution_evidence: { value: "unknown", status: "confirmed", observed_at: null,
+        reason_codes: ["broker_environment_missing"], configuration_source: null, broker_environment: null },
+    } } } };
+    const unknownCard = ui.groups(language, [dirRow("ibkr-main")], unknownConfig, { rows: [baseFact()], phase: "ready" });
+    ok(!unknownCard.includes("execution-evidence-compact"), "unknown mode does not occupy the card main view");
+    assert.equal((unknownCard.match(/<details/g) || []).length, 1, "one expandable details entry per card");
+    checks += 1;
+    ok(unknownCard.includes(language === "zh" ? "账户目录缺少明确的券商环境" : "Account directory has no explicit broker environment"),
+      "unknown reason remains available in the details");
+    ok(unknownCard.includes(language === "zh"
+      ? "运行目标已启用只表示配置状态，不代表已实盘运行或今日已有成交。"
+      : "An enabled runtime target is configuration state only; it does not mean live trading ran or produced fills today."),
+      "enabled runtime target is not presented as live trading");
+    ok(unknownCard.includes(language === "zh" ? "已启用" : "Enabled"), "configuration state remains visible on the card");
+
     // 19. English output contains no Chinese; both languages leak no raw keys.
     if (language === "en") {
       for (const html of [ready, complete, partial, crossDay]) assert.doesNotMatch(html, /[一-鿿]/);

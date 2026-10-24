@@ -43,6 +43,7 @@ try {
   const TWR_KIND = { zh: "时间加权收益率（TWR）", en: "Time-weighted return (TWR)" };
   const ASSET_BALANCE = { zh: "资产余额 · 未与基准比较", en: "Asset balance · no benchmark comparison" };
   const STALE = { zh: "数据偏旧", en: "Stale" };
+  const AS_OF = { zh: "数据截至", en: "Data as of" };
   const UNKNOWN = { zh: "收益计算方式未知", en: "Return method unknown" };
 
   const renderCards = (language, data) => {
@@ -54,6 +55,12 @@ try {
     return ui.returns(language, data, scope);
   };
   const kindLabel = html => html.match(/<span class="perf-kind">([\s\S]*?)<\/span>/)?.[1] ?? null;
+  // Collapsed <details> content stays in SSR but is not part of the default view.
+  const outsideDetails = html => html.replace(/<details[\s\S]*?<\/details>/g, "");
+  const detailsText = html => [...html.matchAll(/<details[\s\S]*?<\/details>/g)].map(match => match[0]).join("");
+  const visibleText = html => outsideDetails(html).replace(/<[^>]*>/g, " ");
+  const visibleWarnBadges = html => [...outsideDetails(html).matchAll(/<span class="badge badge-warn"[^>]*>([\s\S]*?)<\/span>/g)]
+    .map(match => match[1].replace(/<[^>]*>/g, ""));
   let checks = 0;
   const ok = (...args) => { assert.ok(...args); checks += 1; };
 
@@ -138,8 +145,20 @@ try {
     const stale = fixture("stale-core");
     const staleCards = renderCards(language, stale.summary);
     ok(staleCards.includes("+10.00%"));
-    ok(staleCards.includes(language === "zh" ? "待更新" : "Update pending"), "summary retains one visible stale signal");
+    ok(visibleWarnBadges(staleCards).some(text => text.includes(STALE[language])),
+      "summary retains one visible stale badge outside details");
+    ok(detailsText(staleCards).includes(AS_OF[language]) && detailsText(staleCards).includes("10/16"),
+      "stale summary keeps its as-of time in details");
     ok(!staleCards.includes(DIETZ[language]), "no method metadata means no approximate label");
+    // A real stale reason must stay reachable too, without becoming default body copy.
+    const staleWithReason = structuredClone(stale.summary);
+    staleWithReason.unavailable_reason = "snapshot_history_missing";
+    const staleReasonCards = renderCards(language, staleWithReason);
+    const staleReason = language === "zh" ? "缺少历史资产快照" : "Historical asset snapshots are missing";
+    ok(visibleWarnBadges(staleReasonCards).some(text => text.includes(STALE[language])),
+      "stale reason variant still shows the visible stale badge");
+    ok(detailsText(staleReasonCards).includes(staleReason), "stale reason stays available in details");
+    ok(!visibleText(staleReasonCards).includes(staleReason), "stale reason is not repeated as default body copy");
     const staleReturns = renderReturns(language, stale.returns);
     assert.equal(kindLabel(staleReturns), TWR_KIND[language]);
     checks += 1;

@@ -258,14 +258,15 @@ export default function StrategiesPage() {
     <div className="page">
       <header className="page-header">
         <h1 className="page-title">{t("strategies.title")}</h1>
-        <span className="page-header-spacer" />
-        <button
-          type="button"
-          className="button button-secondary button-sm"
-          onClick={() => setRefreshEpoch(value => value + 1)}
-        >
-          {t("common.refresh")}
-        </button>
+        <div className="page-header-actions">
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => setRefreshEpoch(value => value + 1)}
+          >
+            {t("common.refresh")}
+          </button>
+        </div>
       </header>
       <Tabs
         id="strategies"

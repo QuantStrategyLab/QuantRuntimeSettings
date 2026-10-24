@@ -721,9 +721,11 @@ export default function DecisionsPage() {
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">{t("decisions.title")}</h1>
-        <button type="button" className="button button-secondary decision-refresh" onClick={refresh}>
-          {t("common.refresh")}
-        </button>
+        <div className="page-header-actions">
+          <button type="button" className="button button-secondary" onClick={refresh}>
+            {t("common.refresh")}
+          </button>
+        </div>
       </div>
       <div className="decisions-filters">
         <Tabs id="decisions" items={categoryTabs} active={category} onChange={id => setCategory(id as CategoryFilter)} ariaLabel={t("decisions.title")} />

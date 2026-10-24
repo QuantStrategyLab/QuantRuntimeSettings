@@ -2,7 +2,7 @@ import { useContext } from "react";
 import { AccountDirectoryContext } from "../app/context";
 import { useLanguage, useT } from "../i18n";
 import { accountOption, type AccountRef, type DirectoryConfig } from "./accountDirectory";
-import { accountName, strategyName, laneName, domainName } from "./displayNames";
+import { accountName, builtInAccountTitle, strategyName, laneName, domainName } from "./displayNames";
 
 export function useDisplayNames(override?: DirectoryConfig | null) {
   const directory = useContext(AccountDirectoryContext), language = useLanguage(), t = useT();
@@ -12,7 +12,10 @@ export function useDisplayNames(override?: DirectoryConfig | null) {
     account: (alias: string | null | undefined, platform?: string | null) => {
       if (!alias) return t("common.account");
       const option = platform ? accountOption(config, platform, alias) : undefined;
-      const label = accountName(alias, platform, language, option?.label && option.label !== alias ? option.label : t("common.account"));
+      // Built-in titles may arrive either as the alias or as the configured
+      // label; resolve both, while arbitrary custom labels pass through.
+      const builtIn = builtInAccountTitle(option?.label, language, platform) || builtInAccountTitle(alias, language, platform);
+      const label = builtIn || accountName(alias, platform, language, option?.label && option.label !== alias ? option.label : t("common.account"));
       // Broker account numbers are identifiers, not display names; they live in account details.
       if (/^U\d{5,}$/i.test(label.trim())) {
         return platform === "ibkr" ? t("common.ibkr_account") : t("common.account");

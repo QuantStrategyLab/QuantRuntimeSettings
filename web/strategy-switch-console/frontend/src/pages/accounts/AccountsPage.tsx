@@ -55,9 +55,11 @@ export default function AccountsPage({ account, tab }: { account: string | null;
         {accountsState.phase === "ready" && accountsState.data.status === "partial" && (
           <Badge tone="warn">{t("state.partial_valuation")}</Badge>
         )}
-        <button type="button" className="button button-secondary" onClick={() => setEpoch(value => value + 1)}>
-          {t("common.refresh")}
-        </button>
+        <div className="page-header-actions">
+          <button type="button" className="button button-secondary" onClick={() => setEpoch(value => value + 1)}>
+            {t("common.refresh")}
+          </button>
+        </div>
       </header>
       {!selected && accountsState.phase === "ready" && accountsState.data.unassigned_decision_count > 0 && (
         <p className="card-note accounts-unassigned">

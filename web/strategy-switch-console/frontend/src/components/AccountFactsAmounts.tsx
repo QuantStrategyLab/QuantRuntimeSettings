@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { AccountFactsAccount } from "../api/contracts";
 import { useT } from "../i18n";
 import { useNavigate, usePrefs } from "../app/context";
@@ -13,12 +14,40 @@ import "./account-facts.css";
 
 export type FactsPhase = "loading" | "error" | "ready";
 
-/** Single honest state line; read failure is never rendered as missing data. */
-export function FactsStateRow({ label, stateKey }: { label: string; stateKey: string }) {
+const SHORT_STATE = new Set([
+  "state.read_failed",
+  "state.not_connected",
+  "state.no_data",
+  "state.unknown_status",
+]);
+
+/**
+ * One short state plus an em dash; identity/conflict specifics stay exact but
+ * behind details. A read failure is never rendered as missing data.
+ */
+export function FactsStateRow({ label, stateKey, action }: {
+  label: string;
+  stateKey: string;
+  action?: ReactNode;
+}) {
   const t = useT();
+  const short = SHORT_STATE.has(stateKey);
   return (
-    <div className="account-facts">
-      <span className="account-row"><span>{label}</span><span>{t(stateKey)}</span></span>
+    <div className="account-facts account-facts-state">
+      <span className="account-row">
+        <span>{label}</span>
+        <span className="account-facts-state-value">
+          <span className="money flat">—</span>
+          <span className="account-state-label">{t(short ? stateKey : "facts.amount_unavailable")}</span>
+        </span>
+      </span>
+      {!short && (
+        <details className="state-details account-facts-details">
+          <summary>{t("common.details")}</summary>
+          <p>{t(stateKey)}</p>
+        </details>
+      )}
+      {action}
     </div>
   );
 }
@@ -120,12 +149,15 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
           : "state.no_data";
     if (stateKey === "facts.platform_identity_unverified") {
       return (
-        <div className="account-facts account-facts-platform-state">
-          <span className="account-row"><span>{t("facts.platform_total")}</span><span>{t(stateKey)}</span></span>
-          <button type="button" className="button button-secondary button-sm" onClick={() => navigate({ page: "accounts" })}>
-            {t("facts.identity_action")}
-          </button>
-        </div>
+        <FactsStateRow
+          label={t("facts.platform_total")}
+          stateKey={stateKey}
+          action={(
+            <button type="button" className="button button-secondary button-sm" onClick={() => navigate({ page: "accounts" })}>
+              {t("facts.identity_action")}
+            </button>
+          )}
+        />
       );
     }
     return <FactsStateRow label={t("facts.platform_total")} stateKey={stateKey} />;

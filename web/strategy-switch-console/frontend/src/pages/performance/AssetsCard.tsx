@@ -1,4 +1,4 @@
-import { CurrencyTotals, FreshnessSummary } from "../../components/CurrencyTotals";
+import { CurrencyTotals } from "../../components/CurrencyTotals";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useT } from "../../i18n";
@@ -38,13 +38,13 @@ function HistoryNotice({ status, points, coverage, currency, accounts = [] }: {
   }))];
   return <div className="card-note" role="status">
     <Badge tone="warn">{currency ? `${currency} · ` : ""}{t(status === "stale" ? "perf.history_stale" : "perf.history_incomplete")}</Badge>
-    <p>{t("perf.history_coverage_note")}</p>
-    {affected.length > 0 && (
-      <details className="history-accounts">
-        <summary>{t("perf.history_affected_accounts", { count: affected.length })}</summary>
-        <p>{labels.join(" · ")}</p>
-      </details>
-    )}
+    <details className="history-accounts state-details">
+      <summary>{affected.length > 0
+        ? t("perf.history_affected_accounts", { count: affected.length })
+        : t("common.details")}</summary>
+      <p>{t("perf.history_coverage_note")}</p>
+      {affected.length > 0 && <p>{labels.join(" · ")}</p>}
+    </details>
   </div>;
 }
 
@@ -65,17 +65,13 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
     body = <ErrorState onRetry={state.reload} />;
   } else {
     const data = state.data;
-    totals = data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable" ? <>
-      <CurrencyTotals totals={data.per_currency} />
-      <p className="card-note"><FreshnessSummary counts={data.freshness_summary} /></p>
-      <details className="card-details">
-        <summary>{t("perf.data_notes")}</summary>
-        <p>{t("perf.native_totals_note")}</p>
-        {data.freshness_summary && (
-          <p>{t("perf.freshness_threshold", { hours: data.freshness_summary.threshold_hours })}</p>
-        )}
-      </details>
-    </> : null;
+    totals = data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable"
+      ? <CurrencyTotals
+          totals={data.per_currency}
+          freshness={data.freshness_summary}
+          notes={<p>{t("perf.native_totals_note")}</p>}
+        />
+      : null;
     status = data.status;
     reason = data.unavailable_reason;
     asOf = data.as_of;
