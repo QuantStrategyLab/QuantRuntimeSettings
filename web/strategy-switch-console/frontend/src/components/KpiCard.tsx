@@ -1,17 +1,20 @@
 import type { ReactNode } from "react";
 
-/** Fixed KPI card structure: title / main value / sub line / status badge + data date. */
+/** Fixed KPI card structure: title / main value / sub line / status badge + data date / optional details. */
 export function KpiCard({
   title,
   value,
   sub,
   footer,
+  detail,
   onClick,
 }: {
   title: string;
   value: ReactNode;
   sub?: ReactNode;
   footer?: ReactNode;
+  /** Collapsible specifics; rendered only on non-navigating cards, never inside a button. */
+  detail?: ReactNode;
   onClick?: () => void;
 }) {
   // Block values (native-currency totals) need a div; keep spans when the card
@@ -27,5 +30,5 @@ export function KpiCard({
   if (onClick) {
     return <button type="button" className="kpi-card" onClick={onClick}>{inner("span")}</button>;
   }
-  return <div className="kpi-card">{inner("div")}</div>;
+  return <div className="kpi-card">{inner("div")}{detail}</div>;
 }

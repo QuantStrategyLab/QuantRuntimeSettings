@@ -12,6 +12,7 @@ export function ExecutionEvidence({ evidence, compact = false }: { evidence?: Ac
   const reasons = evidence?.reason_codes?.length ? evidence.reason_codes : ["evidence_missing"];
   const source = evidence?.configuration_source === "RUNTIME_TARGET_JSON" ? "runtime_target"
     : evidence?.configuration_source === "CLOUD_RUN_SERVICE_TARGETS_JSON" ? "service_target" : "missing";
+  const environmentKnown = evidence?.broker_environment === "live" || evidence?.broker_environment === "paper";
   const environment = t(evidence?.broker_environment === "live" ? "strategies.execution.live" : evidence?.broker_environment === "paper" ? "strategies.execution.paper" : "common.unknown");
   if (compact) {
     // Unknown configuration is explained once in the card's expandable data
@@ -27,11 +28,12 @@ export function ExecutionEvidence({ evidence, compact = false }: { evidence?: Ac
   }
   return <div className="section-stack">
     <span className={`badge badge-${value === "live" ? "warn" : value === "unknown" ? "unknown" : "accent"}`}>{t(`strategies.execution.${value}`)}</span>
-    {value === "unknown" && <span>{reasons.map(reason => t(`accounts.execution.reason.${reasonKeys.has(reason) ? reason : "evidence_missing"}`)).join(" · ")}</span>}
-    <span>{t("accounts.execution.broker_environment", { value: environment })}</span>
+    {environmentKnown && <span>{t("accounts.execution.broker_environment", { value: environment })}</span>}
     <details className="account-facts-notes">
       <summary>{t("accounts.data_notes")}</summary>
       <div className="section-stack">
+        {value === "unknown" && <span>{reasons.map(reason => t(`accounts.execution.reason.${reasonKeys.has(reason) ? reason : "evidence_missing"}`)).join(" · ")}</span>}
+        {!environmentKnown && <span>{t("accounts.execution.broker_environment", { value: environment })}</span>}
         <span>{t("accounts.execution.source", { value: t(`accounts.execution.source.${source}`) })}</span>
         <span>{t("accounts.execution.observed")} <time dateTime={evidence?.observed_at || undefined}>{checked.text}{checked.zone ? ` (${checked.zone})` : ""}</time></span>
         <span>{t("accounts.execution.config_only")}</span>

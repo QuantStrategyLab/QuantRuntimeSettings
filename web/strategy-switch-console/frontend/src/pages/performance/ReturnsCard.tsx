@@ -123,10 +123,15 @@ function ReturnsChart({
           <> · <StatusBadge status={view.status} reason={view.unavailableReason} /></>
         )}
       </p>
-      {view.returnKind === "unadjusted_asset_ratio" && (
-        <p className="card-note">{t("perf.asset_balance_note")}</p>
+      {view.returnKind === "unadjusted_asset_ratio" ? (
+        <details className="state-details curve-notes">
+          <summary>{t("common.details")}</summary>
+          <p>{t("perf.asset_balance_note")}</p>
+          {note && <p>{t(note)}</p>}
+        </details>
+      ) : (
+        note && <p className="card-note">{t(note)}</p>
       )}
-      {note && <p className="card-note">{t(note)}</p>}
       <LineChart
         // A new currency/benchmark set must re-apply the default visibility instead of
         // inheriting hidden state from the previous entry.

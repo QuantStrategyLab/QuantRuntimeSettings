@@ -45,6 +45,8 @@ try {
   const STALE = { zh: "数据偏旧", en: "Stale" };
   const AS_OF = { zh: "数据截至", en: "Data as of" };
   const UNKNOWN = { zh: "收益计算方式未知", en: "Return method unknown" };
+  const UNAVAILABLE = { zh: "暂不可计算", en: "Unavailable" };
+  const NO_DATA = { zh: "暂无数据", en: "No data" };
 
   const renderCards = (language, data) => {
     globalThis.__dietzState = { phase: "ready", data, reload() {} };
@@ -98,11 +100,33 @@ try {
     ok(!oldCards.includes(DIETZ[language]));
     ok(oldCards.includes("—"), "missing TWR stays an honest blank");
     ok(!oldCards.includes("+0.00%"), "unknown TWR is never shown as zero");
-    ok(oldCards.includes(language === "zh" ? "缺少完整出入金记录，无法计算 TWR 及其回撤。"
-      : "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."), "TWR-unavailable reason kept");
+    const missingCashflowReason = language === "zh" ? "缺少完整出入金记录，无法计算 TWR 及其回撤。"
+      : "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated.";
+    ok(detailsText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason kept in details");
+    ok(!visibleText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason is not default body copy");
+    ok(visibleText(oldCards).includes(UNAVAILABLE[language]), "the missing TWR keeps a short visible state");
     const oldReturns = renderReturns(language, old.returns);
     assert.equal(kindLabel(oldReturns), ASSET_BALANCE[language], "unadjusted ratio is labelled as asset balance, not a return");
     checks += 1;
+
+    // Other metric-specific reasons also stay out of the default card body.
+    const specific = structuredClone(twr.summary);
+    specific.excess_returns = [{ benchmark: "纳斯达克100", start: "2026-10-01", end: null,
+      percentage_points: null, unavailable_reason: "benchmark_history_missing" }];
+    specific.best_day = { date: "2026-10-16", amount: null, return_percent: null, value_kind: "pnl",
+      status: "unavailable", unavailable_reason: "no_snapshot" };
+    specific.worst_day = { ...specific.best_day, unavailable_reason: "no_cashflow_data" };
+    const specificCards = renderCards(language, specific);
+    const specificReasons = language === "zh"
+      ? ["缺少基准历史数据", "暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
+      : ["Benchmark history is missing", "No valuation is available.",
+        "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
+    for (const reason of specificReasons) {
+      ok(detailsText(specificCards).includes(reason), `metric reason kept in details: ${reason}`);
+      ok(!visibleText(specificCards).includes(reason), `metric reason absent from default card: ${reason}`);
+    }
+    ok(visibleText(specificCards).includes(UNAVAILABLE[language]), "unavailable metric keeps a short visible state");
+    ok(visibleText(specificCards).includes(NO_DATA[language]), "missing day keeps a short visible state");
 
     // 4. Unknown/incomplete source stays unknown, never a fake zero or a hidden Dietz.
     const unknown = fixture("unknown-core");
@@ -126,6 +150,22 @@ try {
     ok(twoCards.indexOf(DIETZ[language]) > twoCards.indexOf("USD")
       && (twoCards.match(/Modified Dietz/g) || []).length === 1,
       "only the USD row carries the approximate tag");
+    const drawdownReasons = structuredClone(two.summary);
+    drawdownReasons.per_currency[0].max_drawdown.unavailable_reason = "no_snapshot";
+    drawdownReasons.per_currency[1].max_drawdown.percent = null;
+    drawdownReasons.per_currency[1].max_drawdown.unavailable_reason = "no_cashflow_data";
+    const drawdownCards = renderCards(language, drawdownReasons);
+    const drawdownTexts = language === "zh"
+      ? ["暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
+      : ["No valuation is available.", "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
+    for (const reason of drawdownTexts) {
+      ok(detailsText(drawdownCards).includes(reason), `per-currency drawdown reason kept in details: ${reason}`);
+      ok(!visibleText(drawdownCards).includes(reason), `per-currency drawdown reason absent from default card: ${reason}`);
+    }
+    ok(visibleText(drawdownCards).includes("HKD") && visibleText(drawdownCards).includes("USD"),
+      "currency labels remain visible next to their drawdowns");
+    ok(visibleText(drawdownCards).includes(DIETZ[language]), "the real approximate method tag remains visible");
+    ok(visibleText(drawdownCards).includes("—"), "missing drawdowns keep an honest blank");
     const twoReturns = renderReturns(language, two.returns, "all");
     ok(twoReturns.includes(">USD</button>") && twoReturns.includes(">HKD</button>"), "currency switch offers each entry");
     assert.equal((twoReturns.match(/class="perf-kind"/g) || []).length, 1, "only the selected currency curve is rendered");

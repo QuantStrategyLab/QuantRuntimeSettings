@@ -103,6 +103,9 @@ test("real bilingual account group renders reasons, source and read time", async
       bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", define: { "import.meta.env": "{}" }, loader: { ".css": "empty" },
     });
     const ui = createRequire(import.meta.url)(outfile);
+    const outsideDetails = html => html.replace(/<details[\s\S]*?<\/details>/g, "");
+    const detailsText = html => [...html.matchAll(/<details[\s\S]*?<\/details>/g)].map(match => match[0]).join("");
+    const visibleText = html => outsideDetails(html).replace(/<[^>]*>/g, " ");
     for (const [language, unknown, failed, missing] of [
       ["zh", "执行模式未知", "配置读取失败", "账户目录缺少明确的券商环境"],
       ["en", "Execution mode unknown", "Configuration read failed", "Account directory has no explicit broker environment"],
@@ -113,12 +116,31 @@ test("real bilingual account group renders reasons, source and read time", async
       assert.ok(!markup.includes("badge-warn"));
       assert.ok(ui.render(language, accountExecutionEvidence({}, {}, { status: "read_failed", observedAt })).includes(failed));
       assert.ok(ui.render(language, undefined).includes(unknown));
+      const unknownMarkup = ui.renderEvidence(language, unknownEvidence);
+      assert.match(unknownMarkup, /badge-unknown/);
+      assert.ok(visibleText(unknownMarkup).includes(unknown), "the unknown badge stays visible");
+      assert.ok(!visibleText(unknownMarkup).includes(missing), "the long unknown reason is not default body copy");
+      assert.ok(detailsText(unknownMarkup).includes(missing), "the long unknown reason stays in data notes");
+      const unknownEnvironment = language === "zh" ? "券商环境：未知" : "Broker environment: Unknown";
+      assert.ok(!visibleText(unknownMarkup).includes(unknownEnvironment), "unknown broker environment is not default body copy");
+      assert.ok(detailsText(unknownMarkup).includes(unknownEnvironment), "unknown broker environment stays in data notes");
+      const configOnly = language === "zh" ? "仅说明已读取的配置，当前运行及成交状态未验证。"
+        : "Describes the configuration read; current runs and fills are unverified.";
+      assert.ok(!visibleText(unknownMarkup).includes(configOnly), "configuration-only caveat stays in details");
+      assert.ok(detailsText(unknownMarkup).includes(configOnly));
+      assert.ok(detailsText(unknownMarkup).includes(language === "zh" ? "运行目标配置" : "Runtime target configuration"),
+        "the configuration source stays in data notes");
       const definite = ui.renderEvidence(language, accountExecutionEvidence({ broker_environment: "live" }, live, { observedAt }));
       assert.match(definite, /badge-warn/);
+      assert.ok(visibleText(definite).includes(language === "zh" ? "券商环境：实盘" : "Broker environment: Live"),
+        "a known broker environment stays visible");
       assert.ok(definite.includes("2026"));
       assert.match(definite, /\d{2}:\d{2}/);
       assert.match(definite, /GMT/);
       assert.match(definite, new RegExp(`datetime="${observedAt}"`, "i"));
+      assert.ok(detailsText(definite).includes(language === "zh" ? "运行目标配置" : "Runtime target configuration"),
+        "the known configuration source stays reachable");
+      assert.ok(detailsText(definite).includes(configOnly), "the configuration-only caveat stays reachable");
       assert.ok(!definite.includes("RUNTIME_TARGET_JSON"));
       assert.ok(!markup.includes("accounts.execution."));
     }

@@ -77,6 +77,19 @@ function kpiLoading(title: string) {
   return <KpiCard title={title} value={<Skeleton height={28} width="70%" />} />;
 }
 
+/** Long per-KPI reasons stay one tap away instead of filling the default card. */
+function KpiDetails({ reason, asOf }: { reason?: string | null; asOf?: string | null }) {
+  const t = useT();
+  if (!reason && !asOf) return null;
+  return (
+    <details className="state-details kpi-details">
+      <summary>{t("common.details")}</summary>
+      {reason && <p>{t(`reason.${reason}`)}</p>}
+      {asOf && <p><AsOfStamp value={asOf} /></p>}
+    </details>
+  );
+}
+
 /* ---------- KPI cards ---------- */
 
 function AssetKpi({ state }: { state: Api<AssetsResponse> }) {
@@ -90,19 +103,18 @@ function AssetKpi({ state }: { state: Api<AssetsResponse> }) {
   }
   const balance = latestAssetBalance(data);
   const status = balance === null && usable(data.status) ? "unavailable" : data.status;
-  const reason = data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : null;
+  const abnormal = balance === null || data.status !== "ok" || Boolean(data.unavailable_reason);
   const value = balance !== null
     ? <Money value={balance} currency={data.currency} />
     : <KpiState status={status} reason={data.unavailable_reason} />;
-  const sub = balance === null
-    ? reason || t(`state.${status}`)
-    : reason;
+  const sub = balance === null ? t(`state.${status}`) : undefined;
   const showStatus = balance !== null && status !== "ok";
-  const footer = showStatus || data.as_of ? <>
+  const footer = showStatus || (!abnormal && data.as_of) ? <>
     {showStatus && <StatusBadge status={status} reason={data.unavailable_reason} />}
-    {data.as_of && <AsOfStamp value={data.as_of} />}
+    {!abnormal && data.as_of && <AsOfStamp value={data.as_of} />}
   </> : undefined;
-  return <KpiCard title={title} value={value} sub={sub || undefined} footer={footer} />;
+  return <KpiCard title={title} value={value} sub={sub}
+    footer={footer} detail={abnormal ? <KpiDetails reason={data.unavailable_reason} asOf={data.as_of} /> : undefined} />;
 }
 
 /** Method tag for the range-return KPI, matching the performance page cards. */
@@ -121,20 +133,21 @@ function ReturnKpi({ state }: { state: Api<SummaryResponse> }) {
   if (state.phase === "error") return <KpiCard title={title} value={<KpiState status="read_failed" />} sub={t("state.read_failed")} />;
   const data = state.data;
   if (!usable(data.status)) {
-    const sub = data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : t(`state.${data.status}`);
-    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} sub={sub}
-      footer={data.as_of ? <AsOfStamp value={data.as_of} /> : undefined} />;
+    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />}
+      sub={t(`state.${data.status}`)}
+      detail={<KpiDetails reason={data.unavailable_reason} asOf={data.as_of} />} />;
   }
-  const footer = data.status !== "ok" || data.as_of ? <>
-    {data.status !== "ok" && <StatusBadge status={data.status} reason={data.unavailable_reason} />}
-    {data.as_of && <AsOfStamp value={data.as_of} />}
-  </> : undefined;
+  const abnormal = data.status !== "ok";
+  const reason = data.metric_reasons?.twr || data.unavailable_reason;
+  const statusBadge = abnormal ? <StatusBadge status={data.status} reason={data.unavailable_reason} /> : undefined;
   if (data.twr_return_percent === null) {
-    const reason = data.metric_reasons?.twr || data.unavailable_reason;
     return <KpiCard title={title} value={<span className="flat">—</span>}
-      sub={reason ? t(`reason.${reason}`) : returnMethodLabel(data, t)} footer={footer} />;
+      sub={t("state.unavailable")} footer={statusBadge}
+      detail={<KpiDetails reason={reason} asOf={data.as_of} />} />;
   }
-  return <KpiCard title={title} value={<Percent value={data.twr_return_percent} />} sub={returnMethodLabel(data, t)} footer={footer} />;
+  return <KpiCard title={title} value={<Percent value={data.twr_return_percent} />} sub={returnMethodLabel(data, t)}
+    footer={abnormal ? statusBadge : data.as_of ? <AsOfStamp value={data.as_of} /> : undefined}
+    detail={abnormal ? <KpiDetails reason={data.unavailable_reason} asOf={data.as_of} /> : undefined} />;
 }
 
 function LastDayKpi({ state }: { state: Api<CalendarResponse> }) {
@@ -143,22 +156,22 @@ function LastDayKpi({ state }: { state: Api<CalendarResponse> }) {
   if (state.phase === "loading") return kpiLoading(title);
   if (state.phase === "error") return <KpiCard title={title} value={<KpiState status="read_failed" />} sub={t("state.read_failed")} />;
   const data = state.data;
-  const kindLabel = data.value_kind === "pnl" ? t("perf.value_kind_pnl") : t("perf.value_kind_asset_change");
   if (!usable(data.status)) {
-    const sub = data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : t(`state.${data.status}`);
-    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} sub={sub}
-      footer={data.as_of ? <AsOfStamp value={data.as_of} /> : undefined} />;
+    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />}
+      sub={t(`state.${data.status}`)}
+      detail={<KpiDetails reason={data.unavailable_reason} asOf={data.as_of} />} />;
   }
-  const footer = data.status !== "ok" || data.as_of ? <>
-    {data.status !== "ok" && <StatusBadge status={data.status} reason={data.unavailable_reason} />}
-    {data.as_of && <AsOfStamp value={data.as_of} />}
-  </> : undefined;
+  const abnormal = data.status !== "ok";
+  const statusBadge = abnormal ? <StatusBadge status={data.status} reason={data.unavailable_reason} /> : undefined;
+  const footer = abnormal ? statusBadge : data.as_of ? <AsOfStamp value={data.as_of} /> : undefined;
   const today = localToday();
   const cell = data.cells
     .filter((item): item is typeof item & { date: string } => Boolean(item.date) && item.date! <= today && (item.amount !== null || item.return_percent !== null))
     .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
   if (!cell) {
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={kindLabel} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t("state.no_data")}
+      footer={statusBadge}
+      detail={<KpiDetails reason={data.unavailable_reason} asOf={data.as_of} />} />;
   }
   const value =
     cell.amount !== null ? (
@@ -167,7 +180,8 @@ function LastDayKpi({ state }: { state: Api<CalendarResponse> }) {
       <Percent value={cell.return_percent} />
     );
   const cellKind = cell.value_kind === "pnl" ? t("perf.value_kind_pnl") : t("perf.value_kind_asset_change");
-  return <KpiCard title={title} value={value} sub={cellKind} footer={footer} />;
+  return <KpiCard title={title} value={value} sub={cellKind} footer={footer}
+    detail={abnormal ? <KpiDetails reason={data.unavailable_reason} asOf={data.as_of} /> : undefined} />;
 }
 
 function TodosKpi({ state }: { state: Api<InboxResponse> }) {
