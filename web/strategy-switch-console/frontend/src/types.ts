@@ -99,13 +99,15 @@ export type AccountFactsAccount = {
   broker_account_type?: SchwabBrokerAccountType;
   positions?: AccountFactsPosition[];
   positions_scope?: "stocks_only" | "strategy_symbols_only";
+  /** Completeness of this scoped inventory, independent of price availability. */
+  positions_complete?: true;
   return: AccountFactsReturn;
 };
 
 export type AccountFactsPosition = {
   symbol: string;
   quantity: string;
-  market_value: string;
+  market_value: string | null;
   currency: string;
   avg_cost?: string;
   currency_source?: "owner_confirmed";

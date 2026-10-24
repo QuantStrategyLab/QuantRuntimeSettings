@@ -49,6 +49,9 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
   if (!renderableStatus(data.status)) {
     return <EmptyState title={t(`state.${data.status}`)} state={data.status} />;
   }
+  // Each field renders its own broker-reported value; a row that is only partial
+  // (e.g. missing avg_cost) keeps its known quantity and market value. A row whose
+  // status is not renderable shows no financial value even if numbers linger.
   const columns: Column<HoldingRow>[] = [
     { id: "account", header: t("perf.col.account"), cell: row => names.account(row.account_alias, row.platform), sortValue: row => row.account_alias },
     { id: "symbol", header: t("perf.col.symbol"), cell: row => row.symbol, sortValue: row => row.symbol },
@@ -56,28 +59,28 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
       id: "quantity",
       header: t("perf.col.quantity"),
       numeric: true,
-      cell: row => (row.status !== "ok" ? "—" : <QuantityValue value={row.quantity} />),
+      cell: row => (renderableStatus(row.status) ? <QuantityValue value={row.quantity} /> : "—"),
       sortValue: row => row.quantity,
     },
     {
       id: "market_value",
       header: `${t("perf.col.market_value")} (${t("perf.col.currency")})`,
       numeric: true,
-      cell: row => (row.status !== "ok" ? "—" : <Money value={row.market_value} currency={row.currency} />),
+      cell: row => (renderableStatus(row.status) ? <Money value={row.market_value} currency={row.currency} /> : "—"),
       sortValue: row => row.market_value,
     },
     {
       id: "avg_cost",
       header: t("perf.col.avg_cost"),
       numeric: true,
-      cell: row => (row.status !== "ok" ? "—" : <Money value={row.avg_cost} currency={row.currency} />),
+      cell: row => (renderableStatus(row.status) ? <Money value={row.avg_cost} currency={row.currency} /> : "—"),
       sortValue: row => row.avg_cost,
     },
     {
       id: "unrealized_pnl",
       header: t("perf.col.unrealized_pnl"),
       numeric: true,
-      cell: row => (row.status !== "ok" ? "—" : <Money value={row.unrealized_pnl} currency={row.currency} signed />),
+      cell: row => (renderableStatus(row.status) ? <Money value={row.unrealized_pnl} currency={row.currency} signed /> : "—"),
       sortValue: row => row.unrealized_pnl,
     },
     {

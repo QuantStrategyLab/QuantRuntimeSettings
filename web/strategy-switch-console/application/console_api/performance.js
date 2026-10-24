@@ -206,7 +206,7 @@ export function holdingsRows(accounts) {
                 ? "position_value_missing"
                 : null,
           coverage: a.positions_scope || "unknown",
-          status: cost === null ? "partial" : "ok",
+          status: cost === null || quantity === null || value === null ? "partial" : "ok",
         };
       }),
     )
@@ -385,6 +385,11 @@ export function performanceBlocks({
     coverage: { ...coverage, ...singleAssetHistory.coverage },
     value_kind: "asset_change",
   } : {};
+  const positions = holdingsRows(accounts);
+  const completeInventory = accounts.length > 0
+    && accounts.every(a => a.positions_complete === true && Array.isArray(a.positions))
+    && positions.every(row => row.status === "ok");
+  const knownInventory = accounts.some(a => a.positions?.length || a.positions_complete === true);
   return {
     calendar: {
       ...meta,
@@ -485,19 +490,20 @@ export function performanceBlocks({
       curve_coverage: singleAssetHistory ? singleAssetHistory.coverage : null,
     },
     holdings: {
-      status: accounts.some((a) => a.positions?.length) ? "partial" : "no_data",
-      unavailable_reason: accounts.some((a) => a.positions?.length)
-        ? "positions_partial_coverage" : "positions_not_connected",
+      status: completeInventory ? "ok" : knownInventory ? "partial" : "no_data",
+      unavailable_reason: completeInventory ? null
+        : knownInventory ? "positions_partial_coverage" : "positions_not_connected",
       as_of: null,
       account_freshness: freshness.accounts,
       freshness_summary: freshness.summary,
       coverage: accounts.map((a, i) => ({
         ...(a.platform ? freshness.accounts[i] : { account_alias: a.account_key }),
         scope: a.positions_scope || "not_connected",
+        ...(a.positions_complete === true ? { complete: true } : {}),
       })),
       label_key: "performance.current_holdings_unrealized",
       value_kind: "pnl",
-      rows: holdingsRows(accounts).map((row) => {
+      rows: positions.map((row) => {
         const account = freshness.accounts.find((a) => a.platform === row.platform && a.account_alias === row.account_alias);
         return { ...row, as_of: account?.as_of || null, freshness: account?.freshness || "unknown", stale: account?.stale ?? null };
       }),

@@ -135,4 +135,5 @@ assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, completeness:
 assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, status: "missing_report" } }), "incomplete");
 assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, status: "read_incomplete" } }), "read-failed");
 
+await import("./console_holdings_known_fields_ui_validation.mjs");
 console.log("console_v2_regressions_validation: PASS (balances, compounded daily returns, reviewed bindings, account choice, explicit runtime outcomes; synthetic only)");
