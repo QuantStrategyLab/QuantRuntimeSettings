@@ -1,7 +1,7 @@
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
 import { sourceListFailure } from "./application/console_api/read_failures.js";
-import { strategyTargetExecution } from "./application/console_api/strategy_execution.js";
+import { strategyTargetExecution, accountExecutionEvidence } from "./application/console_api/strategy_execution.js";
 import { performanceResponse } from "./application/console_api/performance_routes.js";
 import { consoleApiResponse } from "./application/console_api/routes.js";
 import { runControls } from "./application/console_api/run_controls.js";
@@ -421,8 +421,6 @@ const ACCOUNT_DIAGNOSIS_TARGETS = Object.freeze({
     recheckWorkflow: "runtime-target-lifecycle.yml",
   }),
 });
-const ACCOUNT_DIAGNOSIS_WORKFLOW_REPOSITORY = "QuantStrategyLab/QuantAIService";
-const ACCOUNT_DIAGNOSIS_WORKFLOW = "codex_audit.yml";
 const ACCOUNT_DIAGNOSIS_TRIGGERS = ["incident", "manual_check"];
 const ACCOUNT_DIAGNOSIS_STATUSES = ["queued", "running", "succeeded", "failed", "unknown"];
 const ACCOUNT_DIAGNOSIS_REASON_CODES = ["diagnosis_ready", "capacity_unavailable", "codex_unavailable", "invalid_response"];
@@ -431,7 +429,7 @@ const ACCOUNT_DIAGNOSIS_SUMMARY_MAX_CHARS = 600;
 const ACCOUNT_DIAGNOSIS_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const ACCOUNT_DIAGNOSIS_AUTO_ENABLED_ENV = "ACCOUNT_DIAGNOSIS_AUTO_ENABLED";
 const ACCOUNT_DIAGNOSIS_DO_ACTIONS = new Set([
-  "diagnosis_create", "diagnosis_latest", "diagnosis_read", "diagnosis_mark_dispatch", "diagnosis_claim", "diagnosis_result", "diagnosis_mark_recheck",
+  "diagnosis_create", "diagnosis_latest", "diagnosis_read", "diagnosis_mark_dispatch", "diagnosis_claim", "diagnosis_result", "diagnosis_mark_recheck", "diagnosis_native_intent", "diagnosis_native_save", "diagnosis_native_cancel",
 ]);
 /** Stable 409/qualification reason codes for /api/account-diagnosis (P0-08). */
 const ACCOUNT_DIAGNOSIS_CONFLICT_REASON_TEXT = Object.freeze({
@@ -446,6 +444,7 @@ const ACCOUNT_DIAGNOSIS_CONFLICT_REASON_TEXT = Object.freeze({
   account_diagnosis_source_unavailable: "生命周期来源不可用（非 ready/stale）。",
   account_diagnosis_observation_missing: "缺少观测时间，无法确认诊断资格。",
   account_diagnosis_incident_requires_attention: "incident 触发需要已确认的监测关注项。",
+  account_diagnosis_native_binding_conflict: "诊断原生任务身份或材料绑定冲突。",
   account_diagnosis_workflow_binding_conflict: "诊断工作流运行绑定冲突。",
   account_diagnosis_schema_incompatible: "诊断上下文 schema 不兼容。",
 });
@@ -2070,6 +2069,8 @@ function accountDiagnosisTaskFromRow(row) {
     checks: JSON.parse(row.checks_json),
     state_fingerprint: row.state_fingerprint,
     status: row.status,
+    native: row.native_json ? JSON.parse(row.native_json) : null,
+    backend_kind: row.native_json ? "native" : "legacy",
     workflow_run_id: row.workflow_run_id || null,
     workflow_run_attempt: row.workflow_run_attempt || null,
     job_id: row.job_id || null,
@@ -2241,6 +2242,7 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL
     )`);
     try { this.sql.exec("ALTER TABLE account_diagnosis_tasks ADD COLUMN auto_source TEXT NOT NULL DEFAULT 'manual'"); } catch { /* already present */ }
+    try { this.sql.exec("ALTER TABLE account_diagnosis_tasks ADD COLUMN native_json TEXT"); } catch { /* already present */ }
     this.sql.exec("CREATE INDEX IF NOT EXISTS account_diagnosis_tasks_fingerprint ON account_diagnosis_tasks (target_id, state_fingerprint, updated_at)");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS research_promotion_applications (
       application_id TEXT PRIMARY KEY,
@@ -4152,6 +4154,9 @@ export class RuntimeInstances {
       }
       if (command.action === "diagnosis_create") {
         const autoSource = command.auto_source === "source_sync" ? "source_sync" : "manual";
+        // Unclosed work keeps its original obligation regardless of age or fingerprint.
+        const unresolved = this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE target_id = ? AND status IN ('queued', 'running', 'unknown') ORDER BY updated_at DESC LIMIT 1", command.target_id).toArray()[0];
+        if (unresolved) return { ok: true, created: false, task: accountDiagnosisTaskFromRow(unresolved) };
         const existing = autoSource === "source_sync"
           ? this.sql.exec(
             "SELECT * FROM account_diagnosis_tasks WHERE target_id = ? AND auto_source = ? AND updated_at >= ? ORDER BY updated_at DESC LIMIT 1",
@@ -4209,36 +4214,71 @@ export class RuntimeInstances {
       const row = this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0];
       if (!row) throw new HttpError("account_diagnosis_request_not_found", 404);
       if (command.action === "diagnosis_read") return { ok: true, task: accountDiagnosisTaskFromRow(row) };
-      if (command.action === "diagnosis_mark_dispatch") {
-        if (row.dispatch_state !== "pending") return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
-        this.sql.exec("UPDATE account_diagnosis_tasks SET dispatch_state = ?, updated_at = ? WHERE request_id = ?", command.dispatch_state, command.updated_at, requestId);
-        return { ok: true, changed: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
-      }
-      if (command.action === "diagnosis_claim") {
-        const claimed = row.status === "queued" && ["pending", "sent", "unknown"].includes(row.dispatch_state);
-        if (claimed) {
-          this.sql.exec(
-            "UPDATE account_diagnosis_tasks SET status = 'running', workflow_run_id = ?, workflow_run_attempt = ?, updated_at = ? WHERE request_id = ?",
-            command.workflow_run_id, command.workflow_run_attempt, command.updated_at, requestId,
-          );
+      if (command.action === "diagnosis_native_intent") {
+        if (row.native_json) {
+          const old = JSON.parse(row.native_json);
+          if (canonicalResearchTaskJson(old.binding) !== canonicalResearchTaskJson(command.native.binding)
+            || old.request_sha256 !== command.native.request_sha256) throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+          return { ok: true, created: false, task: accountDiagnosisTaskFromRow(row) };
         }
-        return { ok: true, claimed };
+        if (row.workflow_run_id || row.workflow_run_attempt || row.status !== "queued" || row.dispatch_state !== "pending") {
+          throw new HttpError("account_diagnosis_legacy_retired", 409);
+        }
+        this.sql.exec("UPDATE account_diagnosis_tasks SET native_json = ?, updated_at = ? WHERE request_id = ?",
+          JSON.stringify(command.native), command.updated_at, requestId);
+        return { ok: true, created: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
       }
-      if (command.action === "diagnosis_result") {
-        const sameRun = row.workflow_run_id === command.workflow_run_id && row.workflow_run_attempt === command.workflow_run_attempt;
-        if (["succeeded", "failed", "unknown"].includes(row.status)) {
-          if (!sameRun) throw accountDiagnosisConflict("account_diagnosis_workflow_binding_conflict");
+      if (command.action === "diagnosis_native_cancel") {
+        if (!row.native_json) throw new HttpError("account_diagnosis_legacy_retired", 409);
+        const native = JSON.parse(row.native_json);
+        // The first durable terminal receipt or cancellation wins atomically.
+        if (native.receipt) return { ok: true, send_cancel: false, task: accountDiagnosisTaskFromRow(row) };
+        const send = Boolean(native.task_id && !native.cancel_sent);
+        native.cancel_requested = true;
+        native.cancel_sent = native.cancel_sent || send;
+        native.phase = "hold";
+        this.sql.exec("UPDATE account_diagnosis_tasks SET native_json = ?, status = 'unknown', summary = '', reason_code = '', recheck_dispatch_state = 'not_requested', updated_at = ? WHERE request_id = ?",
+          JSON.stringify(native), command.updated_at, requestId);
+        return { ok: true, send_cancel: send, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
+      }
+      if (command.action === "diagnosis_native_save") {
+        if (!row.native_json) throw new HttpError("account_diagnosis_legacy_retired", 409);
+        const old = JSON.parse(row.native_json), next = command.native;
+        for (const field of ["version", "binding", "request", "input_sha256", "request_sha256", "operation_key", "deadline"]) {
+          if (canonicalResearchTaskJson(old[field]) !== canonicalResearchTaskJson(next[field])) throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+        }
+        if ((old.task_id && old.task_id !== next.task_id) || (old.task_deadline !== null && old.task_deadline !== next.task_deadline)
+          || (old.claim && canonicalResearchTaskJson(old.claim) !== canonicalResearchTaskJson(next.claim))
+          || (old.cancel_sent && !next.cancel_sent) || (old.cancel_requested && !next.cancel_requested)
+          || !ACCOUNT_DIAGNOSIS_STATUSES.includes(command.status)) {
+          throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+        }
+        if (old.receipt) {
+          if (old.receipt !== next.receipt) throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
           return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
         }
-        if (row.status !== "running" || !sameRun) throw accountDiagnosisConflict("account_diagnosis_workflow_binding_conflict");
-        const recheckState = command.status === "succeeded" ? "pending" : "not_requested";
-        this.sql.exec(
-          `UPDATE account_diagnosis_tasks
-           SET status = ?, job_id = ?, summary = ?, reason_code = ?, recheck_dispatch_state = ?, updated_at = ?
-           WHERE request_id = ?`,
-          command.status, command.job_id || null, command.summary, command.reason_code, recheckState, command.updated_at, requestId,
-        );
+        if (command.status === "succeeded" && (old.cancel_requested || old.cancel_sent
+          || Date.now() / 1000 >= Math.min(old.deadline, next.task_deadline ?? Infinity))) {
+          throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+        }
+        const recheck = command.status === "succeeded" ? "pending" : row.recheck_dispatch_state;
+        this.sql.exec("UPDATE account_diagnosis_tasks SET native_json = ?, status = ?, summary = ?, reason_code = ?, dispatch_state = 'sent', recheck_dispatch_state = ?, updated_at = ? WHERE request_id = ?",
+          JSON.stringify(next), command.status, command.summary, command.reason_code, recheck, command.updated_at, requestId);
         return { ok: true, changed: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
+      }
+      if (command.action === "diagnosis_mark_dispatch") {
+        if (row.dispatch_state !== "pending") return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
+        if (command.dispatch_state === "unknown" && row.native_json) {
+          const native = { ...JSON.parse(row.native_json), phase: "hold" };
+          this.sql.exec("UPDATE account_diagnosis_tasks SET dispatch_state = 'unknown', status = 'unknown', native_json = ?, updated_at = ? WHERE request_id = ?",
+            JSON.stringify(native), command.updated_at, requestId);
+        } else {
+          this.sql.exec("UPDATE account_diagnosis_tasks SET dispatch_state = ?, updated_at = ? WHERE request_id = ?", command.dispatch_state, command.updated_at, requestId);
+        }
+        return { ok: true, changed: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
+      }
+      if (command.action === "diagnosis_claim" || command.action === "diagnosis_result") {
+        throw new HttpError("account_diagnosis_legacy_retired", 409);
       }
       if (command.action === "diagnosis_mark_recheck") {
         if (row.recheck_dispatch_state !== "pending") return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
@@ -5206,6 +5246,7 @@ function accountSettingsPayload(observed, effective, admin, extras = {}) {
     instance_revision: observed.instance_revision,
     identity: observed.identity,
     effective,
+    effective_read: extras.effectiveRead,
     draft: observed.draft,
     strategy_options: Array.isArray(extras.strategyOptions) ? extras.strategyOptions : [],
     current_option_supported: extras.currentOptionSupported === true,
@@ -5242,13 +5283,14 @@ async function accountSettingsResponse(request, env) {
 }
 
 async function presentAccountSettings(env, observed, admin) {
-  const effective = await effectiveAccountSettings(env, observed);
+  const { effective, effectiveRead } = await effectiveAccountSettings(env, observed);
   const profiles = await loadAccountDraftProfiles(env);
   const strategyOptions = profiles ? accountDraftStrategyChoices(observed.platform, observed.config, profiles) : [];
   const conflict = observed.draft?.status === "identity_conflict";
   const pending = !conflict && typeof observed.draft?.overrides?.strategy_profile === "string" ? observed.draft.overrides.strategy_profile : "";
   const trusted = effective.strategy_profile?.status === "known" && typeof effective.strategy_profile.value === "string" ? effective.strategy_profile.value : "";
   return accountSettingsPayload(observed, effective, admin, {
+    effectiveRead,
     strategyOptions,
     pendingStrategy: Boolean(pending),
     pendingOptionSupported: Boolean(pending) && optionOverlayDraftAllowed(observed.platform, profiles, pending),
@@ -5437,7 +5479,7 @@ async function saveAccountSettings(request, env) {
     command.expected_draft_revision = observed.draft.revision;
     if (raw.acknowledge_identity_conflict === true) command.acknowledge_identity_conflict = true;
     const profiles = await loadAccountDraftProfiles(env);
-    const beforeEffective = await effectiveAccountSettings(env, observed);
+    const { effective: beforeEffective } = await effectiveAccountSettings(env, observed);
     const trusted = beforeEffective.strategy_profile?.status === "known" && typeof beforeEffective.strategy_profile.value === "string" ? beforeEffective.strategy_profile.value : "";
     try {
       assertAccountDraftPatch(profiles, observed, raw.overrides, trusted, { acknowledgeIdentityConflict: raw.acknowledge_identity_conflict === true });
@@ -6036,18 +6078,27 @@ async function runtimeCatalogResponse(request, env) {
 
 async function loadCurrentStrategies(accountOptions, env) {
   const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
-  if (!token || !accountOptions) return {};
+  if (!token || !accountOptions) return executionEvidenceFallback(accountOptions, "not_connected");
   const repositories = platformRepositories(env);
 
   const variableCache = new Map();
   const readVariable = async (repository, scope, githubEnvironment, name) => {
     const cacheKey = [repository, scope, githubEnvironment || ""].join("|");
     if (!variableCache.has(cacheKey)) {
-      variableCache.set(cacheKey, fetchGithubVariables(token, repository, scope, githubEnvironment));
+      variableCache.set(cacheKey, (async () => {
+        let status = "ok";
+        const values = await fetchGithubVariables(token, repository, scope, githubEnvironment, {
+          reportReadErrors: true, onReadFailure: reason => { status = reason; },
+        });
+        return { values, status };
+      })());
     }
-    return (await variableCache.get(cacheKey)).get(name) || "";
+    const result = await variableCache.get(cacheKey);
+    return result.values?.get(name) || "";
   };
 
+  readVariable.readStatus = async (repository, scope, githubEnvironment) =>
+    (await variableCache.get([repository, scope, githubEnvironment || ""].join("|")))?.status || "ok";
   const currentStrategies = {};
   // Process platforms sequentially: each platform's account list is also
   // processed one at a time (not Promise.all). This keeps GitHub API
@@ -6065,22 +6116,37 @@ async function loadStrategiesForPlatform(platform, accountOptions, repositories,
   const options = Array.isArray(accountOptions[platform]) ? accountOptions[platform] : [];
   if (!options.length) return {};
   const repository = repositories[platform];
-  if (!repository) return {};
+  if (!repository) return executionEvidenceFallback({ [platform]: options }, "not_connected")[platform];
 
   // Process accounts sequentially within each platform to stay within
   // GitHub's concurrent request budget per token (~30 burst limit).
   const platformStrategies = {};
   for (const option of options) {
+    let status = "ok";
+    const trackedRead = async (...args) => {
+      const value = await readVariable(...args);
+      const result = await readVariable.readStatus?.(...args.slice(0, 3));
+      if (result && result !== "ok") status = result;
+      return value;
+    };
     const current = await resolveCurrentStrategyForAccount({
       platform,
       option,
       optionsCount: options.length,
       repository,
-      readVariable,
+      readVariable: trackedRead,
     });
-    if (current) platformStrategies[option.key] = current;
+    platformStrategies[option.key] = { ...current,
+      execution_evidence: accountExecutionEvidence(option, current || {}, { status, observedAt: new Date().toISOString() }) };
   }
   return platformStrategies;
+}
+
+function executionEvidenceFallback(accountOptions, status) {
+  return Object.fromEntries(Object.entries(accountOptions || {}).map(([platform, options]) => [platform,
+    Object.fromEntries(options.map(option => [option.key, {
+      execution_evidence: accountExecutionEvidence(option, {}, { status, observedAt: new Date().toISOString() }),
+    }]))]));
 }
 
 async function loadCurrentStrategiesSafely(accountOptions, env) {
@@ -6088,10 +6154,10 @@ async function loadCurrentStrategiesSafely(accountOptions, env) {
     return await withTimeout(
       loadCurrentStrategies(accountOptions, env),
       CURRENT_STRATEGIES_TIMEOUT_MS,
-      {},
+      executionEvidenceFallback(accountOptions, "read_failed"),
     );
   } catch {
-    return {};
+    return executionEvidenceFallback(accountOptions, "read_failed");
   }
 }
 
@@ -8875,8 +8941,21 @@ async function runtimeDailyHistory(env, target) {
   }
 }
 
+function runtimeDailyReadSummary(status, reason, observedRunCount = null) {
+  return {
+    source: "stored_runtime_daily_projection", status, reason,
+    observed_run_count: observedRunCount,
+    total_run_count: status === "complete" ? observedRunCount : null,
+  };
+}
+
 function runtimeDailyReadStatus(stored, now) {
   const record = stored.records[0];
+  // Preserve partial observations without turning their length into a day total.
+  // Read completeness and execution outcome/freshness are separate facts.
+  const complete = stored.completeness === "complete" && record.completeness === "complete"
+    && !stored.read_errors.length && !stored.unmatched_reports.length && !record.conflicts.length
+    && record.kind !== "incomplete" && !["read_incomplete", "missing_report", "insufficient", "conflict"].includes(record.status);
   const observedMs = runtimeDailyInstant(stored.observed_at);
   const today = record.business_date === runtimeDailyToday(now);
   let dataStatus = "historical";
@@ -8886,6 +8965,8 @@ function runtimeDailyReadStatus(stored, now) {
   }
   return {
     data_status: dataStatus,
+    read_summary: runtimeDailyReadSummary(complete ? "complete" : "partial",
+      complete ? null : "runtime_daily_incomplete", record.runs.length),
     read_error_count: stored.read_errors.length,
     // These producer codes contain no object paths, identities or exception text.
     // Unknown legacy diagnostics remain private and retain an explicit error.
@@ -9003,7 +9084,8 @@ async function runtimeDailyResponse(request, env, url) {
   try {
     stored = await readConfigJson(env, runtimeDailyKey(businessDate, target));
   } catch {
-    return json({ ok: false, error: "runtime_daily_read_failed" }, 503);
+    return json({ ok: false, error: "runtime_daily_read_failed",
+      read_summary: runtimeDailyReadSummary("read_failed", "runtime_daily_read_failed") }, 503);
   }
   const base = {
     ok: true,
@@ -9015,18 +9097,21 @@ async function runtimeDailyResponse(request, env, url) {
     history: includeHistory ? await runtimeDailyHistory(env, target) : null,
   };
   if (stored === null || stored === undefined) {
-    return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
+    return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0,
+      read_summary: runtimeDailyReadSummary("no_data", "runtime_daily_record_missing") });
   }
   let projection;
   try {
     projection = normalizeRuntimeDailyProjection(runtimeDailyStoredProjection(stored, target, binding));
   } catch (error) {
     if (error.message === "runtime_daily_binding_changed") return json({ ok: false, error: error.message }, 409);
-    return json({ ok: false, error: "runtime_daily_record_invalid" }, 503);
+    return json({ ok: false, error: "runtime_daily_record_invalid",
+      read_summary: runtimeDailyReadSummary("read_failed", "runtime_daily_record_invalid") }, 503);
   }
   if (projection.records[0].business_date !== businessDate || projection.platform !== target.platform
     || projection.records[0].target_key !== target.target_key) {
-    return json({ ok: false, error: "runtime_daily_record_invalid" }, 503);
+    return json({ ok: false, error: "runtime_daily_record_invalid",
+      read_summary: runtimeDailyReadSummary("read_failed", "runtime_daily_record_invalid") }, 503);
   }
   return json({ ...base, ...runtimeDailyReadStatus(projection, Date.now()) });
 }
@@ -9423,16 +9508,223 @@ function accountDiagnosisInternalTask(task) {
   };
 }
 
+function accountDiagnosisNativeContext(env) {
+  try {
+    const binding = JSON.parse(env.ACCOUNT_DIAGNOSIS_NATIVE_BINDING_JSON || "null");
+    const expected = ["schema_version", "project", "resource", "audience", "provider", "profile", "model", "worker"];
+    if (!binding || Object.keys(binding).sort().join() !== expected.sort().join()
+      || binding.schema_version !== "qrs.account-diagnosis-native.v1"
+      || binding.project !== "QuantStrategyLab/QuantRuntimeSettings"
+      || expected.filter(key => key !== "schema_version").some(key => typeof binding[key] !== "string"
+        || !binding[key] || binding[key].length > 200 || /\s/.test(binding[key]))
+      || binding.profile.length > 100 || binding.profile.includes(":")) throw Error();
+    const url = new URL(binding.resource);
+    if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.search || url.hash
+      || binding.resource.endsWith("/")) throw Error();
+    const transport = env.ACCOUNT_DIAGNOSIS_NATIVE_TRANSPORT;
+    // This seam carries existing approved submit/read authentication. Neither
+    // an old GitHub dispatch token nor the QRS callback token can substitute it.
+    if (!transport || typeof transport.fetch !== "function") throw Error();
+    return { binding, transport };
+  } catch {
+    throw new HttpError("account_diagnosis_native_not_configured", 503);
+  }
+}
+
+function accountDiagnosisNativeRequest(task, binding) {
+  const input = accountDiagnosisInternalTask(task);
+  const properties = { status: { enum: ["succeeded", "failed", "unknown"] },
+    summary: { type: "string", minLength: 1, maxLength: ACCOUNT_DIAGNOSIS_SUMMARY_MAX_CHARS },
+    reason_code: { enum: ACCOUNT_DIAGNOSIS_REASON_CODES }, advisory_only: { const: true },
+    execution_authority_granted: { const: false } };
+  return { mode: "agent", profile: binding.profile, model: binding.model,
+    objective: "Diagnose only the supplied account/runtime availability checks. Return an advisory report, not a health or execution approval. Do not access accounts, change configuration, repair, trade, deploy, publish, or notify.",
+    materials: [input], timeout_seconds: 600,
+    output_schema: { type: "object", additionalProperties: false, required: Object.keys(properties), properties } };
+}
+
+async function accountDiagnosisNativeIO(context, method, path, body, headers = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await context.transport.fetch(new Request(context.binding.resource + path, {
+      method, redirect: "manual", signal: controller.signal,
+      headers: { "Content-Type": "application/json", ...headers },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }));
+    if (!response.ok || !response.body) throw Error();
+    const reader = response.body.getReader();
+    const chunks = [];
+    let length = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.length;
+      if (length > 64 * 1024) { await reader.cancel(); throw Error(); }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new HttpError("account_diagnosis_native_outcome_unknown", 502);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function accountDiagnosisNativeStop(env, context, task) {
+  const reserved = await runtimeInstanceCommand(env, { action: "diagnosis_native_cancel", actor: "native-diagnosis-caller",
+    request_id: task.request_id, updated_at: new Date().toISOString() });
+  if (reserved.send_cancel) {
+    try { await accountDiagnosisNativeIO(context, "POST", `/v1/tasks/${encodeURIComponent(reserved.task.native.task_id)}/cancel`, {}); } catch { /* Unknown cancellation is never retried. */ }
+  }
+  return reserved;
+}
+
+async function accountDiagnosisNativeReadback(env, context, task, record, cancelRequested = false) {
+  const native = task.native;
+  if (!native || canonicalResearchTaskJson(native.binding) !== canonicalResearchTaskJson(context.binding)) {
+    throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+  }
+  const taskId = record?.id;
+  const validId = typeof taskId === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(taskId);
+  if (!validId || (native.task_id && taskId !== native.task_id)
+    || record.owner !== native.binding.project || record.provider !== native.binding.provider
+    || record.result_kind !== "advisory" || record.revision !== 1
+    || !Number.isFinite(record.deadline) || (native.task_deadline !== null && native.task_deadline !== record.deadline)
+    || await sha256Hex(canonicalResearchTaskJson(record.request ?? null)) !== native.request_sha256) {
+    throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+  }
+  const next = structuredClone(native);
+  next.task_id = taskId;
+  next.task_deadline = record.deadline;
+  if (record.worker !== null && record.worker !== undefined || record.attempt !== null && record.attempt !== undefined) {
+    if (record.worker !== native.binding.worker || typeof record.attempt !== "string" || !record.attempt || record.attempt.length > 200) {
+      throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+    }
+    const claim = [record.worker, record.attempt, record.revision];
+    if (native.claim && canonicalResearchTaskJson(native.claim) !== canonicalResearchTaskJson(claim)) {
+      throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+    }
+    next.claim = claim;
+  } else if (native.claim) {
+    throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+  }
+  const expired = Date.now() / 1000 >= Math.min(native.deadline, record.deadline);
+  let status = "queued", summary = "", reason = "", terminal = false;
+  const negativeTerminal = ["failed", "invalid_output", "cancelled"].includes(record.status);
+  if (((cancelRequested || expired || native.cancel_requested || native.cancel_sent) && !negativeTerminal)
+    || record.status === "cancel_requested" || record.status === "outcome_unknown") {
+    status = "unknown";
+    next.phase = "hold";
+  } else if (["queued", "submitting", "running"].includes(record.status)) {
+    status = record.status === "running" ? "running" : "queued";
+    if (status === "running" && !next.claim) throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+    next.phase = "pending";
+  } else if (record.status === "completed") {
+    const output = record.output;
+    if (!next.claim || !output || Object.keys(output).sort().join() !== "advisory_only,execution_authority_granted,reason_code,status,summary"
+      || !["succeeded", "failed", "unknown"].includes(output.status)
+      || typeof output.summary !== "string" || !output.summary.trim() || output.summary.length > ACCOUNT_DIAGNOSIS_SUMMARY_MAX_CHARS
+      || !ACCOUNT_DIAGNOSIS_REASON_CODES.includes(output.reason_code)
+      || output.advisory_only !== true || output.execution_authority_granted !== false) {
+      throw new HttpError("invalid_account_diagnosis_result", 400);
+    }
+    next.output_sha256 = await sha256Hex(canonicalResearchTaskJson(output));
+    next.phase = "terminal";
+    status = output.status; summary = output.summary.trim(); reason = output.reason_code;
+    terminal = true;
+  } else if (["failed", "invalid_output", "cancelled"].includes(record.status)) {
+    next.phase = "terminal"; status = "failed"; terminal = true;
+    summary = "Native diagnosis did not produce an accepted advisory result."; reason = "invalid_response";
+  } else {
+    throw new HttpError("invalid_account_diagnosis_result", 400);
+  }
+  // All terminal adoption is still bounded by the original operation deadline.
+  if (terminal && status === "succeeded" && Date.now() / 1000 >= Math.min(native.deadline, record.deadline)) {
+    return accountDiagnosisNativeStop(env, context, { ...task, native: next });
+  }
+  if (terminal) next.receipt = await sha256Hex(canonicalResearchTaskJson({ task_id: taskId, claim: next.claim,
+    revision: record.revision, request_sha256: next.request_sha256, output_sha256: next.output_sha256,
+    native_status: record.status, status, summary, reason }));
+  const saved = await runtimeInstanceCommand(env, { action: "diagnosis_native_save", actor: "native-diagnosis-caller",
+    request_id: task.request_id, native: next, status, summary, reason_code: reason, updated_at: new Date().toISOString() });
+  if ((cancelRequested || native.cancel_requested || expired) && !terminal) return accountDiagnosisNativeStop(env, context, saved.task);
+  if (terminal && status === "succeeded" && saved.changed) {
+    // Durable result persistence may itself cross expiry; no recheck then.
+    if (Date.now() / 1000 >= Math.min(native.deadline, record.deadline)) {
+      return accountDiagnosisNativeStop(env, context, saved.task);
+    }
+    try {
+      await dispatchAccountDiagnosisRecheck(env, saved.task);
+      await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "native-diagnosis-caller",
+        request_id: task.request_id, recheck_dispatch_state: "sent", updated_at: new Date().toISOString() });
+    } catch {
+      await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "native-diagnosis-caller",
+        request_id: task.request_id, recheck_dispatch_state: "unknown", updated_at: new Date().toISOString() });
+    }
+  }
+  return saved;
+}
+
+async function reconcileAccountDiagnosis(env, requestId, cancel = false) {
+  const context = accountDiagnosisNativeContext(env);
+  const current = await runtimeInstanceCommand(env, { action: "diagnosis_read", actor: "native-diagnosis-caller", request_id: requestId });
+  let task = current.task;
+  if (!task?.native) throw new HttpError("account_diagnosis_legacy_retired", 409);
+  if (canonicalResearchTaskJson(task.native.binding) !== canonicalResearchTaskJson(context.binding)) {
+    throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+  }
+  if (task.native.phase === "terminal") return { ...current, changed: false };
+  if (cancel) {
+    const stopped = await accountDiagnosisNativeStop(env, context, task);
+    task = stopped.task;
+    if (task.native.receipt || task.native.task_id) return stopped;
+  }
+  if (task.native.task_id && (Date.now() / 1000 >= Math.min(task.native.deadline, task.native.task_deadline ?? Infinity)
+    || (task.native.cancel_requested && !task.native.cancel_sent))) return accountDiagnosisNativeStop(env, context, task);
+  try {
+    let taskId = task.native.task_id;
+    if (!taskId) {
+      const found = await accountDiagnosisNativeIO(context, "GET", "/v1/tasks/lookup", undefined,
+        { "Idempotency-Key": task.native.operation_key, "X-Request-SHA256": task.native.request_sha256 });
+      if (!found || Object.keys(found).join() !== "id" || typeof found.id !== "string" || !/^[A-Za-z0-9_-]{1,200}$/.test(found.id)) {
+        throw new HttpError("account_diagnosis_native_outcome_unknown", 502);
+      }
+      taskId = found.id;
+    }
+    const record = await accountDiagnosisNativeIO(context, "GET", `/v1/tasks/${encodeURIComponent(taskId)}`);
+    if (record.id !== taskId) throw accountDiagnosisConflict("account_diagnosis_native_binding_conflict");
+    return accountDiagnosisNativeReadback(env, context, task, record, cancel);
+  } catch (error) {
+    // A read/validation failure retains the original obligation beyond24h.
+    try {
+      await runtimeInstanceCommand(env, { action: "diagnosis_native_save", actor: "native-diagnosis-caller",
+        request_id: requestId, native: { ...task.native, phase: "hold" }, status: "unknown", summary: "", reason_code: "",
+        updated_at: new Date().toISOString() });
+    } catch { /* Never overwrite a concurrently accepted immutable terminal receipt. */ }
+    throw error;
+  }
+}
+
 async function dispatchAccountDiagnosis(env, requestId) {
-  const token = String(env.RUNTIME_SETTINGS_DISPATCH_TOKEN || "");
-  if (!token) throw new HttpError("account_diagnosis_dispatch_unavailable", 503);
-  const url = `https://api.github.com/repos/${ACCOUNT_DIAGNOSIS_WORKFLOW_REPOSITORY}/actions/workflows/${ACCOUNT_DIAGNOSIS_WORKFLOW}/dispatches`;
-  const response = await fetchWithTimeout(url, {
-    method: "POST",
-    headers: githubHeaders(token),
-    body: JSON.stringify({ ref: "main", inputs: { account_diagnosis_request_id: requestId } }),
-  });
-  if (!response.ok) throw new HttpError("account_diagnosis_dispatch_unverified", 502);
+  const context = accountDiagnosisNativeContext(env);
+  const current = await runtimeInstanceCommand(env, { action: "diagnosis_read", actor: "native-diagnosis-caller", request_id: requestId });
+  const request = accountDiagnosisNativeRequest(current.task, context.binding);
+  const native = { version: "qrs.native-diagnosis.v1", binding: context.binding, request,
+    input_sha256: await sha256Hex(canonicalResearchTaskJson(request.materials)),
+    request_sha256: await sha256Hex(canonicalResearchTaskJson(request)), operation_key: "qrs-account-diagnosis:" + requestId,
+    deadline: Date.now() / 1000 + 600, task_id: null, task_deadline: null, claim: null,
+    output_sha256: null, receipt: null, cancel_requested: false, cancel_sent: false, phase: "intent" };
+  const intent = await runtimeInstanceCommand(env, { action: "diagnosis_native_intent", actor: "native-diagnosis-caller",
+    request_id: requestId, native, updated_at: new Date().toISOString() });
+  if (!intent.created) return intent; // Never replay POST, even after a lost reply.
+  if (Date.now() / 1000 >= intent.task.native.deadline) return accountDiagnosisNativeStop(env, context, intent.task);
+  const record = await accountDiagnosisNativeIO(context, "POST", "/v1/tasks", request,
+    { "Idempotency-Key": native.operation_key });
+  return accountDiagnosisNativeReadback(env, context, intent.task, record);
 }
 
 function accountDiagnosisAutoEnabled(env) {
@@ -9462,6 +9754,7 @@ async function accountDiagnosisIdentityForTarget(env, targetId) {
 
 async function maybeAutoDispatchAccountDiagnosis(env, source) {
   if (!accountDiagnosisAutoEnabled(env)) return;
+  try { accountDiagnosisNativeContext(env); } catch { return; }
   const now = Date.now();
   const freshness = controlPlaneSnapshotFreshness(source, executionEvidenceStaleTtlSeconds(env), now);
   if (freshness.data_status !== "ready") return;
@@ -9548,7 +9841,7 @@ async function accountDiagnosisResponse(request, env, url) {
     return json({ ok: false, error: "invalid_account_diagnosis_request" }, 400);
   }
   if (!ACCOUNT_DIAGNOSIS_TRIGGERS.includes(raw.trigger)) return json({ ok: false, error: "invalid_account_diagnosis_trigger" }, 400);
-  if (!env.RUNTIME_SETTINGS_DISPATCH_TOKEN) return json({ ok: false, error: "account_diagnosis_dispatch_unavailable" }, 503);
+  try { accountDiagnosisNativeContext(env); } catch { return json({ ok: false, error: "account_diagnosis_native_not_configured" }, 503); }
   try {
     const context = await accountDiagnosisContext(env, raw.platform, raw.key);
     if (raw.trigger === "incident" && !context.attention) {
@@ -9603,40 +9896,16 @@ async function accountDiagnosisInternalResponse(request, env, url) {
     return json({ ok: false, error: "invalid_account_diagnosis_request" }, 400);
   }
   try {
-    if (raw.status === "running" && Object.keys(raw).sort().join(",") === "request_id,status,workflow_run_attempt,workflow_run_id") {
-      if (!/^[1-9][0-9]{0,20}$/.test(String(raw.workflow_run_id)) || !/^[1-9][0-9]{0,5}$/.test(String(raw.workflow_run_attempt))) throw new HttpError("invalid_account_diagnosis_claim", 400);
-      const result = await runtimeInstanceCommand(env, { action: "diagnosis_claim", actor: "aab-account-diagnosis", request_id: requestId, workflow_run_id: String(raw.workflow_run_id), workflow_run_attempt: String(raw.workflow_run_attempt), updated_at: new Date().toISOString() });
-      return json({ ok: true, claimed: Boolean(result.claimed) });
-    }
-    const allowed = ["job_id", "request_id", "status", "summary", "reason_code", "workflow_run_id", "workflow_run_attempt"];
-    if (!ACCOUNT_DIAGNOSIS_STATUSES.slice(2).includes(raw.status) || !allowed.includes("job_id")
-      || !Object.keys(raw).every(key => allowed.includes(key))
-      || Object.keys(raw).length < 6
-      || !ACCOUNT_DIAGNOSIS_REASON_CODES.includes(raw.reason_code)
-      || !/^[1-9][0-9]{0,20}$/.test(String(raw.workflow_run_id))
-      || !/^[1-9][0-9]{0,5}$/.test(String(raw.workflow_run_attempt))
-      || typeof raw.summary !== "string" || !raw.summary.trim() || raw.summary.length > ACCOUNT_DIAGNOSIS_SUMMARY_MAX_CHARS
-      || (raw.job_id !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(String(raw.job_id)))) {
+    if (Object.keys(raw).sort().join() !== "action,request_id" || !["readback", "cancel"].includes(raw.action)) {
       throw new HttpError("invalid_account_diagnosis_result", 400);
     }
-    const result = await runtimeInstanceCommand(env, {
-      action: "diagnosis_result", actor: "aab-account-diagnosis", request_id: requestId,
-      status: raw.status, workflow_run_id: String(raw.workflow_run_id), workflow_run_attempt: String(raw.workflow_run_attempt),
-      job_id: raw.job_id === undefined ? null : String(raw.job_id), summary: raw.summary.trim(), reason_code: raw.reason_code,
-      updated_at: new Date().toISOString(),
-    });
-    if (result.changed && raw.status === "succeeded") {
-      try {
-        await dispatchAccountDiagnosisRecheck(env, result.task);
-        await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "aab-account-diagnosis", request_id: requestId, recheck_dispatch_state: "sent", updated_at: new Date().toISOString() });
-      } catch {
-        await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "aab-account-diagnosis", request_id: requestId, recheck_dispatch_state: "unknown", updated_at: new Date().toISOString() });
-      }
-    }
-    return json({ ok: true, replayed: !result.changed, recheck_status: result.task?.recheck_dispatch_state || "not_requested" });
+    const result = await reconcileAccountDiagnosis(env, requestId, raw.action === "cancel");
+    const latest = await runtimeInstanceCommand(env, { action: "diagnosis_read", actor: "native-diagnosis-caller", request_id: requestId });
+    return json({ ok: true, replayed: !result.changed, recheck_status: latest.task.recheck_dispatch_state,
+      task: accountDiagnosisPublicTask(latest.task) });
   } catch (error) {
-    if (error instanceof HttpError) return json(accountDiagnosisErrorPayload(error), error.status || 409);
-    return json({ ok: false, error: error.message || "invalid_account_diagnosis_result", reason_code: error.message || "invalid_account_diagnosis_result" }, error.status || 409);
+    if (error instanceof HttpError) return json(accountDiagnosisErrorPayload(error), error.status);
+    return json({ ok: false, error: "account_diagnosis_native_outcome_unknown" }, 502);
   }
 }
 
@@ -10666,12 +10935,13 @@ async function runtimeCycleHealthSourceResponse(request, env) {
   }
 }
 
-async function loadAccountFactsBindings(env) {
+async function loadAccountFactsBindings(env, { propagateReadErrors = false } = {}) {
   if (!hasConfigStore(env)) return null;
   let raw;
   try {
     raw = await readConfigJson(env, ACCOUNT_FACTS_BINDINGS_KEY);
-  } catch {
+  } catch (error) {
+    if (propagateReadErrors) throw error;
     return null;
   }
   if (!raw) return null;
@@ -10766,7 +11036,7 @@ async function accountFactsResponse(request, env) {
     hasConfigStore,
     hasRuntimeInstanceStore,
     loadAccountOptionsConfig,
-    loadAccountFactsBindings,
+    loadAccountFactsBindings: (env) => loadAccountFactsBindings(env, { propagateReadErrors: true }),
     loadStoredAccountFactsMap,
     runtimeInstanceCommand,
     periodReturnCommand,
@@ -15059,26 +15329,28 @@ function requireSameOrigin(request, options = {}) {
   if (origin !== new URL(request.url).origin) throw new HttpError("cross-origin request rejected", 403);
 }
 
-async function fetchGithubVariables(token, repository, scope, githubEnvironment) {
+async function fetchGithubVariables(token, repository, scope, githubEnvironment, { reportReadErrors = false, onReadFailure = () => {} } = {}) {
   const apiUrl = githubVariablesUrl(repository, scope, githubEnvironment);
   const values = new Map();
-  if (!apiUrl) return values;
+  // Evidence-aware readers opt in. Other callers retain their existing fallback.
+  const failed = (reason = "read_failed") => { onReadFailure(reason); return reportReadErrors ? null : new Map(); };
+  if (!apiUrl) return failed();
   try {
     // Follow the variable-list pages, never arbitrary URLs returned by an upstream.
     for (let page = 1; ; page += 1) {
       const response = await fetchWithTimeout(`${apiUrl}?per_page=100&page=${page}`, {
         headers: githubHeaders(token),
       });
-      if (!response.ok) return new Map();
+      if (!response.ok) return failed([401, 403].includes(response.status) ? "permission_denied" : "read_failed");
       const payload = await response.json();
-      if (!Array.isArray(payload?.variables)) return new Map();
+      if (!Array.isArray(payload?.variables)) return failed();
       for (const item of payload.variables) {
         if (typeof item.name === "string" && typeof item.value === "string") values.set(item.name, item.value);
       }
       if (!response.headers.get("Link")?.includes('rel="next"')) return values;
     }
   } catch {
-    return new Map();
+    return failed();
   }
 }
 
@@ -15987,6 +16259,7 @@ async function effectiveAccountSettings(env, observed) {
   const broker = observed.identity?.broker_environment === "live" || observed.identity?.broker_environment === "paper"
     ? { status: "known", value: observed.identity.broker_environment }
     : { status: "unknown" };
+  // Keep the legacy value shape: non-DCA settings remain absent for old clients.
   const effective = {
     strategy_profile: { status: "unknown" },
     broker_environment: broker,
@@ -15995,15 +16268,31 @@ async function effectiveAccountSettings(env, observed) {
     reserved_cash_floor: { status: "unknown" },
     reserved_cash_ratio: { status: "unknown" },
   };
+  const fields = ["strategy_profile", "dca_mode", "dca_base_investment_usd", "income_layer_enabled",
+    "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio"];
+  // This names the resolver path, not a particular variable, deployment or broker readback.
+  const finish = (reason = "runtime_setting_unresolved", dcaReason = reason) => ({
+    effective,
+    effectiveRead: Object.fromEntries(fields.map(field => [field, {
+      status: effective[field]?.status === "known" ? "known" : "unknown",
+      source: "github_runtime_configuration",
+      source_as_of: null,
+      reason: effective[field]?.status === "known" ? null : field.startsWith("dca_") ? dcaReason : reason,
+    }])),
+  });
   const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
   const repository = platformRepositories(env)?.[observed.platform];
-  if (!token || !repository || !observed.config) return effective;
+  if (!token) return finish("reader_not_configured");
+  if (!repository) return finish("repository_not_configured");
+  if (!observed.config) return finish("account_config_unavailable");
   const options = Array.isArray(observed.account_options?.[observed.platform]) ? observed.account_options[observed.platform] : [];
   const variableCache = new Map();
+  let readFailed = false;
   const readVariable = async (repo, scope, githubEnvironment, name) => {
     const cacheKey = [repo, scope, githubEnvironment || ""].join("|");
-    if (!variableCache.has(cacheKey)) variableCache.set(cacheKey, fetchGithubVariables(token, repo, scope, githubEnvironment));
+    if (!variableCache.has(cacheKey)) variableCache.set(cacheKey, fetchGithubVariables(token, repo, scope, githubEnvironment, { reportReadErrors: true }));
     const values = await variableCache.get(cacheKey);
+    if (values === null) readFailed = true;
     return values?.get(name) || "";
   };
   let current = null;
@@ -16016,9 +16305,11 @@ async function effectiveAccountSettings(env, observed) {
       readVariable,
     });
   } catch {
-    return effective;
+    return finish("runtime_configuration_read_failed");
   }
-  if (!current || typeof current !== "object") return effective;
+  // A failed later page must discard earlier values, never certify missing settings.
+  if (readFailed) return finish("runtime_configuration_read_failed");
+  if (!current || typeof current !== "object") current = {};
   if (typeof current.strategy_profile === "string" && current.strategy_profile) {
     effective.strategy_profile = { status: "known", value: current.strategy_profile };
   }
@@ -16037,8 +16328,10 @@ async function effectiveAccountSettings(env, observed) {
     const amount = typeof current.dca_base_investment_usd === "string" ? current.dca_base_investment_usd : "";
     effective.dca_mode = mode ? { status: "known", value: mode } : { status: "unknown" };
     effective.dca_base_investment_usd = amount ? { status: "known", value: amount } : { status: "unknown" };
+    return finish();
   }
-  return effective;
+  return finish("runtime_setting_unresolved", !DCA_SUPPORTED_PLATFORMS.has(observed.platform) || profile
+    ? "dca_not_applicable" : "strategy_profile_unresolved");
 }
 
 async function accountSettingsProfileRuntimeReadback(env, observed, resolved = null) {
@@ -16507,6 +16800,8 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  effectiveAccountSettings,
+  dispatchAccountDiagnosis,
   humanDecisionReceipt,
   researchPromotionMaterialKey,
   researchPromotionReviewMaterial,

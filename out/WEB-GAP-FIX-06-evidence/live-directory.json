@@ -1,0 +1,10 @@
+{
+  "url": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/config",
+  "observed_at": "2026-10-22T22:45:13.100832+00:00",
+  "exit_code": 0,
+  "http_status": "200",
+  "body_exported": false,
+  "account_options_visible": false,
+  "status": "permission_denied",
+  "reason": "authenticated_allowed_session_required"
+}

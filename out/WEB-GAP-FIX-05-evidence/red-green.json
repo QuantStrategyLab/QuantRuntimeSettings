@@ -1,0 +1,12 @@
+{
+  "red": {
+    "command": "node --test tests/console_notification_receipts_ui_validation.mjs",
+    "exit_code": 1,
+    "result": "6 failing tests before implementation; missing coverage warning for actual API partial empty response"
+  },
+  "green": {
+    "command": "node --test tests/console_notification_receipts_ui_validation.mjs",
+    "exit_code": 0,
+    "tests": 6
+  }
+}

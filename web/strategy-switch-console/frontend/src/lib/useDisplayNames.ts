@@ -2,7 +2,7 @@ import { useContext } from "react";
 import { AccountDirectoryContext } from "../app/context";
 import { useLanguage, useT } from "../i18n";
 import { accountOption, type AccountRef, type DirectoryConfig } from "./accountDirectory";
-import { accountName, strategyName, laneName, domainName } from "./displayNames";
+import { accountName, builtInAccountTitle, strategyName, laneName, domainName } from "./displayNames";
 
 export function useDisplayNames(override?: DirectoryConfig | null) {
   const directory = useContext(AccountDirectoryContext), language = useLanguage(), t = useT();
@@ -12,9 +12,15 @@ export function useDisplayNames(override?: DirectoryConfig | null) {
     account: (alias: string | null | undefined, platform?: string | null) => {
       if (!alias) return t("common.account");
       const option = platform ? accountOption(config, platform, alias) : undefined;
-      const selector = option?.account_selector?.trim();
-      if (platform === "ibkr" && selector && /^U\d{5,}$/i.test(selector)) return selector.toUpperCase();
-      return accountName(alias, platform, language, option?.label && option.label !== alias ? option.label : t("common.account"));
+      // A configured single native IBKR account owns the account title. Show
+      // the full identifier on the authenticated console, separate from strategy.
+      const selector = platform?.toLowerCase() === "ibkr" ? option?.account_selector?.trim() : undefined;
+      if (selector && /^(?:DU|U)\d{5,}$/i.test(selector)) return selector;
+      // Built-in titles may arrive either as the alias or as the configured
+      // label; resolve both, while arbitrary custom labels pass through.
+      const builtIn = builtInAccountTitle(option?.label, language, platform) || builtInAccountTitle(alias, language, platform);
+      const label = builtIn || accountName(alias, platform, language, option?.label && option.label !== alias ? option.label : t("common.account"));
+      return label;
     },
     strategy: (profile: string) => {
       const item = config?.strategyProfiles?.find(item => item.profile === profile);

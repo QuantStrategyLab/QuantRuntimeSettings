@@ -1,0 +1,56 @@
+[
+  {
+    "command": "node --experimental-strip-types tests/account_facts_totals_validation.mjs",
+    "exit_code": 1,
+    "elapsed_seconds": 0.24,
+    "log": "validation-01.log"
+  },
+  {
+    "command": "node tests/account_facts_readonly_extract_validation.mjs",
+    "exit_code": 0,
+    "elapsed_seconds": 0.24,
+    "log": "validation-02.log"
+  },
+  {
+    "command": "node tests/account_facts_validation.mjs",
+    "exit_code": 1,
+    "elapsed_seconds": 0.29,
+    "log": "validation-03.log"
+  },
+  {
+    "command": "node tests/account_facts_sync_extract_validation.mjs",
+    "exit_code": 0,
+    "elapsed_seconds": 0.22,
+    "log": "validation-04.log"
+  },
+  {
+    "command": "node tests/console_api_worker_validation.mjs",
+    "exit_code": 0,
+    "elapsed_seconds": 1.6,
+    "log": "validation-05.log"
+  },
+  {
+    "command": "node tests/console_design_api_validation.mjs",
+    "exit_code": 1,
+    "elapsed_seconds": 0.16,
+    "log": "validation-06.log"
+  },
+  {
+    "command": "python3 python/scripts/runtime_settings.py validate",
+    "exit_code": 0,
+    "elapsed_seconds": 0.14,
+    "log": "validation-07.log"
+  },
+  {
+    "command": "python3 -m unittest discover -s python/tests -v",
+    "exit_code": 1,
+    "elapsed_seconds": 42.1,
+    "log": "validation-08.log"
+  },
+  {
+    "command": "git diff --check",
+    "exit_code": 0,
+    "elapsed_seconds": 0.09,
+    "log": "validation-09.log"
+  }
+]
