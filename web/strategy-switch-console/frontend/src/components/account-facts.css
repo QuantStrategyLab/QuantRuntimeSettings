@@ -1,4 +1,56 @@
-.account-facts { display: grid; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-.account-facts .account-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.account-facts { display: grid; gap: 5px; min-width: 0; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.account-facts .account-row { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; font-size: 13px; }
+.account-facts .account-row > span { min-width: 0; overflow-wrap: anywhere; }
 .account-facts .account-row > span:first-child { color: var(--muted); }
 .account-facts .kpi-foot { justify-content: flex-start; }
+.account-facts-freshness { gap: 3px 12px; line-height: 1.4; }
+.account-facts-assets .money { color: var(--ink); font-size: 16px; font-weight: 650; }
+.account-facts-cash .money { font-size: 13px; }
+
+.account-group-card { min-width: 0; padding: 16px; }
+.account-group-card .account-broker-title { margin-bottom: 10px; }
+.account-card-facts { margin-bottom: 4px; }
+.account-card-facts .account-facts { margin: 0 0 8px; padding: 0 0 12px; border-top: 0; border-bottom: 1px solid var(--soft-line, var(--line)); }
+.account-card-facts .account-facts-assets .money { font-size: 18px; }
+
+.account-platform-head {
+  display: grid;
+  grid-template-columns: minmax(140px, .35fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 12px 18px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--soft-line, var(--line));
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
+.account-platform-head .account-platform-title { margin: 0; font-size: 15px; }
+.account-platform-summary { min-width: 0; }
+.account-platform-summary .account-facts { margin: 0; padding: 0; border: 0; }
+.account-facts-platform { grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px 20px; }
+.account-facts-currency { display: grid; align-content: start; gap: 4px; min-width: 0; }
+.account-facts-platform .account-platform-notes { grid-column: 1 / -1; }
+.account-facts-platform-state { justify-items: start; }
+.account-platform-summary .button { margin-top: 4px; }
+
+.account-strategy-block { min-width: 0; padding: 8px 0; }
+.account-strategy-block + .account-strategy-block { border-top: 1px solid var(--soft-line, var(--line)); }
+.account-strategy-block .account-strategy-link { gap: 4px; padding: 4px 0 8px; }
+.account-strategy-block .account-row { line-height: 1.45; }
+.execution-evidence-compact { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.execution-evidence-compact .account-row { gap: 8px; }
+.execution-mode-row > span:last-child { color: var(--ink); font-weight: 550; }
+.execution-mode-row > span.execution-value-unknown { color: var(--muted); font-weight: 400; }
+.execution-environment { overflow-wrap: anywhere; }
+.execution-evidence-notes { flex-basis: 100%; margin-top: 2px; }
+.account-facts-notes p { margin: 4px 0 0; }
+
+@media (max-width: 768px) {
+  .account-platform-head { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+}
+
+@media (max-width: 480px) {
+  .account-platform-head { padding: 10px 12px; }
+  .account-group-card { padding: 14px; }
+  .account-card-facts .account-facts-assets .money { font-size: 16px; }
+}

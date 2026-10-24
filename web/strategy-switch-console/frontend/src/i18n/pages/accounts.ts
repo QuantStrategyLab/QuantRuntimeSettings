@@ -1,5 +1,7 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
+  "accounts.execution.mode": "执行模式",
+  "accounts.execution.reason.evidence_missing": "执行方式尚未确认。",
   "accounts.execution.broker_environment": "券商环境：{value}",
   "accounts.execution.source": "配置来源：{value}",
   "accounts.execution.observed": "配置检查时间：",
@@ -14,9 +16,8 @@ export const zh: Record<string, string> = {
   "accounts.execution.reason.execution_config_missing": "缺少匹配账户的明确执行模式配置",
   "accounts.execution.reason.dry_run_flag_missing": "缺少明确的演练限制配置",
   "accounts.execution.reason.environment_conflict": "券商环境与执行配置冲突",
-  "accounts.execution.reason.evidence_missing": "未提供执行模式来源；需刷新或补齐配置",
 
-  "accounts.unassigned_note": "{count} 条待办未绑定账户",
+  "accounts.unassigned_note": "{count} 条待办未关联账户",
   "accounts.go_todos": "去待办",
   "accounts.select_account": "选择一个账户查看详情",
   "accounts.select_account_hint": "从账户列表中选择要查看的账户。",
@@ -53,19 +54,22 @@ export const zh: Record<string, string> = {
   "accounts.form.invalid_ratio": "比例需要在 0 到 1 之间，例如 0.15",
   "accounts.form.invalid_dca_amount": "定投金额需为大于 0 的数字",
 
-  "accounts.checking": "正在读取最新差异…",
+  "accounts.checking": "正在检查最新配置…",
   "accounts.saving": "正在保存…",
-  "accounts.save_unknown": "保存结果未知；请刷新并确认草案版本，确认之前不要重复提交。",
-
+  "accounts.save_unknown": "保存结果未知；请刷新确认当前草案，确认前不要重复提交。",
   "controls.submitting": "正在提交…",
   "controls.confirm.enable_title": "确认启用运行目标",
   "controls.confirm.resume_title": "确认恢复运行目标",
   "controls.confirm.approve_title": "确认批准策略应用",
   "controls.enable_note": "当前页面暂不支持提交启用请求；运行目标状态保持不变。",
-  "controls.approve_not_ready": "当前没有可批准的纯策略档案草案；请刷新确认。",
+  "controls.approve_not_ready": "当前没有仅修改策略档案且可批准的草案；请刷新确认。",
   "controls.stop_consequence": "停止只阻止新的触发；不会撤单、平仓或清除在途请求。",
+  "accounts.effect_unconfirmed": "暂时无法确认是否生效。",
+
 };
 export const en: Record<string, string> = {
+  "accounts.execution.mode": "Execution mode",
+  "accounts.execution.reason.evidence_missing": "Execution mode is not yet confirmed.",
   "accounts.execution.broker_environment": "Broker environment: {value}",
   "accounts.execution.source": "Configuration source: {value}",
   "accounts.execution.observed": "Configuration checked at:",
@@ -80,7 +84,6 @@ export const en: Record<string, string> = {
   "accounts.execution.reason.execution_config_missing": "No explicit execution mode in a matching account configuration",
   "accounts.execution.reason.dry_run_flag_missing": "Explicit dry-run constraint is missing",
   "accounts.execution.reason.environment_conflict": "Broker environment conflicts with execution configuration",
-  "accounts.execution.reason.evidence_missing": "Execution mode source is unavailable; refresh or supply the configuration",
 
   "accounts.unassigned_note": "{count} to-dos are not linked to an account",
   "accounts.go_todos": "Open to-dos",
@@ -119,15 +122,16 @@ export const en: Record<string, string> = {
   "accounts.form.invalid_ratio": "Ratio must be between 0 and 1, e.g. 0.15",
   "accounts.form.invalid_dca_amount": "DCA amount must be a number greater than 0",
 
-  "accounts.checking": "Loading the latest diff…",
+  "accounts.checking": "Checking the latest settings…",
   "accounts.saving": "Saving…",
-  "accounts.save_unknown": "The save result is unknown. Refresh and verify the draft revision before retrying; do not resend blindly.",
-
+  "accounts.save_unknown": "The save result is unknown. Refresh and verify the current draft; do not resubmit until then.",
   "controls.submitting": "Submitting…",
   "controls.confirm.enable_title": "Confirm enabling the runtime target",
   "controls.confirm.resume_title": "Confirm resuming the runtime target",
   "controls.confirm.approve_title": "Confirm approving the strategy application",
   "controls.enable_note": "This page cannot submit an enable request yet. The runtime target state stays unchanged.",
-  "controls.approve_not_ready": "There is no profile-only draft to approve right now. Refresh and verify.",
+  "controls.approve_not_ready": "There is no approvable draft that changes only the strategy profile. Refresh and check again.",
   "controls.stop_consequence": "Stopping only blocks new triggers; it does not cancel orders, close positions, or clear in-flight requests.",
+  "accounts.effect_unconfirmed": "Unable to confirm whether the change took effect.",
+
 };
