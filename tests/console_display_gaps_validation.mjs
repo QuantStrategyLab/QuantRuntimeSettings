@@ -71,10 +71,10 @@ try {
     assert.deepEqual(formatDateTime(null, language, true), { text: "—", zone: "" });
     globalThis.__displayState = { phase: "ready", data: { status: "unavailable", unavailable_reason: "mixed_currency", as_of: null } };
     const metrics = ui.summary(language);
-    const mainValues = [...metrics.matchAll(/<span class="kpi-value num">([\s\S]*?)<\/span><span class="kpi-foot">/g)];
+    const mainValues = [...metrics.matchAll(/<span class="kpi-value num">([\s\S]*?)<\/span>(?=<span class="kpi-sub">|<\/div>)/g)];
     assert.equal(mainValues.length, 6);
     for (const [, value] of mainValues) assert.doesNotMatch(value.replace(/<[^>]*>/g, ""), /多币种|currenc/i, "reason must not become a main metric");
-    assert.equal((metrics.match(/class="metric-note"/g) || []).length, 1, "one shared metric explanation");
+    assert.equal((metrics.match(/class="metric-note(?:\s[^"]*)?"/g) || []).length, 1, "one shared metric explanation");
     assert.doesNotMatch(metrics, /USD [0-9]|USDT [0-9]/, "mixed currencies never produce a combined amount");
     const tabs = ui.tabs(language);
     assert.match(tabs, /id="test-tabs-tab-first"[^>]*aria-controls="test-tabs-panel"[^>]*aria-selected="false"[^>]*tabindex="-1"/);
@@ -89,9 +89,9 @@ try {
     assert.doesNotMatch(html, /context_only|未接入|not connected/i);
     noCodes(html);
     ready({ ...m0Subjects, data_status: "ready", subjects: [] });
-    assert.ok(ui.research(language).includes(language === "zh" ? "暂无研究线索" : "No research leads yet"));
+    assert.ok(ui.research(language).includes(language === "zh" ? "暂无研究资料。" : "No research data yet."));
     ready({ ...m0Subjects, data_status: "unavailable", subjects: [], errors: ["m0_research_ledger_unavailable"] });
-    assert.ok(ui.research(language).includes(language === "zh" ? "研究资料暂不可用" : "Research data unavailable"));
+    assert.ok(ui.research(language).includes(language === "zh" ? "研究资料暂时不可用。" : "Research data is temporarily unavailable."));
     for (const payload of [null, { items: [] }, { ...m0Subjects, subjects: [{}] },
       { ...m0Subjects, data_status: "unavailable", errors: ["stored_records_unreadable"] }]) {
       ready(payload);
