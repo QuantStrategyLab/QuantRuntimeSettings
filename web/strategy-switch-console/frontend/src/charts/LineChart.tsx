@@ -70,9 +70,46 @@ function dailyPoints(points: Point[], start: string | null): PreparedPoint[] {
 }
 
 /**
+ * Prepare series for plotting. Cumulative percentages are server-authoritative: a native
+ * TWR chain legitimately starts above zero, so filtering by the common start must never
+ * rebase the first point to zero or shift the final compounded value.
+ */
+export function prepareChartSeries(
+  series: ChartSeries[],
+  mode: "cumulative" | "daily",
+  alignStart: string | null = null,
+): { dates: string[]; index: Map<string, number>; series: PreparedSeries[] } {
+  const populated = series.filter(item => item.points.length > 0);
+  const dateSets = populated.map(item => new Set(item.points.map(point => point.date)));
+  const common = populated.length > 0
+    ? [...dateSets[0]!].filter(date => dateSets.every(set => set.has(date))).sort()[0] ?? null
+    : null;
+  const start = alignStart ?? common ?? populated[0]?.points[0]?.date ?? null;
+
+  const preparedSeries: PreparedSeries[] = populated.map(item => {
+    if (mode === "daily") return { ...item, points: dailyPoints(item.points, start) };
+    const points = item.points
+      .filter(point => (!start || point.date >= start) && Number.isFinite(point.value))
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(point => ({
+        date: point.date,
+        value: point.value,
+        // Never infer gaps from date length; the backend knows the market calendar.
+        breakBefore: isBreak(point),
+      }));
+    return { ...item, points };
+  });
+
+  const dates = [...new Set(preparedSeries.flatMap(item => item.points.map(point => point.date)))].sort();
+  const index = new Map(dates.map((date, i) => [date, i]));
+  return { dates, index, series: preparedSeries };
+}
+
+/**
  * Multi-series percent chart: legend toggles, crosshair tooltip with date + 2dp values,
- * cumulative/daily modes. Cumulative values are aligned to one common start for every
- * series; the baseline does not move when a legend entry is hidden.
+ * cumulative/daily modes. Cumulative values keep the server-provided percentages for the
+ * alignStart window; the baseline does not move when a legend entry is hidden.
  */
 export function LineChart({
   series,
@@ -110,37 +147,10 @@ export function LineChart({
     return () => observer.disconnect();
   }, []);
 
-  const prepared = useMemo(() => {
-    const populated = series.filter(item => item.points.length > 0);
-    const dateSets = populated.map(item => new Set(item.points.map(point => point.date)));
-    const common = populated.length > 0
-      ? [...dateSets[0]!].filter(date => dateSets.every(set => set.has(date))).sort()[0] ?? null
-      : null;
-    const start = alignStart ?? common ?? populated[0]?.points[0]?.date ?? null;
-
-    const preparedSeries: PreparedSeries[] = populated.map(item => {
-      if (mode === "daily") return { ...item, points: dailyPoints(item.points, start) };
-      const rows = item.points
-        .filter(point => !start || point.date >= start)
-        .slice()
-        .sort((a, b) => a.date.localeCompare(b.date));
-      const base = rows[0]?.value;
-      const points = rows.flatMap(point => {
-        if (!Number.isFinite(point.value)) return [];
-        return [{
-          date: point.date,
-          value: typeof base === "number" ? point.value - base : point.value,
-          // Never infer gaps from date length; the backend knows the market calendar.
-          breakBefore: isBreak(point),
-        }];
-      });
-      return { ...item, points };
-    });
-
-    const dates = [...new Set(preparedSeries.flatMap(item => item.points.map(point => point.date)))].sort();
-    const index = new Map(dates.map((date, i) => [date, i]));
-    return { dates, index, series: preparedSeries };
-  }, [series, mode, alignStart]);
+  const prepared = useMemo(
+    () => prepareChartSeries(series, mode, alignStart),
+    [series, mode, alignStart],
+  );
 
   const visible = prepared.series.filter(item => !hidden.has(item.id) && item.points.length > 0);
 

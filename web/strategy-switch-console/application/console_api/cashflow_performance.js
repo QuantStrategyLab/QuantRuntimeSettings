@@ -156,11 +156,9 @@ export function applyCashflowPerformance(blocks, input, env) {
     const periods = r.periods.filter(period => period.date > previousDate && period.date <= date);
     if (periods[0]?.previous_date !== previousDate || periods.at(-1)?.date !== date) return [];
     const amount = periods.reduce((sum, period) => sum + period.amount, 0);
-    const flow = periods.reduce((sum, period) => sum + period.net_flow, 0);
-    const denominator = periods[0].opening_value + flow;
-    return [{ date, amount, return_percent: denominator > 0 ? amount / denominator * 100 : null,
-      value_kind: "pnl", status: denominator > 0 ? "ok" : "partial",
-      unavailable_reason: denominator > 0 ? null : "invalid_return_period" }];
+    const compounded = periods.reduce((value, period) => value * (1 + period.return_percent / 100), 1);
+    return [{ date, amount, return_percent: (compounded - 1) * 100,
+      value_kind: "pnl", status: "ok", unavailable_reason: null }];
   });
   const byDate = new Map(daily.map(period => [period.date, period]));
   blocks.calendar.cells = blocks.calendar.cells.map(cell => byDate.has(cell.date)

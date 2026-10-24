@@ -85,13 +85,13 @@ assert.deepEqual(sliced.asset_points.map(p => p.date), ["2026-01-01"], "no fabri
 const input = { accounts: [], histories: [a, b], today: "2026-01-04", year: 2026, month: 1 };
 const blocks = performanceBlocks(input);
 assert.equal(blocks.assets.points.length, 4, "single-currency asset endpoint uses the date union");
-assert.equal(blocks.returns.points.length, 4, "single-currency percent endpoint uses the date union");
+assert.equal(blocks.returns.points.length, 0, "unknown cash flows never become a return curve");
 assert.equal(blocks.summary.twr_return_percent, null, "summary retains the fixed-cohort qualification");
 assert.equal(blocks.summary.max_drawdown.percent, null);
 assert.equal(blocks.summary.amount, null, "changing account subtotals do not become P/L");
 const mixed = performanceBlocks({ ...input, histories: [...input.histories, h("synthetic-wallet", [p(1, 9999), p(4, 9999)], "USDT")] });
 assert.deepEqual(mixed.assets.points, [], "no combined USD/USDT curve");
-assert.equal(mixed.returns.per_currency.find(g => g.currency === "USD").points.length, 4);
+assert.equal(mixed.returns.per_currency.find(g => g.currency === "USD").points.length, 0);
 assert.deepEqual(mixed.assets.history_per_currency.find(g => g.currency === "USD").points.map(p => p.value), [100, 300, 310, 330]);
 assert.equal(mixed.assets.history_per_currency.find(g => g.currency === "USDT").points[0].value, 9999);
 assert.equal(mixed.returns.per_currency.find(g => g.currency === "USDT").asset_points, undefined);
@@ -258,3 +258,5 @@ assert.deepEqual(cryptoRouteBody.points.map(p => p.date), cryptoGap.points.map(p
 assert.equal(cryptoRouteBody.points[1].breakBefore, true,
   "the wallet route carries 24x7 semantics to the published asset curve");
 console.log("backend_core_market_calendar_regression: PASS (stock weekends, declared/unknown closures, crypto 24x7 and untrimmed observations)");
+
+await import("./native_daily_returns_validation.mjs");
