@@ -24,7 +24,7 @@ on:
         type: boolean
         default: false
       source_sha:
-        description: "Reviewed website backend: aa734319; historical #764 source also requires release_frontend_assets."
+        description: "Reviewed website backend: ee074c1e; historical #764 source also requires release_frontend_assets."
         required: false
         type: string
         default: ""
@@ -396,7 +396,7 @@ jobs:
             exit 0
           fi
           if [ "$frontend_mode" = "true" ]; then
-            if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$RELEASE_SOURCE_SHA" != "aa7343198d09125fe270877dd0452dcfb6ad72fb" ] \
+            if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$RELEASE_SOURCE_SHA" != "ee074c1eaf683d0c5e121a61c10c95bfd540e36b" ] \
               || [ "$SYNC_SECRETS" != "false" ] || [ "$SYNC_STRATEGY_PROFILES" != "false" ] \
               || [ "$SKIP_BINANCE_RECEIVER_CHECKS" != "true" ]; then
               echo "invalid_frontend_release_mode" >&2
@@ -405,7 +405,7 @@ jobs:
           fi
           # Empty input preserves the original workflow-ref deployment behavior.
           if [ -z "$RELEASE_SOURCE_SHA" ]; then exit 0; fi
-          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$RELEASE_SOURCE_SHA" != "aa7343198d09125fe270877dd0452dcfb6ad72fb" ]; then
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$RELEASE_SOURCE_SHA" != "ee074c1eaf683d0c5e121a61c10c95bfd540e36b" ]; then
             echo "unapproved_console_release_source" >&2
             exit 2
           fi
@@ -415,18 +415,18 @@ jobs:
             exit 2
           fi
           if [ "$frontend_mode" = "true" ]; then
-            frontend_sha="44cf083d52ee5d4cc7cb7fd4ed69facb11070bad"
+            frontend_sha="69c837de3b81085e7e8cd39de50965568535a9ff"
             git cat-file -e "${frontend_sha}^{commit}"
             git merge-base --is-ancestor "$frontend_sha" "$control_sha"
-            if [ "$(git rev-parse "${frontend_sha}^{tree}")" != "e61e26aeb52ba96b51e9bd0c60f24d40999277fc" ] \
-              || [ "$(git rev-parse "${frontend_sha}:web/strategy-switch-console/v2_asset_map.js")" != "8db5286f88ae31414be98bb84163cb7d6c86f4d9" ]; then
+            if [ "$(git rev-parse "${frontend_sha}^{tree}")" != "baa4cf2a1bdc41bf23df98f90f9c9112edc60664" ] \
+              || [ "$(git rev-parse "${frontend_sha}:web/strategy-switch-console/v2_asset_map.js")" != "6c04e66c6785d4ad2b2a3d288099ae91e0923c44" ]; then
               echo "frontend_release_source_mismatch" >&2
               exit 2
             fi
           fi
           git cat-file -e "${RELEASE_SOURCE_SHA}^{commit}"
           git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$control_sha"
-          expected_tree="b782bab006e674709a9d00bf81ddbb7cccfc863f"
+          expected_tree="ac28b2e6d0e3444f620bcd187fd27c4098f37d48"
           if [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" != "$expected_tree" ]; then
             echo "console_release_tree_mismatch" >&2
             exit 2
@@ -479,13 +479,13 @@ jobs:
         if: inputs.release_frontend_assets && inputs.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef'
         run: |
           set -euo pipefail
-          backend="aa7343198d09125fe270877dd0452dcfb6ad72fb"
-          frontend="44cf083d52ee5d4cc7cb7fd4ed69facb11070bad"
+          backend="ee074c1eaf683d0c5e121a61c10c95bfd540e36b"
+          frontend="69c837de3b81085e7e8cd39de50965568535a9ff"
           asset="web/strategy-switch-console/v2_asset_map.js"
-          blob="8db5286f88ae31414be98bb84163cb7d6c86f4d9"
+          blob="6c04e66c6785d4ad2b2a3d288099ae91e0923c44"
           if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$(git rev-parse HEAD)" != "$backend" ] \
-            || [ "$(git rev-parse 'HEAD^{tree}')" != "b782bab006e674709a9d00bf81ddbb7cccfc863f" ] \
-            || [ "$(git rev-parse "${frontend}^{tree}")" != "e61e26aeb52ba96b51e9bd0c60f24d40999277fc" ]; then
+            || [ "$(git rev-parse 'HEAD^{tree}')" != "ac28b2e6d0e3444f620bcd187fd27c4098f37d48" ] \
+            || [ "$(git rev-parse "${frontend}^{tree}")" != "baa4cf2a1bdc41bf23df98f90f9c9112edc60664" ]; then
             echo "frontend_overlay_source_mismatch" >&2
             exit 2
           fi
@@ -963,7 +963,7 @@ jobs:
             // configuration comparison below verifies the active baseline was retained.
             const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name })),
               compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
-              annotations: { 'workers/message': pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : 'Reviewed website backend aa734319 with fixed frontend 44cf083; retained bindings' } };
+              annotations: { 'workers/message': pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : 'Reviewed website backend ee074c1e with fixed frontend 69c837d; retained bindings' } };
             for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
             const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
             form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
@@ -1002,7 +1002,7 @@ jobs:
             stage = 'pre_deploy_latest'; await latest(uploaded);
             stage = 'activate'; deployAttempted = true;
             const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
-              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': pr764 ? 'Reviewed PR764 full source; retained configuration' : 'Reviewed website backend aa734319 and frontend 44cf083; retained configuration' } }));
+              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': pr764 ? 'Reviewed PR764 full source; retained configuration' : 'Reviewed website backend ee074c1e and frontend 69c837d; retained configuration' } }));
             if (!object(deployment) || !Object.hasOwn(deployment, 'id')) fail('missing_id');
             if (!isUuid(deployment.id)) fail('invalid_id');
             const deploymentId = deployment.id;
