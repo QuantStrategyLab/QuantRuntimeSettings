@@ -68,6 +68,7 @@ assert.deepEqual(result.read_reason_codes, ["run_listing_truncated", "notificati
 assert.deepEqual(result.items.map(item => item.status), ["delivered", "blocked_resend_guard", "sender_skipped", "read_failed", "send_failed"]);
 assert.equal(result.items[1].reason_code, "HISTORY_UNAVAILABLE");
 assert.equal(result.items[2].delivered, null, "successful workflow with skipped sender is not a delivery");
+assert.equal(result.items[3].read_error_code, "artifact_listing_http_403");
 assert.ok(result.items.every(item => item.sent_at === null));
 assert.ok(result.items.every(item => item.source_sha === sha && item.source_run_attempt === 1));
 assert.equal(result.truncated, true);
@@ -83,6 +84,7 @@ assert.deepEqual((await empty(options)).read_reason_codes, ["no_completed_workfl
 const denied = createNotificationLogReader(async () => new Response(null, { status: 403 }), now);
 assert.equal((await denied(options)).status, "read_failed", "access failures cannot become empty history");
 assert.equal((await denied(options)).read_status, "read_failed");
+assert.equal((await denied(options)).read_error_code, "run_listing_http_403");
 assert.deepEqual((await denied(options)).read_reason_codes, ["notification_receipts_read_failed"]);
 let inspected = 0;
 const priorAttempt = createNotificationLogReader(async url => {
@@ -92,6 +94,37 @@ const priorAttempt = createNotificationLogReader(async url => {
 }, now);
 assert.equal((await priorAttempt(options)).items[0].status, "receipt_missing", "a previous attempt receipt cannot certify the latest attempt");
 assert.equal(inspected, 1);
+
+// The live failure can occur after a successful listing. Preserve a closed stage
+// code, never a provider response body, signed URL, credential, or exception text.
+for (const [failure, expected] of [
+  ["archive-denied", "artifact_archive_http_403"],
+  ["download-denied", "artifact_download_http_403"],
+  ["download-transport", "artifact_download_transport_failed"],
+  ["bad-zip", "invalid_receipt_archive"],
+  ["bad-projection", "invalid_public_receipt"],
+]) {
+  const diagnosticReader = createNotificationLogReader(async (url, init) => {
+    if (url.includes("/workflows/")) return Response.json({ total_count: 1, workflow_runs: [run(1)] });
+    if (url.includes("/artifacts?")) return Response.json({ total_count: 1, artifacts: [{ id: 1,
+      name: "daily-digest-receipt", size_in_bytes: 1000, created_at: "2026-10-16T23:01:00Z" }] });
+    if (url.endsWith("/zip")) {
+      if (failure === "archive-denied") return new Response("private provider detail", { status: 403 });
+      return new Response(null, { status: 302, headers: { location: "https://example.blob/private-signed-url" } });
+    }
+    assert.equal(init.headers, undefined);
+    if (failure === "download-denied") return new Response("private provider detail", { status: 403 });
+    if (failure === "download-transport") throw Error("private provider detail and signed URL");
+    return new Response(failure === "bad-zip" ? new Uint8Array(22)
+      : zip({ ...receipt, source_sha: "b".repeat(40) }));
+  }, now);
+  const diagnostic = await diagnosticReader(options);
+  validate("notification_log", diagnostic);
+  assert.equal(diagnostic.items[0].status, "read_failed");
+  assert.equal(diagnostic.items[0].read_error_code, expected);
+  assert.equal(diagnostic.items[0].delivered, null);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /private|signed-url|synthetic-unused|Authorization/);
+}
 
 // WEB-GAP-FIX-04: receipt coverage is separate from workflow success or delivery.
 async function scenario({ listing = { total_count: 1, workflow_runs: [run(1)] },
