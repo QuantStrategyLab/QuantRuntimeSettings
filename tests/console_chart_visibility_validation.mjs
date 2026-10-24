@@ -36,10 +36,42 @@ const require = createRequire(join(frontend, "package.json"));
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { buildSync } = require("esbuild");
-const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { PerformanceCharts } from "./PerformanceCharts"; export { LocaleContext } from "./locales";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
+const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { PerformanceCharts } from "./PerformanceCharts"; export { LocaleContext } from "./locales"; export { prepareChartSeries } from "./charts/LineChart";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
 const component = { exports: {} };
 new Function("require", "module", "exports", bundled)(require, component, component.exports);
-const { OverviewPage, PerformanceCharts, LocaleContext } = component.exports;
+const { OverviewPage, PerformanceCharts, LocaleContext, prepareChartSeries } = component.exports;
+
+// Native TWR percentages are already cumulative: +10% then -5% must plot as 10% → 4.5%,
+// keeping the first observation and the final compounded value instead of rebasing to 0.
+const syntheticReturns = [
+  { date: "2026-10-01", value: 10 },
+  { date: "2026-10-02", value: 4.5 },
+];
+const syntheticSeries = [{ id: "main", label: "Synthetic", color: "#000", points: syntheticReturns, primary: true }];
+const cumulative = prepareChartSeries(syntheticSeries, "cumulative", "2026-10-01");
+assert.deepEqual(cumulative.series[0].points.map(point => [point.date, point.value]), [
+  ["2026-10-01", 10],
+  ["2026-10-02", 4.5],
+], "cumulative percentages stay exactly as the server chained them");
+const daily = prepareChartSeries(syntheticSeries, "daily", "2026-10-01");
+assert.equal(daily.series[0].points.length, 1, "no fabricated first-day daily return");
+assert.equal(daily.series[0].points[0].date, "2026-10-02");
+assert.ok(Math.abs(daily.series[0].points[0].value + 5) < 1e-9, "daily return compounds back to -5%");
+const filtered = prepareChartSeries(syntheticSeries, "cumulative", "2026-10-02");
+assert.deepEqual(filtered.series[0].points.map(point => point.value), [4.5], "alignStart filters without rebasing");
+const gapped = prepareChartSeries(
+  [{ ...syntheticSeries[0], points: [{ date: "2026-10-01", value: 10 }, { date: "2026-10-02", value: 4.5, breakBefore: true }] }],
+  "cumulative",
+  "2026-10-01",
+);
+assert.deepEqual(gapped.series[0].points.map(point => [point.value, point.breakBefore]), [[10, false], [4.5, true]],
+  "backend gap flags are preserved and never bridged");
+const dailyGap = prepareChartSeries(
+  [{ ...syntheticSeries[0], points: [{ date: "2026-10-01", value: 10 }, { date: "2026-10-02", value: 4.5, breakBefore: true }] }],
+  "daily",
+  "2026-10-01",
+);
+assert.deepEqual(dailyGap.series[0].points, [], "a flagged break never manufactures a daily return");
 const account = { id: "synthetic", platformKey: binding.platform, accountKey: option.key, runtimeDailyBinding: "not_applicable", title: "Synthetic live", platform: "LongBridge", environment: "Live", brokerEnvironment: "live", environmentSource: "config", strategy: "Synthetic strategy", statusLabel: "", statusDetail: "", activation: "待确认", preference: null, facts: model.accounts[0], runtime: null };
 const initialData = { accounts: [{ id: account.id, points: series.points.map(p => ({ date: p.observation_date, value: Number(p.net_assets), externalFlow: null })) }], failed: [], omittedCurrencies: [], truncated: false, referenceFx: false, incompleteDates: 0 };
 const render = (Component, props, language = "zh") => renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: language }, React.createElement(Component, props)));
@@ -78,4 +110,4 @@ try {
   const noCommon = render(PerformanceCharts, { ...props, benchmarks: points.map(p=>({...p,observationDate:'2026-10-10'})) });
   assert.match(noCommon, /比较数据不足或没有共同日期/);
 } finally { Date.now = originalNow; }
-console.log("console_chart_visibility_validation: PASS (receiver history → unified return/asset SVG, four overlaid benchmarks, partial/empty/stale, English; synthetic only)");
+console.log("console_chart_visibility_validation: PASS (receiver history → unified return/asset SVG, native cumulative 10%→4.5% preserved, daily −5% without a fabricated first day, four overlaid benchmarks, partial/empty/stale, English; synthetic only)");

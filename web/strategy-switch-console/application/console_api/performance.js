@@ -449,9 +449,9 @@ export function performanceBlocks({
       ...historyMeta,
       aligned_start: singleHistory ? singleHistory.aligned_start : aligned.start || null,
       return_kind: singleHistory ? singleHistory.return_kind : qualified ? "twr" : "unadjusted_asset_ratio",
-      points: singleHistory ? singleHistory.points : aligned.primary,
-      benchmarks: singleHistory ? singleHistory.benchmarks : aligned.benchmarks,
-      per_currency: byCurrency,
+      points: singleHistory ? (singleHistory.return_kind === "twr" ? singleHistory.points : []) : qualified ? aligned.primary : [],
+      benchmarks: singleHistory ? singleHistory.benchmarks : qualified ? aligned.benchmarks : [],
+      per_currency: byCurrency.map(curve => ({ ...curve, points: curve.return_kind === "twr" ? curve.points : [] })),
       no_common_date: singleHistory ? singleHistory.no_common_date : aligned.noCommonDate,
       benchmark_availability: availableBenchmarks.map((b) => ({
         id: b.id,

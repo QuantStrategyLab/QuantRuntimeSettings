@@ -58,7 +58,7 @@ const on = applyCashflowPerformance(structuredClone(legacy), input, env);
 assert.ok(Math.abs(on.summary.twr_return_percent - 10) < 1e-10);
 assert.deepEqual(on.assets, legacy.assets);
 assert.equal(on.calendar.cells.find(cell => cell.date === "2026-01-02").amount, 15);
-assert.equal(on.calendar.cells.find(cell => cell.date === "2026-01-02").return_percent, 7.5);
+assert.ok(Math.abs(on.calendar.cells.find(cell => cell.date === "2026-01-02").return_percent - 10) < 1e-10, "calendar must match the same interval return as the curve");
 assert.equal(on.calendar.value_kind, "pnl");
 assert.equal(on.returns.return_kind, "twr");
 if (on.summary.metric_reasons) assert.equal(on.summary.metric_reasons.twr, null);
