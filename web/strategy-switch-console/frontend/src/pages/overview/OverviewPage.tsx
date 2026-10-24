@@ -5,8 +5,12 @@ import type { ReactNode } from "react";
 import type {
   AssetsResponse,
   CalendarResponse,
+  HistoryCoverage,
   InboxResponse,
+  Point,
+  Reason,
   ReturnsResponse,
+  Status,
   SummaryResponse,
   TodayRunSummary,
 } from "../../api/contracts";
@@ -37,6 +41,7 @@ import {
   StatusBadge,
 } from "../../components/primitives";
 import { KpiCard } from "../../components/KpiCard";
+import { AreaChart } from "../../charts/AreaChart";
 import { LineChart, type ChartSeries } from "../../charts/LineChart";
 import { DIETZ_APPROX_LABEL_KEY, UNKNOWN_METHOD_LABEL_KEY, classifyCashflowMethod } from "../performance/cashflowMethod";
 import "./overview.css";
@@ -217,36 +222,115 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   );
 }
 
-/* ---------- return trend mini chart ---------- */
+/* ---------- trend: returns first, a real asset balance as an honest fallback ---------- */
 
-function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
+export interface AssetBalanceHistory {
+  currency: string;
+  status: Status;
+  reason: Reason | null;
+  asOf: string | null;
+  partial: boolean;
+  points: Point[];
+}
+
+/**
+ * Asset histories that may stand in for the trend when returns cannot be drawn.
+ * Currencies stay separate: one is shown at a time, never summed, converted,
+ * rebased or labelled as a return. Loading and read failures never reach here.
+ */
+export function assetBalanceHistories(data: AssetsResponse | null): AssetBalanceHistory[] {
+  if (!data) return [];
+  const curveStatus = data.curve_status ?? data.status;
+  const curveReason = data.curve_unavailable_reason === undefined
+    ? data.unavailable_reason
+    : data.curve_unavailable_reason;
+  const rows: {
+    currency: string;
+    status: Status;
+    reason: Reason | null;
+    asOf: string | null;
+    coverage: HistoryCoverage | null | undefined;
+    points: Point[];
+  }[] = data.history_per_currency?.length
+    ? data.history_per_currency.map(history => ({
+        currency: history.currency,
+        status: history.status,
+        reason: history.unavailable_reason,
+        asOf: history.as_of,
+        coverage: history.coverage,
+        points: history.points,
+      }))
+    : [{
+        currency: data.currency ?? "",
+        status: curveStatus,
+        reason: curveReason,
+        asOf: data.as_of,
+        coverage: data.curve_coverage,
+        points: data.points,
+      }];
+  return rows.flatMap(row => {
+    // A currency without a renderable, labelled, finite series stays out instead
+    // of borrowing another currency's curve or guessing an unlabelled aggregate.
+    const points: Point[] = [];
+    // A non-finite balance is an unknown value, not a bridge: dropping it must
+    // break the line, otherwise the area would connect straight across it.
+    let breakPending = false;
+    for (const point of row.points) {
+      if (!Number.isFinite(point.value)) {
+        breakPending = true;
+        continue;
+      }
+      points.push(breakPending && !point.breakBefore ? { ...point, breakBefore: true } : point);
+      breakPending = false;
+    }
+    if (!usable(row.status) || !row.currency || points.length === 0) return [];
+    return [{
+      currency: row.currency,
+      status: row.status,
+      reason: row.reason,
+      asOf: row.asOf,
+      points,
+      partial: points.some(point => point.partial)
+        || Boolean(row.coverage?.truncated)
+        || Boolean(row.coverage?.read_failures?.length),
+    }];
+  });
+}
+
+/** The selected currency only; USD and USDT are never blended into one series. */
+export function selectAssetHistory(
+  histories: AssetBalanceHistory[],
+  currency: string | null,
+): AssetBalanceHistory | null {
+  if (!histories.length) return null;
+  return histories.find(history => history.currency === currency) ?? histories[0]!;
+}
+
+export function TrendCard({ returns, assets }: { returns: Api<ReturnsResponse>; assets: Api<AssetsResponse> }) {
   const t = useT();
   const navigate = useNavigate();
   const scopeLabel = useScopeLabel();
+  const [currency, setCurrency] = useState<string | null>(null);
   const open = () => navigate({ page: "performance" });
   let body: ReactNode;
   let title = t("overview.equity_trend");
+  let currencySwitch: ReactNode = null;
   let note: ReactNode = null;
-  if (state.phase === "loading") {
+  const drawable = returns.phase === "ready" && usable(returns.data.status) && returns.data.points.length > 0;
+  if (returns.phase === "loading") {
     body = <Skeleton height={220} />;
-  } else if (state.phase === "error") {
-    body = <ErrorState onRetry={state.reload} />;
-  } else {
-    const data = state.data;
+  } else if (returns.phase === "error") {
+    body = <ErrorState onRetry={returns.reload} />;
+  } else if (drawable) {
+    const data = returns.data;
     // An unadjusted asset ratio is a percentage change including cash flows, not
     // a balance and not TWR; use the same "asset change" wording as ReturnsCard.
     const returnQualified = data.return_kind === "twr" && classifyCashflowMethod(data) !== "unknown";
     if (!returnQualified) title = t("perf.asset_change_title");
-    if (usable(data.status) && data.points.length > 0) {
-      const series: ChartSeries[] = [
-        { id: "main", label: scopeLabel, color: "var(--accent)", points: data.points, primary: true },
-      ];
-      body = <LineChart series={series} mode="cumulative" ariaLabel={title} alignStart={data.aligned_start} />;
-    } else {
-      // The card links to the performance page, so keep its placeholder short
-      // instead of nesting a second interactive element inside the card button.
-      body = <EmptyState title={t(`state.${usable(data.status) ? "no_data" : data.status}`)} />;
-    }
+    const series: ChartSeries[] = [
+      { id: "main", label: scopeLabel, color: "var(--accent)", points: data.points, primary: true },
+    ];
+    body = <LineChart series={series} mode="cumulative" ariaLabel={title} alignStart={data.aligned_start} />;
     if (data.status === "partial" || data.status === "stale") {
       // One short state stays visible; the performance page holds the full reason.
       note = (
@@ -258,24 +342,61 @@ function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
         </div>
       );
     }
+  } else {
+    // Returns cannot be drawn. A completed assets read may still hold a real
+    // per-currency balance, shown as a balance and never as a return.
+    const histories = assetBalanceHistories(assets.phase === "ready" ? assets.data : null);
+    const selected = selectAssetHistory(histories, currency);
+    if (assets.phase === "loading") {
+      body = <Skeleton height={220} />;
+    } else if (assets.phase === "error") {
+      body = <ErrorState onRetry={assets.reload} />;
+    } else if (selected) {
+      title = t("perf.asset_balance_title");
+      if (histories.length > 1) {
+        currencySwitch = (
+          <div className="overview-currency-switch">
+            <div className="segmented" role="group" aria-label={t("perf.currency_switch")}>
+              {histories.map(history => (
+                <button
+                  key={history.currency}
+                  type="button"
+                  className={`segment${history.currency === selected.currency ? " active" : ""}`}
+                  aria-pressed={history.currency === selected.currency}
+                  onClick={() => setCurrency(history.currency)}
+                >
+                  {history.currency}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      }
+      body = <AreaChart points={selected.points} currency={selected.currency} ariaLabel={title} />;
+      if (selected.status !== "ok" || selected.partial) {
+        note = (
+          <div className="card-note overview-trend-note">
+            <StatusBadge status={selected.status === "ok" ? "partial" : selected.status} reason={selected.reason} />
+            {selected.asOf && <AsOfStamp value={selected.asOf} />}
+          </div>
+        );
+      }
+    } else {
+      // Nothing real to draw: stay quiet instead of inventing a curve.
+      body = <EmptyState title={t(`state.${usable(returns.data.status) ? "no_data" : returns.data.status}`)} />;
+    }
   }
   return (
-    <div
-      className="card overview-link-card overview-trend-card"
-      role="button"
-      tabIndex={0}
-      onClick={open}
-      onKeyDown={event => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          open();
-        }
-      }}
-    >
+    <div className="card overview-link-card overview-trend-card">
       <div className="overview-card-head">
         <h2 className="card-title">{title}</h2>
-        <span className="card-note">{t("overview.open_performance")} →</span>
+        {/* The card itself is not a button: one real link, so the currency
+            buttons below can never sit inside a button or inherit its keydown. */}
+        <button type="button" className="overview-trend-open" onClick={open}>
+          {t("overview.open_performance")} <span aria-hidden="true">→</span>
+        </button>
       </div>
+      {currencySwitch}
       {body}
       {note}
     </div>
@@ -318,7 +439,7 @@ export default function OverviewPage() {
           <RunsKpi state={todayRuns} />
         </div>
       </section>
-      <TrendCard state={returns} />
+      <TrendCard returns={returns} assets={assets} />
       <nav className="overview-shortcuts" aria-label={t("overview.quick_links")}>
         <button type="button" className="overview-shortcut" onClick={() => navigate({ page: "accounts" })}>
           {t("nav.accounts")}<span aria-hidden="true">→</span>

@@ -49,11 +49,22 @@
   margin-bottom: 12px;
 }
 .overview-card-head .card-title { min-width: 0; margin: 0; }
-.overview-card-head > .card-note { margin: 2px 0 0; white-space: nowrap; }
 
-.overview-link-card { min-width: 0; cursor: pointer; transition: border-color 120ms ease; }
-.overview-link-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-.overview-link-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.overview-link-card { min-width: 0; }
+.overview-trend-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 0;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.overview-trend-open:hover { text-decoration: underline; }
+.overview-currency-switch { margin: 0 0 10px; }
+.overview-currency-switch .segmented { max-width: 100%; }
 .overview-link-card .empty-state { min-height: 150px; margin-top: 0; padding: 24px 16px; }
 .overview-trend-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 10px; }
 

@@ -36,10 +36,10 @@ const require = createRequire(join(frontend, "package.json"));
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { buildSync } = require("esbuild");
-const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { PerformanceCharts } from "./PerformanceCharts"; export { LocaleContext } from "./locales"; export { prepareChartSeries } from "./charts/LineChart";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
+const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { PerformanceCharts } from "./PerformanceCharts"; export { CalendarHeatmap } from "./charts/CalendarHeatmap"; export { LocaleContext } from "./locales"; export { prepareChartSeries } from "./charts/LineChart";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
 const component = { exports: {} };
 new Function("require", "module", "exports", bundled)(require, component, component.exports);
-const { OverviewPage, PerformanceCharts, LocaleContext, prepareChartSeries } = component.exports;
+const { OverviewPage, PerformanceCharts, CalendarHeatmap, LocaleContext, prepareChartSeries } = component.exports;
 
 // Native TWR percentages are already cumulative: +10% then -5% must plot as 10% → 4.5%,
 // keeping the first observation and the final compounded value instead of rebasing to 0.
@@ -148,5 +148,58 @@ try {
   assert.match(partial, /非历史汇率/);
   const noCommon = render(PerformanceCharts, { ...props, benchmarks: points.map(p=>({...p,observationDate:'2026-10-10'})) });
   assert.match(noCommon, /比较数据不足或没有共同日期/);
+
+  // Calendar tone is driven by finite returns only: 0% stays neutral (and still
+  // reads 0.00%), while null/undefined/NaN cells claim neither a value nor a tone.
+  const calendarCell = (date, returnPercent, amount) => ({
+    date, amount, return_percent: returnPercent, currency: "USD", status: "ok",
+    value_kind: "asset_change", unavailable_reason: null,
+  });
+  const calendar = render(CalendarHeatmap, {
+    year: 2020,
+    month: 1,
+    cells: [
+      calendarCell("2020-01-01", 2, 10),
+      calendarCell("2020-01-02", -1, -5),
+      calendarCell("2020-01-03", 0, 0),
+      calendarCell("2020-01-06", null, null),
+      calendarCell("2020-01-07", undefined, undefined),
+      calendarCell("2020-01-08", Number.NaN, Number.NaN),
+    ],
+    onNavigate() {},
+  });
+  const dayCell = day => {
+    const marker = `<span class="cell-date num">${day}</span>`;
+    const at = calendar.indexOf(marker);
+    assert.ok(at >= 0, `calendar day ${day} renders`);
+    const start = calendar.lastIndexOf('<div class="calendar-cell', at);
+    const next = calendar.indexOf('<div class="calendar-cell', at);
+    return calendar.slice(start, next === -1 ? calendar.length : next);
+  };
+  assert.match(dayCell(1), /var\(--up\)[\s\S]*\+2\.00%/);
+  assert.match(dayCell(2), /var\(--down\)[\s\S]*-1\.00%/);
+  const zeroDay = dayCell(3);
+  assert.match(zeroDay, /cell-value flat/);
+  assert.match(zeroDay, /0\.00%/);
+  assert.doesNotMatch(zeroDay, /var\(--(?:up|down)\)/, "0% is neutral and never down");
+  for (const day of [6, 7, 8]) {
+    const blank = dayCell(day);
+    assert.match(blank, /cell-empty/);
+    assert.doesNotMatch(blank, /cell-value/);
+    assert.doesNotMatch(blank, /var\(--(?:up|down)\)/);
+    assert.doesNotMatch(blank, /NaN|undefined/);
+  }
+  const yearView = render(CalendarHeatmap, {
+    year: 2020,
+    month: null,
+    cells: [
+      { ...calendarCell(undefined, 0, 0), month: "2020-01" },
+      { ...calendarCell(undefined, undefined, undefined), month: "2020-02", currency: null, status: "no_data" },
+    ],
+    onNavigate() {},
+  });
+  assert.match(yearView, /cell-value flat">0\.00%/);
+  assert.doesNotMatch(yearView, /var\(--(?:up|down)\)/);
+  assert.doesNotMatch(yearView, /NaN|undefined/);
 } finally { Date.now = originalNow; }
-console.log("console_chart_visibility_validation: PASS (receiver history → unified return/asset SVG, native cumulative 10%→4.5% preserved, daily −5% without a fabricated first day, four overlaid benchmarks, partial/empty/stale, English; synthetic only)");
+console.log("console_chart_visibility_validation: PASS (receiver history → unified return/asset SVG, native cumulative 10%→4.5% preserved, daily −5% without a fabricated first day, four overlaid benchmarks, partial/empty/stale, English; calendar 0% neutral and null/undefined/NaN blank; synthetic only)");
