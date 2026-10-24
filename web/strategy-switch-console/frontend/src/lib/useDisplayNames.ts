@@ -13,17 +13,13 @@ export function useDisplayNames(override?: DirectoryConfig | null) {
       if (!alias) return t("common.account");
       const option = platform ? accountOption(config, platform, alias) : undefined;
       // A configured single native IBKR account owns the account title. Show
-      // only a masked identifier; the strategy name stays in its own field.
+      // the full identifier on the authenticated console, separate from strategy.
       const selector = platform?.toLowerCase() === "ibkr" ? option?.account_selector?.trim() : undefined;
-      if (selector && /^U\d{5,}$/i.test(selector)) return `U••••${selector.slice(-4)}`;
+      if (selector && /^(?:DU|U)\d{5,}$/i.test(selector)) return selector;
       // Built-in titles may arrive either as the alias or as the configured
       // label; resolve both, while arbitrary custom labels pass through.
       const builtIn = builtInAccountTitle(option?.label, language, platform) || builtInAccountTitle(alias, language, platform);
       const label = builtIn || accountName(alias, platform, language, option?.label && option.label !== alias ? option.label : t("common.account"));
-      // Broker account numbers are identifiers, not display names; they live in account details.
-      if (/^U\d{5,}$/i.test(label.trim())) {
-        return platform === "ibkr" ? t("common.ibkr_account") : t("common.account");
-      }
       return label;
     },
     strategy: (profile: string) => {

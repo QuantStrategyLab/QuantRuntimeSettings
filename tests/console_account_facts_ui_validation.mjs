@@ -430,14 +430,14 @@ try {
     if (language === "zh") ok(!builtInHtml.includes("Russell Top 50") && !builtInHtml.includes("Global ETF"), "known built-ins use Chinese titles");
 
     // 18d-bis. A single valid native IBKR selector owns the shared account
-    // title: it is masked in both languages, overrides strategy/ticker labels,
+    // title: it is complete in both languages, overrides strategy/ticker labels,
     // and leaves the strategy name in its own row. This runs for zh and en so
-    // the same masked identifier is asserted under both locales.
+    // the same complete identifier is asserted under both locales.
     const selectorConfig = {
       accountOptions: { ibkr: [
         { key: "synthetic-soxl-a", label: "SOXL", account_selector: "U00001" },
         { key: "synthetic-soxl-b", label: "SOXL", account_selector: "U00002" },
-        { key: "synthetic-global-native", label: "Global ETF", account_selector: "U00003" },
+        { key: "synthetic-global-native", label: "Global ETF", account_selector: "DU00003" },
       ] },
       currentStrategies: { ibkr: { "synthetic-soxl-a": { strategy_profile: "synthetic-selector-strategy" } } },
       strategyProfiles: [{ profile: "synthetic-selector-strategy", label_zh: "合成策略", label_en: "Synthetic strategy" }],
@@ -447,10 +447,9 @@ try {
     ], selectorConfig, { rows: [], phase: "ready" });
     const selectorTitles = [...selectorHtml.matchAll(/<h3 class="account-broker-title">([^<]*)<\/h3>/g)].map(match => match[1]);
     ok(selectorTitles.length === 3
-      && selectorTitles.includes("U••••0001") && selectorTitles.includes("U••••0002") && selectorTitles.includes("U••••0003"),
-      "distinct single U selectors produce distinct masked native titles in both zh/en");
-    ok(!selectorHtml.includes("U00001") && !selectorHtml.includes("U00002") && !selectorHtml.includes("U00003"),
-      "full native account numbers never appear in the shared title");
+      && selectorTitles.includes("U00001") && selectorTitles.includes("U00002") && selectorTitles.includes("DU00003"),
+      "distinct single U/DU selectors produce complete native titles in both zh/en");
+    ok(!selectorHtml.includes("••••"), "account titles are not masked");
     ok(!selectorTitles.includes("SOXL") && !selectorTitles.includes("Global ETF") && !selectorTitles.includes("全球ETF"),
       "configured or built-in labels never override a valid native selector");
     ok(selectorHtml.includes(language === "zh" ? "合成策略" : "Synthetic strategy"),
@@ -468,11 +467,11 @@ try {
       dirRow("synthetic-native-alias-a"), dirRow("synthetic-native-alias-b"),
     ], sharedNativeConfig, { rows: [sharedNativeFactsA, sharedNativeFactsB], phase: "ready" });
     const sharedNativeTitles = [...sharedNativeHtml.matchAll(/<h3 class="account-broker-title">([^<]*)<\/h3>/g)].map(match => match[1]);
-    ok(sharedNativeTitles.length === 1 && sharedNativeTitles[0] === "U••••0004",
-      "two aliases of one native selector render one masked account card");
+    ok(sharedNativeTitles.length === 1 && sharedNativeTitles[0] === "U00004",
+      "two aliases of one native selector render one complete account card");
     ok(sharedNativeHtml.includes("USD 1,234.56") && !sharedNativeHtml.includes("2,469.12")
-      && !sharedNativeHtml.includes("U00004"),
-      "native display grouping does not change amount deduplication or reveal the full number");
+      && sharedNativeHtml.includes("U00004"),
+      "native display grouping preserves amount deduplication and the complete title");
 
     // 18d-quater. Multiple, missing, or malformed selectors keep the existing
     // label path and never pick a native account from the selector string.
