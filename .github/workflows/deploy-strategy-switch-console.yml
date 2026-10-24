@@ -415,11 +415,11 @@ jobs:
             exit 2
           fi
           if [ "$frontend_mode" = "true" ]; then
-            frontend_sha="e8de7ca312998329e1859ff381b1da34a416db3d"
+            frontend_sha="3c6462b463abf99326bdf169ef079f16691dd46a"
             git cat-file -e "${frontend_sha}^{commit}"
             git merge-base --is-ancestor "$frontend_sha" "$control_sha"
-            if [ "$(git rev-parse "${frontend_sha}^{tree}")" != "22d5a3dbf4ebb628598e281229efc71f114131af" ] \
-              || [ "$(git rev-parse "${frontend_sha}:web/strategy-switch-console/v2_asset_map.js")" != "a693518a12a4c8d543630f229e84e678cf2a2333" ]; then
+            if [ "$(git rev-parse "${frontend_sha}^{tree}")" != "528966ca8552243a90be32908057ab2343477a53" ] \
+              || [ "$(git rev-parse "${frontend_sha}:web/strategy-switch-console/v2_asset_map.js")" != "3927a3cc1fcd4f4caf768ecfa8bff469fa9703e9" ]; then
               echo "frontend_release_source_mismatch" >&2
               exit 2
             fi
@@ -480,12 +480,12 @@ jobs:
         run: |
           set -euo pipefail
           backend="e2aab576d6874feeaf87df3411411ad04ee02d4f"
-          frontend="e8de7ca312998329e1859ff381b1da34a416db3d"
+          frontend="3c6462b463abf99326bdf169ef079f16691dd46a"
           asset="web/strategy-switch-console/v2_asset_map.js"
-          blob="a693518a12a4c8d543630f229e84e678cf2a2333"
+          blob="3927a3cc1fcd4f4caf768ecfa8bff469fa9703e9"
           if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$(git rev-parse HEAD)" != "$backend" ] \
             || [ "$(git rev-parse 'HEAD^{tree}')" != "968b323ca75ee48d0c92bfe0b7f4110c3d27df72" ] \
-            || [ "$(git rev-parse "${frontend}^{tree}")" != "22d5a3dbf4ebb628598e281229efc71f114131af" ]; then
+            || [ "$(git rev-parse "${frontend}^{tree}")" != "528966ca8552243a90be32908057ab2343477a53" ]; then
             echo "frontend_overlay_source_mismatch" >&2
             exit 2
           fi
