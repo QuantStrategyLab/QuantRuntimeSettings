@@ -51,7 +51,7 @@
 .account-platform-head .account-platform-title { flex: 0 0 auto; margin: 0; font-size: 15px; letter-spacing: -.01em; }
 .account-platform-summary { flex: 1 1 280px; min-width: 0; }
 .account-platform-summary .account-facts { margin: 0; padding: 0; border: 0; }
-.account-facts-platform { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.account-facts-platform { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px 20px; }
 .account-facts-currency { display: grid; align-content: start; flex: 0 1 260px; gap: 4px; min-width: 0; }
 .account-facts-platform .account-platform-notes { flex-basis: 100%; }
 .account-facts-platform-state { justify-items: start; }
@@ -88,6 +88,7 @@
 @media (max-width: 768px) {
   .account-platform-head { flex-direction: column; align-items: stretch; gap: 8px; }
   .account-platform-summary { flex-basis: auto; }
+  .account-facts-platform { flex-direction: column; align-items: stretch; }
   .account-facts-currency { flex-basis: auto; }
 }
 
