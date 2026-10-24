@@ -2,6 +2,11 @@
 
 .catalog-meta { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
 
+.strategy-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.strategy-section-title { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+.strategy-section-head .card-note { margin: 0; }
+.strategy-section-empty { margin: 0; padding: 10px 0; }
+
 .strategy-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px 18px; }
 .strategy-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .strategy-card-title { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
@@ -60,7 +65,8 @@
 .strategy-details { border-top: 1px solid var(--line); padding-top: 8px; margin-top: auto; }
 .strategy-details summary { cursor: pointer; color: var(--muted); font-size: 13px; min-height: 32px; padding: 6px 0; }
 .strategy-details summary:hover { color: var(--ink); }
-.strategy-details-body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.strategy-details-body { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
+.strategy-details-body .strategy-execution { padding: 0; border: 0; background: transparent; }
 
 .research-list { display: flex; flex-direction: column; gap: 10px; }
 .research-item { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; }

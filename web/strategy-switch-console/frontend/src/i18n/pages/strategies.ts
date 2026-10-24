@@ -15,6 +15,10 @@ export const zh: Record<string, string> = {
   "research.state.deferred": "暂缓研究",
   "state.unknown": "未知",
   "strategies.research_empty": "暂无研究资料。",
+  "strategies.configured_section": "已配置策略",
+  "strategies.catalog_section": "目录策略",
+  "strategies.section_count": "{count} 项",
+  "strategies.no_configured": "当前没有账户配置策略；可从下方目录继续查看。",
 };
 export const en: Record<string, string> = {
   "strategies.details": "Details",
@@ -32,4 +36,8 @@ export const en: Record<string, string> = {
   "research.state.deferred": "Research deferred",
   "state.unknown": "Unknown",
   "strategies.research_empty": "No research data yet.",
+  "strategies.configured_section": "Configured strategies",
+  "strategies.catalog_section": "Catalog strategies",
+  "strategies.section_count": "{count}",
+  "strategies.no_configured": "No account is configured with a strategy yet. Browse the catalog below.",
 };

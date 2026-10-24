@@ -242,6 +242,12 @@ export default function DecisionsPage() {
     () => (category === "all" ? pendingItems : pendingItems.filter(item => item.category === category)),
     [pendingItems, category],
   );
+  const degradedSources = useMemo(
+    () => (inbox.phase === "ready" && inbox.data.status !== "read_failed"
+      ? inbox.data.sources.filter(source => source.status !== "ok")
+      : []),
+    [inbox],
+  );
 
   const selected = visibleItems.find(item => item.id === selectedId) || null;
 
@@ -667,7 +673,6 @@ export default function DecisionsPage() {
     if (inbox.phase === "error" || inbox.data.status === "read_failed") {
       return <InboxReadFailed data={inbox.data} error={inbox.error} onRetry={inbox.phase === "error" ? inbox.reload : refresh} />;
     }
-    const degraded = inbox.data.sources.filter(source => source.status !== "ok");
     return (
       <>
         {visibleItems.length === 0 ? (
@@ -710,11 +715,6 @@ export default function DecisionsPage() {
             {selected && renderDetail()}
           </div>
         )}
-        {degraded.length > 0 && (
-          <p className="decision-note decision-source-foot" role="status" data-state="partial" data-degraded-count={degraded.length}>
-            <StatusBadge status="partial" />
-          </p>
-        )}
       </>
     );
   };
@@ -731,24 +731,38 @@ export default function DecisionsPage() {
       </div>
       <div className="decisions-filters">
         <Tabs id="decisions" items={categoryTabs} active={category} onChange={id => setCategory(id as CategoryFilter)} ariaLabel={t("decisions.title")} />
-        <div className="segmented" role="group" aria-label={t("decisions.title")}>
-          <button
-            type="button"
-            aria-pressed={view === "pending"}
-            className={`segment${view === "pending" ? " active" : ""}`}
-            onClick={() => setView("pending")}
-          >
-            {t("decisions.tab.pending")}
-            {pendingCount > 0 && <span className="segment-sub">{pendingCount}</span>}
-          </button>
-          <button
-            type="button"
-            aria-pressed={view === "decided"}
-            className={`segment${view === "decided" ? " active" : ""}`}
-            onClick={() => setView("decided")}
-          >
-            {t("decisions.tab.decided")}
-          </button>
+        <div className="decisions-filter-controls">
+          {view === "pending" && degradedSources.length > 0 && (
+            <span
+              className="decision-degraded"
+              role="status"
+              title={t("decisions.partial_notice")}
+              aria-label={t("decisions.partial_notice")}
+              data-state="partial"
+              data-degraded-count={degradedSources.length}
+            >
+              <StatusBadge status="partial" />
+            </span>
+          )}
+          <div className="segmented" role="group" aria-label={t("decisions.title")}>
+            <button
+              type="button"
+              aria-pressed={view === "pending"}
+              className={`segment${view === "pending" ? " active" : ""}`}
+              onClick={() => setView("pending")}
+            >
+              {t("decisions.tab.pending")}
+              {pendingCount > 0 && <span className="segment-sub">{pendingCount}</span>}
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === "decided"}
+              className={`segment${view === "decided" ? " active" : ""}`}
+              onClick={() => setView("decided")}
+            >
+              {t("decisions.tab.decided")}
+            </button>
+          </div>
         </div>
       </div>
       <div id="decisions-panel" role="tabpanel" aria-labelledby={`decisions-tab-${category}`} tabIndex={0}>

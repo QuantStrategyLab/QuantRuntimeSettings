@@ -10,7 +10,8 @@
   border-bottom: 1px solid var(--line);
 }
 .decisions-filters .tabs { flex: 1 1 auto; border-bottom: 0; }
-.decisions-filters > .segmented { flex: 0 0 auto; }
+.decisions-filter-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+.decision-degraded { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 
 .decision-detail-head { display: flex; flex-direction: column; gap: 8px; }
 
@@ -77,7 +78,6 @@
 .reconciliation-materials { margin-top: 12px; }
 .reconciliation-materials > .card-title:not(:first-child) { margin-top: 24px; }
 .reconciliation-detail > summary { color: var(--muted); }
-.decision-source-foot { margin-top: 8px; }
 .reconciliation-ref { color: var(--muted); font-size: 12px; }
 .decision-stale-hint { color: var(--muted); }
 .reconciliation-material + .reconciliation-material { border-top: 1px solid var(--line); padding-top: 12px; }
@@ -88,7 +88,8 @@
 @media (max-width: 600px) {
   .decisions-filters { align-items: stretch; }
   .decisions-filters .tabs { width: 100%; }
-  .decisions-filters > .segmented { width: 100%; }
+  .decisions-filter-controls { width: 100%; margin-left: 0; justify-content: space-between; }
+  .decisions-filter-controls .segmented { flex: 1 1 auto; }
   .decisions-filters .segment { flex: 1 1 auto; justify-content: center; }
   .decision-prompt { font-size: 14px; }
   .inbox-item { padding: 11px 12px; }

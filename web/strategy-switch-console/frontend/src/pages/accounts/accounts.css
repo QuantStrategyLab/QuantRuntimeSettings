@@ -22,17 +22,15 @@
 .accounts-mobile-back { display: none; margin-bottom: 12px; }
 .accounts-unassigned { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
 
-.accounts-detail > .card:first-of-type > .card-title {
-  margin-bottom: 10px;
-  font-size: 19px;
-  letter-spacing: -.02em;
-}
+.accounts-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 10px; }
+.accounts-detail-head > .card-title { margin: 0; font-size: 19px; letter-spacing: -.02em; min-width: 0; overflow-wrap: anywhere; }
 
 .accounts-summary-rows { display: flex; flex-direction: column; gap: 0; }
 .accounts-summary-row {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  min-height: 38px;
   padding: 9px 0;
   border-bottom: 1px solid var(--soft-line, var(--line));
   font-size: 13px;
@@ -76,7 +74,7 @@
   .accounts-split.detail-open .accounts-list { display: none; }
   .accounts-split:not(.detail-open) .accounts-detail { display: none; }
   .accounts-mobile-back { display: inline-flex; }
-  .accounts-detail > .card:first-of-type > .card-title { font-size: 18px; }
+  .accounts-detail-head > .card-title { font-size: 18px; }
   .accounts-field-row { grid-template-columns: 1fr; gap: 4px; }
   .accounts-field-label { padding-top: 0; }
   .accounts-field-control .input { max-width: none; }

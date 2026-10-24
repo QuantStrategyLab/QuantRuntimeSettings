@@ -425,6 +425,7 @@ button.kpi-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(
 .page { display: flex; flex-direction: column; gap: 18px; }
 .page-header { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
 .page-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; }
+.page-subtitle { margin: -10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .page-header-actions { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-left: auto; }
 .page-header-actions .segmented { max-width: 100%; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
@@ -746,10 +747,10 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* ---------- Strategy cards ---------- */
 
-.strategy-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.strategy-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 
-@media (max-width: 1200px) {
-  .strategy-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1000px) {
+  .strategy-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
   .account-grid, .strategy-grid { grid-template-columns: minmax(0, 1fr); }
@@ -778,7 +779,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .health-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
 .health-legend span { display: inline-flex; align-items: center; gap: 6px; }
 
-.stat-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.stat-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 
 /* ---------- Scope switcher ---------- */
 
@@ -893,10 +894,13 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .accounts-layout { grid-template-columns: 1fr; }
   .inbox { grid-template-columns: 1fr; }
   .inbox-detail { position: static; }
-  .stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px) {
+  .stat-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 768px) {
+  .stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sidenav { display: none; }
   .bottom-tabs { display: block; }
   .content { padding: 14px 12px 80px; }

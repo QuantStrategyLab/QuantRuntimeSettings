@@ -41,7 +41,11 @@ function toPath(points: Positioned[]): string {
 
 type Positioned = PreparedPoint & { x: number; y: number };
 
-/** Daily changes from cumulative percentages; breaks come only from backend gap flags. */
+/**
+ * Daily changes: explicit backend daily percentages win (they cover the first known native
+ * day and the day after a real break); otherwise compound two adjacent cumulative points.
+ * Breaks come only from backend gap flags.
+ */
 function dailyPoints(points: Point[], start: string | null): PreparedPoint[] {
   const rows = points.filter(point => !start || point.date >= start);
   const daily: PreparedPoint[] = [];
@@ -50,19 +54,26 @@ function dailyPoints(points: Point[], start: string | null): PreparedPoint[] {
   for (const point of rows) {
     const boundary = isBreak(point);
     if (boundary) interrupted = true;
-    const canCompute = previous !== null && !boundary
-      && Number.isFinite(previous.value) && previous.value > -100
-      && Number.isFinite(point.value) && point.value >= -100;
-    if (canCompute) {
-      const value = ((1 + point.value / 100) / (1 + previous!.value / 100) - 1) * 100;
-      if (Number.isFinite(value)) {
-        daily.push({ date: point.date, value, breakBefore: interrupted });
-        interrupted = false;
+    const native = point.daily_return_percent;
+    const explicit = typeof native === "number" && Number.isFinite(native) && native >= -100 ? native : null;
+    if (explicit !== null) {
+      daily.push({ date: point.date, value: explicit, breakBefore: interrupted });
+      interrupted = false;
+    } else {
+      const canCompute = previous !== null && !boundary
+        && Number.isFinite(previous.value) && previous.value > -100
+        && Number.isFinite(point.value) && point.value >= -100;
+      if (canCompute) {
+        const value = ((1 + point.value / 100) / (1 + previous!.value / 100) - 1) * 100;
+        if (Number.isFinite(value)) {
+          daily.push({ date: point.date, value, breakBefore: interrupted });
+          interrupted = false;
+        } else {
+          interrupted = true;
+        }
       } else {
         interrupted = true;
       }
-    } else {
-      interrupted = true;
     }
     previous = Number.isFinite(point.value) ? point : null;
   }

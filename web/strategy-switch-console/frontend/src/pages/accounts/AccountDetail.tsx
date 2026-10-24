@@ -2,13 +2,13 @@ import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useEffect, useRef, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import { loadSettingsDiff } from "../../api/endpoints";
-import { factForAccount } from "../../lib/accountFacts";
+import { factEnvironment, factForAccount } from "../../lib/accountFacts";
 import { useNavigate } from "../../app/context";
 import { setNavigationGuard } from "../../app/router";
 import { useT, type Translate } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { AsOfStamp, Badge, ErrorState, StatusBadge } from "../../components/primitives";
-import { AccountFactsAmounts } from "../../components/AccountFactsAmounts";
+import { AccountFactsAmounts, EnvironmentBadge, type AccountEnvironment } from "../../components/AccountFactsAmounts";
 import type { AccountFactsView } from "../../components/AccountGroups";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { Tabs } from "../../components/Tabs";
@@ -72,6 +72,10 @@ export function AccountDetail({
 
   const active = normalizeTab(tab);
   const selector = accountOption(config, account.platform, account.account_alias)?.account_selector?.trim();
+  const fact = factForAccount(facts.rows, account.platform, account.account_alias);
+  const evidenceEnvironment = config?.currentStrategies?.[account.platform]?.[account.account_alias]?.execution_evidence?.broker_environment;
+  const environment: AccountEnvironment | null = factEnvironment(fact)
+    ?? (evidenceEnvironment === "paper" || evidenceEnvironment === "live" ? evidenceEnvironment : null);
 
   const runBadge = todayFailed ? (
     <StatusBadge status="read_failed" />
@@ -92,7 +96,10 @@ export function AccountDetail({
         </button>
       </div>
       <section className="card">
-        <h2 className="card-title">{names.account(account.account_alias, account.platform)}</h2>
+        <div className="accounts-detail-head">
+          <h2 className="card-title">{names.account(account.account_alias, account.platform)}</h2>
+          <EnvironmentBadge environment={environment} />
+        </div>
         <div className="accounts-summary-rows">
           <div className="accounts-summary-row">
             <span>{t("common.platform")}</span>
@@ -109,7 +116,7 @@ export function AccountDetail({
             <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{runBadge}</span>
           </div>
         </div>
-        <AccountFactsAmounts fact={factForAccount(facts.rows, account.platform, account.account_alias)} phase={facts.phase} />
+        <AccountFactsAmounts fact={fact} phase={facts.phase} />
       </section>
       <Tabs
         id="account-detail"

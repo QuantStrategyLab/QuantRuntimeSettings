@@ -27,7 +27,7 @@ try {
     import { AccountFactsAmounts, PlatformFactsSummary } from './src/components/AccountFactsAmounts';
     import { AccountGroups } from './src/components/AccountGroups';
     import { ReturnKpi } from './src/pages/overview/OverviewPage';
-    import { pickIdentityFact, platformCurrencyTotals, formatMoneyText, cashTextFor } from './src/lib/accountFacts';
+    import { pickIdentityFact, platformCurrencyTotals, formatMoneyText, cashTextFor, factEnvironment } from './src/lib/accountFacts';
     const render = (language, component, props, prefs) => renderToStaticMarkup(
       h(I18nProvider, { language },
         h(PrefsContext.Provider, { value: { prefs: { ...DEFAULT_PREFERENCES, ...(prefs || {}) }, resolvedTheme: 'light', setPrefs: () => {} } },
@@ -40,7 +40,7 @@ try {
       render(language, AccountGroups, { accounts, config, facts, onSelect: () => {} });
     export const returnKpi = language =>
       render(language, ReturnKpi, { state: globalThis.__factsKpiState });
-    export const lib = { pickIdentityFact, platformCurrencyTotals, formatMoneyText, cashTextFor };`, resolveDir: root },
+    export const lib = { pickIdentityFact, platformCurrencyTotals, formatMoneyText, cashTextFor, factEnvironment };`, resolveDir: root },
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },
     plugins: [{ name: "controlled-read", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: "export const useApi = () => globalThis.__factsKpiState;", loader: "js" }));
@@ -48,6 +48,12 @@ try {
     } }],
   });
   const ui = createRequire(import.meta.url)(outfile);
+  assert.equal(ui.lib.factEnvironment({ broker_environment: "live", account_scope: "paper" }), null);
+  assert.equal(ui.lib.factEnvironment({ broker_environment: "paper", account_scope: "live" }), null);
+  assert.equal(ui.lib.factEnvironment({ broker_environment: "live", account_scope: "live" }), "live");
+  assert.equal(ui.lib.factEnvironment({ broker_environment: "paper", account_scope: "paper" }), "paper");
+  assert.equal(ui.lib.factEnvironment({}), null);
+
 
   const withheldState = (html, state) => html.includes(`data-state="${state}"`)
     && !/(?:USD|HKD)\s*-?\d/.test(html);
@@ -57,16 +63,16 @@ try {
       assets: "资产", cash: "现金", cashSemantics: "不代表购买力",
       notConnected: "未接入", noData: "暂无数据", readFailed: "读取失败", unknown: "未知状态",
       identity: "账户身份未核验", platformIdentity: "平台合计不可用：有账户身份未核验", conflict: "数据不一致",
-      total: "平台合计", subtotal: "部分合计", subtotalNote: "仅合计已核验且估值日期一致的账户。",
-      partial: "部分合计", stale: "待更新", coverage: (c, e) => `已计入 ${c}/${e} 个账户`,
+      total: "实盘合计", subtotal: "实盘小计", subtotalNote: "仅合计已核验且估值日期一致的账户。",
+      partial: "实盘小计", stale: "待更新", coverage: (c, e) => `已计入 ${c}/${e} 个账户`,
       dietz: "Modified Dietz（近似）", methodUnknown: "收益计算方式未知",
     },
     en: {
       assets: "Assets", cash: "Cash", cashSemantics: "not buying power",
       notConnected: "Not connected", noData: "No data", readFailed: "Read failed", unknown: "Unknown status",
       identity: "identity unverified", platformIdentity: "Platform total unavailable: some account identities are unverified", conflict: "Data conflicts",
-      total: "Platform total", subtotal: "Subtotal", subtotalNote: "Only verified accounts with the same valuation date are included.",
-      partial: "Subtotal", stale: "update pending", coverage: (c, e) => `Includes ${c} of ${e} accounts`,
+      total: "Live total", subtotal: "Live subtotal", subtotalNote: "Only verified accounts with the same valuation date are included.",
+      partial: "Live subtotal", stale: "update pending", coverage: (c, e) => `Includes ${c} of ${e} accounts`,
       dietz: "Modified Dietz (approximate)", methodUnknown: "Return method unknown",
     },
   };

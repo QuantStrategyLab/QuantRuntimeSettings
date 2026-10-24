@@ -110,6 +110,7 @@ function ReturnsChart({
     <div data-state={view.status} data-reason={view.unavailableReason ?? undefined}>
       <p className="card-note" style={{ marginTop: 0 }}>
         <span className="perf-kind">{t(kindLabel(view.returnKind, view.method))}</span>
+        {view.currency && <span className="perf-currency"> · {view.currency}</span>}
       </p>
       <LineChart
         // A new currency/benchmark set must re-apply the default visibility instead of
@@ -122,17 +123,20 @@ function ReturnsChart({
         defaultVisible={benchmarks.series.length > 0 ? benchmarks.defaults : undefined}
       />
       {disabled.length > 0 && (
-        <div className="perf-benchmarks-off">
-          {disabled.map(item => (
-            <span
-              key={item.id}
-              className="perf-benchmark-off"
-              title={item.unavailable_reason ? t(`reason.${item.unavailable_reason}`) : undefined}
-            >
-              {t(BENCHMARK_LABEL_KEYS[item.id] || "perf.benchmark_unknown")} · {t(`state.${item.status}`)}
-            </span>
-          ))}
-        </div>
+        <details className="perf-benchmarks-off">
+          <summary>{t("perf.benchmarks_unavailable", { count: disabled.length })}</summary>
+          <div className="perf-benchmarks-off-list">
+            {disabled.map(item => (
+              <span
+                key={item.id}
+                className="perf-benchmark-off"
+                title={item.unavailable_reason ? t(`reason.${item.unavailable_reason}`) : undefined}
+              >
+                {t(BENCHMARK_LABEL_KEYS[item.id] || "perf.benchmark_unknown")} · {t(`state.${item.status}`)}
+              </span>
+            ))}
+          </div>
+        </details>
       )}
     </div>
   );

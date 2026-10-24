@@ -60,8 +60,7 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
   return (
     <div className="card">
       <div className="perf-card-head">
-        <h2 className="card-title">{t("perf.calendar_title")}</h2>
-        {assetChange && <Badge tone="accent">{t("perf.calendar_asset_balance")}</Badge>}
+        <h2 className="card-title">{t(assetChange ? "perf.asset_change_title" : "perf.calendar_title")}</h2>
         <div className="segmented" role="group" aria-label={t("perf.calendar_title")}>
           <button
             type="button"
@@ -81,6 +80,7 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
           </button>
         </div>
         <span className="perf-head-meta">
+          {assetChange && <Badge tone="accent" title={t("perf.asset_change_note")}>{t("perf.asset_change_calendar_tag")}</Badge>}
           {status && status !== "ok" && renderableStatus(status) && <StatusBadge status={status} reason={reason} />}
           {status && renderableStatus(status) && <AsOfStamp value={asOf} />}
         </span>
