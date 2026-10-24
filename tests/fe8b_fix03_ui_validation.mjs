@@ -63,12 +63,12 @@ try {
     const original = structuredClone(data);
     for (const language of ["zh", "en"]) {
       const html = ui.render(language, "assets", { scope: "all", range: "YTD", epoch: 0 }, null, ready(data));
-      assert.ok(html.includes(language === "zh" ? "USD 资产合计" : "USD asset total"));
+      assert.ok(html.includes(language === "zh" ? "USD 资产小计" : "USD asset subtotal"));
       assert.ok(html.includes(language === "zh" ? "USDT 资产合计" : "USDT asset total"));
       assert.ok(html.includes("123.45"));
       assert.ok(html.includes("—"));
-      assert.ok(html.includes(language === "zh" ? "估值不完整" : "Valuation incomplete"));
-      assert.ok(html.includes(language === "zh" ? "其中 2 个账户有数据" : "2 accounts with data"));
+      assert.ok(html.includes(language === "zh" ? "部分账户未纳入合计" : "Some accounts are not included in the total"));
+      assert.ok(html.includes(language === "zh" ? "合计含 2 个账户" : "Total includes 2 accounts"));
       assert.ok(html.includes(language === "zh" ? "缺少完整出入金记录" : "Complete cash-flow records are missing"));
       assert.ok(!html.includes("USDT 0"));
     }
