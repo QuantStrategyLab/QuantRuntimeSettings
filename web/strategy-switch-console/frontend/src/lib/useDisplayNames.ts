@@ -12,6 +12,10 @@ export function useDisplayNames(override?: DirectoryConfig | null) {
     account: (alias: string | null | undefined, platform?: string | null) => {
       if (!alias) return t("common.account");
       const option = platform ? accountOption(config, platform, alias) : undefined;
+      // A configured single native IBKR account owns the account title. Show
+      // only a masked identifier; the strategy name stays in its own field.
+      const selector = platform?.toLowerCase() === "ibkr" ? option?.account_selector?.trim() : undefined;
+      if (selector && /^U\d{5,}$/i.test(selector)) return `U••••${selector.slice(-4)}`;
       // Built-in titles may arrive either as the alias or as the configured
       // label; resolve both, while arbitrary custom labels pass through.
       const builtIn = builtInAccountTitle(option?.label, language, platform) || builtInAccountTitle(alias, language, platform);

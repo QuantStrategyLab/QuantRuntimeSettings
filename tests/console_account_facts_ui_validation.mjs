@@ -429,6 +429,68 @@ try {
     ok(builtInHtml.includes("SOXL"), "generic tickers keep their identifier");
     if (language === "zh") ok(!builtInHtml.includes("Russell Top 50") && !builtInHtml.includes("Global ETF"), "known built-ins use Chinese titles");
 
+    // 18d-bis. A single valid native IBKR selector owns the shared account
+    // title: it is masked in both languages, overrides strategy/ticker labels,
+    // and leaves the strategy name in its own row. This runs for zh and en so
+    // the same masked identifier is asserted under both locales.
+    const selectorConfig = {
+      accountOptions: { ibkr: [
+        { key: "synthetic-soxl-a", label: "SOXL", account_selector: "U00001" },
+        { key: "synthetic-soxl-b", label: "SOXL", account_selector: "U00002" },
+        { key: "synthetic-global-native", label: "Global ETF", account_selector: "U00003" },
+      ] },
+      currentStrategies: { ibkr: { "synthetic-soxl-a": { strategy_profile: "synthetic-selector-strategy" } } },
+      strategyProfiles: [{ profile: "synthetic-selector-strategy", label_zh: "合成策略", label_en: "Synthetic strategy" }],
+    };
+    const selectorHtml = ui.groups(language, [
+      dirRow("synthetic-soxl-a"), dirRow("synthetic-soxl-b"), dirRow("synthetic-global-native"),
+    ], selectorConfig, { rows: [], phase: "ready" });
+    const selectorTitles = [...selectorHtml.matchAll(/<h3 class="account-broker-title">([^<]*)<\/h3>/g)].map(match => match[1]);
+    ok(selectorTitles.length === 3
+      && selectorTitles.includes("U••••0001") && selectorTitles.includes("U••••0002") && selectorTitles.includes("U••••0003"),
+      "distinct single U selectors produce distinct masked native titles in both zh/en");
+    ok(!selectorHtml.includes("U00001") && !selectorHtml.includes("U00002") && !selectorHtml.includes("U00003"),
+      "full native account numbers never appear in the shared title");
+    ok(!selectorTitles.includes("SOXL") && !selectorTitles.includes("Global ETF") && !selectorTitles.includes("全球ETF"),
+      "configured or built-in labels never override a valid native selector");
+    ok(selectorHtml.includes(language === "zh" ? "合成策略" : "Synthetic strategy"),
+      "the original strategy name remains visible in its own strategy row");
+
+    // 18d-ter. Two aliases of the same native selector still form one card,
+    // and producer-known duplicate amounts are not summed twice.
+    const sharedNativeConfig = { accountOptions: { ibkr: [
+      { key: "synthetic-native-alias-a", label: "SOXL", account_selector: "U00004" },
+      { key: "synthetic-native-alias-b", label: "SOXL", account_selector: "U00004" },
+    ] } };
+    const sharedNativeFactsA = { ...baseFact(), account_key: "synthetic-native-alias-a" };
+    const sharedNativeFactsB = { ...baseFact(), account_key: "synthetic-native-alias-b", aggregation_status: "duplicate" };
+    const sharedNativeHtml = ui.groups(language, [
+      dirRow("synthetic-native-alias-a"), dirRow("synthetic-native-alias-b"),
+    ], sharedNativeConfig, { rows: [sharedNativeFactsA, sharedNativeFactsB], phase: "ready" });
+    const sharedNativeTitles = [...sharedNativeHtml.matchAll(/<h3 class="account-broker-title">([^<]*)<\/h3>/g)].map(match => match[1]);
+    ok(sharedNativeTitles.length === 1 && sharedNativeTitles[0] === "U••••0004",
+      "two aliases of one native selector render one masked account card");
+    ok(sharedNativeHtml.includes("USD 1,234.56") && !sharedNativeHtml.includes("2,469.12")
+      && !sharedNativeHtml.includes("U00004"),
+      "native display grouping does not change amount deduplication or reveal the full number");
+
+    // 18d-quater. Multiple, missing, or malformed selectors keep the existing
+    // label path and never pick a native account from the selector string.
+    const invalidSelectorConfig = { accountOptions: { ibkr: [
+      { key: "synthetic-csv", label: "CSV selector", account_selector: "U00005,U00006" },
+      { key: "synthetic-none", label: "No selector" },
+      { key: "synthetic-short", label: "Short selector", account_selector: "U0000" },
+    ] } };
+    const invalidSelectorHtml = ui.groups(language, [
+      dirRow("synthetic-csv"), dirRow("synthetic-none"), dirRow("synthetic-short"),
+    ], invalidSelectorConfig, { rows: [], phase: "ready" });
+    const invalidSelectorTitles = [...invalidSelectorHtml.matchAll(/<h3 class="account-broker-title">([^<]*)<\/h3>/g)].map(match => match[1]);
+    ok(invalidSelectorTitles.includes("CSV selector") && invalidSelectorTitles.includes("No selector")
+      && invalidSelectorTitles.includes("Short selector") && invalidSelectorTitles.every(title => !title.includes("••••")),
+      "multiple, missing, or malformed selectors keep the conservative label path");
+    ok(!invalidSelectorHtml.includes("U00005") && !invalidSelectorHtml.includes("U00006") && !invalidSelectorHtml.includes("U0000"),
+      "an invalid selector never falls back to its first native account");
+
     // 18e. Unknown execution configuration stays off the card instead of
     // repeating an audit trail; a precise label and contextual title keep the
     // activation setting distinct from observed broker execution.
