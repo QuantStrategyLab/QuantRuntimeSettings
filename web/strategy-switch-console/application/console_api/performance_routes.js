@@ -122,6 +122,7 @@ export async function performanceResponse(request, env, deps) {
         histories.push({
           id: `${option.platform}:${option.key}`,
           currency: "USDT",
+          crypto: true,
           points: (body.points || []).flatMap((p) =>
             number(p.amount) === null
               ? []

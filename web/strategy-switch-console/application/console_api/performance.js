@@ -249,7 +249,7 @@ export function performanceBlocks({
   const currencies = [...new Set(histories.map((h) => h.currency))];
   const mixed = currencies.length > 1;
   const combined = aggregateEquity(
-    histories.map((h) => ({ id: h.id, points: h.points })),
+    histories.map((h) => ({ id: h.id, crypto: h.crypto, points: h.points })),
   );
   const allPoints = mixed ? [] : combined.points;
   const points = sliceRange(allPoints, range.toLowerCase(), today);

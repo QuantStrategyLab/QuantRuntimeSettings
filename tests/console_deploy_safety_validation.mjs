@@ -165,8 +165,8 @@ const pr764Source = "20dad166be317dd0d57e492ed06e56dfb82b7aef";
 const pr764Tree = "7db7dbd1b1749b42187dbc1c9658669fa426ffa6";
 const pr764Blob = "de87e1c1c6b62fa94bd514c8936a4ec32e14c0e4";
 const pr764Build = "96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6";
-const approved = "e2aab576d6874feeaf87df3411411ad04ee02d4f";
-const approvedTree = "968b323ca75ee48d0c92bfe0b7f4110c3d27df72";
+const approved = "1ad0810eca505fadb87406a48e154d072afedbe9";
+const approvedTree = "d8c8a6d64df3ef09642c8983a1496ceaebea4bfc";
 const frontend = "e568d15def28500ba3d882d79757111f6e866ee9";
 const frontendTree = "15110885972bd43f78e7351d4b65f911059888c9";
 const frontendBlob = "8147ceb46cd5fcc35e54619207eaaedb7dafa18c";
@@ -344,8 +344,8 @@ assert.deepEqual(renderedConfigs[1].vars, {}, "no locally rendered flag may over
 const normalWithoutVars = { ...renderedConfigs[0] }, frontendWithoutVars = { ...renderedConfigs[1] };
 delete normalWithoutVars.vars; delete frontendWithoutVars.vars;
 assert.deepEqual(frontendWithoutVars, normalWithoutVars, "namespace, DO migration, trigger and all other configuration stay unchanged");
-const publishStep = steps.find(s => s.startsWith("Publish fixed frontend-only Worker version\n"));
-const bundleStep = steps.find(s => s.startsWith("Build frontend-only Worker bundle without publishing\n"));
+const publishStep = steps.find(s => s.startsWith("Publish fixed reviewed website Worker version\n"));
+const bundleStep = steps.find(s => s.startsWith("Build reviewed website Worker bundle without publishing\n"));
 const normalDeploy = steps.find(s => s.startsWith("Deploy Worker\n"));
 assert.match(normalDeploy, /if: \$\{\{ !inputs\.release_frontend_assets \}\}/);
 assert.match(normalDeploy, /npx wrangler@4\.106\.0 deploy --config wrangler\.toml\n/);
@@ -419,7 +419,7 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
    assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
    assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
-  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed frontend only; fixed e2a backend and retained configuration"}});
+  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend 1ad0810e and frontend e568d15; retained configuration"}});
  }
  if(expected){
   if(pr764){const h=JSON.parse(stdout[0]);assert.equal(h.status,"pr764_configuration_verified");

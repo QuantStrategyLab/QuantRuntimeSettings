@@ -70,7 +70,7 @@ export async function consoleApiResponse(request, env, deps) {
       });
       const queue = await inbox(request, env, deps);
       const accountBody = {
-        status: queue.status === "read_failed" ? "partial" : "ok",
+        status: queue.status !== "ok" ? "partial" : "ok",
         coverage: "configured_accounts_explicit_decision_bindings",
         unassigned_decision_count: queue.items.filter(
           (i) => !i.account_alias && i.status === "pending",

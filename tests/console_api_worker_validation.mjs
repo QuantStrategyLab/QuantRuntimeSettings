@@ -388,6 +388,21 @@ try {
   assert.equal(JSON.stringify(partial.body).includes("private_source_sentinel_must_not_escape"), false);
   assert.deepEqual(partial.body.accounts, (await read("/api/accounts")).body, "original partial/error semantics preserved");
   ownerFailure = false;
+  for (const sourceStatus of ["stale", "partial", "unavailable"]) {
+    const sourcePorts = { ...deps, owner: async () => {
+      counts.owner++;
+      return json({ data_status: sourceStatus, candidates: [] });
+    } };
+    resetCounts();
+    const sourcePartial = await read("/api/accounts?include=decisions-inbox", sourcePorts);
+    assert.equal(sourcePartial.status, 200);
+    assert.equal(sourcePartial.body.inbox.status, "partial");
+    assert.equal(sourcePartial.body.accounts.status, "partial", "unknown pending counts require a partial account response");
+    assert.equal(sourcePartial.body.accounts.accounts[0].pending_decision_count, null);
+    assert.equal(sourcePartial.body.accounts.accounts[0].pending_draft_count, 7);
+    assert.deepEqual(counts, { metadata: 1, owner: 1, promotion: 1, recovery: 1, credential: 1, outbound: 0 });
+    assert.deepEqual(sourcePartial.body.accounts, (await read("/api/accounts", sourcePorts)).body);
+  }
   credentialForbidden = true;
   const forbiddenSource = await read("/api/accounts?include=decisions-inbox");
   assert.equal(forbiddenSource.body.inbox.status, "read_failed");
