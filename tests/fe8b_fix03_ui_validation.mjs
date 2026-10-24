@@ -104,7 +104,7 @@ try {
       const groups = ui.render(language, "groups", { accounts: [account], config: paperConfig, onSelect: () => {} });
       assert.match(groups, new RegExp(`>${labels.paper}<`, "i"));
       const missing = ui.render(language, "groups", { accounts: [account], config: { currentStrategies: { longbridge: { paper: { execution_mode: "live" } } } }, onSelect: () => {} });
-      assert.ok(missing.includes(labels.unknown));
+      assert.ok(!missing.includes(labels.unknown), "unknown execution evidence stays off the card");
       assert.ok(!missing.includes(`>${labels.live}<`));
     }
   });

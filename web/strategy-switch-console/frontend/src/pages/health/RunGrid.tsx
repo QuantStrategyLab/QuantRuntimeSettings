@@ -175,7 +175,6 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
 
   return (
     <>
-      <p className="scroll-hint">{t("health.grid_scroll_hint")}</p>
       <div className="health-grid" tabIndex={0} role="region" aria-label={t("health.grid_title")}>
         <table>
           <caption className="sr-only">{t("health.grid_title")}</caption>

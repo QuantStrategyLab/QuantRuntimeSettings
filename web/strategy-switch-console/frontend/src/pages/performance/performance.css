@@ -11,7 +11,8 @@
 .perf-kpi-grid .kpi-value { font-size: 23px; line-height: 1.18; }
 .perf-kpi-grid .kpi-empty-value { font-size: 20px; }
 .perf-kpi-grid .kpi-reason { font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--muted); }
-.perf-summary-note { margin: 0; max-width: 88ch; line-height: 1.55; }
+.perf-summary-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; max-width: 88ch; line-height: 1.55; }
+.history-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 8px; }
 .perf-kpi-grid .kpi-sub, .perf-kpi-grid .kpi-reason, .perf-summary-note { overflow-wrap: anywhere; }
 
 .perf-card-head {
@@ -61,16 +62,12 @@
 .perf-ranking-heading { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
 
 /* Keep month/year cells readable instead of stretching across a wide card. */
-.calendar-month-grid { max-width: 560px; }
-.calendar-year-grid { max-width: 760px; }
+.calendar-month-grid { max-width: 700px; margin-inline: auto; }
+.calendar-year-grid { max-width: 760px; margin-inline: auto; }
 
 .method-note { margin-top: 10px; }
 .method-note summary { cursor: pointer; color: var(--accent); font-size: 13px; min-height: 28px; padding: 4px 0; }
 .method-note[open] .card-note { max-height: 40vh; overflow-y: auto; }
-
-.history-accounts { margin-top: 6px; font-size: 12px; color: var(--muted); }
-.history-accounts summary { cursor: pointer; }
-.history-accounts p { margin: 4px 0 0; }
 
 @media (max-width: 1200px) {
   .perf-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -106,4 +103,15 @@
   .perf-kpi-grid .kpi-value { font-size: 20px; }
   .perf-card-head .card-title { font-size: 15px; }
   .method-note[open] .card-note { max-height: 32vh; }
+}
+
+@media (max-width: 480px) {
+  .calendar-month-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 2px;
+    max-width: 100%;
+  }
+  .calendar-cell { min-width: 0; padding: 3px 2px; gap: 1px; }
+  .calendar-cell .cell-date { font-size: 10px; }
+  .calendar-cell .cell-value { min-width: 0; font-size: 9px; letter-spacing: -.02em; }
 }

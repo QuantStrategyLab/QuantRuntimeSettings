@@ -404,6 +404,7 @@ button.kpi-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(
 }
 .state-details ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.55; }
 .state-copy .state-short { margin: 0; font-size: 12.5px; line-height: 1.45; }
+.state-short { color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 .state-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 8px; }
 .state-inline .state-details { margin-top: 0; }
 
@@ -649,7 +650,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* ---------- Calendar heatmap ---------- */
 
-.calendar-month-grid { display: grid; grid-template-columns: repeat(5, minmax(40px, 1fr)); gap: 4px; }
+.calendar-month-grid { display: grid; grid-template-columns: repeat(7, minmax(36px, 1fr)); gap: 4px; }
 .calendar-cell {
   min-height: 40px;
   border-radius: var(--radius-s);
@@ -668,7 +669,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   background: repeating-linear-gradient(135deg, transparent 0 6px, var(--surface-2) 6px 12px);
 }
 .calendar-year-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.calendar-nav { display: flex; align-items: center; gap: 8px; }
+.calendar-nav { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .calendar-nav .current { font-weight: 600; min-width: 110px; text-align: center; }
 .calendar-weekday { color: var(--muted); font-size: 12px; text-align: center; }
 
@@ -684,6 +685,9 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* ---------- Inbox ---------- */
 
 .inbox { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 16px; align-items: start; }
+/* No selection: the list owns the page instead of leaving an empty reading pane. */
+.inbox.list-only { grid-template-columns: minmax(0, 1fr); }
+.inbox.list-only .inbox-list { max-width: none; }
 .inbox-list { display: flex; flex-direction: column; gap: 8px; }
 .inbox-item {
   display: flex;
@@ -720,7 +724,9 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* ---------- Account cards ---------- */
 
-.account-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+/* Account cards follow their actual count: a single card fills the row, and
+   two to four cards share the available tracks without an empty fourth slot. */
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .account-card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -740,7 +746,14 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* ---------- Strategy cards ---------- */
 
-.strategy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.strategy-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+
+@media (max-width: 1200px) {
+  .strategy-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .account-grid, .strategy-grid { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* ---------- Health grid ---------- */
 
@@ -946,3 +959,14 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .account-group-card .account-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
 .account-group-card .account-row > span:first-child { color: var(--muted); }
 .account-strategy-link > .badge { align-self: flex-start; }
+
+/* Future and explicitly closed calendar days use neutral solids; real missing
+   data keeps the dashed/striped empty style. */
+.calendar-cell.cell-future {
+  border-style: solid;
+  background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
+}
+.calendar-cell.cell-closed {
+  border-style: solid;
+  background: var(--surface-2);
+}

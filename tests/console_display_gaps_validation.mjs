@@ -95,10 +95,14 @@ try {
     for (const payload of [null, { items: [] }, { ...m0Subjects, subjects: [{}] },
       { ...m0Subjects, data_status: "unavailable", errors: ["stored_records_unreadable"] }]) {
       ready(payload);
-      assert.ok(ui.research(language).includes(language === "zh" ? "读取失败" : "Read failed"), "invalid/failed reads are not empty or disconnected");
+      const failed = ui.research(language);
+      assert.ok(failed.includes(language === "zh" ? "暂时无法加载" : "Unable to load"), "invalid/failed reads are not empty or disconnected");
+      assert.ok(failed.includes('data-state="read_failed"'));
+      assert.ok(failed.includes('role="alert"'));
     }
     globalThis.__displayState = { phase: "error", reload() {} };
-    assert.ok(ui.research(language).includes(language === "zh" ? "读取失败" : "Read failed"));
+    assert.ok(ui.research(language).includes(language === "zh" ? "暂时无法加载" : "Unable to load"));
+    assert.ok(ui.research(language).includes('data-state="read_failed"'));
     const stale = structuredClone(m0Subjects);
     stale.data_status = "stale";
     stale.subjects[0].observations[0].freshness.status = "stale";
@@ -122,7 +126,10 @@ try {
     for (const currentStrategies of [undefined, {}, { schwab: { live: { strategy_profile: "old-profile" } } },
       { schwab: { live: { strategy_profile: healthStates.strategies[1].profile } } }]) {
       const catalog = ui.catalog(language, { ...config, currentStrategies });
-      for (const account of accounts) assert.ok(catalog.includes(`title="${account.account_ref}"`), "retain platform-qualified summary identities");
+      const catalogText = catalog.replace(/<!-- -->/g, "");
+      for (const account of accounts) assert.ok(!catalog.includes(`title="${account.account_ref}"`), "identities are not hidden in internal-key tooltips");
+      assert.match(catalogText, /Schwab\s*·\s*(?:live|Live|实盘)/, "the Schwab identity stays visibly platform-qualified");
+      assert.match(catalogText, /Firstrade\s*·\s*(?:live|Live|实盘)/, "the Firstrade identity stays visibly platform-qualified");
       assert.equal((catalog.match(/class="strategy-account-link"/g) || []).length, 2, "same live aliases must remain distinct");
       assert.ok(catalog.includes(language === "zh" ? "研究策略" : "Research strategy"));
       assert.doesNotMatch(catalog, /<h3[^>]*>synthetic-profile/);

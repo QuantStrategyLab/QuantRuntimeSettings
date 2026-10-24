@@ -58,7 +58,8 @@ interface BenchmarkView {
 const NO_BENCHMARKS: BenchmarkView = { series: [], defaults: [], disabled: [], note: null };
 
 function kindLabel(returnKind: string, method?: CashflowMethodMeta | null): string {
-  if (returnKind === "unadjusted_asset_ratio") return "perf.asset_balance_tag";
+  // The unadjusted ratio plots a percentage change that includes cash flows; it is not a balance.
+  if (returnKind === "unadjusted_asset_ratio") return "perf.asset_change_tag";
   const methodClass = classifyCashflowMethod(method);
   // An explicit Modified Dietz approximation must never be labeled as an unqualified exact TWR.
   if (methodClass === "dietz_approx") return DIETZ_APPROX_LABEL_KEY;
@@ -126,7 +127,7 @@ function ReturnsChart({
       {view.returnKind === "unadjusted_asset_ratio" ? (
         <details className="state-details curve-notes">
           <summary>{t("common.details")}</summary>
-          <p>{t("perf.asset_balance_note")}</p>
+          <p>{t("perf.asset_change_note")}</p>
           {note && <p>{t(note)}</p>}
         </details>
       ) : (
@@ -231,7 +232,9 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
               view={entryView}
               seriesLabel={`${scopeLabel} · ${entry.currency}`}
               mode={mode}
-              ariaLabel={`${t("perf.returns_title")} ${entry.currency}`}
+              ariaLabel={`${t(entry.return_kind === "unadjusted_asset_ratio"
+                ? "perf.asset_change_title"
+                : "perf.returns_title")} ${entry.currency}`}
               benchmarks={benchmarks}
               disabled={benchmarks.disabled}
               note={benchmarks.note}
@@ -280,7 +283,9 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
           view={singleView}
           seriesLabel={scopeLabel}
           mode={mode}
-          ariaLabel={t("perf.returns_title")}
+          ariaLabel={t(returned.return_kind === "unadjusted_asset_ratio"
+            ? "perf.asset_change_title"
+            : "perf.returns_title")}
           benchmarks={benchmarks}
           disabled={benchmarks.disabled}
           note={benchmarks.note}
@@ -289,14 +294,14 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
     }
   }
 
-  const assetBalance = view?.returnKind === "unadjusted_asset_ratio";
+  const assetChange = view?.returnKind === "unadjusted_asset_ratio";
   const hasBenchmarks = benchmarks.series.length > 0;
   const title = !view ? t("perf.returns_title")
-    : assetBalance ? t("perf.asset_balance_title")
+    : assetChange ? t("perf.asset_change_title")
       : hasBenchmarks ? t("perf.returns_title")
         : t("perf.returns_title_plain");
-  const canToggleMode = Boolean(view && !assetBalance && renderableStatus(view.status) && view.points.length > 0);
-  const methodBodyKey = view && assetBalance ? "perf.method_body_asset_balance"
+  const canToggleMode = Boolean(view && !assetChange && renderableStatus(view.status) && view.points.length > 0);
+  const methodBodyKey = view && assetChange ? "perf.method_body_asset_change"
     : data && [data, ...data.per_currency].some(item => classifyCashflowMethod(item) === "unknown") ? "perf.method_body_unknown"
       : data && (isApproximateDietz(data) || data.per_currency.some(isApproximateDietz)) ? "perf.method_body_dietz"
         : "perf.method_body";

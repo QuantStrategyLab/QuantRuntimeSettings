@@ -91,7 +91,9 @@ export function AsOfStamp({ value, prefix = "common.as_of" }: { value: string | 
 
 export function DateText({ value }: { value: string | null | undefined }) {
   const language = useLanguage();
-  return <>{formatDate(value, language)}</>;
+  // Keep the value in its own element so flex rows can place the label left
+  // and the date right instead of letting auto margins move the only span.
+  return <span className="account-row-value">{formatDate(value, language)}</span>;
 }
 
 /* ---------- money / percent ---------- */
@@ -121,23 +123,26 @@ export function Skeleton({ height = 16, width = "100%" }: { height?: number; wid
 }
 
 /**
- * Compact placeholder: one short state and an em dash stay visible; the
- * explanation is available on demand through a native details element so it
- * works with keyboard and touch, not only hover.
+ * Compact placeholder: one short state and an em dash stay visible. Extra
+ * explanation is a single short line, not an audit-style disclosure.
  */
-export function EmptyState({ title, body, action }: { title: string; body?: string; action?: ReactNode }) {
-  const t = useT();
+export function EmptyState({
+  title,
+  body,
+  action,
+  state = "no_data",
+}: {
+  title: string;
+  body?: string;
+  action?: ReactNode;
+  state?: string;
+}) {
   return (
-    <div className="empty-state">
+    <div className="empty-state" data-state={state}>
       <span className="state-icon" aria-hidden="true"><ToneIcon tone="unknown" size={14} /></span>
       <div className="state-copy">
         <div className="empty-title">{title}</div>
-        {body && (
-          <details className="state-details">
-            <summary>{t("common.details")}</summary>
-            <p>{body}</p>
-          </details>
-        )}
+        {body && <p className="state-short">{body}</p>}
       </div>
       {action && <div className="state-action">{action}</div>}
     </div>
@@ -147,15 +152,12 @@ export function EmptyState({ title, body, action }: { title: string; body?: stri
 export function ErrorState({ onRetry }: { onRetry?: () => void }) {
   const t = useT();
   return (
-    <div className="error-state" role="alert">
+    <div className="error-state" role="alert" data-state="read_failed">
       <span className="state-icon state-icon-error" aria-hidden="true"><ToneIcon tone="error" size={14} /></span>
       <div className="state-copy">
         <div className="error-title">{t("state.load_failed")}</div>
-        <details className="state-details">
-          <summary>{t("common.details")}</summary>
-          <p>{t("state.read_failed")} · {t("error.generic")}</p>
-        </details>
       </div>
+      {/* A retry control exists only when the caller has a real reload callback. */}
       {onRetry && (
         <div className="state-action">
           <button type="button" className="button button-secondary button-sm" onClick={onRetry}>{t("common.retry")}</button>
@@ -184,19 +186,16 @@ export function DataBlock({
 }) {
   const t = useT();
   if (status === "ok" || status === "partial" || status === "stale") {
+    const reasonText = reason ? t(`reason.${reason}` as MessageKey) : null;
     return (
       <>
         {children}
-        {(status !== "ok" || asOf) && (
-          <div className="state-inline">
+        {(status !== "ok" || asOf || reasonText) && (
+          <div className="state-inline" data-state={status}>
             {status !== "ok" && <StatusBadge status={status} reason={reason} />}
-            {(reason || asOf) && (
-              <details className="state-details">
-                <summary>{t("common.details")}</summary>
-                {reason && <p>{t(`reason.${reason}` as MessageKey)}</p>}
-                {asOf && <p><AsOfStamp value={asOf} /></p>}
-              </details>
-            )}
+            {/* Coverage/freshness reason is shown once, next to the time it qualifies. */}
+            {reasonText && <span className="state-short">{reasonText}</span>}
+            {asOf && <AsOfStamp value={asOf} />}
           </div>
         )}
       </>
@@ -207,6 +206,7 @@ export function DataBlock({
     <EmptyState
       title={emptyTitle || t(`state.${status || "no_data"}` as MessageKey)}
       body={reasonText}
+      state={status || "no_data"}
     />
   );
 }

@@ -14,9 +14,28 @@
 
 .account-group-card { min-width: 0; padding: 16px; }
 .account-group-card .account-broker-title { margin-bottom: 10px; }
+/* One account card fills its desktop track and groups identity, amounts and
+   strategies horizontally; narrow screens keep the natural vertical order. */
+@media (min-width: 900px) {
+  .account-group-card:only-child {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 28px;
+    align-items: start;
+  }
+  .account-group-card:only-child .account-broker-title { grid-column: 1 / -1; }
+  .account-group-card:only-child .account-card-facts { grid-column: 1; }
+  .account-group-card:only-child .account-strategy-block,
+  .account-group-card:only-child .account-card-caveat { grid-column: 2; }
+}
 .account-card-facts { margin-bottom: 4px; }
 .account-card-facts .account-facts { margin: 0 0 8px; padding: 0 0 12px; border-top: 0; border-bottom: 1px solid var(--soft-line, var(--line)); }
+/* Amounts stay one aligned label/value row per asset or cash entry, filling
+   the amount column of the single desktop card; the card itself keeps amounts
+   left and strategies right, and stacks them on narrow screens. */
+.account-card-facts .account-facts:not(.account-facts-state) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; }
 .account-card-facts .account-facts-assets .money { font-size: 18px; }
+.account-card-caveat { margin: 6px 0 0; }
 
 .account-platform-head {
   display: flex;
@@ -76,4 +95,5 @@
   .account-platform-head { padding: 10px 12px; }
   .account-group-card { padding: 14px; }
   .account-card-facts .account-facts-assets .money { font-size: 16px; }
+  .account-card-facts .account-facts:not(.account-facts-state) { display: grid; }
 }

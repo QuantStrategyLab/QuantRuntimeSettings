@@ -4,10 +4,9 @@ import type { ReactNode } from "react";
 import { useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { loadPerformanceAssets } from "../../api/endpoints";
-import type { AccountFreshness, HistoryCoverage, Point, Range } from "../../api/contracts";
+import type { HistoryCoverage, Point, Range } from "../../api/contracts";
 import { AsOfStamp, Badge, EmptyState, ErrorState, Skeleton, StatusBadge } from "../../components/primitives";
 import { AreaChart } from "../../charts/AreaChart";
-import { useDisplayNames } from "../../lib/useDisplayNames";
 import { renderableStatus } from "./shared";
 
 export interface AssetsCardProps {
@@ -17,34 +16,24 @@ export interface AssetsCardProps {
   epoch: number;
 }
 
-function HistoryNotice({ status, points, coverage, currency, accounts = [] }: {
+function HistoryNotice({ status, points, coverage, currency }: {
   status: string;
   points: Point[];
   coverage?: HistoryCoverage | null;
   currency?: string | null;
-  accounts?: AccountFreshness[];
 }) {
   const t = useT();
-  const names = useDisplayNames();
   if (status === "ok" && !points.some(point => point.partial) && !coverage?.truncated) return null;
   const affected = [...new Set([
     ...points.flatMap(point => [...(point.missing_accounts || []), ...(point.forward_filled_accounts || [])]),
     ...(coverage?.missing_accounts || []), ...(coverage?.excluded_accounts || []), ...(coverage?.read_failures || []),
   ])];
-  const labels = [...new Set(affected.map(id => {
-    const account = accounts.find(item => id === item.account_alias || id === item.account_ref ||
-      id === `${item.platform}:${item.account_alias}:${currency}`);
-    return names.account(account?.account_alias, account?.platform);
-  }))];
-  return <div className="card-note" role="status">
-    <Badge tone="warn">{currency ? `${currency} · ` : ""}{t(status === "stale" ? "perf.history_stale" : "perf.history_incomplete")}</Badge>
-    <details className="history-accounts state-details">
-      <summary>{affected.length > 0
-        ? t("perf.history_affected_accounts", { count: affected.length })
-        : t("common.details")}</summary>
-      <p>{t("perf.history_coverage_note")}</p>
-      {affected.length > 0 && <p>{labels.join(" · ")}</p>}
-    </details>
+  // One coverage sentence; individual account identifiers stay in the API payload.
+  const label = `${currency ? `${currency} · ` : ""}${t(status === "stale" ? "perf.history_stale" : "perf.history_incomplete")}`;
+  return <div className="card-note history-notice" role="status" data-state={status}>
+    <Badge tone="warn">{label}</Badge>
+    {affected.length > 0 && <span className="state-short">{t("perf.history_affected_accounts", { count: affected.length })}</span>}
+    <span className="state-short">{t("perf.history_coverage_note")}</span>
   </div>;
 }
 
@@ -69,7 +58,7 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
       ? <CurrencyTotals
           totals={data.per_currency}
           freshness={data.freshness_summary}
-          notes={<p>{t("perf.native_totals_note")}</p>}
+          notes={t("perf.native_totals_note")}
         />
       : null;
     status = data.status;
@@ -87,7 +76,7 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
       if (!selected) {
         body = <EmptyState title={t("perf.mixed_currency_title")} body={t("reason.mixed_currency")} />;
       } else {
-        historyNotice = <HistoryNotice {...selected} status={selected.status} accounts={data.account_freshness} />;
+        historyNotice = <HistoryNotice {...selected} status={selected.status} />;
         body = (
           <div>
             <div className="perf-currency-switch">
@@ -110,8 +99,9 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
         );
       }
     } else {
-      historyNotice = histories.map(history => <HistoryNotice key={history.currency || "history"}
-        {...history} status={histories.length === 1 ? curveStatus : history.status} accounts={data.account_freshness} />);
+      // A read failure has no partial coverage to describe; the state below says so.
+      historyNotice = renderableStatus(curveStatus) ? histories.map(history => <HistoryNotice key={history.currency || "history"}
+        {...history} status={histories.length === 1 ? curveStatus : history.status} />) : null;
       if (!renderableStatus(curveStatus)) {
         body = (
           <EmptyState

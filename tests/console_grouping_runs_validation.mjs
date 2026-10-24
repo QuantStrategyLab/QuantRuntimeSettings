@@ -96,9 +96,14 @@ try {
     const tradeHtml = ui.trades(language);
     assert.ok(tradeHtml.includes(language === "zh" ? "未接入" : "Not connected"));
     assert.doesNotMatch(tradeHtml, /0%|>0<|state\.|reason\./);
-    for (const [status, expected] of [["not_connected", language === "zh" ? "未接入" : "not connected"], ["ok", language === "zh" ? "暂无通知记录" : "No notification records"], ["read_failed", language === "zh" ? "读取失败" : "Read failed"]]) {
+    for (const [status, expected] of [["not_connected", language === "zh" ? "未接入" : "not connected"], ["ok", language === "zh" ? "暂无通知记录" : "No notification records"], ["read_failed", language === "zh" ? "暂时无法加载" : "Unable to load"]]) {
       globalThis.__groupingState = { phase:"ready", data:{ status, items:[] } };
-      assert.ok(ui.notifications(language).includes(expected));
+      const stateHtml = ui.notifications(language);
+      assert.ok(stateHtml.includes(expected));
+      if (status === "read_failed") {
+        assert.ok(stateHtml.includes('data-state="read_failed"'));
+        assert.ok(stateHtml.includes('role="alert"'));
+      }
     }
     globalThis.__groupingState = { phase:"ready", data:{ status:"ok", items:[{ id:"1:1", source_run_id:1, source_run_attempt:1, source_url:"https://github.com/example/console/actions/runs/1", workflow_updated_at:"2026-10-16T23:00:00Z", sent_at:null, status:"blocked_resend_guard", delivered:false, dry_run:false, test_message:false, reason_code:"HISTORY_UNAVAILABLE", business_day:"2026-10-16" }] } };
     const notifications = ui.notifications(language);

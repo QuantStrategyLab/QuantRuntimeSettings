@@ -4,6 +4,9 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
+import { zhCN } from "../web/strategy-switch-console/frontend/src/i18n/zh-CN.ts";
+import { en as coreEn } from "../web/strategy-switch-console/frontend/src/i18n/en.ts";
+import { zh as perfZh, en as perfEn } from "../web/strategy-switch-console/frontend/src/i18n/pages/performance.ts";
 
 // Render the production SummaryCards/ReturnsCard with production translations,
 // replacing only the data hook. Fixtures are captured PR #712 synthetic responses
@@ -41,7 +44,22 @@ try {
   const ui = require(outfile);
   const DIETZ = { zh: "Modified Dietz（近似）", en: "Modified Dietz (approximate)" };
   const TWR_KIND = { zh: "时间加权收益率（TWR）", en: "Time-weighted return (TWR)" };
-  const ASSET_BALANCE = { zh: "资产余额 · 未与基准比较", en: "Asset balance · no benchmark comparison" };
+  const ASSET_CHANGE = { zh: "资产变化 · 含出入金影响", en: "Asset change · includes cash flows" };
+  const ASSET_CHANGE_TITLE = { zh: "资产变化", en: "Asset change" };
+  const ASSET_CHANGE_NOTE = {
+    zh: "暂时无法计算收益，以下展示资产变化（%）。该变化包含出入金影响，不代表时间加权收益，也不与基准比较。",
+    en: "Returns are unavailable; the chart shows asset change (%), including the effect of cash flows. It is not a time-weighted return and is not compared with benchmarks.",
+  };
+  const RETURNS_TITLE = { zh: "收益率", en: "Returns" };
+  const RETURNS_ARIA = { zh: "收益率 vs 基准", en: "Returns vs benchmarks" };
+
+  // Balance wording outside the unadjusted ReturnsCard curve must stay untouched.
+  assert.equal(zhCN["perf.assets_title"], "总资产");
+  assert.equal(coreEn["perf.assets_title"], "Total assets");
+  assert.equal(perfZh["perf.calendar_asset_balance"], "资产余额");
+  assert.equal(perfEn["perf.calendar_asset_balance"], "Asset balance");
+  assert.equal(perfZh["perf.native_totals_note"], "按币种分别展示，不换汇。");
+  assert.equal(perfEn["perf.native_totals_note"], "Shown by currency without FX conversion.");
   const STALE = { zh: "数据偏旧", en: "Stale" };
   const AS_OF = { zh: "数据截至", en: "Data as of" };
   const UNKNOWN = { zh: "收益计算方式未知", en: "Return method unknown" };
@@ -57,6 +75,8 @@ try {
     return ui.returns(language, data, scope);
   };
   const kindLabel = html => html.match(/<span class="perf-kind">([\s\S]*?)<\/span>/)?.[1] ?? null;
+  const cardTitle = html => html.match(/<h2 class="card-title">([\s\S]*?)<\/h2>/)?.[1] ?? null;
+  const chartAria = html => html.match(/<svg[^>]*aria-label="([^"]*)"/)?.[1] ?? null;
   // Collapsed <details> content stays in SSR but is not part of the default view.
   const outsideDetails = html => html.replace(/<details[\s\S]*?<\/details>/g, "");
   const detailsText = html => [...html.matchAll(/<details[\s\S]*?<\/details>/g)].map(match => match[0]).join("");
@@ -76,6 +96,9 @@ try {
     const dietzReturns = renderReturns(language, dietz.returns);
     assert.equal(kindLabel(dietzReturns), DIETZ[language], "curve kind label matches the card label");
     checks += 1;
+    assert.equal(chartAria(dietzReturns), RETURNS_ARIA[language], "Modified Dietz keeps the return aria-label");
+    checks += 1;
+    ok(!cardTitle(dietzReturns)?.includes(ASSET_CHANGE_TITLE[language]), "Modified Dietz is not titled as an asset change");
     ok(dietzReturns.includes(language === "zh" ? "采用 Modified Dietz 近似法" : "Modified Dietz is used and labeled as approximate"),
       "method note explains the approximation instead of contradicting it");
 
@@ -91,6 +114,11 @@ try {
     const twrReturns = renderReturns(language, twr.returns);
     assert.equal(kindLabel(twrReturns), TWR_KIND[language]);
     checks += 1;
+    assert.equal(cardTitle(twrReturns), RETURNS_TITLE[language], "qualified TWR keeps the returns title");
+    checks += 1;
+    assert.equal(chartAria(twrReturns), RETURNS_ARIA[language], "qualified TWR keeps the return aria-label");
+    checks += 1;
+    ok(!twrReturns.includes(ASSET_CHANGE[language]), "qualified TWR is never labelled as an asset change");
     ok(!twrReturns.includes(language === "zh" ? "采用 Modified Dietz 近似法" : "Modified Dietz is used and labeled as approximate"),
       "method note stays the original TWR explanation");
 
@@ -102,14 +130,27 @@ try {
     ok(!oldCards.includes("+0.00%"), "unknown TWR is never shown as zero");
     const missingCashflowReason = language === "zh" ? "缺少完整出入金记录，无法计算 TWR 及其回撤。"
       : "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated.";
-    ok(detailsText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason kept in details");
-    ok(!visibleText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason is not default body copy");
+    ok(visibleText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason is stated once for the summary");
+    assert.equal((oldCards.match(new RegExp(missingCashflowReason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length, 1,
+      "the shared reason is not repeated on every metric card");
+    checks += 1;
+    ok(!oldCards.includes("<details"), "summary metrics keep no audit details block");
     ok(visibleText(oldCards).includes(UNAVAILABLE[language]), "the missing TWR keeps a short visible state");
     const oldReturns = renderReturns(language, old.returns);
-    assert.equal(kindLabel(oldReturns), ASSET_BALANCE[language], "unadjusted ratio is labelled as asset balance, not a return");
+    assert.equal(kindLabel(oldReturns), ASSET_CHANGE[language], "unadjusted ratio is labelled as asset change, not a return or balance");
     checks += 1;
+    assert.equal(cardTitle(oldReturns), ASSET_CHANGE_TITLE[language], "unadjusted ratio title matches the percent-change curve");
+    checks += 1;
+    assert.equal(chartAria(oldReturns), ASSET_CHANGE_TITLE[language], "unadjusted ratio aria-label names asset change");
+    checks += 1;
+    ok(detailsText(oldReturns).includes(ASSET_CHANGE_NOTE[language]), "details explain cash-flow effects, non-TWR and no benchmark");
+    ok(!visibleText(oldReturns).includes(ASSET_CHANGE_NOTE[language]), "asset-change explanation stays collapsed");
+    ok(!oldReturns.includes(language === "zh" ? "资产余额" : "Asset balance"),
+      "unadjusted ReturnsCard no longer calls the percent-change curve a balance");
+    ok(detailsText(oldReturns).includes(language === "zh" ? "图中仅展示资产变化" : "The chart shows asset change"),
+      "method note uses the asset-change wording");
 
-    // Other metric-specific reasons also stay out of the default card body.
+    // Metric-specific reasons are not re-explained per card; values stay honest blanks.
     const specific = structuredClone(twr.summary);
     specific.excess_returns = [{ benchmark: "纳斯达克100", start: "2026-10-01", end: null,
       percentage_points: null, unavailable_reason: "benchmark_history_missing" }];
@@ -117,14 +158,8 @@ try {
       status: "unavailable", unavailable_reason: "no_snapshot" };
     specific.worst_day = { ...specific.best_day, unavailable_reason: "no_cashflow_data" };
     const specificCards = renderCards(language, specific);
-    const specificReasons = language === "zh"
-      ? ["缺少基准历史数据", "暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
-      : ["Benchmark history is missing", "No valuation is available.",
-        "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
-    for (const reason of specificReasons) {
-      ok(detailsText(specificCards).includes(reason), `metric reason kept in details: ${reason}`);
-      ok(!visibleText(specificCards).includes(reason), `metric reason absent from default card: ${reason}`);
-    }
+    ok(!specificCards.includes("<details"), "no per-metric audit details");
+    ok(!specificCards.includes("+0.00%"), "unavailable metrics never become zero");
     ok(visibleText(specificCards).includes(UNAVAILABLE[language]), "unavailable metric keeps a short visible state");
     ok(visibleText(specificCards).includes(NO_DATA[language]), "missing day keeps a short visible state");
 
@@ -159,9 +194,9 @@ try {
       ? ["暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
       : ["No valuation is available.", "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
     for (const reason of drawdownTexts) {
-      ok(detailsText(drawdownCards).includes(reason), `per-currency drawdown reason kept in details: ${reason}`);
-      ok(!visibleText(drawdownCards).includes(reason), `per-currency drawdown reason absent from default card: ${reason}`);
+      ok(visibleText(drawdownCards).includes(reason), `per-currency drawdown reason shown once: ${reason}`);
     }
+    ok(!drawdownCards.includes("<details"), "per-currency drawdown keeps no audit details");
     ok(visibleText(drawdownCards).includes("HKD") && visibleText(drawdownCards).includes("USD"),
       "currency labels remain visible next to their drawdowns");
     ok(visibleText(drawdownCards).includes(DIETZ[language]), "the real approximate method tag remains visible");
@@ -177,7 +212,12 @@ try {
     const usdEmpty = hkdOnly.returns.per_currency.find(e => e.currency === "USD");
     usdEmpty.status = "no_data"; usdEmpty.points = []; usdEmpty.unavailable_reason = "snapshot_history_missing";
     const hkdReturns = renderReturns(language, hkdOnly.returns, "all");
-    assert.equal(kindLabel(hkdReturns), ASSET_BALANCE[language], "HKD entry keeps its own unadjusted asset-balance label");
+    assert.equal(kindLabel(hkdReturns), ASSET_CHANGE[language], "HKD entry keeps its own unadjusted asset-change label");
+    checks += 1;
+    assert.equal(cardTitle(hkdReturns), ASSET_CHANGE_TITLE[language], "multi-currency asset-change title is consistent");
+    checks += 1;
+    assert.equal(chartAria(hkdReturns), `${ASSET_CHANGE_TITLE[language]} HKD`,
+      "multi-currency aria-label names asset change with its currency");
     checks += 1;
     ok(!hkdReturns.includes(DIETZ[language]), "HKD entry not overwritten by the USD method");
 
@@ -187,8 +227,8 @@ try {
     ok(staleCards.includes("+10.00%"));
     ok(visibleWarnBadges(staleCards).some(text => text.includes(STALE[language])),
       "summary retains one visible stale badge outside details");
-    ok(detailsText(staleCards).includes(AS_OF[language]) && detailsText(staleCards).includes("10/16"),
-      "stale summary keeps its as-of time in details");
+    ok(visibleText(staleCards).includes(AS_OF[language]) && staleCards.includes("10/16"),
+      "stale summary keeps its as-of time visible once");
     ok(!staleCards.includes(DIETZ[language]), "no method metadata means no approximate label");
     // A real stale reason must stay reachable too, without becoming default body copy.
     const staleWithReason = structuredClone(stale.summary);
@@ -197,8 +237,10 @@ try {
     const staleReason = language === "zh" ? "缺少历史资产快照" : "Historical asset snapshots are missing";
     ok(visibleWarnBadges(staleReasonCards).some(text => text.includes(STALE[language])),
       "stale reason variant still shows the visible stale badge");
-    ok(detailsText(staleReasonCards).includes(staleReason), "stale reason stays available in details");
-    ok(!visibleText(staleReasonCards).includes(staleReason), "stale reason is not repeated as default body copy");
+    ok(visibleText(staleReasonCards).includes(staleReason), "stale reason is stated once");
+    assert.equal((staleReasonCards.match(new RegExp(staleReason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length, 1,
+      "stale reason is not repeated on every card");
+    checks += 1;
     const staleReturns = renderReturns(language, stale.returns);
     assert.equal(kindLabel(staleReturns), TWR_KIND[language]);
     checks += 1;
@@ -268,7 +310,7 @@ try {
     ok(!tuReturns.includes(DIETZ[language]), "the USD Dietz label does not leak onto the HKD entry");
   }
 
-  console.log(`console_cashflow_method_presentation_validation: PASS (${checks} assertions, zh/en × dietz/twr/legacy/unknown/two-currency/stale + in-memory absent/unknown/inconsistent method variants; synthetic fixtures only)`);
+  console.log(`console_cashflow_method_presentation_validation: PASS (${checks} assertions, zh/en × dietz/twr/legacy/unknown/two-currency/stale + in-memory absent/unknown/inconsistent method variants; unadjusted ratio titled/aria/details as asset change; synthetic fixtures only)`);
 } finally {
   delete globalThis.__dietzState;
   await rm(directory, { recursive: true, force: true });

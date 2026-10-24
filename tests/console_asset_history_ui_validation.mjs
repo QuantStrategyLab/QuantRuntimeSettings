@@ -55,8 +55,12 @@ test("P1: healthy current balances still show independent partial history in zh/
     assert.ok(html.includes(language === "zh"
       ? "部分账户缺少历史数据，曲线仅包含有数据的账户。"
       : "Some accounts lack history; the curve includes only accounts with data."));
-    assert.ok(html.includes(language === "zh" ? "个账户的历史数据不完整" : "History is incomplete for"));
-    assert.ok(html.includes(language === "zh" ? "合成账户甲" : "Synthetic Alpha"), "shared display-name configuration is used");
+    assert.equal((html.match(language === "zh" ? /个账户的历史数据不完整/g : /History is incomplete for/g) || []).length, 1,
+      "the affected-account count is stated once");
+    assert.equal((html.match(language === "zh" ? /部分账户缺少历史数据，曲线仅包含有数据的账户。/g : /Some accounts lack history; the curve includes only accounts with data\./g) || []).length, 1,
+      "the coverage note is stated once");
+    assert.ok(!html.includes(language === "zh" ? "合成账户甲" : "Synthetic Alpha"),
+      "the notice aggregates accounts instead of naming them");
     assert.doesNotMatch(html, /前值填充|Forward-filled|不代表当日新估值|not a new valuation/i, "internal wording stays out of the default view");
     assert.doesNotMatch(html, /synthetic-a|synthetic-b|perf\.|reason\.|state\./);
     if (language === "en") assert.doesNotMatch(html, /[\u4e00-\u9fff]/);

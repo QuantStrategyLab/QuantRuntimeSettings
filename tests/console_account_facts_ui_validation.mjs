@@ -49,6 +49,9 @@ try {
   });
   const ui = createRequire(import.meta.url)(outfile);
 
+  const withheldState = (html, state) => html.includes(`data-state="${state}"`)
+    && !/(?:USD|HKD)\s*-?\d/.test(html);
+
   const TEXT = {
     zh: {
       assets: "资产", cash: "现金", cashSemantics: "不代表购买力",
@@ -112,7 +115,8 @@ try {
     ok(ready.includes("HKD 0.00"), "a reported zero is a real zero");
     ok(ready.includes("USD 100.25"), "cash rendered as-is");
     ok(ready.includes(`${s.cash} · USD`), "cash row labeled cash only");
-    ok(ready.includes(s.cashSemantics), "cash tooltip rules out buying-power semantics");
+    ok(!ready.includes("title="), "cash rows carry no internal-key tooltip");
+    ok(!ready.toLowerCase().includes("buying power") && !ready.includes("购买力"), "cash is never relabeled as buying power");
     ok(!ready.includes("1,334.81"), "currencies are never combined on one account");
     ok(!ready.includes(s.stale), "fresh data carries no stale badge");
     ok(!/facts\.|state\.|common\./.test(ready), "no untranslated keys leak");
@@ -163,13 +167,13 @@ try {
     // 5. Binding/identity/status states are honest and distinct.
     ok(ui.card(language, { ...baseFact(), binding_status: "missing" }, "ready").includes(s.notConnected), "missing binding is not-connected");
     ok(ui.card(language, null, "ready").includes(s.notConnected), "no matching row is not-connected");
-    ok(ui.card(language, { ...baseFact(), binding_status: "duplicate" }, "ready").includes(s.identity), "duplicate binding hides amounts");
-    ok(ui.card(language, { ...baseFact(), identity_mismatch: true }, "ready").includes(s.identity), "identity mismatch hides amounts");
+    ok(withheldState(ui.card(language, { ...baseFact(), binding_status: "duplicate" }, "ready"), "facts.identity_unverified"), "duplicate binding hides amounts");
+    ok(withheldState(ui.card(language, { ...baseFact(), identity_mismatch: true }, "ready"), "facts.identity_unverified"), "identity mismatch hides amounts");
     ok(ui.card(language, { ...baseFact(), data_status: "unavailable" }, "ready").includes(s.noData), "unavailable snapshot is no-data");
     const readFailed = ui.card(language, baseFact(), "error");
     ok(readFailed.includes(s.readFailed) && !readFailed.includes(s.noData), "read failure is never rendered as missing data");
-    ok(ui.card(language, baseFact(), "ready", { conflict: true }).includes(s.conflict), "identity conflict hides amounts");
-    ok(ui.card(language, baseFact(), "ready", { ambiguous: true }).includes(s.identity), "an ambiguous display group hides amounts");
+    ok(withheldState(ui.card(language, baseFact(), "ready", { conflict: true }), "facts.observation_conflict"), "identity conflict hides amounts");
+    ok(withheldState(ui.card(language, baseFact(), "ready", { ambiguous: true }), "facts.identity_unverified"), "an ambiguous display group hides amounts");
 
     // 6. Unknown enums or missing fields can never be asserted into amounts.
     for (const bad of [
@@ -218,7 +222,7 @@ try {
     // 11. Partial coverage stays an observed subtotal and only counts summed accounts.
     const partial = ui.platform(language, [baseFact()], 2, "ready");
     ok(partial.includes(`${s.subtotal} · USD`), "uncovered accounts downgrade to observed subtotal");
-    ok(partial.includes(s.subtotalNote), "subtotal note rules out a complete total");
+    ok(!partial.includes(`${s.total} · USD`) && !partial.includes("<details"), "subtotal never claims a complete platform total or adds an audit disclosure");
     ok(partial.includes(s.partial), "partial subtotal remains explicitly labeled");
     ok(partial.includes(s.coverage(1, 2)), "only actually summed accounts count as covered");
 
@@ -328,7 +332,7 @@ try {
     // 15b. Unverified identities (LongBridge live rows) never join a platform sum.
     const lbLive = { ...longbridgeFact(), broker_environment: "live", account_scope: "LIVE" };
     const unverifiedOnly = ui.platform(language, [lbLive], 1, "ready");
-    ok(unverifiedOnly.includes(s.platformIdentity), "an unverified-only platform shows the honest identity state");
+    ok(withheldState(unverifiedOnly, "facts.platform_identity_unverified") && !unverifiedOnly.includes(s.platformIdentity), "an unverified-only platform shows the honest identity state");
     ok(!unverifiedOnly.includes("1,234.56") && !unverifiedOnly.includes('class="account-facts-currency"'),
       "unverified rows never produce a platform total block");
     const mixedTrust = ui.platform(language, [baseFact(), lbLive], 2, "ready");
@@ -389,7 +393,7 @@ try {
     ] } };
     const groupHtml = ui.groups(language, [dirRow("ibkr-twin-a"), dirRow("ibkr-twin-b")], sharedSelector,
       { rows: [twinA, twinB], phase: "ready" });
-    ok(groupHtml.includes(s.identity), "one display card holding two distinct accounts hides card amounts");
+    ok(withheldState(groupHtml.match(/<article\b[\s\S]*?<\/article>/)?.[0] || "", "facts.identity_unverified"), "one display card holding two distinct accounts hides card amounts");
     ok(groupHtml.includes("USD 400.00"), "the platform rollup still sums both verified accounts");
     const multiStrategy = ui.groups(language, [dirRow("ibkr-main"), dirRow("ibkr-main")], null,
       { rows: [baseFact()], phase: "ready" });
@@ -405,7 +409,7 @@ try {
     const aliasGroup = ui.groups(language, [dirRow("ibkr-main"), dirRow("ibkr-alias")], aliasConfig,
       { rows: [baseFact(), dupAlias], phase: "ready" });
     ok(!hasCoverage(aliasGroup) && aliasGroup.includes(`${s.total} · USD`), "producer-known duplicate aliases count once in coverage");
-    ok(!aliasGroup.includes(s.identity), "a canonical included row keeps the shared card amounts");
+    ok(!aliasGroup.includes('data-state="facts.identity_unverified"'), "a canonical included row keeps the shared card amounts");
     ok((aliasGroup.match(/USD 1,234\.56/g) || []).length === 2, "the amount appears once on the card and once in the total");
 
     // 18d. Known built-in IBKR titles follow the language switch; arbitrary
@@ -425,8 +429,9 @@ try {
     ok(builtInHtml.includes("SOXL"), "generic tickers keep their identifier");
     if (language === "zh") ok(!builtInHtml.includes("Russell Top 50") && !builtInHtml.includes("Global ETF"), "known built-ins use Chinese titles");
 
-    // 18e. Unknown execution configuration is summarized once in card details,
-    // not repeated on the card rows; runtime-target state stays configuration-only.
+    // 18e. Unknown execution configuration stays off the card instead of
+    // repeating an audit trail; the risk-relevant caveat remains visible once and
+    // runtime-target state stays configuration-only.
     const unknownConfig = { currentStrategies: { ibkr: { "ibkr-main": {
       runtime_target_enabled: true,
       execution_evidence: { value: "unknown", status: "confirmed", observed_at: null,
@@ -434,14 +439,14 @@ try {
     } } } };
     const unknownCard = ui.groups(language, [dirRow("ibkr-main")], unknownConfig, { rows: [baseFact()], phase: "ready" });
     ok(!unknownCard.includes("execution-evidence-compact"), "unknown mode does not occupy the card main view");
-    assert.equal((unknownCard.match(/<details/g) || []).length, 1, "one expandable details entry per card");
+    assert.equal((unknownCard.match(/<details/g) || []).length, 0, "no audit details block remains on the card");
     checks += 1;
-    ok(unknownCard.includes(language === "zh" ? "账户目录缺少明确的券商环境" : "Account directory has no explicit broker environment"),
-      "unknown reason remains available in the details");
+    ok(!unknownCard.includes(language === "zh" ? "账户目录缺少明确的券商环境" : "Account directory has no explicit broker environment"),
+      "the internal execution reason is not repeated on the card");
     ok(unknownCard.includes(language === "zh"
       ? "运行目标已启用只表示配置状态，不代表已实盘运行或今日已有成交。"
       : "An enabled runtime target is configuration state only; it does not mean live trading ran or produced fills today."),
-      "enabled runtime target is not presented as live trading");
+      "the risk-relevant caveat remains visible once");
     ok(unknownCard.includes(language === "zh" ? "已启用" : "Enabled"), "configuration state remains visible on the card");
 
     // 19. English output contains no Chinese; both languages leak no raw keys.

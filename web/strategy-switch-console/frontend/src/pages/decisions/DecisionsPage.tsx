@@ -654,13 +654,12 @@ export default function DecisionsPage() {
   const renderPending = () => {
     if (inbox.phase === "loading") {
       return (
-        <div className="inbox">
+        <div className="inbox list-only">
           <div className="inbox-list">
             <Skeleton height={64} />
             <Skeleton height={64} />
             <Skeleton height={64} />
           </div>
-          <Skeleton height={280} />
         </div>
       );
     }
@@ -673,7 +672,7 @@ export default function DecisionsPage() {
         {visibleItems.length === 0 ? (
           <EmptyState title={t("decisions.empty_pending")} />
         ) : (
-          <div className={`inbox${selected ? " detail-open" : ""}`}>
+          <div className={`inbox${selected ? " detail-open" : " list-only"}`}>
             <div className="inbox-list" role="list">
               {visibleItems.map(item => {
                 const expired = isExpired(item);
@@ -705,11 +704,8 @@ export default function DecisionsPage() {
                 );
               })}
             </div>
-            {renderDetail() || (
-              <div className="card inbox-detail">
-                <EmptyState title={t("decisions.select_prompt")} />
-              </div>
-            )}
+            {/* No selected todo => list only; never an empty detail pane. */}
+            {selected && renderDetail()}
           </div>
         )}
         {degraded.length > 0 && <p className="decision-note decision-source-foot" role="status">{t("decisions.partial_notice")}</p>}

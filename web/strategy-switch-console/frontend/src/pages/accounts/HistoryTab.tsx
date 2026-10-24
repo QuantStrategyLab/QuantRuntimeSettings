@@ -80,12 +80,12 @@ export function HistoryTab({ account }: { account: AccountRow }) {
         </div>
       )}
       {effectVerification && effectVerification.status !== "ok" && (
-        <div className="card-note">
-          <p role="status">{t("accounts.effect_unconfirmed")}</p>
-          <details className="card-details"><summary>{t("accounts.data_notes")}</summary>
-            <StatusBadge status={effectVerification.status} reason={effectVerification.unavailable_reason} />
-            {effectVerification.unavailable_reason && <p>{t(`reason.${effectVerification.unavailable_reason}`)}</p>}
-          </details>
+        <div className="card-note" role="status" data-state={effectVerification.status}>
+          <p>{t("accounts.effect_unconfirmed")}</p>
+          <StatusBadge status={effectVerification.status} reason={effectVerification.unavailable_reason} />
+          {effectVerification.unavailable_reason && (
+            <span className="state-short">{t(`reason.${effectVerification.unavailable_reason}`)}</span>
+          )}
         </div>
       )}
     </section>

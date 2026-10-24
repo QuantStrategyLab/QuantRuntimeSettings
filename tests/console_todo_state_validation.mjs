@@ -117,7 +117,11 @@ try {
     const data = { status: "read_failed", error_state: state, sources: [{ source: "promotion", status: "read_failed", error_state: state }], items: [], directory: { complete: false, retry_at: now + 60000 } };
     const html = renderToStaticMarkup(React.createElement(ui.I18nProvider, { language }, React.createElement(ui.InboxReadFailed, { data, onRetry() {} })));
     assert.ok(html.includes(ui.translate(language, `inbox.error.${state}.title`)));
-    assert.ok(html.includes(ui.translate(language, `inbox.error.${state}.detail`)));
+    assert.ok(html.includes(`data-state="${state}"`), "the failure state is exposed as non-sensitive data-state");
+    assert.ok(html.includes(ui.translate(language, "inbox.count_unknown")), "an unreadable inbox never shows a zero count");
+    assert.ok(!html.includes("<details"), "no audit details block remains");
+    assert.ok(!html.includes(ui.translate(language, `inbox.error.${state}.detail`)), "the long audit detail is not repeated");
+    assert.equal(html.includes(ui.translate(language, "inbox.auth_hint")), state === "unauthorized");
     assert.doesNotMatch(html, /inbox\.|decisions\.|private-|kv_directory_|kv_list_/);
     assert.equal(html.includes("<button"), state !== "unauthorized");
     assert.doesNotMatch(html, /暂无待办|No pending/);
