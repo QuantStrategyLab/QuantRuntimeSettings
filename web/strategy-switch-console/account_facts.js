@@ -113,6 +113,7 @@ function reject(code, status = 400) {
 export const ACCOUNT_FACTS_POSITIONS_SCOPES = Object.freeze({
   ibkr: "stocks_only",
   schwab: "strategy_symbols_only",
+  firstrade: "broker_reported",
 });
 const POSITION_SYMBOL_RE = /^[A-Z0-9][A-Z0-9./ -]{0,31}$/;
 const POSITION_KEYS = Object.freeze(["symbol", "quantity", "market_value", "currency"]);
@@ -137,7 +138,8 @@ function normalizeBrokerReportedPositions(platform, raw) {
     if (!exactKeys(item, keys)
         || typeof item.symbol !== "string" || !POSITION_SYMBOL_RE.test(item.symbol) || seen.has(item.symbol)
         || typeof item.currency !== "string" || !CURRENCY_RE.test(item.currency)
-        || (hasCurrencySource && (platform !== "schwab" || item.currency_source !== "owner_confirmed" || item.currency !== "USD"))
+        || (hasCurrencySource && !((platform === "schwab" && item.currency_source === "owner_confirmed" && item.currency === "USD")
+          || (platform === "firstrade" && item.currency_source === "configured")))
         || ["quantity", "market_value", ...(hasAvgCost ? ["avg_cost"] : [])]
           .some((key) => typeof item[key] !== "string" || !DECIMAL_RE.test(item[key]))) {
       reject("invalid_account_facts_positions");
@@ -145,7 +147,7 @@ function normalizeBrokerReportedPositions(platform, raw) {
     seen.add(item.symbol);
     const row = { symbol: item.symbol, quantity: item.quantity, market_value: item.market_value, currency: item.currency };
     if (hasAvgCost) row.avg_cost = item.avg_cost;
-    // Preserve the producer's explicit owner-confirmed USD provenance; never infer it.
+    // Preserve explicit currency provenance; never infer it at the receiver.
     if (hasCurrencySource) row.currency_source = item.currency_source;
     return row;
   });
