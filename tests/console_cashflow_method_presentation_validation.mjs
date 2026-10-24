@@ -130,8 +130,11 @@ try {
     ok(!oldCards.includes("+0.00%"), "unknown TWR is never shown as zero");
     const missingCashflowReason = language === "zh" ? "缺少完整出入金记录，无法计算 TWR 及其回撤。"
       : "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated.";
-    ok(detailsText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason kept in details");
-    ok(!visibleText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason is not default body copy");
+    ok(visibleText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason is stated once for the summary");
+    assert.equal((oldCards.match(new RegExp(missingCashflowReason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length, 1,
+      "the shared reason is not repeated on every metric card");
+    checks += 1;
+    ok(!oldCards.includes("<details"), "summary metrics keep no audit details block");
     ok(visibleText(oldCards).includes(UNAVAILABLE[language]), "the missing TWR keeps a short visible state");
     const oldReturns = renderReturns(language, old.returns);
     assert.equal(kindLabel(oldReturns), ASSET_CHANGE[language], "unadjusted ratio is labelled as asset change, not a return or balance");
@@ -147,7 +150,7 @@ try {
     ok(detailsText(oldReturns).includes(language === "zh" ? "图中仅展示资产变化" : "The chart shows asset change"),
       "method note uses the asset-change wording");
 
-    // Other metric-specific reasons also stay out of the default card body.
+    // Metric-specific reasons are not re-explained per card; values stay honest blanks.
     const specific = structuredClone(twr.summary);
     specific.excess_returns = [{ benchmark: "纳斯达克100", start: "2026-10-01", end: null,
       percentage_points: null, unavailable_reason: "benchmark_history_missing" }];
@@ -155,14 +158,8 @@ try {
       status: "unavailable", unavailable_reason: "no_snapshot" };
     specific.worst_day = { ...specific.best_day, unavailable_reason: "no_cashflow_data" };
     const specificCards = renderCards(language, specific);
-    const specificReasons = language === "zh"
-      ? ["缺少基准历史数据", "暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
-      : ["Benchmark history is missing", "No valuation is available.",
-        "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
-    for (const reason of specificReasons) {
-      ok(detailsText(specificCards).includes(reason), `metric reason kept in details: ${reason}`);
-      ok(!visibleText(specificCards).includes(reason), `metric reason absent from default card: ${reason}`);
-    }
+    ok(!specificCards.includes("<details"), "no per-metric audit details");
+    ok(!specificCards.includes("+0.00%"), "unavailable metrics never become zero");
     ok(visibleText(specificCards).includes(UNAVAILABLE[language]), "unavailable metric keeps a short visible state");
     ok(visibleText(specificCards).includes(NO_DATA[language]), "missing day keeps a short visible state");
 
@@ -197,9 +194,9 @@ try {
       ? ["暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
       : ["No valuation is available.", "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
     for (const reason of drawdownTexts) {
-      ok(detailsText(drawdownCards).includes(reason), `per-currency drawdown reason kept in details: ${reason}`);
-      ok(!visibleText(drawdownCards).includes(reason), `per-currency drawdown reason absent from default card: ${reason}`);
+      ok(visibleText(drawdownCards).includes(reason), `per-currency drawdown reason shown once: ${reason}`);
     }
+    ok(!drawdownCards.includes("<details"), "per-currency drawdown keeps no audit details");
     ok(visibleText(drawdownCards).includes("HKD") && visibleText(drawdownCards).includes("USD"),
       "currency labels remain visible next to their drawdowns");
     ok(visibleText(drawdownCards).includes(DIETZ[language]), "the real approximate method tag remains visible");
@@ -230,8 +227,8 @@ try {
     ok(staleCards.includes("+10.00%"));
     ok(visibleWarnBadges(staleCards).some(text => text.includes(STALE[language])),
       "summary retains one visible stale badge outside details");
-    ok(detailsText(staleCards).includes(AS_OF[language]) && detailsText(staleCards).includes("10/16"),
-      "stale summary keeps its as-of time in details");
+    ok(visibleText(staleCards).includes(AS_OF[language]) && staleCards.includes("10/16"),
+      "stale summary keeps its as-of time visible once");
     ok(!staleCards.includes(DIETZ[language]), "no method metadata means no approximate label");
     // A real stale reason must stay reachable too, without becoming default body copy.
     const staleWithReason = structuredClone(stale.summary);
@@ -240,8 +237,10 @@ try {
     const staleReason = language === "zh" ? "缺少历史资产快照" : "Historical asset snapshots are missing";
     ok(visibleWarnBadges(staleReasonCards).some(text => text.includes(STALE[language])),
       "stale reason variant still shows the visible stale badge");
-    ok(detailsText(staleReasonCards).includes(staleReason), "stale reason stays available in details");
-    ok(!visibleText(staleReasonCards).includes(staleReason), "stale reason is not repeated as default body copy");
+    ok(visibleText(staleReasonCards).includes(staleReason), "stale reason is stated once");
+    assert.equal((staleReasonCards.match(new RegExp(staleReason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length, 1,
+      "stale reason is not repeated on every card");
+    checks += 1;
     const staleReturns = renderReturns(language, stale.returns);
     assert.equal(kindLabel(staleReturns), TWR_KIND[language]);
     checks += 1;

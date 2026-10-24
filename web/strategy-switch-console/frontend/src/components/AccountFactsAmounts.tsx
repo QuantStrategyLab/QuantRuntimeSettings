@@ -1,7 +1,6 @@
-import type { ReactNode } from "react";
 import type { AccountFactsAccount } from "../api/contracts";
 import { useT } from "../i18n";
-import { useNavigate, usePrefs } from "../app/context";
+import { usePrefs } from "../app/context";
 import {
   accountFactDisplay,
   formatMoneyText,
@@ -22,18 +21,18 @@ const SHORT_STATE = new Set([
 ]);
 
 /**
- * One short state plus an em dash; identity/conflict specifics stay exact but
- * behind details. A read failure is never rendered as missing data.
+ * One short state plus an em dash. Exact conflict/identity state is exposed as
+ * a non-sensitive data-state attribute, never as an expandable audit block.
+ * A read failure is never rendered as missing data.
  */
-export function FactsStateRow({ label, stateKey, action }: {
+export function FactsStateRow({ label, stateKey }: {
   label: string;
   stateKey: string;
-  action?: ReactNode;
 }) {
   const t = useT();
   const short = SHORT_STATE.has(stateKey);
   return (
-    <div className="account-facts account-facts-state">
+    <div className="account-facts account-facts-state" data-state={stateKey}>
       <span className="account-row">
         <span>{label}</span>
         <span className="account-facts-state-value">
@@ -41,13 +40,6 @@ export function FactsStateRow({ label, stateKey, action }: {
           <span className="account-state-label">{t(short ? stateKey : "facts.amount_unavailable")}</span>
         </span>
       </span>
-      {!short && (
-        <details className="state-details account-facts-details">
-          <summary>{t("common.details")}</summary>
-          <p>{t(stateKey)}</p>
-        </details>
-      )}
-      {action}
     </div>
   );
 }
@@ -99,7 +91,7 @@ export function AccountFactsAmounts({ fact, phase, conflict = false, ambiguous =
         </span>
       ))}
       {display.cash.map(row => (
-        <span className="account-row account-facts-cash" key={`cash-${row.currency}`} title={t("facts.cash_semantics")}>
+        <span className="account-row account-facts-cash" key={`cash-${row.currency}`}>
           <span>{t("facts.cash")} · {row.currency}</span>
           <MoneyText value={row.cashBalance} currency={row.currency} />
         </span>
@@ -129,7 +121,6 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
   phase: FactsPhase;
 }) {
   const t = useT();
-  const navigate = useNavigate();
   if (phase === "loading") return <div className="account-facts"><Skeleton height={14} /></div>;
   if (phase === "error") return <FactsStateRow label={t("facts.platform_total")} stateKey="state.read_failed" />;
   const totals = platformCurrencyTotals(rows, expected);
@@ -147,19 +138,8 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
         : anyReadable
           ? "facts.platform_identity_unverified"
           : "state.no_data";
-    if (stateKey === "facts.platform_identity_unverified") {
-      return (
-        <FactsStateRow
-          label={t("facts.platform_total")}
-          stateKey={stateKey}
-          action={(
-            <button type="button" className="button button-secondary button-sm" onClick={() => navigate({ page: "accounts" })}>
-              {t("facts.identity_action")}
-            </button>
-          )}
-        />
-      );
-    }
+    // The full verification workflow stays available on the Accounts page; the
+    // summary itself only reports the unresolved identity state.
     return <FactsStateRow label={t("facts.platform_total")} stateKey={stateKey} />;
   }
   return (
@@ -170,7 +150,7 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
             <span>{t(total.complete ? "facts.platform_total" : "facts.platform_subtotal")} · {total.currency}</span>
             <MoneyText value={total.netAssets} currency={total.currency} />
           </span>
-          <span className="account-row account-facts-cash" title={t("facts.cash_semantics")}>
+          <span className="account-row account-facts-cash">
             <span>{t("facts.cash")} · {total.currency}</span>
             <MoneyText value={total.cashBalance} currency={total.currency} />
           </span>
@@ -182,11 +162,6 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
           </div>
         </div>
       ))}
-      {totals.some(total => !total.complete) && <details className="account-facts-notes account-platform-notes">
-        <summary>{t("accounts.data_notes")}</summary>
-        <p>{t("facts.platform_subtotal_note")}</p>
-        <p>{t("facts.cash_semantics")}</p>
-      </details>}
     </div>
   );
 }

@@ -31,8 +31,8 @@ try {
   });
   const { render } = createRequire(import.meta.url)(outfile);
   const ASSET_NOTE = {
-    zh: "暂时无法计算收益，以下展示资产余额。",
-    en: "Returns are unavailable; asset balances are shown instead.",
+    zh: "暂时无法计算收益，以下展示资产变化（%）。该变化包含出入金影响，不代表时间加权收益，也不与基准比较。",
+    en: "Returns are unavailable; the chart shows asset change (%), including the effect of cash flows. It is not a time-weighted return and is not compared with benchmarks.",
   };
   const CRYPTO_NOTE = {
     zh: "加密账户按 7×24 交易，暂不与美股指数比较；BTC 基准数据尚未接入。",
@@ -42,9 +42,9 @@ try {
     zh: "当前范围同时包含加密与美股账户，暂不与单一市场指数比较；可切换到单个账户查看。",
     en: "This scope mixes crypto and US equity accounts, so no single market index applies. Open one account to compare benchmarks.",
   };
-  const ASSET_BALANCE_KIND = {
-    zh: "资产余额 · 未与基准比较",
-    en: "Asset balance · no benchmark comparison",
+  const ASSET_CHANGE_KIND = {
+    zh: "资产变化 · 含出入金影响",
+    en: "Asset change · includes cash flows",
   };
   const outsideDetails = html => html.replace(/<details[\s\S]*?<\/details>/g, "");
   const detailsText = html => [...html.matchAll(/<details[\s\S]*?<\/details>/g)].map(match => match[0]).join("");
@@ -59,29 +59,30 @@ try {
   const setReturns = value => { globalThis.__gapReturns = value; globalThis.__gapCharts = []; };
 
   for (const language of ["zh", "en"]) {
-    // 1. Mixed-currency USDT entry: currency switch, asset balance, no US-equity benchmarks.
+    // 1. Mixed-currency USDT entry: currency switch, asset change, no US-equity benchmarks.
     setReturns({ ...mixedReturns, per_currency: mixedReturns.per_currency.map(entry => ({ ...entry,
       benchmarks: entry.currency === "USDT" ? benchmarkSeries : entry.benchmarks })) });
     const html = render(language);
     assert.equal(globalThis.__gapCharts.length, 1, "one curve for the selected currency");
-    assert.equal(globalThis.__gapCharts[0].series.length, 1, "crypto asset balance never overlays US benchmarks");
+    assert.equal(globalThis.__gapCharts[0].series.length, 1, "crypto asset change never overlays US benchmarks");
     assert.equal(globalThis.__gapCharts[0].series[0].points.length, 7);
     assert.equal(globalThis.__gapCharts[0].series[0].label, language === "zh" ? "组合 · USDT" : "Portfolio · USDT",
       "legend uses the portfolio name and currency, not 本范围");
     assert.ok(html.includes(">USD</button>") && html.includes(">USDT</button>"), "currency switch renders both currencies");
     assert.ok(html.includes(language === "zh" ? 'aria-label="币种"' : 'aria-label="Currency"'), "currency switch is labelled");
-    assert.ok(visibleText(html).includes(ASSET_BALANCE_KIND[language]), "unadjusted curve is visibly labelled as asset balance");
+    assert.ok(visibleText(html).includes(ASSET_CHANGE_KIND[language]), "unadjusted curve is visibly labelled as asset change");
     assert.ok(!html.includes(language === "zh" ? "时间加权收益率（TWR）" : "Time-weighted return (TWR)"));
-    assert.doesNotMatch(html, /非 TWR|未经出入金|not TWR|unadjusted for cash flows/i);
-    assert.ok(!visibleText(html).includes(ASSET_NOTE[language]), "asset-balance note is collapsed by default");
+    assert.ok(!visibleText(html).includes(language === "zh" ? "资产余额" : "Asset balance"),
+      "an unadjusted percentage curve is never called a balance");
+    assert.ok(!visibleText(html).includes(ASSET_NOTE[language]), "asset-change note is collapsed by default");
     assert.ok(!visibleText(html).includes(CRYPTO_NOTE[language]), "crypto explanation is collapsed by default");
-    assert.ok(detailsText(html).includes(ASSET_NOTE[language]), "asset-balance note remains in details");
+    assert.ok(detailsText(html).includes(ASSET_NOTE[language]), "asset-change note remains in details");
     assert.ok(detailsText(html).includes(CRYPTO_NOTE[language]), "crypto explanation remains in the same details");
     for (const label of Object.values(benchmarkLabels)) assert.ok(!html.includes(label), "no US index label for a crypto entry");
     assert.doesNotMatch(html, /perf-currency-block/);
     assert.doesNotMatch(html, /state\.|reason\.|perf\./);
 
-    // 1b. The same asset-balance curve under a mixed crypto/equity scope explains both limits in one disclosure.
+    // 1b. The same asset-change curve under a mixed crypto/equity scope explains both limits in one disclosure.
     setReturns({ ...mixedReturns, status: "ok", unavailable_reason: null, per_currency: [], currency: "USD",
       return_kind: "unadjusted_asset_ratio", points: twrPoints, aligned_start: "2026-10-09", no_common_date: false,
       benchmarks: [], benchmark_availability: [] });
@@ -89,16 +90,16 @@ try {
       { alias: "synthetic-crypto", platform: "binance", paper: false },
       { alias: "synthetic-equity", platform: "schwab", paper: false },
     ]);
-    assert.equal(globalThis.__gapCharts.length, 1, "the asset-balance chart still renders for a mixed scope");
-    assert.ok(visibleText(mixedAsset).includes(ASSET_BALANCE_KIND[language]), "mixed-scope curve stays labelled asset balance");
+    assert.equal(globalThis.__gapCharts.length, 1, "the asset-change chart still renders for a mixed scope");
+    assert.ok(visibleText(mixedAsset).includes(ASSET_CHANGE_KIND[language]), "mixed-scope curve stays labelled asset change");
     assert.ok(!visibleText(mixedAsset).includes(ASSET_NOTE[language]));
     assert.ok(!visibleText(mixedAsset).includes(MIXED_NOTE[language]));
-    assert.ok(detailsText(mixedAsset).includes(ASSET_NOTE[language]), "asset-balance note is reachable in details");
+    assert.ok(detailsText(mixedAsset).includes(ASSET_NOTE[language]), "asset-change note is reachable in details");
     assert.ok(detailsText(mixedAsset).includes(MIXED_NOTE[language]), "mixed-benchmark note shares the same details");
     assert.equal((mixedAsset.match(/<details class="state-details curve-notes">/g) || []).length, 1,
       "both explanations share one native disclosure");
     assert.ok(!visibleText(mixedAsset).includes(language === "zh" ? "时间加权收益率（TWR）" : "Time-weighted return (TWR)"),
-      "an asset-balance curve never poses as a return");
+      "an asset-change curve never poses as a return");
 
     // 2. Store failure cannot be bypassed by retained currency groups.
     setReturns({ ...mixedReturns, status: "unavailable", unavailable_reason: "stored_records_unreadable" });
@@ -118,7 +119,7 @@ try {
     for (const series of globalThis.__gapCharts[0].series.slice(1))
       assert.equal(series.label, language === "zh" ? series.id : benchmarkLabels[series.id], "localize real benchmark ids without changing identity");
     assert.ok(twrHtml.includes(language === "zh" ? "时间加权收益率（TWR）" : "Time-weighted return (TWR)"));
-    assert.ok(!twrHtml.includes(language === "zh" ? "资产余额 · 未与基准比较" : "Asset balance · no benchmark comparison"));
+    assert.ok(!twrHtml.includes(ASSET_CHANGE_KIND[language]), "a qualified TWR is not labelled as asset change");
     if (language === "en") assert.doesNotMatch(twrHtml, /[一-鿿]/);
 
     // 4. A missing default benchmark is reported honestly; the account curve still renders.
@@ -145,4 +146,4 @@ try {
   delete globalThis.__gapCharts;
   await rm(directory, { recursive: true, force: true });
 }
-console.log("console_returns_adapter_validation: PASS (zh/en, currency switch, asset-balance labelling, crypto benchmark suppression, two US defaults, failed/empty groups)");
+console.log("console_returns_adapter_validation: PASS (zh/en, currency switch, asset-change labelling, crypto benchmark suppression, two US defaults, failed/empty groups)");

@@ -74,10 +74,9 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       const mixedReturn = ui.renderReturn(language, { phase: "ready", data: summary });
       assert.ok(visibleText(mixedReturn).includes("—"), "uncomputable TWR keeps an honest blank");
       assert.ok(visibleText(mixedReturn).includes(UNAVAILABLE[language]), "default view keeps only the short status");
-      assert.ok(!visibleText(mixedReturn).includes(MIXED_REASON[language]), "mixed-currency reason is not repeated in the default view");
-      assert.ok(mixedReturn.includes(`<summary>${DETAILS[language]}</summary>`), "details control stays reachable");
-      assert.ok(detailsText(mixedReturn).includes(MIXED_REASON[language]), "expanded details retain the original reason");
-      assert.ok(detailsText(mixedReturn).includes(AS_OF[language]), "expanded details carry the corresponding as-of time");
+      assert.ok(visibleText(mixedReturn).includes(MIXED_REASON[language]), "mixed-currency reason is stated once on the card");
+      assert.ok(!mixedReturn.includes("<details"), "no audit details block remains");
+      assert.ok(visibleText(mixedReturn).includes(AS_OF[language]), "the corresponding as-of time stays visible");
       assert.ok(!visibleText(mixedReturn).includes("0.00%"), "an unavailable return is never rendered as zero");
 
       const assets = {
@@ -86,10 +85,10 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       };
       const mixedAssets = ui.renderAsset(language, { phase: "ready", data: assets });
       assert.ok(visibleText(mixedAssets).includes("—") && visibleText(mixedAssets).includes(UNAVAILABLE[language]));
-      assert.ok(!visibleText(mixedAssets).includes(MIXED_REASON[language]));
+      assert.ok(visibleText(mixedAssets).includes(MIXED_REASON[language]), "the mixed-currency reason is stated once");
       assert.ok(!visibleText(mixedAssets).includes("123"), "an uncombinable total is never shown as a value");
-      assert.ok(detailsText(mixedAssets).includes(MIXED_REASON[language]));
-      assert.ok(detailsText(mixedAssets).includes(AS_OF[language]));
+      assert.ok(!mixedAssets.includes("<details"), "no audit details block remains");
+      assert.ok(visibleText(mixedAssets).includes(AS_OF[language]));
 
       const calendar = {
         ...meta, status: "unavailable", unavailable_reason: "mixed_currency", as_of: asOf,
@@ -97,9 +96,9 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       };
       const mixedDay = ui.renderLastDay(language, { phase: "ready", data: calendar });
       assert.ok(visibleText(mixedDay).includes("—") && visibleText(mixedDay).includes(UNAVAILABLE[language]));
-      assert.ok(!visibleText(mixedDay).includes(MIXED_REASON[language]));
-      assert.ok(detailsText(mixedDay).includes(MIXED_REASON[language]));
-      assert.ok(detailsText(mixedDay).includes(AS_OF[language]));
+      assert.ok(visibleText(mixedDay).includes(MIXED_REASON[language]), "the mixed-currency reason is stated once");
+      assert.ok(!mixedDay.includes("<details"), "no audit details block remains");
+      assert.ok(visibleText(mixedDay).includes(AS_OF[language]));
 
       const staleCalendar = {
         ...calendar, status: "stale", unavailable_reason: null,
@@ -109,9 +108,9 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       const staleDay = ui.renderLastDay(language, { phase: "ready", data: staleCalendar });
       assert.ok(visibleText(staleDay).includes("123"), "stale data still shows its real value");
       assert.ok(visibleText(staleDay).includes(ASSET_CHANGE[language]), "the normal method label stays next to the value");
-      assert.ok(visibleText(staleDay).includes(STALE[language]), "stale stays visibly marked outside details");
-      assert.ok(!visibleText(staleDay).includes(AS_OF[language]), "as-of moves out of the abnormal default view");
-      assert.ok(detailsText(staleDay).includes(AS_OF[language]), "stale as-of remains reachable in details");
+      assert.ok(visibleText(staleDay).includes(STALE[language]), "stale stays visibly marked");
+      assert.ok(visibleText(staleDay).includes(AS_OF[language]), "stale as-of time stays visible once");
+      assert.ok(!staleDay.includes("<details"), "no audit details block remains");
 
       const normalReturn = ui.renderReturn(language, { phase: "ready", data: {
         ...summary, unavailable_reason: null, twr_return_percent: 10, metric_reasons: { twr: null },

@@ -18,15 +18,17 @@ const WIDTH = 800;
 const HEIGHT = 280;
 const MIN_WIDTH = 280;
 const PAD = { top: 12, right: 12, bottom: 24, left: 48 };
-const DAY = 86_400_000;
-/** Weekends and normal exchange holidays stay connected; only a real data gap breaks the line. */
-const MAX_CONNECTED_GAP_DAYS = 7;
 
 type PreparedPoint = { date: string; value: number; breakBefore: boolean };
 type PreparedSeries = Omit<ChartSeries, "points"> & { points: PreparedPoint[] };
 
-function daysBetween(previous: string, current: string): number {
-  return (Date.parse(`${current}T00:00:00Z`) - Date.parse(`${previous}T00:00:00Z`)) / DAY;
+function dayMs(date: string): number {
+  return Date.parse(`${date}T00:00:00Z`);
+}
+
+function isBreak(point: Point): boolean {
+  // The backend marks real gaps (including market-aware and membership gaps).
+  return point.breakBefore === true || point.membership_changed === true;
 }
 
 function toPath(points: Positioned[]): string {
@@ -39,15 +41,16 @@ function toPath(points: Positioned[]): string {
 
 type Positioned = PreparedPoint & { x: number; y: number };
 
-/** Daily changes from cumulative percentages; small calendar gaps (weekends) still produce a return. */
+/** Daily changes from cumulative percentages; breaks come only from backend gap flags. */
 function dailyPoints(points: Point[], start: string | null): PreparedPoint[] {
   const rows = points.filter(point => !start || point.date >= start);
   const daily: PreparedPoint[] = [];
   let previous: Point | null = null;
   let interrupted = true;
   for (const point of rows) {
-    const gapOk = previous !== null && daysBetween(previous.date, point.date) <= MAX_CONNECTED_GAP_DAYS;
-    const canCompute = previous !== null && gapOk && point.membership_changed !== true
+    const boundary = isBreak(point);
+    if (boundary) interrupted = true;
+    const canCompute = previous !== null && !boundary
       && Number.isFinite(previous.value) && previous.value > -100
       && Number.isFinite(point.value) && point.value >= -100;
     if (canCompute) {
@@ -122,16 +125,13 @@ export function LineChart({
         .slice()
         .sort((a, b) => a.date.localeCompare(b.date));
       const base = rows[0]?.value;
-      let previousDate: string | null = null;
       const points = rows.flatMap(point => {
         if (!Number.isFinite(point.value)) return [];
-        const breakBefore = point.membership_changed === true
-          || (previousDate !== null && daysBetween(previousDate, point.date) > MAX_CONNECTED_GAP_DAYS);
-        previousDate = point.date;
         return [{
           date: point.date,
           value: typeof base === "number" ? point.value - base : point.value,
-          breakBefore,
+          // Never infer gaps from date length; the backend knows the market calendar.
+          breakBefore: isBreak(point),
         }];
       });
       return { ...item, points };
@@ -161,14 +161,33 @@ export function LineChart({
   const plotWidth = Math.max(1, chartWidth - leftPad - PAD.right);
   const plotHeight = height - PAD.top - PAD.bottom;
 
-  const xFor = (i: number) => prepared.dates.length <= 1
-    ? leftPad + plotWidth / 2
-    : leftPad + (i / (prepared.dates.length - 1)) * plotWidth;
+  const firstTime = prepared.dates.length ? dayMs(prepared.dates[0]!) : 0;
+  const lastTime = prepared.dates.length ? dayMs(prepared.dates.at(-1)!) : 0;
+  const timeSpan = lastTime - firstTime;
+  // Plots use the real calendar scale so missing days read as gaps, not equal steps.
+  const xFor = (i: number) => {
+    if (prepared.dates.length <= 1 || !(timeSpan > 0)) return leftPad + plotWidth / 2;
+    const ratio = (dayMs(prepared.dates[i]!) - firstTime) / timeSpan;
+    return leftPad + Math.min(Math.max(ratio, 0), 1) * plotWidth;
+  };
   const yFor = (value: number) =>
     PAD.top + (1 - (value - tickSet.min) / (tickSet.max - tickSet.min)) * plotHeight;
 
   const valueAt = (item: PreparedSeries, date: string) =>
     item.points.find(point => point.date === date)?.value ?? null;
+
+  const nearestIndex = (time: number) => {
+    let best = 0;
+    let bestDelta = Infinity;
+    prepared.dates.forEach((date, i) => {
+      const delta = Math.abs(dayMs(date) - time);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = i;
+      }
+    });
+    return best;
+  };
 
   const onMove = (clientX: number) => {
     const frame = frameRef.current;
@@ -176,8 +195,10 @@ export function LineChart({
     const rect = frame.getBoundingClientRect();
     const ratio = rect.width > 0 ? (clientX - rect.left) / rect.width : 0;
     const x = Math.min(Math.max(ratio, 0), 1) * chartWidth;
-    const i = Math.round(((x - leftPad) / plotWidth) * (prepared.dates.length - 1));
-    setCursor(Math.max(0, Math.min(prepared.dates.length - 1, i)));
+    const clamped = Math.min(Math.max(x, leftPad), leftPad + plotWidth);
+    // Cursor snaps to the nearest observation date, not the nearest index slot.
+    const time = timeSpan > 0 ? firstTime + ((clamped - leftPad) / plotWidth) * timeSpan : firstTime;
+    setCursor(nearestIndex(time));
   };
 
   const onKeyDown = (event: KeyboardEvent<SVGSVGElement>) => {
@@ -195,7 +216,12 @@ export function LineChart({
     const wanted = chartWidth < 480 ? 2 : chartWidth < 760 ? 3 : 5;
     return [...new Set(Array.from({ length: wanted }, (_, i) =>
       Math.round((i / Math.max(1, wanted - 1)) * (count - 1))))]
-      .map(i => ({ i, date: prepared.dates[i]! }));
+      .map(i => ({
+        i,
+        date: prepared.dates[i]!,
+        // Edge labels anchor inward so the first and last dates are not clipped.
+        anchor: i === 0 ? "start" : i === count - 1 ? "end" : "middle",
+      }));
   }, [prepared.dates, chartWidth]);
 
   const cursorDate = cursor !== null ? prepared.dates[cursor] : null;
@@ -226,7 +252,14 @@ export function LineChart({
           ))}
           <line x1={leftPad} x2={chartWidth - PAD.right} y1={yFor(0)} y2={yFor(0)} stroke="var(--muted)" strokeWidth="1" strokeDasharray="3 3" />
           {xTicks.map(tick => (
-            <text key={tick.i} x={xFor(tick.i)} y={height - 6} textAnchor="middle" fontSize="11" fill="var(--muted)">
+            <text
+              key={tick.i}
+              x={xFor(tick.i)}
+              y={height - 6}
+              textAnchor={tick.anchor}
+              fontSize="11"
+              fill="var(--muted)"
+            >
               {tick.date.slice(5)}
             </text>
           ))}
@@ -236,16 +269,25 @@ export function LineChart({
               x: xFor(prepared.index.get(point.date)!),
               y: yFor(point.value),
             }));
+            const segments: Positioned[][] = [];
+            for (const point of positioned) {
+              if (!segments.length || point.breakBefore) segments.push([]);
+              segments.at(-1)!.push(point);
+            }
             return (
-              <path
-                key={item.id}
-                d={toPath(positioned)}
-                fill="none"
-                stroke={item.color}
-                strokeWidth={item.primary ? 2.5 : 1.4}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
+              <g key={item.id}>
+                <path
+                  d={toPath(positioned)}
+                  fill="none"
+                  stroke={item.color}
+                  strokeWidth={item.primary ? 2.5 : 1.4}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+                {segments.filter(segment => segment.length === 1).map(([point]) => (
+                  <circle key={point.date} cx={point.x} cy={point.y} r="3" fill={item.color} />
+                ))}
+              </g>
             );
           })}
           {cursor !== null && (

@@ -112,10 +112,14 @@ test("real bilingual account group renders reasons, source and read time", async
     ]) {
       const unknownEvidence = accountExecutionEvidence({}, live, { observedAt });
       const markup = ui.render(language, unknownEvidence);
-      assert.ok(markup.includes(unknown)); assert.ok(markup.includes(missing));
+      assert.ok(!markup.includes(unknown), "the compact card does not repeat an unknown execution mode");
+      assert.ok(!markup.includes(missing), "the compact card does not repeat the internal reason");
       assert.ok(!markup.includes("badge-warn"));
-      assert.ok(ui.render(language, accountExecutionEvidence({}, {}, { status: "read_failed", observedAt })).includes(failed));
-      assert.ok(ui.render(language, undefined).includes(unknown));
+      assert.ok(!ui.render(language, accountExecutionEvidence({}, {}, { status: "read_failed", observedAt })).includes(failed),
+        "the compact card hides an unreadable execution configuration");
+      assert.ok(!ui.render(language, undefined).includes(unknown), "missing configuration stays off the card");
+      assert.ok(ui.render(language, accountExecutionEvidence({ broker_environment: "live" }, live, { observedAt }))
+        .includes(language === "zh" ? ">实盘<" : ">Live<"), "a known execution mode stays visible");
       const unknownMarkup = ui.renderEvidence(language, unknownEvidence);
       assert.match(unknownMarkup, /badge-unknown/);
       assert.ok(visibleText(unknownMarkup).includes(unknown), "the unknown badge stays visible");

@@ -195,11 +195,18 @@ function TradesTab({ scope, platform, range, epoch }: PerformanceTabsProps) {
       <EmptyState
         title={t("state.not_connected")}
         body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
+        state="not_connected"
       />
     );
   }
   // No fills reader exists: never manufacture zero trades or a performance statistic.
-  return <EmptyState title={t(`state.${data.status}`)} />;
+  // A successful but empty read is no data, not a "normal" trades state.
+  const stateKey = data.status === "ok" ? "no_data" : data.status;
+  return <EmptyState
+    title={t(`state.${stateKey}`)}
+    body={data.status === "ok" ? undefined : data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
+    state={stateKey}
+  />;
 }
 
 export function PerformanceTabs({ scope, platform, range, epoch }: PerformanceTabsProps) {

@@ -5,7 +5,7 @@ import { formatDateTime } from "../lib/format";
 const reasonKeys = new Set(["not_connected", "read_failed", "permission_denied", "broker_environment_missing", "execution_config_missing", "dry_run_flag_missing", "environment_conflict"]);
 
 /** Configuration evidence only. Unknown values never become active settings. */
-export function ExecutionEvidence({ evidence, compact = false }: { evidence?: AccountExecutionEvidence; compact?: boolean }) {
+export function ExecutionEvidence({ evidence, compact = false, showState = false }: { evidence?: AccountExecutionEvidence; compact?: boolean; showState?: boolean }) {
   const t = useT(), language = useLanguage();
   const checked = formatDateTime(evidence?.observed_at, language, true);
   const value = evidence?.value || "unknown";
@@ -14,10 +14,17 @@ export function ExecutionEvidence({ evidence, compact = false }: { evidence?: Ac
     : evidence?.configuration_source === "CLOUD_RUN_SERVICE_TARGETS_JSON" ? "service_target" : "missing";
   const environmentKnown = evidence?.broker_environment === "live" || evidence?.broker_environment === "paper";
   const environment = t(evidence?.broker_environment === "live" ? "strategies.execution.live" : evidence?.broker_environment === "paper" ? "strategies.execution.paper" : "common.unknown");
+  if (showState) {
+    // Ordinary list/card view: one short configuration-state badge. Reasons,
+    // source and check time stay on the protected detail surfaces.
+    return <div className="execution-evidence-status">
+      <span className={`badge badge-${value === "live" ? "warn" : value === "unknown" ? "unknown" : "accent"}`}>{t(`strategies.execution.${value}`)}</span>
+    </div>;
+  }
   if (compact) {
-    // Unknown configuration is explained once in the card's expandable data
-    // notes; repeating "Execution mode: unknown / broker: unknown" on every
-    // card row was noise. A known mode is still useful at a glance.
+    // Unknown configuration stays off the card; repeating "Execution mode:
+    // unknown / broker: unknown" on every card row was noise. A known mode is
+    // still useful at a glance.
     if (value === "unknown") return null;
     return <div className="execution-evidence-compact">
       <span className="account-row execution-mode-row">

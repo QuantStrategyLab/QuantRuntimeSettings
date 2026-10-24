@@ -122,7 +122,10 @@ try {
     for (const currentStrategies of [undefined, {}, { schwab: { live: { strategy_profile: "old-profile" } } },
       { schwab: { live: { strategy_profile: healthStates.strategies[1].profile } } }]) {
       const catalog = ui.catalog(language, { ...config, currentStrategies });
-      for (const account of accounts) assert.ok(catalog.includes(`title="${account.account_ref}"`), "retain platform-qualified summary identities");
+      const catalogText = catalog.replace(/<!-- -->/g, "");
+      for (const account of accounts) assert.ok(!catalog.includes(`title="${account.account_ref}"`), "identities are not hidden in internal-key tooltips");
+      assert.match(catalogText, /Schwab\s*·\s*(?:live|Live|实盘)/, "the Schwab identity stays visibly platform-qualified");
+      assert.match(catalogText, /Firstrade\s*·\s*(?:live|Live|实盘)/, "the Firstrade identity stays visibly platform-qualified");
       assert.equal((catalog.match(/class="strategy-account-link"/g) || []).length, 2, "same live aliases must remain distinct");
       assert.ok(catalog.includes(language === "zh" ? "研究策略" : "Research strategy"));
       assert.doesNotMatch(catalog, /<h3[^>]*>synthetic-profile/);

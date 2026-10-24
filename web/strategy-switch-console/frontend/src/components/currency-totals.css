@@ -34,6 +34,8 @@
 }
 .currency-meta .kpi-sub { overflow-wrap: anywhere; }
 .currency-meta .asof { font-size: 12px; }
+.currency-meta .state-short { flex-basis: 100%; }
+.currency-note { flex-basis: 100%; margin: 0; }
 
 .currency-status {
   flex-basis: 100%;

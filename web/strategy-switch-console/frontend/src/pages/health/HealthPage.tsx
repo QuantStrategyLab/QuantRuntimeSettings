@@ -117,14 +117,11 @@ function StatStrip({
             </li>)}
           </ul>
           {secondaryCounts.length > 0 && (
-            <details className="health-state-details">
-              <summary>{t("health.state_details")}</summary>
-              <ul className="health-state-counts">
-                {secondaryCounts.map(([state, count]) => <li key={state}>
-                  {t(`health.run_state.${state}`)}: <span className="num">{count}</span>
-                </li>)}
-              </ul>
-            </details>
+            <ul className="health-state-counts health-state-secondary">
+              {secondaryCounts.map(([state, count]) => <li key={state}>
+                {t(`health.run_state.${state}`)}: <span className="num">{count}</span>
+              </li>)}
+            </ul>
           )}
         </div>
       )}
@@ -252,19 +249,11 @@ function NotificationsCard({ epoch }: { epoch: number }) {
     {
       id: "source",
       header: t("health.notification_source"),
-      cell: row => <details className="notification-source">
-        <summary>{t("health.notification_source_summary")}</summary>
-        <a href={row.source_url} target="_blank" rel="noreferrer">{t("health.notification_run", { id: row.source_run_id, attempt: row.source_run_attempt })}</a>
-      </details>,
+      cell: row => <a href={row.source_url} target="_blank" rel="noreferrer">{t("health.notification_run", { id: row.source_run_id, attempt: row.source_run_attempt })}</a>,
     },
   ];
   return <>
-    <details className="card-details health-notes">
-      <summary>{t("health.notes")}</summary>
-      <p>{t("health.notifications_scope")}</p>
-    </details>
     {incomplete && <p role="alert">{t("health.notifications_partial")}</p>}
-    <p className="scroll-hint">{t("health.table_scroll_hint")}</p>
     <div className="health-notifications"><DataTable columns={columns} rows={log.items} rowKey={row => row.id} caption={t("health.notifications_title")} /></div>
   </>;
 }
@@ -309,13 +298,11 @@ export default function HealthPage() {
 
       <section className="card">
         <h2 className="card-title">{t("health.freshness_title")}</h2>
-        <p className="scroll-hint">{t("health.table_scroll_hint")}</p>
         <div className="health-freshness"><FreshnessTable summary={summary} /></div>
       </section>
 
       <section className="card">
         <h2 className="card-title">{t("health.credentials_title")}</h2>
-        <p className="scroll-hint">{t("health.table_scroll_hint")}</p>
         <div className="health-credentials"><CredentialsCard credential={credential} /></div>
       </section>
 

@@ -63,15 +63,12 @@ try {
     assert.ok(!partial.includes(language === "zh" ? "USD 资产合计" : "USD asset total"), "partial coverage cannot appear as a complete total");
     assert.ok(partial.includes(language === "zh" ? "已计入 2/8 个账户" : "Includes 2 of 8 accounts"), "coverage sits next to the subtotal");
     assert.ok(partial.includes(language === "zh" ? "部分账户数据待更新" : "Some account data may be out of date"), "one concise freshness status remains visible");
-    const partialMain = partial.split("<details")[0];
-    assert.ok(!partialMain.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"),
-      "long exclusion reasons move out of the main view");
-    assert.ok(!partialMain.includes(language === "zh" ? "7 个账户" : "7 accounts"), "stale counts move out of the main view");
+    assert.ok(!partial.includes("<details"), "currency totals keep no audit details block");
+    assert.ok(!partial.includes(language === "zh" ? "7 个账户" : "7 accounts"), "stale counts are not repeated");
     assert.ok(partial.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"),
-      "the exclusion reason stays reachable in the details");
-    assert.ok(partial.includes(language === "zh" ? "另有 6 个账户" : "6 additional accounts"), "excluded-account impact stays reachable");
-    assert.ok(partial.includes(language === "zh" ? "不是页面刷新时间" : "not the page refresh time"), "source time is distinguished from refresh time");
-    assert.match(partialMain, /2026|10\/16|16\/10/, "the source time stays in the main view");
+      "the exclusion reason is stated once next to the subtotal");
+    assert.ok(partial.includes(language === "zh" ? "另有 6 个账户" : "6 additional accounts"), "excluded-account impact is stated once");
+    assert.match(partial, /2026|10\/16|16\/10/, "the source time stays visible");
     const fresh = ui.freshness(language, { fresh: 1, stale: 1, unknown: 1, threshold_hours: 36 });
     assert.ok(fresh.includes(language === "zh" ? "1 个账户的数据可能不是最新" : "Data may be out of date for 1 accounts"));
     const freshZero = ui.freshness(language, { fresh: 2, stale: 0, unknown: 1, threshold_hours: 36 });

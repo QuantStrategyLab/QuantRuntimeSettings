@@ -27,7 +27,7 @@ function AccountAliases({ accounts }: { accounts: Strategy["configured_accounts"
         <button
           key={accountKey(account)}
           type="button"
-          className="strategy-account-link" title={accountKey(account)}
+          className="strategy-account-link"
           onClick={() => navigate({ page: "accounts", account: accountKey(account) })}
         >
           {names.platform(account.platform)} · {names.account(account.account_alias, account.platform)}
@@ -54,7 +54,7 @@ function AccountExecution({ accounts }: { accounts: Strategy["configured_account
         return (
           <div className="strategy-execution-account" key={accountKey(account)}>
             <span>{names.platform(account.platform)} · {names.account(account.account_alias, account.platform)}</span>
-            <ExecutionEvidence evidence={account.execution_evidence} />
+            <ExecutionEvidence evidence={account.execution_evidence} showState />
           </div>
         );
       })}
@@ -139,10 +139,7 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
         <div className="card-note strategy-live-note">
           <Badge tone="warn">{t("strategies.execution.live")}</Badge>
           <span>{t("strategies.live_exposure")}</span>
-          <details>
-            <summary>{t("strategies.research_more")}</summary>
-            <p>{t("strategies.execution_source")}</p>
-          </details>
+          <span className="state-short">{t("strategies.execution_source")}</span>
         </div>
       )}
       <div className="strategy-grid">
