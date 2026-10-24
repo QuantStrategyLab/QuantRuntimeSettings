@@ -1812,3 +1812,5 @@ assert.match(workerSource, /\/api\/account-facts\/history/);
 
 await mf.dispose();
 console.log("account_facts_validation ok");
+
+await import("./firstrade_positions_validation.mjs");
