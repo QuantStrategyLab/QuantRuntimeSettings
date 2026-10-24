@@ -7,6 +7,15 @@ const RECEIPT_STATUSES = ["route_check", "dry_run", "blocked_missing_secrets", "
   "skipped_duplicate", "blocked_resend_guard", "business_digest_failed", "skipped_empty"];
 const GUARD_REASONS = ["FIRST_SEND", "ALREADY_DELIVERED", "EXPLICIT_TEST_RESEND", "HISTORY_UNAVAILABLE",
   "DELIVERY_UNCERTAIN", "CONFIGURATION_INVALID", "UNSUPPORTED_EVENT", "LOCAL_EXECUTION", "DRY_RUN"];
+const READ_STAGES = ["run_listing", "artifact_listing", "artifact_archive", "artifact_download", "receipt_decode", "receipt_projection", "sender_jobs"];
+const READ_HTTP_STATUSES = [401, 403, 404, 429, 500, 502, 503, 504];
+export const RECEIPT_READ_ERROR_CODES = ["receipt_read_timeout", "receipt_too_large", "receipt_body_missing", "invalid_receipt_archive", "public_receipt_missing", "invalid_public_receipt",
+  ...READ_STAGES.flatMap(stage => [`${stage}_failed`, `${stage}_transport_failed`, `${stage}_http_other`, ...READ_HTTP_STATUSES.map(status => `${stage}_http_${status}`)])];
+function readError(code) { return Object.assign(new Error("receipt_read_failed"), { receiptReadCode: code }); }
+function readErrorCode(error, stage) {
+  const code = error?.receiptReadCode || error?.message;
+  return RECEIPT_READ_ERROR_CODES.includes(code) ? code : `${stage}_failed`;
+}
 const boolean = value => typeof value === "boolean" ? value : null;
 const date = value => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -121,20 +130,25 @@ export function createNotificationLogReader(fetchImpl = (...args) => fetch(...ar
     const task = (async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
-      const api = async (path, archive = false) => {
-        const response = await fetchImpl(`https://api.github.com/repos/${repository}/${path}`, {
+      const request = async (url, init, stage) => {
+        try { return await fetchImpl(url, init); }
+        catch { throw readError(controller.signal.aborted ? "receipt_read_timeout" : `${stage}_transport_failed`); }
+      };
+      const httpFailure = (response, stage) => readError(`${stage}_http_${READ_HTTP_STATUSES.includes(response.status) ? response.status : "other"}`);
+      const api = async (path, archive = false, stage = "run_listing") => {
+        const response = await request(`https://api.github.com/repos/${repository}/${path}`, {
           method: "GET", redirect: "manual", signal: controller.signal,
           headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "User-Agent": "console-receipt-reader", "X-GitHub-Api-Version": "2022-11-28" },
-        });
+        }, stage);
         if (archive && response.status === 302) {
           const location = new URL(response.headers.get("location"));
           if (location.protocol !== "https:") throw Error("invalid_artifact_redirect");
           // Signed artifact URL: never forward the GitHub credential to blob storage.
-          const download = await fetchImpl(location.href, { method: "GET", redirect: "error", signal: controller.signal });
-          if (!download.ok) throw Error("receipt_download_failed");
+          const download = await request(location.href, { method: "GET", redirect: "error", signal: controller.signal }, "artifact_download");
+          if (!download.ok) throw httpFailure(download, "artifact_download");
           return bytes(download, MAX_ARCHIVE);
         }
-        if (!response.ok) throw Error("receipt_read_failed");
+        if (!response.ok) throw httpFailure(response, stage);
         const body = await bytes(response, archive ? MAX_ARCHIVE : 524288);
         return archive ? body : JSON.parse(new TextDecoder().decode(body));
       };
@@ -153,8 +167,9 @@ export function createNotificationLogReader(fetchImpl = (...args) => fetch(...ar
             source_sha: run.head_sha, source_url: `https://github.com/${repository}/actions/runs/${run.id}/attempts/${run.run_attempt}`,
             workflow_updated_at: time(run.updated_at), sent_at: null, channel: "telegram", status: "receipt_missing",
             receipt_status: null, business_day: null, report_date: null, delivered: null, dry_run: null, test_message: null, reason_code: null };
+          let stage = "artifact_listing";
           try {
-            const artifacts = await api(`actions/runs/${run.id}/artifacts?per_page=100`);
+            const artifacts = await api(`actions/runs/${run.id}/artifacts?per_page=100`, false, stage);
             if (!Array.isArray(artifacts.artifacts) || artifacts.total_count > 100) throw Error("incomplete_artifact_listing");
             const matches = artifacts.artifacts.filter(a => a.name === "daily-digest-receipt"
               && time(a.created_at) && time(run.run_started_at) && Date.parse(a.created_at) >= Date.parse(run.run_started_at));
@@ -163,15 +178,20 @@ export function createNotificationLogReader(fetchImpl = (...args) => fetch(...ar
             if (artifact?.expired) return { ...item, status: "receipt_expired" };
             if (artifact) {
               if (!Number.isSafeInteger(artifact.id) || artifact.size_in_bytes > MAX_ARCHIVE) throw Error("invalid_artifact");
-              const receipt = await publicReceiptFromZip(await api(`actions/artifacts/${artifact.id}/zip`, true));
+              stage = "artifact_archive";
+              const archive = await api(`actions/artifacts/${artifact.id}/zip`, true, stage);
+              stage = "receipt_decode";
+              const receipt = await publicReceiptFromZip(archive);
+              stage = "receipt_projection";
               return { ...item, ...projectNotificationReceipt(receipt, run) };
             }
-            const jobs = await api(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
+            stage = "sender_jobs";
+            const jobs = await api(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`, false, stage);
             if (!Array.isArray(jobs.jobs) || jobs.total_count > 100) throw Error("incomplete_jobs_listing");
             const senders = jobs.jobs.flatMap(job => job.steps || []).filter(step => step.name === "Aggregate, render, and send daily digest");
             if (senders.length === 1 && senders[0].conclusion === "skipped") return { ...item, status: "sender_skipped" };
             return item;
-          } catch { failures++; return { ...item, status: "read_failed" }; }
+          } catch (error) { failures++; return { ...item, status: "read_failed", read_error_code: readErrorCode(error, stage) }; }
         }));
         const present = items.filter(Boolean);
         const coverage = receiptReadCoverage(listing, runs, present, failures);
@@ -182,7 +202,7 @@ export function createNotificationLogReader(fetchImpl = (...args) => fetch(...ar
             : status === "partial" ? "notification_receipts_incomplete" : null,
           as_of: new Date(now()).toISOString(),
           items: present, run_limit: RUN_LIMIT, truncated: listing.total_count > RUN_LIMIT, read_failure_count: failures };
-      } catch { return readFailed; }
+      } catch (error) { return { ...readFailed, read_error_code: readErrorCode(error, "run_listing") }; }
       finally { clearTimeout(timeout); }
     })();
     if (cache.size >= 4) cache.delete(cache.keys().next().value);
