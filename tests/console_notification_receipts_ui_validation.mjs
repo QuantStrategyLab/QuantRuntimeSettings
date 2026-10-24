@@ -49,12 +49,12 @@ try {
   for (const language of ["zh", "en"]) {
     const copy = language === "zh" ? {
       incomplete: "部分通知记录可能缺失。", emptyPartial: "当前没有可展示的回执，不能据此确认没有通知。",
-      empty: "暂无通知记录", failed: "读取失败", retry: "重试", disconnected: "通知发送记录未接入。",
+      empty: "暂无通知记录", failed: "暂时无法加载", retry: "重试", disconnected: "通知发送记录未接入。",
       scope: "仅显示最近 5 次日报的发送结果，不含其他即时通知；记录更新时间与实际发送时间可能不同。", missing: "未找到发送记录",
     } : {
       incomplete: "Some notification records may be missing.",
       emptyPartial: "No receipts are available to display; this does not confirm that no notifications exist.",
-      empty: "No notification records", failed: "Read failed", retry: "Retry", disconnected: "The notification log is not connected.",
+      empty: "No notification records", failed: "Unable to load", retry: "Retry", disconnected: "The notification log is not connected.",
       scope: "Only send results from the latest 5 daily digest runs are shown. Other instant notifications are not included; the record update time may differ from the actual send time.", missing: "Notification record missing",
     };
 
@@ -84,6 +84,8 @@ try {
         { phase: "error", data: null, error: new Error("synthetic transport failure") }]) {
         const errorHtml = render(language, state);
         assert.ok(errorHtml.includes(copy.failed));
+        assert.ok(errorHtml.includes('data-state="read_failed"'));
+        assert.ok(errorHtml.includes('role="alert"'));
         assert.ok(errorHtml.includes(copy.retry));
         assert.ok(!errorHtml.includes(copy.empty));
         assert.ok(!errorHtml.includes(copy.emptyPartial));
