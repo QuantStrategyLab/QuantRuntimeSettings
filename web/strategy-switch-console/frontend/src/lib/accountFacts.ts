@@ -134,7 +134,7 @@ export type FactDisplay =
       stale: boolean;
       asOf: string | null;
       balances: { currency: string; netAssets: string | null }[];
-      cash: { currency: string; cashBalance: string | null }[];
+      cash: { currency: string; cashBalance: string | null; available?: boolean }[];
     };
 
 /**
@@ -167,7 +167,7 @@ export function accountFactDisplay(fact: AccountFactsAccount | null): FactDispla
   const cash = Array.isArray(fact.cash) ? fact.cash : [];
   const cashCurrencies = new Set<string>();
   for (const cell of cash) {
-    if (cell && typeof cell.currency === "string") cashCurrencies.add(cell.currency);
+    if (cell && typeof cell.currency === "string" && typeof cell.cash_balance === "string") cashCurrencies.add(cell.currency);
   }
   for (const cell of balances) {
     if (cell && typeof cell.currency === "string" && typeof cell.total_cash === "string") cashCurrencies.add(cell.currency);
@@ -179,7 +179,11 @@ export function accountFactDisplay(fact: AccountFactsAccount | null): FactDispla
     balances: balances
       .filter(row => row && typeof row.currency === "string")
       .map(row => ({ currency: row.currency, netAssets: validMoneyText(row.net_assets) })),
-    cash: [...cashCurrencies].sort().map(currency => ({ currency, cashBalance: cashTextFor(fact, currency) })),
+    cash: [
+      ...[...cashCurrencies].sort().map(currency => ({ currency, cashBalance: cashTextFor(fact, currency) })),
+      ...(fact.platform === "longbridge" ? cash.filter(row => typeof row?.currency === "string" && typeof row.available_cash === "string")
+        .map(row => ({ currency: row.currency, cashBalance: validMoneyText(row.available_cash), available: true })) : []),
+    ],
   };
 }
 

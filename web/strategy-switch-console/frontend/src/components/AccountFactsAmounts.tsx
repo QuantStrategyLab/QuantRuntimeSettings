@@ -60,8 +60,8 @@ function MoneyText({ value, currency }: { value: string | null; currency?: strin
  * Broker-reported assets and cash for one account, per currency. Read failures,
  * missing bindings, unknown enums and unavailable snapshots stay honest states;
  * a reported 0 is a real zero and missing values render as an em dash, never as
- * zero. Cash is labeled cash only — never buying power, available funds, or
- * margin. `conflict` means one trusted identity produced disagreeing
+ * zero. Cash balances and LongBridge available cash have separate labels;
+ * neither is buying power or margin. `conflict` means one trusted identity produced disagreeing
  * observations; `ambiguous` means a display group holds several distinct
  * verified accounts, so no single amount can be attributed to it.
  */
@@ -91,8 +91,8 @@ export function AccountFactsAmounts({ fact, phase, conflict = false, ambiguous =
         </span>
       ))}
       {display.cash.map(row => (
-        <span className="account-row account-facts-cash" key={`cash-${row.currency}`}>
-          <span>{t("facts.cash")} · {row.currency}</span>
+        <span className="account-row account-facts-cash" key={`cash-${row.available ? "available-" : ""}${row.currency}`}>
+          <span>{t(row.available ? "facts.available_cash" : "facts.cash")} · {row.currency}</span>
           <MoneyText value={row.cashBalance} currency={row.currency} />
         </span>
       ))}

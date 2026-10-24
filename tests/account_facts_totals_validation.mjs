@@ -179,3 +179,40 @@ assert.equal(missingAssetModel.accounts[0].data_status, "fresh");
 assert.equal(missingAssetModel.asset_coverage.accounts[0].reason, "net_assets_missing");
 
 console.log("asset coverage: PASS (membership, blockers, timestamps, missing semantics and privacy)");
+
+// Owner-configured physical bindings are distinct from broker-returned identity.
+function longbridgeInput(specs) {
+  const bindings = [], options = [], storedByAccount = new Map();
+  for (const [i, spec] of specs.entries()) {
+    const key = `lb-synthetic-${i}`, scope = spec.paper ? "paper" : "HK";
+    const b = {...binding, account_key: key, target_id: key, account_scope: scope,
+      source_binding: {...binding.source_binding, id: String(i + 1).repeat(64)},
+      ...(spec.identity ? {physical_account_id: spec.identity} : {})};
+    bindings.push(b); options.push({...option, key, account_scope: scope, broker_environment: spec.paper ? "paper" : "live"});
+    storedByAccount.set(`longbridge:${key}`, {...stored, target_id: key, account_scope: spec.paper ? "PAPER" : "HK",
+      source_binding: {...b.source_binding, status: "bound"},
+      broker_reported_balances: [{currency: "USD", net_assets: spec.amount, total_cash: spec.cash}],
+      cash: [{currency: "USD", available_cash: spec.cash, frozen_cash: "0", settling_cash: "0"}]});
+  }
+  return {now, bindings: {schema_version: "qsl_account_facts_bindings.v1", bindings}, accountOptions: {longbridge: options}, storedByAccount};
+}
+const configuredLb = buildAccountFactsReadModel(longbridgeInput([
+  {identity: "private-owner-a", amount: "100.10", cash: "-30.20"},
+  {identity: "private-owner-b", amount: "200.20", cash: "-40.30"},
+  {identity: "private-owner-paper", amount: "90000", cash: "80000", paper: true},
+]));
+assert.equal(configuredLb.totals.by_currency[0].net_assets, "300.3", "native net assets already include margin liabilities; never subtract negative cash twice");
+assert.equal(configuredLb.totals.by_currency[0].available_cash, "-70.5");
+assert.equal(configuredLb.totals.by_currency[0].account_count, 2, "paper is excluded");
+assert.ok(configuredLb.accounts.every(a => a.identity_source === "protected_configuration"));
+assert.ok(!JSON.stringify(configuredLb).includes("private-owner"), "private deduplication identities never enter the API");
+const lbDuplicate = buildAccountFactsReadModel(longbridgeInput([
+  {identity: "private-same", amount: "100", cash: "-20"},
+  {identity: "private-same", amount: "100.00", cash: "-20.00"},
+]));
+assert.equal(lbDuplicate.totals.by_currency[0].net_assets, "100");
+assert.equal(lbDuplicate.totals.by_currency[0].account_count, 1);
+const unboundLb = longbridgeInput([{identity: "private-a", amount: "1", cash: "0"}]);
+unboundLb.accountOptions.longbridge[0].service_name = "other-source";
+assert.equal(buildAccountFactsReadModel(unboundLb).accounts[0].aggregation_status, "unverified", "configured identity cannot bypass source validation");
+assert.throws(() => buildAccountFactsReadModel(longbridgeInput([{identity: "  ", amount: "1", cash: "0"}])));

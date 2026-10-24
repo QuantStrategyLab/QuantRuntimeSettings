@@ -517,6 +517,14 @@ const cases = [
   { name: "schwab_unchanged", platform: "schwab", rows: [primary, schwab], proposed: schwab, expected: "unchanged" },
   { name: "schwab_conflict", platform: "schwab", rows: [primary, schwab],
     proposed: { ...schwab, source_binding: { ...schwab.source_binding, id: "b".repeat(64) } }, expected: "blocked" },
+  {name: "longbridge_configure_identity", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: longbridgeSg, rotation: {...longbridgeRotation, next_source_binding_id: longbridgeRotation.previous_source_binding_id,
+      physical_account_id: "synthetic-owner-a"}, expected: "prepared"},
+  {name: "longbridge_replace_identity_blocked", platform: "longbridge", rows: [primary, {...longbridgeSg, physical_account_id: "synthetic-owner-old"}, secondary],
+    proposed: longbridgeSg, rotation: {...longbridgeRotation, next_source_binding_id: longbridgeRotation.previous_source_binding_id,
+      physical_account_id: "synthetic-owner-a"}, expected: "blocked"},
+  {name: "longbridge_identity_and_rotation_blocked", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: longbridgeSg, rotation: {...longbridgeRotation, physical_account_id: "synthetic-owner-a"}, expected: "blocked"},
   { name: "longbridge_sg_rotate", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
     proposed: longbridgeSg, rotation: longbridgeRotation, expected: "prepared" },
   { name: "longbridge_paper_rotate", platform: "longbridge", rows: [primary, longbridgeSg, longbridgePaper, secondary],
@@ -625,6 +633,11 @@ esac
     }
     if (test.name === "schwab_append") {
       assert.deepEqual(JSON.parse(readFileSync(output, "utf8")).bindings, [primary, secondary, schwab]);
+    }
+    if (test.name === "longbridge_configure_identity") {
+      assert.deepEqual(JSON.parse(readFileSync(output, "utf8")).bindings,
+        [primary, {...longbridgeSg, physical_account_id: "synthetic-owner-a"}, secondary]);
+      assert.doesNotMatch(child.stdout + child.stderr, /synthetic-owner-a/);
     }
     if (test.name === "longbridge_sg_rotate") {
       const next = JSON.parse(readFileSync(output, "utf8"));

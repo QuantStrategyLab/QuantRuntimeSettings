@@ -626,6 +626,7 @@ export interface AccountFactsAccount {
   account_key: string;
   binding_status: "bound" | "missing" | "duplicate";
   identity_status: "partial_identity" | "missing_identity";
+  identity_source?: "protected_configuration";
   identity_mismatch: boolean;
   data_status: "fresh" | "stale" | "unavailable";
   broker_environment: string | null;
@@ -635,7 +636,7 @@ export interface AccountFactsAccount {
   observed_finished_at: string | null;
   /**
    * Authoritative backend aggregation conclusion for this row: only "included"
-   * rows are verified unique physical accounts that may join any sum. Missing
+   * rows have validated physical-account mappings and may join a sum. Missing
    * or unknown values are treated as unverified, never as included.
    */
   aggregation_status?: "included" | "unverified" | "conflict" | "duplicate";
