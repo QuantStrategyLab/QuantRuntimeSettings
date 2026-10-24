@@ -219,4 +219,5 @@ assert.equal((await consoleApiResponse(new Request("https://console.example/api/
 assert.equal(reads, 0);
 const response = await consoleApiResponse(new Request("https://console.example/api/notifications/send-log"), {}, { ...deps, readSession: async () => ({ allowed: true }) });
 assert.deepEqual(await response.json(), result); assert.equal(reads, 1);
-console.log("console_notification_receipts_validation: PASS (public ZIP, receipt provenance, GET-only, auth, send/blocked/skipped/failure, empty/error, no guessed send time, cache)");
+await import("./console_notification_transport_validation.mjs");
+console.log("console_notification_receipts_validation: PASS (public ZIP, receipt provenance, GET-only, auth, send/blocked/skipped/failure, empty/error, no guessed send time, cache, actual workerd transport)");

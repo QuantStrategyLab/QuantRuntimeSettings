@@ -144,7 +144,9 @@ export function createNotificationLogReader(fetchImpl = (...args) => fetch(...ar
           const location = new URL(response.headers.get("location"));
           if (location.protocol !== "https:") throw Error("invalid_artifact_redirect");
           // Signed artifact URL: never forward the GitHub credential to blob storage.
-          const download = await request(location.href, { method: "GET", redirect: "error", signal: controller.signal }, "artifact_download");
+          // workerd supports manual/follow, not error. Reject a second redirect
+          // through the explicit HTTP check without forwarding any credential.
+          const download = await request(location.href, { method: "GET", redirect: "manual", signal: controller.signal }, "artifact_download");
           if (!download.ok) throw httpFailure(download, "artifact_download");
           return bytes(download, MAX_ARCHIVE);
         }
