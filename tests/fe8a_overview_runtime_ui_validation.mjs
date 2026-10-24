@@ -36,7 +36,7 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       const empty = ui.render(language, { phase: "ready", data: { ...data, counts: { ...data.counts, observed: 0 } } });
       assert.ok(empty.includes(language === "zh" ? "暂无数据" : "No data"));
       assert.ok(!empty.includes("0/8"));
-      assert.ok(!empty.includes("—"));
+      assert.ok(empty.includes("—"), "unknown run counts retain a compact empty value");
       const failed = ui.render(language, { phase: "error", error: Error("synthetic_read_failed") });
       assert.ok(failed.includes(language === "zh" ? "读取失败" : "Read failed"));
       assert.ok(!failed.includes("0/8"));
