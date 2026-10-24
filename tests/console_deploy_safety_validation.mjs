@@ -165,11 +165,11 @@ const pr764Source = "20dad166be317dd0d57e492ed06e56dfb82b7aef";
 const pr764Tree = "7db7dbd1b1749b42187dbc1c9658669fa426ffa6";
 const pr764Blob = "de87e1c1c6b62fa94bd514c8936a4ec32e14c0e4";
 const pr764Build = "96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6";
-const approved = "df888ffc8a1cd3dbc1d1df880ca1be040a664788";
-const approvedTree = "7655df109fa97ebe7038d85113d90a79f4e5328f";
-const frontend = "b576fcdda305761034a2a97d8b1564e28eac81c3";
-const frontendTree = "8e360c077d9147ec692c3f394dbeac5afbbd0415";
-const frontendBlob = "6fefa05f61b99401c9a988087e95578c9b1eb902";
+const approved = "70e8fe6d25eabc819060566d580dc4beebf27de8";
+const approvedTree = "7ccd5f9e92261bf1a84b1de285f575ad102fb430";
+const frontend = "68859f254325c0d9a559fc041921dd9d25b4ac37";
+const frontendTree = "b109b54746567987da856da92b2a50407ca9ac1b";
+const frontendBlob = "5f6594cfda779e7820ade6542ef4cd6d66e60b1e";
 const assetPath = "web/strategy-switch-console/v2_asset_map.js";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
@@ -419,7 +419,7 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
    assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
    assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
-  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend df888ffc and frontend 7fd2b0f; retained configuration"}});
+  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend 70e8fe6d and frontend 68859f2; retained configuration"}});
  }
  if(expected){
   if(pr764){const h=JSON.parse(stdout[0]);assert.equal(h.status,"pr764_configuration_verified");
