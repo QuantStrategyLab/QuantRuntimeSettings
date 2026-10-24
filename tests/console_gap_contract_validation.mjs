@@ -33,14 +33,17 @@ const blocks = performanceBlocks({ accounts: [], today: "2026-10-16", year: 2026
     { id: "synthetic-usd-b", currency: "USD", points: [{ date: "2026-10-02", value: 200 }] },
     { id: "synthetic-usdt", currency: "USDT", points: mixedReturns.per_currency[1].points.map(p => ({ ...p, value: 100 * (1 + p.value / 100), externalFlow: null })) }] });
 assert.equal(blocks.returns.unavailable_reason, "mixed_currency");
-assert.equal(blocks.returns.per_currency.find(e => e.currency === "USDT").points.length, 7);
-const usdHistory = blocks.returns.per_currency.find(e => e.currency === "USD");
+assert.equal(blocks.returns.per_currency.find(e => e.currency === "USDT").points.length, 0, "unknown deposits do not become a return curve");
+assert.equal(blocks.assets.history_per_currency.find(e => e.currency === "USDT").points.length, 7);
+const usdReturn = blocks.returns.per_currency.find(e => e.currency === "USD");
+assert.deepEqual(usdReturn.points, []);
+const usdHistory = blocks.assets.history_per_currency.find(e => e.currency === "USD");
 assert.deepEqual(usdHistory.points.map(p => p.date), ["2026-10-01", "2026-10-02"]);
 assert.ok(usdHistory.points.every(p => p.partial));
 assert.deepEqual(usdHistory.points[0].missing_accounts, ["synthetic-usd-b"]);
 assert.deepEqual(usdHistory.points[1].forward_filled_accounts, ["synthetic-usd-a"]);
 assert.equal(usdHistory.coverage.omitted_dates, 0);
-assert.equal(usdHistory.return_kind, "unadjusted_asset_ratio");
+assert.equal(usdReturn.return_kind, "unadjusted_asset_ratio");
 assert.deepEqual(blocks.assets.history_per_currency.find(e => e.currency === "USD").points.map(p => p.value), [100, 300]);
 assert.equal(blocks.summary.twr_return_percent, null);
 assert.equal(blocks.summary.max_drawdown.percent, null);
