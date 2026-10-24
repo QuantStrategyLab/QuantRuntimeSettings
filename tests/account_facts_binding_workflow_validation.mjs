@@ -237,7 +237,7 @@ const inspectorWorkflowGate = workflow.slice(
   workflow.indexOf("if ! node --input-type=module -", workflow.indexOf("account_facts_bindings_read_failed")),
 );
 assert.match(workflow, /inspect_ibkr_bindings:[\s\S]*?default: false/);
-assert.match(workflow, /IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'ibkr' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
+assert.match(workflow, /IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'ibkr' && !inputs\.backup_primary_ibkr_binding && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
 assert.match(workflow, /LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'longbridge' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
 assert.match(workflow, /FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'firstrade' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
 assert.match(workflow, /SCHWAB_ACCOUNT_FACTS_BINDING_JSON: \$\{\{ inputs\.platform == 'schwab' && !inputs\.inspect_ibkr_bindings/);

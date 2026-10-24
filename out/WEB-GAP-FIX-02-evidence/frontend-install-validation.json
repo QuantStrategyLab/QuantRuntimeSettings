@@ -1,0 +1,13 @@
+[
+  {
+    "command": [
+      "npm",
+      "ci",
+      "--prefix",
+      "web/strategy-switch-console/frontend"
+    ],
+    "exit_code": 0,
+    "seconds": 3.396,
+    "log": "frontend-install-0.log"
+  }
+]

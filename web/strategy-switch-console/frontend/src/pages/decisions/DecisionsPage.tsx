@@ -615,6 +615,12 @@ export default function DecisionsPage() {
             {item.expires_at && (
               <span>{t("decisions.expires_at", { value: formatDateTime(item.expires_at, language).text })}</span>
             )}
+            {item.evidence_freshness && (
+              <Badge tone={item.evidence_freshness.status === "stale" ? "warn"
+                : item.evidence_freshness.status === "ready" || item.evidence_freshness.status === "fresh" ? "ok" : "unknown"}>
+                {t(freshnessKey(item.evidence_freshness.status))}
+              </Badge>
+            )}
             {showsStaleHint(item) && <span className="decision-stale-hint">{t("decisions.stale_hint")}</span>}
           </div>
         </div>
@@ -624,10 +630,20 @@ export default function DecisionsPage() {
             <DiffTable rows={diffRows} />
           </>
         )}
+        {item.category === "reconciliation_recovery" && (
+          <details className="decision-materials reconciliation-detail">
+            <summary>{t("reconciliation.materials")}</summary>
+            <ReconciliationMaterials
+              data={inbox.phase === "ready" ? inbox.data : null}
+              language={language}
+              t={t}
+              itemId={item.id}
+            />
+          </details>
+        )}
         <details className="decision-materials">
-          <summary>{t("decisions.materials")}</summary>
+          <summary>{t("decisions.more_info")}</summary>
           <p>{t("decisions.ref", { id: item.short_id })}</p>
-          <p>{t("decisions.material_freshness", { value: t(freshnessKey(item.evidence_freshness?.status)) })}</p>
           {item.evidence_freshness?.as_of && <AsOfStamp value={item.evidence_freshness.as_of} />}
         </details>
         {actions}
@@ -654,13 +670,6 @@ export default function DecisionsPage() {
     const degraded = inbox.data.sources.filter(source => source.status !== "ok");
     return (
       <>
-        {degraded.length > 0 && (
-          <p className="decision-note" role="status">
-            {t("decisions.partial_sources", {
-              value: degraded.map(source => t(`decisions.source.${source.source}`)).join(language === "zh" ? "、" : ", "),
-            })}
-          </p>
-        )}
         {visibleItems.length === 0 ? (
           <EmptyState title={t("decisions.empty_pending")} />
         ) : (
@@ -703,6 +712,7 @@ export default function DecisionsPage() {
             )}
           </div>
         )}
+        {degraded.length > 0 && <p className="decision-note decision-source-foot" role="status">{t("decisions.partial_notice")}</p>}
       </>
     );
   };
@@ -711,9 +721,11 @@ export default function DecisionsPage() {
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">{t("decisions.title")}</h1>
-        <button type="button" className="button button-secondary decision-refresh" onClick={refresh}>
-          {t("common.refresh")}
-        </button>
+        <div className="page-header-actions">
+          <button type="button" className="button button-secondary" onClick={refresh}>
+            {t("common.refresh")}
+          </button>
+        </div>
       </div>
       <div className="decisions-filters">
         <Tabs id="decisions" items={categoryTabs} active={category} onChange={id => setCategory(id as CategoryFilter)} ariaLabel={t("decisions.title")} />
@@ -737,7 +749,6 @@ export default function DecisionsPage() {
           </button>
         </div>
       </div>
-      <ReconciliationMaterials data={inbox.phase === "ready" ? inbox.data : null} language={language} t={t} />
       <div id="decisions-panel" role="tabpanel" aria-labelledby={`decisions-tab-${category}`} tabIndex={0}>
         {view === "pending" ? renderPending() : <HistoryPanel epoch={epoch} category={category} />}
       </div>

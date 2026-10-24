@@ -51,31 +51,34 @@ test("P1: healthy current balances still show independent partial history in zh/
   assert.equal(assets.curve_status, "partial");
   for (const language of ["zh", "en"]) {
     const html = ui.assets(language, assets);
-    assert.ok(html.includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"));
-    assert.ok(html.includes(language === "zh" ? "前值填充" : "Forward-filled"));
-    assert.ok(html.includes(language === "zh" ? "不代表当日新估值" : "not a new valuation for that date"));
+    assert.ok(html.includes(language === "zh" ? "部分历史数据未返回" : "Some history is unavailable"));
+    assert.ok(html.includes(language === "zh"
+      ? "部分账户缺少历史数据，曲线仅包含有数据的账户。"
+      : "Some accounts lack history; the curve includes only accounts with data."));
+    assert.ok(html.includes(language === "zh" ? "个账户的历史数据不完整" : "History is incomplete for"));
     assert.ok(html.includes(language === "zh" ? "合成账户甲" : "Synthetic Alpha"), "shared display-name configuration is used");
+    assert.doesNotMatch(html, /前值填充|Forward-filled|不代表当日新估值|not a new valuation/i, "internal wording stays out of the default view");
     assert.doesNotMatch(html, /synthetic-a|synthetic-b|perf\.|reason\.|state\./);
     if (language === "en") assert.doesNotMatch(html, /[\u4e00-\u9fff]/);
     const { curve_coverage, history_per_currency, ...legacy } = assets;
-    assert.ok(ui.assets(language, legacy).includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"), "curve_status alone must trigger the warning");
+    assert.ok(ui.assets(language, legacy).includes(language === "zh" ? "部分历史数据未返回" : "Some history is unavailable"), "curve_status alone must trigger the warning");
     const complete = performanceBlocks({ ...input, histories: [history("synthetic-a", [point(7, 107), point(8, 108)])] }).assets;
     assert.equal(complete.curve_status, "ok");
-    assert.ok(!ui.assets(language, complete).includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"));
-    assert.ok(ui.assets(language, { ...complete, curve_status: "partial" }).includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"), "independent curve status cannot be masked by healthy per-currency status");
+    assert.ok(!ui.assets(language, complete).includes(language === "zh" ? "部分历史数据未返回" : "Some history is unavailable"));
+    assert.ok(ui.assets(language, { ...complete, curve_status: "partial" }).includes(language === "zh" ? "部分历史数据未返回" : "Some history is unavailable"), "independent curve status cannot be masked by healthy per-currency status");
     const truncated = { ...complete, curve_status: "partial", curve_coverage: { ...complete.curve_coverage, truncated: true } };
-    assert.ok(ui.assets(language, truncated).includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"));
+    assert.ok(ui.assets(language, truncated).includes(language === "zh" ? "部分历史数据未返回" : "Some history is unavailable"));
     const missingOnly = performanceBlocks({ ...input, histories: [history("synthetic-a", [point(7, 107), point(8, 108)]), history("synthetic-b", [])] }).assets;
     assert.equal(missingOnly.curve_coverage.forward_filled_points, 0);
-    assert.ok(ui.assets(language, missingOnly).includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"));
+    assert.ok(ui.assets(language, missingOnly).includes(language === "zh" ? "部分历史数据未返回" : "Some history is unavailable"));
     const mixed = performanceBlocks({ ...input, histories: [...input.histories, { id: "synthetic-wallet", currency: "USDT", points: [point(7, 500), point(8, 500)] }] }).assets;
-    assert.match(ui.assets(language, mixed), language === "zh" ? /USD · 历史覆盖不完整/ : /USD · Incomplete history/);
+    assert.match(ui.assets(language, mixed), language === "zh" ? /USD · 部分历史数据未返回/ : /USD · Some history is unavailable/);
     const unknown = { ...assets, points: assets.points.map(p => ({ ...p, missing_accounts: ["synthetic-raw-strategy-key"] })), history_per_currency: undefined };
     assert.doesNotMatch(ui.assets(language, unknown), /synthetic-raw-strategy-key/);
     const stale = performanceBlocks({ ...input, today: "2026-01-12" }).assets;
     assert.equal(stale.status, "ok");
     assert.equal(stale.curve_status, "stale");
-    assert.ok(ui.assets(language, stale).includes(language === "zh" ? "历史数据偏旧" : "History is stale"));
+    assert.ok(ui.assets(language, stale).includes(language === "zh" ? "历史数据可能不是最新" : "History may not be up to date"));
   }
 });
 

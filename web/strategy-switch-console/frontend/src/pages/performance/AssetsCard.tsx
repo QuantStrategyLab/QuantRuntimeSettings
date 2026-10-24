@@ -1,4 +1,5 @@
-import { CurrencyTotals, FreshnessSummary } from "../../components/CurrencyTotals";
+import { CurrencyTotals } from "../../components/CurrencyTotals";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
@@ -37,13 +38,19 @@ function HistoryNotice({ status, points, coverage, currency, accounts = [] }: {
   }))];
   return <div className="card-note" role="status">
     <Badge tone="warn">{currency ? `${currency} · ` : ""}{t(status === "stale" ? "perf.history_stale" : "perf.history_incomplete")}</Badge>
-    <p>{t("perf.history_coverage_note")}</p>
-    {labels.length > 0 && <p>{t("perf.history_affected_accounts", { accounts: labels.join(" · ") })}</p>}
+    <details className="history-accounts state-details">
+      <summary>{affected.length > 0
+        ? t("perf.history_affected_accounts", { count: affected.length })
+        : t("common.details")}</summary>
+      <p>{t("perf.history_coverage_note")}</p>
+      {affected.length > 0 && <p>{labels.join(" · ")}</p>}
+    </details>
   </div>;
 }
 
 export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
   const t = useT();
+  const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
   const state = useApi(() => loadPerformanceAssets(scope, range, platform), [scope, platform, range, epoch]);
 
   let totals: ReactNode;
@@ -58,11 +65,13 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
     body = <ErrorState onRetry={state.reload} />;
   } else {
     const data = state.data;
-    totals = data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable" ? <>
-      <CurrencyTotals totals={data.per_currency} />
-      <p className="card-note">{t("perf.native_totals_note")}</p>
-      <p className="card-note"><FreshnessSummary counts={data.freshness_summary} /></p>
-    </> : null;
+    totals = data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable"
+      ? <CurrencyTotals
+          totals={data.per_currency}
+          freshness={data.freshness_summary}
+          notes={<p>{t("perf.native_totals_note")}</p>}
+        />
+      : null;
     status = data.status;
     reason = data.unavailable_reason;
     asOf = data.as_of;
@@ -71,26 +80,55 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
     const histories = data.history_per_currency?.length ? data.history_per_currency : [{
       currency: data.currency, status: curveStatus, coverage: data.curve_coverage, points: data.points,
     }];
-    historyNotice = histories.map(history => <HistoryNotice key={history.currency || "history"}
-      {...history} status={histories.length === 1 ? curveStatus : history.status} accounts={data.account_freshness} />);
     if (data.per_currency?.length && curveReason === "mixed_currency") {
-      body = null;
-    } else if (!renderableStatus(curveStatus)) {
-      body = (
-        <EmptyState
-          title={t(`state.${curveStatus}`)}
-          body={curveReason ? t(`reason.${curveReason}`) : undefined}
-        />
-      );
-    } else if (curveReason === "mixed_currency") {
-      // Native currencies are never summed into one asset curve.
-      body = <EmptyState title={t("perf.mixed_currency_title")} body={t("reason.mixed_currency")} />;
-    } else if (data.points.length === 0) {
-      body = <EmptyState title={t("state.no_data")} />;
+      // Mixed currencies are never summed. Show one native-currency curve at a time.
+      const available = histories.filter(history => history.points.length > 0);
+      const selected = available.find(history => history.currency === selectedCurrency) ?? available[0];
+      if (!selected) {
+        body = <EmptyState title={t("perf.mixed_currency_title")} body={t("reason.mixed_currency")} />;
+      } else {
+        historyNotice = <HistoryNotice {...selected} status={selected.status} accounts={data.account_freshness} />;
+        body = (
+          <div>
+            <div className="perf-currency-switch">
+              <div className="segmented" role="group" aria-label={t("perf.currency_switch")}>
+                {available.map(history => (
+                  <button
+                    key={history.currency || "native"}
+                    type="button"
+                    className={`segment${history.currency === selected.currency ? " active" : ""}`}
+                    aria-pressed={history.currency === selected.currency}
+                    onClick={() => setSelectedCurrency(history.currency ?? null)}
+                  >
+                    {history.currency || t("perf.currency_switch")}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <AreaChart points={selected.points} currency={selected.currency} ariaLabel={t("perf.assets_title")} />
+          </div>
+        );
+      }
     } else {
-      // externalFlow markers only appear when the API actually reports a flow.
-      const points = data.points as (Point & { externalFlow?: number | null })[];
-      body = <AreaChart points={points} currency={data.currency} ariaLabel={t("perf.assets_title")} />;
+      historyNotice = histories.map(history => <HistoryNotice key={history.currency || "history"}
+        {...history} status={histories.length === 1 ? curveStatus : history.status} accounts={data.account_freshness} />);
+      if (!renderableStatus(curveStatus)) {
+        body = (
+          <EmptyState
+            title={t(`state.${curveStatus}`)}
+            body={curveReason ? t(`reason.${curveReason}`) : undefined}
+          />
+        );
+      } else if (curveReason === "mixed_currency") {
+        // Native currencies are never summed into one asset curve.
+        body = <EmptyState title={t("perf.mixed_currency_title")} body={t("reason.mixed_currency")} />;
+      } else if (data.points.length === 0) {
+        body = <EmptyState title={t("state.no_data")} />;
+      } else {
+        // externalFlow markers only appear when the API actually reports a flow.
+        const points = data.points as (Point & { externalFlow?: number | null })[];
+        body = <AreaChart points={points} currency={data.currency} ariaLabel={t("perf.assets_title")} />;
+      }
     }
   }
 
@@ -100,13 +138,12 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
         <h2 className="card-title">{t("perf.assets_title")}</h2>
         <span className="perf-head-meta">
           {status && status !== "ok" && renderableStatus(status) && <StatusBadge status={status} reason={reason} />}
-          {status && renderableStatus(status) && <AsOfStamp value={asOf} />}
+          {status && renderableStatus(status) && asOf && <AsOfStamp value={asOf} />}
         </span>
       </div>
       {totals}
       {historyNotice}
       {body}
-      <p className="card-note">{t("perf.assets_note")}</p>
     </div>
   );
 }

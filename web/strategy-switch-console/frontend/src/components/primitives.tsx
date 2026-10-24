@@ -8,8 +8,7 @@ import type { Status } from "../api/contracts";
 
 type Tone = "ok" | "warn" | "error" | "unknown";
 
-function ToneIcon({ tone }: { tone: Tone }) {
-  const size = 10;
+function ToneIcon({ tone, size = 10 }: { tone: Tone; size?: number }) {
   if (tone === "ok")
     return (
       <svg width={size} height={size} viewBox="0 0 10 10" aria-hidden="true">
@@ -121,12 +120,26 @@ export function Skeleton({ height = 16, width = "100%" }: { height?: number; wid
   return <div className="skeleton" style={{ height, width }} aria-hidden="true" />;
 }
 
+/**
+ * Compact placeholder: one short state and an em dash stay visible; the
+ * explanation is available on demand through a native details element so it
+ * works with keyboard and touch, not only hover.
+ */
 export function EmptyState({ title, body, action }: { title: string; body?: string; action?: ReactNode }) {
+  const t = useT();
   return (
     <div className="empty-state">
-      <div className="empty-title">{title}</div>
-      {body && <div>{body}</div>}
-      {action && <div style={{ marginTop: 12 }}>{action}</div>}
+      <span className="state-icon" aria-hidden="true"><ToneIcon tone="unknown" size={14} /></span>
+      <div className="state-copy">
+        <div className="empty-title">{title}</div>
+        {body && (
+          <details className="state-details">
+            <summary>{t("common.details")}</summary>
+            <p>{body}</p>
+          </details>
+        )}
+      </div>
+      {action && <div className="state-action">{action}</div>}
     </div>
   );
 }
@@ -135,11 +148,17 @@ export function ErrorState({ onRetry }: { onRetry?: () => void }) {
   const t = useT();
   return (
     <div className="error-state" role="alert">
-      <div className="error-title">{t("state.read_failed")}</div>
-      <div>{t("error.generic")}</div>
+      <span className="state-icon state-icon-error" aria-hidden="true"><ToneIcon tone="error" size={14} /></span>
+      <div className="state-copy">
+        <div className="error-title">{t("state.load_failed")}</div>
+        <details className="state-details">
+          <summary>{t("common.details")}</summary>
+          <p>{t("state.read_failed")} · {t("error.generic")}</p>
+        </details>
+      </div>
       {onRetry && (
-        <div style={{ marginTop: 12 }}>
-          <button type="button" className="button button-secondary" onClick={onRetry}>{t("common.retry")}</button>
+        <div className="state-action">
+          <button type="button" className="button button-secondary button-sm" onClick={onRetry}>{t("common.retry")}</button>
         </div>
       )}
     </div>
@@ -168,10 +187,18 @@ export function DataBlock({
     return (
       <>
         {children}
-        <div className="kpi-foot">
-          {status !== "ok" && <StatusBadge status={status} reason={reason} />}
-          {asOf && <AsOfStamp value={asOf} />}
-        </div>
+        {(status !== "ok" || asOf) && (
+          <div className="state-inline">
+            {status !== "ok" && <StatusBadge status={status} reason={reason} />}
+            {(reason || asOf) && (
+              <details className="state-details">
+                <summary>{t("common.details")}</summary>
+                {reason && <p>{t(`reason.${reason}` as MessageKey)}</p>}
+                {asOf && <p><AsOfStamp value={asOf} /></p>}
+              </details>
+            )}
+          </div>
+        )}
       </>
     );
   }

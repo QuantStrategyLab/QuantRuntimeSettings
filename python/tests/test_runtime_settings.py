@@ -1010,6 +1010,43 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(profile["allowed_execution_modes"], ["paper", "dry_run"])
         self.assertEqual(profile["blocked_live_reason"], "manual-review")
 
+    def test_us_equity_sessions_default_to_regular_only(self):
+        config = build_config.load_config()
+        sessions = config["domains"]["us_equity"]["sessions"]
+        expected = {
+            "overnight": ("21:00", "04:00", False),
+            "pre": ("04:00", "09:30", False),
+            "regular": ("09:30", "16:00", True),
+            "post": ("16:00", "20:00", False),
+        }
+
+        self.assertEqual(set(sessions), set(expected))
+        for name, (start, end, enabled) in expected.items():
+            with self.subTest(session=name):
+                self.assertEqual(set(sessions[name]), {"start", "end", "enabled"})
+                self.assertEqual(sessions[name]["start"], start)
+                self.assertEqual(sessions[name]["end"], end)
+                self.assertIs(sessions[name]["enabled"], enabled)
+
+    def test_us_equity_trade_date_boundary_and_maintenance_pause(self):
+        config = build_config.load_config()
+        domain = config["domains"]["us_equity"]
+
+        self.assertEqual(domain["trade_date_boundary"], "20:00")
+        self.assertEqual(domain["maintenance_pause"], ["20:00", "21:00"])
+        self.assertEqual(build_config.validate(config), [])
+
+    def test_generated_platform_config_assets_match_source(self):
+        result = subprocess.run(
+            [sys.executable, str(PLATFORM_CONFIG_MODULE_PATH), "--check"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_runtime_catalog_projection_is_exact_and_never_claims_observed_runtime(self):
         config = build_config.load_config()
         projection_path = ROOT / "web" / "strategy-switch-console" / "runtime-catalog-projection.json"

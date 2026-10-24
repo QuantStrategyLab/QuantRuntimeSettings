@@ -15,6 +15,25 @@ const date = value => {
 };
 const time = value => typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
 
+// Completeness of this bounded receipt read, never proof of delivery or today's coverage.
+function receiptReadCoverage(listing, runs, items, failures) {
+  const reasons = [];
+  if (listing.total_count === undefined) reasons.push("run_listing_coverage_unknown");
+  else {
+    if (listing.total_count > RUN_LIMIT) reasons.push("run_listing_truncated");
+    if (runs.length < Math.min(listing.total_count, RUN_LIMIT)) reasons.push("run_listing_incomplete");
+  }
+  if (failures) reasons.push("notification_receipts_read_failed");
+  for (const status of ["receipt_missing", "receipt_expired", "sender_skipped"]) {
+    if (items.some(item => item.status === status)) reasons.push(status);
+  }
+  const status = failures && !items.some(item => item.status !== "read_failed") ? "read_failed"
+    : reasons.length ? runs.length || listing.total_count > 0 ? "partial" : "unknown"
+    : runs.length ? "complete" : "no_data";
+  return { read_status: status,
+    read_reason_codes: status === "no_data" ? ["no_completed_workflow_runs"] : reasons };
+}
+
 async function bytes(response, limit) {
   if (Number(response.headers.get("content-length")) > limit) throw Error("receipt_too_large");
   const reader = response.body?.getReader();
@@ -90,9 +109,12 @@ export function createNotificationLogReader(fetchImpl = (...args) => fetch(...ar
   const cache = new Map();
   return async function read({ repository, token, workflow = "daily-digest-notify.yml" } = {}) {
     const base = { as_of: null, items: [], next_cursor: null, coverage: "recent_daily_digest_public_receipts_only", ...READ_ONLY };
-    if (!repository || !token) return { ...base, status: "not_connected", unavailable_reason: "notification_log_not_connected" };
+    if (!repository || !token) return { ...base, status: "not_connected", unavailable_reason: "notification_log_not_connected",
+      read_status: "not_connected", read_reason_codes: ["notification_log_not_connected"] };
+    const readFailed = { ...base, status: "read_failed", unavailable_reason: "notification_receipts_read_failed",
+      read_status: "read_failed", read_reason_codes: ["notification_receipts_read_failed"] };
     if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !/^[\w.-]+\.yml$/.test(workflow))
-      return { ...base, status: "read_failed", unavailable_reason: "notification_receipts_read_failed" };
+      return readFailed;
     const key = `${repository}/${workflow}`;
     const prior = cache.get(key);
     if (prior && now() - prior.at < 60000) return prior.result;
@@ -118,11 +140,13 @@ export function createNotificationLogReader(fetchImpl = (...args) => fetch(...ar
       };
       try {
         const listing = await api(`actions/workflows/${encodeURIComponent(workflow)}/runs?branch=main&status=completed&per_page=${RUN_LIMIT}`);
-        if (!Array.isArray(listing.workflow_runs)) throw Error("invalid_run_listing");
+        if (!Array.isArray(listing.workflow_runs)
+          || (listing.total_count !== undefined && (!Number.isSafeInteger(listing.total_count)
+            || listing.total_count < listing.workflow_runs.length))) throw Error("invalid_run_listing");
         const runs = listing.workflow_runs.slice(0, RUN_LIMIT);
         let failures = 0;
         const items = await Promise.all(runs.map(async run => {
-          if (!Number.isSafeInteger(run.id) || !Number.isSafeInteger(run.run_attempt) || !/^[a-f0-9]{40}$/.test(run.head_sha)
+          if (!Number.isSafeInteger(run?.id) || !Number.isSafeInteger(run.run_attempt) || !/^[a-f0-9]{40}$/.test(run.head_sha)
             || run.head_branch !== "main" || run.head_repository?.full_name?.toLowerCase() !== repository.toLowerCase()
             || !["schedule", "workflow_dispatch", "push"].includes(run.event)) { failures++; return null; }
           const item = { id: `${run.id}:${run.run_attempt}`, source_run_id: run.id, source_run_attempt: run.run_attempt,
@@ -149,10 +173,16 @@ export function createNotificationLogReader(fetchImpl = (...args) => fetch(...ar
             return item;
           } catch { failures++; return { ...item, status: "read_failed" }; }
         }));
-        return { ...base, status: failures ? items.some(item => item && item.status !== "read_failed") ? "partial" : "read_failed" : "ok",
-          unavailable_reason: failures ? "notification_receipts_read_failed" : null, as_of: new Date(now()).toISOString(),
-          items: items.filter(Boolean), run_limit: RUN_LIMIT, truncated: listing.total_count > RUN_LIMIT, read_failure_count: failures };
-      } catch { return { ...base, status: "read_failed", unavailable_reason: "notification_receipts_read_failed" }; }
+        const present = items.filter(Boolean);
+        const coverage = receiptReadCoverage(listing, runs, present, failures);
+        const status = coverage.read_status === "read_failed" ? "read_failed"
+          : ["complete", "no_data"].includes(coverage.read_status) ? "ok" : "partial";
+        return { ...base, ...coverage, status,
+          unavailable_reason: failures ? "notification_receipts_read_failed"
+            : status === "partial" ? "notification_receipts_incomplete" : null,
+          as_of: new Date(now()).toISOString(),
+          items: present, run_limit: RUN_LIMIT, truncated: listing.total_count > RUN_LIMIT, read_failure_count: failures };
+      } catch { return readFailed; }
       finally { clearTimeout(timeout); }
     })();
     if (cache.size >= 4) cache.delete(cache.keys().next().value);

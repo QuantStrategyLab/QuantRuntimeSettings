@@ -1,0 +1,8 @@
+{
+  "web/strategy-switch-console/frontend/src/api/contracts.ts": "9f2c1a528672b099380839fe9d094d0ff5a37ab7a583b9db5e19cdfd9da3cac2",
+  "web/strategy-switch-console/frontend/src/i18n/pages/health.ts": "eae3b575863a7afb747939d9bd032d96f18bd86a042b52a8a4c8784c157e414c",
+  "web/strategy-switch-console/frontend/src/pages/health/HealthPage.tsx": "93da01d7e774ea470626091a44555579838db5d0530b2c846f17de7b0742c5f6",
+  "web/strategy-switch-console/frontend/package.json": "a7911dc9e896ba48003068e5748ef8505974fe65d9474a885e360a93e20cf958",
+  "web/strategy-switch-console/v2_asset_map.js": "d7bb653be7b0a5bf3636bd517b462f8bd6530d5b8768b7d81761d60a3a877d5a",
+  "tests/console_notification_receipts_ui_validation.mjs": "89233d4734cfd629301a4c0394a1521812c50497c73c130e89ff1b23a991da80"
+}

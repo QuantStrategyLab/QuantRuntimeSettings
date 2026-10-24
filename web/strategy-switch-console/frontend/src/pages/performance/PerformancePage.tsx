@@ -42,11 +42,12 @@ export default function PerformancePage() {
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">{t("nav.performance")}</h1>
-        <RangeSelector value={range} onChange={setRange} returns={rangeReturns.phase === "ready" ? rangeReturns.data : undefined} />
-        <span className="perf-spacer" />
-        <button type="button" className="button button-secondary" onClick={reloadAll}>
-          {t("common.refresh")}
-        </button>
+        <div className="page-header-actions">
+          <RangeSelector value={range} onChange={setRange} returns={rangeReturns.phase === "ready" ? rangeReturns.data : undefined} />
+          <button type="button" className="button button-secondary" onClick={reloadAll}>
+            {t("common.refresh")}
+          </button>
+        </div>
       </div>
       <SummaryCards scope={scope} platform={platform} range={range} epoch={epoch} />
       <ReturnsCard scope={scope} platform={platform} range={range} epoch={epoch} />

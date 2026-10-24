@@ -41,9 +41,12 @@ try {
   const ui = require(outfile);
   const DIETZ = { zh: "Modified Dietz（近似）", en: "Modified Dietz (approximate)" };
   const TWR_KIND = { zh: "时间加权收益率（TWR）", en: "Time-weighted return (TWR)" };
-  const UNADJUSTED = { zh: "未经出入金调整的资产变动比例（非 TWR）", en: "Asset-change ratio unadjusted for cash flows (not TWR)" };
+  const ASSET_BALANCE = { zh: "资产余额 · 未与基准比较", en: "Asset balance · no benchmark comparison" };
   const STALE = { zh: "数据偏旧", en: "Stale" };
-  const UNKNOWN = { zh: "收益口径未知", en: "Return method unknown" };
+  const AS_OF = { zh: "数据截至", en: "Data as of" };
+  const UNKNOWN = { zh: "收益计算方式未知", en: "Return method unknown" };
+  const UNAVAILABLE = { zh: "暂不可计算", en: "Unavailable" };
+  const NO_DATA = { zh: "暂无数据", en: "No data" };
 
   const renderCards = (language, data) => {
     globalThis.__dietzState = { phase: "ready", data, reload() {} };
@@ -54,6 +57,12 @@ try {
     return ui.returns(language, data, scope);
   };
   const kindLabel = html => html.match(/<span class="perf-kind">([\s\S]*?)<\/span>/)?.[1] ?? null;
+  // Collapsed <details> content stays in SSR but is not part of the default view.
+  const outsideDetails = html => html.replace(/<details[\s\S]*?<\/details>/g, "");
+  const detailsText = html => [...html.matchAll(/<details[\s\S]*?<\/details>/g)].map(match => match[0]).join("");
+  const visibleText = html => outsideDetails(html).replace(/<[^>]*>/g, " ");
+  const visibleWarnBadges = html => [...outsideDetails(html).matchAll(/<span class="badge badge-warn"[^>]*>([\s\S]*?)<\/span>/g)]
+    .map(match => match[1].replace(/<[^>]*>/g, ""));
   let checks = 0;
   const ok = (...args) => { assert.ok(...args); checks += 1; };
 
@@ -67,7 +76,7 @@ try {
     const dietzReturns = renderReturns(language, dietz.returns);
     assert.equal(kindLabel(dietzReturns), DIETZ[language], "curve kind label matches the card label");
     checks += 1;
-    ok(dietzReturns.includes(language === "zh" ? "以 Modified Dietz 近似法计算" : "use the Modified Dietz approximation"),
+    ok(dietzReturns.includes(language === "zh" ? "采用 Modified Dietz 近似法" : "Modified Dietz is used and labeled as approximate"),
       "method note explains the approximation instead of contradicting it");
 
     // 2. Qualified TWR without method metadata keeps the plain TWR label.
@@ -82,7 +91,7 @@ try {
     const twrReturns = renderReturns(language, twr.returns);
     assert.equal(kindLabel(twrReturns), TWR_KIND[language]);
     checks += 1;
-    ok(!twrReturns.includes(language === "zh" ? "以 Modified Dietz 近似法计算" : "use the Modified Dietz approximation"),
+    ok(!twrReturns.includes(language === "zh" ? "采用 Modified Dietz 近似法" : "Modified Dietz is used and labeled as approximate"),
       "method note stays the original TWR explanation");
 
     // 3. Legacy response without any optional fields keeps working unchanged.
@@ -91,11 +100,33 @@ try {
     ok(!oldCards.includes(DIETZ[language]));
     ok(oldCards.includes("—"), "missing TWR stays an honest blank");
     ok(!oldCards.includes("+0.00%"), "unknown TWR is never shown as zero");
-    ok(oldCards.includes(language === "zh" ? "缺少完整出入金记录，无法计算 TWR 及其回撤。"
-      : "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."), "existing reason text kept");
+    const missingCashflowReason = language === "zh" ? "缺少完整出入金记录，无法计算 TWR 及其回撤。"
+      : "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated.";
+    ok(detailsText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason kept in details");
+    ok(!visibleText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason is not default body copy");
+    ok(visibleText(oldCards).includes(UNAVAILABLE[language]), "the missing TWR keeps a short visible state");
     const oldReturns = renderReturns(language, old.returns);
-    assert.equal(kindLabel(oldReturns), UNADJUSTED[language], "unadjusted ratio keeps its own label");
+    assert.equal(kindLabel(oldReturns), ASSET_BALANCE[language], "unadjusted ratio is labelled as asset balance, not a return");
     checks += 1;
+
+    // Other metric-specific reasons also stay out of the default card body.
+    const specific = structuredClone(twr.summary);
+    specific.excess_returns = [{ benchmark: "纳斯达克100", start: "2026-10-01", end: null,
+      percentage_points: null, unavailable_reason: "benchmark_history_missing" }];
+    specific.best_day = { date: "2026-10-16", amount: null, return_percent: null, value_kind: "pnl",
+      status: "unavailable", unavailable_reason: "no_snapshot" };
+    specific.worst_day = { ...specific.best_day, unavailable_reason: "no_cashflow_data" };
+    const specificCards = renderCards(language, specific);
+    const specificReasons = language === "zh"
+      ? ["缺少基准历史数据", "暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
+      : ["Benchmark history is missing", "No valuation is available.",
+        "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
+    for (const reason of specificReasons) {
+      ok(detailsText(specificCards).includes(reason), `metric reason kept in details: ${reason}`);
+      ok(!visibleText(specificCards).includes(reason), `metric reason absent from default card: ${reason}`);
+    }
+    ok(visibleText(specificCards).includes(UNAVAILABLE[language]), "unavailable metric keeps a short visible state");
+    ok(visibleText(specificCards).includes(NO_DATA[language]), "missing day keeps a short visible state");
 
     // 4. Unknown/incomplete source stays unknown, never a fake zero or a hidden Dietz.
     const unknown = fixture("unknown-core");
@@ -109,29 +140,65 @@ try {
     // 5. Two currencies: each entry keeps its own method metadata; nothing is merged.
     const two = fixture("two-currency-core");
     const twoCards = renderCards(language, two.summary);
-    ok(twoCards.includes(language === "zh" ? "按原币种分别展示，不换汇" : "Shown separately in native currencies"),
+    ok(twoCards.includes(language === "zh"
+      ? "多币种无法合并为单一金额；按币种分别展示"
+      : "Mixed currencies cannot be combined into one amount; each currency is shown separately"),
       "mixed-currency note shown");
+    ok(!twoCards.includes(language === "zh" ? "按原币种分别展示，不换汇" : "Shown separately in native currencies"),
+      "native-currency internal note stays out of the default view");
     ok(twoCards.indexOf("HKD") < twoCards.indexOf("USD"), "both currency rows rendered separately");
     ok(twoCards.indexOf(DIETZ[language]) > twoCards.indexOf("USD")
       && (twoCards.match(/Modified Dietz/g) || []).length === 1,
       "only the USD row carries the approximate tag");
+    const drawdownReasons = structuredClone(two.summary);
+    drawdownReasons.per_currency[0].max_drawdown.unavailable_reason = "no_snapshot";
+    drawdownReasons.per_currency[1].max_drawdown.percent = null;
+    drawdownReasons.per_currency[1].max_drawdown.unavailable_reason = "no_cashflow_data";
+    const drawdownCards = renderCards(language, drawdownReasons);
+    const drawdownTexts = language === "zh"
+      ? ["暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
+      : ["No valuation is available.", "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
+    for (const reason of drawdownTexts) {
+      ok(detailsText(drawdownCards).includes(reason), `per-currency drawdown reason kept in details: ${reason}`);
+      ok(!visibleText(drawdownCards).includes(reason), `per-currency drawdown reason absent from default card: ${reason}`);
+    }
+    ok(visibleText(drawdownCards).includes("HKD") && visibleText(drawdownCards).includes("USD"),
+      "currency labels remain visible next to their drawdowns");
+    ok(visibleText(drawdownCards).includes(DIETZ[language]), "the real approximate method tag remains visible");
+    ok(visibleText(drawdownCards).includes("—"), "missing drawdowns keep an honest blank");
     const twoReturns = renderReturns(language, two.returns, "all");
-    const blocks = twoReturns.split('class="perf-currency-block"').slice(1);
-    assert.equal(blocks.length, 2, "one independent block per currency, never a combined curve");
+    ok(twoReturns.includes(">USD</button>") && twoReturns.includes(">HKD</button>"), "currency switch offers each entry");
+    assert.equal((twoReturns.match(/class="perf-kind"/g) || []).length, 1, "only the selected currency curve is rendered");
     checks += 1;
-    const [usdBlock, hkdBlock] = blocks[0].includes("USD") ? [blocks[0], blocks[1]] : [blocks[1], blocks[0]];
-    assert.equal(kindLabel(usdBlock), DIETZ[language], "USD curve labeled Modified Dietz approximate");
+    assert.equal(kindLabel(twoReturns), DIETZ[language], "default USD curve labeled Modified Dietz approximate");
     checks += 1;
-    assert.equal(kindLabel(hkdBlock), UNADJUSTED[language], "HKD curve keeps its own unadjusted label");
+    assert.doesNotMatch(twoReturns, /perf-currency-block/, "curves are switched, never stacked or merged");
+    const hkdOnly = structuredClone(two);
+    const usdEmpty = hkdOnly.returns.per_currency.find(e => e.currency === "USD");
+    usdEmpty.status = "no_data"; usdEmpty.points = []; usdEmpty.unavailable_reason = "snapshot_history_missing";
+    const hkdReturns = renderReturns(language, hkdOnly.returns, "all");
+    assert.equal(kindLabel(hkdReturns), ASSET_BALANCE[language], "HKD entry keeps its own unadjusted asset-balance label");
     checks += 1;
-    ok(!hkdBlock.includes(DIETZ[language]), "HKD entry not overwritten by the USD method");
+    ok(!hkdReturns.includes(DIETZ[language]), "HKD entry not overwritten by the USD method");
 
     // 6. Stale data keeps its freshness signal; a missing method flag is not treated as qualified Dietz.
     const stale = fixture("stale-core");
     const staleCards = renderCards(language, stale.summary);
     ok(staleCards.includes("+10.00%"));
-    ok(staleCards.includes(STALE[language]), "stale badge still visible on the card");
+    ok(visibleWarnBadges(staleCards).some(text => text.includes(STALE[language])),
+      "summary retains one visible stale badge outside details");
+    ok(detailsText(staleCards).includes(AS_OF[language]) && detailsText(staleCards).includes("10/16"),
+      "stale summary keeps its as-of time in details");
     ok(!staleCards.includes(DIETZ[language]), "no method metadata means no approximate label");
+    // A real stale reason must stay reachable too, without becoming default body copy.
+    const staleWithReason = structuredClone(stale.summary);
+    staleWithReason.unavailable_reason = "snapshot_history_missing";
+    const staleReasonCards = renderCards(language, staleWithReason);
+    const staleReason = language === "zh" ? "缺少历史资产快照" : "Historical asset snapshots are missing";
+    ok(visibleWarnBadges(staleReasonCards).some(text => text.includes(STALE[language])),
+      "stale reason variant still shows the visible stale badge");
+    ok(detailsText(staleReasonCards).includes(staleReason), "stale reason stays available in details");
+    ok(!visibleText(staleReasonCards).includes(staleReason), "stale reason is not repeated as default body copy");
     const staleReturns = renderReturns(language, stale.returns);
     assert.equal(kindLabel(staleReturns), TWR_KIND[language]);
     checks += 1;
@@ -177,7 +244,7 @@ try {
     const umReturns = renderReturns(language, unknownMethod.returns);
     assert.equal(kindLabel(umReturns), UNKNOWN[language], "curve labeled unknown, not TWR");
     checks += 1;
-    ok(umReturns.includes(language === "zh" ? "计算口径未能识别" : "could not be identified"),
+    ok(umReturns.includes(language === "zh" ? "收益计算方式尚未确认" : "The return method is unconfirmed"),
       "method note explains the unknown method instead of the exact-TWR text");
 
     // 7d. Inconsistent metadata (modified_dietz without approximate:true) is also unknown.
@@ -193,13 +260,12 @@ try {
     const twoUnknown = structuredClone(two);
     const hkdEntry = twoUnknown.returns.per_currency.find(e => e.currency === "HKD");
     hkdEntry.cashflow_method = "future_method"; hkdEntry.approximate = true; hkdEntry.return_kind = "twr";
+    const usdNoData = twoUnknown.returns.per_currency.find(e => e.currency === "USD");
+    usdNoData.status = "no_data"; usdNoData.points = []; usdNoData.unavailable_reason = "snapshot_history_missing";
     const tuReturns = renderReturns(language, twoUnknown.returns, "all");
-    const tuBlocks = tuReturns.split('class="perf-currency-block"').slice(1);
-    const [tuUsd, tuHkd] = tuBlocks[0].includes("USD") ? [tuBlocks[0], tuBlocks[1]] : [tuBlocks[1], tuBlocks[0]];
-    assert.equal(kindLabel(tuUsd), DIETZ[language], "USD keeps its own Dietz label");
+    assert.equal(kindLabel(tuReturns), UNKNOWN[language], "HKD unknown method not overwritten by USD or top level");
     checks += 1;
-    assert.equal(kindLabel(tuHkd), UNKNOWN[language], "HKD unknown method not overwritten by USD or top level");
-    checks += 1;
+    ok(!tuReturns.includes(DIETZ[language]), "the USD Dietz label does not leak onto the HKD entry");
   }
 
   console.log(`console_cashflow_method_presentation_validation: PASS (${checks} assertions, zh/en × dietz/twr/legacy/unknown/two-currency/stale + in-memory absent/unknown/inconsistent method variants; synthetic fixtures only)`);

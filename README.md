@@ -1,5 +1,7 @@
 # QuantRuntimeSettings
 
+[Documentation index](docs/README.md) — architecture scope, dated design overview and console tasks.
+
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
@@ -24,6 +26,18 @@ Set these non-secret repository variables before running the affected workflows.
 | `DIGEST_CANDIDATES_GCS_URI` | Candidate store prefix | Store preflight; optional otherwise | empty |
 | `QSL_PROMOTION_ROOT_PROJECTS_JSON` | JSON object mapping platform IDs to their existing trust-root project IDs | Strategy switch and signature verification | none |
 
+
+### US equity session configuration
+
+`platform-config.json.domains.us_equity` defines configurable trading sessions. All times use `market_timezone` (`America/New_York`), including daylight saving time changes.
+
+| Key | Purpose | Default |
+|---|---|---|
+| `trade_date_boundary` | Local time used to separate trading dates | `20:00` |
+| `maintenance_pause` | Start and end of the daily maintenance pause | `["20:00", "21:00"]` |
+| `sessions` | Each session's `start`, `end`, and boolean `enabled` flag | `overnight` 21:00–04:00, `pre` 04:00–09:30, `regular` 09:30–16:00, `post` 16:00–20:00 |
+
+Only `regular.enabled` defaults to `true`; all extended sessions default to `false`. An end time earlier than its start crosses midnight. These keys prepare configuration for US equity 23x5; this change does not connect platform consumers or change existing trading or scheduling behavior. `scheduling.profiles` remains unchanged.
 
 ## QSL architecture role
 

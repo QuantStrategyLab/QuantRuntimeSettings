@@ -1,5 +1,23 @@
 # Strategy Switch Console Worker
 
+## Effective account-setting sources
+
+Authenticated `GET /api/account-settings` preserves the existing `effective` value shape and adds a separate seven-field `effective_read` map. Each metadata entry has `source=github_runtime_configuration`, `reason`, and `source_as_of=null`. The source names the existing account-matched GitHub runtime-configuration resolver, not a specific variable, deployed state or broker readback. The reader has no reliable field source timestamp. Existing known values, resolver precedence, identity, draft and write authority are unchanged. Non-DCA value fields remain absent so existing clients do not display an unverified DCA plan.
+
+Missing reader configuration, repository mapping or account configuration produces unknown fields with `reader_not_configured`, `repository_not_configured` or `account_config_unavailable`. HTTP/network/JSON/list-shape failures, including a failed later page, produce `runtime_configuration_read_failed` for all seven fields without preserving earlier values or exposing upstream errors. A successful read that cannot resolve a field uses `runtime_setting_unresolved`; this does not distinguish absent, invalid or unmatched input. DCA fields use `dca_not_applicable` only for an unsupported platform or known non-DCA profile; an unresolved strategy uses `strategy_profile_unresolved`. Read failure takes priority. Known values have `reason=null`; explicit zero and false remain values. Unknown effective values have no `value`; metadata never contains values.
+
+`GET /api/account-settings/diff` exposes the same information per row as `current_source`, `current_reason`, `current_source_as_of`, with unknown `current=null`. Legacy inputs without metadata use null source/time and `effective_field_unavailable`. HTTP 200 means the state projection was read, not that all effective values are known; existing authentication, storage failure and identity-conflict HTTP/status semantics remain. No zero fill, interpolation, stale-value fallback or default inference is performed. These endpoints do not change account parameters or prove that production source permissions or deployment are healthy.
+
+## Reading by task
+
+[Documentation index](../../docs/README.md) · [中文目录](README.zh-CN.md#按任务阅读)
+
+- **Install and configure:** [platform directory](#platform-directory-configuration), [required secrets](#required-secrets), [GitHub OAuth](#github-oauth-app), [Wrangler deployment](#deploy-with-wrangler).
+- **Interfaces:** [operator model](#operator-model), [account dropdowns](#account-dropdowns), [strategy profiles](#strategy-profile-alignment), [account facts/history](#account-facts-and-history-disabled-by-default), [API reference](../../docs/console-api.md).
+- **Operate safely:** [stop-only boundary](#current-stop-only-boundary), [human decisions/readback](#human-decision-receipts-and-exact-read-back), [recovery intent](#existing-live-recovery-verification), [token scope](#token-scope).
+
+These links group the existing sections; their permission, unknown-result and configuration-only limits still apply. Deployment examples require separately authorized target configuration.
+
 [简体中文](README.zh-CN.md)
 
 [Control-plane source retirement](../../docs/control-plane-source-retirement.md)
@@ -350,6 +368,8 @@ Operator simplification: compatible strategies remain browsable even when live s
 
 Account-facts routes require `ACCOUNT_FACTS_READ_MODEL_ENABLED=true`, the existing configuration store and `STRATEGY_SWITCH_RUNTIME_INSTANCES` Durable Object. The deploy workflow renders the same-named non-secret variable from the `runtime-strategy-switch` GitHub Environment into Wrangler config; an empty value means `false`, and any other value is rejected before deploy. Enabling it also requires `ACCOUNT_FACTS_SYNC_TOKEN` to be non-empty, have no surrounding whitespace, and contain no HTTP control characters before deploy. LongBridge sync POSTs use that token. IBKR sync POSTs require the separate optional `IBKR_ACCOUNT_FACTS_SYNC_TOKEN`; when present it must be free of surrounding whitespace and HTTP control characters. The tokens must differ; a missing IBKR token rejects IBKR writes without falling back to the LongBridge token. GET `/api/account-facts` and `/api/account-facts/history?platform=longbridge&account_key=…&currency=USD` require the existing authorized session. There is no KV write fallback. Tokens are used only for preflight and Worker secret sync, never written to Wrangler TOML. Enabling the flag or configuring a token does not approve a production source.
 
+GET `/api/account-facts` adds `asset_coverage` for the existing account-facts totals only (`scope=account_facts_totals`, `source=validated_account_facts_snapshot`). Its `totals_status`/`totals_reason` mirror `totals`; each configured account has only `platform`, `account_key` (configured alias), `status`, `reason`, `observation_date` (valuation date), and `observed_finished_at` (observation time). `included` means it contributes to available totals; `excluded` identifies paper/duplicate accounts; `unavailable` gives a fixed source, binding, identity, snapshot, freshness or balance reason; `blocked` means locally eligible but the aggregate is unavailable, with an `aggregate_` reason. Binance wallet history is a separate source, reported as `source_not_supported` here. Missing/invalid dates stay null; stale dates remain explicitly stale. No amounts, broker identities, inferred zeros, carried values, interpolation or FX conversion are added. Configuration/binding read failures return sanitized HTTP 503 (`account_options_unreadable` / `account_facts_bindings_unreadable`), never a successful empty inventory. This projection does not establish holdings, cashflow or performance-history coverage.
+
 The trusted `account_facts_bindings` configuration uses `qsl_account_facts_bindings.v1`. LongBridge bindings retain their `deployment_scope_token_version` source and exact account-option identity. IBKR uses `platform=ibkr`, `source_binding.kind=deployment_runtime_account`, and separately binds the exact option `account_scope` and `account_selector`. Its history contract is `ibkr_account_snapshot_history.v1` / `ibkr_account_snapshot.v1`; the server derives platform from the schema and dedicated token, and callers cannot supply platform or account key. `account_ids` must contain exactly the native account ID selected by the server binding. IBKR balances contain only per-currency `net_assets` (nullable); cash contains per-currency `cash_balance` with an allowed source tag. The receiver never invents total cash, and a null net asset is neither plotted nor treated as zero. Binding does not prove verified physical-account ownership or live authorization; all-account totals remain unavailable.
 
 The receiver accepts the same persisted LongBridge snapshot history body within its original 15-minute observation window; it does not backfill history. Latest and daily observations are transactional, with at most 366 UTC observation days retained. Missing dates/currencies remain gaps. Assets are not returns; missing external cash flows keep returns unavailable and unverified physical identity prevents all-account totals. The existing runtime-daily view separately uses the `America/New_York` business date. The UI uses concise fallback states; implementation details remain in operational evidence.
@@ -398,6 +418,24 @@ details, retaining only safe run-issue classifications. Limits remain 64 KiB,
 20 runs and 20 list entries; oversized input is rejected. Missing data is not a
 no-trade claim. Fills remain `not_connected`, empty records and null count.
 
+Daily GET responses add `read_summary` from the existing stored, validated daily
+projection (`source: stored_runtime_daily_projection`). `status` is `complete`,
+`partial`, `no_data`, or `read_failed`; `reason` is null or a fixed public code.
+`observed_run_count` counts only retained source runs; `total_run_count` is known
+only for a complete projection. A partial HTTP 200 preserves all available runs
+and uses reason `runtime_daily_incomplete` with a null total. Missing keys remain
+HTTP 200 / `no_data` / `runtime_daily_record_missing`, with both counts null.
+KV/JSON failures and invalid stored projections remain HTTP 503 / `read_failed`,
+with their existing fixed error code as reason and both counts null. Auth,
+selection, and binding errors retain their existing responses. No exception text,
+private diagnostics, interpolation, or replacement zero is added. An explicitly
+complete schedule can report a real zero. This summary describes the saved
+projection, not proof that its producer discovered every real run; completeness
+also does not imply successful execution or freshness. Existing `record`, `runs`,
+`read_error_codes`, `data_status` and source timestamps remain unchanged. Historical
+cells can therefore have a partial source read and several observed runs at once.
+History-directory coverage (`history`, including null when not read) is separate.
+
 For the exact bound Schwab source, public schedules retain only the safe reason
 codes `no_cron_on_business_date` and `market_closed`. After the existing identity,
 lifecycle/deployment freshness, current New York date, completeness, run-issue and
@@ -434,3 +472,7 @@ The existing promotion adapter alone accepts the valid subset of this exact part
 Firstrade facts use `firstrade_account_snapshot_history.v1` / `firstrade_account_snapshot.v1` and a distinct optional `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN`. The binding workflow accepts `platform=firstrade` with one protected `FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON` entry. It preserves other entries and rejects replacement of an existing conflicting binding. Each entry adds private `broker_account_id`; the public account selector may remain an alias. Native identity must match at ingress, storage, current read and history read; neither ACK nor authorized read models return it. Source kind is `deployment_runtime_account`. A snapshot contains one provider-reported currency/net-assets row and optional cash row with `cash_balance` / `source_tag=provider.cash_balance` in that same currency. Missing currency/equity is rejected; buying power, inferred USD and derived position totals are not accepted. Existing money, time, session and retention limits apply. The frontend includes fresh Firstrade assets and cash balance in configuration totals; absent cash stays missing. This interface does not enable collection or trading, configure private credentials, or prove live source adoption.
 
 Holdings release order and rollback: [staged rollout runbook](../../docs/account-facts-holdings-rollout.md).
+
+### Notification receipt read coverage
+
+GET `/api/notifications/send-log` exposes `read_status` and fixed `read_reason_codes` separately from each receipt's delivery outcome. `complete` means every listed run has a readable public receipt and the completed-run list fits the existing five-run limit; it does not prove delivery, current-business-day coverage, or coverage of other notification workflows. `no_data` requires an explicitly empty completed-run list (`total_count=0`). Missing listing totals remain `unknown` for an empty list or `partial` with rows. Truncation, incomplete listings, missing/expired receipts and skipped senders produce `partial`; access/read failures produce `partial` when other rows remain readable, otherwise `read_failed`. Missing repository/token is `not_connected`. The existing top-level `status` is also `partial` for incomplete/unknown coverage; `unavailable_reason` distinguishes `notification_receipts_incomplete` from `notification_receipts_read_failed`. Partial rows and original delivery booleans/dates remain intact. `as_of` is the read time, `workflow_updated_at` is workflow metadata, and `sent_at` stays null when absent from the public receipt. No timestamps, amounts, zeros, delivery evidence or missing records are inferred. This GET-only projection neither sends notifications nor changes source permissions or production configuration.

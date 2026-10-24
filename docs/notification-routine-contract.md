@@ -62,3 +62,24 @@ execution workflow to remove its routine notification.
 
 This source change does not change production flags or schedules. A rendered
 fixture, successful workflow, or no-traffic candidate is not delivery proof.
+
+## Anonymous binding read check
+
+`notification-binding-read-check.yml` is a manual, main-only read of the existing
+`runtime-strategy-switch` configuration context. It computes the effective
+expected-member source using the same injected-secret then source-fallback
+precedence as the aggregator. Only fixed status codes, counts, booleans and
+hashes leave the protected process. Raw identities, expected JSON and reader
+configuration values never appear in the certificate or logs.
+
+An optional selected identity is the SHA256 of the UTF-8 JSON array
+`[platform_id, opaque_account_uid, target_id, strategy_profile]`, with separators
+`(',', ':')` and no ASCII escaping. Without that hash, selected membership stays
+unknown. Invalid/empty expected bindings or a selected-member mismatch fail the
+check and still preserve the anonymous certificate artifact.
+
+This workflow has no schedule, cloud authentication, candidate/asset reads,
+maintenance request or notification send. It leaves the existing daily digest
+and maintenance workflows unchanged. A successful read proves configuration
+contents and fingerprints only: runtime marker authority, reader access,
+candidate completeness and notification delivery remain separately untested.

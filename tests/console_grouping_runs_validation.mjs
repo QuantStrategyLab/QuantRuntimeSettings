@@ -96,7 +96,7 @@ try {
     const tradeHtml = ui.trades(language);
     assert.ok(tradeHtml.includes(language === "zh" ? "未接入" : "Not connected"));
     assert.doesNotMatch(tradeHtml, /0%|>0<|state\.|reason\./);
-    for (const [status, expected] of [["not_connected", language === "zh" ? "未接入" : "not connected"], ["ok", language === "zh" ? "暂无通知回执" : "No notification receipts"], ["read_failed", language === "zh" ? "读取失败" : "Read failed"]]) {
+    for (const [status, expected] of [["not_connected", language === "zh" ? "未接入" : "not connected"], ["ok", language === "zh" ? "暂无通知记录" : "No notification records"], ["read_failed", language === "zh" ? "读取失败" : "Read failed"]]) {
       globalThis.__groupingState = { phase:"ready", data:{ status, items:[] } };
       assert.ok(ui.notifications(language).includes(expected));
     }
