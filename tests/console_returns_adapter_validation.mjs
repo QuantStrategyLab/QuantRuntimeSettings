@@ -14,9 +14,11 @@ try {
   await build({ stdin: { contents: `import { createElement } from 'react';
     import { renderToStaticMarkup } from 'react-dom/server';
     import { ReturnsCard } from './src/pages/performance/ReturnsCard';
+    import { ScopeContext } from './src/app/context';
     import { I18nProvider } from './src/i18n';
-    export const render = (language, scope = 'all') => renderToStaticMarkup(createElement(I18nProvider, { language },
-      createElement(ReturnsCard, { scope, range: 'ALL', epoch: 0 })));`,
+    export const render = (language, scope = 'all', options = []) => renderToStaticMarkup(createElement(I18nProvider, { language },
+      createElement(ScopeContext.Provider, { value: { scope, options, setScope() {} } },
+        createElement(ReturnsCard, { scope, range: 'ALL', epoch: 0 }))));`,
     resolveDir: root }, bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", define: { "import.meta.env": "{}" },
     plugins: [{ name: "controlled-read", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents:
@@ -28,6 +30,25 @@ try {
     } }],
   });
   const { render } = createRequire(import.meta.url)(outfile);
+  const ASSET_NOTE = {
+    zh: "暂时无法计算收益，以下展示资产余额。",
+    en: "Returns are unavailable; asset balances are shown instead.",
+  };
+  const CRYPTO_NOTE = {
+    zh: "加密账户按 7×24 交易，暂不与美股指数比较；BTC 基准数据尚未接入。",
+    en: "Crypto accounts trade 24/7 and are not compared with US equity indices; BTC benchmark data is not available yet.",
+  };
+  const MIXED_NOTE = {
+    zh: "当前范围同时包含加密与美股账户，暂不与单一市场指数比较；可切换到单个账户查看。",
+    en: "This scope mixes crypto and US equity accounts, so no single market index applies. Open one account to compare benchmarks.",
+  };
+  const ASSET_BALANCE_KIND = {
+    zh: "资产余额 · 未与基准比较",
+    en: "Asset balance · no benchmark comparison",
+  };
+  const outsideDetails = html => html.replace(/<details[\s\S]*?<\/details>/g, "");
+  const detailsText = html => [...html.matchAll(/<details[\s\S]*?<\/details>/g)].map(match => match[0]).join("");
+  const visibleText = html => outsideDetails(html).replace(/<[^>]*>/g, " ");
   const benchmarkLabels = {
     "标普500": "S&P 500", "纳斯达克100": "Nasdaq-100",
     "道琼斯工业平均指数": "Dow Jones Industrial Average", "罗素2000": "Russell 2000",
@@ -49,14 +70,35 @@ try {
       "legend uses the portfolio name and currency, not 本范围");
     assert.ok(html.includes(">USD</button>") && html.includes(">USDT</button>"), "currency switch renders both currencies");
     assert.ok(html.includes(language === "zh" ? 'aria-label="币种"' : 'aria-label="Currency"'), "currency switch is labelled");
-    assert.ok(html.includes(language === "zh" ? "资产余额" : "Asset balance"), "unadjusted curve is labelled as asset balance");
+    assert.ok(visibleText(html).includes(ASSET_BALANCE_KIND[language]), "unadjusted curve is visibly labelled as asset balance");
     assert.ok(!html.includes(language === "zh" ? "时间加权收益率（TWR）" : "Time-weighted return (TWR)"));
     assert.doesNotMatch(html, /非 TWR|未经出入金|not TWR|unadjusted for cash flows/i);
-    assert.ok(html.includes(language === "zh" ? "加密账户按 7×24 交易" : "Crypto accounts trade 24/7"),
-      "crypto explains why US benchmarks are absent");
+    assert.ok(!visibleText(html).includes(ASSET_NOTE[language]), "asset-balance note is collapsed by default");
+    assert.ok(!visibleText(html).includes(CRYPTO_NOTE[language]), "crypto explanation is collapsed by default");
+    assert.ok(detailsText(html).includes(ASSET_NOTE[language]), "asset-balance note remains in details");
+    assert.ok(detailsText(html).includes(CRYPTO_NOTE[language]), "crypto explanation remains in the same details");
     for (const label of Object.values(benchmarkLabels)) assert.ok(!html.includes(label), "no US index label for a crypto entry");
     assert.doesNotMatch(html, /perf-currency-block/);
     assert.doesNotMatch(html, /state\.|reason\.|perf\./);
+
+    // 1b. The same asset-balance curve under a mixed crypto/equity scope explains both limits in one disclosure.
+    setReturns({ ...mixedReturns, status: "ok", unavailable_reason: null, per_currency: [], currency: "USD",
+      return_kind: "unadjusted_asset_ratio", points: twrPoints, aligned_start: "2026-10-09", no_common_date: false,
+      benchmarks: [], benchmark_availability: [] });
+    const mixedAsset = render(language, "all", [
+      { alias: "synthetic-crypto", platform: "binance", paper: false },
+      { alias: "synthetic-equity", platform: "schwab", paper: false },
+    ]);
+    assert.equal(globalThis.__gapCharts.length, 1, "the asset-balance chart still renders for a mixed scope");
+    assert.ok(visibleText(mixedAsset).includes(ASSET_BALANCE_KIND[language]), "mixed-scope curve stays labelled asset balance");
+    assert.ok(!visibleText(mixedAsset).includes(ASSET_NOTE[language]));
+    assert.ok(!visibleText(mixedAsset).includes(MIXED_NOTE[language]));
+    assert.ok(detailsText(mixedAsset).includes(ASSET_NOTE[language]), "asset-balance note is reachable in details");
+    assert.ok(detailsText(mixedAsset).includes(MIXED_NOTE[language]), "mixed-benchmark note shares the same details");
+    assert.equal((mixedAsset.match(/<details class="state-details curve-notes">/g) || []).length, 1,
+      "both explanations share one native disclosure");
+    assert.ok(!visibleText(mixedAsset).includes(language === "zh" ? "时间加权收益率（TWR）" : "Time-weighted return (TWR)"),
+      "an asset-balance curve never poses as a return");
 
     // 2. Store failure cannot be bypassed by retained currency groups.
     setReturns({ ...mixedReturns, status: "unavailable", unavailable_reason: "stored_records_unreadable" });

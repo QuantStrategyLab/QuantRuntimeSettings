@@ -24,16 +24,25 @@ function KpiState({ status }: { status: string; reason?: string | null }) {
   return <span className="flat kpi-empty-value">—<span className="sr-only">{t(`state.${status}`)}</span></span>;
 }
 
-/** Inline per-metric reason; skipped when the shared note above the grid already carries the same reason. */
-function MetricReason({ reason, shared }: { reason?: string | null; shared?: string | null }) {
+/** Specific per-metric reasons stay collapsed; the card itself keeps only the short state. */
+function MetricDetails({ notes }: { notes: { label?: string; reason: string }[] }) {
   const t = useT();
-  if (!reason || reason === shared) return null;
-  return <span className="kpi-reason">{t(`reason.${reason}`)}</span>;
+  if (!notes.length) return null;
+  return (
+    <details className="state-details kpi-details">
+      <summary>{t("common.details")}</summary>
+      {notes.map((note, index) => (
+        <p key={`${note.label || ""}:${note.reason}:${index}`}>
+          {note.label ? `${note.label} · ` : ""}{t(`reason.${note.reason}`)}
+        </p>
+      ))}
+    </details>
+  );
 }
 
-function cardFooter(data: SummaryResponse, metricReason?: string | null) {
+function cardDetail(data: SummaryResponse, metricReason?: string | null) {
   if (!metricReason || metricReason === data.unavailable_reason) return null;
-  return <MetricReason reason={metricReason} shared={data.unavailable_reason} />;
+  return <MetricDetails notes={[{ reason: metricReason }]} />;
 }
 
 function TwrCard({ data }: { data: SummaryResponse }) {
@@ -42,30 +51,31 @@ function TwrCard({ data }: { data: SummaryResponse }) {
   // An unrecognized method must not keep an unqualified TWR title.
   const title = t(methodClass === "unknown" ? "perf.card.return_value" : "perf.card.twr");
   if (!renderableStatus(data.status)) {
-    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={cardFooter(data, data.metric_reasons?.twr)} />;
+    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />}
+      detail={cardDetail(data, data.metric_reasons?.twr)} />;
   }
   // asset_change scopes have no qualified TWR; a stated reason explains the blank instead of a fake 0.
   if (data.twr_return_percent === null) {
     const reason = data.metric_reasons?.twr || data.unavailable_reason;
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={reason && reason !== data.unavailable_reason ? t(`reason.${reason}`) : undefined} footer={cardFooter(data)} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t("state.unavailable")}
+      detail={cardDetail(data, reason)} />;
   }
   const sub = methodClass === "dietz_approx" ? t(DIETZ_APPROX_LABEL_KEY)
     : methodClass === "unknown" ? t(UNKNOWN_METHOD_LABEL_KEY) : undefined;
-  return <KpiCard title={title} value={<Percent value={data.twr_return_percent} />} sub={sub} footer={cardFooter(data)} />;
+  return <KpiCard title={title} value={<Percent value={data.twr_return_percent} />} sub={sub} />;
 }
 
 function AmountCard({ data }: { data: SummaryResponse }) {
   const t = useT();
   const title = data.value_kind === "pnl" ? t("perf.card.amount") : t("perf.card.amount_asset_change");
-  const footer = cardFooter(data);
   if (!renderableStatus(data.status)) {
-    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={footer} />;
+    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} />;
   }
   // Mixed native currencies are never summed; the reason replaces the amount.
   if (data.unavailable_reason === "mixed_currency" || data.amount === null) {
-    return <KpiCard title={title} value={<span className="flat">—</span>} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t("state.unavailable")} />;
   }
-  return <KpiCard title={title} value={<Money value={data.amount} currency={data.currency} signed />} footer={footer} />;
+  return <KpiCard title={title} value={<Money value={data.amount} currency={data.currency} signed />} />;
 }
 
 /** Method tag for return-derived figures; null when the figure is a qualified exact TWR or a legacy response. */
@@ -81,9 +91,11 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
   const language = useLanguage();
   // Drawdown derives from the same return series; an unrecognized method must not keep a TWR title.
   const title = t(classifyCashflowMethod(data) === "unknown" ? "perf.drawdown_plain_title" : "perf.drawdown_twr_title");
-  const footer = cardFooter(data);
   if (data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable") {
-    // Each currency retains its own drawdown reason and dates.
+    // Each currency keeps its own label, method, value and dates; only reasons move to details.
+    const notes = data.per_currency.flatMap(item => item.max_drawdown.unavailable_reason
+      ? [{ label: item.currency, reason: item.max_drawdown.unavailable_reason }]
+      : []);
     return <KpiCard title={title} value={<span className="currency-totals">
       {data.per_currency.map(item => {
         const dd = item.max_drawdown;
@@ -92,20 +104,21 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
           <span className="kpi-sub">{item.currency}</span>
           {tag && <span className="kpi-sub">{tag}</span>}
           {dd.percent === null ? <span className="flat">—</span> : <Percent value={-dd.percent || 0} />}
-          <MetricReason reason={dd.unavailable_reason} shared={data.unavailable_reason} />
           <span className="kpi-sub">{dd.peak_date && dd.trough_date
             ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) })
             : null}</span>
         </span>;
       })}
-    </span>} />;
+    </span>} detail={<MetricDetails notes={notes} />} />;
   }
   if (!renderableStatus(data.status)) {
-    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />} footer={cardFooter(data, data.max_drawdown?.unavailable_reason)} />;
+    return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />}
+      detail={cardDetail(data, data.max_drawdown?.unavailable_reason)} />;
   }
   const dd = data.max_drawdown;
   if (dd.percent === null) {
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={dd.unavailable_reason ? t(`reason.${dd.unavailable_reason}`) : undefined} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t("state.unavailable")}
+      detail={cardDetail(data, dd.unavailable_reason)} />;
   }
   const sub =
     dd.peak_date && dd.trough_date
@@ -113,27 +126,27 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
       : undefined;
   const methodLabel = methodTag(data, t);
   const combinedSub = [methodLabel, sub].filter(Boolean).join(" · ") || undefined;
-  return <KpiCard title={title} value={<Percent value={-dd.percent || 0} />} sub={combinedSub} footer={footer} />;
+  return <KpiCard title={title} value={<Percent value={-dd.percent || 0} />} sub={combinedSub} />;
 }
 
 function ExcessCard({ data, policy }: { data: SummaryResponse; policy: BenchmarkPolicy }) {
   const t = useT();
   const language = useLanguage();
   const title = t("perf.card.excess");
-  const footer = cardFooter(data);
   if (!renderableStatus(data.status)) {
     return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />}
-      footer={cardFooter(data, data.excess_returns?.find(item => item.unavailable_reason)?.unavailable_reason)} />;
+      detail={cardDetail(data, data.excess_returns?.find(item => item.unavailable_reason)?.unavailable_reason)} />;
   }
   // Crypto and mixed scopes have no single relevant market index; never fall back to an unrelated one.
   if (!policy.enabled) {
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t("perf.benchmark_not_applicable")} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t("perf.benchmark_not_applicable")} />;
   }
   const eligible = policy.defaults.flatMap(id => data.excess_returns.filter(item => item.benchmark === id));
   const primary = eligible.find(item => item.percentage_points !== null);
   if (!primary || primary.percentage_points === null) {
     const reason = eligible.find(item => item.unavailable_reason)?.unavailable_reason;
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={reason && reason !== data.unavailable_reason ? t(`reason.${reason}`) : undefined} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t("state.unavailable")}
+      detail={cardDetail(data, reason)} />;
   }
   const pp = primary.percentage_points;
   const rest = eligible.filter(item => item !== primary && item.percentage_points !== null);
@@ -153,7 +166,6 @@ function ExcessCard({ data, policy }: { data: SummaryResponse; policy: Benchmark
       title={title}
       value={<span className={pp > 0 ? "up" : pp < 0 ? "down" : "flat"}>{formatPercentagePoints(pp, language)}</span>}
       sub={sub}
-      footer={footer}
     />
   );
 }
@@ -161,20 +173,20 @@ function ExcessCard({ data, policy }: { data: SummaryResponse; policy: Benchmark
 function DayCard({ data, field, titleKey }: { data: SummaryResponse; field: "best_day" | "worst_day"; titleKey: string }) {
   const t = useT();
   const title = t(titleKey);
-  const footer = cardFooter(data);
   if (!renderableStatus(data.status)) {
     return <KpiCard title={title} value={<KpiState status={data.status} reason={data.unavailable_reason} />}
-      footer={cardFooter(data, data[field]?.unavailable_reason)} />;
+      detail={cardDetail(data, data[field]?.unavailable_reason)} />;
   }
   const day = data[field];
   if (!day || !renderableStatus(day.status)) {
     const reason = day?.unavailable_reason;
-    return <KpiCard title={title} value={<span className="flat">—</span>} sub={reason && reason !== data.unavailable_reason ? t(`reason.${reason}`) : undefined} footer={footer} />;
+    return <KpiCard title={title} value={<span className="flat">—</span>} sub={t("state.no_data")}
+      detail={cardDetail(data, reason)} />;
   }
   const value: ReactNode =
     day.amount !== null ? <Money value={day.amount} currency={data.currency} signed /> : <Percent value={day.return_percent} />;
   const kind = day.value_kind === "asset_change" ? ` · ${t("perf.value_kind_asset_change")}` : "";
-  return <KpiCard title={title} value={value} sub={`${day.date}${kind}`} footer={footer} />;
+  return <KpiCard title={title} value={value} sub={`${day.date}${kind}`} />;
 }
 
 export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProps) {
