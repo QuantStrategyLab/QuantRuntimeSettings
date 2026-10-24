@@ -386,6 +386,7 @@ export function normalizeAccountFactsBindings(raw) {
     ];
     if (item?.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM) expectedKeys.push("broker_account_hash");
     if (item?.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM) expectedKeys.push("broker_account_id");
+    if (item?.platform === ACCOUNT_FACTS_PLATFORM && Object.hasOwn(item, "physical_account_id")) expectedKeys.push("physical_account_id");
     if (!exactKeys(item, expectedKeys)) {
       reject("invalid_account_facts_bindings");
     }
@@ -428,6 +429,8 @@ export function normalizeAccountFactsBindings(raw) {
       account_key: item.account_key,
       account_scope: item.account_scope,
       ...identity,
+      ...(item.platform === ACCOUNT_FACTS_PLATFORM && Object.hasOwn(item, "physical_account_id")
+        ? { physical_account_id: requireOptionIdentityField(item.physical_account_id) } : {}),
       target_id: item.target_id,
       ...(item.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
         ? { broker_account_hash: item.broker_account_hash }
@@ -688,13 +691,20 @@ export function projectStoredAccountFacts(stored, {
   };
 }
 
-function physicalIdentityForProjection(platform, projected) {
-  // Only exact broker identities already checked against protected bindings.
+function physicalIdentityForProjection(platform, projected, binding) {
+  // Exact broker identities or explicit protected owner mappings, checked
+  // against the snapshot's deployment/source binding before aggregation.
   // Keep these values in worker memory, never in the public read model.
   if (!projected) return null;
   if (platform === IBKR_ACCOUNT_FACTS_PLATFORM) return JSON.stringify([platform, projected.account_ids[0]]);
   if (platform === SCHWAB_ACCOUNT_FACTS_PLATFORM) return JSON.stringify([platform, projected.account_hash]);
   if (platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM) return JSON.stringify([platform, projected.broker_account_id]);
+  // LongBridge does not expose an account number here. An existing explicit
+  // owner binding may establish the deduplication key after the deployment,
+  // scope and token-version source checks above; a region/alias never does.
+  if (platform === ACCOUNT_FACTS_PLATFORM && binding?.physical_account_id) {
+    return JSON.stringify([platform, binding.physical_account_id]);
+  }
   return null; // LongBridge channel identity does not prove a physical account.
 }
 
@@ -885,6 +895,8 @@ export function buildAccountFactsReadModel({
         account_key: option.key,
         binding_status: bindingStatus === "identity_mismatch" ? "missing" : bindingStatus,
         identity_status: bindingStatus === "bound" ? "partial_identity" : "missing_identity",
+        ...(projected && platform === ACCOUNT_FACTS_PLATFORM && binding?.physical_account_id
+          ? { identity_source: "protected_configuration" } : {}),
         identity_mismatch: bindingStatus === "identity_mismatch",
         data_status: projected ? projected.data_status : "unavailable",
         broker_environment: typeof option.broker_environment === "string" ? option.broker_environment : null,
@@ -913,7 +925,7 @@ export function buildAccountFactsReadModel({
         return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
       };
       accounts.push(accountRow);
-      const physicalIdentity = physicalIdentityForProjection(platform, projected);
+      const physicalIdentity = physicalIdentityForProjection(platform, projected, binding);
       if (physicalIdentity) physicalIdentities.set(accountRow, physicalIdentity);
     }
   }

@@ -145,8 +145,9 @@ try {
     ok(lbHtml.includes("USD 100.25"), "LongBridge cash is read from balances.total_cash");
     const lbNoCashField = { ...longbridgeFact(), balances: [{ currency: "USD", net_assets: "10.00" }] };
     const lbNoCashHtml = ui.card(language, lbNoCashField, "ready");
-    ok(!lbNoCashHtml.includes("USD 4.00") && !lbNoCashHtml.includes("100.25"), "available_cash is never shown as cash");
-    ok(lbNoCashHtml.includes("—"), "a LongBridge row without total_cash shows unknown cash");
+    ok(ui.lib.cashTextFor(lbNoCashField, "USD") === null, "available_cash is never shown as cash balance");
+    ok(lbNoCashHtml.includes(language === "zh" ? "可用现金 · USD" : "Available cash · USD")
+      && lbNoCashHtml.includes("USD 100.25"), "native available cash is shown under its own label");
 
     // 4c. Schwab-style wire (owner-confirmed single USD row) renders normally.
     const schwab = { ...baseFact(), platform: "schwab", account_key: "schwab-main",

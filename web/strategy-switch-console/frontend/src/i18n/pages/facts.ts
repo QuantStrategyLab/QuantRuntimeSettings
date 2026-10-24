@@ -2,6 +2,7 @@
 export const zh: Record<string, string> = {
   "facts.assets": "资产",
   "facts.cash": "现金",
+  "facts.available_cash": "可用现金",
   "facts.cash_semantics": "券商提供的现金余额，不代表购买力、可用资金或保证金。",
   "facts.identity_unverified": "账户身份未核验，金额暂不展示",
   "facts.platform_identity_unverified": "平台合计不可用：有账户身份未核验",
@@ -19,6 +20,7 @@ export const zh: Record<string, string> = {
 export const en: Record<string, string> = {
   "facts.assets": "Assets",
   "facts.cash": "Cash",
+  "facts.available_cash": "Available cash",
   "facts.cash_semantics": "Broker-reported cash balance; this is not buying power, available funds, or margin.",
   "facts.identity_unverified": "Account identity unverified; amounts are hidden",
   "facts.platform_identity_unverified": "Platform total unavailable: some account identities are unverified",

@@ -301,12 +301,17 @@ jobs:
           try {
             existing = normalizeAccountFactsBindings(existingRaw);
             if (platform === "ibkr" || platform === "longbridge") {
+              const configurePhysicalIdentity = platform === "longbridge"
+                && Object.hasOwn(rotation || {}, "physical_account_id");
               if (!rotation || Array.isArray(rotation)
-                  || Object.keys(rotation).sort().join(",") !== "next_source_binding_id,previous_source_binding_id,target_id"
+                  || Object.keys(rotation).sort().join(",") !== (configurePhysicalIdentity
+                    ? "next_source_binding_id,physical_account_id,previous_source_binding_id,target_id"
+                    : "next_source_binding_id,previous_source_binding_id,target_id")
                   || !/^[a-f0-9]{64}$/.test(rotation.previous_source_binding_id)
                   || !/^[a-f0-9]{64}$/.test(rotation.next_source_binding_id)
-                  || (platform === "longbridge"
-                    && rotation.next_source_binding_id === rotation.previous_source_binding_id)) {
+                  || (platform === "longbridge" && (configurePhysicalIdentity
+                    ? rotation.next_source_binding_id !== rotation.previous_source_binding_id
+                    : rotation.next_source_binding_id === rotation.previous_source_binding_id))) {
                 stop("rotation_config_invalid");
               }
               // LongBridge target_id is lowercase; HK option/account_scope stays "HK".
@@ -323,9 +328,12 @@ jobs:
                 stop("expected_existing_longbridge_binding");
               }
               const index = existing.bindings.indexOf(candidates[0]);
+              if (configurePhysicalIdentity && candidates[0].physical_account_id
+                  && candidates[0].physical_account_id !== rotation.physical_account_id) stop("physical_identity_change_forbidden");
               proposedRaw = {
                 schema_version: existingRaw.schema_version,
-                bindings: [{ ...existingRaw.bindings[index], source_binding: {
+                bindings: [{ ...existingRaw.bindings[index],
+                  ...(configurePhysicalIdentity ? { physical_account_id: rotation.physical_account_id } : {}), source_binding: {
                   ...existingRaw.bindings[index].source_binding, id: rotation.next_source_binding_id,
                 } }],
               };
@@ -376,7 +384,11 @@ jobs:
             const previousId = rotation.previous_source_binding_id;
             if (!/^[a-f0-9]{64}$/.test(previousId) || !sameKey
                 || sameKey.source_binding.id !== previousId) stop("previous_binding_mismatch");
-            const identity = (item) => ({ ...item, source_binding: { kind: item.source_binding.kind } });
+            const identity = (item) => {
+              const copy = { ...item, source_binding: { kind: item.source_binding.kind } };
+              if (platform === "longbridge" && Object.hasOwn(rotation, "physical_account_id")) delete copy.physical_account_id;
+              return copy;
+            };
             if (JSON.stringify(identity(sameKey)) !== JSON.stringify(identity(binding))) {
               stop("binding_identity_change_forbidden");
             }
