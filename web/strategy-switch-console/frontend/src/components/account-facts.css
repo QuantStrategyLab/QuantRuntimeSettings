@@ -5,6 +5,10 @@
 .account-facts .account-row > span:last-child { margin-left: auto; text-align: right; }
 .account-facts .kpi-foot { justify-content: flex-start; }
 .account-facts-freshness { gap: 3px 12px; line-height: 1.4; }
+.account-facts-state-value { display: inline-flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 3px 6px; }
+.account-state-label { color: var(--muted); font-size: 12px; }
+.account-facts-details { margin-top: 2px; }
+.account-facts-state > .button { justify-self: start; margin-top: 2px; }
 .account-facts-assets .money { color: var(--ink); font-size: 16px; font-weight: 650; }
 .account-facts-cash .money { font-size: 13px; }
 

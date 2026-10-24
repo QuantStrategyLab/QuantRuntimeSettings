@@ -81,6 +81,7 @@ export const en: Record<CoreMessageKey, string> = {
   "state.not_connected": "Not connected",
   "state.unavailable": "Unavailable",
   "state.read_failed": "Read failed",
+  "state.load_failed": "Unable to load",
 
   "reason.external_cashflow_required": "Complete cash-flow records are missing; TWR is unavailable and amounts are shown as asset change.",
   "reason.fills_not_connected": "The fill source is not connected",

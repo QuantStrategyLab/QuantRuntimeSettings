@@ -38,13 +38,13 @@ function HistoryNotice({ status, points, coverage, currency, accounts = [] }: {
   }))];
   return <div className="card-note" role="status">
     <Badge tone="warn">{currency ? `${currency} · ` : ""}{t(status === "stale" ? "perf.history_stale" : "perf.history_incomplete")}</Badge>
-    <p>{t("perf.history_coverage_note")}</p>
-    {affected.length > 0 && (
-      <details className="history-accounts">
-        <summary>{t("perf.history_affected_accounts", { count: affected.length })}</summary>
-        <p>{labels.join(" · ")}</p>
-      </details>
-    )}
+    <details className="history-accounts state-details">
+      <summary>{affected.length > 0
+        ? t("perf.history_affected_accounts", { count: affected.length })
+        : t("common.details")}</summary>
+      <p>{t("perf.history_coverage_note")}</p>
+      {affected.length > 0 && <p>{labels.join(" · ")}</p>}
+    </details>
   </div>;
 }
 

@@ -250,23 +250,21 @@ function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
       ];
       body = <LineChart series={series} mode="cumulative" ariaLabel={title} alignStart={data.aligned_start} />;
     } else {
-      body = (
-        <EmptyState
-          title={t(`state.${usable(data.status) ? "no_data" : data.status}`)}
-          body={data.status !== "partial" && data.status !== "stale" && data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
-        />
-      );
+      // The card links to the performance page, so keep its placeholder short
+      // instead of nesting a second interactive element inside the card button.
+      body = <EmptyState title={t(`state.${usable(data.status) ? "no_data" : data.status}`)} />;
     }
     if (data.status === "partial" || data.status === "stale") {
+      // One short state stays visible; the performance page holds the full reason.
       note = (
-        <p className="card-note overview-trend-note">
-          {data.unavailable_reason
-            ? <span>{t(`reason.${data.unavailable_reason}`)}</span>
-            : data.status === "partial"
-              ? <Badge tone="warn">{t("state.partial_valuation")}</Badge>
-              : <StatusBadge status={data.status} />}
-          {data.as_of && <>{" "}<AsOfStamp value={data.as_of} /></>}
-        </p>
+        <div className="card-note overview-trend-note">
+          {data.status === "partial"
+            ? <Badge tone="warn" title={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}>
+                {t("state.partial_valuation")}
+              </Badge>
+            : <StatusBadge status={data.status} reason={data.unavailable_reason} />}
+          {data.as_of && <AsOfStamp value={data.as_of} />}
+        </div>
       );
     }
   }

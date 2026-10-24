@@ -79,6 +79,7 @@ export const zhCN = {
   "state.not_connected": "未接入",
   "state.unavailable": "暂不可计算",
   "state.read_failed": "读取失败",
+  "state.load_failed": "暂时无法加载",
 
   "reason.external_cashflow_required": "缺少完整出入金记录，暂不展示 TWR；金额按资产变动展示。",
   "reason.fills_not_connected": "成交记录源未接入",
