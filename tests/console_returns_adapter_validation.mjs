@@ -76,8 +76,8 @@ try {
       "an unadjusted percentage curve is never called a balance");
     assert.ok(!visibleText(html).includes(ASSET_NOTE[language]), "asset-change note is collapsed by default");
     assert.ok(!visibleText(html).includes(CRYPTO_NOTE[language]), "crypto explanation is collapsed by default");
-    assert.ok(detailsText(html).includes(ASSET_NOTE[language]), "asset-change note remains in details");
-    assert.ok(detailsText(html).includes(CRYPTO_NOTE[language]), "crypto explanation remains in the same details");
+    assert.ok(detailsText(html).includes(language === "zh" ? "包含出入金影响，不代表时间加权收益，也不与基准比较" : "including the effect of cash flows; it is not a time-weighted return and is not compared with benchmarks"), "method help retains the cash-flow and no-benchmark qualifications");
+    assert.ok(!html.includes('class="state-details curve-notes"'), "ordinary diagnostic details do not occupy the chart");
     for (const label of Object.values(benchmarkLabels)) assert.ok(!html.includes(label), "no US index label for a crypto entry");
     assert.doesNotMatch(html, /perf-currency-block/);
     assert.doesNotMatch(html, /state\.|reason\.|perf\./);
@@ -94,10 +94,9 @@ try {
     assert.ok(visibleText(mixedAsset).includes(ASSET_CHANGE_KIND[language]), "mixed-scope curve stays labelled asset change");
     assert.ok(!visibleText(mixedAsset).includes(ASSET_NOTE[language]));
     assert.ok(!visibleText(mixedAsset).includes(MIXED_NOTE[language]));
-    assert.ok(detailsText(mixedAsset).includes(ASSET_NOTE[language]), "asset-change note is reachable in details");
-    assert.ok(detailsText(mixedAsset).includes(MIXED_NOTE[language]), "mixed-benchmark note shares the same details");
-    assert.equal((mixedAsset.match(/<details class="state-details curve-notes">/g) || []).length, 1,
-      "both explanations share one native disclosure");
+    assert.ok(detailsText(mixedAsset).includes(language === "zh" ? "不代表时间加权收益，也不与基准比较" : "it is not a time-weighted return and is not compared with benchmarks"), "the method explanation retains the unadjusted comparison limit");
+    assert.equal((mixedAsset.match(/<details class="method-note">/g) || []).length, 1, "one user-facing method explanation remains");
+    assert.ok(!mixedAsset.includes('class="state-details curve-notes"'));
     assert.ok(!visibleText(mixedAsset).includes(language === "zh" ? "时间加权收益率（TWR）" : "Time-weighted return (TWR)"),
       "an asset-change curve never poses as a return");
 
@@ -137,7 +136,7 @@ try {
       benchmark_availability: benchmarkIds.map(id => ({ id, status: "ok", unavailable_reason: null, as_of: "2026-10-15" })) });
     const cryptoTwr = render(language, "binance:main");
     assert.equal(globalThis.__gapCharts[0].series.length, 1, "crypto scope suppresses every US benchmark series");
-    assert.ok(cryptoTwr.includes(language === "zh" ? "加密账户按 7×24 交易" : "Crypto accounts trade 24/7"));
+    assert.ok(!visibleText(cryptoTwr).includes(CRYPTO_NOTE[language]), "benchmark-policy diagnostics do not occupy the curve");
     for (const label of Object.values(benchmarkLabels)) assert.ok(!cryptoTwr.includes(label));
     assert.doesNotMatch(cryptoTwr, /state\.|reason\.|perf\./);
   }

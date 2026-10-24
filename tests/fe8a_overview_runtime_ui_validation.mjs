@@ -74,7 +74,7 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       const mixedReturn = ui.renderReturn(language, { phase: "ready", data: summary });
       assert.ok(visibleText(mixedReturn).includes("—"), "uncomputable TWR keeps an honest blank");
       assert.ok(visibleText(mixedReturn).includes(UNAVAILABLE[language]), "default view keeps only the short status");
-      assert.ok(visibleText(mixedReturn).includes(MIXED_REASON[language]), "mixed-currency reason is stated once on the card");
+      assert.ok(visibleText(mixedReturn).includes(language === "zh" ? "多币种" : "Multiple currencies"), "mixed-currency state stays short and explicit");
       assert.ok(!mixedReturn.includes("<details"), "no audit details block remains");
       assert.ok(visibleText(mixedReturn).includes(AS_OF[language]), "the corresponding as-of time stays visible");
       assert.ok(!visibleText(mixedReturn).includes("0.00%"), "an unavailable return is never rendered as zero");
@@ -85,7 +85,7 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       };
       const mixedAssets = ui.renderAsset(language, { phase: "ready", data: assets });
       assert.ok(visibleText(mixedAssets).includes("—") && visibleText(mixedAssets).includes(UNAVAILABLE[language]));
-      assert.ok(visibleText(mixedAssets).includes(MIXED_REASON[language]), "the mixed-currency reason is stated once");
+      assert.ok(visibleText(mixedAssets).includes(language === "zh" ? "多币种" : "Multiple currencies"), "the mixed-currency state stays short");
       assert.ok(!visibleText(mixedAssets).includes("123"), "an uncombinable total is never shown as a value");
       assert.ok(!mixedAssets.includes("<details"), "no audit details block remains");
       assert.ok(visibleText(mixedAssets).includes(AS_OF[language]));
@@ -96,7 +96,7 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       };
       const mixedDay = ui.renderLastDay(language, { phase: "ready", data: calendar });
       assert.ok(visibleText(mixedDay).includes("—") && visibleText(mixedDay).includes(UNAVAILABLE[language]));
-      assert.ok(visibleText(mixedDay).includes(MIXED_REASON[language]), "the mixed-currency reason is stated once");
+      assert.ok(visibleText(mixedDay).includes(language === "zh" ? "多币种" : "Multiple currencies"), "the mixed-currency state stays short");
       assert.ok(!mixedDay.includes("<details"), "no audit details block remains");
       assert.ok(visibleText(mixedDay).includes(AS_OF[language]));
 

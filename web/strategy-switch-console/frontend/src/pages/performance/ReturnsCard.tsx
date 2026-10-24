@@ -52,10 +52,9 @@ interface BenchmarkView {
   series: { id: string; points: Point[] }[];
   defaults: string[];
   disabled: BenchmarkAvailability[];
-  note: string | null;
 }
 
-const NO_BENCHMARKS: BenchmarkView = { series: [], defaults: [], disabled: [], note: null };
+const NO_BENCHMARKS: BenchmarkView = { series: [], defaults: [], disabled: [] };
 
 function kindLabel(returnKind: string, method?: CashflowMethodMeta | null): string {
   // The unadjusted ratio plots a percentage change that includes cash flows; it is not a balance.
@@ -73,19 +72,12 @@ function resolveBenchmarks(view: ReturnView, policy: BenchmarkPolicy): Benchmark
   const eligible = policy.enabled && view.returnKind === "twr"
     && classifyCashflowMethod(view.method) !== "unknown"
     && benchmarkCurrencyAllowed(view.currency);
-  if (!eligible) {
-    const note = policy.reason === "crypto" || view.currency === "USDT" ? "perf.crypto_benchmark_note"
-      : policy.reason === "mixed" ? "perf.mixed_benchmark_note"
-        : policy.enabled && !benchmarkCurrencyAllowed(view.currency) ? "perf.currency_benchmark_note"
-          : null;
-    return { ...NO_BENCHMARKS, note };
-  }
+  if (!eligible) return NO_BENCHMARKS;
   const available = view.benchmarks.filter(item => item.points.length > 0);
   return {
     series: available,
     defaults: policy.defaults.filter(id => available.some(item => item.id === id)),
     disabled: view.disabled.filter(item => (policy.defaults as readonly string[]).includes(item.id)),
-    note: null,
   };
 }
 
@@ -96,7 +88,6 @@ function ReturnsChart({
   ariaLabel,
   benchmarks,
   disabled,
-  note,
 }: {
   view: ReturnView;
   seriesLabel: string;
@@ -104,7 +95,6 @@ function ReturnsChart({
   ariaLabel: string;
   benchmarks: BenchmarkView;
   disabled: BenchmarkAvailability[];
-  note: string | null;
 }) {
   const t = useT();
   const series: ChartSeries[] = [
@@ -117,22 +107,10 @@ function ReturnsChart({
     })),
   ];
   return (
-    <div>
+    <div data-state={view.status} data-reason={view.unavailableReason ?? undefined}>
       <p className="card-note" style={{ marginTop: 0 }}>
         <span className="perf-kind">{t(kindLabel(view.returnKind, view.method))}</span>
-        {view.status !== "ok" && renderableStatus(view.status) && (
-          <> · <StatusBadge status={view.status} reason={view.unavailableReason} /></>
-        )}
       </p>
-      {view.returnKind === "unadjusted_asset_ratio" ? (
-        <details className="state-details curve-notes">
-          <summary>{t("common.details")}</summary>
-          <p>{t("perf.asset_change_note")}</p>
-          {note && <p>{t(note)}</p>}
-        </details>
-      ) : (
-        note && <p className="card-note">{t(note)}</p>
-      )}
       <LineChart
         // A new currency/benchmark set must re-apply the default visibility instead of
         // inheriting hidden state from the previous entry.
@@ -237,30 +215,28 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
                 : "perf.returns_title")} ${entry.currency}`}
               benchmarks={benchmarks}
               disabled={benchmarks.disabled}
-              note={benchmarks.note}
             />
           </div>
         );
       } else {
+        const stateKey = renderableStatus(entry.status) ? "no_data" : entry.status;
         body = (
           <div>
             {switchControl}
-            <EmptyState
-              title={t(`state.${renderableStatus(entry.status) ? "no_data" : entry.status}`)}
-              body={entry.unavailable_reason ? t(`reason.${entry.unavailable_reason}`) : undefined}
-            />
+            <div data-reason={entry.unavailable_reason ?? undefined}>
+              <EmptyState title={t(`state.${stateKey}`)} state={stateKey} />
+            </div>
           </div>
         );
       }
     } else if (!renderableStatus(returned.status)) {
       body = (
-        <EmptyState
-          title={t(`state.${returned.status}`)}
-          body={returned.unavailable_reason ? t(`reason.${returned.unavailable_reason}`) : undefined}
-        />
+        <div data-reason={returned.unavailable_reason ?? undefined}>
+          <EmptyState title={t(`state.${returned.status}`)} state={returned.status} />
+        </div>
       );
     } else if (returned.points.length === 0) {
-      body = <EmptyState title={t("state.no_data")} body={returned.unavailable_reason ? t(`reason.${returned.unavailable_reason}`) : undefined} />;
+      body = <div data-reason={returned.unavailable_reason ?? undefined}><EmptyState title={t("state.no_data")} state="no_data" /></div>;
     } else {
       const singleView: ReturnView = {
         points: returned.points,
@@ -275,9 +251,7 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
         disabled,
       };
       view = singleView;
-      benchmarks = returned.no_common_date
-        ? { ...NO_BENCHMARKS, note: "perf.no_common_date_note" }
-        : resolveBenchmarks(singleView, policy);
+      benchmarks = returned.no_common_date ? NO_BENCHMARKS : resolveBenchmarks(singleView, policy);
       body = (
         <ReturnsChart
           view={singleView}
@@ -288,7 +262,6 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
             : "perf.returns_title")}
           benchmarks={benchmarks}
           disabled={benchmarks.disabled}
-          note={benchmarks.note}
         />
       );
     }

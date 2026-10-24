@@ -24,6 +24,7 @@ import {
   Badge,
   EmptyState,
   Skeleton,
+  StatusBadge,
 } from "../../components/primitives";
 import { Tabs } from "../../components/Tabs";
 import { DiffTable } from "../../components/DiffTable";
@@ -693,8 +694,9 @@ export default function DecisionsPage() {
                           <Badge tone="warn">{t("category.reconciliation_recovery")}</Badge>
                         )}
                         <span>{item.account_alias ? names.account(item.account_alias, item.platform) : t("decisions.account_global")}</span>
-                        {fresh && <span>{fresh}</span>}
-                        {showsStaleHint(item) && <span className="decision-stale-hint">{t("decisions.stale_hint")}</span>}
+                        {fresh && (
+                          <span title={showsStaleHint(item) ? t("decisions.stale_hint") : undefined}>{fresh}</span>
+                        )}
                       </span>
                     </span>
                     <Badge tone={expired ? "unknown" : "warn"}>
@@ -708,7 +710,11 @@ export default function DecisionsPage() {
             {selected && renderDetail()}
           </div>
         )}
-        {degraded.length > 0 && <p className="decision-note decision-source-foot" role="status">{t("decisions.partial_notice")}</p>}
+        {degraded.length > 0 && (
+          <p className="decision-note decision-source-foot" role="status" data-state="partial" data-degraded-count={degraded.length}>
+            <StatusBadge status="partial" />
+          </p>
+        )}
       </>
     );
   };

@@ -67,9 +67,9 @@ try {
       assert.ok(html.includes(language === "zh" ? "USDT 资产合计" : "USDT asset total"));
       assert.ok(html.includes("123.45"));
       assert.ok(html.includes("—"));
-      assert.ok(html.includes(language === "zh" ? "部分账户未纳入合计" : "Some accounts are not included in the total"));
+      assert.ok(html.includes('data-reason="incomplete_account_coverage"'));
       assert.ok(html.includes(language === "zh" ? "已计入 2/8 个账户" : "Includes 2 of 8 accounts"));
-      assert.ok(html.includes(language === "zh" ? "缺少完整出入金记录" : "Complete cash-flow records are missing"));
+      assert.ok(html.includes('data-reason="no_cashflow_data"'));
       assert.ok(!html.includes("USDT 0"));
     }
     assert.deepEqual(data, original);
@@ -95,8 +95,12 @@ try {
       for (const [row, config, expected] of cases) {
         const before = structuredClone(row);
         const html = ui.render(language, "strategies", {}, config, ready(summary(row)));
-        assert.match(html, new RegExp(`class="strategy-execution-account"[\\s\\S]*?>${labels[expected]}<`));
-        if (expected !== "live") assert.ok(!html.match(/class="strategy-execution-account"([\s\S]*?)<\/div>/)[1].includes('class="badge badge-warn"'));
+        if (expected === "unknown") {
+          assert.ok(!html.includes('class="strategy-execution"'), "unknown evidence cannot become a displayed execution mode");
+        } else {
+          assert.match(html, new RegExp(`class="strategy-execution-account"[\\s\\S]*?>${labels[expected]}<`));
+          if (expected !== "live") assert.ok(!html.match(/class="strategy-execution-account"([\s\S]*?)<\/div>/)[1].includes('class="badge badge-warn"'));
+        }
         assert.deepEqual(row, before);
       }
       const paperConfig = configFor("paper");

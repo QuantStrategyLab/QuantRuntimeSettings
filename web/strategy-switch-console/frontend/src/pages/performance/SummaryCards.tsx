@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useScope } from "../../app/context";
-import { useLanguage, useT, type MessageKey } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { formatDate, formatPercentagePoints } from "../../lib/format";
 import { loadPerformanceSummary } from "../../api/endpoints";
@@ -35,12 +35,12 @@ function TwrCard({ data }: { data: SummaryResponse }) {
   // asset_change scopes have no qualified TWR; one short reason explains the
   // blank instead of a fake 0, without an expandable audit block.
   if (data.twr_return_percent === null) {
-    // The shared summary already states the overall reason; only a distinct
-    // metric-specific reason needs one extra short line here.
-    const reason = data.metric_reasons?.twr;
-    const metricReason = reason && reason !== data.unavailable_reason ? reason : null;
-    return <KpiCard title={title} value={<span className="flat">—</span>}
-      sub={metricReason ? `${t("state.unavailable")} · ${t(`reason.${metricReason}` as MessageKey)}` : t("state.unavailable")} />;
+    // The specific metric reason stays available to assistive checks but never
+    // turns an uncomputable TWR into a longer, qualified-looking card.
+    const metricReason = data.metric_reasons?.twr ?? data.unavailable_reason;
+    return <KpiCard title={title}
+      value={<span className="flat" data-state="unavailable" data-reason={metricReason ?? undefined}>—</span>}
+      sub={t("state.unavailable")} />;
   }
   const sub = methodClass === "dietz_approx" ? t(DIETZ_APPROX_LABEL_KEY)
     : methodClass === "unknown" ? t(UNKNOWN_METHOD_LABEL_KEY) : undefined;
@@ -74,10 +74,7 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
   // Drawdown derives from the same return series; an unrecognized method must not keep a TWR title.
   const title = t(classifyCashflowMethod(data) === "unknown" ? "perf.drawdown_plain_title" : "perf.drawdown_twr_title");
   if (data.per_currency?.length && data.unavailable_reason !== "stored_records_unreadable") {
-    // The summary and TWR card own their reasons; a currency row only adds a
-    // drawdown-specific reason that is not already stated above.
-    const stated = new Set([data.unavailable_reason, data.metric_reasons?.twr].filter(Boolean));
-    // Each currency keeps its own label, method, value, dates and at most one short reason.
+    // Each currency keeps its own label, method, value, dates and safe state.
     return <KpiCard title={title} value={<span className="currency-totals">
       {data.per_currency.map(item => {
         const dd = item.max_drawdown;
@@ -89,9 +86,6 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
           <span className="kpi-sub">{dd.peak_date && dd.trough_date
             ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) })
             : null}</span>
-          {dd.unavailable_reason && !stated.has(dd.unavailable_reason) && (
-            <span className="state-short">{t(`reason.${dd.unavailable_reason}` as MessageKey)}</span>
-          )}
         </span>;
       })}
     </span>} />;
@@ -190,9 +184,9 @@ export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProp
   return (
     <div className="section-stack">
       {(data.status !== "ok" || data.unavailable_reason || data.as_of) && (
-        <div className="metric-note perf-summary-note" data-state={data.status}>
+        <div className="metric-note perf-summary-note" data-state={data.status}
+          data-reason={data.unavailable_reason ?? undefined}>
           {data.status !== "ok" && <StatusBadge status={data.status} />}
-          {data.unavailable_reason && <span className="state-short">{t(`reason.${data.unavailable_reason}`)}</span>}
           {data.as_of && <AsOfStamp value={data.as_of} />}
         </div>
       )}

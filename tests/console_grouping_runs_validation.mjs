@@ -50,20 +50,21 @@ try {
     import { I18nProvider } from './src/i18n';
     import { AccountDirectoryContext } from './src/app/context';
     import { FreshnessTable, StatStrip, NotificationsCard } from './src/pages/health/HealthPage';
-    import { coverageNote, TradesTab } from './src/pages/performance/PerformanceTabs';
+    import { HoldingsTab, TradesTab } from './src/pages/performance/PerformanceTabs';
     import { cellKind, todayFailures } from './src/pages/health/status';
     import { DayDetail } from './src/pages/health/RunGrid';
     const render = (language, component, props, config = null) => renderToStaticMarkup(h(I18nProvider, { language }, h(AccountDirectoryContext.Provider, { value: config }, h(component, props))));
-    export { coverageNote, cellKind, todayFailures };
+    export { cellKind, todayFailures };
     export const freshness = (language, data, config) => render(language, FreshnessTable, { summary: { phase:'ready', data, reload() {} } }, config);
     export const stats = (language, data) => render(language, StatStrip, { summary: { phase:'ready', data, reload() {} }, credential: { phase:'loading' } });
     export const notifications = language => render(language, NotificationsCard, { epoch: 0 });
     export const trades = language => render(language, TradesTab, { scope:'all', range:'ALL', epoch:0 });
+    export const holdings = (language, data, config) => render(language, HoldingsTab, { state: { phase:'ready', data, reload() {} } }, config);
     export const detail = (language, snapshot) => render(language, DayDetail, { selection: { date:'2026-10-16', account: { platform:'schwab', account_alias:'live' } }, cell: { phase:'ready', snapshot } });`, resolveDir: root },
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },
     plugins: [{ name: "local-read-only-fixtures", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: "export const useApi = () => globalThis.__groupingState;", loader: "js" }));
-      for (const [file, exports] of [["HealthPage", "FreshnessTable, StatStrip, NotificationsCard"], ["PerformanceTabs", "coverageNote, TradesTab"], ["RunGrid", "DayDetail"]])
+      for (const [file, exports] of [["HealthPage", "FreshnessTable, StatStrip, NotificationsCard"], ["PerformanceTabs", "HoldingsTab, TradesTab"], ["RunGrid", "DayDetail"]])
         b.onLoad({ filter: new RegExp(`/${file}\\.tsx$`) }, async ({ path }) => ({ contents: await readFile(path, "utf8") + `\nexport { ${exports} };`, loader: "tsx" }));
     } }],
   });
@@ -110,12 +111,16 @@ try {
     assert.doesNotMatch(notifications, /health\.|common\.|state\./); assert.match(notifications, /2026-10-16/);
     assert.ok(notifications.includes(language === "zh" ? "无法读取发送历史" : "Send history unavailable"));
   }
-  const calls = [];
-  const coverage = ui.coverageNote({ coverage:[{ platform:"binance", account_alias:"live" }, { platform:"schwab", account_alias:"live" }, { platform:"ibkr", account_alias:"synthetic-z" }] }, {
-    platform: platform => config.platformMeta[platform].label,
-    account: (alias, platform) => { calls.push([alias,platform]); return platform === "ibkr" ? "Alpha" : "live"; },
-  });
-  assert.equal(coverage, "Binance: live; IBKR: Alpha; Schwab: live");
-  assert.ok(calls.every(([, platform]) => platform));
+  const partialHoldings = { status:"partial", label_key:"performance.current_holdings_unrealized", unavailable_reason:"positions_partial_coverage",
+    coverage:[{ platform:"binance", account_alias:"live" }, { platform:"schwab", account_alias:"live" }, { platform:"ibkr", account_alias:"synthetic-z" }],
+    rows:[{ platform:"ibkr", account_alias:"synthetic-z", symbol:"SYNTH", quantity:2, market_value:6, avg_cost:2,
+      unrealized_pnl:2, currency:"USD", status:"ok" }] };
+  for (const language of ["zh", "en"]) {
+    const holdings = ui.holdings(language, partialHoldings, config);
+    assert.ok(holdings.includes('data-coverage-count="3"'));
+    assert.ok(holdings.includes('data-state="partial"'));
+    assert.ok(holdings.includes("Alpha") && holdings.includes("SYNTH") && holdings.includes("6.00"));
+    assert.doesNotMatch(holdings, /synthetic-z|Binance:|Schwab:/, "the actual row keeps its display name without an ordinary coverage roster");
+  }
 } finally { delete globalThis.__groupingState; await rm(directory, { recursive:true, force:true }); }
 console.log("console_grouping_runs_validation: PASS (8 unconnected + 2 missing, separate block/failure, unknown reasons, platform/account ordering, per-row flags, coverage identity, honest fills, notification states zh/en)");

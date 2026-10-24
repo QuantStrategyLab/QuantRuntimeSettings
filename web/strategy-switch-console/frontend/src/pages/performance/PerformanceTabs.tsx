@@ -27,25 +27,6 @@ type HoldingRow = HoldingsResponse["rows"][number];
 
 const RANKING_SIZE = 5;
 
-function coverageNote(data: HoldingsResponse, names: { account: (alias: string, platform?: string) => string; platform: (platform: string) => string }): string | null {
-  const coverage = data.coverage;
-  if (Array.isArray(coverage)) {
-    const groups = new Map<string, string[]>();
-    for (const item of coverage) {
-      const platform = item.platform ? names.platform(item.platform) : "";
-      const accounts = groups.get(platform) || [];
-      accounts.push(names.account(item.account_alias, item.platform));
-      groups.set(platform, accounts);
-    }
-    return [...groups].sort(([a], [b]) => a.localeCompare(b))
-      .map(([platform, accounts]) => `${platform ? `${platform}: ` : ""}${accounts.join(", ")}`).join("; ") || null;
-  }
-  if (coverage && typeof coverage === "object" && Array.isArray(coverage.account_aliases)) {
-    return coverage.account_aliases.length ? coverage.account_aliases.map(alias => names.account(alias)).join(", ") : null;
-  }
-  return null;
-}
-
 function QuantityValue({ value }: { value: number | null }) {
   const language = useLanguage();
   return <span className="num">{formatQuantity(value, language)}</span>;
@@ -66,12 +47,7 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
   const data = state.data;
   if (!renderableStatus(data.status)) {
-    return (
-      <EmptyState
-        title={t(`state.${data.status}`)}
-        body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
-      />
-    );
+    return <EmptyState title={t(`state.${data.status}`)} state={data.status} />;
   }
   const columns: Column<HoldingRow>[] = [
     { id: "account", header: t("perf.col.account"), cell: row => names.account(row.account_alias, row.platform), sortValue: row => row.account_alias },
@@ -110,12 +86,15 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
       cell: row => (row.status !== "ok" ? <StatusBadge status={row.status} reason={row.unavailable_reason} /> : null),
     },
   ];
-  const coverage = coverageNote(data, names);
+  const coverage = data.coverage;
+  const coverageCount = Array.isArray(coverage) ? coverage.length
+    : coverage && typeof coverage === "object" && Array.isArray(coverage.account_aliases) ? coverage.account_aliases.length
+      : undefined;
   return (
-    <div>
+    <div data-state={data.status} data-reason={data.unavailable_reason ?? undefined} data-coverage-count={coverageCount}>
       <p className="card-note" style={{ marginTop: 0 }}>
         {t(data.label_key)}
-        {coverage ? ` · ${t("perf.holdings_coverage_accounts", { value: coverage })}` : ""}
+        {data.status !== "ok" && <> · <StatusBadge status={data.status} /></>}
       </p>
       <DataTable
         columns={columns}
@@ -157,12 +136,7 @@ function RankingTab({ state }: { state: Api<HoldingsResponse> }) {
   if (state.phase === "loading") return <Skeleton height={160} />;
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
   if (!renderableStatus(state.data.status)) {
-    return (
-      <EmptyState
-        title={t(`state.${state.data.status}`)}
-        body={state.data.unavailable_reason ? t(`reason.${state.data.unavailable_reason}`) : undefined}
-      />
-    );
+    return <EmptyState title={t(`state.${state.data.status}`)} state={state.data.status} />;
   }
   if (!winners.length && !losers.length) return <EmptyState title={t("state.no_data")} />;
   return (
@@ -191,22 +165,12 @@ function TradesTab({ scope, platform, range, epoch }: PerformanceTabsProps) {
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
   const data = state.data;
   if (data.status === "not_connected") {
-    return (
-      <EmptyState
-        title={t("state.not_connected")}
-        body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
-        state="not_connected"
-      />
-    );
+    return <EmptyState title={t("state.not_connected")} state="not_connected" />;
   }
   // No fills reader exists: never manufacture zero trades or a performance statistic.
   // A successful but empty read is no data, not a "normal" trades state.
   const stateKey = data.status === "ok" ? "no_data" : data.status;
-  return <EmptyState
-    title={t(`state.${stateKey}`)}
-    body={data.status === "ok" ? undefined : data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
-    state={stateKey}
-  />;
+  return <EmptyState title={t(`state.${stateKey}`)} state={stateKey} />;
 }
 
 export function PerformanceTabs({ scope, platform, range, epoch }: PerformanceTabsProps) {
