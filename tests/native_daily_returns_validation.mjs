@@ -13,6 +13,7 @@ assert.ok(Math.abs(native.summary.twr_return_percent-4.5)<1e-10);
 assert.ok(Math.abs(native.returns.points[0].value-10)<1e-10,'do not discard first reported daily return');
 assert.ok(Math.abs(native.returns.points[1].value-4.5)<1e-10);
 assert.ok(Math.abs(native.summary.max_drawdown.percent-5)<1e-10);
+assert.ok(Math.abs(native.summary.per_currency.find(x=>x.currency==='USD').max_drawdown.percent-5)<1e-10,'rendered currency drawdown follows native return too');
 assert.equal(native.summary.amount,null,'native percentage is not money P/L');
 assert.equal(native.calendar.cells.find(c=>c.date==='2026-10-23').return_percent,-5);
 assert.equal(native.calendar.cells.find(c=>c.date==='2026-10-23').amount,null);

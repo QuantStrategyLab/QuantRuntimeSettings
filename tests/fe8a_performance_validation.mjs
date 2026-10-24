@@ -64,7 +64,7 @@ test("end-of-valuation deposit and withdrawal give exact chained TWR and cash-ad
   assert.equal(JSON.stringify(blocks).includes('"net_flow"'), false);
 });
 
-test("midperiod flow remains explicitly approximate and daily P/L retains the API investment denominator", () => {
+test("midperiod flow remains explicitly approximate and calendar uses the linked period return", () => {
   const input = sourceInput();
   input.histories[0].externalFlow.windows[1].records[0].effective_at = "2026-10-21T00:00:00.000Z";
   input.histories[0].points[2].value = 226;
@@ -75,7 +75,7 @@ test("midperiod flow remains explicitly approximate and daily P/L retains the AP
   assert.equal(blocks.summary.cashflow_method, "modified_dietz");
   const depositDay = blocks.calendar.cells.find(cell => cell.date === "2026-10-21");
   close(depositDay.amount, 16);
-  close(depositDay.return_percent, 16 / 210 * 100);
+  close(depositDay.return_percent, 10);
 });
 
 test("missing cashflow coverage and disabled source never invent a zero flow or qualified TWR", () => {
@@ -141,12 +141,12 @@ test("unadjusted asset balances are never benchmark comparisons", () => {
   assert.deepEqual(curve.benchmarks, []);
 });
 
-test("daily investment-denominator return is not replaced with the end-flow TWR", () => {
+test("calendar percentage uses end-flow TWR while money P/L stays cash adjusted", () => {
   const blocks = calculate(datedInput(["2026-10-19", "2026-10-20"], [100, 220], [100]));
   close(blocks.summary.twr_return_percent, 20);
   const day = blocks.calendar.cells.find(cell => cell.date === "2026-10-20");
   close(day.amount, 20);
-  close(day.return_percent, 10);
+  close(day.return_percent, 20);
 });
 
 test("a shorter benchmark reports the real comparison cutoff without truncating summary or asset dates", () => {

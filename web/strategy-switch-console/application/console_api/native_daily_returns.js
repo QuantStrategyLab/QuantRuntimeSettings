@@ -48,6 +48,14 @@ export function applyNativeDailyReturns(blocks, input) {
     max_drawdown: gaps || incompleteRange ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
       : { percent: worst, peak_date: lossPeakDate, trough_date: troughDate, unavailable_reason: null },
     metric_reasons: { ...blocks.summary.metric_reasons, twr: reason }, excess_returns: [] });
+  const currencySummary = blocks.summary.per_currency.find(item => item.currency === currency) || {
+    currency, total: null, account_count: 0, expected_account_count: 1, as_of: null,
+    stale: null, status: "no_data", unavailable_reason: "no_snapshot" };
+  blocks.summary.per_currency = [...blocks.summary.per_currency.filter(item => item.currency !== currency),
+    { ...currencySummary, max_drawdown: blocks.summary.max_drawdown,
+      twr_return_percent: blocks.summary.twr_return_percent, cashflow_method: undefined, approximate: undefined }];
+  delete blocks.summary.cashflow_per_currency;
+  delete blocks.returns.cashflow_per_currency;
   // A native percentage does not supply a money P/L or imply zero external cash.
   // Calendar can display percentage cells while leaving unknown money amounts null.
   const byDate = new Map(daily.map(row => [row.date, row]));
