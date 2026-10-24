@@ -38,6 +38,15 @@ def render(rows, locale="zh"):
 
 
 class LegacyDigestPresentationTests(unittest.TestCase):
+    def test_alert_no_rebalance_shows_one_decision_and_honest_missing_reason(self):
+        for locale, token in (("zh", "无需调仓"), ("en", "No rebalance")):
+            _, text, _ = render([row(status="alert", rebalance_kind="no_rebalance",
+                                      signal_summary="no_rebalance", rebalance_conclusion="no_rebalance")], locale)
+            self.assertIn("需核对" if locale == "zh" else "Needs review", text)
+            self.assertEqual(text.count(token), 1)
+            self.assertIn("具体原因未随候选提供" if locale == "zh" else
+                          "Candidate did not provide a displayable reason", text)
+
     def test_verified_zero_noop_is_neutral_without_redundant_signal_or_platform_footer(self):
         for locale in ("zh", "en"):
             payload, text, _ = render([row()], locale)

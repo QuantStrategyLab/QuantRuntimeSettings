@@ -1,0 +1,77 @@
+[
+  {
+    "command": [
+      "node",
+      "tests/account_settings_worker_validation.mjs"
+    ],
+    "exit_code": 0,
+    "log": "review-fix-0.log",
+    "seconds": 8.33
+  },
+  {
+    "command": [
+      "node",
+      "tests/console_api_worker_validation.mjs"
+    ],
+    "exit_code": 0,
+    "log": "review-fix-1.log",
+    "seconds": 4.83
+  },
+  {
+    "command": [
+      "node",
+      "tests/console_design_api_validation.mjs"
+    ],
+    "exit_code": 0,
+    "log": "review-fix-2.log",
+    "seconds": 2.62
+  },
+  {
+    "command": [
+      "node",
+      "tests/console_api_contract_validation.mjs"
+    ],
+    "exit_code": 0,
+    "log": "review-fix-3.log",
+    "seconds": 0.35
+  },
+  {
+    "command": [
+      "node",
+      "--experimental-strip-types",
+      "tests/console_presentation_validation.mjs"
+    ],
+    "exit_code": 0,
+    "log": "review-fix-4.log",
+    "seconds": 1.4
+  },
+  {
+    "command": [
+      "node",
+      "tests/account_settings_state_validation.mjs"
+    ],
+    "exit_code": 0,
+    "log": "review-fix-5.log",
+    "seconds": 0.49
+  },
+  {
+    "command": [
+      "node",
+      "--check",
+      "web/strategy-switch-console/worker.js"
+    ],
+    "exit_code": 0,
+    "log": "review-fix-6.log",
+    "seconds": 0.18
+  },
+  {
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit_code": 0,
+    "log": "review-fix-7.log",
+    "seconds": 0.09
+  }
+]

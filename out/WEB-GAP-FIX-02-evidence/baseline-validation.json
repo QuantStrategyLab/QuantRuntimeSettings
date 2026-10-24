@@ -1,0 +1,22 @@
+{
+  "base": "26f161d88eee1c92de1623c11ba1050a99ea117d",
+  "method": "git show exports unchanged base test and script to TemporaryDirectory",
+  "exported_paths": [
+    "python/tests/test_checkout_internal_dependency_consumers.py",
+    "python/shell/checkout_internal_dependency_consumers.sh"
+  ],
+  "command": [
+    "python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "python/tests",
+    "-p",
+    "test_checkout_internal_dependency_consumers.py",
+    "-v"
+  ],
+  "exit_code": 1,
+  "seconds": 4.307,
+  "log": "baseline-python.log"
+}

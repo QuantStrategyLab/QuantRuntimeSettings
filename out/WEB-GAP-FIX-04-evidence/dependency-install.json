@@ -1,0 +1,14 @@
+[
+  {
+    "command": "npm ci --prefix web/strategy-switch-console",
+    "exit_code": 0,
+    "existing_audit": "3 high",
+    "log": "npm-ci-worker.log"
+  },
+  {
+    "command": "npm ci --prefix web/strategy-switch-console/frontend",
+    "exit_code": 0,
+    "log": "npm-ci-frontend.log",
+    "existing_audit": "1 high"
+  }
+]

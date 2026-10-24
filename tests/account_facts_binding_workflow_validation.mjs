@@ -237,7 +237,7 @@ const inspectorWorkflowGate = workflow.slice(
   workflow.indexOf("if ! node --input-type=module -", workflow.indexOf("account_facts_bindings_read_failed")),
 );
 assert.match(workflow, /inspect_ibkr_bindings:[\s\S]*?default: false/);
-assert.match(workflow, /IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'ibkr' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
+assert.match(workflow, /IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'ibkr' && !inputs\.backup_primary_ibkr_binding && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
 assert.match(workflow, /LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'longbridge' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
 assert.match(workflow, /FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'firstrade' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
 assert.match(workflow, /SCHWAB_ACCOUNT_FACTS_BINDING_JSON: \$\{\{ inputs\.platform == 'schwab' && !inputs\.inspect_ibkr_bindings/);
@@ -517,6 +517,14 @@ const cases = [
   { name: "schwab_unchanged", platform: "schwab", rows: [primary, schwab], proposed: schwab, expected: "unchanged" },
   { name: "schwab_conflict", platform: "schwab", rows: [primary, schwab],
     proposed: { ...schwab, source_binding: { ...schwab.source_binding, id: "b".repeat(64) } }, expected: "blocked" },
+  {name: "longbridge_configure_identity", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: longbridgeSg, rotation: {...longbridgeRotation, next_source_binding_id: longbridgeRotation.previous_source_binding_id,
+      physical_account_id: "synthetic-owner-a"}, expected: "prepared"},
+  {name: "longbridge_replace_identity_blocked", platform: "longbridge", rows: [primary, {...longbridgeSg, physical_account_id: "synthetic-owner-old"}, secondary],
+    proposed: longbridgeSg, rotation: {...longbridgeRotation, next_source_binding_id: longbridgeRotation.previous_source_binding_id,
+      physical_account_id: "synthetic-owner-a"}, expected: "blocked"},
+  {name: "longbridge_identity_and_rotation_blocked", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: longbridgeSg, rotation: {...longbridgeRotation, physical_account_id: "synthetic-owner-a"}, expected: "blocked"},
   { name: "longbridge_sg_rotate", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
     proposed: longbridgeSg, rotation: longbridgeRotation, expected: "prepared" },
   { name: "longbridge_paper_rotate", platform: "longbridge", rows: [primary, longbridgeSg, longbridgePaper, secondary],
@@ -625,6 +633,11 @@ esac
     }
     if (test.name === "schwab_append") {
       assert.deepEqual(JSON.parse(readFileSync(output, "utf8")).bindings, [primary, secondary, schwab]);
+    }
+    if (test.name === "longbridge_configure_identity") {
+      assert.deepEqual(JSON.parse(readFileSync(output, "utf8")).bindings,
+        [primary, {...longbridgeSg, physical_account_id: "synthetic-owner-a"}, secondary]);
+      assert.doesNotMatch(child.stdout + child.stderr, /synthetic-owner-a/);
     }
     if (test.name === "longbridge_sg_rotate") {
       const next = JSON.parse(readFileSync(output, "utf8"));

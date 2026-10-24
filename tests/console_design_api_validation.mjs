@@ -3,12 +3,22 @@ import "./console_strategy_execution_validation.mjs";
 import { todaySummary, strategySummary, businessDate, notificationLog } from "../web/strategy-switch-console/application/console_api/operations.js";
 import { runControls } from "../web/strategy-switch-console/application/console_api/run_controls.js";
 import { inbox } from "../web/strategy-switch-console/application/console_api/routes.js";
-import { canonicalItem, decisionHistoryRows, shortId } from "../web/strategy-switch-console/application/console_api/presentation.js";
+import { canonicalItem, decisionHistoryRows, shortId, settingsDiff } from "../web/strategy-switch-console/application/console_api/presentation.js";
 import { consoleApiFixture } from "../web/strategy-switch-console/frontend/scripts/console-api-synthetic.mjs";
 import { validate } from "./console_api_contract_validation.mjs";
 import { runtimeDailyBusinessDate, RUNTIME_DAILY_TIMEZONE } from "../web/strategy-switch-console/runtime_daily_contract.js";
 
 const now = Date.parse("2026-10-15T16:30:00Z");
+const oldSettingsRows = settingsDiff({ effective: {
+  reserved_cash_ratio: { status: "known", value: "0" },
+  income_layer_enabled: { status: "known", value: false },
+  option_overlay_enabled: { status: "unknown" },
+}, effective_read: { option_overlay_enabled: { reason: "synthetic-private-detail", source: "synthetic-private-detail" } } });
+assert.equal(oldSettingsRows.find(row => row.field === "reserved_cash_ratio").current, "0");
+assert.equal(oldSettingsRows.find(row => row.field === "income_layer_enabled").current, false);
+assert.equal(oldSettingsRows.find(row => row.field === "strategy_profile").current_reason, "effective_field_unavailable");
+assert.equal(oldSettingsRows.every(row => row.current_source === null && row.current_source_as_of === null), true);
+assert.equal(JSON.stringify(oldSettingsRows).includes("synthetic-private-detail"), false);
 assert.equal(businessDate(now), "2026-10-16", "today follows the backend business timezone");
 const account = { key: "synthetic-alpha", platform: "longbridge", default_strategy_profile: "synthetic-growth" };
 const request = new Request("https://console.example/api/runtime/today");

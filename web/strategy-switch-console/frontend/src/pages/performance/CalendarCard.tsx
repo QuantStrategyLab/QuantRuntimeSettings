@@ -46,13 +46,12 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
     hasFlowDays = data.cells.some(cell => cell.observed_amount !== null && cell.observed_amount !== undefined);
     if (!renderableStatus(data.status)) {
       body = (
-        <EmptyState
-          title={t(`state.${data.status}`)}
-          body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
-        />
+        <div data-reason={data.unavailable_reason ?? undefined}>
+          <EmptyState title={t(`state.${data.status}`)} state={data.status} />
+        </div>
       );
     } else if (data.cells.length === 0) {
-      body = <EmptyState title={t("state.no_data")} />;
+      body = <div data-reason={data.unavailable_reason ?? undefined}><EmptyState title={t("state.no_data")} state="no_data" /></div>;
     } else {
       body = <CalendarHeatmap year={data.year} month={data.month} cells={data.cells} onNavigate={(year, month) => setView({ year, month })} />;
     }
@@ -61,8 +60,7 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
   return (
     <div className="card">
       <div className="perf-card-head">
-        <h2 className="card-title">{t("perf.calendar_title")}</h2>
-        {assetChange && <Badge tone="accent">{t("perf.value_kind_asset_change")}</Badge>}
+        <h2 className="card-title">{t(assetChange ? "perf.asset_change_title" : "perf.calendar_title")}</h2>
         <div className="segmented" role="group" aria-label={t("perf.calendar_title")}>
           <button
             type="button"
@@ -82,6 +80,7 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
           </button>
         </div>
         <span className="perf-head-meta">
+          {assetChange && <Badge tone="accent" title={t("perf.asset_change_note")}>{t("perf.asset_change_calendar_tag")}</Badge>}
           {status && status !== "ok" && renderableStatus(status) && <StatusBadge status={status} reason={reason} />}
           {status && renderableStatus(status) && <AsOfStamp value={asOf} />}
         </span>

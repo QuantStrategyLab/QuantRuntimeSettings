@@ -272,6 +272,8 @@ export interface PerformanceMeta {
 export interface Point {
   date: string;
   value: number;
+  /** Native daily TWR percentage (not a ratio); absent when the backend cannot chain a day. */
+  daily_return_percent?: number;
   breakBefore?: boolean;
   contributing_accounts?: string[];
   missing_accounts?: string[];
@@ -447,6 +449,18 @@ export interface TodayRunSummary extends ReadOnlyProjection {
       activity: string; execution_lane: string; errors_present: boolean | null }[];
   }[];
 }
+export interface AccountExecutionEvidence {
+  value: "live" | "paper" | "dry_run" | "unknown";
+  status: "confirmed" | "config_missing" | "not_connected" | "read_failed" | "permission_denied";
+  reason_codes: string[];
+  broker_environment: "live" | "paper" | null;
+  execution_mode: "live" | "paper" | "dry_run" | null;
+  dry_run_only: boolean | null;
+  environment_source: string | null;
+  configuration_source: string | null;
+  observed_at: string | null;
+  runtime_observation_status: "unknown";
+}
 export interface StrategySummary extends ReadOnlyProjection {
   status: "ok" | "partial" | "stale" | "not_connected" | "read_failed";
   as_of: string | null;
@@ -459,6 +473,7 @@ export interface StrategySummary extends ReadOnlyProjection {
     allowed_execution_modes: string[];
     configured_accounts: {
       account_alias: string; platform: string; account_ref?: string;
+      execution_evidence?: AccountExecutionEvidence;
       execution_mode?: "live" | "paper" | "dry_run" | "unknown";
       dry_run_only?: boolean | null;
       live_status?: "configured_live" | "not_live" | "unknown";
@@ -492,6 +507,8 @@ export interface NotificationReceiptItem {
 }
 export interface NotificationSendLog extends ReadOnlyProjection {
   status: "ok" | "partial" | "read_failed" | "not_connected";
+  read_status?: "complete" | "partial" | "no_data" | "unknown" | "read_failed" | "not_connected";
+  read_reason_codes?: string[];
   unavailable_reason: string | null;
   as_of: string | null;
   items: NotificationReceiptItem[];
@@ -582,4 +599,67 @@ export interface CashflowReturnMetrics {
   cashflow_method: "modified_dietz";
   approximate: boolean;
   multi_day_intervals?: boolean;
+}
+
+/**
+ * Read-only projection of GET /api/account-facts. Broker-reported amounts stay
+ * decimal strings exactly as returned; null net_assets means the broker did not
+ * report a value, never zero. Per-currency rows are never summed across
+ * currencies and cash is never relabeled as buying power or available margin.
+ */
+export interface AccountFactsBalance {
+  currency: string;
+  net_assets: string | null;
+  total_cash?: string | null;
+  source_tag?: string;
+  currency_source?: string;
+}
+export interface AccountFactsCash {
+  currency: string;
+  cash_balance?: string;
+  available_cash?: string;
+  frozen_cash?: string;
+  settling_cash?: string;
+  source_tag?: string;
+  currency_source?: string;
+}
+export interface AccountFactsAccount {
+  platform: string;
+  account_key: string;
+  binding_status: "bound" | "missing" | "duplicate";
+  identity_status: "partial_identity" | "missing_identity";
+  identity_source?: "protected_configuration";
+  identity_mismatch: boolean;
+  data_status: "fresh" | "stale" | "unavailable";
+  broker_environment: string | null;
+  account_scope: string | null;
+  observation_date: string | null;
+  observed_started_at: string | null;
+  observed_finished_at: string | null;
+  /**
+   * Authoritative backend aggregation conclusion for this row: only "included"
+   * rows have validated physical-account mappings and may join a sum. Missing
+   * or unknown values are treated as unverified, never as included.
+   */
+  aggregation_status?: "included" | "unverified" | "conflict" | "duplicate";
+  balances: AccountFactsBalance[];
+  cash: AccountFactsCash[];
+}
+export interface AccountFactsResponse extends ReadOnlyProjection {
+  ok: true;
+  accounts: AccountFactsAccount[];
+  totals: {
+    status: "by_currency" | "unavailable";
+    reason: string | null;
+    by_currency: {
+      currency: string;
+      net_assets: string;
+      available_cash: string | null;
+      cash_balance: string | null;
+      account_count: number;
+    }[];
+  };
+  account_options_revision: number | null;
+  enabled: true;
+  configured: boolean;
 }
