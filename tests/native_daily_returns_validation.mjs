@@ -37,3 +37,11 @@ const adjusted=applyCashflowPerformance(performanceBlocks(flowInput),flowInput,{
 assert.equal(adjusted.returns.approximate,true);
 assert.ok(Math.abs(adjusted.calendar.cells.find(c=>c.date==='2026-10-23').return_percent-adjusted.summary.twr_return_percent)<1e-10,'calendar and curve use the same linked return');
 console.log('native_daily_returns_validation: PASS (deposit, native compounding, calendar, first-day return, drawdown, gaps, portfolio exclusion, approximation consistency)');
+
+const partialMonthInput={...input,range:'1M'};
+const partialMonth=applyNativeDailyReturns(performanceBlocks(partialMonthInput),partialMonthInput);
+assert.equal(partialMonth.summary.twr_return_percent,null,'two available days cannot certify a whole month return');
+assert.equal(partialMonth.summary.max_drawdown.percent,null);
+assert.equal(partialMonth.returns.points.length,2,'known partial-period observations remain visible');
+assert.equal(partialMonth.returns.coverage.range_complete,false);
+assert.equal(partialMonth.calendar.cells.find(c=>c.date==='2026-10-23').return_percent,-5);
