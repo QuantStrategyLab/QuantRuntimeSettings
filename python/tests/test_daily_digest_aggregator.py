@@ -534,7 +534,7 @@ class DailyDigestWorkflowContractTests(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "docs/workflows/daily-digest-notify.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn('cron: "0 22 * * 1-5"', workflow)
+        self.assertIn('cron: "10 23 * * 1-5"', workflow)
         self.assertIn("Asia/Shanghai", workflow)
         self.assertIn("workflow_dispatch", workflow)
         self.assertIn("quant-sentinel-telegram-bot-token", workflow)
@@ -852,7 +852,7 @@ class SectionsLayoutTests(unittest.TestCase):
         # The deployable workflow has a default-off release flag. The user-owned
         # documentation template is intentionally not edited in this code PR.
         template = (ROOT.parent / "docs/workflows/daily-digest-notify.yml").read_text(encoding="utf-8")
-        for schedule in ('cron: "0 22 * * 1-5"', 'cron: "0 23 * * *"'):
+        for schedule in ('cron: "10 23 * * 1-5"', 'cron: "0 23 * * *"'):
             self.assertIn(schedule, text)
             self.assertIn(schedule, template)
         self.assertIn("QRS_UNIFIED_NOTIFICATION_ENABLED || 'false'", text)

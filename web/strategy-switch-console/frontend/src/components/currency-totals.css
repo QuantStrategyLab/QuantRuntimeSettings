@@ -1,3 +1,86 @@
-.currency-totals { display: flex; flex-wrap: wrap; gap: 16px; }
-.currency-total { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.currency-total .num { overflow-wrap: anywhere; }
+/* Native-currency totals: amount first, short coverage/time status, details last. */
+
+.currency-totals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 30px;
+  min-width: 0;
+}
+.currency-total {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.currency-total .kpi-sub:first-child { font-weight: 500; }
+.currency-total > .num {
+  font-size: 24px;
+  font-weight: 680;
+  line-height: 1.18;
+  letter-spacing: -.025em;
+  overflow-wrap: anywhere;
+}
+.currency-total .money { font-size: inherit; }
+.currency-total .percent { font-size: 22px; font-weight: 680; letter-spacing: -.02em; }
+
+.currency-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  margin-top: 1px;
+}
+.currency-meta .kpi-sub { overflow-wrap: anywhere; }
+.currency-meta .asof { font-size: 12px; }
+.currency-meta .state-short { flex-basis: 100%; }
+.currency-note { flex-basis: 100%; margin: 0; }
+
+.currency-status {
+  flex-basis: 100%;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--status-warn);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.currency-status::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid currentColor;
+  border-left: 4px solid transparent;
+  transform: translateY(-1px);
+}
+
+.currency-details {
+  flex-basis: 100%;
+  min-width: 0;
+  margin-top: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+.currency-details > summary {
+  width: fit-content;
+  min-height: 28px;
+  padding: 4px 0;
+  color: var(--muted);
+  font-weight: 550;
+  cursor: pointer;
+}
+.currency-details > summary:hover { color: var(--ink); }
+.currency-details p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.currency-detail-name { color: var(--ink); font-weight: 600; }
+
+@media (max-width: 600px) {
+  .currency-totals { gap: 12px 22px; }
+  .currency-total > .num { font-size: 21px; }
+  .currency-total .percent { font-size: 20px; }
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "command": [
+      "node",
+      "tests/runtime_daily_worker_validation.mjs"
+    ],
+    "phase": "RED before implementation",
+    "exit_code": 1,
+    "log": "red.log",
+    "observation": "read_summary undefined rather than partial 5/null"
+  },
+  {
+    "command": [
+      "node",
+      "tests/runtime_daily_worker_validation.mjs"
+    ],
+    "phase": "initial implementation",
+    "exit_code": 1,
+    "log": "green-initial.log",
+    "observation": "new unmatched fixture not conforming to existing private shape; corrected synthetic fixture only"
+  },
+  {
+    "command": [
+      "node",
+      "tests/runtime_daily_worker_validation.mjs"
+    ],
+    "phase": "corrected fixtures",
+    "exit_code": 0,
+    "log": "green-second.log",
+    "observation": "daily and imported health/Schwab integration passed; later assertions recorded in focused-validation.json"
+  }
+]

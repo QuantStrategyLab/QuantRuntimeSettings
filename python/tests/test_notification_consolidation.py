@@ -64,7 +64,7 @@ class ConsolidationSelectorTests(unittest.TestCase):
         script = textwrap.dedent(steps[0].split("        run: |\n", 1)[1])
         self.assertIn("QRS_UNIFIED_NOTIFICATION_ENABLED || 'false'", source)
         for value in ("", "false", "invalid", "true", " TRUE "):
-            for slot in ("0 22 * * 1-5", "0 23 * * *"):
+            for slot in ("10 23 * * 1-5", "0 23 * * *"):
                 with tempfile.TemporaryDirectory() as directory:
                     output = Path(directory) / "out"
                     env = dict(PATH=os.environ["PATH"], QRS_UNIFIED_NOTIFICATION_ENABLED=value,
@@ -72,7 +72,7 @@ class ConsolidationSelectorTests(unittest.TestCase):
                                DIGEST_EVENT_SCHEDULE=slot, GITHUB_OUTPUT=str(output))
                     result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    expected = "0 23 * * *" if value.strip().lower() == "true" else "0 22 * * 1-5"
+                    expected = "0 23 * * *" if value.strip().lower() == "true" else "10 23 * * 1-5"
                     self.assertEqual(output.read_text(), f"proceed={str(slot == expected).lower()}\n")
         self.assertIn("cancel-in-progress: false", source)
 

@@ -52,8 +52,8 @@ class MaintenanceReadCheckTests(unittest.TestCase):
         default: false
 ''', source)
         self.assertIn('''  schedule:
-    # Asia/Shanghai Tue–Sat 06:00 → UTC Mon–Fri 22:00
-    - cron: "0 22 * * 1-5"
+    # Asia/Shanghai Tue–Sat 07:10 → UTC Mon–Fri 23:10, after 22:20 producers
+    - cron: "10 23 * * 1-5"
 ''', source)
         digest, check = source.split('jobs:\n  digest:\n', 1)[1].split('\n  maintenance-read-check:\n', 1)
         exclude_check = "github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true"

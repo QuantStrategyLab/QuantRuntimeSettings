@@ -1,6 +1,7 @@
 import { performanceScope } from "../lib/accountDirectory";
 import { getJson, postJson, readRevision } from "./client";
 import type {
+  AccountFactsResponse,
   AccountsResponse,
   AssetsResponse,
   CalendarResponse,
@@ -59,6 +60,11 @@ export function loadDecisionHistory(limit = 25, cursor?: string | null): Promise
 
 export function loadAccounts(): Promise<AccountsResponse> {
   return getJson<AccountsResponse>("/api/accounts");
+}
+
+/** Read-only broker-reported facts. Amounts stay decimal strings; a failed read rejects. */
+export function loadAccountFacts(): Promise<AccountFactsResponse> {
+  return getJson<AccountFactsResponse>("/api/account-facts");
 }
 
 export function loadSettingsDiff(account: string, platform?: string): Promise<SettingsDiffResponse> {

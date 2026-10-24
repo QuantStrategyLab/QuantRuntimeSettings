@@ -11,6 +11,8 @@ export type EquityPoint = ValuePoint & {
 };
 export type AccountEquity = {
     id: string;
+    /** True for 24/7 markets; gap detection must not assume exchange closures. */
+    crypto?: boolean;
     points: EquityPoint[];
 };
 export declare function dateMs(date: string): number;
@@ -18,7 +20,7 @@ export declare function rangeStart(range: PerformanceRange, today: string): stri
 /** Conflicting duplicate dates are omitted, never arbitrarily picked. */
 export declare function cleanPoints<T extends ValuePoint>(points: readonly T[]): T[];
 export declare function sliceRange<T extends ValuePoint>(points: readonly T[], range: PerformanceRange, today: string): T[];
-export declare function hasGap(previous: ValuePoint, point: ValuePoint): boolean;
+export declare function hasGap(previous: ValuePoint, point: ValuePoint, options?: { crypto?: boolean }): boolean;
 /** Rebase a positive index/price to percentage return; never fill missing dates. */
 export declare function rebase(points: readonly ValuePoint[], start?: string): ValuePoint[];
 /** End-flow TWR: 1+r = (V_end - F_end) / V_previous. */

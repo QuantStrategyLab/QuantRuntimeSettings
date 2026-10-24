@@ -1,5 +1,6 @@
 import { useT } from "../i18n";
 import type { Scalar } from "../api/contracts";
+import { Badge } from "./primitives";
 
 export interface DiffRowLike {
   field: string;
@@ -10,7 +11,8 @@ export interface DiffRowLike {
 }
 
 function ScalarText({ value }: { value: Scalar }) {
-  if (value === null || value === undefined) return <span className="flat">—</span>;
+  const t = useT();
+  if (value === null || value === undefined) return <span className="flat">{t("decisions.not_set")}</span>;
   if (typeof value === "boolean") return <>{value ? "✓" : "✕"}</>;
   return <span className="num">{String(value)}</span>;
 }
@@ -32,11 +34,13 @@ export function DiffTable({ rows }: { rows: DiffRowLike[] }) {
         <tbody>
           {rows.map(row => (
             <tr key={row.field}>
-              <td>{row.label}</td>
+              <td title={row.label !== row.field ? row.field : undefined}>{row.label}</td>
               <td><ScalarText value={row.before} /></td>
               <td><ScalarText value={row.after} /></td>
               <td className={row.affectsLive ? "diff-affects-live" : ""}>
-                {row.affectsLive ? t("decisions.affects_live_yes") : t("decisions.affects_live_no")}
+                <Badge tone={row.affectsLive ? "warn" : "unknown"}>
+                  {row.affectsLive ? t("decisions.affects_live_required") : t("decisions.affects_live_none")}
+                </Badge>
               </td>
             </tr>
           ))}

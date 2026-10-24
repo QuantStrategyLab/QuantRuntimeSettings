@@ -525,5 +525,82 @@ for (const selection of ["include_history=maybe", "include_history=false&include
   assert.equal(response.status, 400);
 }
 
+// WEB-GAP-FIX-02: HTTP success is independent of source-read completeness.
+const summary = (status, reason, observed, total) => ({
+  source: "stored_runtime_daily_projection", status, reason,
+  observed_run_count: observed, total_run_count: total,
+});
+const summaryRequest = () => new Request(`https://console.example/api/runtime-daily?date=${coverageDayB}&include_history=false`, { headers: sessionHeaders });
+const summaryKey = `runtime_daily:${diagnosticProjection.records[0].target_key}:${coverageDayB}`;
+const writesBeforeSummaryReads = puts.length;
+async function readSummaryProjection(body) {
+  store.set(summaryKey, JSON.stringify(body));
+  const response = await worker.fetch(summaryRequest(), env);
+  assert.equal(response.status, 200);
+  return response.json();
+}
+const fiveRuns = structuredClone(diagnosticProjection);
+fiveRuns.records[0].runs = Array.from({ length: 5 }, (_, i) => ({ ...fiveRuns.records[0].runs[0], run_id: `synthetic-partial-${i}` }));
+const partialSummary = await readSummaryProjection(fiveRuns);
+assert.deepEqual(partialSummary.read_summary, summary("partial", "runtime_daily_incomplete", 5, null));
+assert.equal(partialSummary.record.runs.length, 5, "partial reads retain all observed runs without claiming the day's total");
+assert.equal(partialSummary.record.status, "read_incomplete");
+assert.equal(partialSummary.data_status, "historical");
+assert.ok(!JSON.stringify(partialSummary).includes("private/path/fixture"));
+const completeProjection = projection({}, { business_date: coverageDayB, observed_at: `${coverageDayB}T20:00:00Z` });
+const completeSummary = await readSummaryProjection(completeProjection);
+assert.deepEqual(completeSummary.read_summary, summary("complete", null, 1, 1));
+assert.deepEqual(completeSummary.record, coverageRead.record, "the additive summary leaves the existing public record unchanged");
+for (const mutate of [
+  body => { body.completeness = "incomplete"; },
+  body => { body.records[0].completeness = "incomplete"; },
+  body => { body.read_errors = ["private-source-error"]; },
+  body => { body.unmatched_reports = [{ run_id: null, platform: null, service: null, strategy_profile: null, account_scope: null, reason: "private-unmatched-report" }]; },
+  body => { body.records[0].status = "unknown"; body.records[0].conflicts = ["synthetic-run-conflict"]; },
+  body => { body.records[0].status = "missing_report"; body.records[0].kind = "incomplete"; },
+]) {
+  const body = structuredClone(completeProjection); mutate(body);
+  const result = await readSummaryProjection(body);
+  assert.deepEqual(result.read_summary, summary("partial", "runtime_daily_incomplete", 1, null));
+  assert.equal(result.record.runs.length, 1);
+  assert.ok(!JSON.stringify(result).includes("private-source-error"));
+  assert.ok(!JSON.stringify(result).includes("private-unmatched-report"));
+}
+const noRuns = structuredClone(completeProjection);
+Object.assign(noRuns.records[0], { kind: "schedule", status: "not_due", runs: [] });
+noRuns.records[0].schedule.state = "not_due";
+assert.deepEqual((await readSummaryProjection(noRuns)).read_summary, summary("complete", null, 0, 0), "only a complete explicit source may report a real zero");
+noRuns.completeness = "incomplete";
+assert.deepEqual((await readSummaryProjection(noRuns)).read_summary, summary("partial", "runtime_daily_incomplete", 0, null));
+store.delete(summaryKey);
+const missingSummaryResponse = await worker.fetch(summaryRequest(), env);
+assert.equal(missingSummaryResponse.status, 200);
+assert.deepEqual((await missingSummaryResponse.json()).read_summary, summary("no_data", "runtime_daily_record_missing", null, null));
+for (const mode of ["throw", "bad_json", "invalid_projection", "wrong_date"]) {
+  const brokenKv = { ...kv, async get(key) {
+    if (key !== summaryKey) return kv.get(key);
+    if (mode === "throw") throw Error("private-kv-error");
+    if (mode === "bad_json") return "private-broken-json";
+    if (mode === "invalid_projection") return JSON.stringify({ private: "private-record-body" });
+    return JSON.stringify(projection({}, { business_date: coverageDayA, observed_at: `${coverageDayA}T20:00:00Z` }));
+  } };
+  const response = await worker.fetch(summaryRequest(), { ...env, STRATEGY_SWITCH_CONFIG: brokenKv });
+  assert.equal(response.status, 503, mode);
+  const body = await response.json();
+  const reason = ["throw", "bad_json"].includes(mode) ? "runtime_daily_read_failed" : "runtime_daily_record_invalid";
+  assert.deepEqual(body.read_summary, summary("read_failed", reason, null, null));
+  assert.equal(body.error, reason);
+  assert.ok(!JSON.stringify(body).includes("private-"));
+  assert.equal(body.record, undefined);
+}
+const staleProjection = projection({}, { business_date: today, observed_at: expiredAt });
+const staleKey = `runtime_daily:${staleProjection.records[0].target_key}:${today}`;
+store.set(staleKey, JSON.stringify(staleProjection));
+const staleSummary = await (await get(today, sessionHeaders)).json();
+assert.equal(staleSummary.data_status, "stale");
+assert.deepEqual(staleSummary.read_summary, summary("complete", null, 1, 1), "complete source reads do not make old data fresh");
+assert.equal(staleSummary.record.observed_at, expiredAt);
+assert.equal(puts.length, writesBeforeSummaryReads, "daily GET summaries never write source records or settings");
+
 console.log("runtime_daily_worker_validation ok");
 await import("./runtime_daily_health_integration_validation.mjs");

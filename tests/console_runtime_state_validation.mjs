@@ -521,7 +521,10 @@ test("failed variable-list page never publishes a partial configuration", async 
   try {
     const result = await __test.loadCurrentStrategies({ binance: [{ key: "default", target_name: "default" }] },
       { RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-only" });
-    assert.equal(result.binance, undefined);
+    assert.equal(result.binance.default.runtime_target_enabled, undefined);
+    assert.equal(result.binance.default.strategy_profile, undefined);
+    assert.equal(result.binance.default.execution_evidence.value, "unknown");
+    assert.equal(result.binance.default.execution_evidence.status, "read_failed");
     assert.equal(requests, 2);
   } finally { globalThis.fetch = original; }
 });
