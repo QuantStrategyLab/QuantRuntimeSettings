@@ -332,6 +332,15 @@ try {
 
     // 15b. Unverified identities (LongBridge live rows) never join a platform sum.
     const lbLive = { ...longbridgeFact(), broker_environment: "live", account_scope: "LIVE" };
+    const lbConfigured = { ...lbLive, aggregation_status: "included",
+      balances: [{ currency: "USD", net_assets: "100", total_cash: "-20" }],
+      cash: [{ currency: "USD", available_cash: "-21" }, { currency: "HKD", available_cash: "1" }] };
+    const lbConfiguredTotals = ui.lib.platformCurrencyTotals([lbConfigured], 1);
+    ok(lbConfiguredTotals.length === 1 && lbConfiguredTotals[0].currency === "USD"
+      && lbConfiguredTotals[0].netAssets === "100" && lbConfiguredTotals[0].cashBalance === "-20",
+      "available-only currencies cannot create empty platform asset totals or change native cash");
+    ok(ui.card(language, lbConfigured, "ready").includes(language === "zh" ? "可用现金 · HKD" : "Available cash · HKD"),
+      "native available cash still appears on its account card");
     const unverifiedOnly = ui.platform(language, [lbLive], 1, "ready");
     ok(withheldState(unverifiedOnly, "facts.platform_identity_unverified") && !unverifiedOnly.includes(s.platformIdentity), "an unverified-only platform shows the honest identity state");
     ok(!unverifiedOnly.includes("1,234.56") && !unverifiedOnly.includes('class="account-facts-currency"'),

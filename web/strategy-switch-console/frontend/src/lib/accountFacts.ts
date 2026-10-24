@@ -242,7 +242,8 @@ export function platformCurrencyTotals(rows: AccountFactsAccount[], expected: nu
       if (balance && typeof balance.currency === "string") currencies.add(balance.currency);
     }
     for (const cash of Array.isArray(rep.cash) ? rep.cash : []) {
-      if (cash && typeof cash.currency === "string") currencies.add(cash.currency);
+      // Available cash belongs to the account detail, not a balance total.
+      if (cash && typeof cash.currency === "string" && typeof cash.cash_balance === "string") currencies.add(cash.currency);
     }
   }
   return [...currencies].sort().map(currency => {
