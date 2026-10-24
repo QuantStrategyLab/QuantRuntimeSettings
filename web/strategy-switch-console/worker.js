@@ -2180,9 +2180,14 @@ export class RuntimeInstances {
     this.externalFlowEnabled = externalFlowEnabled(env);
     if (this.externalFlowEnabled) initializeExternalFlow(this.sql);
     initializeCredentialMaintenance(this.sql);
-    // Latest native interval only; existing private read-model store, no new ledger.
+    // Native intervals remain in the existing private account read-model store.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS account_period_return (
       account_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL
+    )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_daily_native_return (
+      account_key TEXT NOT NULL, source_binding_id TEXT NOT NULL, currency TEXT NOT NULL,
+      observation_date TEXT NOT NULL, payload_json TEXT NOT NULL,
+      PRIMARY KEY(account_key, source_binding_id, currency, observation_date)
     )`);
     // Dormant: only an independent protected provisioning step may seed admission.
     // There is deliberately no ingress/admin command that writes an admission.
@@ -3040,13 +3045,33 @@ export class RuntimeInstances {
       try { prior = normalizeIbkrPeriodReturn(JSON.parse(existing.payload_json), { binding, enforceFresh: false }); }
       catch { if (command.action === "account_period_return_read") return { ok: true, return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE } }; }
     }
-    if (command.action === "account_period_return_read") return { ok: true, return: prior ? publicIbkrPeriodReturn(prior) : { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE } };
+    if (command.action === "account_period_return_read") {
+      const daily = this.sql.exec("SELECT payload_json FROM account_daily_native_return WHERE account_key = ? AND source_binding_id = ? ORDER BY observation_date DESC LIMIT 366", context.account_key, context.source_binding_id).toArray().flatMap(row => {
+        try { return [normalizeIbkrPeriodReturn(JSON.parse(row.payload_json), { binding, enforceFresh: false })]; }
+        catch { return []; }
+      });
+      if (prior && prior.period.from === prior.period.to && !daily.some(row => row.currency === prior.currency && row.period.to === prior.period.to)) daily.push(prior);
+      return { ok: true, return: { ...(prior ? publicIbkrPeriodReturn(prior) : ACCOUNT_FACTS_RETURN_UNAVAILABLE),
+        daily: daily.sort((a, b) => a.period.to.localeCompare(b.period.to)).map(publicIbkrPeriodReturn) } };
+    }
     const incoming = normalizeIbkrPeriodReturn(command.payload, { binding });
-    if (prior) {
+    const historical = command.historical === true;
+    if (historical && (incoming.period.from !== incoming.period.to || Date.now() - Date.parse(incoming.period.to + "T00:00:00Z") > 366 * 86400000)) throw new HttpError("invalid_account_daily_return", 400);
+    if (prior && !historical) {
       if (incoming.period.to < prior.period.to || Date.parse(incoming.observed_at) < Date.parse(prior.observed_at)) throw new HttpError("account_period_return_stale_write", 409);
       if (incoming.observed_at === prior.observed_at && canonicalResearchTaskJson(incoming) !== canonicalResearchTaskJson(prior)) throw new HttpError("account_period_return_conflict", 409);
-      if (canonicalResearchTaskJson(incoming) === canonicalResearchTaskJson(prior)) return { ok: true, unchanged: true };
     }
+    if (incoming.period.from === incoming.period.to) {
+      const oldDay = this.sql.exec("SELECT payload_json FROM account_daily_native_return WHERE account_key = ? AND source_binding_id = ? AND currency = ? AND observation_date = ?", context.account_key, context.source_binding_id, incoming.currency, incoming.period.to).toArray()[0];
+      if (oldDay) {
+        const old = normalizeIbkrPeriodReturn(JSON.parse(oldDay.payload_json), { binding, enforceFresh: false });
+        if (Date.parse(incoming.observed_at) < Date.parse(old.observed_at)) throw new HttpError("account_daily_return_stale_write", 409);
+        if (incoming.observed_at === old.observed_at && (old.value !== incoming.value || old.source_value !== incoming.source_value)) throw new HttpError("account_daily_return_conflict", 409);
+      }
+      this.sql.exec("INSERT INTO account_daily_native_return (account_key, source_binding_id, currency, observation_date, payload_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(account_key, source_binding_id, currency, observation_date) DO UPDATE SET payload_json = excluded.payload_json", context.account_key, context.source_binding_id, incoming.currency, incoming.period.to, JSON.stringify(incoming));
+    }
+    if (historical && prior && (incoming.period.to < prior.period.to || Date.parse(incoming.observed_at) < Date.parse(prior.observed_at))) return { ok: true, unchanged: false };
+    if (prior && canonicalResearchTaskJson(incoming) === canonicalResearchTaskJson(prior)) return { ok: true, unchanged: true };
     this.sql.exec("INSERT INTO account_period_return (account_key, payload_json) VALUES (?, ?) ON CONFLICT(account_key) DO UPDATE SET payload_json = excluded.payload_json", context.account_key, JSON.stringify(incoming));
     return { ok: true, unchanged: false };
   }
@@ -10710,7 +10735,8 @@ async function syncAccountPeriodReturnResponse(request, env) {
     const options = (config.options?.ibkr || []).filter(item => item.key === binding.account_key);
     if (options.length !== 1 || !accountFactsOptionMatchesBinding(options[0], binding)) throw new HttpError("account_facts_account_unattributed", 409);
     const payload = normalizeIbkrPeriodReturn(raw, { binding });
-    const stored = await runtimeInstanceCommand(env, { ...periodReturnCommand(binding, "account_period_return_put"), payload });
+    const stored = await runtimeInstanceCommand(env, { ...periodReturnCommand(binding, "account_period_return_put"), payload,
+      historical: new URL(request.url).searchParams.get("historical") === "true" });
     return json({ ok: true, stored: true, unchanged: stored.unchanged === true, account_key: binding.account_key,
       period: payload.period, currency: payload.currency, method: payload.method });
   } catch (error) {

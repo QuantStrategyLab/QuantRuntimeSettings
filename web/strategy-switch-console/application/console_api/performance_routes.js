@@ -1,5 +1,6 @@
 import { isAggregateAssetAccount } from "../../performance_math.js";
 import { MARKET_BENCHMARK_SERIES_IDS } from "../../infrastructure/market_benchmark/market_benchmark.js";
+import { applyNativeDailyReturns } from "./native_daily_returns.js";
 import { businessDate, performanceBlocks } from "./performance.js";
 import { externalFlowEnabled } from "../account_facts/external_flow.js";
 import { applyCashflowPerformance } from "./cashflow_performance.js";
@@ -253,7 +254,7 @@ export async function performanceResponse(request, env, deps) {
       month,
       failed: [...new Set(failed)],
     };
-    const blocks = applyCashflowPerformance(performanceBlocks(performanceInput), performanceInput, env);
+    const blocks = applyNativeDailyReturns(applyCashflowPerformance(performanceBlocks(performanceInput), performanceInput, env), performanceInput);
     const block = blocks[endpoint];
     if (["calendar", "summary", "returns", "assets"].includes(endpoint)) {
       block.coverage.truncated = truncated;
