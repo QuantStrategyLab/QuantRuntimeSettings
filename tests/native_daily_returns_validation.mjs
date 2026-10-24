@@ -12,6 +12,7 @@ const native=applyNativeDailyReturns(structuredClone(raw),input);
 assert.ok(Math.abs(native.summary.twr_return_percent-4.5)<1e-10);
 assert.ok(Math.abs(native.returns.points[0].value-10)<1e-10,'do not discard first reported daily return');
 assert.ok(Math.abs(native.returns.points[1].value-4.5)<1e-10);
+assert.deepEqual(native.returns.points.map(p=>p.daily_return_percent),[10,-5], 'daily chart receives original native first-day and subsequent returns');
 assert.ok(Math.abs(native.summary.max_drawdown.percent-5)<1e-10);
 assert.ok(Math.abs(native.summary.per_currency.find(x=>x.currency==='USD').max_drawdown.percent-5)<1e-10,'rendered currency drawdown follows native return too');
 assert.equal(native.summary.amount,null,'native percentage is not money P/L');
