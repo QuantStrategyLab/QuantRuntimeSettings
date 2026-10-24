@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
 import { createNotificationLogReader, publicReceiptFromZip, projectNotificationReceipt } from "../web/strategy-switch-console/application/console_api/notification_receipts.js";
+import { validate } from "./console_api_contract_validation.mjs";
 import { consoleApiResponse } from "../web/strategy-switch-console/application/console_api/routes.js";
 
 // Synthetic archives and receipts, never real account facts or credentials.
@@ -69,6 +70,7 @@ assert.ok(result.items.every(item => item.source_sha === sha && item.source_run_
 assert.equal(result.truncated, true);
 assert.match(result.coverage, /daily_digest_public_receipts_only/);
 assert.equal(result.no_order, true); assert.equal(result.execution_authority_granted, false);
+assert.equal(result.items[3].read_error_code, "artifact_listing_http_403");
 const count = calls.length;
 assert.deepEqual(await reader(options), result); assert.equal(calls.length, count, "cache avoids repeated GitHub reads");
 assert.equal((await reader({ repository })).status, "not_connected");
@@ -84,6 +86,38 @@ const priorAttempt = createNotificationLogReader(async url => {
 }, now);
 assert.equal((await priorAttempt(options)).items[0].status, "receipt_missing", "a previous attempt receipt cannot certify the latest attempt");
 assert.equal(inspected, 1);
+// The live failure can occur after a successful listing. Preserve a closed stage
+// code, never a provider response body, signed URL, credential, or exception text.
+for (const [failure, expected] of [
+  ["archive-denied", "artifact_archive_http_403"],
+  ["download-denied", "artifact_download_http_403"],
+  ["download-transport", "artifact_download_transport_failed"],
+  ["bad-zip", "invalid_receipt_archive"],
+  ["bad-projection", "invalid_public_receipt"],
+]) {
+  const diagnosticReader = createNotificationLogReader(async (url, init) => {
+    if (url.includes("/workflows/")) return Response.json({ total_count: 1, workflow_runs: [run(1)] });
+    if (url.includes("/artifacts?")) return Response.json({ total_count: 1, artifacts: [{ id: 1,
+      name: "daily-digest-receipt", size_in_bytes: 1000, created_at: "2026-10-16T23:01:00Z" }] });
+    if (url.endsWith("/zip")) {
+      if (failure === "archive-denied") return new Response("private provider detail", { status: 403 });
+      return new Response(null, { status: 302, headers: { location: "https://example.blob/private-signed-url" } });
+    }
+    assert.equal(init.headers, undefined);
+    if (failure === "download-denied") return new Response("private provider detail", { status: 403 });
+    if (failure === "download-transport") throw Error("private provider detail and signed URL");
+    return new Response(failure === "bad-zip" ? new Uint8Array(22)
+      : zip({ ...receipt, source_sha: "b".repeat(40) }));
+  }, now);
+  const diagnostic = await diagnosticReader(options);
+  validate("notification_log", diagnostic);
+  assert.equal(diagnostic.items[0].status, "read_failed");
+  assert.equal(diagnostic.items[0].read_error_code, expected);
+  assert.equal(diagnostic.items[0].delivered, null);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /private|signed-url|synthetic-unused|Authorization/);
+}
+
+
 let reads = 0;
 const deps = { json: (body, status = 200) => Response.json(body, { status }), readSession: async () => ({ allowed: false }), notificationReceipts: async () => { reads++; return result; } };
 assert.equal((await consoleApiResponse(new Request("https://console.example/api/notifications/send-log"), {}, deps)).status, 401);

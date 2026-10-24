@@ -2618,6 +2618,10 @@
               },
               "source_run_attempt": {
                 "type": "integer"
+              },
+              "read_error_code": {
+                "type": "string",
+                "pattern": "^(receipt_read_timeout|receipt_too_large|receipt_body_missing|invalid_receipt_archive|public_receipt_missing|invalid_public_receipt|(run_listing|artifact_listing|artifact_archive|artifact_download|receipt_decode|receipt_projection|sender_jobs)_(failed|transport_failed|http_(401|403|404|429|500|502|503|504|other)))$"
               }
             },
             "required": [
@@ -2654,6 +2658,10 @@
         },
         "execution_authority_granted": {
           "const": false
+        },
+        "read_error_code": {
+          "type": "string",
+          "pattern": "^(receipt_read_timeout|receipt_too_large|receipt_body_missing|invalid_receipt_archive|public_receipt_missing|invalid_public_receipt|(run_listing|artifact_listing|artifact_archive|artifact_download|receipt_decode|receipt_projection|sender_jobs)_(failed|transport_failed|http_(401|403|404|429|500|502|503|504|other)))$"
         }
       },
       "required": [
