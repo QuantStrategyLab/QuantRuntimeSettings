@@ -32,7 +32,7 @@ function QuantityValue({ value }: { value: number | null }) {
   return <span className="num">{formatQuantity(value, language)}</span>;
 }
 
-export function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
+function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
   const t = useT();
   const names = useDisplayNames();
   if (state.phase === "loading") {

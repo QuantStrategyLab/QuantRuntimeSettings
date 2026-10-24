@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +25,11 @@ try {
           }, h(HoldingsTab, { state: { reload: () => {}, ...state } }))));` },
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic",
     loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },
+    plugins: [{ name: "read-only-holdings-fixture", setup(b) {
+      b.onLoad({ filter: /\/PerformanceTabs\.tsx$/ }, async ({ path }) => ({
+        contents: await readFile(path, "utf8") + "\nexport { HoldingsTab };", loader: "tsx",
+      }));
+    } }],
   });
   const ui = createRequire(import.meta.url)(outfile);
   const ready = data => ({ phase: "ready", data, error: null });
