@@ -79,6 +79,7 @@ function kpiLoading(title: string) {
 
 /** A reason is one short line on the card, never an expandable audit block. */
 function reasonText(t: ReturnType<typeof useT>, reason?: string | null): string | undefined {
+  if (reason === "mixed_currency") return t("overview.mixed_currency_short");
   return reason ? t(`reason.${reason}`) : undefined;
 }
 

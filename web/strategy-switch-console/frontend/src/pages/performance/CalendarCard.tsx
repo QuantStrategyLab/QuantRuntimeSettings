@@ -46,13 +46,12 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
     hasFlowDays = data.cells.some(cell => cell.observed_amount !== null && cell.observed_amount !== undefined);
     if (!renderableStatus(data.status)) {
       body = (
-        <EmptyState
-          title={t(`state.${data.status}`)}
-          body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined}
-        />
+        <div data-reason={data.unavailable_reason ?? undefined}>
+          <EmptyState title={t(`state.${data.status}`)} state={data.status} />
+        </div>
       );
     } else if (data.cells.length === 0) {
-      body = <EmptyState title={t("state.no_data")} />;
+      body = <div data-reason={data.unavailable_reason ?? undefined}><EmptyState title={t("state.no_data")} state="no_data" /></div>;
     } else {
       body = <CalendarHeatmap year={data.year} month={data.month} cells={data.cells} onNavigate={(year, month) => setView({ year, month })} />;
     }

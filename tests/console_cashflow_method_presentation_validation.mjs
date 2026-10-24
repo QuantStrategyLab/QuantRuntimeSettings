@@ -130,9 +130,8 @@ try {
     ok(!oldCards.includes("+0.00%"), "unknown TWR is never shown as zero");
     const missingCashflowReason = language === "zh" ? "缺少完整出入金记录，无法计算 TWR 及其回撤。"
       : "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated.";
-    ok(visibleText(oldCards).includes(missingCashflowReason), "TWR-unavailable reason is stated once for the summary");
-    assert.equal((oldCards.match(new RegExp(missingCashflowReason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length, 1,
-      "the shared reason is not repeated on every metric card");
+    ok(oldCards.includes('data-reason="no_cashflow_data"'), "TWR-unavailable reason remains diagnostic");
+    ok(!visibleText(oldCards).includes(missingCashflowReason), "the shared reason does not occupy each metric card");
     checks += 1;
     ok(!oldCards.includes("<details"), "summary metrics keep no audit details block");
     ok(visibleText(oldCards).includes(UNAVAILABLE[language]), "the missing TWR keeps a short visible state");
@@ -143,7 +142,7 @@ try {
     checks += 1;
     assert.equal(chartAria(oldReturns), ASSET_CHANGE_TITLE[language], "unadjusted ratio aria-label names asset change");
     checks += 1;
-    ok(detailsText(oldReturns).includes(ASSET_CHANGE_NOTE[language]), "details explain cash-flow effects, non-TWR and no benchmark");
+    ok(detailsText(oldReturns).includes(language === "zh" ? "包含出入金影响，不代表时间加权收益，也不与基准比较" : "including the effect of cash flows; it is not a time-weighted return and is not compared with benchmarks"), "method help preserves cash-flow, non-TWR and benchmark qualifications");
     ok(!visibleText(oldReturns).includes(ASSET_CHANGE_NOTE[language]), "asset-change explanation stays collapsed");
     ok(!oldReturns.includes(language === "zh" ? "资产余额" : "Asset balance"),
       "unadjusted ReturnsCard no longer calls the percent-change curve a balance");
@@ -175,10 +174,7 @@ try {
     // 5. Two currencies: each entry keeps its own method metadata; nothing is merged.
     const two = fixture("two-currency-core");
     const twoCards = renderCards(language, two.summary);
-    ok(twoCards.includes(language === "zh"
-      ? "多币种无法合并为单一金额；按币种分别展示"
-      : "Mixed currencies cannot be combined into one amount; each currency is shown separately"),
-      "mixed-currency note shown");
+    ok(twoCards.includes('data-reason="mixed_currency"'), "mixed-currency state remains diagnostic without merging values");
     ok(!twoCards.includes(language === "zh" ? "按原币种分别展示，不换汇" : "Shown separately in native currencies"),
       "native-currency internal note stays out of the default view");
     ok(twoCards.indexOf("HKD") < twoCards.indexOf("USD"), "both currency rows rendered separately");
@@ -193,9 +189,9 @@ try {
     const drawdownTexts = language === "zh"
       ? ["暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
       : ["No valuation is available.", "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
-    for (const reason of drawdownTexts) {
-      ok(visibleText(drawdownCards).includes(reason), `per-currency drawdown reason shown once: ${reason}`);
-    }
+    ok(drawdownCards.includes('data-state="no_snapshot"') && drawdownCards.includes('data-state="no_cashflow_data"'),
+      "each missing drawdown retains its distinct diagnostic state");
+    for (const reason of drawdownTexts) ok(!visibleText(drawdownCards).includes(reason), "drawdown reasons do not stretch the metric grid");
     ok(!drawdownCards.includes("<details"), "per-currency drawdown keeps no audit details");
     ok(visibleText(drawdownCards).includes("HKD") && visibleText(drawdownCards).includes("USD"),
       "currency labels remain visible next to their drawdowns");
@@ -237,9 +233,8 @@ try {
     const staleReason = language === "zh" ? "缺少历史资产快照" : "Historical asset snapshots are missing";
     ok(visibleWarnBadges(staleReasonCards).some(text => text.includes(STALE[language])),
       "stale reason variant still shows the visible stale badge");
-    ok(visibleText(staleReasonCards).includes(staleReason), "stale reason is stated once");
-    assert.equal((staleReasonCards.match(new RegExp(staleReason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length, 1,
-      "stale reason is not repeated on every card");
+    ok(staleReasonCards.includes('data-reason="snapshot_history_missing"'), "the stale reason remains diagnostic");
+    ok(!visibleText(staleReasonCards).includes(staleReason), "the stale reason does not repeat below the short state");
     checks += 1;
     const staleReturns = renderReturns(language, stale.returns);
     assert.equal(kindLabel(staleReturns), TWR_KIND[language]);

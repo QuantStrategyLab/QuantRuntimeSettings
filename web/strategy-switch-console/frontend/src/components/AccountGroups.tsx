@@ -66,7 +66,7 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
         return <div className="account-strategy-block" key={accountKey(row)}>
           <button type="button" className="account-strategy-link" onClick={() => onSelect(accountKey(row))}>
             <span className="account-strategy-name">{strategy ? names.strategy(strategy) : t("common.unknown")}</span>
-            {typeof enabled === "boolean" && <span className="account-row"><span>{t("overview.runtime_target")}</span><span>{t(enabled ? "overview.runtime_enabled" : "overview.runtime_disabled")}</span></span>}
+            {typeof enabled === "boolean" && <span className="account-row"><span title={t("accounts.execution.runtime_target_note")}>{t("accounts.activation_setting")}</span><span>{t(enabled ? "overview.runtime_enabled" : "overview.runtime_disabled")}</span></span>}
             {row.pending_draft_count > 0 && <span className="account-row"><span>{t("accounts.col.drafts")}</span><span>{row.pending_draft_count}</span></span>}
             {row.pending_decision_count !== null && row.pending_decision_count > 0 && (
               <span className="account-row"><span>{t("accounts.col.todos")}</span><span>{row.pending_decision_count}</span></span>
@@ -76,13 +76,6 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
           <ExecutionEvidence evidence={evidence} compact />
         </div>;
       })}
-      {(() => {
-        // Keep only the risk-relevant caveat: an enabled runtime target is
-        // configuration state, not evidence that the broker is executing it.
-        const runtimeTargetEnabled = account.rows.some(row => config?.currentStrategies?.[row.platform]?.[row.account_alias]?.runtime_target_enabled === true);
-        if (!runtimeTargetEnabled) return null;
-        return <p className="account-card-caveat state-short">{t("accounts.execution.runtime_target_note")}</p>;
-      })()}
     </article>)}</div>
   </section>)}
   </div>;

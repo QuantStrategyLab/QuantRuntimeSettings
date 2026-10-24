@@ -430,8 +430,8 @@ try {
     if (language === "zh") ok(!builtInHtml.includes("Russell Top 50") && !builtInHtml.includes("Global ETF"), "known built-ins use Chinese titles");
 
     // 18e. Unknown execution configuration stays off the card instead of
-    // repeating an audit trail; the risk-relevant caveat remains visible once and
-    // runtime-target state stays configuration-only.
+    // repeating an audit trail; a precise label and contextual title keep the
+    // activation setting distinct from observed broker execution.
     const unknownConfig = { currentStrategies: { ibkr: { "ibkr-main": {
       runtime_target_enabled: true,
       execution_evidence: { value: "unknown", status: "confirmed", observed_at: null,
@@ -446,7 +446,9 @@ try {
     ok(unknownCard.includes(language === "zh"
       ? "运行目标已启用只表示配置状态，不代表已实盘运行或今日已有成交。"
       : "An enabled runtime target is configuration state only; it does not mean live trading ran or produced fills today."),
-      "the risk-relevant caveat remains visible once");
+      "the configuration caveat remains available in the label title");
+    ok(!unknownCard.includes("account-card-caveat"), "the card has no repeated configuration footnote");
+    ok(unknownCard.includes(language === "zh" ? "启用设置" : "Activation setting"), "the visible label names configuration explicitly");
     ok(unknownCard.includes(language === "zh" ? "已启用" : "Enabled"), "configuration state remains visible on the card");
 
     // 19. English output contains no Chinese; both languages leak no raw keys.

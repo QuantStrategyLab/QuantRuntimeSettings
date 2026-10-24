@@ -46,11 +46,15 @@ function HealthValue({ strategy }: { strategy: Strategy }) {
 function AccountExecution({ accounts }: { accounts: Strategy["configured_accounts"] }) {
   const t = useT();
   const names = useDisplayNames();
-  if (accounts.length === 0) return null;
+  const known = accounts.filter(account => {
+    const value = account.execution_evidence?.value;
+    return Boolean(value) && value !== "unknown";
+  });
+  if (known.length === 0) return null;
   return (
     <div className="strategy-execution">
       <div className="strategy-execution-title">{t("strategies.account_execution")}</div>
-      {accounts.map(account => {
+      {known.map(account => {
         return (
           <div className="strategy-execution-account" key={accountKey(account)}>
             <span>{names.platform(account.platform)} · {names.account(account.account_alias, account.platform)}</span>

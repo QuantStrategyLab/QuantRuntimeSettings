@@ -111,11 +111,11 @@ try {
     for (const execution_mode of ["paper", "live", "dry_run"]) {
       const legacy = ui.render(language, card({ account_alias: account.key, platform: account.platform,
         execution_mode, dry_run_only: false, live_status: "configured_live", mode_source: "STRATEGY_PROFILE" }));
-      assert.ok(legacy.includes(labels.unknown), "old inferred fields without explicit evidence remain unknown");
+      assert.ok(!legacy.includes('class="strategy-execution"'), "inferred fields without evidence cannot produce a mode block");
       assert.ok(!legacy.includes("badge-warn"));
     }
     const unknown = ui.render(language, card({ account_alias: account.key, platform: account.platform }));
-    assert.ok(unknown.includes(labels.unknown), "old or incomplete responses must not silently say paper");
+    assert.ok(!unknown.includes('class="strategy-execution"'), "incomplete responses cannot produce an observed mode block");
     assert.ok(!unknown.includes(labels.live));
     const dry = ui.render(language, card(await summarize({ execution_mode: "live", dry_run_only: true })));
     assert.ok(dry.includes(labels.dry));

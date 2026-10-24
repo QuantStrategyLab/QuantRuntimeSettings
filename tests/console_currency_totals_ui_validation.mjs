@@ -62,20 +62,22 @@ try {
     assert.ok(partial.includes(language === "zh" ? "USD 资产小计" : "USD asset subtotal"), "partial coverage is explicitly labeled a subtotal");
     assert.ok(!partial.includes(language === "zh" ? "USD 资产合计" : "USD asset total"), "partial coverage cannot appear as a complete total");
     assert.ok(partial.includes(language === "zh" ? "已计入 2/8 个账户" : "Includes 2 of 8 accounts"), "coverage sits next to the subtotal");
-    assert.ok(partial.includes(language === "zh" ? "部分账户数据待更新" : "Some account data may be out of date"), "one concise freshness status remains visible");
+    assert.ok(partial.includes('data-stale-count="7"'), "stale coverage remains available for diagnostics");
+    assert.ok(!partial.includes(language === "zh" ? "部分账户数据待更新" : "Some account data may be out of date"), "no repeated stale sentence occupies the card");
     assert.ok(!partial.includes("<details"), "currency totals keep no audit details block");
     assert.ok(!partial.includes(language === "zh" ? "7 个账户" : "7 accounts"), "stale counts are not repeated");
-    assert.ok(partial.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"),
-      "the exclusion reason is stated once next to the subtotal");
-    assert.ok(partial.includes(language === "zh" ? "另有 6 个账户" : "6 additional accounts"), "excluded-account impact is stated once");
+    assert.ok(partial.includes('data-reason="valuation_date_mismatch"'), "the exact exclusion reason stays diagnostic");
+    assert.ok(partial.includes('data-excluded-count="6"'), "excluded coverage is retained without another sentence");
+    assert.ok(!partial.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"));
     assert.match(partial, /2026|10\/16|16\/10/, "the source time stays visible");
     const fresh = ui.freshness(language, { fresh: 1, stale: 1, unknown: 1, threshold_hours: 36 });
-    assert.ok(fresh.includes(language === "zh" ? "1 个账户的数据可能不是最新" : "Data may be out of date for 1 accounts"));
+    assert.match(fresh, /hidden=""[^>]*data-state="stale"[^>]*data-stale-count="1"/);
+    assert.equal(fresh.replace(/<[^>]*>/g, ""), "", "stale diagnostics have no visible prose");
     const freshZero = ui.freshness(language, { fresh: 2, stale: 0, unknown: 1, threshold_hours: 36 });
     assert.equal(freshZero, "", "freshness summary stays hidden when no account is stale");
     globalThis.__currencyState = { phase: "ready", data: blocks.summary };
     const missing = ui.summary(language);
-    assert.ok(missing.includes(language === "zh" ? "缺少完整出入金记录" : "Complete cash-flow records are missing"));
+    assert.ok(missing.includes('data-reason="no_cashflow_data"'), "the missing cash-flow reason stays diagnostic");
     globalThis.__currencyState.data = { ...blocks.summary, per_currency: [{ ...blocks.summary.per_currency[0], max_drawdown: { percent: 20, peak_date: "2026-10-14", trough_date: "2026-10-15", unavailable_reason: null } }] };
     const computed = ui.summary(language);
     assert.match(computed, /-20\.00%/, "drawdown is displayed as a loss, not a positive return");
