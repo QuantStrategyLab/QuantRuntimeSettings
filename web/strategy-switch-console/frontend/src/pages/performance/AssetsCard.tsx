@@ -58,6 +58,7 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
       ? <CurrencyTotals
           totals={data.per_currency}
           freshness={data.freshness_summary}
+          notes={data.per_currency.length > 1 ? t("perf.native_totals_note") : undefined}
         />
       : null;
     status = data.status;
@@ -95,7 +96,7 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
                 ))}
               </div>
             </div>
-            <AreaChart points={selected.points} currency={selected.currency} ariaLabel={t("perf.assets_title")} />
+            <AreaChart points={selected.points} currency={selected.currency} ariaLabel={t("perf.asset_balance_title")} />
           </div>
         );
       }
@@ -118,7 +119,7 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
       } else {
         // externalFlow markers only appear when the API actually reports a flow.
         const points = data.points as (Point & { externalFlow?: number | null })[];
-        body = <AreaChart points={points} currency={data.currency} ariaLabel={t("perf.assets_title")} />;
+        body = <AreaChart points={points} currency={data.currency} ariaLabel={t("perf.asset_balance_title")} />;
       }
     }
   }
@@ -126,7 +127,7 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
   return (
     <div className="card">
       <div className="perf-card-head">
-        <h2 className="card-title">{t("perf.assets_title")}</h2>
+        <h2 className="card-title">{t("perf.asset_balance_title")}</h2>
         <span className="perf-head-meta">
           {status && status !== "ok" && renderableStatus(status) && <StatusBadge status={status} reason={reason} />}
           {status && renderableStatus(status) && asOf && <AsOfStamp value={asOf} />}

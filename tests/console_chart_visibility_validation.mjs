@@ -72,6 +72,45 @@ const dailyGap = prepareChartSeries(
   "2026-10-01",
 );
 assert.deepEqual(dailyGap.series[0].points, [], "a flagged break never manufactures a daily return");
+// Broker-native daily TWR is explicit: it keeps the first known day and the day after a
+// real break, while points without the field still fall back to the two-point compounding.
+const nativeDaily = prepareChartSeries(
+  [{ ...syntheticSeries[0], points: [
+    { date: "2026-10-01", value: 10, daily_return_percent: 10 },
+    { date: "2026-10-02", value: 4.5, daily_return_percent: -5 },
+  ] }],
+  "daily",
+  "2026-10-01",
+);
+assert.deepEqual(nativeDaily.series[0].points.map(point => [point.date, point.value]), [
+  ["2026-10-01", 10],
+  ["2026-10-02", -5],
+], "native daily returns include the first known day instead of dropping it");
+const nativeBreak = prepareChartSeries(
+  [{ ...syntheticSeries[0], points: [
+    { date: "2026-10-01", value: 10, daily_return_percent: 10 },
+    { date: "2026-10-02", value: 4.5, daily_return_percent: -5 },
+    { date: "2026-10-06", value: 5.2, daily_return_percent: 0.7, breakBefore: true },
+  ] }],
+  "daily",
+  "2026-10-01",
+);
+assert.deepEqual(nativeBreak.series[0].points.map(point => [point.date, point.value, point.breakBefore]), [
+  ["2026-10-01", 10, true],
+  ["2026-10-02", -5, false],
+  ["2026-10-06", 0.7, true],
+], "an explicit native return is kept after a real break and the break stays unbridged");
+const missingNative = prepareChartSeries(
+  [{ ...syntheticSeries[0], points: [
+    { date: "2026-10-01", value: 10, daily_return_percent: -100.5 },
+    { date: "2026-10-02", value: 4.5 },
+  ] }],
+  "daily",
+  "2026-10-01",
+);
+assert.deepEqual(missingNative.series[0].points.map(point => point.date), ["2026-10-02"],
+  "absent or out-of-range native fields keep the legacy rules: no first-day guess, no break bridging");
+assert.ok(Math.abs(missingNative.series[0].points[0].value + 5) < 1e-9, "the fallback still compounds two cumulative points");
 const account = { id: "synthetic", platformKey: binding.platform, accountKey: option.key, runtimeDailyBinding: "not_applicable", title: "Synthetic live", platform: "LongBridge", environment: "Live", brokerEnvironment: "live", environmentSource: "config", strategy: "Synthetic strategy", statusLabel: "", statusDetail: "", activation: "待确认", preference: null, facts: model.accounts[0], runtime: null };
 const initialData = { accounts: [{ id: account.id, points: series.points.map(p => ({ date: p.observation_date, value: Number(p.net_assets), externalFlow: null })) }], failed: [], omittedCurrencies: [], truncated: false, referenceFx: false, incompleteDates: 0 };
 const render = (Component, props, language = "zh") => renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: language }, React.createElement(Component, props)));

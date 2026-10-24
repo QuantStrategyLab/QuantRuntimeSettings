@@ -70,11 +70,15 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
   const t = useT();
   const names = useDisplayNames();
   const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.map(names.lane).join(" · ") : t("common.na");
+  const hasExecution = strategy.configured_accounts.some(account => {
+    const value = account.execution_evidence?.value;
+    return Boolean(value) && value !== "unknown";
+  });
   return (
     <article className="card strategy-card">
       <div className="strategy-card-head">
         <h3 className="strategy-card-title">{names.strategy(strategy.profile)}</h3>
-        <StatusBadge status={strategy.health_status} />
+        {strategy.health_status && <StatusBadge status={strategy.health_status} />}
       </div>
       <dl className="strategy-rows">
         <div className="strategy-row">
@@ -85,16 +89,27 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
           <dt>{t("strategies.modes")}</dt>
           <dd>{modes}</dd>
         </div>
-        <div className="strategy-row">
-          <dt>{t("strategies.accounts_using")}</dt>
-          <dd><AccountAliases accounts={strategy.configured_accounts} /></dd>
-        </div>
-        <div className="strategy-row">
-          <dt>{t("strategies.health")}</dt>
-          <dd><HealthValue strategy={strategy} /></dd>
-        </div>
+        {strategy.configured_accounts.length > 0 && (
+          <div className="strategy-row">
+            <dt>{t("strategies.accounts_using")}</dt>
+            <dd><AccountAliases accounts={strategy.configured_accounts} /></dd>
+          </div>
+        )}
+        {strategy.health_score !== null && (
+          <div className="strategy-row">
+            <dt>{t("strategies.health")}</dt>
+            <dd><HealthValue strategy={strategy} /></dd>
+          </div>
+        )}
       </dl>
-      <AccountExecution accounts={strategy.configured_accounts} />
+      {hasExecution && (
+        <details className="strategy-details">
+          <summary>{t("strategies.details")}</summary>
+          <div className="strategy-details-body">
+            <AccountExecution accounts={strategy.configured_accounts} />
+          </div>
+        </details>
+      )}
       {strategy.status !== "ok" && (
         <div className="strategy-card-foot">
           <StatusBadge status={strategy.status} reason={strategy.unavailable_reason} />
@@ -133,6 +148,8 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
   }
   const hasLive = summary.strategies.some(strategy =>
     strategy.configured_accounts.some(account => accountExecutionMode(account, names.config) === "live"));
+  const configured = summary.strategies.filter(strategy => strategy.configured_accounts.length > 0);
+  const catalogOnly = summary.strategies.filter(strategy => strategy.configured_accounts.length === 0);
   return (
     <section className="section-stack">
       <div className="catalog-meta">
@@ -146,11 +163,32 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
           <span className="state-short">{t("strategies.execution_source")}</span>
         </div>
       )}
-      <div className="strategy-grid">
-        {summary.strategies.map(strategy => (
-          <StrategyCard key={strategy.profile} strategy={strategy} />
-        ))}
-      </div>
+      <section className="strategy-section">
+        <div className="strategy-section-head">
+          <h2 className="strategy-section-title">{t("strategies.configured_section")}</h2>
+          <span className="card-note">{t("strategies.section_count", { count: configured.length })}</span>
+        </div>
+        {configured.length > 0
+          ? <div className="strategy-grid">
+              {configured.map(strategy => (
+                <StrategyCard key={strategy.profile} strategy={strategy} />
+              ))}
+            </div>
+          : <p className="card-note strategy-section-empty">{t("strategies.no_configured")}</p>}
+      </section>
+      {catalogOnly.length > 0 && (
+        <section className="strategy-section">
+          <div className="strategy-section-head">
+            <h2 className="strategy-section-title">{t("strategies.catalog_section")}</h2>
+            <span className="card-note">{t("strategies.section_count", { count: catalogOnly.length })}</span>
+          </div>
+          <div className="strategy-grid">
+            {catalogOnly.map(strategy => (
+              <StrategyCard key={strategy.profile} strategy={strategy} />
+            ))}
+          </div>
+        </section>
+      )}
     </section>
   );
 }

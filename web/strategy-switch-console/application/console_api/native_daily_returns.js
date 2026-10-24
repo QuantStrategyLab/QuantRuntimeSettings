@@ -34,7 +34,7 @@ export function applyNativeDailyReturns(blocks, input) {
   Object.assign(blocks.returns, { status, unavailable_reason: reason, currency, value_kind: "pnl",
     return_kind: "twr", cashflow_method: undefined, approximate: undefined,
     as_of: daily.at(-1).date, coverage, aligned_start: daily[0].date, no_common_date: false,
-    points: gaps ? [] : index.map(row => ({ date: row.date, value: (row.value - 1) * 100 })),
+    points: gaps ? [] : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 })),
     benchmarks: [], per_currency: [] });
   let peak = 1, peakDate = daily[0].date, worst = 0, lossPeakDate = peakDate, troughDate = peakDate;
   for (const point of index) {

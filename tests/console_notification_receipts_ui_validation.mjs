@@ -17,8 +17,9 @@ try {
       import { I18nProvider } from './src/i18n';
       import { NotificationsCard } from './src/pages/health/HealthPage';
       export const render = (language, state) => {
-        globalThis.__notificationState = state;
-        return renderToStaticMarkup(h(I18nProvider, { language }, h(NotificationsCard, { epoch: 0 })));
+        // The page lifts notification state so the KPI and card share one read;
+        // this SSR harness injects that state directly.
+        return renderToStaticMarkup(h(I18nProvider, { language }, h(NotificationsCard, { state: { reload: () => {}, ...state } })));
       };` },
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic",
     loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },

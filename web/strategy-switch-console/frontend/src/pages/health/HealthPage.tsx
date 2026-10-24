@@ -1,6 +1,6 @@
 import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useMemo, useState } from "react";
-import type { TodayRunSummary } from "../../api/contracts";
+import type { NotificationSendLog, TodayRunSummary } from "../../api/contracts";
 import {
   loadAccounts,
   loadCredentialMaintenance,
@@ -58,9 +58,12 @@ type Loadable<T> = AsyncState<T> & { reload: () => void };
 function StatStrip({
   summary,
   credential,
+  notifications,
 }: {
   summary: Loadable<TodayRunSummary>;
   credential: Loadable<CredentialMaintenance>;
+  /** Optional so component-level fixtures can render the run KPIs alone. */
+  notifications?: Loadable<NotificationSendLog>;
 }) {
   const t = useT();
   const data = summary.phase === "ready" ? summary.data : null;
@@ -72,6 +75,16 @@ function StatStrip({
     : undefined;
   const credentialData = credential.phase === "ready" ? credential.data : null;
   const credentialCount = credentialData && ATTENTION_PHASES.includes(credentialData.phase) ? 1 : 0;
+  const notificationData = notifications?.phase === "ready" ? notifications.data : null;
+  const notificationItems = notificationData?.items ?? [];
+  const notificationDelivered = notificationItems.filter(item => item.delivered === true).length;
+  const notificationFailed = notifications?.phase === "error"
+    || notificationData?.status === "read_failed" || notificationData?.read_status === "read_failed";
+  const notificationMissing = notificationData?.status === "not_connected"
+    || notificationData?.read_status === "not_connected";
+  const notificationIncomplete = notificationData !== null
+    && (notificationData.status === "partial" || notificationData.read_status === "partial"
+      || notificationData.read_status === "unknown" || notificationData.truncated === true);
   const primaryStates = ["succeeded", "failed", "read_failed"] as const;
   const stateEntries = stateCounts ? Object.entries(stateCounts) : [];
   const primaryCounts = stateEntries.filter(([state]) => (primaryStates as readonly string[]).includes(state));
@@ -108,6 +121,20 @@ function StatStrip({
             ? String(failures.count)
             : failures.count > 0 ? t("health.failure_at_least", { count: failures.count }) : t("state.unknown")} />}
         />
+        {notifications && (
+          <KpiCard
+            title={t("health.kpi.notifications")}
+            value={
+              notifications.phase === "loading" ? <Skeleton height={24} width={90} />
+                : notificationFailed ? <span className="kpi-state">{t("state.read_failed")}</span>
+                  : notificationMissing ? <span className="kpi-state">{t("state.not_connected")}</span>
+                    : !notificationItems.length ? <span className="kpi-state">{t("state.no_data")}</span>
+                      : t("health.account_fraction", { count: notificationDelivered, total: notificationItems.length })
+            }
+            sub={t("health.kpi.notifications_note")}
+            footer={notificationIncomplete ? <StatusBadge status="partial" /> : undefined}
+          />
+        )}
       </div>
       {stateCounts && (
         <div className="health-state-summary">
@@ -158,10 +185,9 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
     {
       id: "activity",
       header: t("health.activity"),
-      cell: row => <>
+      cell: row => <span title={row.run_status_reason ? t(`reason.${row.run_status_reason}`) : undefined}>
         {t(`health.run_state.${row.run_status || runStatus(row)}`)}
-        {(row.run_status || runStatus(row)) === "blocked" && <span className="card-note"> · {t(row.run_status_reason ? `reason.${row.run_status_reason}` : "reason.unknown")}</span>}
-      </>,
+      </span>,
     },
     {
       id: "run_count",
@@ -219,21 +245,27 @@ function CredentialsCard({ credential }: { credential: Loadable<CredentialMainte
   return <DataTable columns={columns} rows={[item]} rowKey={row => row.id} caption={t("health.credentials_title")} />;
 }
 
-function NotificationsCard({ epoch }: { epoch: number }) {
+function NotificationsCardView({ state }: { state: Loadable<NotificationSendLog> }) {
   const t = useT();
   const language = useLanguage();
-  const state = useApi(() => loadNotificationLog(), [epoch]);
   if (state.phase === "loading") return <Skeleton height={72} />;
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
   const log = state.data;
-  if (log.status === "not_connected" || log.read_status === "not_connected") return <EmptyState title={t("health.notifications_not_connected")} action={<StatusBadge status="not_connected" />} />;
+  const scope = <details className="health-notes">
+    <summary>{t("health.notes")}</summary>
+    <p className="card-note">{t("health.notifications_scope")}</p>
+  </details>;
+  if (log.status === "not_connected" || log.read_status === "not_connected") return <>
+    <EmptyState title={t("health.notifications_not_connected")} action={<StatusBadge status="not_connected" />} />
+    {scope}
+  </>;
   if (log.status === "read_failed" || log.read_status === "read_failed") return <ErrorState onRetry={state.reload} />;
   const incomplete = log.status === "partial" || log.read_status === "partial"
     || log.read_status === "unknown" || log.truncated === true;
   if (!log.items.length) return <>
     {incomplete && <p role="alert">{t("health.notifications_partial")}</p>}
-    <EmptyState title={t(incomplete ? "health.notifications_empty_partial" : "health.notifications_empty")}
-      body={t("health.notifications_scope")} />
+    <EmptyState title={t(incomplete ? "health.notifications_empty_partial" : "health.notifications_empty")} />
+    {scope}
   </>;
   const columns: Column<(typeof log.items)[number]>[] = [
     { id: "date", header: t("health.notification_business_day"), cell: row => row.business_day || "—", sortValue: row => row.business_day },
@@ -242,7 +274,12 @@ function NotificationsCard({ epoch }: { epoch: number }) {
       <span className="card-note"> · {t("health.notification_delivered")}: {t(row.delivered === null ? "state.unknown" : row.delivered ? "health.notification_yes" : "health.notification_no")}</span>
       {row.dry_run === true && <span> · {t("health.notification.dry_run")}</span>}
       {row.test_message === true && <span> · {t("health.notification.test_message")}</span>}
-      {row.reason_code && <p className="card-note">{t(`health.notification_reason.${row.reason_code}`)}</p>}
+      {row.reason_code && (
+        <details className="notification-reason">
+          <summary>{t("health.notification_reason_details")}</summary>
+          <p className="card-note">{t(`health.notification_reason.${row.reason_code}`)}</p>
+        </details>
+      )}
     </> },
     { id: "sent", header: t("health.notification_sent_at"), cell: row => formatDateTime(row.sent_at, language).text },
     { id: "workflow_time", header: t("health.notification_workflow_time"), cell: row => formatDateTime(row.workflow_updated_at, language).text, sortValue: row => row.workflow_updated_at },
@@ -255,7 +292,18 @@ function NotificationsCard({ epoch }: { epoch: number }) {
   return <>
     {incomplete && <p role="alert">{t("health.notifications_partial")}</p>}
     <div className="health-notifications"><DataTable columns={columns} rows={log.items} rowKey={row => row.id} caption={t("health.notifications_title")} /></div>
+    {scope}
   </>;
+}
+
+function NotificationsCardLoader({ epoch }: { epoch: number }) {
+  const state = useApi(() => loadNotificationLog(), [epoch]);
+  return <NotificationsCardView state={state} />;
+}
+
+/** The page passes the lifted state used by the KPI; fixtures may self-load by epoch. */
+function NotificationsCard({ state, epoch = 0 }: { state?: Loadable<NotificationSendLog>; epoch?: number }) {
+  return state ? <NotificationsCardView state={state} /> : <NotificationsCardLoader epoch={epoch} />;
 }
 
 export default function HealthPage() {
@@ -263,6 +311,7 @@ export default function HealthPage() {
   const [epoch, setEpoch] = useState(0);
   const summary = useApi(() => loadTodayRuns(), [epoch]);
   const credential = useApi(() => loadCredentialMaintenance(), [epoch]);
+  const notifications = useApi(() => loadNotificationLog(), [epoch]);
   const accounts = useApi(() => loadAccounts(), [epoch]);
   const dailyBindings = useApi(() => loadRuntimeDailyBindings(), [epoch]);
   const gridAccounts = useMemo(() => accounts.phase === "ready" && dailyBindings.phase === "ready"
@@ -281,7 +330,7 @@ export default function HealthPage() {
       </header>
 
       <p className="card-note">{t("health.global_scope_note")}</p>
-      <StatStrip summary={summary} credential={credential} />
+      <StatStrip summary={summary} credential={credential} notifications={notifications} />
 
       <section className="card">
         <h2 className="card-title">{t("health.grid_title")}</h2>
@@ -308,7 +357,7 @@ export default function HealthPage() {
 
       <section className="card">
         <h2 className="card-title">{t("health.notifications_title")}</h2>
-        <NotificationsCard epoch={epoch} />
+        <NotificationsCard state={notifications} />
       </section>
     </div>
   );

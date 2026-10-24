@@ -2,12 +2,12 @@
 
 .perf-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: stretch;
   gap: 12px;
 }
-.perf-kpi-grid > .kpi-card { height: auto; min-height: 0; padding: 14px 16px; gap: 4px; border-radius: 10px; }
-.perf-kpi-grid .kpi-title { line-height: 1.35; }
+.perf-kpi-grid > .kpi-card { height: 100%; min-height: 96px; padding: 14px 16px; gap: 4px; border-radius: 10px; }
+.perf-kpi-grid .kpi-title { min-height: 2.7em; line-height: 1.35; }
 .perf-kpi-grid .kpi-value { font-size: 23px; line-height: 1.18; }
 .perf-kpi-grid .kpi-empty-value { font-size: 20px; }
 .perf-kpi-grid .kpi-reason { font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--muted); }
@@ -33,21 +33,26 @@
 }
 
 .perf-kind { font-size: 12px; color: var(--muted); }
+.perf-currency { font-size: 12px; color: var(--muted); }
 
 .kpi-foot .kpi-reason { flex-basis: 100%; font-size: 12px; color: var(--muted); }
 
 .perf-mode-toggle { margin-left: auto; }
 
-.perf-benchmarks-off {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  margin-top: 4px;
+.perf-benchmarks-off { margin-top: 6px; }
+.perf-benchmarks-off > summary {
+  width: fit-content;
+  min-height: 28px;
+  padding: 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
 }
+.perf-benchmarks-off > summary:hover { color: var(--ink); }
+.perf-benchmarks-off-list { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 2px; }
 .perf-benchmark-off {
   font-size: 12px;
   color: var(--muted);
-  opacity: 0.7;
   cursor: help;
 }
 
@@ -61,20 +66,32 @@
 .perf-ranking-section + .perf-ranking-section { margin-top: 18px; }
 .perf-ranking-heading { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
 
-/* Keep month/year cells readable instead of stretching across a wide card. */
-.calendar-month-grid { max-width: 700px; margin-inline: auto; }
-.calendar-year-grid { max-width: 760px; margin-inline: auto; }
+/* Assets and calendar share one balanced row; each keeps its own readable width. */
+.perf-duo-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+  align-items: start;
+  gap: 18px;
+}
+.perf-duo-grid > .card { min-width: 0; }
+
+/* Keep month/year cells centered and readable instead of stretching across a wide card. */
+.calendar-month-grid { max-width: 520px; margin-inline: auto; }
+.calendar-year-grid { max-width: 600px; margin-inline: auto; }
 
 .method-note { margin-top: 10px; }
 .method-note summary { cursor: pointer; color: var(--accent); font-size: 13px; min-height: 28px; padding: 4px 0; }
 .method-note[open] .card-note { max-height: 40vh; overflow-y: auto; }
 
-@media (max-width: 1200px) {
-  .perf-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1100px) {
+  .perf-duo-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
+  .perf-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 768px) {
-  .perf-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .perf-card-head { align-items: flex-start; }
   .perf-head-meta { margin-left: auto; }
   .perf-mode-toggle { order: 3; width: 100%; margin-left: 0; }
@@ -82,8 +99,8 @@
   .perf-mode-toggle .segment { flex: 1 1 auto; justify-content: center; }
   .perf-currency-switch .segmented { display: flex; width: 100%; }
   .perf-currency-switch .segment { flex: 1 1 auto; justify-content: center; }
-  .calendar-month-grid { max-width: none; }
-  .calendar-year-grid { max-width: none; }
+  .calendar-month-grid { max-width: 520px; }
+  .calendar-year-grid { max-width: 600px; }
 }
 
 @media (max-width: 600px) {

@@ -12,6 +12,7 @@ import { AssetsCard } from "./AssetsCard";
 import { CalendarCard } from "./CalendarCard";
 import { PerformanceTabs } from "./PerformanceTabs";
 import { renderableStatus } from "./shared";
+import { useScopeLabel } from "../../lib/useScopeLabel";
 import "./performance.css";
 
 export default function PerformancePage() {
@@ -19,6 +20,7 @@ export default function PerformancePage() {
   const language = useLanguage();
   const { prefs } = usePrefs();
   const { scope, options } = useScope();
+  const scopeLabel = useScopeLabel(scope);
   const platform = scope === "all" ? undefined : options.find(option => `${option.platform}:${option.alias}` === scope)?.platform;
   const [range, setRange] = useState<Range>(prefs.defaultRange);
   const [epoch, setEpoch] = useState(0);
@@ -49,10 +51,13 @@ export default function PerformancePage() {
           </button>
         </div>
       </div>
+      <p className="page-subtitle">{scopeLabel} · {t(`perf.range.${range}`)}</p>
       <SummaryCards scope={scope} platform={platform} range={range} epoch={epoch} />
       <ReturnsCard scope={scope} platform={platform} range={range} epoch={epoch} />
-      <AssetsCard scope={scope} platform={platform} range={range} epoch={epoch} />
-      <CalendarCard scope={scope} platform={platform} range={range} epoch={epoch} />
+      <div className="perf-duo-grid">
+        <AssetsCard scope={scope} platform={platform} range={range} epoch={epoch} />
+        <CalendarCard scope={scope} platform={platform} range={range} epoch={epoch} />
+      </div>
       <PerformanceTabs scope={scope} platform={platform} range={range} epoch={epoch} />
     </div>
   );

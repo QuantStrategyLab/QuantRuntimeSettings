@@ -1,5 +1,5 @@
 .account-facts { display: grid; gap: 5px; min-width: 0; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-.account-facts .account-row { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; font-size: 13px; }
+.account-facts .account-row { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; min-height: 22px; font-size: 13px; line-height: 1.45; }
 .account-facts .account-row > span { min-width: 0; overflow-wrap: anywhere; }
 .account-facts .account-row > span:first-child { color: var(--muted); }
 .account-facts .account-row > span:last-child { margin-left: auto; text-align: right; }
@@ -13,7 +13,8 @@
 .account-facts-cash .money { font-size: 13px; }
 
 .account-group-card { min-width: 0; padding: 16px; }
-.account-group-card .account-broker-title { margin-bottom: 10px; }
+.account-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 10px; }
+.account-card-head .account-broker-title { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 /* One account card fills its desktop track and groups identity, amounts and
    strategies horizontally; narrow screens keep the natural vertical order. */
 @media (min-width: 900px) {
@@ -23,7 +24,7 @@
     column-gap: 28px;
     align-items: start;
   }
-  .account-group-card:only-child .account-broker-title { grid-column: 1 / -1; }
+  .account-group-card:only-child .account-card-head { grid-column: 1 / -1; }
   .account-group-card:only-child .account-card-facts { grid-column: 1; }
   .account-group-card:only-child .account-strategy-block,
   .account-group-card:only-child .account-card-caveat { grid-column: 2; }
@@ -51,8 +52,9 @@
 .account-platform-head .account-platform-title { flex: 0 0 auto; margin: 0; font-size: 15px; letter-spacing: -.01em; }
 .account-platform-summary { flex: 1 1 280px; min-width: 0; }
 .account-platform-summary .account-facts { margin: 0; padding: 0; border: 0; }
-.account-facts-platform { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px 20px; }
+.account-facts-platform { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: start; gap: 10px 20px; }
 .account-facts-currency { display: grid; align-content: start; flex: 0 1 260px; gap: 4px; min-width: 0; }
+.account-facts-platform .account-row { min-height: 20px; }
 .account-facts-platform .account-platform-notes { flex-basis: 100%; }
 .account-facts-platform-state { justify-items: start; }
 .account-platform-summary .button { margin-top: 4px; }
