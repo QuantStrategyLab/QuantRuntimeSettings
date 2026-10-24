@@ -8,11 +8,23 @@ const WEEKDAY_ZH: Record<string, string> = {
   Mon: "一", Tue: "二", Wed: "三", Thu: "四", Fri: "五", Sat: "六", Sun: "日",
 };
 
+/** Only a finite number is a real observation; null, undefined and NaN stay blank. */
+function finiteNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** 0% is neutral; missing or non-finite values have no up/down/flat tone at all. */
+function cellTone(cell: CalendarCell): "up" | "down" | "flat" | "" {
+  const value = finiteNumber(cell.return_percent);
+  return value === null ? "" : value > 0 ? "up" : value < 0 ? "down" : "flat";
+}
+
 function cellColor(cell: CalendarCell, maxAbs: number): string | undefined {
-  if (cell.return_percent === null || !Number.isFinite(cell.return_percent) || maxAbs <= 0) return undefined;
-  const intensity = Math.min(1, Math.abs(cell.return_percent) / maxAbs);
+  const value = finiteNumber(cell.return_percent);
+  if (value === null || value === 0 || maxAbs <= 0) return undefined;
+  const intensity = Math.min(1, Math.abs(value) / maxAbs);
   const alpha = 8 + Math.round(intensity * 40);
-  return `color-mix(in srgb, var(--${cell.return_percent > 0 ? "up" : "down"}) ${alpha}%, transparent)`;
+  return `color-mix(in srgb, var(--${value > 0 ? "up" : "down"}) ${alpha}%, transparent)`;
 }
 
 /**
@@ -34,14 +46,19 @@ export function CalendarHeatmap({
   const t = useT();
   const language = useLanguage();
   const { prefs } = usePrefs();
-  const maxAbs = Math.max(0, ...cells.map(cell => (cell.return_percent !== null && Number.isFinite(cell.return_percent) ? Math.abs(cell.return_percent) : 0)));
+  const maxAbs = Math.max(0, ...cells.map(cell => {
+    const value = finiteNumber(cell.return_percent);
+    return value === null ? 0 : Math.abs(value);
+  }));
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const currentMonth = today.slice(0, 7);
 
   const valueText = (cell: CalendarCell): string => {
-    if (cell.return_percent !== null && Number.isFinite(cell.return_percent)) return formatPercent(cell.return_percent, language);
-    if (cell.amount !== null && Number.isFinite(cell.amount)) return prefs.hideAmounts ? "•••" : String(Math.round(cell.amount));
+    const percent = finiteNumber(cell.return_percent);
+    if (percent !== null) return formatPercent(percent, language);
+    const amount = finiteNumber(cell.amount);
+    if (amount !== null) return prefs.hideAmounts ? "•••" : String(Math.round(amount));
     return "";
   };
 
@@ -58,13 +75,13 @@ export function CalendarHeatmap({
             <button
               key={cell.month}
               type="button"
-              className={`calendar-cell${cell.month && cell.month > currentMonth ? " cell-future" : ""}${cell.return_percent === null && cell.amount === null ? " cell-empty" : ""}`}
+              className={`calendar-cell${cell.month && cell.month > currentMonth ? " cell-future" : ""}${finiteNumber(cell.return_percent) === null && finiteNumber(cell.amount) === null ? " cell-empty" : ""}`}
               style={{ background: cell.month && cell.month > currentMonth ? undefined : cellColor(cell, maxAbs) }}
               title={cell.month && cell.month > currentMonth ? undefined : cell.unavailable_reason ? t(`reason.${cell.unavailable_reason}`) : undefined}
               onClick={() => cell.month && onNavigate(year, Number(cell.month.split("-")[1]))}
             >
               <span className="cell-date">{cell.month}</span>
-              <span className={`cell-value ${cell.return_percent !== null ? (cell.return_percent > 0 ? "up" : cell.return_percent < 0 ? "down" : "flat") : ""}`}>
+              <span className={`cell-value ${cellTone(cell)}`}>
                 {valueText(cell) || " "}
               </span>
             </button>
@@ -110,7 +127,7 @@ export function CalendarHeatmap({
             if (!cell) return <div key={`${weekIndex}-${column}`} />;
             // Future days stay neutral: no observed value and no missing-history claim.
             const future = Boolean(cell.date && cell.date > today);
-            const hasValue = !future && (cell.return_percent !== null || cell.amount !== null);
+            const hasValue = !future && (finiteNumber(cell.return_percent) !== null || finiteNumber(cell.amount) !== null);
             // Only explicit producer states mark a closed day. Missing prices or
             // an empty weekend never infer a holiday, so 7×24 crypto calendars
             // keep real history gaps visible. The wire may carry a closed status
@@ -132,7 +149,7 @@ export function CalendarHeatmap({
               >
                 <span className="cell-date num">{cell.date ? Number(cell.date.slice(8)) : ""}</span>
                 {hasValue && (
-                  <span className={`cell-value ${cell.return_percent !== null ? (cell.return_percent > 0 ? "up" : cell.return_percent < 0 ? "down" : "flat") : ""}`}>
+                  <span className={`cell-value ${cellTone(cell)}`}>
                     {valueText(cell)}
                   </span>
                 )}
