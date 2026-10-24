@@ -38,10 +38,10 @@ export function sliceRange(points, range, today) {
     const start = rangeStart(range, today);
     return cleanPoints(points).filter(p => p.date >= start && p.date <= today);
 }
-export function hasGap(previous, point) {
+export function hasGap(previous, point, { crypto = false } = {}) {
     if (typeof point.breakBefore === "boolean") return point.breakBefore;
     for (let time = dateMs(previous.date) + DAY; time < dateMs(point.date); time += DAY) {
-        if (![0, 6].includes(new Date(time).getUTCDay())) return true;
+        if (crypto || ![0, 6].includes(new Date(time).getUTCDay())) return true;
     }
     return false;
 }
@@ -87,7 +87,7 @@ export function chainReturns(points) {
 }
 /** Fixed cohort: no changing membership, carry-forward, or missing-account zeros. */
 export function aggregateEquity(accounts) {
-    const normalized = accounts.map(a => ({ id: a.id, points: cleanPoints(a.points) }));
+    const normalized = accounts.map(a => ({ id: a.id, crypto: a.crypto === true, points: cleanPoints(a.points) }));
     const missingAccounts = normalized.filter(a => !a.points.length).map(a => a.id);
     const members = normalized.filter(a => a.points.length);
     const maps = members.map(a => new Map(a.points.map((p, i) => [p.date, { p, i }])));
@@ -105,7 +105,7 @@ export function aggregateEquity(accounts) {
             && (!previous || members[i].points[v.i - 1]?.date === previous.date));
         points.push({ date, value: values.reduce((sum, v) => sum + v.p.value, 0),
             externalFlow: flowKnown ? values.reduce((sum, v) => sum + v.p.externalFlow, 0) : null,
-            breakBefore: !!previous && (hasGap(previous, { date }) || values.some(v => v.p.breakBefore)) });
+            breakBefore: !!previous && (hasGap(previous, { date }, { crypto: members.some(a => a.crypto) }) || values.some(v => v.p.breakBefore)) });
     }
     return { points, missingAccounts, omittedDates };
 }
