@@ -1,6 +1,7 @@
 /* Health page (运行状态) local styles; shared classes live in app.css. */
 
-.health-refresh { margin-left: auto; }
+.stat-strip > .kpi-card { padding: 14px 16px; border-radius: 10px; }
+.stat-strip .kpi-value { font-size: 23px; }
 
 .health-grid .skeleton { margin: 0 auto; }
 .health-grid button.health-cell { cursor: pointer; padding: 0; font: inherit; }
@@ -10,10 +11,10 @@
 
 .health-day-detail {
   margin-top: 12px;
-  padding: 12px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-m);
-  background: var(--surface);
+  background: var(--surface-2);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -56,10 +57,19 @@
 }
 
 .health-cell.blocked { background: color-mix(in srgb, var(--status-warn) 20%, transparent); color: var(--status-warn); }
-.health-state-summary { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-.health-state-counts { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0; list-style: none; font-size: 13px; }
+.health-state-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.health-state-counts { display: flex; flex-wrap: wrap; gap: 6px 20px; padding: 0; list-style: none; font-size: 13px; }
 .health-state-details { font-size: 12px; color: var(--muted); }
-.health-state-details > summary { cursor: pointer; }
+.health-state-details > summary { cursor: pointer; min-height: 24px; }
 .health-state-details .health-state-counts { margin-top: 8px; }
 .health-notes { margin: 0 0 8px; }
 .notification-source > summary { cursor: pointer; color: var(--accent); font-size: 12px; }
@@ -69,3 +79,9 @@
 
 .health-notifications .data-table { min-width: 760px; }
 .health-notifications th, .health-notifications td { white-space: nowrap; }
+
+@media (max-width: 600px) {
+  .stat-strip > .kpi-card { padding: 12px; }
+  .stat-strip .kpi-value { font-size: 20px; }
+  .health-state-summary { align-items: flex-start; }
+}

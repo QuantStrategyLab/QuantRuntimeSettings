@@ -284,9 +284,11 @@ export default function HealthPage() {
     <div className="page">
       <header className="page-header">
         <h1 className="page-title">{t("health.title")}</h1>
-        <button type="button" className="button button-secondary health-refresh" onClick={() => setEpoch(value => value + 1)}>
-          {t("common.refresh")}
-        </button>
+        <div className="page-header-actions">
+          <button type="button" className="button button-secondary" onClick={() => setEpoch(value => value + 1)}>
+            {t("common.refresh")}
+          </button>
+        </div>
       </header>
 
       <p className="card-note">{t("health.global_scope_note")}</p>

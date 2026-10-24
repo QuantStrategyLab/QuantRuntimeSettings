@@ -2,8 +2,8 @@
 
 .accounts-split {
   display: grid;
-  grid-template-columns: minmax(300px, 400px) 1fr;
-  gap: 16px;
+  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
@@ -22,9 +22,26 @@
 .accounts-mobile-back { display: none; margin-bottom: 12px; }
 .accounts-unassigned { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
 
-.accounts-summary-rows { display: flex; flex-direction: column; gap: 8px; }
-.accounts-summary-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; align-items: center; flex-wrap: wrap; }
+.accounts-detail > .card:first-of-type > .card-title {
+  margin-bottom: 10px;
+  font-size: 19px;
+  letter-spacing: -.02em;
+}
+
+.accounts-summary-rows { display: flex; flex-direction: column; gap: 0; }
+.accounts-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--soft-line, var(--line));
+  font-size: 13px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.accounts-summary-row:last-child { border-bottom: 0; }
 .accounts-summary-row > span:first-child { color: var(--muted); }
+.accounts-summary-row > span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 
 .accounts-field-rows { display: flex; flex-direction: column; }
 .accounts-field-row {
@@ -59,7 +76,12 @@
   .accounts-split.detail-open .accounts-list { display: none; }
   .accounts-split:not(.detail-open) .accounts-detail { display: none; }
   .accounts-mobile-back { display: inline-flex; }
+  .accounts-detail > .card:first-of-type > .card-title { font-size: 18px; }
   .accounts-field-row { grid-template-columns: 1fr; gap: 4px; }
   .accounts-field-label { padding-top: 0; }
   .accounts-field-control .input { max-width: none; }
+}
+
+@media (max-width: 480px) {
+  .accounts-summary-row { padding: 8px 0; }
 }

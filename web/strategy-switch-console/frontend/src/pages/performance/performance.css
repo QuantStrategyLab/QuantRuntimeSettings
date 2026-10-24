@@ -1,41 +1,30 @@
 /* 收益分析页局部样式；通用卡片/图表/日历样式在 app.css。 */
 
-.perf-spacer { flex: 1 1 auto; }
-
 .perf-kpi-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  align-items: start;
+  align-items: stretch;
   gap: 12px;
 }
-.perf-kpi-grid > .kpi-card { height: auto; min-height: 0; padding: 12px 14px; gap: 4px; }
-.perf-kpi-grid .kpi-value { font-size: 24px; line-height: 1.2; }
+.perf-kpi-grid > .kpi-card { height: auto; min-height: 0; padding: 14px 16px; gap: 4px; border-radius: 10px; }
+.perf-kpi-grid .kpi-title { line-height: 1.35; }
+.perf-kpi-grid .kpi-value { font-size: 23px; line-height: 1.18; }
 .perf-kpi-grid .kpi-empty-value { font-size: 20px; }
 .perf-kpi-grid .kpi-reason { font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--muted); }
-.perf-summary-note { margin: 0; line-height: 1.5; }
+.perf-summary-note { margin: 0; max-width: 88ch; line-height: 1.55; }
 .perf-kpi-grid .kpi-sub, .perf-kpi-grid .kpi-reason, .perf-summary-note { overflow-wrap: anywhere; }
-
-@media (max-width: 600px) {
-  .perf-tab-body .table-wrap { max-width: 100%; overflow-x: auto; }
-  .perf-tab-body .data-table { min-width: 640px; }
-  .perf-tab-body .data-table th,
-  .perf-tab-body .data-table td {
-    white-space: nowrap;
-    overflow-wrap: normal;
-    word-break: normal;
-  }
-}
 
 .perf-card-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 8px 12px;
   flex-wrap: wrap;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
-.perf-card-head .card-title { margin: 0; }
+.perf-card-head .card-title { margin: 0; font-size: 16px; line-height: 1.35; }
 .perf-head-meta {
   margin-left: auto;
+  align-self: center;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -61,21 +50,25 @@
   cursor: help;
 }
 
-.perf-currency-switch { margin: 0 0 8px; }
+.perf-currency-switch { margin: 0 0 10px; }
 .perf-currency-switch .segmented { max-width: 100%; }
 
 .perf-excess-list { display: flex; flex-direction: column; gap: 2px; }
 
-.perf-tab-body { margin-top: 12px; }
+.perf-tab-body { margin-top: 14px; }
 
-.perf-ranking-section + .perf-ranking-section { margin-top: 16px; }
+.perf-ranking-section + .perf-ranking-section { margin-top: 18px; }
 .perf-ranking-heading { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
 
-.method-note { margin-top: 8px; }
-.method-note summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+/* Keep month/year cells readable instead of stretching across a wide card. */
+.calendar-month-grid { max-width: 560px; }
+.calendar-year-grid { max-width: 760px; }
+
+.method-note { margin-top: 10px; }
+.method-note summary { cursor: pointer; color: var(--accent); font-size: 13px; min-height: 28px; padding: 4px 0; }
 .method-note[open] .card-note { max-height: 40vh; overflow-y: auto; }
 
-.history-accounts { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.history-accounts { margin-top: 6px; font-size: 12px; color: var(--muted); }
 .history-accounts summary { cursor: pointer; }
 .history-accounts p { margin: 4px 0 0; }
 
@@ -92,12 +85,25 @@
   .perf-mode-toggle .segment { flex: 1 1 auto; justify-content: center; }
   .perf-currency-switch .segmented { display: flex; width: 100%; }
   .perf-currency-switch .segment { flex: 1 1 auto; justify-content: center; }
+  .calendar-month-grid { max-width: none; }
+  .calendar-year-grid { max-width: none; }
+}
+
+@media (max-width: 600px) {
+  .perf-tab-body .table-wrap { max-width: 100%; overflow-x: auto; }
+  .perf-tab-body .data-table { min-width: 640px; }
+  .perf-tab-body .data-table th,
+  .perf-tab-body .data-table td {
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
 }
 
 @media (max-width: 480px) {
-  .perf-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .perf-kpi-grid > .kpi-card { padding: 10px; }
+  .perf-kpi-grid { gap: 8px; }
+  .perf-kpi-grid > .kpi-card { padding: 11px 12px; }
   .perf-kpi-grid .kpi-value { font-size: 20px; }
-  .perf-card-head .card-title { font-size: 16px; }
+  .perf-card-head .card-title { font-size: 15px; }
   .method-note[open] .card-note { max-height: 32vh; }
 }

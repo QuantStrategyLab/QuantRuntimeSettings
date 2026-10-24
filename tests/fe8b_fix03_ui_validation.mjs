@@ -68,7 +68,7 @@ try {
       assert.ok(html.includes("123.45"));
       assert.ok(html.includes("—"));
       assert.ok(html.includes(language === "zh" ? "部分账户未纳入合计" : "Some accounts are not included in the total"));
-      assert.ok(html.includes(language === "zh" ? "合计含 2 个账户" : "Total includes 2 accounts"));
+      assert.ok(html.includes(language === "zh" ? "已计入 2/8 个账户" : "Includes 2 of 8 accounts"));
       assert.ok(html.includes(language === "zh" ? "缺少完整出入金记录" : "Complete cash-flow records are missing"));
       assert.ok(!html.includes("USDT 0"));
     }

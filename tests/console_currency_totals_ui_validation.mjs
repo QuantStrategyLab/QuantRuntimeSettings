@@ -17,7 +17,7 @@ try {
     import { AssetsCard } from './src/pages/performance/AssetsCard';
     import { AssetKpi } from './src/pages/overview/OverviewPage';
     const render = (language, component, props) => renderToStaticMarkup(h(I18nProvider, { language }, h(component, props)));
-    export const totals = (language, totals) => render(language, CurrencyTotals, { totals });
+    export const totals = (language, totals, freshness) => render(language, CurrencyTotals, { totals, freshness });
     export const freshness = (language, counts) => render(language, FreshnessSummary, { counts });
     export const assets = language => render(language, AssetsCard, { scope: 'all', range: 'ALL', epoch: 0 });
     export const overview = language => render(language, AssetKpi, { state: globalThis.__currencyState });
@@ -53,10 +53,25 @@ try {
       globalThis.__currencyState = { phase: "ready", data: { ...blocks.assets, status: "unavailable", unavailable_reason: "stored_records_unreadable", curve_status: "unavailable", curve_unavailable_reason: "stored_records_unreadable" } };
       assert.doesNotMatch(render(language), /123|456/, "failed reads cannot expose retained balances as current");
     }
-    const partial = ui.totals(language, [{ ...blocks.assets.per_currency[0], status: "partial", unavailable_reason: "valuation_date_mismatch" }]);
+    const partialTotal = {
+      ...blocks.assets.per_currency[0], status: "partial", unavailable_reason: "valuation_date_mismatch",
+      total: 123.45, account_count: 2, expected_account_count: 8, excluded_account_count: 6,
+      as_of: "2026-10-16T10:00:00Z",
+    };
+    const partial = ui.totals(language, [partialTotal], { fresh: 1, stale: 7, unknown: 0, threshold_hours: 36 });
     assert.ok(partial.includes(language === "zh" ? "USD 资产小计" : "USD asset subtotal"), "partial coverage is explicitly labeled a subtotal");
     assert.ok(!partial.includes(language === "zh" ? "USD 资产合计" : "USD asset total"), "partial coverage cannot appear as a complete total");
-    assert.ok(partial.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"));
+    assert.ok(partial.includes(language === "zh" ? "已计入 2/8 个账户" : "Includes 2 of 8 accounts"), "coverage sits next to the subtotal");
+    assert.ok(partial.includes(language === "zh" ? "部分账户数据待更新" : "Some account data may be out of date"), "one concise freshness status remains visible");
+    const partialMain = partial.split("<details")[0];
+    assert.ok(!partialMain.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"),
+      "long exclusion reasons move out of the main view");
+    assert.ok(!partialMain.includes(language === "zh" ? "7 个账户" : "7 accounts"), "stale counts move out of the main view");
+    assert.ok(partial.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"),
+      "the exclusion reason stays reachable in the details");
+    assert.ok(partial.includes(language === "zh" ? "另有 6 个账户" : "6 additional accounts"), "excluded-account impact stays reachable");
+    assert.ok(partial.includes(language === "zh" ? "不是页面刷新时间" : "not the page refresh time"), "source time is distinguished from refresh time");
+    assert.match(partialMain, /2026|10\/16|16\/10/, "the source time stays in the main view");
     const fresh = ui.freshness(language, { fresh: 1, stale: 1, unknown: 1, threshold_hours: 36 });
     assert.ok(fresh.includes(language === "zh" ? "1 个账户的数据可能不是最新" : "Data may be out of date for 1 accounts"));
     const freshZero = ui.freshness(language, { fresh: 2, stale: 0, unknown: 1, threshold_hours: 36 });

@@ -14,17 +14,15 @@ export function ExecutionEvidence({ evidence, compact = false }: { evidence?: Ac
     : evidence?.configuration_source === "CLOUD_RUN_SERVICE_TARGETS_JSON" ? "service_target" : "missing";
   const environment = t(evidence?.broker_environment === "live" ? "strategies.execution.live" : evidence?.broker_environment === "paper" ? "strategies.execution.paper" : "common.unknown");
   if (compact) {
+    // Unknown configuration is explained once in the card's expandable data
+    // notes; repeating "Execution mode: unknown / broker: unknown" on every
+    // card row was noise. A known mode is still useful at a glance.
+    if (value === "unknown") return null;
     return <div className="execution-evidence-compact">
       <span className="account-row execution-mode-row">
         <span>{t("accounts.execution.mode")}</span>
-        <span className={value === "unknown" ? "execution-value-unknown" : undefined}>{t(`strategies.execution.${value}`)}</span>
+        <span>{t(`strategies.execution.${value}`)}</span>
       </span>
-      <span className="execution-environment">{t("accounts.execution.broker_environment", { value: environment })}</span>
-      {value === "unknown" && <details className="account-facts-notes execution-evidence-notes">
-        <summary>{t("accounts.data_notes")}</summary>
-        <p>{reasons.map(reason => t(`accounts.execution.reason.${reasonKeys.has(reason) ? reason : "evidence_missing"}`)).join(" · ")}</p>
-        <p>{t("accounts.execution.config_only")}</p>
-      </details>}
     </div>;
   }
   return <div className="section-stack">
@@ -39,5 +37,30 @@ export function ExecutionEvidence({ evidence, compact = false }: { evidence?: Ac
         <span>{t("accounts.execution.config_only")}</span>
       </div>
     </details>
+  </div>;
+}
+
+/**
+ * One concise configuration note for a card's single expandable details block.
+ * It never upgrades an unknown mode or broker environment into a definite one.
+ */
+export function ExecutionEvidenceNote({ evidence }: { evidence?: AccountExecutionEvidence }) {
+  const t = useT(), language = useLanguage();
+  const checked = formatDateTime(evidence?.observed_at, language, true);
+  const value = evidence?.value || "unknown";
+  const reasons = evidence?.reason_codes?.length ? evidence.reason_codes : ["evidence_missing"];
+  const source = evidence?.configuration_source === "RUNTIME_TARGET_JSON" ? "runtime_target"
+    : evidence?.configuration_source === "CLOUD_RUN_SERVICE_TARGETS_JSON" ? "service_target" : "missing";
+  const environment = t(evidence?.broker_environment === "live" ? "strategies.execution.live" : evidence?.broker_environment === "paper" ? "strategies.execution.paper" : "common.unknown");
+  return <div className="execution-evidence-note">
+    <span className="account-row">
+      <span>{t("accounts.execution.mode")}</span>
+      <span>{t(`strategies.execution.${value}`)}</span>
+    </span>
+    {value === "unknown" && <p>{reasons.map(reason => t(`accounts.execution.reason.${reasonKeys.has(reason) ? reason : "evidence_missing"}`)).join(" · ")}</p>}
+    <span className="account-row"><span>{t("accounts.execution.source", { value: "" })}</span><span>{t(`accounts.execution.source.${source}`)}</span></span>
+    <span className="account-row"><span>{t("accounts.execution.broker_environment", { value: "" })}</span><span>{environment}</span></span>
+    <span className="account-row"><span>{t("accounts.execution.observed")}</span><time dateTime={evidence?.observed_at || undefined}>{checked.text}{checked.zone ? ` (${checked.zone})` : ""}</time></span>
+    <p>{t("accounts.execution.config_only")}</p>
   </div>;
 }

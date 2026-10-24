@@ -71,7 +71,7 @@ try {
     assert.deepEqual(formatDateTime(null, language, true), { text: "—", zone: "" });
     globalThis.__displayState = { phase: "ready", data: { status: "unavailable", unavailable_reason: "mixed_currency", as_of: null } };
     const metrics = ui.summary(language);
-    const mainValues = [...metrics.matchAll(/<span class="kpi-value num">([\s\S]*?)<\/span>(?=<span class="kpi-sub">|<\/div>)/g)];
+    const mainValues = [...metrics.matchAll(/<div class="kpi-value num">([\s\S]*?)<\/div>/g)];
     assert.equal(mainValues.length, 6);
     for (const [, value] of mainValues) assert.doesNotMatch(value.replace(/<[^>]*>/g, ""), /多币种|currenc/i, "reason must not become a main metric");
     assert.equal((metrics.match(/class="metric-note(?:\s[^"]*)?"/g) || []).length, 1, "one shared metric explanation");
@@ -155,7 +155,7 @@ try {
       completeness: "complete", run_count: 1, activity: "filled", runs: [{ activity: "filled", errors_present: false }] };
     const summary = { status: "ok", date: "2026-10-16", timezone: "America/New_York", as_of: null,
       counts: { configured: 1, observed: 1, runs: 1 }, accounts: [account] };
-    const statValue = data => ui.stats(language, data).match(/<span class="kpi-value[^"]*">([\s\S]*?)<\/span>/g)?.at(-1) || ui.stats(language, data);
+    const statValue = data => ui.stats(language, data).match(/<div class="kpi-value[^"]*">([\s\S]*?)<\/div>/g)?.at(-1) || ui.stats(language, data);
     assert.ok(ui.stats(language, summary).replaceAll("&#x27;", "'").includes(language === "zh" ? "今日失败账户" : "Today's failed accounts"));
     assert.ok(ui.stats(language, summary).includes("2026-10-16"));
     assert.ok(ui.stats(language, summary).includes(language === "zh" ? "纽约时间" : "New York time"));
