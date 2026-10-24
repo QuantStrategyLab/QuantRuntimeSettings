@@ -95,10 +95,14 @@ try {
     for (const payload of [null, { items: [] }, { ...m0Subjects, subjects: [{}] },
       { ...m0Subjects, data_status: "unavailable", errors: ["stored_records_unreadable"] }]) {
       ready(payload);
-      assert.ok(ui.research(language).includes(language === "zh" ? "读取失败" : "Read failed"), "invalid/failed reads are not empty or disconnected");
+      const failed = ui.research(language);
+      assert.ok(failed.includes(language === "zh" ? "暂时无法加载" : "Unable to load"), "invalid/failed reads are not empty or disconnected");
+      assert.ok(failed.includes('data-state="read_failed"'));
+      assert.ok(failed.includes('role="alert"'));
     }
     globalThis.__displayState = { phase: "error", reload() {} };
-    assert.ok(ui.research(language).includes(language === "zh" ? "读取失败" : "Read failed"));
+    assert.ok(ui.research(language).includes(language === "zh" ? "暂时无法加载" : "Unable to load"));
+    assert.ok(ui.research(language).includes('data-state="read_failed"'));
     const stale = structuredClone(m0Subjects);
     stale.data_status = "stale";
     stale.subjects[0].observations[0].freshness.status = "stale";
