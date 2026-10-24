@@ -306,6 +306,7 @@ button.kpi-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(
 .metric-note { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.6; }
 .kpi-sub { font-size: 12px; color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
 .kpi-foot { display: flex; align-items: center; gap: 6px 10px; margin-top: 2px; flex-wrap: wrap; }
+.kpi-foot .badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 
 /* ---------- Badges & states ---------- */
 
