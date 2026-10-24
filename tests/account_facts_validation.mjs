@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import "./account_facts_totals_validation.mjs";
+import "./account_facts_stock_inventory_validation.mjs";
 import { createRequire } from "node:module";
 import { mkdtemp } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -1779,6 +1780,31 @@ const changedFt = await get(sessionHeaders, env);
 assert.equal((await changedFt.json()).accounts[0].data_status, "unavailable");
 const changedFtHistory = await getHistory("firstrade", ftAccount.key, "USD", sessionHeaders, env);
 assert.ok(changedFtHistory.status !== 200 || (await changedFtHistory.json()).series.points.length === 0);
+
+// Authenticated HTTP -> Durable Object/SQLite -> current facts. The explicit
+// stock inventory survives storage; missing quotes never become zero values.
+const inventoryAccount = { ...account, key: "synthetic-inventory", target_name: "synthetic-inventory",
+  deployment_selector: "synthetic-inventory" };
+await saveAccounts([inventoryAccount]);
+await saveBindings([trustedBinding({ account_key: inventoryAccount.key,
+  target_name: inventoryAccount.target_name, deployment_selector: inventoryAccount.deployment_selector,
+  target_id: "synthetic-inventory" })]);
+const inventoryPayload = historyPayload({ target_id: "synthetic-inventory",
+  broker_reported_positions_scope: "stocks_only", broker_reported_positions_complete: true,
+  broker_reported_positions: [{ symbol: "SYNTH.US", currency: "USD", quantity: "-0.125", market_value: null }] });
+assert.equal((await post(inventoryPayload, {}, env)).status, 401);
+assert.equal((await post(inventoryPayload, auth, env)).status, 200);
+let inventoryFacts = (await (await get(sessionHeaders, env)).json()).accounts[0];
+assert.equal(inventoryFacts.positions_complete, true);
+assert.deepEqual(inventoryFacts.positions, inventoryPayload.broker_reported_positions);
+assert.equal((await post({ ...inventoryPayload, broker_reported_positions_complete: false }, auth, env)).status, 400);
+assert.deepEqual((await (await get(sessionHeaders, env)).json()).accounts[0].positions, inventoryFacts.positions);
+const emptyInventory = historyPayload({ ...inventoryPayload, observed_started_at: isoMinutesAgo(0.5),
+  observed_finished_at: isoMinutesAgo(0.25), broker_reported_positions: [] });
+assert.equal((await post(emptyInventory, auth, env)).status, 200);
+inventoryFacts = (await (await get(sessionHeaders, env)).json()).accounts[0];
+assert.equal(inventoryFacts.positions_complete, true);
+assert.deepEqual(inventoryFacts.positions, []);
 
 const workerSource = readFileSync(join(root, "web/strategy-switch-console/worker.js"), "utf8");
 assert.match(workerSource, /account_facts_put/);
