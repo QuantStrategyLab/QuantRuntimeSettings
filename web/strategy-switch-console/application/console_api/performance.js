@@ -249,7 +249,7 @@ export function performanceBlocks({
   const currencies = [...new Set(histories.map((h) => h.currency))];
   const mixed = currencies.length > 1;
   const combined = aggregateEquity(
-    histories.map((h) => ({ id: h.id, points: h.points })),
+    histories.map((h) => ({ id: h.id, crypto: h.crypto, points: h.points })),
   );
   const allPoints = mixed ? [] : combined.points;
   const points = sliceRange(allPoints, range.toLowerCase(), today);
@@ -371,7 +371,7 @@ export function performanceBlocks({
   } : {};
   const assetHistories = historyCurves.map(curve => ({
     currency: curve.currency,
-    as_of: curve.as_of,
+    as_of: curve.asset_points.at(-1)?.date || null,
     coverage: curve.coverage,
     status: !curve.asset_points.length ? "no_data"
       : curve.status === "stale" ? "stale"

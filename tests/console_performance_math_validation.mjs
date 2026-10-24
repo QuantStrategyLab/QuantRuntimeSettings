@@ -33,7 +33,8 @@ const aligned = alignReturns(twr.index,[{id:'late',points:[p('2026-01-02',50),p(
 assert.equal(aligned.start,'2026-01-02');
 for(const s of [aligned.primary,...aligned.benchmarks.map(s=>s.points)]) assert.equal(s[0].value,0,'all series start at exactly zero on common date');
 assert.deepEqual(aligned.benchmarks[0].points.map(p=>p.date),['2026-01-02','2026-01-04']);
-assert.equal(aligned.benchmarks[0].points[1].breakBefore,true,'missing benchmark day breaks the path');
+assert.equal(aligned.benchmarks[0].points[1].breakBefore,false,'weekend-only gaps connect on the common observed axis');
+assert.deepEqual(aligned.primary.map(point=>point.date),aligned.benchmarks[0].points.map(point=>point.date));
 assert.equal(alignReturns(twr.index,[{id:'no-overlap',points:[p('2025-01-01',1)]}]).noCommonDate,true);
 assert.equal(alignReturns(twr.index,[]).primary[0].value,0);
 assert.deepEqual(alignReturns([],[]).primary,[]);

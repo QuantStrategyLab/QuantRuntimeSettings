@@ -71,6 +71,14 @@ export async function performanceResponse(request, env, deps) {
       makeRequest("/api/account-facts"),
       env,
     );
+    if (endpoint === "holdings" && !factsResponse.ok) {
+      const sourceError = await factsResponse.json().catch(() => null);
+      if (factsResponse.status !== 404 || sourceError?.error !== "account_facts_disabled") {
+        return json({ schema_version: "console_api.v1", scope, range,
+          status: "unavailable", unavailable_reason: "stored_records_unreadable",
+          rows: [], coverage: [], includes_cost_basis: false }, 503);
+      }
+    }
     const factsBody = factsResponse.ok
       ? await factsResponse.json()
       : { accounts: [] };
@@ -82,6 +90,11 @@ export async function performanceResponse(request, env, deps) {
     if (!factsResponse.ok) readFailures.push("account_facts_unreadable");
     for (const option of matches) {
       if (option.platform === "binance") {
+        // Wallet history is not a current positions source.
+        if (endpoint === "holdings") {
+          accounts.push({ account_key: option.key, platform: option.platform });
+          continue;
+        }
         const response = await deps.wallet(
           makeRequest("/api/binance-account-facts/history", {
             account_key: option.key,
@@ -109,6 +122,7 @@ export async function performanceResponse(request, env, deps) {
         histories.push({
           id: `${option.platform}:${option.key}`,
           currency: "USDT",
+          crypto: true,
           points: (body.points || []).flatMap((p) =>
             number(p.amount) === null
               ? []
@@ -146,6 +160,7 @@ export async function performanceResponse(request, env, deps) {
       )
         continue;
       accounts.push(fact);
+      if (endpoint === "holdings") continue;
       const currencies = [
         ...new Set((fact.balances || []).map((b) => b.currency)),
       ];
@@ -195,6 +210,11 @@ export async function performanceResponse(request, env, deps) {
       }
       histories.push(...accountHistories);
       if (accountHistories.some((h) => !h.points.length)) failed.push(option.key);
+    }
+    if (endpoint === "holdings") {
+      const block = performanceBlocks({ accounts, histories: [], today, year, month,
+        freshnessThresholdHours: env.CONSOLE_ACCOUNT_FRESHNESS_HOURS }).holdings;
+      return json({ schema_version: "console_api.v1", scope, range, ...block });
     }
     let benchmarks = [],
       benchmarkFailed = false;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { aggregateEquityHistory, equityHistoryCurve, historyMaxStalenessDays } from "../web/strategy-switch-console/application/console_api/equity_history.js";
 import { businessDate, performanceBlocks } from "../web/strategy-switch-console/application/console_api/performance.js";
 import { performanceResponse } from "../web/strategy-switch-console/application/console_api/performance_routes.js";
-import { dateMs } from "../web/strategy-switch-console/performance_math.js";
+import { aggregateEquity, alignReturns, dateMs, hasGap } from "../web/strategy-switch-console/performance_math.js";
 
 // All identifiers, dates and amounts in this file are synthetic.
 const p = (day, value, externalFlow = null) => ({ date: `2026-01-${String(day).padStart(2, "0")}`, value, externalFlow });
@@ -170,3 +170,91 @@ assert.deepEqual(failedBody.curve_coverage.read_failures, ["synthetic-b"]);
 assert.equal(failedBody.curve_status, "partial");
 assert.equal(failedBody.status, "ok", "history read failure does not overwrite current snapshot health");
 console.log("console_equity_history_validation: PASS (synthetic union, overlap, age cutoff, first observation, empty/single, currencies, coverage and return segments)");
+
+
+// The production e2 baseline must retain unqualified observations without a benchmark calendar.
+const coreDates = Array.from({ length: 10 }, (_, i) => `2026-10-${String(i + 10).padStart(2, "0")}`);
+const coreHistory = flow => [{ id: "synthetic-core", currency: "USD",
+  points: coreDates.map((date, i) => ({ date, value: 100 + i, externalFlow: flow })) }];
+const coreBench = dates => [{ id: "synthetic-core-benchmark", points: dates.map((date, i) => ({ date, value: 200 + i })) }];
+const unqualifiedCore = equityHistoryCurve(aggregateEquityHistory(coreHistory(null), "USD"), {
+  today: coreDates.at(-1), benchmarks: coreBench(coreDates.slice(5)),
+});
+assert.equal(unqualifiedCore.points.length, 10, "an unadjusted asset ratio cannot be clipped by a benchmark");
+assert.equal(unqualifiedCore.return_kind, "unadjusted_asset_ratio");
+assert.equal(unqualifiedCore.unavailable_reason, "external_cashflow_required");
+assert.deepEqual(unqualifiedCore.benchmarks, [], "missing flows do not become qualified return comparisons");
+const qualifiedCore = equityHistoryCurve(aggregateEquityHistory(coreHistory(0), "USD"), {
+  today: coreDates.at(-1), benchmarks: coreBench(coreDates.slice(5)),
+});
+assert.equal(qualifiedCore.points.length, 5, "qualified comparisons keep only jointly observed dates");
+assert.equal(qualifiedCore.benchmarks.length, 1);
+assert.equal(qualifiedCore.return_kind, "twr");
+const cutoffCore = performanceBlocks({ accounts: [], histories: coreHistory(0),
+  benchmarks: coreBench(coreDates.slice(0, 5)), today: coreDates.at(-1), year: 2026, month: 10, range: "ALL" });
+assert.equal(cutoffCore.returns.points.at(-1).date, coreDates[4], "the comparison cannot run beyond its benchmark");
+assert.equal(cutoffCore.returns.as_of, coreDates[4]);
+assert.equal(cutoffCore.returns.status, "partial");
+assert.equal(cutoffCore.returns.unavailable_reason, "benchmark_history_missing");
+assert.equal(cutoffCore.assets.history_per_currency[0].as_of, coreDates.at(-1), "asset history keeps its own observation date");
+assert.equal(cutoffCore.assets.history_per_currency[0].points.length, 10);
+assert.equal(cutoffCore.assets.points.length, 10);
+console.log("backend_core_curve_regression: PASS (observation retention, qualified common dates and honest cutoff dates)");
+
+assert.equal(hasGap({ date: "2026-10-16" }, { date: "2026-10-19" }), false, "a weekend is not an unobserved business day");
+assert.equal(hasGap({ date: "2026-10-16" }, { date: "2026-10-20" }), true, "a missing Monday stays a real gap");
+assert.equal(hasGap({ date: "2026-10-16" }, { date: "2026-10-20", breakBefore: false }), false, "an authoritative false break is preserved");
+assert.equal(hasGap({ date: "2026-10-19" }, { date: "2026-10-20", breakBefore: true }), true);
+const coreAxis = alignReturns([{ date: "2026-10-16", value: 1 }, { date: "2026-10-17", value: 1.01 },
+  { date: "2026-10-19", value: 1.1, breakBefore: true }, { date: "2026-10-20", value: 1.2 }],
+  [{ id: "synthetic-gap-benchmark", points: [{ date: "2026-10-16", value: 100 }, { date: "2026-10-19", value: 101 }] }]);
+assert.deepEqual(coreAxis.primary.map(point => point.date), ["2026-10-16", "2026-10-19"]);
+assert.deepEqual(coreAxis.primary.map(point => point.date), coreAxis.benchmarks[0].points.map(point => point.date));
+assert.equal(coreAxis.primary[1].breakBefore, true, "source gaps survive shared-axis filtering");
+assert.equal(coreAxis.benchmarks[0].points[1].breakBefore, false);
+console.log("backend_core_date_axis_regression: PASS (weekend, missing business day and declared breaks)");
+
+// Synthetic calendar cases: benchmark observations alone never certify a holiday.
+assert.equal(hasGap({ date: "2026-10-16" }, { date: "2026-10-19" }, { crypto: true }), true,
+  "a 24x7 series cannot silently skip a missing weekend");
+assert.equal(hasGap({ date: "2026-10-16" }, { date: "2026-10-17" }, { crypto: true }), false);
+const declaredClosure = alignReturns([{ date: "2026-10-14", value: 1 },
+  { date: "2026-10-16", value: 1.1, breakBefore: false }], []);
+assert.equal(declaredClosure.primary[1].breakBefore, false,
+  "an authoritative declared interval can connect without inserting a holiday point");
+const unclassifiedInterval = alignReturns([{ date: "2026-10-14", value: 1 },
+  { date: "2026-10-16", value: 1.1 }], [{ id: "synthetic-stock-benchmark", points: [
+  { date: "2026-10-14", value: 100 }, { date: "2026-10-16", value: 101 }] }]);
+assert.equal(unclassifiedInterval.primary[1].breakBefore, true,
+  "missing both an account observation and a benchmark close is not proof of a holiday");
+const cryptoPoints = ["2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19"]
+  .map((date, i) => ({ date, value: 100 + i, externalFlow: 0 }));
+const cryptoHistory = { id: "binance:synthetic-crypto", currency: "USDT", crypto: true, points: cryptoPoints };
+const cryptoGap = { ...cryptoHistory, points: [cryptoPoints[0], cryptoPoints[3]] };
+assert.equal(aggregateEquity([cryptoGap]).points[1].breakBefore, true);
+assert.equal(aggregateEquityHistory([cryptoGap], "USDT").points[1].breakBefore, true);
+const cryptoBlocks = performanceBlocks({ accounts: [{ platform: "binance", account_key: "synthetic-crypto" }],
+  histories: [cryptoHistory], today: cryptoPoints.at(-1).date, year: 2026, month: 10,
+  benchmarks: [{ id: "synthetic-us-stock-index", points: [
+    { date: "2026-10-16", value: 100 }, { date: "2026-10-19", value: 101 }] }] });
+assert.deepEqual(cryptoBlocks.returns.points.map(p => p.date), cryptoPoints.map(p => p.date),
+  "a qualified crypto curve retains Saturday and Sunday instead of adopting a stock benchmark calendar");
+assert.deepEqual(cryptoBlocks.returns.benchmarks, []);
+assert.equal(cryptoBlocks.returns.coverage.trading_dates, "calendar_days");
+const cryptoRoute = await performanceResponse(new Request(
+  "https://synthetic.invalid/api/performance/assets?scope=synthetic-crypto&platform=binance"), {}, {
+  json: (body, status = 200) => Response.json(body, { status }),
+  readSession: async () => ({ allowed: true }),
+  accountOptions: async () => ({ options: { binance: [{ key: "synthetic-crypto", broker_environment: "live" }] } }),
+  facts: async () => Response.json({ accounts: [] }),
+  wallet: async () => Response.json({ currency: "USDT", points: cryptoGap.points.map(p => ({
+    observation_date: p.date, observed_at: `${p.date}T12:00:00Z`, amount: String(p.value) })) }),
+  history: async () => { throw Error("broker history must not be used for crypto"); },
+  benchmarks: async () => Response.json({ points: [] }),
+});
+assert.equal(cryptoRoute.status, 200);
+const cryptoRouteBody = await cryptoRoute.json();
+assert.deepEqual(cryptoRouteBody.points.map(p => p.date), cryptoGap.points.map(p => p.date));
+assert.equal(cryptoRouteBody.points[1].breakBefore, true,
+  "the wallet route carries 24x7 semantics to the published asset curve");
+console.log("backend_core_market_calendar_regression: PASS (stock weekends, declared/unknown closures, crypto 24x7 and untrimmed observations)");
