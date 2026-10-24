@@ -73,6 +73,14 @@ export function isPaperFact(row: AccountFactsAccount): boolean {
   return row.broker_environment === "paper" || row.account_scope === "paper";
 }
 
+/** Explicit broker environment from trusted facts; never inferred from an alias. */
+export function factEnvironment(row: AccountFactsAccount | null | undefined): "paper" | "live" | null {
+  if (!row) return null;
+  const broker = row.broker_environment === "paper" || row.broker_environment === "live" ? row.broker_environment : null;
+  const scope = row.account_scope === "paper" || row.account_scope === "live" ? row.account_scope : null;
+  return broker && scope && broker !== scope ? null : broker ?? scope;
+}
+
 function hasScopeSignal(row: AccountFactsAccount): boolean {
   return typeof row.broker_environment === "string" || typeof row.account_scope === "string";
 }

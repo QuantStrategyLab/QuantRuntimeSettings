@@ -1,14 +1,8 @@
-import { InboxReadFailed } from "../../components/InboxReadFailed";
 import { inboxFailureState } from "../../lib/inboxFailure";
 import { CurrencyTotals } from "../../components/CurrencyTotals";
-import { AccountGroups } from "../../components/AccountGroups";
-import type { DirectoryConfig } from "../../lib/accountDirectory";
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { getJson } from "../../api/client";
 import type {
-  AccountFactsResponse,
-  AccountsResponse,
   AssetsResponse,
   CalendarResponse,
   InboxResponse,
@@ -17,8 +11,6 @@ import type {
   TodayRunSummary,
 } from "../../api/contracts";
 import {
-  loadAccountFacts,
-  loadAccounts,
   loadInbox,
   loadPerformanceAssets,
   loadPerformanceCalendar,
@@ -28,11 +20,10 @@ import {
 } from "../../api/endpoints";
 import { useApi } from "../../lib/hooks";
 import type { AsyncState } from "../../lib/hooks";
-import { relativeFreshness } from "../../lib/format";
 import { latestAssetBalance } from "../../lib/performance";
 import { renderableStatus } from "../../lib/status";
 import { useNavigate, useScope } from "../../app/context";
-import { useLanguage, useT } from "../../i18n";
+import { useT } from "../../i18n";
 import { useScopeLabel } from "../../lib/useScopeLabel";
 import {
   AsOfStamp,
@@ -48,13 +39,9 @@ import {
 import { KpiCard } from "../../components/KpiCard";
 import { LineChart, type ChartSeries } from "../../charts/LineChart";
 import { DIETZ_APPROX_LABEL_KEY, UNKNOWN_METHOD_LABEL_KEY, classifyCashflowMethod } from "../performance/cashflowMethod";
-import type { AccountFactsView } from "../../components/AccountGroups";
 import "./overview.css";
 
 type Api<T> = AsyncState<T> & { reload: () => void };
-
-/** Best-effort legacy config: strategy names, paper flag, runtime target state. */
-type LegacyConfig = DirectoryConfig;
 
 const RANGE = "YTD" as const;
 
@@ -274,7 +261,7 @@ function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
   }
   return (
     <div
-      className="card overview-link-card"
+      className="card overview-link-card overview-trend-card"
       role="button"
       tabIndex={0}
       onClick={open}
@@ -295,109 +282,11 @@ function TrendCard({ state }: { state: Api<ReturnsResponse> }) {
   );
 }
 
-/* ---------- todo preview ---------- */
-
-const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, normal: 2 };
-
-function TodoPreviewCard({ state }: { state: Api<InboxResponse> }) {
-  const t = useT();
-  const language = useLanguage();
-  const navigate = useNavigate();
-  const open = () => navigate({ page: "decisions" });
-  let body: ReactNode;
-  if (state.phase === "loading") {
-    body = (
-      <div className="inbox-list">
-        <Skeleton height={56} />
-        <Skeleton height={56} />
-        <Skeleton height={56} />
-      </div>
-    );
-  } else if (state.phase === "error" || state.data.status === "read_failed") {
-    body = <InboxReadFailed data={state.data} error={state.error} onRetry={state.reload} />;
-  } else {
-    const pending = state.data.items
-      .filter(item => item.status === "pending")
-      .sort((a, b) => {
-        const rank = (PRIORITY_RANK[a.priority] ?? 3) - (PRIORITY_RANK[b.priority] ?? 3);
-        if (rank !== 0) return rank;
-        return (b.created_at || "").localeCompare(a.created_at || "");
-      })
-      .slice(0, 3);
-    if (pending.length === 0) {
-      body = <EmptyState title={t("decisions.empty_pending")} />;
-    } else {
-      body = (
-        <div className="inbox-list">
-          {pending.map(item => {
-            const translated = t(item.title_key);
-            const title = translated === item.title_key ? item.short_id : translated;
-            const fresh = relativeFreshness(item.created_at, language);
-            return (
-              <button key={item.id} type="button" className="inbox-item" onClick={open}>
-                <span className={`priority-dot priority-${item.priority}`} aria-hidden="true" />
-                <span className="item-main">
-                  <span className="item-title">{title}</span>
-                  <span className="item-meta">
-                    <span>{item.account_alias || t("decisions.account_global")}</span>
-                    {fresh && <span>{fresh}</span>}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      );
-    }
-  }
-  return (
-    <div className="card">
-      <div className="overview-card-head">
-        <h2 className="card-title">{t("overview.todo_preview")}</h2>
-        <button type="button" className="button button-secondary" onClick={open}>{t("common.view_all")}</button>
-      </div>
-      {body}
-    </div>
-  );
-}
-
-/* ---------- my accounts ---------- */
-
-function AccountsCard({ accounts, config, facts }: { accounts: Api<AccountsResponse>; config: Api<LegacyConfig | null>; facts: Api<AccountFactsResponse> }) {
-  const t = useT();
-  const navigate = useNavigate();
-  let body: ReactNode;
-  if (accounts.phase === "loading") {
-    body = (
-      <div className="account-grid">
-        <Skeleton height={120} />
-        <Skeleton height={120} />
-        <Skeleton height={120} />
-      </div>
-    );
-  } else if (accounts.phase === "error") {
-    body = <ErrorState onRetry={accounts.reload} />;
-  } else if (accounts.data.accounts.length === 0) {
-    body = <EmptyState title={t("overview.no_accounts")} />;
-  } else {
-    const cfg = config.phase === "ready" ? config.data : null;
-    const factsView: AccountFactsView = facts.phase === "ready"
-      ? { rows: facts.data.accounts, phase: "ready" }
-      : { rows: [], phase: facts.phase };
-    body = <AccountGroups accounts={accounts.data.accounts} config={cfg} facts={factsView} onSelect={key => navigate({ page: "accounts", account: key })} />;
-  }
-  return (
-    <div className="card overview-accounts-card">
-      <h2 className="card-title">{t("overview.my_accounts")}</h2>
-      {body}
-    </div>
-  );
-}
-
 /* ---------- page ---------- */
 
 export default function OverviewPage() {
   const t = useT();
+  const navigate = useNavigate();
   const { scope } = useScope();
   const [epoch, setEpoch] = useState(0);
   const refresh = () => setEpoch(value => value + 1);
@@ -409,9 +298,6 @@ export default function OverviewPage() {
   const inbox = useApi(() => loadInbox(epoch > 0), [epoch]);
   const todayRuns = useApi(() => loadTodayRuns(), [epoch]);
   const returns = useApi(() => loadPerformanceReturns(scope, RANGE), [scope, epoch]);
-  const accounts = useApi(() => loadAccounts(), [epoch]);
-  const facts = useApi(() => loadAccountFacts(), [epoch]);
-  const config = useApi(() => getJson<LegacyConfig>("/api/config").catch(() => null), [epoch]);
 
   return (
     <div className="page">
@@ -432,11 +318,21 @@ export default function OverviewPage() {
           <RunsKpi state={todayRuns} />
         </div>
       </section>
-      <div className="grid-2 overview-content-grid">
-        <TrendCard state={returns} />
-        <TodoPreviewCard state={inbox} />
-      </div>
-      <AccountsCard accounts={accounts} config={config} facts={facts} />
+      <TrendCard state={returns} />
+      <nav className="overview-shortcuts" aria-label={t("overview.quick_links")}>
+        <button type="button" className="overview-shortcut" onClick={() => navigate({ page: "accounts" })}>
+          {t("nav.accounts")}<span aria-hidden="true">→</span>
+        </button>
+        <button type="button" className="overview-shortcut" onClick={() => navigate({ page: "strategies" })}>
+          {t("nav.strategies")}<span aria-hidden="true">→</span>
+        </button>
+        <button type="button" className="overview-shortcut" onClick={() => navigate({ page: "decisions" })}>
+          {t("nav.decisions")}<span aria-hidden="true">→</span>
+        </button>
+        <button type="button" className="overview-shortcut" onClick={() => navigate({ page: "health" })}>
+          {t("nav.health")}<span aria-hidden="true">→</span>
+        </button>
+      </nav>
     </div>
   );
 }

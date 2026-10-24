@@ -5,9 +5,22 @@ import { useDisplayNames } from "../lib/useDisplayNames";
 import { useT } from "../i18n";
 import type { AccountFactsAccount, AccountsResponse } from "../api/contracts";
 import { DateText } from "./primitives";
-import { AccountFactsAmounts, PlatformFactsSummary, type FactsPhase } from "./AccountFactsAmounts";
+import {
+  AccountFactsAmounts,
+  EnvironmentBadge,
+  PlatformFactsSummary,
+  environmentOfFacts,
+  type AccountEnvironment,
+  type FactsPhase,
+} from "./AccountFactsAmounts";
 
 type Account = AccountsResponse["accounts"][number];
+
+function evidenceEnvironment(evidence: { broker_environment?: "live" | "paper" | null } | undefined): AccountEnvironment | null {
+  return evidence?.broker_environment === "paper" || evidence?.broker_environment === "live"
+    ? evidence.broker_environment
+    : null;
+}
 
 export interface AccountFactsView {
   rows: AccountFactsAccount[];
@@ -44,39 +57,51 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
         return <div className="account-platform-summary"><PlatformFactsSummary rows={units.rows} expected={units.expected} phase={facts.phase} /></div>;
       })()}
     </div>
-    <div className="account-grid">{group.accounts.map(account => <article className="card account-group-card" key={account.identity}>
-      <h3 className="account-broker-title">{names.account(account.rows[0].account_alias, group.platform)}</h3>
-      {facts && <div className="account-card-facts">{(() => {
-        // A display card is an alias/selector grouping, not a verified
-        // identity. Producer-known duplicate aliases of one physical account
-        // resolve to the canonical row; only several distinct canonical rows
-        // under one card are unresolvable and stay an honest unverified state
-        // instead of merging or picking one.
-        const unique = [...new Set(account.rows
-          .map(row => factForAccount(facts.rows, row.platform, row.account_alias))
-          .filter((fact): fact is AccountFactsAccount => Boolean(fact)))];
-        const canonical = unique.filter(fact => fact.aggregation_status !== "duplicate");
-        const representative = canonical.length === 1 ? canonical[0]! : canonical.length === 0 && unique.length === 1 ? unique[0]! : null;
-        return <AccountFactsAmounts fact={representative} phase={facts.phase} ambiguous={canonical.length > 1} />;
-      })()}</div>}
-      {account.rows.map(row => {
-        const strategy = names.currentStrategy(row);
-        const evidence = config?.currentStrategies?.[row.platform]?.[row.account_alias]?.execution_evidence;
-        const enabled = config?.currentStrategies?.[row.platform]?.[row.account_alias]?.runtime_target_enabled;
-        return <div className="account-strategy-block" key={accountKey(row)}>
-          <button type="button" className="account-strategy-link" onClick={() => onSelect(accountKey(row))}>
-            <span className="account-strategy-name">{strategy ? names.strategy(strategy) : t("common.unknown")}</span>
-            {typeof enabled === "boolean" && <span className="account-row"><span title={t("accounts.execution.runtime_target_note")}>{t("accounts.activation_setting")}</span><span>{t(enabled ? "overview.runtime_enabled" : "overview.runtime_disabled")}</span></span>}
-            {row.pending_draft_count > 0 && <span className="account-row"><span>{t("accounts.col.drafts")}</span><span>{row.pending_draft_count}</span></span>}
-            {row.pending_decision_count !== null && row.pending_decision_count > 0 && (
-              <span className="account-row"><span>{t("accounts.col.todos")}</span><span>{row.pending_decision_count}</span></span>
-            )}
-            <span className="account-row"><span>{t("accounts.col.last_change")}</span><DateText value={row.last_change_at} /></span>
-          </button>
-          <ExecutionEvidence evidence={evidence} compact />
-        </div>;
-      })}
-    </article>)}</div>
+    <div className="account-grid">{group.accounts.map(account => {
+      // A display card is an alias/selector grouping, not a verified
+      // identity. Producer-known duplicate aliases of one physical account
+      // resolve to the canonical row; only several distinct canonical rows
+      // under one card are unresolvable and stay an honest unverified state
+      // instead of merging or picking one.
+      const unique = [...new Set(account.rows
+        .map(row => factForAccount(facts?.rows ?? [], row.platform, row.account_alias))
+        .filter((fact): fact is AccountFactsAccount => Boolean(fact)))];
+      const canonical = unique.filter(fact => fact.aggregation_status !== "duplicate");
+      const representative = canonical.length === 1 ? canonical[0]! : canonical.length === 0 && unique.length === 1 ? unique[0]! : null;
+      const evidenceEnvironments = new Set(account.rows
+        .map(row => evidenceEnvironment(config?.currentStrategies?.[row.platform]?.[row.account_alias]?.execution_evidence))
+        .filter((value): value is AccountEnvironment => value !== null));
+      const environment = environmentOfFacts(
+        unique,
+        evidenceEnvironments.size === 1 ? [...evidenceEnvironments][0]! : null,
+      );
+      return <article className="card account-group-card" key={account.identity}>
+        <div className="account-card-head">
+          <h3 className="account-broker-title">{names.account(account.rows[0].account_alias, group.platform)}</h3>
+          <EnvironmentBadge environment={environment} />
+        </div>
+        {facts && <div className="account-card-facts">
+          <AccountFactsAmounts fact={representative} phase={facts.phase} ambiguous={canonical.length > 1} />
+        </div>}
+        {account.rows.map(row => {
+          const strategy = names.currentStrategy(row);
+          const evidence = config?.currentStrategies?.[row.platform]?.[row.account_alias]?.execution_evidence;
+          const enabled = config?.currentStrategies?.[row.platform]?.[row.account_alias]?.runtime_target_enabled;
+          return <div className="account-strategy-block" key={accountKey(row)}>
+            <button type="button" className="account-strategy-link" onClick={() => onSelect(accountKey(row))}>
+              <span className="account-strategy-name">{strategy ? names.strategy(strategy) : t("common.unknown")}</span>
+              {typeof enabled === "boolean" && <span className="account-row"><span title={t("accounts.execution.runtime_target_note")}>{t("accounts.activation_setting")}</span><span>{t(enabled ? "overview.runtime_enabled" : "overview.runtime_disabled")}</span></span>}
+              {row.pending_draft_count > 0 && <span className="account-row"><span>{t("accounts.col.drafts")}</span><span>{row.pending_draft_count}</span></span>}
+              {row.pending_decision_count !== null && row.pending_decision_count > 0 && (
+                <span className="account-row"><span>{t("accounts.col.todos")}</span><span>{row.pending_decision_count}</span></span>
+              )}
+              <span className="account-row"><span>{t("accounts.col.last_change")}</span><DateText value={row.last_change_at} /></span>
+            </button>
+            <ExecutionEvidence evidence={evidence} compact />
+          </div>;
+        })}
+      </article>;
+    })}</div>
   </section>)}
   </div>;
 }

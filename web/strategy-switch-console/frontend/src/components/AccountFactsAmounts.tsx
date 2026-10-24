@@ -3,15 +3,42 @@ import { useT } from "../i18n";
 import { usePrefs } from "../app/context";
 import {
   accountFactDisplay,
+  factEnvironment,
   formatMoneyText,
   isPaperFact,
   isReadableFact,
   platformCurrencyTotals,
 } from "../lib/accountFacts";
-import { AsOfStamp, Skeleton } from "./primitives";
+import { AsOfStamp, Badge, Skeleton } from "./primitives";
 import "./account-facts.css";
 
 export type FactsPhase = "loading" | "error" | "ready";
+
+export type AccountEnvironment = "paper" | "live";
+
+/** Explicit live/paper badge; nothing is inferred when the source is unknown. */
+export function EnvironmentBadge({ environment }: { environment: AccountEnvironment | null }) {
+  const t = useT();
+  if (!environment) return null;
+  return <Badge tone={environment === "paper" ? "accent" : "warn"}>
+    {t(environment === "paper" ? "common.paper_badge" : "strategies.execution.live")}
+  </Badge>;
+}
+
+/**
+ * One explicit environment for a card, or null when rows disagree / stay
+ * unknown. Only an empty row set may fall back to another explicit source; a
+ * facts row with no environment never borrows a label from its neighbours.
+ */
+export function environmentOfFacts(
+  rows: AccountFactsAccount[],
+  fallback: AccountEnvironment | null = null,
+): AccountEnvironment | null {
+  if (!rows.length) return fallback;
+  const environments = rows.map(factEnvironment);
+  const known = new Set(environments.filter((value): value is AccountEnvironment => value !== null));
+  return environments.every(value => value !== null) && known.size === 1 ? [...known][0]! : null;
+}
 
 const SHORT_STATE = new Set([
   "state.read_failed",
@@ -122,7 +149,7 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
 }) {
   const t = useT();
   if (phase === "loading") return <div className="account-facts"><Skeleton height={14} /></div>;
-  if (phase === "error") return <FactsStateRow label={t("facts.platform_total")} stateKey="state.read_failed" />;
+  if (phase === "error") return <FactsStateRow label={t("facts.platform_total_live")} stateKey="state.read_failed" />;
   const totals = platformCurrencyTotals(rows, expected);
   if (!totals.length) {
     // Empty totals in the live口径: paper-only scopes are an honest no-data,
@@ -140,14 +167,16 @@ export function PlatformFactsSummary({ rows, expected, phase }: {
           : "state.no_data";
     // The full verification workflow stays available on the Accounts page; the
     // summary itself only reports the unresolved identity state.
-    return <FactsStateRow label={t("facts.platform_total")} stateKey={stateKey} />;
+    return <FactsStateRow label={t("facts.platform_total_live")} stateKey={stateKey} />;
   }
   return (
     <div className="account-facts account-facts-platform">
       {totals.map(total => (
         <div className="account-facts-currency" key={total.currency}>
           <span className="account-row account-facts-assets">
-            <span>{t(total.complete ? "facts.platform_total" : "facts.platform_subtotal")} · {total.currency}</span>
+            <span title={t("facts.platform_scope_note")}>
+              {t(total.complete ? "facts.platform_total_live" : "facts.platform_subtotal_live")} · {total.currency}
+            </span>
             <MoneyText value={total.netAssets} currency={total.currency} />
           </span>
           <span className="account-row account-facts-cash">

@@ -272,6 +272,8 @@ export interface PerformanceMeta {
 export interface Point {
   date: string;
   value: number;
+  /** Native daily TWR percentage (not a ratio); absent when the backend cannot chain a day. */
+  daily_return_percent?: number;
   breakBefore?: boolean;
   contributing_accounts?: string[];
   missing_accounts?: string[];

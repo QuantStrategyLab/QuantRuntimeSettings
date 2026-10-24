@@ -42,6 +42,7 @@ export const zh: Record<string, string> = {
   "perf.asset_balance_title": "资产余额",
   "perf.asset_change_title": "资产变化",
   "perf.asset_change_tag": "资产变化 · 含出入金影响",
+  "perf.asset_change_calendar_tag": "含出入金影响",
   "perf.asset_change_note": "暂时无法计算收益，以下展示资产变化（%）。该变化包含出入金影响，不代表时间加权收益，也不与基准比较。",
   "perf.portfolio_series": "组合",
   "perf.currency_switch": "币种",
@@ -54,6 +55,7 @@ export const zh: Record<string, string> = {
   "perf.ranking_note": "按未实现盈亏金额排序；盈亏比例以成本价为基准，缺少成本价的持仓不参与排行。",
   "perf.ranking_winners": "盈利靠前",
   "perf.ranking_losers": "亏损靠前",
+  "perf.benchmarks_unavailable": "基准暂不可用（{count}）",
 };
 export const en: Record<string, string> = {
   "perf.history_incomplete": "Some history is unavailable",
@@ -98,6 +100,7 @@ export const en: Record<string, string> = {
   "perf.asset_balance_title": "Asset balance",
   "perf.asset_change_title": "Asset change",
   "perf.asset_change_tag": "Asset change · includes cash flows",
+  "perf.asset_change_calendar_tag": "Includes cash flows",
   "perf.asset_change_note": "Returns are unavailable; the chart shows asset change (%), including the effect of cash flows. It is not a time-weighted return and is not compared with benchmarks.",
   "perf.portfolio_series": "Portfolio",
   "perf.currency_switch": "Currency",
@@ -110,4 +113,5 @@ export const en: Record<string, string> = {
   "perf.ranking_note": "Ranked by unrealized P/L amount; percentages use cost basis. Holdings without a cost basis are not ranked.",
   "perf.ranking_winners": "Top gainers",
   "perf.ranking_losers": "Top losers",
+  "perf.benchmarks_unavailable": "{count} benchmark(s) unavailable",
 };
