@@ -1,8 +1,58 @@
-import type { TodayRunSummary } from "../../api/contracts";
+import type { RunState, TodayRunSummary } from "../../api/contracts";
 import type { RuntimeDailySnapshot } from "../../api/endpoints";
 import { runtimeDailyRunIssue } from "../../../../runtime_daily_contract.js";
 
 export type CellKind = "ok" | "failed" | "blocked" | "not-run" | "no-record" | "unknown" | "incomplete" | "stale" | "read-failed";
+
+type SummaryAccount = TodayRunSummary["accounts"][number];
+
+/** The API keeps these activity values distinct; never fold them into one "not run" label. */
+const NOT_RUN_ACTIVITIES = ["market_closed", "not_due", "outside_window", "within_grace"] as const;
+type NotRunActivity = (typeof NOT_RUN_ACTIVITIES)[number];
+const NOT_RUN_ACTIVITY_SET = new Set<string>(NOT_RUN_ACTIVITIES);
+
+export type RunActivityState = RunState | NotRunActivity;
+
+export const RUN_ACTIVITY_STATES: readonly RunActivityState[] = [
+  "succeeded", "failed", "blocked", "no_data", "not_connected", "not_run", "unknown", "read_failed",
+  "market_closed", "not_due", "outside_window", "within_grace",
+];
+
+/**
+ * Presentation-only activity state. Failure and read-failure checks run before
+ * the closed/not-due window checks, so a failed run is never masked by a
+ * market-closed or outside-window activity. Missing activity stays unknown.
+ */
+export function runActivityState(account: SummaryAccount): RunActivityState {
+  if (account.status === "not_connected" || account.status === "no_data" || account.status === "read_failed") {
+    return account.status;
+  }
+  const activity = account.activity;
+  const runs = account.runs || [];
+  if (activity === "blocked") return "blocked";
+  if (activity === "failed" || activity === "error") return "failed";
+  if (runs.some(run => run.activity !== "blocked" && runtimeDailyRunIssue(run) === "failure")) return "failed";
+  if (runs.some(run => run.activity === "blocked")) return "blocked";
+  if (activity === "read_incomplete") return "read_failed";
+  if (activity && NOT_RUN_ACTIVITY_SET.has(activity) && runs.length === 0) return activity as NotRunActivity;
+  if (account.completeness === "complete"
+    && activity !== null
+    && ["no_submission", "no_signal", "no_rebalance", "filled"].includes(activity)
+    && runs.length > 0
+    && runs.every(run => runtimeDailyRunIssue(run) === null)) return "succeeded";
+  return "unknown";
+}
+
+export function runActivityCounts(accounts: SummaryAccount[]): Record<RunActivityState, number> {
+  const counts = Object.fromEntries(RUN_ACTIVITY_STATES.map(state => [state, 0])) as Record<RunActivityState, number>;
+  for (const account of accounts) counts[runActivityState(account)] += 1;
+  return counts;
+}
+
+/** Specific activity states reuse the shared `state.*` copy; the rest use run-state copy. */
+export function runActivityLabelKey(state: string): string {
+  return NOT_RUN_ACTIVITY_SET.has(state) ? `state.${state}` : `health.run_state.${state}`;
+}
 
 /** Completeness describes the record, not the execution outcome. */
 export function cellKind(snapshot: RuntimeDailySnapshot): CellKind {

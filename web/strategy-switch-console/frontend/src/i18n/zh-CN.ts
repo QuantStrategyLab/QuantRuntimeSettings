@@ -83,6 +83,7 @@ export const zhCN = {
 
   "reason.external_cashflow_required": "缺少完整出入金记录，暂不展示 TWR；金额按资产变动展示。",
   "reason.fills_not_connected": "成交记录源未接入",
+  "reason.execution_coverage_unverified": "成交覆盖范围未核实",
   "reason.avg_cost_missing": "缺少成本价，未实现盈亏暂不可计算",
   "reason.mixed_currency": "多币种无法合并为单一金额；按币种分别展示",
   "reason.snapshot_history_missing": "缺少历史资产快照",

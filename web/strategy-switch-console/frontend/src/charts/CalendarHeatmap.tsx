@@ -71,21 +71,29 @@ export function CalendarHeatmap({
           <button type="button" className="button button-secondary button-sm" onClick={() => onNavigate(year + 1, null)} aria-label="›">›</button>
         </div>
         <div className="calendar-year-grid" style={{ marginTop: 12 }}>
-          {cells.map(cell => (
+          {cells.map(cell => {
+            // The producer's explicit future_date wins over the local-clock
+            // comparison, so timezone or month-boundary skew cannot turn a
+            // future month into a missing-history claim. The date comparison
+            // stays as a fallback for older payloads without the reason.
+            const wireReason = cell.unavailable_reason as string | null;
+            const future = Boolean(cell.month && cell.month > currentMonth) || wireReason === "future_date";
+            return (
             <button
               key={cell.month}
               type="button"
-              className={`calendar-cell${cell.month && cell.month > currentMonth ? " cell-future" : ""}${finiteNumber(cell.return_percent) === null && finiteNumber(cell.amount) === null ? " cell-empty" : ""}`}
-              style={{ background: cell.month && cell.month > currentMonth ? undefined : cellColor(cell, maxAbs) }}
-              title={cell.month && cell.month > currentMonth ? undefined : cell.unavailable_reason ? t(`reason.${cell.unavailable_reason}`) : undefined}
+              className={`calendar-cell${future ? " cell-future" : ""}${finiteNumber(cell.return_percent) === null && finiteNumber(cell.amount) === null ? " cell-empty" : ""}`}
+              style={{ background: future ? undefined : cellColor(cell, maxAbs) }}
+              title={future || !cell.unavailable_reason ? undefined : t(`reason.${cell.unavailable_reason}`)}
               onClick={() => cell.month && onNavigate(year, Number(cell.month.split("-")[1]))}
             >
               <span className="cell-date">{cell.month}</span>
-              <span className={`cell-value ${cellTone(cell)}`}>
-                {valueText(cell) || " "}
+              <span className={`cell-value ${future ? "" : cellTone(cell)}`}>
+                {future ? " " : valueText(cell) || " "}
               </span>
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -125,15 +133,17 @@ export function CalendarHeatmap({
           [0, 1, 2, 3, 4, 5, 6].map(column => {
             const cell = row[column];
             if (!cell) return <div key={`${weekIndex}-${column}`} />;
-            // Future days stay neutral: no observed value and no missing-history claim.
-            const future = Boolean(cell.date && cell.date > today);
+            const wireStatus = String(cell.status);
+            const wireReason = cell.unavailable_reason as string | null;
+            // Future days stay neutral: the producer's explicit future_date
+            // wins over the local-clock comparison, which remains only as a
+            // fallback for older payloads without the reason.
+            const future = Boolean(cell.date && cell.date > today) || wireReason === "future_date";
             const hasValue = !future && (finiteNumber(cell.return_percent) !== null || finiteNumber(cell.amount) !== null);
             // Only explicit producer states mark a closed day. Missing prices or
             // an empty weekend never infer a holiday, so 7×24 crypto calendars
             // keep real history gaps visible. The wire may carry a closed status
             // beyond today's narrower contract union.
-            const wireStatus = String(cell.status);
-            const wireReason = cell.unavailable_reason as string | null;
             const closed = !future && (wireStatus === "market_closed"
               || wireReason === "market_closed" || wireReason === "non_trading_weekend");
             const title = future ? undefined

@@ -251,6 +251,11 @@ export default function DecisionsPage() {
 
   const selected = visibleItems.find(item => item.id === selectedId) || null;
 
+  /** A missing account link is an unbound item, never a global "all accounts" scope. */
+  const accountLabel = (item: InboxItem) => item.account_alias
+    ? names.account(item.account_alias, item.platform)
+    : t("decisions.account_unbound");
+
   useEffect(() => {
     if (inbox.phase === "ready" && selectedId && !visibleItems.some(item => item.id === selectedId)) setSelectedId(null);
   }, [inbox.phase, selectedId, visibleItems]);
@@ -614,8 +619,9 @@ export default function DecisionsPage() {
           <h2 className="card-title" style={{ margin: 0 }}>{itemTitle(item, t)}</h2>
           <p className="decision-prompt">{t(`decisions.prompt.${item.category}`)}</p>
           <div className="decision-meta">
-            <span>{item.account_alias ? names.account(item.account_alias, item.platform) : t("decisions.account_global")}</span>
-            {item.platform && <span>{item.platform}</span>}
+            <span>{accountLabel(item)}</span>
+            {item.platform && <span>{names.platform(item.platform)}</span>}
+            <span className="decision-ref">{t("decisions.ref", { id: item.short_id })}</span>
             {item.created_at && (
               <span>{t("decisions.created_at", { value: formatDateTime(item.created_at, language).text })}</span>
             )}
@@ -698,7 +704,9 @@ export default function DecisionsPage() {
                         {item.category === "reconciliation_recovery" && (
                           <Badge tone="warn">{t("category.reconciliation_recovery")}</Badge>
                         )}
-                        <span>{item.account_alias ? names.account(item.account_alias, item.platform) : t("decisions.account_global")}</span>
+                        <span>{accountLabel(item)}</span>
+                        {item.platform && <span>{names.platform(item.platform)}</span>}
+                        <span className="item-ref">{t("decisions.ref", { id: item.short_id })}</span>
                         {fresh && (
                           <span title={showsStaleHint(item) ? t("decisions.stale_hint") : undefined}>{fresh}</span>
                         )}

@@ -29,8 +29,10 @@ export function CurrencyTotals({ totals, freshness, notes }: {
       return <div className="currency-total" key={item.currency} data-state={status}
         data-reason={item.unavailable_reason ?? undefined}
         data-excluded-count={item.excluded_account_count || undefined}>
-        <span className="kpi-sub">{t(item.status === "partial" ? "perf.currency_subtotal" : "perf.currency_total", { currency: item.currency })}</span>
-        <span className="num">{item.total === null ? "—" : <Money value={item.total} currency={item.currency} />}</span>
+        <span className="currency-total-head">
+          <span className="kpi-sub">{t(item.status === "partial" ? "perf.currency_subtotal" : "perf.currency_total", { currency: item.currency })}</span>
+          <span className="num">{item.total === null ? "—" : <Money value={item.total} currency={item.currency} />}</span>
+        </span>
         <span className="currency-meta">
           {coverage && <span className="kpi-sub">{t("facts.coverage", { covered: coverage.account_count, expected: coverage.expected_account_count })}</span>}
           {item.as_of && <AsOfStamp value={item.as_of} />}

@@ -80,6 +80,7 @@ export const zh: Record<string, string> = {
   "decisions.source.recovery": "对账恢复",
   "decisions.source.credential": "凭证",
   "decisions.technical_details": "参数详情",
+  "decisions.account_unbound": "未绑定账户",
 
 };
 export const en: Record<string, string> = {
@@ -163,5 +164,6 @@ export const en: Record<string, string> = {
   "decisions.source.recovery": "Reconciliation recovery",
   "decisions.source.credential": "Credentials",
   "decisions.technical_details": "Parameter details",
+  "decisions.account_unbound": "No linked account",
 
 };

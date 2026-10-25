@@ -19,7 +19,11 @@ export function useDisplayNames(override?: DirectoryConfig | null) {
       // Built-in titles may arrive either as the alias or as the configured
       // label; resolve both, while arbitrary custom labels pass through.
       const builtIn = builtInAccountTitle(option?.label, language, platform) || builtInAccountTitle(alias, language, platform);
-      const label = builtIn || accountName(alias, platform, language, option?.label && option.label !== alias ? option.label : t("common.account"));
+      // Keep the server-provided account name in full. When no display label
+      // exists, the account key itself is the only honest name; never replace
+      // it with a strategy name or a generic "Account" placeholder.
+      const fallback = option?.label && option.label !== alias ? option.label : alias;
+      const label = builtIn || accountName(alias, platform, language, fallback);
       return label;
     },
     strategy: (profile: string) => {
