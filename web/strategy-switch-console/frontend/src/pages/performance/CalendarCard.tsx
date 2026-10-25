@@ -22,9 +22,11 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
     year: now.getFullYear(),
     month: now.getMonth() + 1,
   });
+  const [selection, setSelection] = useState<{ scope: string; platform?: string; currency: string } | null>(null);
+  const currency = selection?.scope === scope && selection.platform === platform ? selection.currency : undefined;
   const state = useApi(
-    () => loadPerformanceCalendar(scope, range, view.year, view.month, platform),
-    [scope, platform, range, view.year, view.month, epoch],
+    () => loadPerformanceCalendar(scope, range, view.year, view.month, platform, currency),
+    [scope, platform, range, view.year, view.month, currency, epoch],
   );
 
   let body: ReactNode;
@@ -33,6 +35,7 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
   let asOf: string | null = null;
   let assetChange = false;
   let hasFlowDays = false;
+  let currencySwitch: ReactNode;
   if (state.phase === "loading") {
     body = <Skeleton height={220} />;
   } else if (state.phase === "error") {
@@ -44,6 +47,16 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
     asOf = data.as_of;
     assetChange = data.value_kind === "asset_change";
     hasFlowDays = data.cells.some(cell => cell.observed_amount !== null && cell.observed_amount !== undefined);
+    if ((data.available_currencies?.length || 0) > 1) {
+      currencySwitch = <div className="perf-currency-switch">
+        <div className="segmented" role="group" aria-label={t("perf.currency_switch")}>
+          {data.available_currencies!.map(item => <button key={item} type="button"
+            className={`segment${item === data.currency ? " active" : ""}`}
+            aria-pressed={item === data.currency}
+            onClick={() => setSelection({ scope, platform, currency: item })}>{item}</button>)}
+        </div>
+      </div>;
+    }
     if (!renderableStatus(data.status)) {
       body = (
         <div data-reason={data.unavailable_reason ?? undefined}>
@@ -85,6 +98,7 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
           {status && renderableStatus(status) && <AsOfStamp value={asOf} />}
         </span>
       </div>
+      {currencySwitch}
       {body}
       {hasFlowDays && <p className="card-note">{t("perf.calendar_deposit_note")}</p>}
     </div>

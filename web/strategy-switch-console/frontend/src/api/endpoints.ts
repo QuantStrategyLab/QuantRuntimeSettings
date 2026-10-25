@@ -137,11 +137,12 @@ export function loadPerformanceTrades(scope: string, range: Range, platform?: st
   return getJson<TradeStatsResponse>(`/api/performance/trades?${performanceQuery(scope, range, platform)}`);
 }
 
-export function loadPerformanceCalendar(scope: string, range: Range, year: number, month?: number | null, platform?: string): Promise<CalendarResponse> {
+export function loadPerformanceCalendar(scope: string, range: Range, year: number, month?: number | null, platform?: string, currency?: string): Promise<CalendarResponse> {
   const selected = performanceScope(scope, platform);
   const params = new URLSearchParams({ scope: selected.scope, range, year: String(year) });
   if (month !== null && month !== undefined) params.set("month", String(month));
   if (selected.platform) params.set("platform", selected.platform);
+  if (currency) params.set("currency", currency);
   return getJson<CalendarResponse>(`/api/performance/calendar?${params}`);
 }
 
