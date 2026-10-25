@@ -19,6 +19,9 @@ export const zh: Record<string, string> = {
   "strategies.catalog_section": "目录策略",
   "strategies.section_count": "{count} 项",
   "strategies.no_configured": "当前没有账户配置策略；可从下方目录继续查看。",
+  "strategies.binding": "账户绑定",
+  "strategies.unbound": "未绑定账户",
+  "strategies.unbound_note": "目录项尚未绑定账户；这不表示策略已停用或正在运行。",
 };
 export const en: Record<string, string> = {
   "strategies.details": "Details",
@@ -40,4 +43,7 @@ export const en: Record<string, string> = {
   "strategies.catalog_section": "Catalog strategies",
   "strategies.section_count": "{count}",
   "strategies.no_configured": "No account is configured with a strategy yet. Browse the catalog below.",
+  "strategies.binding": "Account binding",
+  "strategies.unbound": "No account linked",
+  "strategies.unbound_note": "This catalog entry has no linked account; it does not mean the strategy is stopped or running.",
 };

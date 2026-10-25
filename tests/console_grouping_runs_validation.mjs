@@ -94,10 +94,30 @@ try {
     assert.ok(detail.includes(language === "zh" ? "被拦截" : "Blocked"));
     assert.ok(detail.includes(language === "zh" ? "原因未知" : "Unknown reason"));
     assert.ok(!detail.includes(language === "zh" ? ">失败<" : ">Failed<"));
-    globalThis.__groupingState = { phase:"ready", data:trades };
+    // The HTTP execution reader owns rows; the legacy performance math block
+    // above is not that DTO. Missing rows must remain a read error, not empty.
+    globalThis.__groupingState = { phase:"ready", data:{ ...trades, rows:[] } };
     const tradeHtml = ui.trades(language);
     assert.ok(tradeHtml.includes(language === "zh" ? "未接入" : "Not connected"));
     assert.doesNotMatch(tradeHtml, /0%|>0<|state\.|reason\./);
+    globalThis.__groupingState = { phase:"ready", data:trades };
+    assert.match(ui.trades(language), /data-state="read_failed"/);
+    const executions = ["A", "B"].map((symbol, i) => ({
+      platform:"ibkr", account_alias:"synthetic-z", execution_ref:String(i + 1).repeat(64),
+      report_ref:"a".repeat(64), trade_date:"2026-10-16", local_time:"2026-10-16T14:10:00", time_zone:null,
+      symbol:`SYNTH_EXEC_${symbol}`, asset_category:"STK", side:i ? "SELL" : "BUY",
+      quantity:"1.12345678", price:"87.12345678", currency:"USD",
+      commission:i ? "0.000000001" : "-0.123456789", commission_currency:"USD", taxes:null,
+    }));
+    globalThis.__groupingState = { phase:"ready", data:{ status:"partial", unavailable_reason:"execution_coverage_unverified",
+      rows:executions, reported_execution_count:2, as_of:null } };
+    const partialTrades = ui.trades(language);
+    for (const text of ["SYNTH_EXEC_A", "SYNTH_EXEC_B", "1.12345678", "87.12345678", "-0.123456789", "0.000000001"])
+      assert.ok(partialTrades.includes(text), `partial execution rows retain exact ${text}`);
+    assert.match(partialTrades, /data-state="partial"/);
+    assert.doesNotMatch(partialTrades, /class="empty-state/);
+    globalThis.__groupingState = { phase:"ready", data:{ status:"ok", rows:[], reported_execution_count:0, as_of:null } };
+    assert.match(ui.trades(language), /data-state="no_data"/);
     for (const [status, expected] of [["not_connected", language === "zh" ? "未接入" : "not connected"], ["ok", language === "zh" ? "暂无通知记录" : "No notification records"], ["read_failed", language === "zh" ? "暂时无法加载" : "Unable to load"]]) {
       globalThis.__groupingState = { phase:"ready", data:{ status, items:[] } };
       const stateHtml = ui.notifications(language);

@@ -4,6 +4,7 @@ export type Status =
 export type Reason =
   | "external_cashflow_required"
   | "fills_not_connected"
+  | "execution_coverage_unverified"
   | "avg_cost_missing"
   | "mixed_currency"
   | "snapshot_history_missing"
@@ -405,9 +406,49 @@ export interface HoldingsResponse extends PerformanceMeta {
     status: Status;
   }[];
 }
-export interface TradeStatsResponse extends PerformanceMeta {
-  status: "not_connected";
-  unavailable_reason: "fills_not_connected";
+/**
+ * Broker executions are observed facts, not orders or a complete P/L ledger.
+ * quantity/price are decimal strings and commission/taxes are nullable signed
+ * decimal strings; they stay strings end-to-end so display never re-rounds them.
+ */
+export interface ExecutionRow {
+  platform: string;
+  account_alias: string;
+  execution_ref: string;
+  report_ref: string;
+  trade_date: string;
+  local_time: string | null;
+  time_zone: string | null;
+  symbol: string;
+  asset_category: string;
+  side: "BUY" | "SELL";
+  quantity: string;
+  price: string;
+  currency: string;
+  commission: string | null;
+  commission_currency: string | null;
+  taxes: string | null;
+}
+export interface ExecutionsResponse {
+  schema_version: "console_api.v1";
+  scope: string;
+  range: Range;
+  status: Status;
+  unavailable_reason: Reason | null;
+  as_of: string | null;
+  coverage: unknown[];
+  value_kind: "pnl";
+  rows: ExecutionRow[];
+  /** Equals rows.length for the current range; never a complete-history count. */
+  reported_execution_count: number | null;
+  per_currency: {
+    currency: string;
+    reported_execution_count: number;
+    buy_execution_count: number;
+    sell_execution_count: number;
+  }[];
+  win_rate_percent: null;
+  realized_pnl: null;
 }
 export interface ApiError {
   ok: false;

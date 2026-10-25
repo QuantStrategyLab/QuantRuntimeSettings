@@ -22,6 +22,7 @@
 }
 .overview-primary-kpi .kpi-value .kpi-empty-value { font-size: 24px; }
 .overview-primary-kpi .currency-totals { gap: 16px 28px; }
+.overview-primary-kpi .currency-total-head .num,
 .overview-primary-kpi .currency-total > .num { font-size: 23px; font-weight: 700; }
 .overview-primary-kpi .kpi-sub { line-height: 1.45; }
 .overview-currency-totals { gap: 12px 24px; }
@@ -107,6 +108,7 @@
 @media (max-width: 480px) {
   .overview-primary-kpi > .kpi-card { padding: 15px 16px; }
   .overview-primary-kpi .kpi-value { font-size: 26px; }
+  .overview-primary-kpi .currency-total-head .num,
   .overview-primary-kpi .currency-total > .num { font-size: 21px; }
   .overview-secondary-kpis { gap: 8px; }
   .overview-secondary-kpis .kpi-card { padding: 10px; }

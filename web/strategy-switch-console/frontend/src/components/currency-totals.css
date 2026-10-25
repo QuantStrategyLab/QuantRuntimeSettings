@@ -12,23 +12,45 @@
   flex-direction: column;
   gap: 3px;
   min-width: 0;
+  flex: 1 1 200px;
 }
-.currency-total .kpi-sub:first-child { font-weight: 500; }
+/* Label and amount share one line, with the amount flush to the block's right
+   edge so several currencies read as one aligned column. */
+.currency-total-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  min-width: 0;
+}
+.currency-total-head .kpi-sub { min-width: 0; font-weight: 500; }
+.currency-total-head .num {
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
+}
+.currency-total-head .num,
 .currency-total > .num {
   font-size: 24px;
   font-weight: 680;
   line-height: 1.18;
   letter-spacing: -.025em;
-  overflow-wrap: anywhere;
 }
+.currency-total > .num,
+.currency-total > .percent,
+.currency-total > .flat {
+  align-self: flex-end;
+  text-align: right;
+}
+.currency-total > .num { white-space: nowrap; }
 .currency-total .money { font-size: inherit; }
-.currency-total .percent { font-size: 22px; font-weight: 680; letter-spacing: -.02em; }
+.currency-total .percent { font-size: 22px; font-weight: 680; letter-spacing: -.02em; white-space: nowrap; }
 
 .currency-meta {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
+  align-items: baseline;
+  gap: 3px 10px;
   min-width: 0;
   margin-top: 1px;
 }
@@ -80,7 +102,9 @@
 .currency-detail-name { color: var(--ink); font-weight: 600; }
 
 @media (max-width: 600px) {
-  .currency-totals { gap: 12px 22px; }
+  .currency-totals { gap: 12px 0; }
+  .currency-total { flex-basis: 100%; }
+  .currency-total-head .num,
   .currency-total > .num { font-size: 21px; }
   .currency-total .percent { font-size: 20px; }
 }

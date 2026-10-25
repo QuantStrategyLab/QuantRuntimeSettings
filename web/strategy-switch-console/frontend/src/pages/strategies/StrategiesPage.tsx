@@ -89,6 +89,12 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
           <dt>{t("strategies.modes")}</dt>
           <dd>{modes}</dd>
         </div>
+        {strategy.configured_accounts.length === 0 && (
+          <div className="strategy-row" data-binding="unbound">
+            <dt>{t("strategies.binding")}</dt>
+            <dd><span className="strategy-unbound" title={t("strategies.unbound_note")}>{t("strategies.unbound")}</span></dd>
+          </div>
+        )}
         {strategy.configured_accounts.length > 0 && (
           <div className="strategy-row">
             <dt>{t("strategies.accounts_using")}</dt>
