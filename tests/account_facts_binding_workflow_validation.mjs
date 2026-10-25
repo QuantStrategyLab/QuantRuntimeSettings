@@ -502,6 +502,38 @@ const cases = [
   {name: "firstrade_native_missing", platform: "firstrade", rows: [primary], proposed: {...firstrade, broker_account_id: undefined}, expected: "blocked"},
 
   { name: "rotate", rows: [primary, secondary], rotation, expected: "prepared" },
+  { name: "rotate_retains_history", rows: [{...primary, history_source_binding_ids: ["f".repeat(64)]}, secondary], rotation, expected: "prepared" },
+  { name: "qualify_ibkr_history", rows: [primary, secondary], rotation: {...rotation,
+    next_source_binding_id: primary.source_binding.id, history_source_binding_ids: ["f".repeat(64)]}, expected: "prepared" },
+  { name: "qualify_history_same_source_only", rows: [primary, secondary], rotation: {...rotation,
+    history_source_binding_ids: ["f".repeat(64)]}, expected: "blocked" },
+  { name: "qualify_history_wrong_previous", rows: [primary, secondary], rotation: {...rotation,
+    previous_source_binding_id: "e".repeat(64), next_source_binding_id: "e".repeat(64),
+    history_source_binding_ids: ["f".repeat(64)]}, expected: "blocked" },
+  { name: "qualify_history_duplicate", rows: [primary, secondary], rotation: {...rotation,
+    next_source_binding_id: primary.source_binding.id, history_source_binding_ids: ["f".repeat(64),"f".repeat(64)]}, expected: "blocked" },
+  { name: "qualify_history_current", rows: [primary, secondary], rotation: {...rotation,
+    next_source_binding_id: primary.source_binding.id, history_source_binding_ids: [primary.source_binding.id]}, expected: "blocked" },
+  { name: "qualify_history_empty", rows: [primary, secondary], rotation: {...rotation,
+    next_source_binding_id: primary.source_binding.id, history_source_binding_ids: []}, expected: "blocked" },
+  { name: "qualify_history_foreign_target_collision", rows: [primary, {...secondary, target_id: primary.target_id}], rotation: {...rotation,
+    next_source_binding_id: primary.source_binding.id, history_source_binding_ids: [secondary.source_binding.id]}, expected: "blocked" },
+  { name: "longbridge_verified_rotate_retains_history", platform: "longbridge",
+    rows: [primary, {...longbridgeSg, physical_account_id: "synthetic-owner-a", history_source_binding_ids: ["5".repeat(64)]}, secondary],
+    proposed: longbridgeSg, rotation: longbridgeRotation, expected: "prepared" },
+  { name: "longbridge_qualify_history", platform: "longbridge",
+    rows: [primary, {...longbridgeSg, physical_account_id: "synthetic-owner-a"}, secondary], proposed: longbridgeSg,
+    rotation: {...longbridgeRotation, next_source_binding_id: longbridgeSg.source_binding.id,
+      history_source_binding_ids: ["5".repeat(64)]}, expected: "prepared" },
+  { name: "longbridge_qualify_history_identity_missing", platform: "longbridge",
+    rows: [primary, longbridgeSg, secondary], proposed: longbridgeSg,
+    rotation: {...longbridgeRotation, next_source_binding_id: longbridgeSg.source_binding.id,
+      history_source_binding_ids: ["5".repeat(64)]}, expected: "blocked" },
+  { name: "longbridge_qualify_history_identity_changed", platform: "longbridge",
+    rows: [primary, {...longbridgeSg, physical_account_id: "synthetic-owner-a"}, secondary], proposed: longbridgeSg,
+    rotation: {...longbridgeRotation, next_source_binding_id: longbridgeSg.source_binding.id,
+      physical_account_id: "synthetic-owner-b", history_source_binding_ids: ["5".repeat(64)]}, expected: "blocked" },
+
   { name: "wrong_previous", rows: [primary, secondary],
     rotation: { ...rotation, previous_source_binding_id: "d".repeat(64) }, expected: "blocked" },
   { name: "unknown_target", rows: [primary, secondary],
@@ -624,8 +656,27 @@ esac
     assert.equal(existsSync(output), test.expected === "prepared", test.name);
     if (test.name === "rotate") {
       const next = JSON.parse(readFileSync(output, "utf8"));
-      assert.deepEqual(next.bindings, [{ ...primary, source_binding: {
+      assert.deepEqual(next.bindings, [{ ...primary, history_source_binding_ids: [primary.source_binding.id], source_binding: {
         ...primary.source_binding, id: rotation.next_source_binding_id } }, secondary]);
+    }
+    if (test.name === "rotate_retains_history") {
+      const next = JSON.parse(readFileSync(output, "utf8"));
+      assert.deepEqual(next.bindings[0].history_source_binding_ids, ["f".repeat(64), primary.source_binding.id]);
+      assert.deepEqual(next.bindings[1], secondary);
+    }
+    if (test.name === "qualify_ibkr_history") {
+      const next = JSON.parse(readFileSync(output, "utf8"));
+      assert.equal(next.bindings[0].source_binding.id, primary.source_binding.id);
+      assert.equal(next.bindings[0].account_selector, primary.account_selector);
+      assert.deepEqual(next.bindings[0].history_source_binding_ids, ["f".repeat(64)]);
+      assert.deepEqual(next.bindings[1], secondary);
+    }
+    if (test.name === "longbridge_verified_rotate_retains_history" || test.name === "longbridge_qualify_history") {
+      const next = JSON.parse(readFileSync(output, "utf8"));
+      assert.deepEqual(next.bindings[0], primary); assert.deepEqual(next.bindings[2], secondary);
+      assert.equal(next.bindings[1].physical_account_id, "synthetic-owner-a");
+      assert.equal(next.bindings[1].source_binding.id, test.name === "longbridge_qualify_history" ? longbridgeSg.source_binding.id : longbridgeRotation.next_source_binding_id);
+      assert.deepEqual(next.bindings[1].history_source_binding_ids, test.name === "longbridge_qualify_history" ? ["5".repeat(64)] : ["5".repeat(64),longbridgeSg.source_binding.id]);
     }
     if (test.name === "firstrade_append") {
       assert.deepEqual(JSON.parse(readFileSync(output, "utf8")).bindings, [primary, secondary, firstrade]);

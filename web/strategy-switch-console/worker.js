@@ -3041,18 +3041,48 @@ export class RuntimeInstances {
     const context = this.accountFactsStorageContext(command);
     if (context.platform !== "ibkr") throw new HttpError("invalid_account_period_return", 400);
     const binding = { ...context, source_binding: { id: context.source_binding_id } };
+    const sourceIds = [context.source_binding_id, ...(context.history_source_binding_ids || [])];
+    const sources = new Set(sourceIds);
+    const readStored = (payloadJson) => {
+      const payload = JSON.parse(payloadJson);
+      if (!sources.has(payload?.source_binding_id)) throw new HttpError("account_period_return_source_unqualified", 409);
+      return normalizeIbkrPeriodReturn(payload, {
+        binding: { ...binding, source_binding: { id: payload.source_binding_id } }, enforceFresh: false,
+      });
+    };
     const existing = this.sql.exec("SELECT payload_json FROM account_period_return WHERE account_key = ?", context.account_key).toArray()[0];
     let prior = null;
     if (existing) {
-      try { prior = normalizeIbkrPeriodReturn(JSON.parse(existing.payload_json), { binding, enforceFresh: false }); }
+      try { prior = readStored(existing.payload_json); }
       catch { if (command.action === "account_period_return_read") return { ok: true, return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE } }; }
     }
     if (command.action === "account_period_return_read") {
-      const daily = this.sql.exec("SELECT payload_json FROM account_daily_native_return WHERE account_key = ? AND source_binding_id = ? ORDER BY observation_date DESC LIMIT 366", context.account_key, context.source_binding_id).toArray().flatMap(row => {
-        try { return [normalizeIbkrPeriodReturn(JSON.parse(row.payload_json), { binding, enforceFresh: false })]; }
-        catch { return []; }
-      });
-      if (prior && prior.period.from === prior.period.to && !daily.some(row => row.currency === prior.currency && row.period.to === prior.period.to)) daily.push(prior);
+      const dailyByDay = new Map();
+      let conflictingDailyValues = false;
+      const addDaily = (row) => {
+        const key = `${row.currency}:${row.period.to}`;
+        const old = dailyByDay.get(key);
+        if (old && Number(old.value) !== Number(row.value)) {
+          conflictingDailyValues = true;
+          return;
+        }
+        if (!old || row.source_binding_id === context.source_binding_id
+            || (old.source_binding_id !== context.source_binding_id
+              && Date.parse(row.observed_at) > Date.parse(old.observed_at))) dailyByDay.set(key, row);
+      };
+      const rows = this.sql.exec(`SELECT payload_json FROM account_daily_native_return
+        WHERE account_key = ? AND source_binding_id IN (${sourceIds.map(() => "?").join(",")})
+        ORDER BY observation_date DESC LIMIT ?`, context.account_key, ...sourceIds, 366 * sourceIds.length);
+      for (const stored of rows) {
+        let row;
+        try { row = readStored(stored.payload_json); } catch { continue; }
+        addDaily(row);
+      }
+      if (prior && prior.period.from === prior.period.to) addDaily(prior);
+      if (conflictingDailyValues) return { ok: true, return: {
+        ...ACCOUNT_FACTS_RETURN_UNAVAILABLE, reason: "native_return_history_conflict",
+      } };
+      const daily = [...dailyByDay.values()].sort((a, b) => b.period.to.localeCompare(a.period.to)).slice(0, 366);
       return { ok: true, return: { ...(prior ? publicIbkrPeriodReturn(prior) : ACCOUNT_FACTS_RETURN_UNAVAILABLE),
         daily: daily.sort((a, b) => a.period.to.localeCompare(b.period.to)).map(publicIbkrPeriodReturn) } };
     }
@@ -3087,6 +3117,12 @@ export class RuntimeInstances {
         || typeof command.source_binding_id !== "string") {
       throw new HttpError("invalid_account_facts_account", 400);
     }
+    const historyIds = command.history_source_binding_ids;
+    if (historyIds !== undefined && (!["account_facts_history_read", "account_period_return_read", "account_period_return_put"].includes(command.action)
+        || !Array.isArray(historyIds) || historyIds.length < 1 || historyIds.length > 64
+        || new Set(historyIds).size !== historyIds.length
+        || historyIds.some(id => typeof id !== "string" || !/^[a-f0-9]{64}$/.test(id)
+          || id === command.source_binding_id))) throw new HttpError("invalid_account_facts_history_sources", 400);
     const brokerAccountId = command.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? command.broker_account_id : null;
     if (command.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM && !validFirstradeAccountId(brokerAccountId)) {
       throw new HttpError("invalid_account_facts_account", 400);
@@ -3106,6 +3142,7 @@ export class RuntimeInstances {
       account_selector: command.account_selector,
       target_id: command.target_id,
       source_binding_id: command.source_binding_id,
+      ...(historyIds ? { history_source_binding_ids: [...historyIds] } : {}),
       ...(command.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
         ? { broker_account_hash: brokerAccountHash }
         : {}),
@@ -3382,15 +3419,14 @@ export class RuntimeInstances {
     ).toArray();
     const days = [];
     for (const row of rows) {
-      // Source bindings can rotate while account identity and scope stay fixed.
-      // Keep prior daily rows in storage, but only project rows whose persisted
-      // identity metadata matches the current trusted binding context.
+      // Same-account history may use an explicitly qualified prior source.
+      // Current observations and ingress still require the current source.
       if (row.target_id !== context.target_id
-          || row.source_binding_id !== context.source_binding_id
+          || ![context.source_binding_id, ...(context.history_source_binding_ids || [])].includes(row.source_binding_id)
           || row.account_scope !== context.account_scope) continue;
       let payload;
       try { payload = JSON.parse(row.payload_json); } catch { throw new HttpError("account_facts_stored_invalid", 409); }
-      payload = this.validateAccountFactsStoragePayload(payload, context);
+      payload = this.validateAccountFactsStoragePayload(payload, { ...context, source_binding_id: row.source_binding_id });
       days.push({
         observation_date: row.observation_date,
         payload,
@@ -10988,7 +11024,8 @@ async function loadStoredAccountFactsMap(env, accountOptions, bindings) {
 
 function periodReturnCommand(binding, action) {
   return { action, platform: "ibkr", account_key: binding.account_key, account_scope: binding.account_scope,
-    account_selector: binding.account_selector, target_id: binding.target_id, source_binding_id: binding.source_binding.id };
+    account_selector: binding.account_selector, target_id: binding.target_id, source_binding_id: binding.source_binding.id,
+    ...(binding.history_source_binding_ids ? { history_source_binding_ids: binding.history_source_binding_ids } : {}) };
 }
 
 async function syncAccountPeriodReturnResponse(request, env) {

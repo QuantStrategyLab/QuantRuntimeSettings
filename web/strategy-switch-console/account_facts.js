@@ -400,6 +400,10 @@ export function normalizeAccountFactsBindings(raw) {
     if (item?.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM) expectedKeys.push("broker_account_hash");
     if (item?.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM) expectedKeys.push("broker_account_id");
     if (item?.platform === ACCOUNT_FACTS_PLATFORM && Object.hasOwn(item, "physical_account_id")) expectedKeys.push("physical_account_id");
+    // Explicit, protected prior-source lineage. Never inferred from payloads.
+    const hasHistorySources = Boolean(item) && typeof item === "object"
+      && Object.hasOwn(item, "history_source_binding_ids");
+    if (hasHistorySources) expectedKeys.push("history_source_binding_ids");
     if (!exactKeys(item, expectedKeys)) {
       reject("invalid_account_facts_bindings");
     }
@@ -417,6 +421,24 @@ export function normalizeAccountFactsBindings(raw) {
     if (typeof item.source_binding.id !== "string" || !BINDING_ID_RE.test(item.source_binding.id)) {
       reject("invalid_account_facts_bindings");
     }
+    let historySourceBindingIds;
+    if (hasHistorySources) {
+      const ids = item.history_source_binding_ids;
+      if (!Array.isArray(ids) || ids.length === 0 || ids.length > 64) {
+        reject("invalid_account_facts_bindings");
+      }
+      const seenHistory = new Set();
+      for (const id of ids) {
+        // Exact prior ids only: same lowercase 64-hex shape, distinct, and
+        // never the currently approved id.
+        if (typeof id !== "string" || !BINDING_ID_RE.test(id)
+            || id === item.source_binding.id || seenHistory.has(id)) {
+          reject("invalid_account_facts_bindings");
+        }
+        seenHistory.add(id);
+      }
+      historySourceBindingIds = [...ids];
+    }
     const identity = {
       target_name: requireOptionIdentityField(item.target_name),
       service_name: requireOptionIdentityField(item.service_name),
@@ -433,10 +455,15 @@ export function normalizeAccountFactsBindings(raw) {
       reject("invalid_account_facts_bindings");
     }
     const accountId = `${item.platform}:${item.account_key}`;
-    const sourceId = `${item.target_id}|${item.source_binding.id}`;
-    if (byAccount.has(accountId) || bySource.has(sourceId)) reject("duplicate_account_facts_binding");
+    // Current and explicitly approved historical sources share one attribution
+    // namespace per target, so one source can never belong to two accounts.
+    const sourceIds = [item.source_binding.id, ...(historySourceBindingIds || [])]
+      .map((sourceId) => `${item.target_id}|${sourceId}`);
+    if (byAccount.has(accountId) || sourceIds.some((sourceId) => bySource.has(sourceId))) {
+      reject("duplicate_account_facts_binding");
+    }
     byAccount.set(accountId, index);
-    bySource.set(sourceId, index);
+    for (const sourceId of sourceIds) bySource.set(sourceId, index);
     return {
       platform: item.platform,
       account_key: item.account_key,
@@ -453,6 +480,7 @@ export function normalizeAccountFactsBindings(raw) {
         kind: sourceKindForPlatform(item.platform),
         id: item.source_binding.id,
       },
+      ...(historySourceBindingIds ? { history_source_binding_ids: historySourceBindingIds } : {}),
     };
   });
   return { schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA, bindings };
@@ -1004,11 +1032,14 @@ function addUtcDays(dateText, delta) {
 export function accountFactsHistoryIdentityMatches(row, binding) {
   if (!row || !binding) return false;
   if (row.target_id !== binding.target_id) return false;
-  if (row.source_binding_id !== binding.source_binding.id) return false;
   // Storage metadata keeps the option scope (for LongBridge this is lowercase
   // `paper`), while the broker payload carries its paired scope (`PAPER`).
   if (row.account_scope !== binding.account_scope) return false;
-  return true;
+  if (row.source_binding_id === binding.source_binding.id) return true;
+  // Only sources explicitly recorded in protected configuration count as the
+  // same verified account. Unknown or payload-declared sources never match.
+  return Array.isArray(binding.history_source_binding_ids)
+    && binding.history_source_binding_ids.includes(row.source_binding_id);
 }
 
 export function decideAccountFactsDailyUpsert(existingDayPayload, incomingHistory) {
@@ -1070,6 +1101,9 @@ export function projectAccountFactsHistorySeries({
     if (!day || !accountFactsHistoryIdentityMatches(day, binding)) continue;
     const observationDate = calendarDate(day.observation_date);
     if (!observationDate) continue;
+    // Eligibility came from protected lineage metadata; the stored day's own
+    // source id is the only id this payload may prove.
+    const expectedBindingId = day.source_binding_id;
     let payload = day.payload;
     if (!payload) continue;
     try {
@@ -1077,7 +1111,7 @@ export function projectAccountFactsHistorySeries({
         now: parseInstant(payload.observed_finished_at) || Date.now(),
         expectedPlatform: binding.platform,
         expectedTargetId: binding.target_id,
-        expectedBindingId: binding.source_binding.id,
+        expectedBindingId,
         expectedOptionScope: binding.account_scope,
         expectedAccountSelector: binding.platform === IBKR_ACCOUNT_FACTS_PLATFORM
           ? binding.account_selector
@@ -1095,7 +1129,7 @@ export function projectAccountFactsHistorySeries({
     }
     if (
       payload.target_id !== binding.target_id
-      || payload.source_binding.id !== binding.source_binding.id
+      || payload.source_binding.id !== expectedBindingId
       || !accountFactsScopesMatchForPlatform(binding.platform, binding.account_scope, payload.account_scope)
     ) continue;
     const balance = balanceForCurrency(payload, currency);
