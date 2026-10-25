@@ -221,8 +221,8 @@ try {
     const stale = fixture("stale-core");
     const staleCards = renderCards(language, stale.summary);
     ok(staleCards.includes("+10.00%"));
-    ok(visibleWarnBadges(staleCards).some(text => text.includes(STALE[language])),
-      "summary retains one visible stale badge outside details");
+    ok(staleCards.includes('hidden="" data-status="stale"'),
+      "summary retains stale status as a hidden diagnostic");
     ok(visibleText(staleCards).includes(AS_OF[language]) && staleCards.includes("10/16"),
       "stale summary keeps its as-of time visible once");
     ok(!staleCards.includes(DIETZ[language]), "no method metadata means no approximate label");
@@ -231,15 +231,15 @@ try {
     staleWithReason.unavailable_reason = "snapshot_history_missing";
     const staleReasonCards = renderCards(language, staleWithReason);
     const staleReason = language === "zh" ? "缺少历史资产快照" : "Historical asset snapshots are missing";
-    ok(visibleWarnBadges(staleReasonCards).some(text => text.includes(STALE[language])),
-      "stale reason variant still shows the visible stale badge");
+    ok(staleReasonCards.includes('hidden="" data-status="stale"'),
+      "stale reason variant stays a hidden diagnostic");
     ok(staleReasonCards.includes('data-reason="snapshot_history_missing"'), "the stale reason remains diagnostic");
     ok(!visibleText(staleReasonCards).includes(staleReason), "the stale reason does not repeat below the short state");
     checks += 1;
     const staleReturns = renderReturns(language, stale.returns);
     assert.equal(kindLabel(staleReturns), TWR_KIND[language]);
     checks += 1;
-    ok(staleReturns.includes(STALE[language]), "stale badge still visible on the curve card");
+    ok(staleReturns.includes('hidden="" data-status="stale"'), "curve keeps the exact stale diagnostic without a badge");
 
     // 7. In-memory contract variants (synthetic, derived from the fixed samples; golden fixtures untouched).
     // 7a. Legacy response with the method fields entirely absent keeps the old TWR behavior.

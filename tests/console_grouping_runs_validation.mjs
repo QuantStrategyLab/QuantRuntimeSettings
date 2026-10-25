@@ -85,7 +85,8 @@ try {
     assert.ok(html.indexOf("<h3>IBKR</h3>") < html.indexOf("<h3>Schwab</h3>"));
     assert.ok(html.indexOf(">Alpha<") < html.indexOf(">Zulu<"), "sort within platform by shared display names, not raw alias");
     assert.doesNotMatch(html, /synthetic-z|synthetic-a/);
-    assert.equal((html.match(new RegExp(language === "zh" ? "数据偏旧" : ">Stale<", "g")) || []).length, 1, "one stale account cannot mark every row stale");
+    assert.equal((html.match(/data-status="stale"/g) || []).length, 1, "one stale account keeps its own hidden diagnostic without marking every row stale");
+    assert.doesNotMatch(html, /数据偏旧|>Stale</, "stale diagnostics do not occupy normal rows");
     const stats = ui.stats(language, summary);
     assert.ok(stats.includes(language === "zh" ? "未接入: <span class=\"num\">8" : "Not connected: <span class=\"num\">8"));
     assert.ok(stats.includes(language === "zh" ? "暂无数据: <span class=\"num\">2" : "No data: <span class=\"num\">2"));
