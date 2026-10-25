@@ -67,3 +67,18 @@ const incomplete=applyNativeDailyReturns(performanceBlocks(missingMonth),missing
 assert.equal(incomplete.return_percent,null);
 assert.equal(incomplete.status,'partial');
 assert.equal(incomplete.unavailable_reason,'incomplete_month');
+
+// Future sessions are not missing snapshots. Calendar shape stays complete,
+// while future and past missing days both keep their values unknown.
+const futureCalendar=applyNativeDailyReturns(performanceBlocks(input),input).calendar;
+const futureDay=futureCalendar.cells.find(c=>c.date==='2026-10-26');
+assert.equal(futureDay.unavailable_reason,'future_date');
+assert.equal(futureDay.amount,null);assert.equal(futureDay.return_percent,null);
+assert.equal(futureCalendar.cells.find(c=>c.date==='2026-10-21').unavailable_reason,'snapshot_missing',
+  'unobserved historical weekdays remain a real gap');
+const futureMonths=yearCalendar.cells.filter(c=>c.month>'2026-10');
+assert.equal(futureMonths.length,2);
+assert.ok(futureMonths.every(c=>c.unavailable_reason==='future_date'&&c.return_percent===null&&c.amount===null));
+const noSnapshots=performanceBlocks({...input,histories:[],today:'2026-10-24'}).calendar;
+assert.equal(noSnapshots.cells.find(c=>c.date==='2026-10-26').unavailable_reason,'future_date',
+  'future classification does not depend on having native returns');
