@@ -1245,8 +1245,10 @@ export function buildAccountFactsHistoryReadModel({
 // never a daily series, a NAV change calculation, or a portfolio return.
 export const IBKR_PERIOD_RETURN_SCHEMA = "ibkr_account_period_return.v1";
 export function normalizeIbkrPeriodReturn(raw, { binding, now = Date.now(), enforceFresh = true } = {}) {
+  const hasNav = Object.prototype.hasOwnProperty.call(raw || {}, "nav_change");
   if (!exactKeys(raw, ["schema_version", "target_id", "source_binding_id", "account_scope",
-    "account_ids", "observed_at", "currency", "period", "method", "source", "source_unit", "source_value", "unit", "value"]) || raw.schema_version !== IBKR_PERIOD_RETURN_SCHEMA) reject("invalid_account_period_return");
+    "account_ids", "observed_at", "currency", "period", "method", "source", "source_unit", "source_value", "unit", "value",
+    ...(hasNav ? ["nav_change"] : [])]) || raw.schema_version !== IBKR_PERIOD_RETURN_SCHEMA) reject("invalid_account_period_return");
   if (!binding || binding.platform !== "ibkr" || raw.target_id !== binding.target_id
     || raw.source_binding_id !== binding.source_binding.id || raw.account_scope !== binding.account_scope
     || !Array.isArray(raw.account_ids) || raw.account_ids.length !== 1
@@ -1270,10 +1272,25 @@ export function normalizeIbkrPeriodReturn(raw, { binding, now = Date.now(), enfo
   const percent = decimal(raw.source_value), ratio = decimal(raw.value);
   if (percent.value * 10n ** BigInt(ratio.scale) !== ratio.value * 100n * 10n ** BigInt(percent.scale)
     || ratio.value < -(10n ** BigInt(ratio.scale))) reject("invalid_account_period_return_value");
+  if (hasNav) {
+    const nav = raw.nav_change;
+    const fields = ["startingValue", "endingValue", "depositsWithdrawals", "internalCashTransfers", "assetTransfers", "linkingAdjustments"];
+    if (!exactKeys(nav, ["method", "source", "components", "amount"])
+      || nav.method !== "ibkr_nav_reconciliation" || nav.source !== "ChangeInNAV"
+      || !exactKeys(nav.components, fields)) reject("invalid_account_period_return_nav");
+    const values = [...fields.map(key => nav.components[key]), nav.amount];
+    if (values.some(value => typeof value !== "string" || value.length > 64 || !DECIMAL_RE.test(value))) reject("invalid_account_period_return_nav");
+    const parts = values.map(decimal), scale = Math.max(...parts.map(part => part.scale));
+    const [start, end, deposits, internal, assets, linking, amount] = parts.map(part => part.value * 10n ** BigInt(scale - part.scale));
+    // Internal/asset/linking transfers need a separately qualified accounting
+    // rule. This first projection only accepts their explicitly reported zero.
+    if (internal !== 0n || assets !== 0n || linking !== 0n || end - start - deposits !== amount) reject("invalid_account_period_return_nav");
+  }
   return { ...structuredClone(raw), observed_at: new Date(observed).toISOString() };
 }
 export function publicIbkrPeriodReturn(raw) {
   return { status: "available", method: raw.method, currency: raw.currency, period: { ...raw.period },
     unit: raw.unit, value: raw.value, source: raw.source, source_unit: raw.source_unit,
-    source_value: raw.source_value, observed_at: raw.observed_at };
+    source_value: raw.source_value, observed_at: raw.observed_at,
+    ...(raw.nav_change ? { nav_change: structuredClone(raw.nav_change) } : {}) };
 }

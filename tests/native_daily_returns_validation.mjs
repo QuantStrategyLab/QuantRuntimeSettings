@@ -82,3 +82,30 @@ assert.ok(futureMonths.every(c=>c.unavailable_reason==='future_date'&&c.return_p
 const noSnapshots=performanceBlocks({...input,histories:[],today:'2026-10-24'}).calendar;
 assert.equal(noSnapshots.cells.find(c=>c.date==='2026-10-26').unavailable_reason,'future_date',
   'future classification does not depend on having native returns');
+
+// Native NAV reconciliation is independent of the TWR percentage. A deposit
+// changes assets but is not a gain; money must be known for every summed day.
+const moneyRow=(date,value,amount)=>({...row(date,value),nav_change:{method:'ibkr_nav_reconciliation',source:'ChangeInNAV',amount}});
+const moneyInput={...input,accounts:[{...input.accounts[0],return:{daily:[
+  moneyRow('2026-10-22','0.1','0.1'),moneyRow('2026-10-23','-0.05','0.2')]}}]};
+const money=applyNativeDailyReturns(performanceBlocks(moneyInput),moneyInput);
+assert.equal(money.summary.amount,0.3,'decimal sums are exact before display conversion');
+assert.equal(money.summary.twr_return_percent,native.summary.twr_return_percent);
+assert.equal(money.calendar.cells.find(c=>c.date==='2026-10-23').amount,0.2);
+assert.equal(money.summary.worst_day.amount,0.2,'money is not inferred from the sign or magnitude of TWR');
+assert.equal(money.returns.coverage.native_amount_method,'ibkr_nav_reconciliation');
+assert.deepEqual(money.assets,raw.assets,'account balance charts retain deposits');
+const missingMoney={...moneyInput,accounts:[{...input.accounts[0],return:{daily:[
+  moneyRow('2026-10-22','0.1','0.1'),row('2026-10-23','-0.05')]}}]};
+const missingMoneyBlocks=applyNativeDailyReturns(performanceBlocks(missingMoney),missingMoney);
+assert.equal(missingMoneyBlocks.summary.amount,null);
+assert.equal(missingMoneyBlocks.summary.twr_return_percent,native.summary.twr_return_percent);
+assert.equal(missingMoneyBlocks.calendar.cells.find(c=>c.date==='2026-10-22').amount,0.1);
+assert.equal(missingMoneyBlocks.calendar.cells.find(c=>c.date==='2026-10-23').amount,null);
+assert.equal(applyNativeDailyReturns(performanceBlocks({...moneyInput,range:'1M'}),{...moneyInput,range:'1M'}).summary.amount,null,'incomplete range does not claim a full monetary result');
+const yearMoneyInput={...yearInput,accounts:[{...input.accounts[0],return:{daily:[
+  moneyRow('2026-10-01','0.1','10'),moneyRow('2026-10-02','-0.05','-5'),moneyRow('2026-10-05','0.02','2')]}}]};
+const yearMoney=applyNativeDailyReturns(performanceBlocks(yearMoneyInput),yearMoneyInput).calendar;
+assert.equal(yearMoney.cells.find(c=>c.month==='2026-10').amount,7);
+assert.equal(yearMoney.cells.find(c=>c.month==='2026-11').amount,null);
+console.log('native NAV money: exact sums, missing money, deposits, independent TWR and calendar PASS');

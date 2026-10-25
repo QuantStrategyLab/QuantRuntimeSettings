@@ -3072,12 +3072,19 @@ export class RuntimeInstances {
     if (command.action === "account_period_return_read") {
       const dailyByDay = new Map();
       let conflictingDailyValues = false;
+      const conflictingNav = new Set();
+      const navByDay = new Map();
       const addDaily = (row) => {
         const key = `${row.currency}:${row.period.to}`;
         const old = dailyByDay.get(key);
         if (old && Number(old.value) !== Number(row.value)) {
           conflictingDailyValues = true;
           return;
+        }
+        if (row.nav_change) {
+          const nav = canonicalResearchTaskJson(row.nav_change);
+          if (navByDay.has(key) && navByDay.get(key) !== nav) conflictingNav.add(key);
+          else navByDay.set(key, nav);
         }
         if (!old || row.source_binding_id === context.source_binding_id
             || (old.source_binding_id !== context.source_binding_id
@@ -3096,8 +3103,14 @@ export class RuntimeInstances {
         ...ACCOUNT_FACTS_RETURN_UNAVAILABLE, reason: "native_return_history_conflict",
       } };
       const daily = [...dailyByDay.values()].sort((a, b) => b.period.to.localeCompare(a.period.to)).slice(0, 366);
-      return { ok: true, return: { ...(prior ? publicIbkrPeriodReturn(prior) : ACCOUNT_FACTS_RETURN_UNAVAILABLE),
-        daily: daily.sort((a, b) => a.period.to.localeCompare(b.period.to)).map(publicIbkrPeriodReturn) } };
+      const latest = prior ? publicIbkrPeriodReturn(prior) : { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE };
+      if (prior && prior.period.from === prior.period.to && conflictingNav.has(`${prior.currency}:${prior.period.to}`)) delete latest.nav_change;
+      return { ok: true, return: { ...latest,
+        daily: daily.sort((a, b) => a.period.to.localeCompare(b.period.to)).map(row => {
+          const projected = publicIbkrPeriodReturn(row);
+          if (conflictingNav.has(`${row.currency}:${row.period.to}`)) delete projected.nav_change;
+          return projected;
+        }) } };
     }
     const incoming = normalizeIbkrPeriodReturn(command.payload, { binding });
     const historical = command.historical === true;
@@ -3111,7 +3124,7 @@ export class RuntimeInstances {
       if (oldDay) {
         const old = normalizeIbkrPeriodReturn(JSON.parse(oldDay.payload_json), { binding, enforceFresh: false });
         if (Date.parse(incoming.observed_at) < Date.parse(old.observed_at)) throw new HttpError("account_daily_return_stale_write", 409);
-        if (incoming.observed_at === old.observed_at && (old.value !== incoming.value || old.source_value !== incoming.source_value)) throw new HttpError("account_daily_return_conflict", 409);
+        if (incoming.observed_at === old.observed_at && canonicalResearchTaskJson(incoming) !== canonicalResearchTaskJson(old)) throw new HttpError("account_daily_return_conflict", 409);
       }
       this.sql.exec("INSERT INTO account_daily_native_return (account_key, source_binding_id, currency, observation_date, payload_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(account_key, source_binding_id, currency, observation_date) DO UPDATE SET payload_json = excluded.payload_json", context.account_key, context.source_binding_id, incoming.currency, incoming.period.to, JSON.stringify(incoming));
     }
