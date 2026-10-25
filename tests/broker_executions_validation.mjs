@@ -13,14 +13,15 @@ const binding = { ...option, platform: "ibkr", account_key: option.key, target_i
 delete binding.key; delete binding.label;
 const record = { execution_ref: "c".repeat(64), report_ref: "b".repeat(64), trade_date: "2026-10-23",
   local_time: "2026-10-23T09:31:00", time_zone: null, symbol: "SYNTH", asset_category: "STK", side: "SELL",
-  quantity: "-1.5", price: "100.25", currency: "USD", commission: "-0.35", commission_currency: "EUR", taxes: "0" };
+  quantity: "-1.5", price: "100.25", currency: "USD", commission: "-0.123456789000000001", commission_currency: "EUR", taxes: "0" };
 const payload = { schema_version: "broker_executions.v1", target_id: binding.target_id,
   source_binding_id: binding.source_binding.id, account_scope: option.account_scope, account_selector: option.account_selector,
   period: { from: "2026-10-01", to: "2026-10-23" }, observed_at: new Date(Date.now() - 1000).toISOString(),
   source: "ibkr_flex", source_ref: "b".repeat(64), coverage: "reported_executions", records: [record] };
 assert.deepEqual(normalizeExecutions(payload, { binding }), payload);
 for (const patch of [{ quantity: "0" }, { price: "-1" }, { trade_date: "2026-10-24" },
-  { local_time: "2026-10-23T24:00:00" }, { commission: "NaN" }, { time_zone: "not-a-zone" }]) {
+  { local_time: "2026-10-23T24:00:00" }, { commission: "NaN" }, { time_zone: "not-a-zone" },
+  { commission: "-0.1234567890123456789" }, { taxes: "1e-9" }, { quantity: "0.123456789" }]) {
   assert.throws(() => normalizeExecutions({ ...payload, records: [{ ...record, ...patch }] }, { binding }));
 }
 assert.throws(() => normalizeExecutions({ ...payload, account_selector: "U100002" }, { binding }), /execution_identity_mismatch/);
@@ -28,7 +29,7 @@ assert.throws(() => normalizeExecutions({ ...payload, coverage: "complete" }, { 
 assert.throws(() => normalizeExecutions({ ...payload, records: [record, record] }, { binding }));
 assert.throws(() => mergeExecutions(payload, { ...payload, records: [{ ...record, price: "101" }] }), /execution_history_conflict/);
 const unknownFee = { ...payload, records: [{ ...record, commission: null, commission_currency: null }] };
-assert.equal(mergeExecutions(unknownFee, payload).records[0].commission, "-0.35", "known fee may complete an unknown field");
+assert.equal(mergeExecutions(unknownFee, payload).records[0].commission, record.commission, "known fee may complete an unknown field");
 assert.equal(mergeExecutions(payload, unknownFee).records[0].commission_currency, "EUR", "unknown cannot erase a known fee currency");
 const rangeSource = { coverage: "reported_executions", reports: [{ observed_at: payload.observed_at, period: payload.period }],
   records: [record, { ...record, execution_ref: "e".repeat(64), trade_date: "2026-08-01", local_time: null }] };
@@ -73,6 +74,7 @@ try {
   let body = await response.json(); assert.equal(body.status, "partial");
   assert.equal(body.rows.length, 1); assert.equal(body.reported_execution_count, 1);
   assert.equal(body.rows[0].quantity, "-1.5"); assert.equal(body.rows[0].commission_currency, "EUR");
+  assert.equal(body.rows[0].commission, record.commission, "POST, SQLite and GET preserve every fee digit and its sign");
   assert.equal(body.win_rate_percent, null); assert.equal(body.realized_pnl, null);
   assert.ok(!JSON.stringify(body).includes(option.account_selector), "native account selector is not returned");
   assert.equal((await post({ ...payload, records: [{ ...record, price: "101" }] })).status, 409);
