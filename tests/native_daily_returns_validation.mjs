@@ -137,3 +137,102 @@ assert.equal(knownYtdDay.amount,0.2,'daily NAV money is not withheld with the in
 assert.equal(knownYtdDay.observed_amount,null,'legacy asset-change subtotal is not a second NAV profit field');
 assert.equal(shortYtdInput.accounts[0].return.daily[0].method,'native_ibkr_twr','TWR and NAV reconciliation retain different method identities');
 console.log('native_daily_returns_short_ytd: PASS');
+
+// Native returns must compare against their own opening boundary, independently
+// of cash snapshots. Prices before the selected range are needed for day one.
+const nativeDates=[];
+for(let time=Date.parse('2026-09-25T00:00:00Z');time<=Date.parse('2026-10-23T00:00:00Z');time+=86400000){
+  if(![0,6].includes(new Date(time).getUTCDay()))nativeDates.push(new Date(time).toISOString().slice(0,10));
+}
+const benchmarkIds=['标普500','纳斯达克100','道琼斯工业平均指数','罗素2000'];
+const benchmarkPrices=benchmarkIds.map(id=>({id,points:['2026-09-24',...nativeDates]
+  .map((date,i)=>({date,value:100+i}))}));
+const benchmarkInput={...input,today:'2026-10-26',accounts:[{...input.accounts[0],return:{daily:
+  nativeDates.map(date=>row(date,'0.001'))}}],benchmarks:benchmarkPrices};
+const withoutBenchmarks=applyNativeDailyReturns(performanceBlocks({...benchmarkInput,benchmarks:[]}),
+  {...benchmarkInput,benchmarks:[]});
+const calculateBenchmarks=patch=>{
+  const changed={...benchmarkInput,...patch};
+  return applyNativeDailyReturns(performanceBlocks(changed),changed);
+};
+for(const points of [[{date:'2026-10-26',value:100,externalFlow:null}],
+  nativeDates.map((date,i)=>({date,value:100+i,externalFlow:0}))]){
+  const compared=calculateBenchmarks({histories:[{id:'synthetic-account',currency:'USD',points}]});
+  assert.equal(compared.returns.benchmarks.length,4,'cash history cannot discard qualified native-window benchmark prices');
+  assert.deepEqual(compared.returns.points,withoutBenchmarks.returns.points,'keep all 21 native points and the original first-day return');
+  assert.equal(compared.summary.twr_return_percent,withoutBenchmarks.summary.twr_return_percent);
+  assert.equal(compared.returns.no_common_date,false);
+  assert.ok(compared.returns.benchmark_availability.every(item=>item.status==='ok'&&item.unavailable_reason===null));
+  assert.deepEqual(compared.summary.excess_returns.map(item=>item.benchmark),benchmarkIds);
+  for(const excess of compared.summary.excess_returns){
+    assert.equal(excess.start,nativeDates[0]);
+    assert.equal(excess.end,nativeDates.at(-1));
+    assert.equal(excess.unavailable_reason,null);
+    assert.ok(Math.abs(excess.percentage_points-((1.001**21-1)*100-21))<1e-10,
+      'excess return includes the first native day and the matching preceding-close benchmark boundary');
+  }
+  for(const comparison of compared.returns.benchmarks){
+    assert.deepEqual(comparison.points.map(point=>point.date),nativeDates);
+    assert.ok(Math.abs(comparison.points[0].value-1)<1e-10,'day one uses the actual preceding close, not a rebased zero');
+    assert.ok(Math.abs(comparison.points.at(-1).value-21)<1e-10);
+    assert.ok(Math.abs(comparison.points[0].daily_return_percent-1)<1e-10);
+  }
+}
+assert.equal(nativeDates.length,21);
+
+const unavailableBenchmarks=(points,reason)=>{
+  const compared=calculateBenchmarks({benchmarks:[{id:benchmarkIds[0],points}]});
+  assert.deepEqual(compared.returns.benchmarks,[]);
+  assert.deepEqual(compared.summary.excess_returns,[],'invalid benchmarks cannot create excess-return results');
+  assert.deepEqual(compared.returns.points,withoutBenchmarks.returns.points);
+  assert.equal(compared.returns.no_common_date,false,'benchmark failure must not hide the native curve');
+  assert.equal(compared.returns.benchmark_availability[0].status,'unavailable');
+  assert.equal(compared.returns.benchmark_availability[0].unavailable_reason,reason);
+};
+unavailableBenchmarks([],'benchmark_history_missing');
+unavailableBenchmarks([{date:'2026-08-31',value:100}],'no_common_date');
+unavailableBenchmarks(benchmarkPrices[0].points.slice(1),'benchmark_history_missing');
+unavailableBenchmarks(benchmarkPrices[0].points.filter(point=>point.date>='2026-10-09'),'benchmark_history_missing');
+unavailableBenchmarks([{date:'2026-09-21',value:100},...benchmarkPrices[0].points.slice(1)],'benchmark_history_missing');
+unavailableBenchmarks(benchmarkPrices[0].points.map(point=>point.date==='2026-09-24'?{...point,value:0}:point),'benchmark_history_missing');
+unavailableBenchmarks(benchmarkPrices[0].points.map(point=>point.date==='2026-10-09'?{...point,breakBefore:true}:point),'benchmark_history_missing');
+unavailableBenchmarks(benchmarkPrices[0].points.map(point=>point.date==='2026-09-25'?{...point,breakBefore:true}:point),'benchmark_history_missing');
+unavailableBenchmarks([{date:'2026-09-21',value:100},...benchmarkPrices[0].points.slice(1)
+  .map(point=>({...point,breakBefore:false}))],'benchmark_history_missing');
+
+const missingOnePrice=calculateBenchmarks({benchmarks:[{...benchmarkPrices[0],points:benchmarkPrices[0].points
+  .filter(point=>point.date!=='2026-10-09')},...benchmarkPrices.slice(1)]});
+assert.deepEqual(missingOnePrice.returns.benchmarks.map(item=>item.id),benchmarkIds.slice(1),'a missing comparison does not suppress independent qualified series');
+assert.equal(missingOnePrice.returns.benchmark_availability[0].unavailable_reason,'benchmark_history_missing');
+assert.deepEqual(missingOnePrice.returns.points,withoutBenchmarks.returns.points);
+assert.deepEqual(missingOnePrice.summary.excess_returns.map(item=>item.benchmark),benchmarkIds.slice(1));
+
+const mondayNative={...benchmarkInput,range:'1M',today:'2026-10-28',accounts:[{...input.accounts[0],return:{daily:[row('2026-09-28','0.1')]}}],
+  benchmarks:[{id:benchmarkIds[0],points:[{date:'2026-09-25',value:100},{date:'2026-09-28',value:102}]}]};
+const mondayComparison=applyNativeDailyReturns(performanceBlocks(mondayNative),mondayNative);
+assert.equal(mondayComparison.returns.benchmarks.length,1,'a real Friday close remains valid across the weekend, even before the requested range');
+assert.ok(Math.abs(mondayComparison.returns.benchmarks[0].points[0].value-2)<1e-10);
+assert.ok(Math.abs(mondayComparison.returns.points[0].value-10)<1e-10);
+assert.equal(mondayComparison.summary.excess_returns[0].start,'2026-09-28');
+assert.equal(mondayComparison.summary.excess_returns[0].end,'2026-09-28');
+assert.equal(mondayComparison.summary.excess_returns[0].unavailable_reason,null);
+assert.ok(Math.abs(mondayComparison.summary.excess_returns[0].percentage_points-8)<1e-10,
+  '10% native first-day return minus 2% benchmark first-day return is 8 percentage points');
+
+const incompleteYtd=calculateBenchmarks({range:'YTD'});
+assert.equal(incompleteYtd.summary.coverage.range_complete,false);
+assert.equal(incompleteYtd.summary.twr_return_percent,null);
+assert.deepEqual(incompleteYtd.summary.excess_returns.map(item=>item.benchmark),benchmarkIds);
+assert.ok(incompleteYtd.summary.excess_returns.every(item=>item.percentage_points===null
+  &&item.unavailable_reason==='snapshot_history_missing'),'an incomplete YTD cannot supply observed-window excess as a full-year metric');
+
+const missingNativeDay=calculateBenchmarks({accounts:[{...input.accounts[0],return:{daily:
+  nativeDates.filter(date=>date!=='2026-10-09').map(date=>row(date,'0.001'))}}]});
+assert.equal(missingNativeDay.summary.twr_return_percent,null);
+assert.deepEqual(missingNativeDay.returns.points,[]);
+assert.deepEqual(missingNativeDay.returns.benchmarks,[],'benchmark prices cannot fill a missing native return');
+assert.deepEqual(missingNativeDay.summary.excess_returns,[]);
+assert.ok(missingNativeDay.returns.benchmark_availability.every(item=>item.unavailable_reason==='snapshot_history_missing'));
+const staleBenchmarks=calculateBenchmarks({today:'2026-10-27'}).returns.benchmark_availability;
+assert.ok(staleBenchmarks.every(item=>item.status==='stale'&&item.as_of==='2026-10-23'));
+console.log('native_daily_returns_benchmarks: PASS (native dates, prior close, first day, independent series, missing boundaries/prices, explicit breaks and gaps)');
