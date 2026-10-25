@@ -158,6 +158,7 @@ jobs:
           node tests/human_decisions_worker_validation.mjs
           node --experimental-strip-types tests/decision_review_material_pure_validation.mjs
           node tests/console_api_contract_validation.mjs
+          node tests/console_binance_current_holdings_validation.mjs
           node tests/console_api_worker_validation.mjs
           node tests/console_design_api_validation.mjs
           node web/strategy-switch-console/frontend/node_modules/typescript/bin/tsc -p tests/tsconfig.console-gaps.json
