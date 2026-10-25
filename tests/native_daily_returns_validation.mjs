@@ -109,3 +109,17 @@ const yearMoney=applyNativeDailyReturns(performanceBlocks(yearMoneyInput),yearMo
 assert.equal(yearMoney.cells.find(c=>c.month==='2026-10').amount,7);
 assert.equal(yearMoney.cells.find(c=>c.month==='2026-11').amount,null);
 console.log('native NAV money: exact sums, missing money, deposits, independent TWR and calendar PASS');
+
+// A local-calendar date can have begun before the broker's next session. An
+// unobserved current day is pending, not an already-missed historical snapshot.
+const beforeSessionInput = {...input, today:'2026-10-26'};
+const pendingDay = applyNativeDailyReturns(performanceBlocks(beforeSessionInput), beforeSessionInput).calendar.cells.find(c=>c.date==='2026-10-26');
+assert.equal(pendingDay.unavailable_reason,'snapshot_pending');
+assert.equal(pendingDay.status,'no_data');
+assert.equal(pendingDay.amount,null); assert.equal(pendingDay.return_percent,null);
+const beforeSessionCalendar = performanceBlocks(beforeSessionInput).calendar;
+assert.equal(beforeSessionCalendar.cells.find(c=>c.date==='2026-10-21').unavailable_reason,'snapshot_missing','past gaps stay real gaps');
+assert.equal(beforeSessionCalendar.cells.find(c=>c.date==='2026-10-27').unavailable_reason,'future_date');
+const observedTodayInput = {...moneyInput,today:'2026-10-23'};
+assert.equal(applyNativeDailyReturns(performanceBlocks(observedTodayInput),observedTodayInput).calendar.cells.find(c=>c.date==='2026-10-23').amount,0.2,'actual current-day money overrides the pending placeholder');
+console.log('native_daily_returns_current_day_pending: PASS');

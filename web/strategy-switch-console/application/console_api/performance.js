@@ -130,7 +130,9 @@ export function calendarCells(points, year, month, options = {}) {
               return_percent: null,
               value_kind: "asset_change",
               status: "no_data",
-              unavailable_reason: "snapshot_missing",
+              // A current-day observation may still be due later. Keep its
+              // values unknown without calling it a missed historical day.
+              unavailable_reason: date === options.today ? "snapshot_pending" : "snapshot_missing",
             }),
       };
     });
