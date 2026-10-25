@@ -90,6 +90,7 @@ export const en: Record<CoreMessageKey, string> = {
   "reason.mixed_currency": "Mixed currencies cannot be combined into one amount; each currency is shown separately",
   "reason.snapshot_history_missing": "Historical asset snapshots are missing",
   "reason.snapshot_missing": "Asset snapshot is missing",
+  "reason.snapshot_pending": "Today's data is pending update",
   "reason.previous_snapshot_missing": "The previous day's asset snapshot is missing",
   "reason.non_trading_weekend": "Non-trading day",
   "reason.incomplete_month": "The month is still incomplete",

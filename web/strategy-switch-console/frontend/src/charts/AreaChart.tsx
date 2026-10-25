@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage, useT } from "../i18n";
 import type { Point } from "../api/contracts";
-import { formatMoney } from "../lib/format";
+import { formatMoney, maskedAmount } from "../lib/format";
 import { usePrefs } from "../app/context";
 
 const WIDTH = 800;
@@ -54,7 +54,7 @@ export function AreaChart({
     return { yMin: min - pad, yMax: max + pad };
   }, [points]);
 
-  const formatValue = (value: number) => (prefs.hideAmounts ? "•••" : formatMoney(value, currency, language));
+  const formatValue = (value: number) => (prefs.hideAmounts ? maskedAmount(value) : formatMoney(value, currency, language));
   const ticks = [0, 1, 2, 3, 4].map(i => yMin + ((yMax - yMin) * i) / 4);
   const pad = { ...PAD, left: Math.max(PAD.left, ...ticks.map(value => formatValue(value).length * 8 + 16)) };
   const chartWidth = Math.max(width, pad.left + 80);
@@ -76,7 +76,10 @@ export function AreaChart({
     if (i === 0 || point.breakBefore) segments.push([]);
     segments.at(-1)!.push(i);
   });
-  const areaPath = segments.map(indices =>
+  // A one- or two-point segment is a sparse tail, not a filled area: filling it
+  // would draw a tall band over a real gap. Only three or more consecutive
+  // points get an area; shorter segments keep their real line and points.
+  const areaPath = segments.filter(indices => indices.length >= 3).map(indices =>
     `M${xFor(indices[0]).toFixed(2)},${yFor(yMin).toFixed(2)}${indices.map(i => `L${xFor(i).toFixed(2)},${yFor(points[i].value).toFixed(2)}`).join("")}L${xFor(indices.at(-1)!).toFixed(2)},${yFor(yMin).toFixed(2)}Z`,
   ).join("");
 
@@ -153,8 +156,8 @@ export function AreaChart({
           <>
             <path d={areaPath} fill="var(--accent)" opacity="0.12" />
             <path d={linePath} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-            {segments.filter(indices => indices.length === 1).map(([i]) =>
-              <circle key={points[i].date} cx={xFor(i)} cy={yFor(points[i].value)} r="3" fill="var(--accent)" />,
+            {segments.filter(indices => indices.length < 3).flatMap(indices =>
+              indices.map(i => <circle key={points[i].date} cx={xFor(i)} cy={yFor(points[i].value)} r="3" fill="var(--accent)" />),
             )}
             {points.map((point, i) =>
               point.externalFlow ? (

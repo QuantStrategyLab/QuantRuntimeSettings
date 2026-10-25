@@ -9,6 +9,7 @@ export type Reason =
   | "mixed_currency"
   | "snapshot_history_missing"
   | "snapshot_missing"
+  | "snapshot_pending"
   | "previous_snapshot_missing"
   | "non_trading_weekend"
   | "incomplete_month"
