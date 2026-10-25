@@ -103,12 +103,21 @@ export function calendarCells(points, year, month, options = {}) {
       count = new Date(Date.UTC(year, m, 0)).getUTCDate();
     return Array.from({ length: count }, (_, i) => {
       const date = `${start.slice(0, 8)}${String(i + 1).padStart(2, "0")}`;
+      const future = typeof options.today === "string" && date > options.today;
       const weekend =
         !options.crypto &&
         [0, 6].includes(new Date(`${date}T00:00:00Z`).getUTCDay());
       return {
         date,
-        ...(weekend
+        ...(future
+          ? {
+              amount: null,
+              return_percent: null,
+              value_kind: "asset_change",
+              status: "unavailable",
+              unavailable_reason: "future_date",
+            }
+          : weekend
           ? {
               amount: null,
               return_percent: null,
@@ -128,8 +137,14 @@ export function calendarCells(points, year, month, options = {}) {
   };
   if (month) return monthCells(month);
   return Array.from({ length: 12 }, (_, i) => {
+    const monthStart = `${year}-${String(i + 1).padStart(2, "0")}-01`;
+    if (typeof options.today === "string" && monthStart > options.today) {
+      return { month: monthStart.slice(0, 7), amount: null, observed_amount: null,
+        return_percent: null, value_kind: "asset_change", status: "unavailable",
+        unavailable_reason: "future_date", coverage: { observed_days: 0, expected_weekdays: 0 } };
+    }
     const cells = monthCells(i + 1).filter(
-      (c) => c.unavailable_reason !== "non_trading_weekend",
+      (c) => !["non_trading_weekend", "future_date"].includes(c.unavailable_reason),
     );
     const values = cells.filter((c) => c.amount !== null),
       complete = values.length === cells.length;
@@ -137,7 +152,6 @@ export function calendarCells(points, year, month, options = {}) {
       values.length && values.every((c) => c.value_kind === "pnl")
         ? "pnl"
         : "asset_change";
-    const monthStart = `${year}-${String(i + 1).padStart(2, "0")}-01`;
     const rows = cleanPoints(points);
     const baseline = rows.filter((p) => p.date < monthStart).at(-1);
     const monthlyPoints = rows.filter((p) =>
@@ -342,6 +356,7 @@ export function performanceBlocks({
       : null;
   const primaryByDate = new Map(aligned.primary.map((p) => [p.date, p.value]));
   const cells = calendarCells(allPoints, year, month, {
+    today,
     crypto: histories.length > 0 && histories.every((history) => history.crypto === true),
   });
   const calendarHasValues = cells.some(
