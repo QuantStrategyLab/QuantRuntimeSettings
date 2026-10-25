@@ -167,9 +167,9 @@ const pr764Blob = "de87e1c1c6b62fa94bd514c8936a4ec32e14c0e4";
 const pr764Build = "96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6";
 const approved = "ee074c1eaf683d0c5e121a61c10c95bfd540e36b";
 const approvedTree = "ac28b2e6d0e3444f620bcd187fd27c4098f37d48";
-const frontend = "19f9083b9cd5c657b335d67b5d0ef5173ac72b22";
-const frontendTree = "3d034784a7f1dd8649df21537adf011052cb464c";
-const frontendBlob = "6c04e66c6785d4ad2b2a3d288099ae91e0923c44";
+const frontend = "7cd7b51a3a14da05f749a4978b4e3a8be6e7d7ca";
+const frontendTree = "ff39216c1f1f4b168e3408251cd68d7d558a5890";
+const frontendBlob = "bc81ad44be23871315f4cd14f2a85840105713f3";
 const assetPath = "web/strategy-switch-console/v2_asset_map.js";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
@@ -419,7 +419,7 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
    assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
    assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
-  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend ee074c1e and frontend 19f9083; retained configuration"}});
+  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend ee074c1e and frontend 7cd7b51; retained configuration"}});
  }
  if(expected){
   if(pr764){const h=JSON.parse(stdout[0]);assert.equal(h.status,"pr764_configuration_verified");
