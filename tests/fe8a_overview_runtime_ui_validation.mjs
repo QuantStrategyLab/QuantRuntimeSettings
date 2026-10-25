@@ -108,7 +108,7 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       const staleDay = ui.renderLastDay(language, { phase: "ready", data: staleCalendar });
       assert.ok(visibleText(staleDay).includes("123"), "stale data still shows its real value");
       assert.ok(visibleText(staleDay).includes(ASSET_CHANGE[language]), "the normal method label stays next to the value");
-      assert.ok(visibleText(staleDay).includes(STALE[language]), "stale stays visibly marked");
+      assert.ok(staleDay.includes('hidden="" data-status="stale"'), "stale stays available as a hidden diagnostic");
       assert.ok(visibleText(staleDay).includes(AS_OF[language]), "stale as-of time stays visible once");
       assert.ok(!staleDay.includes("<details"), "no audit details block remains");
 

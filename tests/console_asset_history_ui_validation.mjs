@@ -53,7 +53,7 @@ test("P1: healthy balances keep one compact independent partial-history status i
   for (const language of ["zh", "en"]) {
     const html = ui.assets(language, assets);
     assert.ok(notice(html, "partial"), "healthy current balances cannot mask incomplete history");
-    assert.ok(html.includes(language === "zh" ? "部分数据" : "Partial"), "a short visible state remains");
+    assert.ok(html.includes('hidden="" data-status="partial"'), "exact partial status remains a hidden diagnostic");
     assert.match(html, /data-affected-count="[1-9][0-9]*"/, "affected coverage remains diagnostic");
     assert.doesNotMatch(html, /部分账户缺少历史数据|Some accounts lack history|个账户的历史数据不完整|History is incomplete for/,
       "history diagnostics do not occupy the chart");

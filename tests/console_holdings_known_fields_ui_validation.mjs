@@ -87,7 +87,8 @@ try {
       assert.equal(partial.market, "USD 3,456.78", "known market value keeps its currency");
       assert.equal(partial.avgCost, "—", "a missing avg cost is unknown, not zero");
       assert.equal(partial.pnl, "—", "a missing unrealized P/L is unknown, not zero");
-      assert.equal(partial.status, ui.translate(language, "state.partial"), "the row keeps its own status badge");
+      assert.equal(partial.status, "", "data availability remains a hidden diagnostic rather than visible text");
+      assert.ok(html.includes('data-status="partial"'), "exact source status stays available for debugging");
       assert.ok(!partial.cells.slice(2).some(text => text === "0.00"), "missing fields are never rendered as zero");
 
       const stale = rowFor(html, staleKnown.symbol);
@@ -95,7 +96,8 @@ try {
       assert.equal(stale.market, "USD 5,000.00");
       assert.equal(stale.avgCost, "USD 100.00");
       assert.equal(stale.pnl, "+USD 800.00", "a positive unrealized P/L keeps its signed form");
-      assert.equal(stale.status, ui.translate(language, "state.stale"), "stale rows stay renderable with a badge");
+      assert.equal(stale.status, "", "data availability remains a hidden diagnostic rather than visible text");
+      assert.ok(html.includes('data-status="stale"'), "exact source status stays available for debugging");
       assert.deepEqual(data, before, "rendering must not complete or mutate the response");
     }
   });
@@ -110,7 +112,8 @@ try {
       assert.equal(failed.market, "—");
       assert.equal(failed.avgCost, "—");
       assert.equal(failed.pnl, "—");
-      assert.equal(failed.status, ui.translate(language, "state.read_failed"), "the failed row is labeled, not silently dropped");
+      assert.equal(failed.status, "", "data availability remains a hidden diagnostic rather than visible text");
+      assert.ok(html.includes('data-status="read_failed"'), "exact source status stays available for debugging");
       assert.ok(!html.includes("987,654"), "a read_failed row never leaks its residual values");
       assert.ok(!html.includes("987654.32"));
       assert.equal(rowFor(html, partialKnown.symbol).quantity, "1,200", "one failed row cannot hide another row's known values");
