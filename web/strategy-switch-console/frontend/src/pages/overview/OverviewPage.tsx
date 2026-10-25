@@ -209,8 +209,8 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   const { configured, observed } = data.counts;
   const value = observed === 0 ? <KpiState status="no_data" /> : <>{observed}/{configured}</>;
   const footer = observed === 0
-    ? <><span className="asof"><DateText value={data.date} /></span>{data.status === "partial" && <Badge tone="warn">{t("state.partial_runtime")}</Badge>}</>
-    : data.status === "partial" ? <Badge tone="warn">{t("state.partial_runtime")}</Badge> : undefined;
+    ? <><span className="asof"><DateText value={data.date} /></span>{data.status === "partial" && <StatusBadge status="partial" reason="runtime_daily_not_connected" />}</>
+    : data.status === "partial" ? <StatusBadge status="partial" reason="runtime_daily_not_connected" /> : undefined;
   return (
     <KpiCard
       title={title}
