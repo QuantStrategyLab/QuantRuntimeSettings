@@ -170,6 +170,14 @@ const approvedTree = "82138f848dc04f9b1debadb5343138507ec60d45";
 const frontend = "8e1c50a0a09d69d24be4ef7c75ec4615d3281638";
 const frontendTree = "6199b0b611c74b3d61278a90788eedfb5b8539a7";
 const frontendBlob = "b2dcfd8a921fc8aa3fda8e6356af3ff9b5bebdeb";
+// Exercise the real release graph as well as the simulated shell below. A
+// copied patch can match every frozen tree while its source is not yet adopted.
+for (const source of [approved, frontend]) {
+  const ancestry = spawnSync("git", ["merge-base", "--is-ancestor", source, "HEAD"], {
+    cwd: new URL("..", import.meta.url), encoding: "utf8",
+  });
+  assert.equal(ancestry.status, 0, `fixed release source must be adopted in this checkout: ${source}`);
+}
 const assetPath = "web/strategy-switch-console/v2_asset_map.js";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
