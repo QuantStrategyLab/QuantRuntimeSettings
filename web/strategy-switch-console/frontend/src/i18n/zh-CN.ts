@@ -88,6 +88,7 @@ export const zhCN = {
   "reason.mixed_currency": "多币种无法合并为单一金额；按币种分别展示",
   "reason.snapshot_history_missing": "缺少历史资产快照",
   "reason.snapshot_missing": "缺少资产快照",
+  "reason.snapshot_pending": "今日数据待更新",
   "reason.previous_snapshot_missing": "缺少前一日的资产快照",
   "reason.non_trading_weekend": "非交易日",
   "reason.incomplete_month": "当月数据尚不完整",

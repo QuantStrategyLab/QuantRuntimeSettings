@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useLanguage, useT, type MessageKey } from "../i18n";
 import { usePrefs } from "../app/context";
-import { formatDate, formatDateTime, formatMoney, formatPercent } from "../lib/format";
+import { formatDate, formatDateTime, formatMoney, formatPercent, maskedAmount } from "../lib/format";
 import type { Status } from "../api/contracts";
 
 /* ---------- status badges (icon + text, never color alone) ---------- */
@@ -126,8 +126,9 @@ export function DateText({ value }: { value: string | null | undefined }) {
 export function Money({ value, currency, signed = false }: { value: number | null | undefined; currency?: string | null; signed?: boolean }) {
   const language = useLanguage();
   const { prefs } = usePrefs();
-  if (prefs.hideAmounts) return <span className="money">•••</span>;
+  // Missing values stay an em dash even while amounts are hidden.
   if (value === null || value === undefined || !Number.isFinite(value)) return <span className="money flat">—</span>;
+  if (prefs.hideAmounts) return <span className="money">{maskedAmount(value)}</span>;
   const text = formatMoney(signed ? Math.abs(value) : value, currency, language);
   const sign = signed ? (value > 0 ? "+" : value < 0 ? "-" : "") : "";
   const tone = !signed || value === 0 ? "flat" : value > 0 ? "up" : "down";

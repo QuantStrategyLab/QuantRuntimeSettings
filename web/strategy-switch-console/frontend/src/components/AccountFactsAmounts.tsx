@@ -9,6 +9,7 @@ import {
   isReadableFact,
   platformCurrencyTotals,
 } from "../lib/accountFacts";
+import { maskedAmount } from "../lib/format";
 import { AsOfStamp, Badge, Skeleton } from "./primitives";
 import "./account-facts.css";
 
@@ -78,8 +79,9 @@ export function FactsStateRow({ label, stateKey }: {
  */
 function MoneyText({ value, currency }: { value: string | null; currency?: string | null }) {
   const { prefs } = usePrefs();
-  if (prefs.hideAmounts) return <span className="money">•••</span>;
+  // A missing value is unknown, not a masked amount, so it stays an em dash.
   if (value === null) return <span className="money flat">—</span>;
+  if (prefs.hideAmounts) return <span className="money">{maskedAmount(value)}</span>;
   return <span className="money flat">{formatMoneyText(value, currency ?? null)}</span>;
 }
 

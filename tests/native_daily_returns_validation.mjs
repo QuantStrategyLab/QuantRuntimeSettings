@@ -109,3 +109,31 @@ const yearMoney=applyNativeDailyReturns(performanceBlocks(yearMoneyInput),yearMo
 assert.equal(yearMoney.cells.find(c=>c.month==='2026-10').amount,7);
 assert.equal(yearMoney.cells.find(c=>c.month==='2026-11').amount,null);
 console.log('native NAV money: exact sums, missing money, deposits, independent TWR and calendar PASS');
+
+// A local-calendar date can have begun before the broker's next session. An
+// unobserved current day is pending, not an already-missed historical snapshot.
+const beforeSessionInput = {...input, today:'2026-10-26'};
+const pendingDay = applyNativeDailyReturns(performanceBlocks(beforeSessionInput), beforeSessionInput).calendar.cells.find(c=>c.date==='2026-10-26');
+assert.equal(pendingDay.unavailable_reason,'snapshot_pending');
+assert.equal(pendingDay.status,'no_data');
+assert.equal(pendingDay.amount,null); assert.equal(pendingDay.return_percent,null);
+const beforeSessionCalendar = performanceBlocks(beforeSessionInput).calendar;
+assert.equal(beforeSessionCalendar.cells.find(c=>c.date==='2026-10-21').unavailable_reason,'snapshot_missing','past gaps stay real gaps');
+assert.equal(beforeSessionCalendar.cells.find(c=>c.date==='2026-10-27').unavailable_reason,'future_date');
+const observedTodayInput = {...moneyInput,today:'2026-10-23'};
+assert.equal(applyNativeDailyReturns(performanceBlocks(observedTodayInput),observedTodayInput).calendar.cells.find(c=>c.date==='2026-10-23').amount,0.2,'actual current-day money overrides the pending placeholder');
+console.log('native_daily_returns_current_day_pending: PASS');
+
+// A YTD query is not complete just because its late-year observed window is.
+// Native daily money remains usable even when a whole-year KPI is withheld.
+const shortYtdInput={...moneyInput,range:'YTD',today:'2026-10-26'};
+const shortYtd=applyNativeDailyReturns(performanceBlocks(shortYtdInput),shortYtdInput);
+assert.equal(shortYtd.summary.coverage.range_complete,false);
+assert.equal(shortYtd.summary.twr_return_percent,null);
+assert.equal(shortYtd.summary.amount,null);
+assert.equal(shortYtd.summary.coverage.requested_period_from,'2026-01-01');
+const knownYtdDay=shortYtd.calendar.cells.find(c=>c.date==='2026-10-23');
+assert.equal(knownYtdDay.amount,0.2,'daily NAV money is not withheld with the incomplete YTD aggregate');
+assert.equal(knownYtdDay.observed_amount,null,'legacy asset-change subtotal is not a second NAV profit field');
+assert.equal(shortYtdInput.accounts[0].return.daily[0].method,'native_ibkr_twr','TWR and NAV reconciliation retain different method identities');
+console.log('native_daily_returns_short_ytd: PASS');

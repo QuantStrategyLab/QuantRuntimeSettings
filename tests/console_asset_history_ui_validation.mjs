@@ -82,26 +82,32 @@ test("P1: healthy balances keep one compact independent partial-history status i
   }
 });
 
-test("P2: rendered fill follows stroke breaks at join, expiry and re-entry; singletons stay visible", () => {
+test("P2: fill covers only runs of three or more points; sparse tails keep their line and markers", () => {
   assert.deepEqual(assets.points.map(p => p.breakBefore), [false, true, false, false, true, true, false, false]);
   const check = points => {
     const html = ui.area(points);
-    const paths = [...html.matchAll(/<path d="([^"]+)"[^>]*>/g)].map(m => m[1]);
+    const paths = [...html.matchAll(/<path d="([^"]*)"[^>]*>/g)].map(m => m[1]);
     assert.equal(paths.length, points.length ? 2 : 0);
     if (!points.length) return;
-    const lineSegments = paths[1].match(/M[^M]+/g);
-    const areas = paths[0].match(/M[^M]+/g);
-    assert.equal(areas.length, lineSegments.length, "fill must have exactly the stroke's segments");
-    for (const [i, segment] of lineSegments.entries()) {
+    const [area, line] = paths;
+    const lineSegments = line.match(/M[^M]+/g) ?? [];
+    const areaSegments = area.match(/M[^M]+/g) ?? [];
+    const filled = lineSegments.filter(segment => [...segment.matchAll(/[ML]([\d.]+),([\d.]+)/g)].length >= 3);
+    assert.equal(areaSegments.length, filled.length, "only a run of at least three real points gets a fill");
+    for (const [i, segment] of filled.entries()) {
       const linePoints = [...segment.matchAll(/[ML]([\d.]+),([\d.]+)/g)].map(m => [m[1], m[2]]);
-      const areaPoints = [...areas[i].matchAll(/[ML]([\d.]+),([\d.]+)/g)].map(m => [m[1], m[2]]);
-      assert.ok(areas[i].endsWith("Z"));
+      const areaPoints = [...areaSegments[i].matchAll(/[ML]([\d.]+),([\d.]+)/g)].map(m => [m[1], m[2]]);
+      assert.ok(areaSegments[i].endsWith("Z"));
       assert.deepEqual(areaPoints.slice(1, -1), linePoints, "no filled polygon may bridge a membership break");
       assert.equal(areaPoints[0][0], linePoints[0][0]);
       assert.equal(areaPoints.at(-1)[0], linePoints.at(-1)[0]);
-      if (linePoints.length === 1) {
-        const circles = [...html.matchAll(/<circle cx="([^"]+)" cy="([^"]+)"/g)];
-        assert.ok(circles.some(m => Math.abs(Number(m[1]) - Number(linePoints[0][0])) < 0.01 && Math.abs(Number(m[2]) - Number(linePoints[0][1])) < 0.01), "isolated observation needs a visible marker");
+    }
+    for (const segment of lineSegments) {
+      const linePoints = [...segment.matchAll(/[ML]([\d.]+),([\d.]+)/g)].map(m => [m[1], m[2]]);
+      if (linePoints.length >= 3) continue;
+      const circles = [...html.matchAll(/<circle cx="([^"]+)" cy="([^"]+)"/g)];
+      for (const [x, y] of linePoints) {
+        assert.ok(circles.some(m => Math.abs(Number(m[1]) - Number(x)) < 0.01 && Math.abs(Number(m[2]) - Number(y)) < 0.01), "each point in a sparse segment stays visible");
       }
     }
   };
@@ -109,5 +115,6 @@ test("P2: rendered fill follows stroke breaks at join, expiry and re-entry; sing
   check([point(1, 100)]);
   check([point(1, 100), { ...point(2, 200), breakBefore: true }]);
   check([point(1, 100), point(2, 110)]);
+  check([point(1, 100), point(2, 110), point(3, 120)]);
   check([]);
 });
