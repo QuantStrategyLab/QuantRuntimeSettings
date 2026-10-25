@@ -303,13 +303,17 @@ jobs:
             if (platform === "ibkr" || platform === "longbridge") {
               const configurePhysicalIdentity = platform === "longbridge"
                 && Object.hasOwn(rotation || {}, "physical_account_id");
+              const qualifyHistory = Object.hasOwn(rotation || {}, "history_source_binding_ids");
+              const rotationKeys = ["next_source_binding_id", "previous_source_binding_id", "target_id"];
+              if (configurePhysicalIdentity) rotationKeys.push("physical_account_id");
+              if (qualifyHistory) rotationKeys.push("history_source_binding_ids");
               if (!rotation || Array.isArray(rotation)
-                  || Object.keys(rotation).sort().join(",") !== (configurePhysicalIdentity
-                    ? "next_source_binding_id,physical_account_id,previous_source_binding_id,target_id"
-                    : "next_source_binding_id,previous_source_binding_id,target_id")
+                  || (configurePhysicalIdentity && qualifyHistory)
+                  || Object.keys(rotation).sort().join(",") !== rotationKeys.sort().join(",")
                   || !/^[a-f0-9]{64}$/.test(rotation.previous_source_binding_id)
                   || !/^[a-f0-9]{64}$/.test(rotation.next_source_binding_id)
-                  || (platform === "longbridge" && (configurePhysicalIdentity
+                  || (qualifyHistory && rotation.next_source_binding_id !== rotation.previous_source_binding_id)
+                  || (platform === "longbridge" && ((configurePhysicalIdentity || qualifyHistory)
                     ? rotation.next_source_binding_id !== rotation.previous_source_binding_id
                     : rotation.next_source_binding_id === rotation.previous_source_binding_id))) {
                 stop("rotation_config_invalid");
@@ -330,13 +334,29 @@ jobs:
               const index = existing.bindings.indexOf(candidates[0]);
               if (configurePhysicalIdentity && candidates[0].physical_account_id
                   && candidates[0].physical_account_id !== rotation.physical_account_id) stop("physical_identity_change_forbidden");
-              proposedRaw = {
-                schema_version: existingRaw.schema_version,
-                bindings: [{ ...existingRaw.bindings[index],
-                  ...(configurePhysicalIdentity ? { physical_account_id: rotation.physical_account_id } : {}), source_binding: {
-                  ...existingRaw.bindings[index].source_binding, id: rotation.next_source_binding_id,
-                } }],
+              const sourceOwnerVerified = platform === "ibkr" || Boolean(candidates[0].physical_account_id);
+              const requestedHistory = qualifyHistory ? rotation.history_source_binding_ids : [];
+              if (qualifyHistory && (!sourceOwnerVerified || !Array.isArray(requestedHistory)
+                  || requestedHistory.length < 1 || requestedHistory.length > 64
+                  || new Set(requestedHistory).size !== requestedHistory.length
+                  || requestedHistory.some(id => typeof id !== "string" || !/^[a-f0-9]{64}$/.test(id)
+                    || id === rotation.next_source_binding_id))) stop("history_qualification_invalid");
+              // Only the protected, same-account CAS may carry trusted predecessors.
+              // A history-only qualification cannot move the current source or identity.
+              const historyIds = [...new Set([
+                ...(candidates[0].history_source_binding_ids || []), ...requestedHistory,
+                ...(!configurePhysicalIdentity && sourceOwnerVerified
+                  && candidates[0].source_binding.id === rotation.previous_source_binding_id
+                  && rotation.previous_source_binding_id !== rotation.next_source_binding_id
+                  ? [rotation.previous_source_binding_id] : []),
+              ])].filter(id => id !== rotation.next_source_binding_id);
+              const nextBinding = { ...existingRaw.bindings[index],
+                ...(configurePhysicalIdentity ? { physical_account_id: rotation.physical_account_id } : {}),
+                source_binding: { ...existingRaw.bindings[index].source_binding, id: rotation.next_source_binding_id },
               };
+              if (historyIds.length) nextBinding.history_source_binding_ids = historyIds;
+              else delete nextBinding.history_source_binding_ids;
+              proposedRaw = { schema_version: existingRaw.schema_version, bindings: [nextBinding] };
             }
             proposed = normalizeAccountFactsBindings(proposedRaw);
           } catch {
@@ -386,6 +406,7 @@ jobs:
                 || sameKey.source_binding.id !== previousId) stop("previous_binding_mismatch");
             const identity = (item) => {
               const copy = { ...item, source_binding: { kind: item.source_binding.kind } };
+              delete copy.history_source_binding_ids;
               if (platform === "longbridge" && Object.hasOwn(rotation, "physical_account_id")) delete copy.physical_account_id;
               return copy;
             };
