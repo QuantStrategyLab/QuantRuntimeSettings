@@ -4,6 +4,7 @@ import { applyNativeDailyReturns } from "./native_daily_returns.js";
 import { businessDate, performanceBlocks } from "./performance.js";
 import { externalFlowEnabled } from "../account_facts/external_flow.js";
 import { applyCashflowPerformance } from "./cashflow_performance.js";
+import { executionStatsResponse } from "./executions.js";
 const ENDPOINTS = {
   calendar: "calendar",
   summary: "summary",
@@ -63,6 +64,7 @@ export async function performanceResponse(request, env, deps) {
         { ok: false, error: "account_alias_required_or_ambiguous" },
         400,
       );
+    if (endpoint === "trades") return executionStatsResponse(matches, { scope, range, today }, env, deps);
     const makeRequest = (path, params = {}) => {
       const u = new URL(path, request.url);
       for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);

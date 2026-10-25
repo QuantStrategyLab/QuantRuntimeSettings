@@ -2103,10 +2103,18 @@
           ]
         },
         "status": {
-          "const": "not_connected"
+          "enum": [
+            "not_connected",
+            "partial",
+            "unavailable"
+          ]
         },
         "unavailable_reason": {
-          "const": "fills_not_connected"
+          "enum": [
+            "fills_not_connected",
+            "execution_coverage_unverified",
+            "stored_records_unreadable"
+          ]
         },
         "as_of": {
           "type": [
@@ -2120,6 +2128,44 @@
             "pnl",
             "asset_change"
           ]
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "platform",
+              "account_alias",
+              "execution_ref",
+              "trade_date",
+              "symbol",
+              "side",
+              "quantity",
+              "price",
+              "currency",
+              "commission",
+              "commission_currency"
+            ]
+          }
+        },
+        "reported_execution_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "per_currency": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "win_rate_percent": {
+          "type": "null"
+        },
+        "realized_pnl": {
+          "type": "null"
         }
       },
       "required": [
