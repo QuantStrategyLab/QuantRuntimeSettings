@@ -111,6 +111,7 @@ function reject(code, status = 400) {
 // full-account inventory unless a producer says so. Unknown or malformed
 // inventories are rejected rather than stored as an empty list.
 export const ACCOUNT_FACTS_POSITIONS_SCOPES = Object.freeze({
+  longbridge: "stocks_only",
   ibkr: "stocks_only",
   schwab: "strategy_symbols_only",
   firstrade: "broker_reported",
@@ -122,13 +123,16 @@ const MAX_POSITIONS = 64;
 function normalizeBrokerReportedPositions(platform, raw) {
   const hasRows = Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions");
   const hasScope = Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions_scope");
-  if (!hasRows && !hasScope) return null;
+  const hasComplete = Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions_complete");
+  if (!hasRows && !hasScope && !hasComplete) return null;
   const scope = ACCOUNT_FACTS_POSITIONS_SCOPES[platform];
-  if (!scope || !hasRows || !hasScope || raw.broker_reported_positions_scope !== scope) {
+  if (!scope || !hasRows || !hasScope || raw.broker_reported_positions_scope !== scope
+      || (platform === "longbridge" && !hasComplete)
+      || (hasComplete && raw.broker_reported_positions_complete !== true)) {
     reject("invalid_account_facts_positions");
   }
   const rows = raw.broker_reported_positions;
-  if (!Array.isArray(rows) || rows.length === 0 || rows.length > MAX_POSITIONS) reject("invalid_account_facts_positions");
+  if (!Array.isArray(rows) || (!rows.length && !hasComplete) || rows.length > MAX_POSITIONS) reject("invalid_account_facts_positions");
   const seen = new Set();
   const positions = rows.map((item) => {
     const hasAvgCost = Object.prototype.hasOwnProperty.call(item || {}, "avg_cost");
@@ -140,8 +144,15 @@ function normalizeBrokerReportedPositions(platform, raw) {
         || typeof item.currency !== "string" || !CURRENCY_RE.test(item.currency)
         || (hasCurrencySource && !((platform === "schwab" && item.currency_source === "owner_confirmed" && item.currency === "USD")
           || (platform === "firstrade" && item.currency_source === "configured")))
-        || ["quantity", "market_value", ...(hasAvgCost ? ["avg_cost"] : [])]
-          .some((key) => typeof item[key] !== "string" || !DECIMAL_RE.test(item[key]))) {
+        || ["quantity", "market_value", ...(hasAvgCost ? ["avg_cost"] : [])].some((key) => {
+          // A complete scoped inventory can report quantity without a price.
+          // The explicit null is never a zero valuation or a computed price.
+          if (key === "market_value" && hasComplete && item[key] === null) return false;
+          if (typeof item[key] !== "string" || !DECIMAL_RE.test(item[key])) return true;
+          if (!hasComplete) return false;
+          const [whole, fraction = ""] = item[key].replace(/^-/, "").split(".");
+          return whole.length > ACCOUNT_FACTS_MAX_MONEY_DIGITS || fraction.length > ACCOUNT_FACTS_MAX_MONEY_SCALE;
+        })) {
       reject("invalid_account_facts_positions");
     }
     seen.add(item.symbol);
@@ -151,7 +162,7 @@ function normalizeBrokerReportedPositions(platform, raw) {
     if (hasCurrencySource) row.currency_source = item.currency_source;
     return row;
   });
-  return { positions, scope };
+  return { positions, scope, ...(hasComplete ? { complete: true } : {}) };
 }
 
 function exactKeys(value, keys) {
@@ -510,8 +521,10 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   const hasFinancing = longbridge && Object.prototype.hasOwnProperty.call(raw, "financing");
   if (hasFinancing) expectedKeys.push("financing");
   if (raw && typeof raw === "object" && (Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions")
-      || Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions_scope"))) {
+      || Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions_scope")
+      || Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions_complete"))) {
     expectedKeys.push("broker_reported_positions", "broker_reported_positions_scope");
+    if (Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions_complete")) expectedKeys.push("broker_reported_positions_complete");
   }
   if (!exactKeys(raw, expectedKeys)) reject("invalid_account_facts_history");
   const brokerPositions = normalizeBrokerReportedPositions(platform, raw);
@@ -631,6 +644,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   if (brokerPositions) {
     normalized.broker_reported_positions = brokerPositions.positions;
     normalized.broker_reported_positions_scope = brokerPositions.scope;
+    if (brokerPositions.complete) normalized.broker_reported_positions_complete = true;
   }
   if (ibkr) normalized.account_ids = accountIds;
   if (firstrade) normalized.broker_account_id = raw.broker_account_id;
@@ -919,6 +933,7 @@ export function buildAccountFactsReadModel({
           ? {
             positions: projected.broker_reported_positions.map((row) => ({ ...row })),
             positions_scope: projected.broker_reported_positions_scope,
+            ...(projected.broker_reported_positions_complete === true ? { positions_complete: true } : {}),
           }
           : {}),
         ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM && projected?.broker_account_type
