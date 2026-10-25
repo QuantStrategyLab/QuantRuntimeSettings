@@ -275,12 +275,31 @@ export async function performanceResponse(request, env, deps) {
     } catch {
       benchmarkFailed = true;
     }
+    // A calendar is one native-currency cohort. Select before running the same
+    // cashflow/native-return calculation used by the single-currency view.
+    const availableCurrencies = [...new Set(histories.map(history => history.currency))].sort();
+    const requestedCurrency = endpoint === "calendar" ? url.searchParams.get("currency") : null;
+    if (requestedCurrency !== null && (!/^[A-Z0-9]{2,12}$/.test(requestedCurrency)
+        || (availableCurrencies.length && !availableCurrencies.includes(requestedCurrency)))) {
+      return json({ ok: false, error: "invalid_performance_query" }, 400);
+    }
+    const calendarCurrency = endpoint === "calendar"
+      ? requestedCurrency || availableCurrencies[0] || null : null;
+    const calendarAccounts = calendarCurrency ? accounts
+      // Unknown members remain in the cohort; selection cannot erase a failed read.
+      .filter(account => !account.balances?.length
+        || account.balances.some(balance => balance.currency === calendarCurrency))
+      .map(account => ({ ...account,
+        balances: account.balances?.filter(balance => balance.currency === calendarCurrency),
+        ...(Array.isArray(account.return?.daily) ? { return: { ...account.return,
+          daily: account.return.daily.filter(row => row.currency === calendarCurrency) } } : {}),
+      })) : accounts;
     const performanceInput = {
       now: Date.now(),
       freshnessThresholdHours: env.CONSOLE_ACCOUNT_FRESHNESS_HOURS,
       historyMaxStalenessDays: env.CONSOLE_HISTORY_MAX_STALENESS_DAYS,
-      accounts,
-      histories,
+      accounts: calendarAccounts,
+      histories: calendarCurrency ? histories.filter(history => history.currency === calendarCurrency) : histories,
       benchmarks,
       range,
       today,
@@ -290,6 +309,10 @@ export async function performanceResponse(request, env, deps) {
     };
     const blocks = applyNativeDailyReturns(applyCashflowPerformance(performanceBlocks(performanceInput), performanceInput, env), performanceInput);
     const block = blocks[endpoint];
+    if (endpoint === "calendar") {
+      block.available_currencies = availableCurrencies;
+      if (calendarCurrency) block.currency = calendarCurrency;
+    }
     if (["calendar", "summary", "returns", "assets"].includes(endpoint)) {
       block.coverage.truncated = truncated;
       block.coverage.read_failures = readFailures;

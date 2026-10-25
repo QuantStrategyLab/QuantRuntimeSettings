@@ -812,6 +812,10 @@
             "null"
           ]
         },
+        "available_currencies": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "cells": {
           "type": "array",
           "items": {
