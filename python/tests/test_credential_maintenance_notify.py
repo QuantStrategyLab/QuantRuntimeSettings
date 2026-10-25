@@ -154,8 +154,8 @@ class CredentialMaintenanceTests(unittest.TestCase):
             self.assertEqual(sender.main(['--no-github', '--write-receipt', 'synthetic-receipt.json']), 1)
             build.assert_not_called(); self.assertEqual(send.call_count, 1)
             receipt = write.call_args.args[1]
-            self.assertIsNone(receipt['run_count']); self.assertIsNone(receipt['total_fills']); self.assertIsNone(receipt['business_day'])
-            self.assertEqual(receipt['status'], 'business_digest_failed')
+            self.assertIsNone(receipt['run_count']); self.assertIsNone(receipt['total_fills']); self.assertEqual(receipt['business_day'], sender.aggregator.resolve_business_day())
+            self.assertEqual(receipt['status'], 'delivered'); self.assertTrue(receipt['business_digest_failed'])
             self.assertNotIn(META['expires_at'], json.dumps(receipt)); self.assertNotIn('synthetic-claim', json.dumps(receipt))
 
     def test_business_failure_maintenance_only_retains_failure(self):

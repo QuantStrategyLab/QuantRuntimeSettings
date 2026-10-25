@@ -494,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
         receipt["maintenance"] = maintenance_client.diagnostic
     receipt.update(
         {
-            "business_day": payload.business_day if payload is not None else None,
+            "business_day": payload.business_day if payload is not None else day,
             "locale": digest.normalize_locale(str(payload.locale)) if payload is not None else digest.normalize_locale(args.locale or "zh"),
             "run_count": len(payload.runs) if payload is not None else None,
             "missing": [],
@@ -603,15 +603,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.write_receipt:
             _write_receipt(args.write_receipt, receipt)
         return 0
-    if consolidation_enabled() and args.write_receipt:
+    if (reserved or consolidation_enabled()) and args.write_receipt:
+        # Persist uncertainty before transport, including immediate maintenance fallback.
         receipt.update(status="sending", delivered=False)
         _write_receipt(args.write_receipt, receipt)
     if reserved:
         ok = maintenance.send_strict_telegram(token=token, chat_id=chat_id, text=combined)
-        delivery = maintenance_client.ack(reminder, "delivered" if ok else "unknown")
-        receipt["maintenance"].update(phase=reminder.phase, delivery=delivery)
     elif business_failed:
-        receipt["status"] = "business_digest_failed"
+        # No transport was called; preserve business failure separately.
+        receipt["status"] = "skipped_empty"
         receipt["delivered"] = False
         delivery_axes.attach_delivery_axes(receipt)
         if args.write_receipt: _write_receipt(args.write_receipt, receipt)
@@ -620,10 +620,16 @@ def main(argv: list[str] | None = None) -> int:
         transport = maintenance.send_strict_telegram if consolidation_enabled() else send_telegram_message
         ok = transport(token=token, chat_id=chat_id, text=text)
     receipt["delivered"] = ok
-    receipt["status"] = "business_digest_failed" if business_failed else "delivered" if ok else "send_failed"
+    receipt["status"] = "delivered" if ok else "send_failed"
     delivery_axes.attach_delivery_axes(receipt)
     if args.write_receipt:
         _write_receipt(args.write_receipt, receipt)
+    if reserved:
+        # Keep Telegram acceptance/uncertainty even if maintenance acknowledgement fails.
+        delivery = maintenance_client.ack(reminder, "delivered" if ok else "unknown")
+        receipt["maintenance"].update(phase=reminder.phase, delivery=delivery)
+        if args.write_receipt:
+            _write_receipt(args.write_receipt, receipt)
     if not ok:
         print("Daily digest Telegram delivery failed.", file=sys.stderr)
         return 1
