@@ -1,4 +1,4 @@
-import { dateMs, hasGap, rangeStart, sliceRange } from "../../performance_math.js";
+import { cleanPoints, dateMs, hasGap, rangeStart, sliceRange } from "../../performance_math.js";
 
 // Amounts have already passed the private period-return receiver. Sum their
 // decimal text exactly before converting the final display value to a number.
@@ -13,6 +13,37 @@ function navAmountSum(rows) {
   const total = parts.reduce((sum, part) => sum + part.value * 10n ** BigInt(scale - part.scale), 0n);
   const number = Number(total) / 10 ** scale;
   return Number.isFinite(number) && Math.abs(number) <= Number.MAX_SAFE_INTEGER ? number : null;
+}
+
+function nativeBenchmarks(index, input, gaps) {
+  const benchmarks = [], benchmark_availability = [];
+  for (const series of input.benchmarks || []) {
+    // Keep the real preceding close even when it falls before the query range.
+    const prices = cleanPoints(series.points).filter(point => point.value > 0 && point.date <= input.today);
+    const byDate = new Map(prices.map(point => [point.date, point]));
+    const opening = prices.filter(point => point.date < index[0].date).at(-1);
+    const closes = index.map(point => byDate.get(point.date));
+    const complete = opening && !hasGap(opening, { date: index[0].date })
+      && closes.every(point => point && point.breakBefore !== true);
+    const points = complete ? closes.map((point, i) => ({
+      date: point.date,
+      value: (point.value / opening.value - 1) * 100,
+      daily_return_percent: (point.value / (i ? closes[i - 1].value : opening.value) - 1) * 100,
+    })) : [];
+    const reason = gaps ? "snapshot_history_missing"
+      : !prices.length ? "benchmark_history_missing"
+        : !closes.some(Boolean) ? "no_common_date"
+          : !complete || points.some(point => !Number.isFinite(point.value) || !Number.isFinite(point.daily_return_percent))
+            ? "benchmark_history_missing" : null;
+    const asOf = prices.at(-1)?.date || null;
+    benchmark_availability.push({ id: series.id,
+      status: reason ? "unavailable" : dateMs(input.today) - dateMs(asOf) > 3 * 86400000 ? "stale" : "ok",
+      unavailable_reason: reason, as_of: asOf });
+    // Incomplete comparisons stay absent; never rebase both series halfway
+    // through the native window or fill a missing price with a zero return.
+    if (!reason) benchmarks.push({ id: series.id, points });
+  }
+  return { benchmarks, benchmark_availability };
 }
 
 /** Broker-native daily TWR for one account. Never average account returns. */
@@ -50,11 +81,12 @@ export function applyNativeDailyReturns(blocks, input) {
     native_amount_source: amount === null ? null : "ChangeInNAV", native_amount_method: amount === null ? null : "ibkr_nav_reconciliation" };
   // Native daily returns already have a starting capital boundary. Rebasing the
   // first close to zero would silently remove the first day's actual return.
+  const comparisons = nativeBenchmarks(index, input, gaps);
   Object.assign(blocks.returns, { status, unavailable_reason: reason, currency, value_kind: "pnl",
     return_kind: "twr", cashflow_method: undefined, approximate: undefined,
     as_of: daily.at(-1).date, coverage, aligned_start: daily[0].date, no_common_date: false,
     points: gaps ? [] : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 })),
-    benchmarks: [], per_currency: [] });
+    ...comparisons, per_currency: [] });
   let peak = 1, peakDate = daily[0].date, worst = 0, lossPeakDate = peakDate, troughDate = peakDate;
   for (const point of index) {
     const loss = peak > 0 ? (1 - point.value / peak) * 100 : 0;
@@ -66,7 +98,11 @@ export function applyNativeDailyReturns(blocks, input) {
     amount, simple_weighted_return_percent: null, best_day: null, worst_day: null,
     max_drawdown: gaps || incompleteRange ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
       : { percent: worst, peak_date: lossPeakDate, trough_date: troughDate, unavailable_reason: null },
-    metric_reasons: { ...blocks.summary.metric_reasons, twr: reason }, excess_returns: [] });
+    metric_reasons: { ...blocks.summary.metric_reasons, twr: reason },
+    excess_returns: comparisons.benchmarks.map(comparison => ({ benchmark: comparison.id,
+      start: daily[0].date, end: comparison.points.at(-1).date,
+      percentage_points: gaps || incompleteRange ? null : (growth - 1) * 100 - comparison.points.at(-1).value,
+      unavailable_reason: reason })) });
   const currencySummary = blocks.summary.per_currency.find(item => item.currency === currency) || {
     currency, total: null, account_count: 0, expected_account_count: 1, as_of: null,
     stale: null, status: "no_data", unavailable_reason: "no_snapshot" };
