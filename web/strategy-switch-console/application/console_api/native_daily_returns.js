@@ -1,5 +1,20 @@
 import { dateMs, hasGap, rangeStart, sliceRange } from "../../performance_math.js";
 
+// Amounts have already passed the private period-return receiver. Sum their
+// decimal text exactly before converting the final display value to a number.
+function navAmountSum(rows) {
+  if (!rows.length || rows.some(row => typeof row.navAmount !== "string"
+    || row.navAmount.length > 64 || !/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(row.navAmount))) return null;
+  const parts = rows.map(row => {
+    const [whole, fraction = ""] = row.navAmount.split(".");
+    return { value: BigInt(whole + fraction), scale: fraction.length };
+  });
+  const scale = Math.max(...parts.map(part => part.scale));
+  const total = parts.reduce((sum, part) => sum + part.value * 10n ** BigInt(scale - part.scale), 0n);
+  const number = Number(total) / 10 ** scale;
+  return Number.isFinite(number) && Math.abs(number) <= Number.MAX_SAFE_INTEGER ? number : null;
+}
+
 /** Broker-native daily TWR for one account. Never average account returns. */
 export function applyNativeDailyReturns(blocks, input) {
   if (input.accounts.length !== 1) return blocks;
@@ -12,7 +27,9 @@ export function applyNativeDailyReturns(blocks, input) {
   const currencies = [...new Set(rows.map(row => row.currency))];
   if (currencies.length !== 1) return blocks;
   const currency = currencies[0];
-  const daily = sliceRange(rows.map(row => ({ date: row.period.to, value: Number(row.value) })), input.range.toLowerCase(), input.today);
+  const daily = sliceRange(rows.map(row => ({ date: row.period.to, value: Number(row.value),
+    navAmount: row.nav_change?.method === "ibkr_nav_reconciliation" && row.nav_change.source === "ChangeInNAV"
+      ? row.nav_change.amount : null })), input.range.toLowerCase(), input.today);
   if (!daily.length) return blocks;
   let expectedStart = rangeStart(input.range.toLowerCase(), input.today);
   if (input.range !== "ALL") {
@@ -25,10 +42,12 @@ export function applyNativeDailyReturns(blocks, input) {
   const stale = dateMs(input.today) - dateMs(daily.at(-1).date) > 3 * 86400000;
   const status = gaps || incompleteRange ? "partial" : stale ? "stale" : "ok";
   const reason = gaps || incompleteRange ? "snapshot_history_missing" : null;
+  const amount = gaps || incompleteRange ? null : navAmountSum(daily);
   const coverage = { ...blocks.returns.coverage, account_aliases: [account.account_key], currencies: [currency],
     cashflows: "complete", native_return_source: "ChangeInNAV.twr", period_from: daily[0].date,
     period_to: daily.at(-1).date, range_complete: !gaps && !incompleteRange,
-    requested_period_from: input.range === "ALL" ? daily[0].date : expectedStart, trading_dates: "broker_reported_daily_returns" };
+    requested_period_from: input.range === "ALL" ? daily[0].date : expectedStart, trading_dates: "broker_reported_daily_returns",
+    native_amount_source: amount === null ? null : "ChangeInNAV", native_amount_method: amount === null ? null : "ibkr_nav_reconciliation" };
   // Native daily returns already have a starting capital boundary. Rebasing the
   // first close to zero would silently remove the first day's actual return.
   Object.assign(blocks.returns, { status, unavailable_reason: reason, currency, value_kind: "pnl",
@@ -44,7 +63,7 @@ export function applyNativeDailyReturns(blocks, input) {
   }
   Object.assign(blocks.summary, { status, unavailable_reason: reason, currency, value_kind: "pnl",
     as_of: daily.at(-1).date, coverage, twr_return_percent: gaps || incompleteRange ? null : (growth - 1) * 100,
-    amount: null, simple_weighted_return_percent: null, best_day: null, worst_day: null,
+    amount, simple_weighted_return_percent: null, best_day: null, worst_day: null,
     max_drawdown: gaps || incompleteRange ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
       : { percent: worst, peak_date: lossPeakDate, trough_date: troughDate, unavailable_reason: null },
     metric_reasons: { ...blocks.summary.metric_reasons, twr: reason }, excess_returns: [] });
@@ -56,8 +75,8 @@ export function applyNativeDailyReturns(blocks, input) {
       twr_return_percent: blocks.summary.twr_return_percent, cashflow_method: undefined, approximate: undefined }];
   delete blocks.summary.cashflow_per_currency;
   delete blocks.returns.cashflow_per_currency;
-  // A native percentage does not supply a money P/L or imply zero external cash.
-  // Calendar can display percentage cells while leaving unknown money amounts null.
+  // A native percentage alone never supplies money P/L. The optional, separately
+  // qualified NAV reconciliation can fill only the exact native days it covers.
   const byDate = new Map(daily.map(row => [row.date, row]));
   let displayed = 0;
   blocks.calendar.cells = blocks.calendar.cells.map(cell => {
@@ -75,7 +94,7 @@ export function applyNativeDailyReturns(blocks, input) {
       // supplied. Never turn an unobserved session into a zero-return day.
       const complete = expected.length === monthly.length && expected.every(date => byDate.has(date));
       displayed++;
-      return { ...cell, amount: null, observed_amount: null, currency, value_kind: "pnl",
+      return { ...cell, amount: complete ? navAmountSum(monthly) : null, observed_amount: null, currency, value_kind: "pnl",
         return_percent: complete ? (monthly.reduce((growth, row) => growth * (1 + row.value), 1) - 1) * 100 : null,
         status: complete ? "ok" : "partial", unavailable_reason: complete ? null : "incomplete_month",
         coverage: { observed_days: monthly.length, expected_weekdays: expected.length } };
@@ -83,13 +102,13 @@ export function applyNativeDailyReturns(blocks, input) {
     const row = byDate.get(cell.date);
     if (!row) return cell;
     displayed++;
-    return { ...cell, amount: null, return_percent: row.value * 100, currency,
+    return { ...cell, amount: navAmountSum([row]), observed_amount: null, return_percent: row.value * 100, currency,
       value_kind: "pnl", status: "ok", unavailable_reason: null };
   });
   if (displayed) Object.assign(blocks.calendar, { status, unavailable_reason: reason, currency,
     as_of: daily.at(-1).date, value_kind: "pnl", coverage });
   const ranked = [...daily].sort((a, b) => b.value - a.value).map(row => ({ date: row.date, return_percent: row.value * 100,
-      amount: null, value_kind: "pnl", status: "ok", unavailable_reason: null }));
+      amount: navAmountSum([row]), value_kind: "pnl", status: "ok", unavailable_reason: null }));
   blocks.summary.best_day = gaps || incompleteRange ? null : ranked[0] || null;
   blocks.summary.worst_day = gaps || incompleteRange ? null : ranked.at(-1) || null;
   return blocks;
