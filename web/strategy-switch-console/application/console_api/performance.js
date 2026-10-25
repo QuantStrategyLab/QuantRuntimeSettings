@@ -292,7 +292,7 @@ export function performanceBlocks({
         ? "complete"
         : "unknown",
     fx: mixed ? "not_applied" : "native_currency",
-    trading_dates: accounts.every((a) => a.platform === "binance")
+    trading_dates: histories.length > 0 && histories.every((history) => history.crypto === true)
       ? "calendar_days"
       : "stored_observation_date_weekends_excluded_holidays_unknown",
   };
@@ -322,7 +322,7 @@ export function performanceBlocks({
         unavailable_reason: mixed ? "mixed_currency" : returnUnavailableReason(points),
       };
   const daily = dailyChanges(allPoints, {
-    crypto: accounts.every((a) => a.platform === "binance"),
+    crypto: histories.length > 0 && histories.every((history) => history.crypto === true),
   }).filter((d) => d.date >= (points[0]?.date || today) && d.date <= today);
   const validDays = daily.filter((d) => d.amount !== null);
   const ranked = validDays
@@ -342,7 +342,7 @@ export function performanceBlocks({
       : null;
   const primaryByDate = new Map(aligned.primary.map((p) => [p.date, p.value]));
   const cells = calendarCells(allPoints, year, month, {
-    crypto: accounts.every((a) => a.platform === "binance"),
+    crypto: histories.length > 0 && histories.every((history) => history.crypto === true),
   });
   const calendarHasValues = cells.some(
     (c) =>

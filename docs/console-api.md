@@ -23,7 +23,7 @@ draft saves and conflicts. All responses use `Cache-Control: no-store`.
 | GET `/api/strategies/summary` | none | `StrategySummary` / `strategy_summary` |
 | GET `/api/notifications/send-log` | `limit`, `cursor` | `NotificationSendLog` / `notification_log` |
 | GET `/api/accounts/run-controls` | `account`, optional `platform` | `RunControlAvailability` / `run_controls` |
-| GET `/api/performance/calendar` | `scope`, `range`, `year`, optional `month`, `platform` | `CalendarResponse` / `calendar` |
+| GET `/api/performance/calendar` | `scope`, `range`, `year`, optional `month`, `platform`, `currency` | `CalendarResponse` / `calendar` |
 | GET `/api/performance/summary` | `scope`, `range`, optional `platform` | `SummaryResponse` / `summary` |
 | GET `/api/performance/returns` | `scope`, `range`, optional `platform` | `ReturnsResponse` / `returns` |
 | GET `/api/performance/assets` | `scope`, `range`, optional `platform` | `AssetsResponse` / `assets` |
@@ -43,6 +43,15 @@ ends the range. The calendar uses its explicit `year` and `month`, independently
 of the range. `year` defaults to the current year. Omitting `month` returns twelve
 monthly cells; setting `month=1..12` returns every date in that month. Holdings are
 current unrealized holdings, independent of the selected range.
+
+Calendar responses list `available_currencies` from the selected accounts' stored
+history. `currency` selects one native-currency cohort; if omitted, the first
+currency in sorted order is used. Unknown selections return 400. The calendar
+uses that cohort's existing cashflow or broker-native return calculation; it
+does not sum currencies, convert asset changes into returns, or treat missing
+cashflows as zero. Crypto observation dates remain calendar days, including
+weekends. Other performance endpoints retain their existing multi-currency
+response and do not inherit the calendar selection.
 
 `limit` defaults to 25 and accepts 1–100. `next_cursor` is an opaque string or
 `null`. Pass it unchanged as `cursor`. Histories sort newest first. Decision
