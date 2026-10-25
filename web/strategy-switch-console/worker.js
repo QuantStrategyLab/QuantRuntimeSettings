@@ -806,6 +806,7 @@ export default {
         return await performanceResponse(request, env, {
           json, readSession, accountOptions: loadAccountOptionsConfig, facts: accountFactsResponse,
           history: (req, e) => accountFactsHistoryResponse(req, e, new URL(req.url)),
+          binanceCurrent: binanceAccountFactsResponse,
           wallet: (req, e) => binanceWalletHistoryResponse(req, e, new URL(req.url)), benchmarks: marketBenchmarkResponse,
         });
       }

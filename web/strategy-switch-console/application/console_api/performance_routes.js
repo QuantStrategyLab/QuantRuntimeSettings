@@ -68,7 +68,9 @@ export async function performanceResponse(request, env, deps) {
       for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
       return new Request(u, { headers: request.headers });
     };
-    const factsResponse = await deps.facts(
+    const nativeBinanceOnly = endpoint === "holdings" && matches.length > 0
+      && matches.every(option => option.platform === "binance");
+    const factsResponse = nativeBinanceOnly ? Response.json({ accounts: [] }) : await deps.facts(
       makeRequest("/api/account-facts"),
       env,
     );
@@ -91,9 +93,33 @@ export async function performanceResponse(request, env, deps) {
     if (!factsResponse.ok) readFailures.push("account_facts_unreadable");
     for (const option of matches) {
       if (option.platform === "binance") {
-        // Wallet history is not a current positions source.
+        // Current native quantities and wallet valuation history are separate sources.
         if (endpoint === "holdings") {
-          accounts.push({ account_key: option.key, platform: option.platform });
+          const account = { account_key: option.key, platform: option.platform };
+          if (deps.binanceCurrent) {
+            try {
+              const response = await deps.binanceCurrent(makeRequest("/api/binance-account-facts"), env);
+              if (!response.ok) throw Error("native_source_unreadable");
+              const body = await response.json(), report = body.report;
+              if (body.report_status === "unavailable") throw Error("native_source_unreadable");
+              if (body.report_status === "available" && report?.platform === option.platform
+                  && report.account_key === option.key && report.scope === "spot+flexible_earn"
+                  && Array.isArray(report.assets)) {
+                Object.assign(account, {
+                  observed_finished_at: report.observed_finished_at,
+                  positions_scope: report.scope,
+                  positions_complete: true,
+                  uncovered_scopes: report.uncovered_scopes,
+                  positions: report.assets.filter(asset => number(asset.quantity) > 0).map(asset => ({
+                    symbol: asset.asset, quantity: asset.quantity,
+                    // No quote currency, valuation or cost is supplied by this quantity source.
+                    currency: "", market_value: null, avg_cost: null,
+                  })),
+                });
+              }
+            } catch { account.positions_read_error = "stored_records_unreadable"; }
+          }
+          accounts.push(account);
           continue;
         }
         const response = await deps.wallet(
@@ -215,6 +241,14 @@ export async function performanceResponse(request, env, deps) {
     if (endpoint === "holdings") {
       const block = performanceBlocks({ accounts, histories: [], today, year, month,
         freshnessThresholdHours: env.CONSOLE_ACCOUNT_FRESHNESS_HOURS }).holdings;
+      for (const [index, account] of accounts.entries()) {
+        if (account.positions_read_error) block.coverage[index].unavailable_reason = account.positions_read_error;
+        if (Array.isArray(account.uncovered_scopes)) block.coverage[index].uncovered_scopes = account.uncovered_scopes;
+      }
+      if (block.status === "no_data" && accounts.some(account => account.positions_read_error)) {
+        return json({ schema_version: "console_api.v1", scope, range, ...block,
+          status: "unavailable", unavailable_reason: "stored_records_unreadable" }, 503);
+      }
       return json({ schema_version: "console_api.v1", scope, range, ...block });
     }
     let benchmarks = [],
