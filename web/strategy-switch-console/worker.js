@@ -472,6 +472,7 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
   "account_settings_profile_application_claim",
 ]);
 const ACCOUNT_FACTS_DO_ACTIONS = new Set([
+  "account_executions_put", "account_executions_read",
   "account_period_return_put", "account_period_return_read",
   "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read",
   "binance_wallet_history_put", "binance_wallet_history_read",
@@ -805,6 +806,7 @@ export default {
       if (url.pathname.startsWith("/api/performance/")) {
         return await performanceResponse(request, env, {
           json, readSession, accountOptions: loadAccountOptionsConfig, facts: accountFactsResponse,
+          executions: readBoundAccountExecutions,
           history: (req, e) => accountFactsHistoryResponse(req, e, new URL(req.url)),
           binanceCurrent: binanceAccountFactsResponse,
           wallet: (req, e) => binanceWalletHistoryResponse(req, e, new URL(req.url)), benchmarks: marketBenchmarkResponse,
@@ -952,6 +954,9 @@ export default {
       }
       if (url.pathname === "/api/account-facts/period-return/sync" && request.method === "POST") {
         return syncAccountPeriodReturnResponse(request, env);
+      }
+      if (url.pathname === "/api/account-facts/executions/sync" && request.method === "POST") {
+        return syncAccountExecutionsResponse(request, env);
       }
       if (url.pathname === "/api/account-facts/sync" && request.method === "POST") {
         return await syncAccountFactsResponse(request, env);
@@ -2172,12 +2177,14 @@ async function runtimeInstancesResponse(request, env) {
 }
 
 import { externalFlowEnabled, initializeExternalFlow, normalizeExternalFlow, putExternalFlow, readExternalFlow } from "./application/account_facts/external_flow.js";
+import { initializeExecutions, normalizeExecutions, putExecutions, readExecutions } from "./application/account_facts/executions.js";
 
 export class RuntimeInstances {
   constructor(ctx, env) {
     this.directory = new KvDirectory(ctx.storage, env?.STRATEGY_SWITCH_CONFIG, env);
     this.storage = ctx.storage;
     this.sql = ctx.storage.sql;
+    initializeExecutions(this.sql);
     this.externalFlowEnabled = externalFlowEnabled(env);
     if (this.externalFlowEnabled) initializeExternalFlow(this.sql);
     initializeCredentialMaintenance(this.sql);
@@ -2775,6 +2782,13 @@ export class RuntimeInstances {
       return this.binanceWalletHistoryCommand(command);
     }
     if (command.action === "account_period_return_put" || command.action === "account_period_return_read") return this.accountPeriodReturnCommand(command);
+    if (["account_executions_put", "account_executions_read"].includes(command.action)) {
+      const context = this.accountFactsStorageContext(command);
+      if (context.platform !== "ibkr") throw new HttpError("invalid_execution_platform", 400);
+      return command.action === "account_executions_read"
+        ? { ok: true, executions: readExecutions(this.sql, context) }
+        : { ok: true, ...putExecutions(this.sql, context, command.payload) };
+    }
     if (command.action === "account_facts_put") return this.putAccountFactsObservation(command);
     if (command.action === "account_facts_read") return this.readAccountFactsObservation(command);
     if (command.action === "account_facts_list") return this.listAccountFactsObservations(command);
@@ -3117,7 +3131,7 @@ export class RuntimeInstances {
       throw new HttpError("invalid_account_facts_account", 400);
     }
     const historyIds = command.history_source_binding_ids;
-    if (historyIds !== undefined && (!["account_facts_history_read", "account_period_return_read", "account_period_return_put"].includes(command.action)
+    if (historyIds !== undefined && (!["account_facts_history_read", "account_period_return_read", "account_period_return_put", "account_executions_read", "account_executions_put"].includes(command.action)
         || !Array.isArray(historyIds) || historyIds.length < 1 || historyIds.length > 64
         || new Set(historyIds).size !== historyIds.length
         || historyIds.some(id => typeof id !== "string" || !/^[a-f0-9]{64}$/.test(id)
@@ -10757,6 +10771,45 @@ function periodReturnCommand(binding, action) {
   return { action, platform: "ibkr", account_key: binding.account_key, account_scope: binding.account_scope,
     account_selector: binding.account_selector, target_id: binding.target_id, source_binding_id: binding.source_binding.id,
     ...(binding.history_source_binding_ids ? { history_source_binding_ids: binding.history_source_binding_ids } : {}) };
+}
+
+async function readBoundAccountExecutions(option, env) {
+  if (option.platform !== "ibkr" || !accountFactsReadModelEnabled(env)) return null;
+  const bindings = await loadAccountFactsBindings(env);
+  const matches = (bindings?.bindings || []).filter(binding => binding.platform === option.platform
+    && binding.account_key === option.key);
+  if (!matches.length) return null;
+  if (matches.length !== 1 || !accountFactsOptionMatchesBinding(option, matches[0])) {
+    throw new HttpError("execution_account_unattributed", 409);
+  }
+  const stored = await runtimeInstanceCommand(env, periodReturnCommand(matches[0], "account_executions_read"));
+  if (!stored.ok) throw new HttpError("execution_store_unavailable", 503);
+  return stored.executions;
+}
+
+async function syncAccountExecutionsResponse(request, env) {
+  if (!accountFactsReadModelEnabled(env)) return accountFactsDisabledResponse();
+  try {
+    if (requireDedicatedAccountFactsSyncToken(request, env) !== "ibkr") throw new HttpError("account_facts_sync_token_platform_mismatch", 403);
+    if (!hasConfigStore(env) || !hasRuntimeInstanceStore(env)) throw new HttpError("account_facts_store_unavailable", 503);
+    const raw = await readBoundedJson(request, ACCOUNT_FACTS_MAX_BODY_BYTES);
+    const bindings = await loadAccountFactsBindings(env);
+    const resolved = resolveTrustedAccountFactsBinding(bindings, raw?.target_id, raw?.source_binding_id);
+    if (!resolved.ok || resolved.binding.platform !== "ibkr") throw new HttpError("account_facts_identity_mismatch", 409);
+    const binding = resolved.binding;
+    const config = await loadAccountOptionsConfig(env);
+    const options = (config.options?.ibkr || []).filter(item => item.key === binding.account_key);
+    if (options.length !== 1 || !accountFactsOptionMatchesBinding(options[0], binding)) throw new HttpError("account_facts_account_unattributed", 409);
+    const payload = normalizeExecutions(raw, { binding });
+    if (payload.records.some(row => row.report_ref !== payload.source_ref)) throw new HttpError("invalid_broker_executions", 400);
+    const stored = await runtimeInstanceCommand(env, { ...periodReturnCommand(binding, "account_executions_put"), payload });
+    return json({ ok: true, stored: true, unchanged: stored.unchanged === true,
+      account_key: binding.account_key, period: payload.period, record_count: payload.records.length });
+  } catch (error) {
+    if (error instanceof AccountFactsError || error instanceof HttpError || error?.code?.startsWith("execution_")
+        || error?.code === "invalid_broker_executions") return accountFactsErrorResponse(error);
+    return json({ ok: false, error: "account_executions_unavailable" }, 503);
+  }
 }
 
 async function syncAccountPeriodReturnResponse(request, env) {
