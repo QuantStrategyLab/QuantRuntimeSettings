@@ -61,6 +61,25 @@ export function applyNativeDailyReturns(blocks, input) {
   const byDate = new Map(daily.map(row => [row.date, row]));
   let displayed = 0;
   blocks.calendar.cells = blocks.calendar.cells.map(cell => {
+    if (cell.month) {
+      const monthly = daily.filter(row => row.date.startsWith(`${cell.month}-`) && row.date <= input.today);
+      if (!monthly.length) return cell;
+      const [year, month] = cell.month.split("-").map(Number);
+      const last = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+      const through = last < input.today ? last : input.today;
+      const expected = [];
+      for (let day = dateMs(`${cell.month}-01`); day <= dateMs(through); day += 86400000) {
+        if (![0, 6].includes(new Date(day).getUTCDay())) expected.push(new Date(day).toISOString().slice(0, 10));
+      }
+      // Missing weekdays remain incomplete until a native closure calendar is
+      // supplied. Never turn an unobserved session into a zero-return day.
+      const complete = expected.length === monthly.length && expected.every(date => byDate.has(date));
+      displayed++;
+      return { ...cell, amount: null, observed_amount: null, currency, value_kind: "pnl",
+        return_percent: complete ? (monthly.reduce((growth, row) => growth * (1 + row.value), 1) - 1) * 100 : null,
+        status: complete ? "ok" : "partial", unavailable_reason: complete ? null : "incomplete_month",
+        coverage: { observed_days: monthly.length, expected_weekdays: expected.length } };
+    }
     const row = byDate.get(cell.date);
     if (!row) return cell;
     displayed++;
