@@ -1336,6 +1336,27 @@ assert.throws(() => normalizeAccountFactsHistoryPayload(schwabHistory({
   broker_reported_positions: [{ symbol: "TQQQ", quantity: "10", market_value: "900", currency: "USD" }],
   broker_reported_positions_scope: "stocks_only",
 })), /invalid_account_facts_positions/);
+// A native full-stock read is distinct from the legacy strategy-symbol slice.
+for (const positions of [[], [{ symbol: "OUTSIDE", quantity: "-2", market_value: null,
+    currency: "USD", currency_source: "owner_confirmed" }]]) {
+  const nativeInventory = normalizeAccountFactsHistoryPayload(schwabHistory({
+    broker_reported_positions: positions, broker_reported_positions_scope: "stocks_only",
+    broker_reported_positions_complete: true,
+  }));
+  const readInventory = buildAccountFactsReadModel({ accountOptions: { schwab: [schwabAccount] },
+    bindings: { schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA, bindings: [schwabBinding] },
+    storedByAccount: new Map([[`schwab:${schwabAccount.key}`, nativeInventory]]),
+  }).accounts[0];
+  assert.equal(readInventory.positions_scope, "stocks_only");
+  assert.equal(readInventory.positions_complete, true);
+  assert.deepEqual(readInventory.positions, positions);
+}
+for (const complete of [undefined, false, null]) {
+  assert.throws(() => normalizeAccountFactsHistoryPayload(schwabHistory({
+    broker_reported_positions: [], broker_reported_positions_scope: "stocks_only",
+    ...(complete !== undefined ? { broker_reported_positions_complete: complete } : {}),
+  })), /invalid_account_facts_positions/);
+}
 assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
   broker_account_type: { value: "MARGIN", source_tag: "securitiesAccount.type" },
 })), /invalid_account_facts_history/);
