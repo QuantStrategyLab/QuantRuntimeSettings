@@ -47,3 +47,23 @@ assert.equal(partialMonth.summary.max_drawdown.percent,null);
 assert.equal(partialMonth.returns.points.length,2,'known partial-period observations remain visible');
 assert.equal(partialMonth.returns.coverage.range_complete,false);
 assert.equal(partialMonth.calendar.cells.find(c=>c.date==='2026-10-23').return_percent,-5);
+
+// The annual calendar compounds the same native daily returns, including the
+// opening day; an incomplete month cannot be reported as a full monthly gain.
+const yearInput={...input,month:null,today:'2026-10-05',accounts:[{...input.accounts[0],return:{daily:[
+  row('2026-10-01','0.1'),row('2026-10-02','-0.05'),row('2026-10-05','0.02')]}}]};
+const yearCalendar=applyNativeDailyReturns(performanceBlocks(yearInput),yearInput).calendar;
+const october=yearCalendar.cells.find(c=>c.month==='2026-10');
+assert.ok(Math.abs(october.return_percent-6.59)<1e-10,'month-to-date native return compounds known trading days');
+assert.equal(october.amount,null,'native monthly return cannot invent money P/L');
+assert.equal(october.observed_amount,null,'asset changes are not retained as monthly profit');
+assert.equal(october.value_kind,'pnl');
+assert.equal(october.status,'ok');
+assert.deepEqual(october.coverage,{observed_days:3,expected_weekdays:3});
+assert.equal(yearCalendar.value_kind,'pnl');
+const missingMonth={...yearInput,accounts:[{...input.accounts[0],return:{daily:[
+  row('2026-10-02','-0.05'),row('2026-10-05','0.02')]}}]};
+const incomplete=applyNativeDailyReturns(performanceBlocks(missingMonth),missingMonth).calendar.cells.find(c=>c.month==='2026-10');
+assert.equal(incomplete.return_percent,null);
+assert.equal(incomplete.status,'partial');
+assert.equal(incomplete.unavailable_reason,'incomplete_month');
