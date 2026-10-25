@@ -85,6 +85,7 @@ export const en: Record<CoreMessageKey, string> = {
 
   "reason.external_cashflow_required": "Complete cash-flow records are missing; TWR is unavailable and amounts are shown as asset change.",
   "reason.fills_not_connected": "The fill source is not connected",
+  "reason.execution_coverage_unverified": "Execution coverage is unverified",
   "reason.avg_cost_missing": "Average cost is missing, so unrealized P/L cannot be calculated",
   "reason.mixed_currency": "Mixed currencies cannot be combined into one amount; each currency is shown separately",
   "reason.snapshot_history_missing": "Historical asset snapshots are missing",

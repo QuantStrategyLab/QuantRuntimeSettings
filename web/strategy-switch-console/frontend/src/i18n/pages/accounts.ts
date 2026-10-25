@@ -19,6 +19,13 @@ export const zh: Record<string, string> = {
   "accounts.execution.reason.dry_run_flag_missing": "缺少明确的演练限制配置",
   "accounts.execution.reason.environment_conflict": "券商环境与执行配置冲突",
 
+  "accounts.environment.live": "实盘账户",
+  "accounts.environment.paper": "模拟账户",
+  "accounts.environment.unknown": "环境待确认",
+  "accounts.environment_count": "{count} 个账户",
+  "accounts.environment.paper_note": "模拟账户金额单列，不计入实盘合计。",
+  "accounts.environment.unknown_note": "环境未确认的账户不计入实盘合计；金额按各来源展示。",
+
   "accounts.unassigned_note": "{count} 条待办未关联账户",
   "accounts.go_todos": "去待办",
   "accounts.select_account": "选择一个账户查看详情",
@@ -88,6 +95,13 @@ export const en: Record<string, string> = {
   "accounts.execution.reason.execution_config_missing": "No explicit execution mode in a matching account configuration",
   "accounts.execution.reason.dry_run_flag_missing": "Explicit dry-run constraint is missing",
   "accounts.execution.reason.environment_conflict": "Broker environment conflicts with execution configuration",
+
+  "accounts.environment.live": "Live accounts",
+  "accounts.environment.paper": "Paper accounts",
+  "accounts.environment.unknown": "Environment unconfirmed",
+  "accounts.environment_count": "{count} accounts",
+  "accounts.environment.paper_note": "Paper account amounts are listed separately and excluded from live totals.",
+  "accounts.environment.unknown_note": "Accounts with an unconfirmed environment are excluded from live totals; amounts are shown per source.",
 
   "accounts.unassigned_note": "{count} to-dos are not linked to an account",
   "accounts.go_todos": "Open to-dos",

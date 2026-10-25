@@ -23,8 +23,7 @@ import {
   StatusBadge,
 } from "../../components/primitives";
 import { RunGrid } from "./RunGrid";
-import { todayFailures } from "./status";
-import { runStatus, runStateCounts } from "../../../../application/console_api/run_status.js";
+import { runActivityCounts, runActivityLabelKey, runActivityState, todayFailures } from "./status";
 import { groupAccounts } from "../../lib/accountDirectory";
 import { boundDailyAccounts } from "./dailySelection";
 import "./health.css";
@@ -69,7 +68,7 @@ function StatStrip({
   const data = summary.phase === "ready" ? summary.data : null;
   const okCount = data ? data.accounts.filter(account => account.status === "ok").length : 0;
   const failures = data ? todayFailures(data) : { count: 0, complete: false };
-  const stateCounts = data ? runStateCounts(data.accounts) : null;
+  const stateCounts = data ? runActivityCounts(data.accounts) : null;
   const unconnectedNote = stateCounts && (stateCounts.not_connected > 0 || stateCounts.no_data > 0)
     ? t("health.kpi.today_runs_note", { not_connected: stateCounts.not_connected, no_data: stateCounts.no_data })
     : undefined;
@@ -88,7 +87,8 @@ function StatStrip({
   const primaryStates = ["succeeded", "failed", "read_failed"] as const;
   const stateEntries = stateCounts ? Object.entries(stateCounts) : [];
   const primaryCounts = stateEntries.filter(([state]) => (primaryStates as readonly string[]).includes(state));
-  const secondaryCounts = stateEntries.filter(([state]) => !(primaryStates as readonly string[]).includes(state));
+  const secondaryCounts = stateEntries.filter(([state, count]) =>
+    !(primaryStates as readonly string[]).includes(state) && count > 0);
 
   return (
     <>
@@ -140,13 +140,13 @@ function StatStrip({
         <div className="health-state-summary">
           <ul className="health-state-counts" aria-label={t("health.state_counts")}>
             {primaryCounts.map(([state, count]) => <li key={state}>
-              {t(`health.run_state.${state}`)}: <span className="num">{count}</span>
+              {t(runActivityLabelKey(state))}: <span className="num">{count}</span>
             </li>)}
           </ul>
           {secondaryCounts.length > 0 && (
             <ul className="health-state-counts health-state-secondary">
               {secondaryCounts.map(([state, count]) => <li key={state}>
-                {t(`health.run_state.${state}`)}: <span className="num">{count}</span>
+                {t(runActivityLabelKey(state))}: <span className="num">{count}</span>
               </li>)}
             </ul>
           )}
@@ -185,9 +185,12 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
     {
       id: "activity",
       header: t("health.activity"),
-      cell: row => <span title={row.run_status_reason ? t(`reason.${row.run_status_reason}`) : undefined}>
-        {t(`health.run_state.${row.run_status || runStatus(row)}`)}
-      </span>,
+      cell: row => {
+        const activityState = runActivityState(row);
+        return <span data-state={activityState} title={row.run_status_reason ? t(`reason.${row.run_status_reason}`) : undefined}>
+          {t(runActivityLabelKey(activityState))}
+        </span>;
+      },
     },
     {
       id: "run_count",

@@ -8,6 +8,7 @@ import type {
   CombinedDraftRequest,
   CombinedDraftResponse,
   DecisionHistoryResponse,
+  ExecutionsResponse,
   HoldingsResponse,
   InboxResponse,
   NotificationSendLog,
@@ -19,7 +20,6 @@ import type {
   StrategySummary,
   SummaryResponse,
   TodayRunSummary,
-  TradeStatsResponse,
 } from "./contracts";
 
 export interface Session {
@@ -133,8 +133,8 @@ export function loadPerformanceHoldings(scope: string, range: Range, platform?: 
   return getJson<HoldingsResponse>(`/api/performance/holdings?${performanceQuery(scope, range, platform)}`);
 }
 
-export function loadPerformanceTrades(scope: string, range: Range, platform?: string): Promise<TradeStatsResponse> {
-  return getJson<TradeStatsResponse>(`/api/performance/trades?${performanceQuery(scope, range, platform)}`);
+export function loadPerformanceTrades(scope: string, range: Range, platform?: string): Promise<ExecutionsResponse> {
+  return getJson<ExecutionsResponse>(`/api/performance/trades?${performanceQuery(scope, range, platform)}`);
 }
 
 export function loadPerformanceCalendar(scope: string, range: Range, year: number, month?: number | null, platform?: string, currency?: string): Promise<CalendarResponse> {
