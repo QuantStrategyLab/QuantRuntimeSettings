@@ -311,6 +311,7 @@ export interface CalendarResponse extends PerformanceMeta {
   year: number;
   month: number | null;
   cells: CalendarCell[];
+  available_currencies?: string[];
 }
 export interface DailyChange {
   date: string;

@@ -168,6 +168,7 @@ jobs:
           node --experimental-strip-types tests/console_cashflow_method_presentation_validation.mjs
           node --experimental-strip-types tests/console_runtime_daily_selection_validation.mjs
           node tests/console_performance_stats_validation.mjs
+          node tests/console_calendar_currency_validation.mjs
           node --test tests/fe8a_performance_validation.mjs tests/fe8a_runtime_today_validation.mjs tests/fe8a_overview_runtime_ui_validation.mjs
           node tests/account_settings_worker_validation.mjs
           node --experimental-default-type=module tests/console_evidence_metadata_validation.mjs
