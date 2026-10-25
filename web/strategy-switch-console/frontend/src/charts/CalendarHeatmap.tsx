@@ -1,6 +1,6 @@
 import { useLanguage, useT } from "../i18n";
 import type { CalendarCell } from "../api/contracts";
-import { formatPercent } from "../lib/format";
+import { formatPercent, maskedAmount } from "../lib/format";
 import { usePrefs } from "../app/context";
 
 const WEEKDAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
@@ -58,7 +58,7 @@ export function CalendarHeatmap({
     const percent = finiteNumber(cell.return_percent);
     if (percent !== null) return formatPercent(percent, language);
     const amount = finiteNumber(cell.amount);
-    if (amount !== null) return prefs.hideAmounts ? "•••" : String(Math.round(amount));
+    if (amount !== null) return prefs.hideAmounts ? maskedAmount(amount) : String(Math.round(amount));
     return "";
   };
 

@@ -160,14 +160,16 @@ try {
     }
   });
 
-  test("hidden amounts mask every monetary cell without exposing the values", () => {
+  test("hidden amounts preserve negative signs and unknown cells without exposing values", () => {
     for (const language of ["zh", "en"]) {
       const html = ui.render(language, ready(response([partialKnown, staleKnown, negative])), true);
-      for (const symbol of [partialKnown.symbol, staleKnown.symbol, negative.symbol]) {
+      for (const [symbol, expected] of [
+        [partialKnown.symbol, ["•••", "—", "—"]],
+        [staleKnown.symbol, ["•••", "•••", "•••"]],
+        [negative.symbol, ["−•••", "•••", "−•••"]],
+      ]) {
         const row = rowFor(html, symbol);
-        assert.equal(row.market, "•••");
-        assert.equal(row.avgCost, "•••");
-        assert.equal(row.pnl, "•••");
+        assert.deepEqual([row.market, row.avgCost, row.pnl], expected);
       }
       for (const amount of ["3,456.78", "5,000.00", "250.25", "800.00"]) {
         assert.ok(!html.includes(amount), `hidden amounts must not expose ${amount}`);

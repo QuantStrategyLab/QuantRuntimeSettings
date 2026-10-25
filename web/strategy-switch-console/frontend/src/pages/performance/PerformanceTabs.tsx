@@ -6,7 +6,7 @@ import { usePrefs } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import type { AsyncState } from "../../lib/hooks";
-import { formatQuantity } from "../../lib/format";
+import { formatQuantity, maskedAmount } from "../../lib/format";
 import { loadPerformanceHoldings, loadPerformanceTrades } from "../../api/endpoints";
 import type { ExecutionsResponse, HoldingsResponse, Range } from "../../api/contracts";
 import { AsOfStamp, EmptyState, ErrorState, Money, Skeleton, StatusBadge } from "../../components/primitives";
@@ -178,8 +178,9 @@ function formatDecimalText(value: string): string {
 /** Broker decimal strings never pass through Number; hideAmounts still masks them. */
 function DecimalText({ value, currency }: { value: string | null; currency?: string | null }) {
   const { prefs } = usePrefs();
-  if (prefs.hideAmounts) return <span className="money">•••</span>;
+  // Validate first so an unknown value stays an em dash instead of a mask.
   if (typeof value !== "string" || !DECIMAL_TEXT.test(value)) return <span className="flat">—</span>;
+  if (prefs.hideAmounts) return <span className="money">{maskedAmount(value)}</span>;
   return <span className="num" title={value}>{formatDecimalText(value)}{currency ? ` ${currency}` : ""}</span>;
 }
 
