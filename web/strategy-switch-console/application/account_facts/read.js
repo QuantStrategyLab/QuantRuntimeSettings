@@ -231,6 +231,8 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
           : {}),
         target_id: binding.target_id,
         source_binding_id: binding.source_binding.id,
+        ...(binding.history_source_binding_ids
+          ? { history_source_binding_ids: binding.history_source_binding_ids } : {}),
       });
       days = Array.isArray(listed?.days) ? listed.days : [];
       if (externalFlowEnabled(env)) externalFlow = listed?.externalFlow || null;

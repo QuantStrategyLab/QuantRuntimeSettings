@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import "./account_facts_totals_validation.mjs";
 import "./account_facts_stock_inventory_validation.mjs";
+import "./account_facts_source_lineage_validation.mjs";
 import { createRequire } from "node:module";
 import { mkdtemp } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -1644,6 +1645,25 @@ assert.deepEqual(retainedIbkrOld.days.map((day) => day.payload.broker_reported_b
 assert.deepEqual(retainedIbkrOld.days[0].payload.broker_reported_positions, ibkrPositions,
   "old daily payloads retain holdings even after a source change and a newer position-less snapshot");
 assert.equal(retainedIbkrOld.days[0].payload.broker_reported_positions_scope, "stocks_only");
+
+// The public route and actual SQLite reader must both carry the protected lineage.
+await saveBindings([
+  rotatedLbBinding, rotatedIbkrBinding,
+  {...rotationLbNewBinding, history_source_binding_ids:[rotationLbOldId]},
+  {...rotationIbkrNewBinding, history_source_binding_ids:[rotationIbkrOldId]},
+]);
+const qualifiedLb = await (await getHistory("longbridge", rotationLb.key, "USD", sessionHeaders, env)).json();
+assert.deepEqual(qualifiedLb.series.points.map(point => point.net_assets), ["111","333"]);
+const qualifiedIbkr = await (await getHistory("ibkr", rotationIbkr.key, "USD", sessionHeaders, env)).json();
+assert.deepEqual(qualifiedIbkr.series.points.map(point => point.net_assets), ["222","444"]);
+assert.equal((await post(rotationLbOldHistory,auth,env)).status,409,"history qualification never authorizes old-source new ingress");
+const wrongHistoricalOwner = await namespace.get(namespace.idFromName("runtime-instances")).fetch("https://runtime-instances/", {
+  method:"POST",body:JSON.stringify({action:"account_facts_history_read",platform:"ibkr",account_key:rotationIbkr.key,
+    account_scope:rotationIbkr.account_scope,account_selector:"U54321",target_id:rotationIbkrNewBinding.target_id,
+    source_binding_id:rotationIbkrNewId,history_source_binding_ids:[rotationIbkrOldId]}),
+});
+assert.equal(wrongHistoricalOwner.status,409,"qualified source does not authorize a different native account");
+
 
 assert.match(overviewPage, /selectedCashLabel/);
 assert.match(overviewPage, /cashFieldForPlatform,/);

@@ -52,6 +52,25 @@ try {
   assert.equal((await post(payload,envBase.IBKR_ACCOUNT_FACTS_SYNC_TOKEN,true)).status,400,'only daily intervals permit backfill');
   await setBinding({...binding,source_binding:{...binding.source_binding,id:'b'.repeat(64)}});
   response = await (await get()).json(); assert.equal(response.accounts[0].return.status,'unavailable','binding changes invalidate prior intervals');
+  const nextBinding = {...binding,source_binding:{...binding.source_binding,id:'b'.repeat(64)},
+    history_source_binding_ids:[binding.source_binding.id]};
+  await setBinding(nextBinding);
+  response = await (await get()).json();
+  assert.equal(response.accounts[0].return.value,payload.value,'qualified prior interval remains visible after rotation');
+  assert.equal(response.accounts[0].return.daily.length,1,'qualified old native days survive source rotation');
+  assert.equal((await post(day,envBase.IBKR_ACCOUNT_FACTS_SYNC_TOKEN,true)).status,409,'old source remains forbidden for new ingress');
+  const newDay = {...day,source_binding_id:nextBinding.source_binding.id,observed_at:new Date(now).toISOString()};
+  assert.equal((await post(newDay,envBase.IBKR_ACCOUNT_FACTS_SYNC_TOKEN,true)).status,200);
+  response = await (await get()).json();
+  assert.equal(response.accounts[0].return.period.from,payload.period.from,'new-source backfill cannot replace a qualified newer interval');
+  assert.equal(response.accounts[0].return.daily.length,1,'the same verified day is not compounded twice across sources');
+  await setBinding({...binding,source_binding:{...binding.source_binding,id:'c'.repeat(64)},
+    history_source_binding_ids:[binding.source_binding.id,nextBinding.source_binding.id]});
+  assert.equal((await post({...newDay,source_binding_id:'c'.repeat(64),value:'0.03',source_value:'3'},
+    envBase.IBKR_ACCOUNT_FACTS_SYNC_TOKEN,true)).status,200);
+  response = await (await get()).json();
+  assert.equal(response.accounts[0].return.status,'unavailable','conflicting qualified daily values are never silently compounded or chosen');
+  assert.equal(response.accounts[0].return.reason,'native_return_history_conflict','an actual source conflict is distinct from missing cash flows');
   await setBinding(binding);
   assert.equal((await post({...payload,currency:'EUR',observed_at:new Date(now).toISOString(),source_value:'-3',value:'-0.03'})).status,200);
   response = await (await get()).json(); assert.equal(response.accounts[0].return.currency,'EUR','base currency is kept without a USD relabel');
