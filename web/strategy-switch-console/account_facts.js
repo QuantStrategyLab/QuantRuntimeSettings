@@ -107,8 +107,8 @@ function reject(code, status = 400) {
 }
 
 // Optional, read-only broker-reported positions carried from run reports.
-// Each platform has exactly one coverage label; holdings are never a
-// full-account inventory unless a producer says so. Unknown or malformed
+// Coverage stays explicit; Schwab's legacy strategy slice is distinct from
+// a complete native stock inventory. Unknown or malformed
 // inventories are rejected rather than stored as an empty list.
 export const ACCOUNT_FACTS_POSITIONS_SCOPES = Object.freeze({
   longbridge: "stocks_only",
@@ -125,8 +125,10 @@ function normalizeBrokerReportedPositions(platform, raw) {
   const hasScope = Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions_scope");
   const hasComplete = Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions_complete");
   if (!hasRows && !hasScope && !hasComplete) return null;
-  const scope = ACCOUNT_FACTS_POSITIONS_SCOPES[platform];
-  if (!scope || !hasRows || !hasScope || raw.broker_reported_positions_scope !== scope
+  const scope = raw.broker_reported_positions_scope;
+  const nativeSchwabStocks = platform === "schwab" && scope === "stocks_only" && hasComplete;
+  if (!ACCOUNT_FACTS_POSITIONS_SCOPES[platform] || !hasRows || !hasScope
+      || (scope !== ACCOUNT_FACTS_POSITIONS_SCOPES[platform] && !nativeSchwabStocks)
       || (platform === "longbridge" && !hasComplete)
       || (hasComplete && raw.broker_reported_positions_complete !== true)) {
     reject("invalid_account_facts_positions");
