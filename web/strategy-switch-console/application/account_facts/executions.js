@@ -4,6 +4,7 @@ import { dateMs } from "../../performance_math.js";
 export const EXECUTIONS_SCHEMA = "broker_executions.v1";
 const HASH = /^[a-f0-9]{64}$/;
 const DECIMAL = /^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,8})?$/;
+const FEE_DECIMAL = /^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,18})?$/;
 const CURRENCY = /^[A-Z][A-Z0-9]{2,9}$/;
 const DAY = 86400000;
 const KEYS = ["schema_version", "target_id", "source_binding_id", "account_scope", "account_selector",
@@ -17,6 +18,7 @@ const exact = (value, keys) => value && typeof value === "object" && !Array.isAr
 const day = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
   && Number.isFinite(dateMs(value)) && new Date(dateMs(value)).toISOString().slice(0, 10) === value;
 const decimal = value => typeof value === "string" && DECIMAL.test(value) && Number.isFinite(Number(value));
+const feeDecimal = value => typeof value === "string" && FEE_DECIMAL.test(value);
 export function executionError(code = "invalid_broker_executions", status = 400) {
   return Object.assign(new Error(code), { code, status });
 }
@@ -48,8 +50,8 @@ export function normalizeExecutions(raw, { binding, now = Date.now(), enforceFre
         || !decimal(row.price) || Number(row.price) < 0 || !CURRENCY.test(row.currency)
         || typeof row.symbol !== "string" || !/^[A-Z0-9][A-Z0-9. /_-]{0,63}$/.test(row.symbol)
         || typeof row.asset_category !== "string" || !/^[A-Z][A-Z0-9_]{0,15}$/.test(row.asset_category)
-        || (row.commission !== null && !decimal(row.commission))
-        || (row.taxes !== null && !decimal(row.taxes))
+        || (row.commission !== null && !feeDecimal(row.commission))
+        || (row.taxes !== null && !feeDecimal(row.taxes))
         || (row.commission_currency !== null && !CURRENCY.test(row.commission_currency))
         || seen.has(row.execution_ref)) throw executionError();
     seen.add(row.execution_ref);
