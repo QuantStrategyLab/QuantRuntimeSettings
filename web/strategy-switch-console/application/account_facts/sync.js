@@ -1,10 +1,10 @@
 /**
- * Account-facts WRITE/sync HTTP use case (POST /api/account-facts/sync).
+ * Account-facts sync HTTP use case; explicit /history/sync appends archive days.
  *
  * B10-b: application layer over account_facts.js normalization + DO put via
  * injected runtimeInstanceCommand. This module does not open DO transactions,
  * own DO identity, or import worker.js. Revision/history sync stays inside
- * the DO account_facts_put command (unchanged).
+ * the DO. Historical mode never writes latest observations or external flows.
  */
 
 import { externalFlowEnabled, normalizeExternalFlow } from "./external_flow.js";
@@ -19,6 +19,7 @@ import {
   accountFactsReadModelEnabled,
   accountFactsScopesMatchForPlatform,
   normalizeAccountFactsHistoryPayload,
+  normalizeAccountFactsHistoricalPayload,
   resolveTrustedAccountFactsBinding,
 } from "../../account_facts.js";
 
@@ -37,7 +38,7 @@ import {
  *   accountFactsErrorResponse: Function,
  * }} deps
  */
-export async function syncAccountFactsResponse(request, env, deps) {
+export async function syncAccountFactsResponse(request, env, deps, { historical = false } = {}) {
   const {
     json,
     hasConfigStore,
@@ -93,6 +94,7 @@ export async function syncAccountFactsResponse(request, env, deps) {
   }
   let externalFlow;
   if (raw && Object.hasOwn(raw, "externalFlow")) {
+    if (historical) return json({ ok: false, error: "account_facts_history_extension_unsupported" }, 400);
     if (!externalFlowEnabled(env)) return json({ ok: false, error: "external_flow_disabled" }, 409);
     try {
       externalFlow = normalizeExternalFlow(raw.externalFlow);
@@ -105,8 +107,9 @@ export async function syncAccountFactsResponse(request, env, deps) {
     delete raw.externalFlow;
   }
   let history;
+  const normalizeHistory = historical ? normalizeAccountFactsHistoricalPayload : normalizeAccountFactsHistoryPayload;
   try {
-    history = normalizeAccountFactsHistoryPayload(raw, { expectedPlatform: authorizedPlatform });
+    history = normalizeHistory(raw, { expectedPlatform: authorizedPlatform });
   } catch (error) {
     return accountFactsErrorResponse(error);
   }
@@ -114,6 +117,7 @@ export async function syncAccountFactsResponse(request, env, deps) {
     bindings,
     history.target_id,
     history.source_binding.id,
+    { allowHistoricalSources: historical },
   );
   if (!resolved.ok) return json({ ok: false, error: resolved.reason }, 409);
   if (resolved.binding.platform !== authorizedPlatform) {
@@ -139,10 +143,10 @@ export async function syncAccountFactsResponse(request, env, deps) {
     return json({ ok: false, error: "account_facts_identity_mismatch" }, 409);
   }
   try {
-    history = normalizeAccountFactsHistoryPayload(raw, {
+    history = normalizeHistory(raw, {
       expectedPlatform: authorizedPlatform,
       expectedTargetId: resolved.binding.target_id,
-      expectedBindingId: resolved.binding.source_binding.id,
+      expectedBindingId: historical ? history.source_binding.id : resolved.binding.source_binding.id,
       expectedOptionScope: resolved.binding.account_scope,
       expectedAccountSelector: authorizedPlatform === IBKR_ACCOUNT_FACTS_PLATFORM
         ? resolved.binding.account_selector
@@ -160,7 +164,7 @@ export async function syncAccountFactsResponse(request, env, deps) {
   let stored;
   try {
     stored = await runtimeInstanceCommand(env, {
-      action: "account_facts_put",
+      ...(historical ? { action: "account_facts_history_put" } : { action: "account_facts_put" }),
       platform: resolved.binding.platform,
       account_key: resolved.binding.account_key,
       account_scope: resolved.binding.account_scope,
@@ -173,6 +177,8 @@ export async function syncAccountFactsResponse(request, env, deps) {
         : {}),
       target_id: resolved.binding.target_id,
       source_binding_id: resolved.binding.source_binding.id,
+      ...(historical && resolved.binding.history_source_binding_ids
+        ? { history_source_binding_ids: resolved.binding.history_source_binding_ids } : {}),
       history,
       ...(externalFlow ? { externalFlow } : {}),
     });
@@ -188,6 +194,7 @@ export async function syncAccountFactsResponse(request, env, deps) {
     target_id: history.target_id,
     observation_date: history.observation_date,
     observed_finished_at: history.observed_finished_at,
+    ...(historical ? { historical: true, latest_unchanged: true } : {}),
     return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
   });
 }

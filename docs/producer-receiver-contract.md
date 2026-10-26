@@ -57,6 +57,54 @@ also reject retained history; retain this compatibility unless a separate
 migration/downgrade plan is approved. This suite does not establish production
 adoption or execute an actual receiver downgrade.
 
+## Explicit archive-only account snapshots
+
+`POST /api/account-facts/history/sync` accepts one original account snapshot
+history object using the same platform schemas, 64 KiB bound, read-model switch
+and dedicated platform `Authorization: Bearer` token as ordinary sync. It is a
+separate append-only path, not a freshness exception on `/api/account-facts/sync`.
+Ordinary sync retains its receiver observation window (36 hours), current-source
+binding and latest-write rules; a producer may independently impose a shorter
+freshness limit.
+
+The server resolves the account from the exact target and either its current
+source or a source explicitly listed in the protected binding's
+`history_source_binding_ids`. It still verifies the current account option,
+platform-specific scope and native identity where present. A payload cannot
+declare console identity, authorize a prior source, or change the protected
+binding. `externalFlow` extensions are not accepted on this archive endpoint.
+No new token, environment variable or storage table is required.
+
+Original `observation_date`, `observed_started_at` and `observed_finished_at`
+remain unchanged. The observation must be a past UTC date within the existing
+366-date retention window (`historyRetentionCutoff(today)` through today);
+today's date is reserved for ordinary sync. An observation
+completed in the future is rejected without the
+normal future-clock allowance. Receipt `updated_at` is not an observation time.
+Only a missing daily row is inserted. An identical normalized replay returns
+`unchanged: true`; any different value, time or source on an existing day returns
+409 `account_facts_daily_conflict`. This path never replaces or deletes a daily
+row, prunes retention, creates or changes a latest observation, or writes external
+flows, native returns or executions. Normal live ingestion retains its existing
+daily selection and retention behavior.
+
+The successful ACK preserves `platform`, `account_key`, `target_id`,
+`observation_date`, `observed_finished_at`, `ok: true`, `stored: true` and the
+boolean `unchanged`, adding `historical: true` and `latest_unchanged: true`.
+Callers must select an approved same-account archive and retain its original
+timestamps; current credentials do not qualify an arbitrary historical source.
+This HTTP/storage contract does not establish archive provenance or authorize a
+production backfill. Receiver release precedes any separately scoped publisher
+use. Disabling or downgrading the endpoint leaves accepted daily rows readable
+through the existing qualified-source history path.
+
+`tests/account_facts_history_receiver_validation.mjs` exercises authenticated
+synthetic HTTP and local SQLite for all four existing platforms, exact replay,
+conflicts, source rotation, identity, date bounds and latest isolation, with no
+outbound requests. It runs within the existing `account_facts_validation.mjs`
+entry point. It does not fabricate a return or infer complete cashflow coverage
+from historical balances.
+
 ## Reproduce
 
 The two report templates under `tests/fixtures/producer_contract/` contain only

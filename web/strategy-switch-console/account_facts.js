@@ -499,12 +499,13 @@ export function normalizeAccountFactsBindings(raw) {
   return { schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA, bindings };
 }
 
-export function resolveTrustedAccountFactsBinding(bindings, targetId, sourceBindingId) {
+export function resolveTrustedAccountFactsBinding(bindings, targetId, sourceBindingId, { allowHistoricalSources = false } = {}) {
   if (!bindings || !Array.isArray(bindings.bindings)) {
     return { ok: false, reason: "account_facts_bindings_missing" };
   }
   const matches = bindings.bindings.filter(
-    (item) => item.target_id === targetId && item.source_binding.id === sourceBindingId,
+    (item) => item.target_id === targetId && (item.source_binding.id === sourceBindingId
+      || (allowHistoricalSources && item.history_source_binding_ids?.includes(sourceBindingId))),
   );
   if (matches.length === 0) return { ok: false, reason: "account_facts_binding_unmatched" };
   if (matches.length > 1) return { ok: false, reason: "duplicate_account_facts_binding" };
@@ -694,6 +695,19 @@ export function normalizeAccountFactsHistoryPayload(raw, {
     if (brokerAccountType) normalized.broker_account_type = brokerAccountType;
   }
   return normalized;
+}
+
+// Explicit archive ingress only. Keep original observation times, and do not
+// relax the normal sync window or grant trust to a caller-declared old source.
+export function normalizeAccountFactsHistoricalPayload(raw, options = {}) {
+  const now = options.now ?? Date.now();
+  const history = normalizeAccountFactsHistoryPayload(raw, { ...options, now, enforceObservationWindow: false });
+  if (parseInstant(history.observed_finished_at) > now) reject("account_facts_future_observation");
+  const today = new Date(now).toISOString().slice(0, 10);
+  if (history.observation_date >= today || history.observation_date < historyRetentionCutoff(today)) {
+    reject("account_facts_history_out_of_range");
+  }
+  return history;
 }
 
 export function decideAccountFactsPut(existing, incomingHistory) {
