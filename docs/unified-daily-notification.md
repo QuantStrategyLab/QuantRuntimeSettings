@@ -8,7 +8,8 @@ stale reports and execution alerts add a diagnostics section only when present.
 The UTF-16 budget is bounded; long digests are summarized without multiple sends.
 
 Unified mode uses the existing digest workflow at 23:00 UTC daily, after the
-existing 22:20 UTC report monitors. Legacy mode keeps 22:00 UTC weekdays.
+existing 22:20 UTC report monitors. Legacy mode runs at 23:10 UTC on weekdays,
+after those monitors; the business-day cutoff remains 22:00 UTC.
 No runtime trading schedule or disabled target is changed. Reports cover the
 completed 06:00 SGT window. Platform producers must supply real archived counts;
 a workflow conclusion alone is never an order or fill fact.

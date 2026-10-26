@@ -50,20 +50,21 @@ try {
     import { I18nProvider } from './src/i18n';
     import { AccountDirectoryContext } from './src/app/context';
     import { FreshnessTable, StatStrip, NotificationsCard } from './src/pages/health/HealthPage';
-    import { coverageNote, TradesTab } from './src/pages/performance/PerformanceTabs';
+    import { HoldingsTab, TradesTab } from './src/pages/performance/PerformanceTabs';
     import { cellKind, todayFailures } from './src/pages/health/status';
     import { DayDetail } from './src/pages/health/RunGrid';
     const render = (language, component, props, config = null) => renderToStaticMarkup(h(I18nProvider, { language }, h(AccountDirectoryContext.Provider, { value: config }, h(component, props))));
-    export { coverageNote, cellKind, todayFailures };
+    export { cellKind, todayFailures };
     export const freshness = (language, data, config) => render(language, FreshnessTable, { summary: { phase:'ready', data, reload() {} } }, config);
     export const stats = (language, data) => render(language, StatStrip, { summary: { phase:'ready', data, reload() {} }, credential: { phase:'loading' } });
     export const notifications = language => render(language, NotificationsCard, { epoch: 0 });
     export const trades = language => render(language, TradesTab, { scope:'all', range:'ALL', epoch:0 });
+    export const holdings = (language, data, config) => render(language, HoldingsTab, { state: { phase:'ready', data, reload() {} } }, config);
     export const detail = (language, snapshot) => render(language, DayDetail, { selection: { date:'2026-10-16', account: { platform:'schwab', account_alias:'live' } }, cell: { phase:'ready', snapshot } });`, resolveDir: root },
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },
     plugins: [{ name: "local-read-only-fixtures", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: "export const useApi = () => globalThis.__groupingState;", loader: "js" }));
-      for (const [file, exports] of [["HealthPage", "FreshnessTable, StatStrip, NotificationsCard"], ["PerformanceTabs", "coverageNote, TradesTab"], ["RunGrid", "DayDetail"]])
+      for (const [file, exports] of [["HealthPage", "FreshnessTable, StatStrip, NotificationsCard"], ["PerformanceTabs", "HoldingsTab, TradesTab"], ["RunGrid", "DayDetail"]])
         b.onLoad({ filter: new RegExp(`/${file}\\.tsx$`) }, async ({ path }) => ({ contents: await readFile(path, "utf8") + `\nexport { ${exports} };`, loader: "tsx" }));
     } }],
   });
@@ -84,7 +85,8 @@ try {
     assert.ok(html.indexOf("<h3>IBKR</h3>") < html.indexOf("<h3>Schwab</h3>"));
     assert.ok(html.indexOf(">Alpha<") < html.indexOf(">Zulu<"), "sort within platform by shared display names, not raw alias");
     assert.doesNotMatch(html, /synthetic-z|synthetic-a/);
-    assert.equal((html.match(new RegExp(language === "zh" ? "数据偏旧" : ">Stale<", "g")) || []).length, 1, "one stale account cannot mark every row stale");
+    assert.equal((html.match(/data-status="stale"/g) || []).length, 1, "one stale account keeps its own hidden diagnostic without marking every row stale");
+    assert.doesNotMatch(html, /数据偏旧|>Stale</, "stale diagnostics do not occupy normal rows");
     const stats = ui.stats(language, summary);
     assert.ok(stats.includes(language === "zh" ? "未接入: <span class=\"num\">8" : "Not connected: <span class=\"num\">8"));
     assert.ok(stats.includes(language === "zh" ? "暂无数据: <span class=\"num\">2" : "No data: <span class=\"num\">2"));
@@ -92,25 +94,54 @@ try {
     assert.ok(detail.includes(language === "zh" ? "被拦截" : "Blocked"));
     assert.ok(detail.includes(language === "zh" ? "原因未知" : "Unknown reason"));
     assert.ok(!detail.includes(language === "zh" ? ">失败<" : ">Failed<"));
-    globalThis.__groupingState = { phase:"ready", data:trades };
+    // The HTTP execution reader owns rows; the legacy performance math block
+    // above is not that DTO. Missing rows must remain a read error, not empty.
+    globalThis.__groupingState = { phase:"ready", data:{ ...trades, rows:[] } };
     const tradeHtml = ui.trades(language);
     assert.ok(tradeHtml.includes(language === "zh" ? "未接入" : "Not connected"));
     assert.doesNotMatch(tradeHtml, /0%|>0<|state\.|reason\./);
-    for (const [status, expected] of [["not_connected", language === "zh" ? "未接入" : "not connected"], ["ok", language === "zh" ? "暂无通知回执" : "No notification receipts"], ["read_failed", language === "zh" ? "读取失败" : "Read failed"]]) {
+    globalThis.__groupingState = { phase:"ready", data:trades };
+    assert.match(ui.trades(language), /data-state="read_failed"/);
+    const executions = ["A", "B"].map((symbol, i) => ({
+      platform:"ibkr", account_alias:"synthetic-z", execution_ref:String(i + 1).repeat(64),
+      report_ref:"a".repeat(64), trade_date:"2026-10-16", local_time:"2026-10-16T14:10:00", time_zone:null,
+      symbol:`SYNTH_EXEC_${symbol}`, asset_category:"STK", side:i ? "SELL" : "BUY",
+      quantity:"1.12345678", price:"87.12345678", currency:"USD",
+      commission:i ? "0.000000001" : "-0.123456789", commission_currency:"USD", taxes:null,
+    }));
+    globalThis.__groupingState = { phase:"ready", data:{ status:"partial", unavailable_reason:"execution_coverage_unverified",
+      rows:executions, reported_execution_count:2, as_of:null } };
+    const partialTrades = ui.trades(language);
+    for (const text of ["SYNTH_EXEC_A", "SYNTH_EXEC_B", "1.12345678", "87.12345678", "-0.123456789", "0.000000001"])
+      assert.ok(partialTrades.includes(text), `partial execution rows retain exact ${text}`);
+    assert.match(partialTrades, /data-state="partial"/);
+    assert.doesNotMatch(partialTrades, /class="empty-state/);
+    globalThis.__groupingState = { phase:"ready", data:{ status:"ok", rows:[], reported_execution_count:0, as_of:null } };
+    assert.match(ui.trades(language), /data-state="no_data"/);
+    for (const [status, expected] of [["not_connected", language === "zh" ? "未接入" : "not connected"], ["ok", language === "zh" ? "暂无通知记录" : "No notification records"], ["read_failed", language === "zh" ? "暂时无法加载" : "Unable to load"]]) {
       globalThis.__groupingState = { phase:"ready", data:{ status, items:[] } };
-      assert.ok(ui.notifications(language).includes(expected));
+      const stateHtml = ui.notifications(language);
+      assert.ok(stateHtml.includes(expected));
+      if (status === "read_failed") {
+        assert.ok(stateHtml.includes('data-state="read_failed"'));
+        assert.ok(stateHtml.includes('role="alert"'));
+      }
     }
     globalThis.__groupingState = { phase:"ready", data:{ status:"ok", items:[{ id:"1:1", source_run_id:1, source_run_attempt:1, source_url:"https://github.com/example/console/actions/runs/1", workflow_updated_at:"2026-10-16T23:00:00Z", sent_at:null, status:"blocked_resend_guard", delivered:false, dry_run:false, test_message:false, reason_code:"HISTORY_UNAVAILABLE", business_day:"2026-10-16" }] } };
     const notifications = ui.notifications(language);
     assert.doesNotMatch(notifications, /health\.|common\.|state\./); assert.match(notifications, /2026-10-16/);
     assert.ok(notifications.includes(language === "zh" ? "无法读取发送历史" : "Send history unavailable"));
   }
-  const calls = [];
-  const coverage = ui.coverageNote({ coverage:[{ platform:"binance", account_alias:"live" }, { platform:"schwab", account_alias:"live" }, { platform:"ibkr", account_alias:"synthetic-z" }] }, {
-    platform: platform => config.platformMeta[platform].label,
-    account: (alias, platform) => { calls.push([alias,platform]); return platform === "ibkr" ? "Alpha" : "live"; },
-  });
-  assert.equal(coverage, "Binance: live; IBKR: Alpha; Schwab: live");
-  assert.ok(calls.every(([, platform]) => platform));
+  const partialHoldings = { status:"partial", label_key:"performance.current_holdings_unrealized", unavailable_reason:"positions_partial_coverage",
+    coverage:[{ platform:"binance", account_alias:"live" }, { platform:"schwab", account_alias:"live" }, { platform:"ibkr", account_alias:"synthetic-z" }],
+    rows:[{ platform:"ibkr", account_alias:"synthetic-z", symbol:"SYNTH", quantity:2, market_value:6, avg_cost:2,
+      unrealized_pnl:2, currency:"USD", status:"ok" }] };
+  for (const language of ["zh", "en"]) {
+    const holdings = ui.holdings(language, partialHoldings, config);
+    assert.ok(holdings.includes('data-coverage-count="3"'));
+    assert.ok(holdings.includes('data-state="partial"'));
+    assert.ok(holdings.includes("Alpha") && holdings.includes("SYNTH") && holdings.includes("6.00"));
+    assert.doesNotMatch(holdings, /synthetic-z|Binance:|Schwab:/, "the actual row keeps its display name without an ordinary coverage roster");
+  }
 } finally { delete globalThis.__groupingState; await rm(directory, { recursive:true, force:true }); }
 console.log("console_grouping_runs_validation: PASS (8 unconnected + 2 missing, separate block/failure, unknown reasons, platform/account ordering, per-row flags, coverage identity, honest fills, notification states zh/en)");

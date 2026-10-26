@@ -1,6 +1,8 @@
 /* Health page (运行状态) local styles; shared classes live in app.css. */
 
-.health-refresh { margin-left: auto; }
+.stat-strip > .kpi-card { padding: 14px 16px; border-radius: 10px; }
+.stat-strip .kpi-title { min-height: 2.6em; line-height: 1.3; }
+.stat-strip .kpi-value { font-size: 23px; }
 
 .health-grid .skeleton { margin: 0 auto; }
 .health-grid button.health-cell { cursor: pointer; padding: 0; font: inherit; }
@@ -10,10 +12,10 @@
 
 .health-day-detail {
   margin-top: 12px;
-  padding: 12px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-m);
-  background: var(--surface);
+  background: var(--surface-2);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -21,17 +23,14 @@
 }
 .health-day-detail-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .health-day-detail-meta { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
-.health-day-runs { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.health-day-runs > summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+.health-day-runs ul { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .health-day-runs li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .health-day-runs .num { font-variant-numeric: tabular-nums; }
 
 .health-cell.unknown, .health-cell.incomplete, .health-cell.stale { background: var(--surface-2); color: var(--muted); }
 .health-cell.read-failed { background: var(--surface-2); color: var(--status-error); }
 
-.health-freshness .data-table { min-width: 680px; }
-.health-credentials .data-table { min-width: 580px; }
-.health-freshness .data-table th, .health-freshness .data-table td,
-.health-credentials .data-table th, .health-credentials .data-table td { white-space: nowrap; }
 .health-grid table { border-collapse: separate; border-spacing: 0; }
 .health-grid tr > th:first-child {
   position: sticky;
@@ -46,15 +45,38 @@
 }
 .health-grid tbody th, .health-grid tbody td { vertical-align: middle; }
 .health-grid button.health-cell { width: 32px; height: 32px; }
-.scroll-hint { display: none; }
 @media (max-width: 768px) {
-  .scroll-hint { display: block; margin: 8px 0; color: var(--muted); font-size: 12px; }
+  .health-freshness .data-table th, .health-freshness .data-table td,
+  .health-credentials .data-table th, .health-credentials .data-table td,
+  .health-notifications th, .health-notifications td { white-space: normal; overflow-wrap: anywhere; }
 }
 
 .health-cell.blocked { background: color-mix(in srgb, var(--status-warn) 20%, transparent); color: var(--status-warn); }
-.health-state-counts { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0; list-style: none; font-size: 13px; }
+.health-state-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.health-state-counts { display: flex; flex-wrap: wrap; gap: 6px 20px; padding: 0; list-style: none; font-size: 13px; }
+.health-state-summary .health-state-secondary { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+.health-notifications a { overflow-wrap: anywhere; }
 .health-platform-group + .health-platform-group { margin-top: 20px; }
 .health-platform-group h3 { margin: 0 0 8px; font-size: 14px; }
 
-.health-notifications .data-table { min-width: 760px; }
-.health-notifications th, .health-notifications td { white-space: nowrap; }
+.health-notes { margin-top: 12px; font-size: 12px; color: var(--muted); }
+.health-notes summary { cursor: pointer; display: inline-flex; align-items: center; min-height: 28px; }
+.health-notes p { margin: 4px 0 0; max-width: 72ch; }
+.notification-reason { margin-top: 2px; font-size: 12px; white-space: normal; }
+.notification-reason summary { cursor: pointer; color: var(--accent); display: inline-flex; align-items: center; min-height: 24px; }
+.notification-reason p { margin: 2px 0 0; max-width: 48ch; }
+
+@media (max-width: 600px) {
+  .stat-strip > .kpi-card { padding: 12px; }
+  .stat-strip .kpi-value { font-size: 20px; }
+  .health-state-summary { align-items: flex-start; }
+}

@@ -77,7 +77,7 @@ jobs:
 
   js:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
@@ -137,6 +137,7 @@ jobs:
           node tests/account_facts_binding_workflow_validation.mjs
           node tests/firstrade_account_facts_preparation_validation.mjs
           node tests/ibkr_runtime_lifecycle_inspection_validation.mjs
+          node tests/ibkr_primary_binding_backup_validation.mjs
           node --experimental-strip-types tests/account_history_presentation_validation.mjs
           node --experimental-strip-types tests/console_chart_visibility_validation.mjs
           node tests/console_synthetic_development_validation.mjs
@@ -171,6 +172,7 @@ jobs:
           node --experimental-strip-types tests/console_runtime_daily_selection_validation.mjs
           node tests/console_performance_stats_validation.mjs
           node tests/console_calendar_currency_validation.mjs
+          node --test tests/fe8a_performance_validation.mjs tests/fe8a_runtime_today_validation.mjs tests/fe8a_overview_runtime_ui_validation.mjs
           node tests/account_settings_worker_validation.mjs
           node --experimental-default-type=module tests/console_evidence_metadata_validation.mjs
           node --experimental-strip-types tests/account_settings_state_validation.mjs

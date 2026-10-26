@@ -1,0 +1,13 @@
+{
+  "red": {
+    "command": "node tests/console_notification_receipts_validation.mjs",
+    "exit_code": 1,
+    "observed": "read_status undefined; expected partial",
+    "log": "red.log"
+  },
+  "green": {
+    "command": "node tests/console_notification_receipts_validation.mjs",
+    "exit_code": 0,
+    "log": "integration-1.log"
+  }
+}

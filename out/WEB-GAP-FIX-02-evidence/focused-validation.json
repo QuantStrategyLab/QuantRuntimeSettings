@@ -1,0 +1,58 @@
+[
+  {
+    "command": [
+      "node",
+      "tests/runtime_daily_worker_validation.mjs"
+    ],
+    "exit_code": 0,
+    "seconds": 0.903,
+    "log": "focused-0.log"
+  },
+  {
+    "command": [
+      "node",
+      "tests/console_api_worker_validation.mjs"
+    ],
+    "exit_code": 0,
+    "seconds": 1.92,
+    "log": "focused-1.log"
+  },
+  {
+    "command": [
+      "node",
+      "tests/console_design_api_validation.mjs"
+    ],
+    "exit_code": 0,
+    "seconds": 0.8,
+    "log": "focused-2.log"
+  },
+  {
+    "command": [
+      "node",
+      "tests/console_runtime_daily_selection_validation.mjs"
+    ],
+    "exit_code": 0,
+    "seconds": 0.235,
+    "log": "focused-3.log"
+  },
+  {
+    "command": [
+      "node",
+      "--check",
+      "web/strategy-switch-console/worker.js"
+    ],
+    "exit_code": 0,
+    "seconds": 0.176,
+    "log": "focused-4.log"
+  },
+  {
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit_code": 0,
+    "seconds": 0.05,
+    "log": "focused-5.log"
+  }
+]
