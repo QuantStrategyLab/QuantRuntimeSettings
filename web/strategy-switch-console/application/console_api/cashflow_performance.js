@@ -10,7 +10,7 @@ export function intervalFlows(payload, currency, start, end) {
   catch { return null; }
   const a = instant(start), b = instant(end);
   if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return null;
-  const rows = windows.filter(w => w.currency === currency && w.coverage === "complete"
+  const rows = windows.filter(w => !w.time_precision && w.currency === currency && w.coverage === "complete"
     && instant(w.period_end) > a && instant(w.period_start) < b)
     .sort((x, y) => instant(x.period_start) - instant(y.period_start));
   let cursor = a;
