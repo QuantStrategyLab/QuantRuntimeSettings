@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { dailyReturnsFromCumulative } from "../web/strategy-switch-console/frontend/src/charts/returns.ts";
 import { nicePercentTicks } from "../web/strategy-switch-console/frontend/src/charts/ticks.ts";
 import { latestAssetBalance } from "../web/strategy-switch-console/frontend/src/lib/performance.ts";
@@ -8,6 +9,31 @@ import { cellKind } from "../web/strategy-switch-console/frontend/src/pages/heal
 import { consoleApiFixture } from "../web/strategy-switch-console/frontend/scripts/console-api-synthetic.mjs";
 
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+
+// An as-of business date must not become yesterday at midnight UTC. A timestamp
+// still shifts normally; separate processes avoid sharing Intl timezone caches.
+const formatModule = new URL("../web/strategy-switch-console/frontend/src/lib/format.ts", import.meta.url).href;
+for (const [zone, day, hour, offset] of [
+  ["America/Los_Angeles", "10/23", "10:00", "GMT-7"],
+  ["Asia/Singapore", "10/24", "01:00", "GMT+8"],
+]) {
+  const result = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", `
+    import assert from 'node:assert/strict';
+    import { formatDateTime } from ${JSON.stringify(formatModule)};
+    for (const language of ['zh', 'en']) {
+      for (const year of [false, true]) {
+        assert.deepEqual(formatDateTime('2026-10-23', language, year), { text: '2026-10-23', zone: '' });
+      }
+      for (const value of [null, undefined, '', 'not-a-date', '2026-99-99']) {
+        assert.deepEqual(formatDateTime(value, language), { text: '—', zone: '' });
+      }
+      const stamp = formatDateTime('2026-10-23T17:00:00Z', language);
+      assert.ok(stamp.text.includes(${JSON.stringify(day)}) && stamp.text.includes(${JSON.stringify(hour)}));
+      assert.equal(stamp.zone, ${JSON.stringify(offset)});
+    }
+  `], { encoding: "utf8", env: { ...process.env, TZ: zone } });
+  assert.equal(result.status, 0, result.stderr);
+}
 const points = values => values.map((value, i) => ({ date: `2026-10-${String(i + 1).padStart(2, "0")}`, value }));
 
 // Daily chart values are compounded returns, with no invented first-day or gap return.

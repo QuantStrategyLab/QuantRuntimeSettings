@@ -167,9 +167,9 @@ const pr764Blob = "de87e1c1c6b62fa94bd514c8936a4ec32e14c0e4";
 const pr764Build = "96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6";
 const approved = "a0a31272afbf81db0dee8dd303bac9e505f0cda0";
 const approvedTree = "3b74573b8f13f0aec3eb9a44f87a7d489bb840e4";
-const frontend = "4f04827a262c122847d78e02ac760ba741a8f3d2";
-const frontendTree = "63fbe73594356e6f1c88186cf06f907aed1bbac2";
-const frontendBlob = "edb46bdb3c19b50b0bdc8672bab91c2a6e72a1ad";
+const frontend = "f211dd154726072d7e8572ba8fa623e72cac8665";
+const frontendTree = "ed573dbe7d53e08264df37f9a6893d8b490db9d9";
+const frontendBlob = "c6380cdf8af7f648a0d5ba7195aee0c322225f5e";
 // Exercise the real release graph as well as the simulated shell below. A
 // copied patch can match every frozen tree while its source is not yet adopted.
 for (const source of [approved, frontend]) {
@@ -427,7 +427,7 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
    assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
    assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
-  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend a0a31272 and frontend 4f04827a; retained configuration"}});
+  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend a0a31272 and frontend f211dd15; retained configuration"}});
  }
  if(expected){
   if(pr764){const h=JSON.parse(stdout[0]);assert.equal(h.status,"pr764_configuration_verified");

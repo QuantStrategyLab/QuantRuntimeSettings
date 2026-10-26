@@ -81,11 +81,12 @@ export function formatDate(value: string | null | undefined, language: Language)
   return formatter.format(new Date(time));
 }
 
-/** Browser-local timestamp with a separate zone label; expiry dates can include the year. */
+/** Business dates stay dates; timestamps use the browser zone and may include the year. */
 export function formatDateTime(value: string | null | undefined, language: Language, includeYear = false): { text: string; zone: string } {
   if (!value) return { text: "—", zone: "" };
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return { text: "—", zone: "" };
+  if (ISO_DATE.test(value)) return { text: formatDate(value, language), zone: "" };
   const date = new Date(time);
   const key = `${language}:datetime:${includeYear}`;
   let formatter = dateFormatters.get(key);
