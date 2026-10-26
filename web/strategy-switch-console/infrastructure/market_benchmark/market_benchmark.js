@@ -1,11 +1,11 @@
 /**
  * Market benchmark daily closes for the overview (additive read model).
  *
- * Inception: 2026-10-09 Asia/Shanghai per QRS #568.
- * Rules: no dates before inception, reject non-positive/zero closes, no backfill.
+ * Real historical closes may precede the product's launch. Inception is the
+ * earliest valid stored observation, not a fixed admission boundary.
  */
 
-export const MARKET_BENCHMARK_INCEPTION_DATE = "2026-10-09";
+export const MARKET_BENCHMARK_MAX_POINTS = 64;
 export const MARKET_BENCHMARK_API_PATH = "/api/market-benchmark";
 export const MARKET_BENCHMARK_SYNC_PATH = "/api/market-benchmark/sync";
 export const MARKET_BENCHMARK_SCHEMA = "qsl.market_benchmark_points.v1";
@@ -19,6 +19,16 @@ export const MARKET_BENCHMARK_SERIES_IDS = Object.freeze([
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CLOSE_RE = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
 const SOURCE_RE = /^[A-Za-z0-9._:-]{1,64}$/;
+
+export function isMarketBenchmarkDate(value) {
+  if (typeof value !== "string" || !DATE_RE.test(value) || value.startsWith("0000-")) return false;
+  const time = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value;
+}
+
+function firstObservationDate(points) {
+  return points.reduce((first, point) => first === null || point.observationDate < first ? point.observationDate : first, null);
+}
 
 export class MarketBenchmarkError extends Error {
   constructor(code, status = 400) {
@@ -49,7 +59,7 @@ export function normalizeMarketBenchmarkClose(raw) {
   return fraction === undefined ? normalizedInteger : `${normalizedInteger}.${fraction}`;
 }
 
-export function normalizeMarketBenchmarkPoint(raw, { inceptionDate = MARKET_BENCHMARK_INCEPTION_DATE } = {}) {
+export function normalizeMarketBenchmarkPoint(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new MarketBenchmarkError("invalid_market_benchmark_point");
   }
@@ -60,11 +70,8 @@ export function normalizeMarketBenchmarkPoint(raw, { inceptionDate = MARKET_BENC
   if (!isMarketBenchmarkSeriesId(seriesId)) {
     throw new MarketBenchmarkError("invalid_market_benchmark_series");
   }
-  if (typeof observationDate !== "string" || !DATE_RE.test(observationDate)) {
+  if (!isMarketBenchmarkDate(observationDate)) {
     throw new MarketBenchmarkError("invalid_market_benchmark_date");
-  }
-  if (observationDate < inceptionDate) {
-    throw new MarketBenchmarkError("market_benchmark_before_inception");
   }
   const normalizedClose = normalizeMarketBenchmarkClose(close);
   if (source !== undefined && source !== null) {
@@ -82,38 +89,21 @@ export function normalizeMarketBenchmarkPoint(raw, { inceptionDate = MARKET_BENC
 
 /**
  * Normalize a sync body: { schema_version, points: [...] }.
- * Drops pre-inception points only when allowDropBeforeInception is true (producer
- * may send a short Yahoo window); otherwise rejects them.
+ * Historical points use the same date, positive-decimal and conflict rules.
  */
-export function normalizeMarketBenchmarkSyncPayload(raw, {
-  inceptionDate = MARKET_BENCHMARK_INCEPTION_DATE,
-  allowDropBeforeInception = true,
-  maxPoints = 64,
-} = {}) {
+export function normalizeMarketBenchmarkSyncPayload(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new MarketBenchmarkError("invalid_market_benchmark_payload");
   }
   if (raw.schema_version !== MARKET_BENCHMARK_SCHEMA) {
     throw new MarketBenchmarkError("invalid_market_benchmark_schema");
   }
-  if (!Array.isArray(raw.points) || raw.points.length === 0 || raw.points.length > maxPoints) {
+  if (!Array.isArray(raw.points) || raw.points.length === 0 || raw.points.length > MARKET_BENCHMARK_MAX_POINTS) {
     throw new MarketBenchmarkError("invalid_market_benchmark_points");
   }
   const byKey = new Map();
   for (const item of raw.points) {
-    let point;
-    try {
-      point = normalizeMarketBenchmarkPoint(item, { inceptionDate });
-    } catch (error) {
-      if (
-        allowDropBeforeInception
-        && error instanceof MarketBenchmarkError
-        && error.code === "market_benchmark_before_inception"
-      ) {
-        continue;
-      }
-      throw error;
-    }
+    const point = normalizeMarketBenchmarkPoint(item);
     const key = `${point.seriesId}\0${point.observationDate}`;
     const prior = byKey.get(key);
     if (prior && prior.close !== point.close) {
@@ -125,23 +115,18 @@ export function normalizeMarketBenchmarkSyncPayload(raw, {
     const seriesCmp = left.seriesId.localeCompare(right.seriesId);
     return seriesCmp !== 0 ? seriesCmp : left.observationDate.localeCompare(right.observationDate);
   });
-  if (points.length === 0) {
-    throw new MarketBenchmarkError("market_benchmark_no_inception_points");
-  }
   return {
     schema_version: MARKET_BENCHMARK_SCHEMA,
-    inception_date: inceptionDate,
+    inception_date: firstObservationDate(points),
     points,
   };
 }
 
-export function publicMarketBenchmarkReadModel(points, {
-  inceptionDate = MARKET_BENCHMARK_INCEPTION_DATE,
-} = {}) {
+export function publicMarketBenchmarkReadModel(points) {
   const filtered = [];
   for (const point of points || []) {
     try {
-      filtered.push(normalizeMarketBenchmarkPoint(point, { inceptionDate }));
+      filtered.push(normalizeMarketBenchmarkPoint(point));
     } catch {
       // Stored rows that fail closed stay out of the public read model.
     }
@@ -153,7 +138,7 @@ export function publicMarketBenchmarkReadModel(points, {
   return {
     ok: true,
     schema_version: MARKET_BENCHMARK_SCHEMA,
-    inception_date: inceptionDate,
+    inception_date: firstObservationDate(filtered),
     timezone: "Asia/Shanghai",
     points: filtered.map(({ seriesId, observationDate, close }) => ({
       seriesId,
@@ -175,7 +160,7 @@ export const MARKET_BENCHMARK_YAHOO_SYMBOLS = Object.freeze({
  * Parse a Yahoo v8 finance chart payload into { observationDate, close } using
  * America/New_York session calendar dates (exchange trading day).
  */
-export function parseYahooChartDailyCloses(payload, { seriesId, inceptionDate = MARKET_BENCHMARK_INCEPTION_DATE } = {}) {
+export function parseYahooChartDailyCloses(payload, { seriesId } = {}) {
   if (!isMarketBenchmarkSeriesId(seriesId)) {
     throw new MarketBenchmarkError("invalid_market_benchmark_series");
   }
@@ -197,8 +182,10 @@ export function parseYahooChartDailyCloses(payload, { seriesId, inceptionDate = 
     const closeNum = closes[index];
     if (!Number.isFinite(ts) || closeNum === null || closeNum === undefined) continue;
     if (typeof closeNum !== "number" || !Number.isFinite(closeNum) || closeNum <= 0) continue;
-    const observationDate = formatter.format(new Date(ts * 1000));
-    if (!DATE_RE.test(observationDate) || observationDate < inceptionDate) continue;
+    const instant = new Date(ts * 1000);
+    if (!Number.isFinite(instant.getTime())) continue;
+    const observationDate = formatter.format(instant);
+    if (!isMarketBenchmarkDate(observationDate)) continue;
     // Keep up to 6 decimal places as decimal text; trim trailing zeros carefully.
     const close = String(closeNum);
     try {
@@ -207,7 +194,7 @@ export function parseYahooChartDailyCloses(payload, { seriesId, inceptionDate = 
         observationDate,
         close,
         source: "yahoo_chart_v8",
-      }, { inceptionDate }));
+      }));
     } catch {
       // Skip malformed closes rather than inventing values.
     }

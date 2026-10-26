@@ -3,8 +3,7 @@ name: Sync Market Benchmark Closes
 # Run after New York midnight so the producer's prior-date filter includes the
 # completed US session, including Friday. 05:30 UTC is after midnight in both
 # EST and EDT; Tuesday–Saturday UTC collects Monday–Friday without extra runs.
-# First close on/after MARKET_BENCHMARK_INCEPTION_DATE=2026-10-09 is OK; empty
-# pre-close runs exit soft-success without fabricating points.
+# Empty scheduled pre-close runs exit soft-success without fabricating points.
 
 on:
   schedule:
@@ -26,6 +25,16 @@ on:
         required: false
         type: boolean
         default: false
+      from_date:
+        description: Optional inclusive historical New York date (YYYY-MM-DD); requires through_date, excludes apply_revision.
+        required: false
+        type: string
+        default: ""
+      through_date:
+        description: Optional inclusive completed New York date (YYYY-MM-DD); requires from_date, max 64 points total.
+        required: false
+        type: string
+        default: ""
       approved_proposal_sha256:
         description: Owner-approved proposal_sha256 (64 hex chars); the rebuilt proposal must match exactly.
         required: false
@@ -55,6 +64,8 @@ jobs:
       # Prefer dedicated token; fall back to STRATEGY_SWITCH_SYNC_TOKEN (Worker accepts either).
       MARKET_BENCHMARK_SYNC_TOKEN: ${{ secrets.MARKET_BENCHMARK_SYNC_TOKEN || secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_DISPATCH_TOKEN }}
       MARKET_BENCHMARK_RANGE: ${{ inputs.range || '10d' }}
+      MARKET_BENCHMARK_FROM_DATE: ${{ github.event_name == 'workflow_dispatch' && inputs.from_date || '' }}
+      MARKET_BENCHMARK_THROUGH_DATE: ${{ github.event_name == 'workflow_dispatch' && inputs.through_date || '' }}
       MARKET_BENCHMARK_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
     steps:
       - name: Require MARKET_BENCHMARK_SYNC_URL
