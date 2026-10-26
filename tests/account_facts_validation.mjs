@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import "./account_facts_totals_validation.mjs";
 import "./account_facts_stock_inventory_validation.mjs";
 import "./account_facts_source_lineage_validation.mjs";
@@ -1757,11 +1758,19 @@ assert.equal(JSON.stringify(await schwabHistoryRead.json()).includes(schwabAccou
   assert.equal(mismatch.target_id_matches, false);
   assert.equal(mismatch.source_binding_id_matches, null);
   assert.equal(mismatch.account_scope_matches, true);
+  assert.equal(mismatch.row_present, true);
+  assert.equal(mismatch.source_binding_id_trusted, null);
+  assert.equal(mismatch.stored_source_binding_id, null);
   assert.equal(selected, 1);
   instance.sql = { exec() { return { toArray: () => [] }; } };
-  assert.equal(instance.readAccountFactsDailyHistory(command).records[0].target_id_matches, null);
+  const absent = instance.readAccountFactsDailyHistory(command).records[0];
+  assert.equal(absent.target_id_matches, null);
+  assert.equal(absent.row_present, false);
   instance.sql = { exec() { return { toArray: () => [row, row] }; } };
-  assert.equal(instance.readAccountFactsDailyHistory(command).records[0].target_id_matches, null);
+  const ambiguous = instance.readAccountFactsDailyHistory(command).records[0];
+  assert.equal(ambiguous.target_id_matches, null);
+  assert.equal(ambiguous.row_present, null);
+  assert.equal(ambiguous.stored_source_binding_id, null);
   assert.throws(() => instance.readAccountFactsDailyHistory({ ...command, to: "2026-02-30" }), /identity_query/);
 }
 
@@ -1847,6 +1856,78 @@ assert.equal((await post(emptyInventory, auth, env)).status, 200);
 inventoryFacts = (await (await get(sessionHeaders, env)).json()).accounts[0];
 assert.equal(inventoryFacts.positions_complete, true);
 assert.deepEqual(inventoryFacts.positions, []);
+
+// Authenticated metadata through real SQLite: reproduce a conflicting existing
+// day hidden by an unqualified source, without reading any financial payload in
+// the identity projection. The same bounded contract works for all platforms.
+for (const platform of ["longbridge", "ibkr", "schwab", "firstrade"]) {
+  const oldId = "1".repeat(64), newId = "2".repeat(64);
+  const option = { key: `identity-${platform}`, label: "Synthetic identity",
+    target_name: `identity-${platform}`, service_name: `identity-${platform}-service`,
+    deployment_selector: `identity-${platform}-deploy`, account_scope: platform === "longbridge" ? "paper" : "live",
+    account_selector: platform === "ibkr" ? "U100001" : platform === "longbridge" ? "PAPER" : "live" };
+  const binding = { platform, account_key: option.key, account_scope: option.account_scope,
+    target_name: option.target_name, service_name: option.service_name, deployment_selector: option.deployment_selector,
+    account_selector: option.account_selector, target_id: option.target_name,
+    source_binding: { kind: platform === "longbridge" ? ACCOUNT_FACTS_SOURCE_KIND : IBKR_ACCOUNT_FACTS_SOURCE_KIND, id: oldId },
+    ...(platform === "schwab" ? { broker_account_hash: "synthetic-identity-native-hash" } : {}),
+    ...(platform === "firstrade" ? { broker_account_id: "synthetic-identity-native-id" } : {}) };
+  await saveAccountOptions({ [platform]: [option] });
+  await saveBindings([binding]);
+  const started = new Date(Date.now() - 86400000).toISOString().replace("Z", "+00:00");
+  const date = started.slice(0, 10), to = new Date(Date.parse(date) + 86400000).toISOString().slice(0, 10);
+  const build = { longbridge: historyPayload, ibkr: ibkrHistory, schwab: schwabHistory, firstrade: ftHistory }[platform];
+  const body = build({ target_id: binding.target_id,
+    source_binding: { ...binding.source_binding, status: "bound" }, account_scope: platform === "longbridge" ? "PAPER" : "live",
+    observed_started_at: started, observed_finished_at: started, observation_date: date,
+    broker_reported_balances: [{ currency: "USD", net_assets: "123.45",
+      ...(platform === "longbridge" ? { total_cash: "1" } : {}),
+      ...(platform === "schwab" ? { source_tag: "liquidationValue", currency_source: "owner_confirmed" } : {}) }],
+    ...(platform === "ibkr" ? { account_ids: [option.account_selector] } : {}),
+    ...(platform === "schwab" ? { account_hash: binding.broker_account_hash } : {}),
+    ...(platform === "firstrade" ? { broker_account_id: binding.broker_account_id } : {}) });
+  const authHeaders = { Authorization: `Bearer ${bindingsEnv[platform === "longbridge" ? "ACCOUNT_FACTS_SYNC_TOKEN" : `${platform.toUpperCase()}_ACCOUNT_FACTS_SYNC_TOKEN`]}` };
+  const seeded = await post(body, authHeaders, env);
+  assert.equal(seeded.status, 200, await seeded.clone().text());
+  const currentBinding = { ...binding, source_binding: { ...binding.source_binding, id: newId } };
+  await saveBindings([currentBinding]);
+  const query = `https://switch.example/api/account-facts/history?platform=${platform}&account_key=${option.key}&currency=USD&projection=identity&from=${date}&to=${to}`;
+  const inspect = async headers => {
+    const response = await worker.fetch(new Request(query, { headers }), env);
+    assert.equal(response.status, 200, await response.clone().text());
+    return response.json();
+  };
+  assert.equal((await worker.fetch(new Request(query), env)).status, 401);
+  const hidden = await inspect(sessionHeaders);
+  assert.equal(hidden.records[0].row_present, true);
+  assert.equal(hidden.records[0].target_id_matches, true);
+  assert.equal(hidden.records[0].account_scope_matches, true);
+  assert.equal(hidden.records[0].source_binding_id_matches, false);
+  assert.equal(hidden.records[0].source_binding_id_trusted, false);
+  assert.equal(hidden.records[0].stored_source_binding_sha256, createHash("sha256").update(oldId).digest("hex"));
+  assert.equal(hidden.records[0].observed_finished_at, started, "original +00:00 timestamp is retained");
+  assert.equal(hidden.records[1].row_present, false);
+  assert.equal(hidden.records[1].stored_source_binding_sha256, null);
+  assert.equal(JSON.stringify(hidden).includes(oldId), false);
+  assert.equal(JSON.stringify(hidden).includes("native-hash"), false);
+  assert.equal(JSON.stringify(hidden).includes("native-id"), false);
+  assert.equal(Object.hasOwn(hidden, "series"), false);
+  assert.equal((await (await getHistory(platform, option.key, "USD", sessionHeaders, env)).json()).series.points.length, 0);
+  const conflict = await worker.fetch(new Request("https://switch.example/api/account-facts/history/sync", {
+    method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, source_binding: { ...body.source_binding, id: newId } }),
+  }), env);
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).error, "account_facts_daily_conflict",
+    "an existing hidden source still blocks replacement");
+  await saveBindings([{ ...currentBinding, history_source_binding_ids: [oldId] }]);
+  const trusted = await inspect(sessionHeaders);
+  assert.equal(trusted.records[0].source_binding_id_matches, false);
+  assert.equal(trusted.records[0].source_binding_id_trusted, true);
+  assert.equal(trusted.records[0].stored_source_binding_sha256, hidden.records[0].stored_source_binding_sha256);
+  assert.equal((await (await getHistory(platform, option.key, "USD", sessionHeaders, env)).json()).series.points.length, 1,
+    "explicit same-account qualification restores only the previously stored day");
+}
 
 const workerSource = readFileSync(join(root, "web/strategy-switch-console/worker.js"), "utf8");
 assert.match(workerSource, /account_facts_put/);

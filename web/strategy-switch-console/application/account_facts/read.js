@@ -37,12 +37,16 @@ export function accountFactsIdentityRecords(records, dates) {
     return {
       observation_date: date,
       observed_finished_at: typeof time === "string"
-        && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(time)
+        && /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(time)
+        && accountFactsIdentityDates(time.slice(0, 10), time.slice(0, 10))
         && Number.isFinite(Date.parse(time)) ? time : null,
       target_id_matches: bool(row?.target_id_matches),
       source_binding_id_matches: bool(row?.source_binding_id_matches),
       account_scope_matches: bool(row?.account_scope_matches),
       record_revision: null,
+      row_present: bool(row?.row_present),
+      source_binding_id_trusted: row?.row_present === true ? bool(row?.source_binding_id_trusted) : null,
+      stored_source_binding_sha256: null,
     };
   });
 }
@@ -166,8 +170,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   const projection = url.searchParams.get("projection");
   const dates = projection === "identity"
     ? accountFactsIdentityDates(url.searchParams.get("from"), url.searchParams.get("to")) : null;
-  if (projection !== null && (projection !== "identity" || platform !== SCHWAB_ACCOUNT_FACTS_PLATFORM
-      || currency !== "USD" || !dates
+  if (projection !== null && (projection !== "identity" || !ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !dates
       || ["platform", "account_key", "currency", "projection", "from", "to"].some((key) => url.searchParams.getAll(key).length !== 1))) {
     return json({ ok: false, error: "invalid_account_facts_identity_query" }, 400);
   }
@@ -201,13 +204,27 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
       const result = await runtimeInstanceCommand(env, {
         action: "account_facts_history_read", projection: "identity",
         platform, account_key: accountKey, account_scope: binding.account_scope,
-        account_selector: binding.account_selector, broker_account_hash: binding.broker_account_hash,
+        account_selector: binding.account_selector,
+        ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM ? { broker_account_hash: binding.broker_account_hash } : {}),
+        ...(platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? { broker_account_id: binding.broker_account_id } : {}),
+        ...(binding.history_source_binding_ids ? { history_source_binding_ids: binding.history_source_binding_ids } : {}),
         target_id: binding.target_id, source_binding_id: binding.source_binding.id,
         from: dates[0], to: dates.at(-1),
       });
+      const records = accountFactsIdentityRecords(result?.records, dates);
+      for (const record of records) {
+        const matches = Array.isArray(result?.records)
+          ? result.records.filter(row => row?.observation_date === record.observation_date) : [];
+        const source = matches.length === 1 ? matches[0].stored_source_binding_id : null;
+        // The raw stored id is private metadata. Never spread storage records
+        // into HTTP or accept a precomputed hash supplied by storage/errors.
+        if (record.row_present === true && typeof source === "string" && /^[a-f0-9]{64}$/.test(source)) {
+          record.stored_source_binding_sha256 = await deps.sha256Hex(source);
+        }
+      }
       return json({ ok: true, projection: "identity", target_id: binding.target_id,
         source_binding_id: binding.source_binding.id,
-        records: accountFactsIdentityRecords(result?.records, dates) });
+        records });
     } catch {
       return json({ ok: false, error: "account_facts_identity_unavailable" }, 503);
     }
