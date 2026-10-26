@@ -23,6 +23,9 @@ assert.equal(MARKET_BENCHMARK_MAX_POINTS, 64);
 assert.equal(MARKET_BENCHMARK_API_URL, "/api/market-benchmark");
 assert.equal(__test.MARKET_BENCHMARK_API_PATH, "/api/market-benchmark");
 assert.equal(__test.MARKET_BENCHMARK_SYNC_PATH, "/api/market-benchmark/sync");
+// Cloudflare reports the published object's properties as named handlers. Keep
+// its old shape without reintroducing the launch-date data filter tested below.
+assert.equal(__test.MARKET_BENCHMARK_INCEPTION_DATE_CONST, "2026-10-09");
 assert.deepEqual([...MARKET_BENCHMARK_SERIES_IDS], Object.keys(MARKET_BENCHMARK_YAHOO_SYMBOLS));
 
 assert.equal(normalizeMarketBenchmarkClose("5710.25"), "5710.25");

@@ -17038,6 +17038,9 @@ export const __test = {
   MARKET_BENCHMARK_REVISION_PATH,
   MARKET_BENCHMARK_SYNC_PATH,
   MARKET_BENCHMARK_SCHEMA,
+  // Retain the published test-export shape; this legacy launch date is not a
+  // read, write or upstream-fetch boundary.
+  MARKET_BENCHMARK_INCEPTION_DATE_CONST: "2026-10-09",
   normalizeMarketBenchmarkSyncPayload,
   publicMarketBenchmarkReadModel,
   MarketBenchmarkError,
