@@ -155,3 +155,27 @@ mixed-currency percentage curves.
 
 Definitions are informed by Longbridge's public
 [P/L analysis guide](https://longbridge.com/sg/en/support/topics/tradingfaqs/pl-analysis).
+
+## Native date-only cash-flow facts
+
+`POST /api/account-facts/external-flow/sync` uses the existing dedicated platform
+credential and server-owned target/source/account bindings. Its
+`account_external_flow.v1` envelope contains those identity fields and
+`externalFlow`, independently of a current account snapshot. Historical imports
+do not update balances, snapshot dates or freshness. The existing external-flow
+switch controls ingestion and reads; no new credential or storage service is used.
+
+`external_flow.v2` retains v1 exact-time windows and also accepts native date
+windows: `time_precision: "date"`, inclusive ISO `period_start`/`period_end` of at
+most 31 days, and `coverage: "reported"`. These records contain `effective_date`
+instead of `effective_at`. Their hashed source references derive from stable
+broker transaction identifiers, not report order or a fabricated timestamp.
+Overlapping reports may repeat the same unchanged event; conflicting facts are
+rejected. Reported-empty is not proof of zero external flows.
+
+The existing SQLite account/source context is reused, with direct readback after
+write. Session-protected history GET returns the original date precision and
+decimal strings. Date-only records cannot satisfy the exact-time coverage used
+by Modified Dietz and do not acquire intraday weights. They do not overwrite
+qualified native broker TWR, infer transfers, or reclassify dividends, interest,
+fees, settlement or FX as external capital.

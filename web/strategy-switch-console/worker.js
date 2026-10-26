@@ -472,6 +472,7 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
   "account_settings_profile_application_claim",
 ]);
 const ACCOUNT_FACTS_DO_ACTIONS = new Set([
+  "account_external_flow_put",
   "account_executions_put", "account_executions_read",
   "account_period_return_put", "account_period_return_read",
   "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read",
@@ -954,6 +955,9 @@ export default {
       }
       if (url.pathname === "/api/account-facts/period-return/sync" && request.method === "POST") {
         return syncAccountPeriodReturnResponse(request, env);
+      }
+      if (url.pathname === "/api/account-facts/external-flow/sync" && request.method === "POST") {
+        return syncAccountExternalFlowResponse(request, env);
       }
       if (url.pathname === "/api/account-facts/executions/sync" && request.method === "POST") {
         return syncAccountExecutionsResponse(request, env);
@@ -2788,6 +2792,18 @@ export class RuntimeInstances {
       return command.action === "account_executions_read"
         ? { ok: true, executions: readExecutions(this.sql, context) }
         : { ok: true, ...putExecutions(this.sql, context, command.payload) };
+    }
+    if (command.action === "account_external_flow_put") {
+      if (!this.externalFlowEnabled) throw new HttpError("external_flow_disabled", 409);
+      const context = this.accountFactsStorageContext(command);
+      const flow = normalizeExternalFlow(command.externalFlow);
+      const source = { ibkr: "ibkr_flex", schwab: "schwab_transactions", longbridge: "longbridge_cashflow" }[context.platform];
+      if (!source || flow.windows.some(w => w.source !== source)) throw new HttpError("external_flow_source_mismatch", 409);
+      const stored = putExternalFlow(this.sql, context, flow);
+      const readback = readExternalFlow(this.sql, context);
+      const readbackVerified = flow.windows.every(w => readback?.windows.some(saved => JSON.stringify(saved) === JSON.stringify(w)));
+      if (!readbackVerified) throw new HttpError("external_flow_readback_failed", 503);
+      return { ok: true, ...stored, readback_verified: true };
     }
     if (command.action === "account_facts_put") return this.putAccountFactsObservation(command);
     if (command.action === "account_facts_read") return this.readAccountFactsObservation(command);
@@ -10798,6 +10814,47 @@ async function readBoundAccountExecutions(option, env) {
   const stored = await runtimeInstanceCommand(env, periodReturnCommand(matches[0], "account_executions_read"));
   if (!stored.ok) throw new HttpError("execution_store_unavailable", 503);
   return stored.executions;
+}
+
+async function syncAccountExternalFlowResponse(request, env) {
+  if (!accountFactsReadModelEnabled(env)) return accountFactsDisabledResponse();
+  try {
+    const platform = requireDedicatedAccountFactsSyncToken(request, env);
+    if (!externalFlowEnabled(env)) throw new HttpError("external_flow_disabled", 409);
+    if (!hasConfigStore(env) || !hasRuntimeInstanceStore(env)) throw new HttpError("account_facts_store_unavailable", 503);
+    const raw = await readBoundedJson(request, ACCOUNT_FACTS_MAX_BODY_BYTES);
+    const fields = ["schema_version", "target_id", "source_binding_id", "account_scope", "account_selector", "externalFlow"];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).length !== fields.length
+        || fields.some(key => !Object.hasOwn(raw, key)) || raw.schema_version !== "account_external_flow.v1") {
+      throw new HttpError("invalid_external_flow", 400);
+    }
+    const bindings = await loadAccountFactsBindings(env);
+    const resolved = resolveTrustedAccountFactsBinding(bindings, raw.target_id, raw.source_binding_id);
+    if (!resolved.ok || resolved.binding.platform !== platform) throw new HttpError("account_facts_identity_mismatch", 409);
+    const binding = resolved.binding;
+    if (raw.account_scope !== binding.account_scope || raw.account_selector !== binding.account_selector) {
+      throw new HttpError("account_facts_identity_mismatch", 409);
+    }
+    const config = await loadAccountOptionsConfig(env);
+    const options = (config.options?.[platform] || []).filter(item => item.key === binding.account_key);
+    if (options.length !== 1 || !accountFactsOptionMatchesBinding(options[0], binding)) throw new HttpError("account_facts_account_unattributed", 409);
+    const flow = normalizeExternalFlow(raw.externalFlow);
+    const source = { ibkr: "ibkr_flex", schwab: "schwab_transactions", longbridge: "longbridge_cashflow" }[platform];
+    if (!source || flow.windows.some(w => w.source !== source)) throw new HttpError("external_flow_source_mismatch", 409);
+    const stored = await runtimeInstanceCommand(env, { action: "account_external_flow_put", platform,
+      account_key: binding.account_key, account_scope: binding.account_scope, account_selector: binding.account_selector,
+      target_id: binding.target_id, source_binding_id: binding.source_binding.id,
+      ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM ? { broker_account_hash: binding.broker_account_hash } : {}),
+      ...(platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? { broker_account_id: binding.broker_account_id } : {}),
+      externalFlow: flow });
+    return json({ ok: true, stored: true, unchanged: stored.unchanged === true, readback_verified: stored.readback_verified === true,
+      account_key: binding.account_key, window_count: flow.windows.length,
+      record_count: new Set(flow.windows.flatMap(w => w.records.map(r => r.source_ref))).size });
+  } catch (error) {
+    if (error instanceof AccountFactsError || error instanceof HttpError || error?.code?.startsWith("external_flow")
+        || error?.code === "invalid_external_flow") return accountFactsErrorResponse(error);
+    return json({ ok: false, error: "account_external_flow_unavailable" }, 503);
+  }
 }
 
 async function syncAccountExecutionsResponse(request, env) {
