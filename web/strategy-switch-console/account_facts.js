@@ -139,11 +139,18 @@ function normalizeBrokerReportedPositions(platform, raw) {
   const positions = rows.map((item) => {
     const hasAvgCost = Object.prototype.hasOwnProperty.call(item || {}, "avg_cost");
     const hasCurrencySource = Object.prototype.hasOwnProperty.call(item || {}, "currency_source");
+    const hasBrokerCost = Object.prototype.hasOwnProperty.call(item || {}, "broker_cost_price")
+      || Object.prototype.hasOwnProperty.call(item || {}, "broker_cost_method");
     const keys = [...POSITION_KEYS, ...(hasAvgCost ? ["avg_cost"] : []),
-      ...(hasCurrencySource ? ["currency_source"] : [])];
+      ...(hasCurrencySource ? ["currency_source"] : []),
+      ...(hasBrokerCost ? ["broker_cost_price", "broker_cost_method"] : [])];
     if (!exactKeys(item, keys)
         || typeof item.symbol !== "string" || !POSITION_SYMBOL_RE.test(item.symbol) || seen.has(item.symbol)
         || typeof item.currency !== "string" || !CURRENCY_RE.test(item.currency)
+        || (hasBrokerCost && (platform !== "longbridge" || !hasComplete
+          || item.broker_cost_method !== "broker_configured"
+          || typeof item.broker_cost_price !== "string"
+          || !/^-?(?:0|[1-9]\d{0,29})(?:\.\d{1,28})?(?![\s\S])/.test(item.broker_cost_price)))
         || (hasCurrencySource && !((platform === "schwab" && item.currency_source === "owner_confirmed" && item.currency === "USD")
           || (platform === "firstrade" && item.currency_source === "configured")))
         || ["quantity", "market_value", ...(hasAvgCost ? ["avg_cost"] : [])].some((key) => {
@@ -160,6 +167,10 @@ function normalizeBrokerReportedPositions(platform, raw) {
     seen.add(item.symbol);
     const row = { symbol: item.symbol, quantity: item.quantity, market_value: item.market_value, currency: item.currency };
     if (hasAvgCost) row.avg_cost = item.avg_cost;
+    if (hasBrokerCost) {
+      row.broker_cost_price = item.broker_cost_price;
+      row.broker_cost_method = item.broker_cost_method;
+    }
     // Preserve explicit currency provenance; never infer it at the receiver.
     if (hasCurrencySource) row.currency_source = item.currency_source;
     return row;

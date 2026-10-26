@@ -98,3 +98,22 @@ repository CI remains required; synthetic checks do not prove production adoptio
 审阅兼容或迁移方案，不能靠等待过期或未经批准删除证据解决。若其他控制台 PR
 先合入，先协调基线，再按上述构建脚本重新生成资产文件，不手工合并生成内容。
 上述测试覆盖兼容、范围、边界、持久化、拒写保护及历史保留，不证明生产已采用。
+
+## LongBridge native cost compatibility
+
+An explicitly complete LongBridge stock inventory may include the optional pair
+`broker_cost_price` (signed decimal text, up to 30 integer and 28 fractional
+digits) and `broker_cost_method: "broker_configured"` on each position. The value
+comes directly from native `cost_price` and follows the account's average-buy or
+diluted-cost setting. Negative and zero costs and trailing precision are retained.
+Missing or invalid optional native costs are omitted by acquisition; malformed
+extended wire records are rejected. Legacy records remain readable.
+
+The authenticated account-facts and performance holdings APIs retain this pair.
+It is separate from `avg_cost`, quotes and unrealized P/L; no cost basis, current
+price or profit is derived from it. Existing frontend consumers may ignore the
+new optional fields. Release the compatible receiver before extended publishers.
+Keep that receiver during rollback after extended records have been persisted;
+stop sending the pair before considering a receiver downgrade.
+
+Native source contract: https://open.longbridge.com/docs/trade/asset/stock .

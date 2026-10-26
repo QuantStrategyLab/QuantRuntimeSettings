@@ -211,6 +211,12 @@ export function holdingsRows(accounts) {
           market_value: value,
           currency: p.currency,
           avg_cost: cost,
+          // Preserve the native setting-dependent cost as text, separately from P/L.
+          ...(a.platform === "longbridge" && p.broker_cost_method === "broker_configured"
+            && typeof p.broker_cost_price === "string" ? {
+              broker_cost_price: p.broker_cost_price,
+              broker_cost_method: p.broker_cost_method,
+            } : {}),
           unrealized_pnl:
             cost !== null && quantity !== null && value !== null
               ? value - cost * quantity
