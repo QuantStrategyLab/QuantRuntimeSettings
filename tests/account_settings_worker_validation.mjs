@@ -7,6 +7,20 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 
+for (const [env, observed, reason] of [
+  [{}, { platform: "longbridge", config: {} }, "reader_not_configured"],
+  [{ RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-only" }, { platform: "synthetic-unmapped", config: {} }, "repository_not_configured"],
+  [{ RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-only" }, { platform: "longbridge" }, "account_config_unavailable"],
+]) {
+  const { effective, effectiveRead } = await __test.effectiveAccountSettings(env, observed);
+  for (const field of ["strategy_profile", "dca_mode", "dca_base_investment_usd", "reserved_cash_floor",
+    "reserved_cash_ratio", "income_layer_enabled", "option_overlay_enabled"]) {
+    assert.equal(effectiveRead[field].status, "unknown");
+    assert.equal(effectiveRead[field].reason, reason);
+    assert.equal(Object.hasOwn(effective[field] || {}, "value"), false);
+  }
+}
+
 const observedAuditFields = {
   draft: { overrides: { reserved_cash_floor: "10", income_layer_enabled: false } },
   risk: { preference: "BALANCED_COMPOUNDING" },
@@ -1228,6 +1242,7 @@ assert.equal(afterOptionReject.body.draft.overrides.option_overlay_enabled, true
 await mf.dispose();
 
 const dcaFetches = [];
+let settingsReadFailure = null;
 let sgDcaVariables = [
   { name: "STRATEGY_PROFILE", value: "nasdaq_sp500_smart_dca" },
   { name: "DCA_MODE", value: "smart" },
@@ -1251,6 +1266,16 @@ const knownMf = new Miniflare({
   outboundService: (request) => {
     const url = String(request?.url || "");
     dcaFetches.push(url);
+    assert.equal(request.method, "GET", "effective settings never write upstream variables");
+    if (settingsReadFailure) {
+      if (settingsReadFailure === "network") throw Error("synthetic-private-upstream-detail");
+      if (settingsReadFailure === "invalid_json") return new Response("synthetic-private-upstream-detail", { status: 200 });
+      if (settingsReadFailure === "invalid_listing") return Response.json({ variables: {} });
+      if (settingsReadFailure === "later_page" && new URL(url).searchParams.get("page") === "1")
+        return Response.json({ variables: [{ name: "STRATEGY_PROFILE", value: "synthetic-must-not-survive" }] },
+          { headers: { Link: '<https://api.github.com/synthetic>; rel="next"' } });
+      return new Response("synthetic-private-upstream-detail", { status: Number(settingsReadFailure) || 503 });
+    }
     const extra = url.includes("/environments/longbridge-sg/") ? sgDcaVariables
       : url.includes("/environments/longbridge-hk/") ? hkDcaVariables
       : [];
@@ -1287,6 +1312,59 @@ const sgReads = dcaFetches.filter((url) => url.includes("/environments/longbridg
 assert.equal(sgReads.length, 1);
 assert.equal(sgReads.some((url) => url.includes("DCA_MODE")), false);
 assert.equal(known.body.current_dca_supported, true);
+// WEB-GAP-FIX-03: exercise the real reader, resolver and HTTP projection.
+const settingFields = ["strategy_profile", "dca_mode", "dca_base_investment_usd", "reserved_cash_floor",
+  "reserved_cash_ratio", "income_layer_enabled", "option_overlay_enabled"];
+for (const field of settingFields) {
+  assert.equal(known.body.effective_read[field].source, "github_runtime_configuration");
+  assert.equal(known.body.effective_read[field].source_as_of, null, "request time is not source time");
+}
+assert.equal(known.body.effective_read.reserved_cash_floor.reason, "runtime_setting_unresolved");
+assert.equal(known.body.effective_read.dca_mode.reason, null);
+const knownDiff = await knownCall("/api/account-settings/diff?account=sg&platform=longbridge");
+assert.equal(knownDiff.status, 200);
+assert.equal(knownDiff.body.rows.find(row => row.field === "dca_mode").current_source, "github_runtime_configuration");
+assert.equal(knownDiff.body.rows.find(row => row.field === "reserved_cash_floor").current_reason, "runtime_setting_unresolved");
+for (const failure of ["401", "403", "503", "invalid_json", "invalid_listing", "later_page", "network"]) {
+  settingsReadFailure = failure;
+  const failed = await knownCall("/api/account-settings?platform=longbridge&key=sg");
+  assert.equal(failed.status, 200, failure);
+  for (const field of settingFields) {
+    assert.equal(failed.body.effective_read[field].status, "unknown", failure + ":" + field);
+    assert.equal(failed.body.effective_read[field].reason, "runtime_configuration_read_failed", failure + ":" + field);
+    assert.equal(failed.body.effective_read[field].source_as_of, null);
+    assert.equal(Object.hasOwn(failed.body.effective[field] || {}, "value"), false);
+  }
+  assert.equal(failed.body.effective.broker_environment.status, "known", "independent identity remains visible");
+  assert.equal(JSON.stringify(failed.body).includes("synthetic-private-upstream-detail"), false);
+  assert.equal(JSON.stringify(failed.body).includes("synthetic-must-not-survive"), false);
+}
+const failedDiff = await knownCall("/api/account-settings/diff?account=sg&platform=longbridge");
+for (const row of failedDiff.body.rows) {
+  assert.equal(row.current, null);
+  assert.equal(row.current_status, "unknown");
+  assert.equal(row.current_reason, "runtime_configuration_read_failed");
+  assert.equal(row.current_source_as_of, null);
+}
+settingsReadFailure = null;
+const originalSgVariables = sgDcaVariables;
+sgDcaVariables = [];
+const emptyVariables = await knownCall("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(emptyVariables.body.effective_read.strategy_profile.reason, "runtime_setting_unresolved");
+assert.equal(emptyVariables.body.effective_read.dca_mode.reason, "strategy_profile_unresolved");
+sgDcaVariables = [
+  { name: "STRATEGY_PROFILE", value: "nasdaq_sp500_smart_dca" },
+  { name: "LONGBRIDGE_RESERVED_CASH_RATIO", value: "0" },
+  { name: "INCOME_LAYER_ENABLED", value: "false" },
+  { name: "OPTION_OVERLAY_ENABLED", value: "false" },
+];
+const realZero = await knownCall("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(realZero.body.effective.reserved_cash_ratio.value, "0");
+assert.equal(realZero.body.effective.income_layer_enabled.value, false);
+assert.equal(realZero.body.effective.option_overlay_enabled.value, false);
+assert.equal(realZero.body.effective_read.dca_mode.reason, "runtime_setting_unresolved");
+sgDcaVariables = originalSgVariables;
+
 const savedDcaFixed = await knownCall("/api/account-settings", { platform: "longbridge", key: "sg", identity: known.body.identity,
   expected_draft_revision: known.body.draft.revision,
   overrides: { strategy_profile: "nasdaq_sp500_smart_dca", dca_mode: "fixed", dca_base_investment_usd: "75.25" } });
@@ -1326,7 +1404,9 @@ const missing = await knownCall("/api/account-settings?platform=longbridge&key=h
 assert.equal(missing.body.effective.reserved_cash_ratio.value, "0.25");
 assert.equal(missing.body.effective.strategy_profile.value, "russell_top50_leader_rotation");
 assert.equal(Object.hasOwn(missing.body.effective, "dca_mode"), false);
+assert.equal(missing.body.effective_read.dca_mode.reason, "dca_not_applicable");
 assert.equal(Object.hasOwn(missing.body.effective, "dca_base_investment_usd"), false);
+assert.equal(missing.body.effective_read.dca_base_investment_usd.reason, "dca_not_applicable");
 hkDcaVariables = [
   { name: "STRATEGY_PROFILE", value: "crypto_btc_dca" },
   { name: "DCA_MODE", value: "smart" },
@@ -1335,7 +1415,9 @@ hkDcaVariables = [
 const namedOnly = await knownCall("/api/account-settings?platform=longbridge&key=hk");
 assert.equal(namedOnly.body.effective.strategy_profile.value, "crypto_btc_dca");
 assert.equal(Object.hasOwn(namedOnly.body.effective, "dca_mode"), false);
+assert.equal(namedOnly.body.effective_read.dca_mode.reason, "dca_not_applicable");
 assert.equal(Object.hasOwn(namedOnly.body.effective, "dca_base_investment_usd"), false);
+assert.equal(namedOnly.body.effective_read.dca_base_investment_usd.reason, "dca_not_applicable");
 hkDcaVariables = [
   { name: "STRATEGY_PROFILE", value: "nasdaq_sp500_smart_dca" },
   { name: "DCA_MODE", value: "weekly" },

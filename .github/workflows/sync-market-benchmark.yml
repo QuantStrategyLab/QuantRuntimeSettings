@@ -1,11 +1,13 @@
 name: Sync Market Benchmark Closes
 
-# After US cash equity close (approx 20:00–21:00 UTC). Weekday evenings UTC.
+# Run after New York midnight so the producer's prior-date filter includes the
+# completed US session, including Friday. 05:30 UTC is after midnight in both
+# EST and EDT; Tuesday–Saturday UTC collects Monday–Friday without extra runs.
 # Empty scheduled pre-close runs exit soft-success without fabricating points.
 
 on:
   schedule:
-    - cron: "30 21 * * 1-5"
+    - cron: "30 5 * * 2-6"
   workflow_dispatch:
     inputs:
       dry_run:

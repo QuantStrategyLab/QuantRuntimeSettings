@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage, useT } from "../i18n";
 import type { Point } from "../api/contracts";
-import { formatMoney } from "../lib/format";
+import { formatMoney, maskedAmount } from "../lib/format";
 import { usePrefs } from "../app/context";
 
 const WIDTH = 800;
 const HEIGHT = 220;
 const PAD = { top: 12, right: 12, bottom: 24, left: 64 };
+
+function dayMs(date: string): number {
+  return Date.parse(`${date}T00:00:00Z`);
+}
 
 /** Single-series asset area chart; cash-flow points (externalFlow ≠ 0) get markers. No benchmarks. */
 export function AreaChart({
@@ -50,11 +54,20 @@ export function AreaChart({
     return { yMin: min - pad, yMax: max + pad };
   }, [points]);
 
-  const formatValue = (value: number) => (prefs.hideAmounts ? "•••" : formatMoney(value, currency, language));
+  const formatValue = (value: number) => (prefs.hideAmounts ? maskedAmount(value) : formatMoney(value, currency, language));
   const ticks = [0, 1, 2, 3, 4].map(i => yMin + ((yMax - yMin) * i) / 4);
   const pad = { ...PAD, left: Math.max(PAD.left, ...ticks.map(value => formatValue(value).length * 8 + 16)) };
   const chartWidth = Math.max(width, pad.left + 80);
-  const xFor = (i: number) => pad.left + (points.length <= 1 ? 0 : (i / (points.length - 1)) * (chartWidth - pad.left - PAD.right));
+  const plotWidth = chartWidth - pad.left - PAD.right;
+  const firstTime = points.length ? dayMs(points[0]!.date) : 0;
+  const lastTime = points.length ? dayMs(points.at(-1)!.date) : 0;
+  const timeSpan = lastTime - firstTime;
+  // Real calendar spacing keeps long gaps visible instead of equalizing every record.
+  const xFor = (i: number) => {
+    if (points.length <= 1 || !(timeSpan > 0)) return pad.left + plotWidth / 2;
+    const ratio = (dayMs(points[i]!.date) - firstTime) / timeSpan;
+    return pad.left + Math.min(Math.max(ratio, 0), 1) * plotWidth;
+  };
   const yFor = (value: number) => PAD.top + (1 - (value - yMin) / (yMax - yMin)) * (HEIGHT - PAD.top - PAD.bottom);
 
   const linePath = points.map((point, i) => `${point.breakBefore || i === 0 ? "M" : "L"}${xFor(i).toFixed(2)},${yFor(point.value).toFixed(2)}`).join("");
@@ -63,7 +76,10 @@ export function AreaChart({
     if (i === 0 || point.breakBefore) segments.push([]);
     segments.at(-1)!.push(i);
   });
-  const areaPath = segments.map(indices =>
+  // A one- or two-point segment is a sparse tail, not a filled area: filling it
+  // would draw a tall band over a real gap. Only three or more consecutive
+  // points get an area; shorter segments keep their real line and points.
+  const areaPath = segments.filter(indices => indices.length >= 3).map(indices =>
     `M${xFor(indices[0]).toFixed(2)},${yFor(yMin).toFixed(2)}${indices.map(i => `L${xFor(i).toFixed(2)},${yFor(points[i].value).toFixed(2)}`).join("")}L${xFor(indices.at(-1)!).toFixed(2)},${yFor(yMin).toFixed(2)}Z`,
   ).join("");
 
@@ -72,9 +88,32 @@ export function AreaChart({
     if (!frame || points.length === 0) return;
     const rect = frame.getBoundingClientRect();
     const x = ((clientX - rect.left) / rect.width) * chartWidth;
-    const i = Math.round(((x - pad.left) / (chartWidth - pad.left - PAD.right)) * (points.length - 1));
-    setCursor(Math.max(0, Math.min(points.length - 1, i)));
+    const clamped = Math.min(Math.max(x, pad.left), pad.left + plotWidth);
+    const time = timeSpan > 0 ? firstTime + ((clamped - pad.left) / plotWidth) * timeSpan : firstTime;
+    let best = 0;
+    let bestDelta = Infinity;
+    points.forEach((point, i) => {
+      const delta = Math.abs(dayMs(point.date) - time);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = i;
+      }
+    });
+    setCursor(best);
   };
+
+  const xTicks = (() => {
+    const count = points.length;
+    if (count === 0) return [];
+    const wanted = chartWidth < 480 ? 2 : chartWidth < 760 ? 3 : 5;
+    return [...new Set(Array.from({ length: wanted }, (_, i) =>
+      Math.round((i / Math.max(1, wanted - 1)) * (count - 1))))]
+      .map(i => ({
+        i,
+        date: points[i]!.date,
+        anchor: i === 0 ? "start" : i === count - 1 ? "end" : "middle",
+      }));
+  })();
 
   const current = cursor !== null ? points[cursor] : null;
 
@@ -101,12 +140,24 @@ export function AreaChart({
             </g>
           );
         })}
+        {xTicks.map(tick => (
+          <text
+            key={tick.i}
+            x={xFor(tick.i)}
+            y={HEIGHT - 6}
+            textAnchor={tick.anchor}
+            fontSize="11"
+            fill="var(--muted)"
+          >
+            {tick.date.slice(5)}
+          </text>
+        ))}
         {points.length > 0 && (
           <>
             <path d={areaPath} fill="var(--accent)" opacity="0.12" />
             <path d={linePath} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-            {segments.filter(indices => indices.length === 1).map(([i]) =>
-              <circle key={points[i].date} cx={xFor(i)} cy={yFor(points[i].value)} r="3" fill="var(--accent)" />,
+            {segments.filter(indices => indices.length < 3).flatMap(indices =>
+              indices.map(i => <circle key={points[i].date} cx={xFor(i)} cy={yFor(points[i].value)} r="3" fill="var(--accent)" />),
             )}
             {points.map((point, i) =>
               point.externalFlow ? (

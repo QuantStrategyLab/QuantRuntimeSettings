@@ -132,7 +132,7 @@ assert.match(overview, /loadedBenchmarkPoints/);
 
 const workflow = await fs.readFile(new URL("../.github/workflows/sync-market-benchmark.yml", import.meta.url), "utf8");
 assert.match(workflow, /sync_market_benchmark_closes\.mjs/);
-assert.match(workflow, /30 21 \* \* 1-5/);
+assert.match(workflow, /30 5 \* \* 2-6/);
 
 console.log("market_benchmark_validation ok");
 
@@ -260,6 +260,17 @@ assert.deepEqual(closedSessionPoints(sessionPts, new Date("2026-10-14T21:30:00Z"
   ["2026-10-12", "2026-10-13"]); // even after close, same ET day waits until tomorrow
 assert.deepEqual(closedSessionPoints(sessionPts, new Date("2026-10-15T04:00:00Z")).map((p) => p.observationDate),
   ["2026-10-12", "2026-10-13", "2026-10-14"]);
+// Friday's close is intentionally withheld on Friday ET. The next scheduled
+// Saturday run must collect it, without admitting Saturday or intraday bars.
+for (const [friday, saturday, run] of [
+  ["2026-10-23", "2026-10-24", "2026-10-24T05:30:00Z"],
+  ["2026-12-11", "2026-12-12", "2026-12-12T05:30:00Z"],
+]) {
+  const bars = [friday, saturday].map(observationDate => ({ observationDate }));
+  assert.equal(newYorkDate(new Date(run)), saturday);
+  assert.deepEqual(closedSessionPoints(bars, new Date(run)).map(point => point.observationDate), [friday]);
+  assert.deepEqual(closedSessionPoints(bars, new Date(`${friday}T21:30:00Z`)), []);
+}
 console.log("market_benchmark_closed_session_validation ok");
 
 // Apply-revision path is opt-in and must not run without the dedicated token.

@@ -1,5 +1,23 @@
 # 策略切换控制台
 
+## 有效账户设置来源
+
+登录后的 `GET /api/account-settings` 保留原 `effective` 值结构，另加独立的七字段 `effective_read` 元数据。每项元数据包含 `source=github_runtime_configuration`、`reason` 和 `source_as_of=null`。source 说明现有按账户匹配的 GitHub 运行配置解析路径，不代表某个具体变量、已部署状态或券商回读；reader 没有可靠的逐字段源时间戳。原 known 值、解析优先级、身份、草稿和写入权限保持原语义。非 DCA 的值字段仍省略，避免旧客户端误显示未核实的定投计划。
+
+缺少 reader 配置、仓库映射或账户配置时，逐字段 unknown，原因分别为 `reader_not_configured`、`repository_not_configured`、`account_config_unavailable`。HTTP、网络、JSON 或列表结构读取失败（包括后续分页失败）时，七字段均为 `runtime_configuration_read_failed`，不沿用前页值，不暴露上游异常正文。读取成功但无法解析字段时为 `runtime_setting_unresolved`，不能据此区分缺失、非法或未匹配。DCA 仅在平台不支持或已知策略不支持时为 `dca_not_applicable`；策略未知时为 `strategy_profile_unresolved`。读取失败优先。known 的 `reason=null`，显式0和false保留原值；unknown 有效值不包含 `value`，元数据不包含值。
+
+`GET /api/account-settings/diff` 的每行增加 `current_source`、`current_reason`、`current_source_as_of`，unknown 的 `current=null`。无元数据的旧输入返回空来源/时间及 `effective_field_unavailable`。HTTP 200 只表示成功读取状态投影，不证明全部有效值已知；鉴权、存储失败及身份冲突的原 HTTP/状态语义保留。不补0、不插值、不沿用旧值、不推断默认值。这些接口不修改账户参数，也不证明生产源权限或部署健康。
+
+## 按任务阅读
+
+[文档索引](../../docs/README.md) · [English contents](README.md#reading-by-task)
+
+- **安装与配置：**[平台目录](#平台目录配置)、[必要配置](#必要配置)、[GitHub OAuth](#github-oauth-app)、[Worker 部署](#cloudflare-worker-部署)。
+- **接口：**[操作台模型](#操作台模型)、[每日运行读模型](#每日运行读模型)、[只读平台状态](#平台运行状态只读接口)、[API 参考](../../docs/console-api.md)。
+- **运维：**[停用入口边界](#严格停用入口的当前边界)、[人工决定与读回](#人工决定收据与精确读回)、[旧实盘恢复意图](#旧实盘恢复核验仅意图)、[Token 权限](#token-权限)。
+
+目录只归类原有章节，原权限、未知结果和仅修改配置的限制继续适用。部署示例需在已授权的具体环境使用。
+
 [English](README.md)
 
 这是个人量化系统的登录版网页控制台示例，也是统一全局决策平台的演进起点。它用 Cloudflare Worker 提供一个很薄的后端：
@@ -259,6 +277,18 @@ LongBridge 原7字段 evidence 和 unmatched-report 协议保留。Schwab 严格
 `receipt_state`、`receipt_id`；未匹配报告仅有固定 `reason`。缺失/无效 receipt 不补造，原始 URI、账户身份和
 receipt 内部字段不对 GET 公开，仅保留安全的运行异常分类。64KiB/20 runs/20列表项预算不变，超限拒绝。
 缺当日对象是空数据，不是无交易；`fills` 永远为 `not_connected`、空 records、null count。
+
+每日 GET 新增 `read_summary`，来源是既有已校验日投影，`source` 固定为
+`stored_runtime_daily_projection`。`status` 为 `complete`、`partial`、`no_data` 或
+`read_failed`，`reason` 为 null 或固定公开原因。`observed_run_count` 只计已保留的源运行，
+`total_run_count` 仅在投影完整时有值。HTTP 200 可同时是 partial：保留全部已读运行，原因
+`runtime_daily_incomplete`，总次数为 null。缺键仍200/no_data，原因
+`runtime_daily_record_missing`，两个次数均 null。KV/JSON读取失败或已存投影无效仍503/read_failed，
+原因沿用既有固定错误码，两个次数均 null。认证、选择和绑定错误沿用原响应。不泄漏异常或私有诊断，
+不插值、不以0补读失败；只有明确完整的调度记录可给出真实零次。摘要仅描述已保存投影，不能证明生产者
+发现了全部真实运行；完整读取也不表示执行成功或数据新鲜。既有 record、runs、read_error_codes、
+data_status 和源时间保持。因此历史格子的读取不完整与已观察到多次运行可以同时成立。
+历史目录覆盖（history，未读取时为null）单独表达，不并入某一天的读取摘要。
 
 精确绑定的 Schwab 来源仅公开安全 schedule reason 白名单 `no_cron_on_business_date`、`market_closed`。
 既有身份、lifecycle/部署新鲜度、纽约当前业务日、完整性、运行异常及通道检查全部通过后，当前业务日观察到、
@@ -600,6 +630,8 @@ node web/strategy-switch-console/ux1_local_demo.mjs --interpreter <绝对路径>
 
 `ACCOUNT_FACTS_READ_MODEL_ENABLED=true` 才开放账户事实接口；现有 `runtime-strategy-switch` GitHub Environment 的同名非 secret variable 会被部署工作流写入 Wrangler 配置，空值按 `false` 处理，其他值在部署前拒绝。设置为 `true` 时还要求专用 `ACCOUNT_FACTS_SYNC_TOKEN` secret 非空、无首尾空白且不含 HTTP 控制字符，否则部署前拒绝。LongBridge POST 使用此 token；IBKR POST 只接受独立可选 `IBKR_ACCOUNT_FACTS_SYNC_TOKEN`，若配置则必须无首尾空白且不含 HTTP 控制字符。两 token 必须不同；缺少 IBKR token 时 IBKR 同步拒绝，不能回退到 LongBridge token。GET `/api/account-facts` 和 `/api/account-facts/history?platform=longbridge&account_key=…&currency=USD` 使用既有登录授权。需要现有配置存储和 `STRATEGY_SWITCH_RUNTIME_INSTANCES` Durable Object；缺失时不回退为 KV 写入。token 仅用于部署前检查和 Worker secret 同步，不写入 Wrangler TOML。启用开关或配置 token 均不代表读模型已获准生产来源。
 
+GET `/api/account-facts` 新增 `asset_coverage`，仅说明已有账户事实汇总的覆盖（`scope=account_facts_totals`、`source=validated_account_facts_snapshot`）。`totals_status`/`totals_reason` 与 `totals` 一致；每个配置账户仅包含 `platform`、`account_key`（配置别名）、`status`、`reason`、`observation_date`（估值日）、`observed_finished_at`（观察时间）。`included` 表示实际参与可用汇总；`excluded` 表示模拟账户或重复别名；`unavailable` 以固定代码解释数据源、绑定、身份、快照、时效或资产字段缺失；`blocked` 表示单户满足条件但全局汇总不可用，原因带 `aggregate_` 前缀。Binance 钱包历史属于独立来源，此处为 `source_not_supported`。缺失或无效日期保持 null，旧日期保留且明确标旧；不增加金额或券商身份，不补0、不沿用旧值、不插值、不换汇。配置/绑定读失败返回脱敏 HTTP 503（`account_options_unreadable` / `account_facts_bindings_unreadable`），不能当作成功空清单。该投影不证明持仓、现金流或收益历史覆盖。
+
 配置存储中的 `account_facts_bindings` 使用 `qsl_account_facts_bindings.v1`。LongBridge binding 使用 `platform=longbridge`、现有 `deployment_scope_token_version` 来源及精确账户选项；IBKR binding 使用 `platform=ibkr`、`source_binding.kind=deployment_runtime_account`，并将 `account_scope` 与 `account_selector` 分别绑定到准确选项。IBKR 历史合同为 `ibkr_account_snapshot_history.v1` / `ibkr_account_snapshot.v1`；服务端从schema及专用 token 确定平台，调用方不能提供 platform 或 account_key。`account_ids` 必须是唯一的单项 native ID，且与服务器 binding 的 `account_selector` 完全一致。IBKR 仅接受逐币种 `net_assets`（可为 null）和带允许 source tag 的 `cash_balance`，不合成 total cash；null 净值不画图、不当作零。字段和来源需来自可信部署/账户材料，身份变化后旧观察不可使用。binding 不证明已核实的物理账户所有权或实盘授权；跨账户总额仍不可用。
 
 接收 LongBridge 已持久化的 `longbridge_account_snapshot_history.v1`，保留原观察时间和分币种金额；首次接收限定原观察开始后15分钟，不提供历史回填入口。最新观察与每日最后观察在同一事务保存，历史最多保留366个UTC观察日；缺日/缺币种留空，历史曲线不代表收益。完整外部资金流未提供时不计算收益；物理账户未去重时不汇总全部账户金额。
@@ -620,3 +652,7 @@ Firstrade 资料使用 `firstrade_account_snapshot_history.v1` / `firstrade_acco
 首次配置时，若 binding Secret 还不存在，可由原批准云端只读保存 `FIRSTRADE_ACCOUNT_FACTS_RUNTIME_JSON` 到同一受保护环境。它包含 `service_name`、`serving_source_sha` 与原 `runtime_target`（platform/service/deployment/scope/唯一原生 selector），不得从页面名称或报告复制预期身份。绑定 workflow 精确匹配现有账户选项的 service、deployment 和 scope；新来源摘要只由原部署/范围/原生身份确定，已有准确绑定保留，冲突拒绝。既有 `RUNTIME_SETTINGS_GH_TOKEN` 仅在 Firstrade 模式注入，用 stdin 写发送端四项 Secret 和接收端 binding Secret，并核名称/公开变量读回；发送开关保持 false。随后沿用原 KV 写入/精确读回，不调用券商、不刷新认证、不改 IAM、调度或流量。部分写入失败/未知立即停车，不能盲重准备；专用同步 token 须先在原 Secret Manager 和接收环境安全配置，真实服务采用/缓存资格/余额发布仍单独验证。
 
 持仓发布顺序与回退边界：[分阶段发布说明](../../docs/account-facts-holdings-rollout.md)。
+
+### 通知回执读取完整性
+
+GET `/api/notifications/send-log` 增加 `read_status` 和固定 `read_reason_codes`，与逐条回执的送达结果分别表达。`complete` 仅指已列出的运行都有可读公开回执、且已完成运行列表未超过既有5次上限；不证明已送达、覆盖当前业务日或其他通知流程。只有明确为空的已完成运行列表（`total_count=0`）才为 `no_data`。列表总数未知时，空列表为 `unknown`，有条目则为 `partial`。截断、列表缺行、回执缺失/过期、发送步骤跳过均为 `partial`；访问/读取失败时，仍有可读条目则为 `partial`，否则为 `read_failed`。缺仓库/凭据为 `not_connected`。顶层旧 `status` 在覆盖不完整/未知时也返回 `partial`，`unavailable_reason` 区分 `notification_receipts_incomplete` 与 `notification_receipts_read_failed`。部分条目、原送达布尔值和日期均保留。`as_of` 是读取时间，`workflow_updated_at` 是流程元数据；公开回执没有发送时间时 `sent_at` 保持 null。不推算时间、金额、零值、送达证据或缺失记录。该投影仅执行 GET，不发送通知，不更改源权限或生产配置。

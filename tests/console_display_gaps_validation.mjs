@@ -71,10 +71,10 @@ try {
     assert.deepEqual(formatDateTime(null, language, true), { text: "—", zone: "" });
     globalThis.__displayState = { phase: "ready", data: { status: "unavailable", unavailable_reason: "mixed_currency", as_of: null } };
     const metrics = ui.summary(language);
-    const mainValues = [...metrics.matchAll(/<span class="kpi-value num">([\s\S]*?)<\/span><span class="kpi-foot">/g)];
+    const mainValues = [...metrics.matchAll(/<div class="kpi-value num">([\s\S]*?)<\/div>/g)];
     assert.equal(mainValues.length, 6);
     for (const [, value] of mainValues) assert.doesNotMatch(value.replace(/<[^>]*>/g, ""), /多币种|currenc/i, "reason must not become a main metric");
-    assert.equal((metrics.match(/class="metric-note"/g) || []).length, 1, "one shared metric explanation");
+    assert.equal((metrics.match(/class="metric-note(?:\s[^"]*)?"/g) || []).length, 1, "one shared metric explanation");
     assert.doesNotMatch(metrics, /USD [0-9]|USDT [0-9]/, "mixed currencies never produce a combined amount");
     const tabs = ui.tabs(language);
     assert.match(tabs, /id="test-tabs-tab-first"[^>]*aria-controls="test-tabs-panel"[^>]*aria-selected="false"[^>]*tabindex="-1"/);
@@ -89,16 +89,20 @@ try {
     assert.doesNotMatch(html, /context_only|未接入|not connected/i);
     noCodes(html);
     ready({ ...m0Subjects, data_status: "ready", subjects: [] });
-    assert.ok(ui.research(language).includes(language === "zh" ? "暂无研究线索" : "No research leads yet"));
+    assert.ok(ui.research(language).includes(language === "zh" ? "暂无研究资料。" : "No research data yet."));
     ready({ ...m0Subjects, data_status: "unavailable", subjects: [], errors: ["m0_research_ledger_unavailable"] });
-    assert.ok(ui.research(language).includes(language === "zh" ? "研究资料暂不可用" : "Research data unavailable"));
+    assert.ok(ui.research(language).includes(language === "zh" ? "研究资料暂时不可用。" : "Research data is temporarily unavailable."));
     for (const payload of [null, { items: [] }, { ...m0Subjects, subjects: [{}] },
       { ...m0Subjects, data_status: "unavailable", errors: ["stored_records_unreadable"] }]) {
       ready(payload);
-      assert.ok(ui.research(language).includes(language === "zh" ? "读取失败" : "Read failed"), "invalid/failed reads are not empty or disconnected");
+      const failed = ui.research(language);
+      assert.ok(failed.includes(language === "zh" ? "暂时无法加载" : "Unable to load"), "invalid/failed reads are not empty or disconnected");
+      assert.ok(failed.includes('data-state="read_failed"'));
+      assert.ok(failed.includes('role="alert"'));
     }
     globalThis.__displayState = { phase: "error", reload() {} };
-    assert.ok(ui.research(language).includes(language === "zh" ? "读取失败" : "Read failed"));
+    assert.ok(ui.research(language).includes(language === "zh" ? "暂时无法加载" : "Unable to load"));
+    assert.ok(ui.research(language).includes('data-state="read_failed"'));
     const stale = structuredClone(m0Subjects);
     stale.data_status = "stale";
     stale.subjects[0].observations[0].freshness.status = "stale";
@@ -122,7 +126,10 @@ try {
     for (const currentStrategies of [undefined, {}, { schwab: { live: { strategy_profile: "old-profile" } } },
       { schwab: { live: { strategy_profile: healthStates.strategies[1].profile } } }]) {
       const catalog = ui.catalog(language, { ...config, currentStrategies });
-      for (const account of accounts) assert.ok(catalog.includes(`title="${account.account_ref}"`), "retain platform-qualified summary identities");
+      const catalogText = catalog.replace(/<!-- -->/g, "");
+      for (const account of accounts) assert.ok(!catalog.includes(`title="${account.account_ref}"`), "identities are not hidden in internal-key tooltips");
+      assert.match(catalogText, /Schwab\s*·\s*(?:live|Live|实盘)/, "the Schwab identity stays visibly platform-qualified");
+      assert.match(catalogText, /Firstrade\s*·\s*(?:live|Live|实盘)/, "the Firstrade identity stays visibly platform-qualified");
       assert.equal((catalog.match(/class="strategy-account-link"/g) || []).length, 2, "same live aliases must remain distinct");
       assert.ok(catalog.includes(language === "zh" ? "研究策略" : "Research strategy"));
       assert.doesNotMatch(catalog, /<h3[^>]*>synthetic-profile/);
@@ -155,7 +162,7 @@ try {
       completeness: "complete", run_count: 1, activity: "filled", runs: [{ activity: "filled", errors_present: false }] };
     const summary = { status: "ok", date: "2026-10-16", timezone: "America/New_York", as_of: null,
       counts: { configured: 1, observed: 1, runs: 1 }, accounts: [account] };
-    const statValue = data => ui.stats(language, data).match(/<span class="kpi-value[^"]*">([\s\S]*?)<\/span>/g)?.at(-1) || ui.stats(language, data);
+    const statValue = data => ui.stats(language, data).match(/<div class="kpi-value[^"]*">([\s\S]*?)<\/div>/g)?.at(-1) || ui.stats(language, data);
     assert.ok(ui.stats(language, summary).replaceAll("&#x27;", "'").includes(language === "zh" ? "今日失败账户" : "Today's failed accounts"));
     assert.ok(ui.stats(language, summary).includes("2026-10-16"));
     assert.ok(ui.stats(language, summary).includes(language === "zh" ? "纽约时间" : "New York time"));
