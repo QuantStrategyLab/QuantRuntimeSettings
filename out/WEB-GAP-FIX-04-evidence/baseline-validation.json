@@ -1,0 +1,11 @@
+{
+  "base": "193b2d7f56ae5141ebf21ab79eeb89873ec4c9f8",
+  "command": "python3 -m unittest discover -s python/tests -p test_checkout_internal_dependency_consumers.py -v",
+  "exit_code": 1,
+  "summary": [
+    "Ran 13 tests in 4.358s",
+    "FAILED (failures=11)"
+  ],
+  "cause": "system Bash does not implement mapfile",
+  "log": "out/WEB-GAP-FIX-04-evidence/baseline-python.log"
+}

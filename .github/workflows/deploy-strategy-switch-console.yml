@@ -23,6 +23,29 @@ on:
         required: true
         type: boolean
         default: false
+      source_sha:
+        description: "Reviewed website backend: 9f024547; historical #764 source also requires release_frontend_assets."
+        required: false
+        type: string
+        default: ""
+      release_frontend_assets:
+        description: "Release fixed reviewed website code and frontend assets while retaining live configuration. No secret/profile sync."
+        required: true
+        type: boolean
+        default: false
+      rollback_to_pre_release:
+        description: "Restore only the selected fixed baseline (legacy or FE-RELEASE-11); never build or sync. Read-only mode takes priority."
+        required: true
+        type: boolean
+        default: false
+      rollback_version:
+        description: "Exact existing version to restore when rollback_to_pre_release is true. Never rebuild or force."
+        required: true
+        type: choice
+        default: "2beea000-cce5-43a5-9255-9724f7318e83"
+        options:
+          - "2beea000-cce5-43a5-9255-9724f7318e83"
+          - "c8dc4852-fa9d-4d14-bca3-7941587a494f"
 
 permissions:
   contents: read
@@ -55,14 +78,34 @@ jobs:
           // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/
           const fail = () => { throw new Error('worker_preflight_failed'); };
           const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value) ? value : fail();
-          const time = value => typeof value === 'string'
-            && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(value)
-            && Number.isFinite(Date.parse(value))
-            && new Date(value).toISOString().slice(0, 19) === value.slice(0, 19) ? value : fail();
+          const time = value => {
+            // date-time permits explicit offsets. Validate the local calendar too:
+            // Date.parse alone normalizes invalid dates such as February 30.
+            const match = typeof value === 'string' && /^(\d{4}-\d{2}-\d{2})[Tt](\d{2}:\d{2}:\d{2})(?:\.\d{1,9})?([Zz]|[+-]\d{2}:\d{2})$/.exec(value);
+            if (!match) fail();
+            const wall = `${match[1]}T${match[2]}Z`;
+            const offset = match[3];
+            if (!Number.isFinite(Date.parse(wall)) || new Date(wall).toISOString().slice(0, 19) !== wall.slice(0, 19)
+              || (offset.length > 1 && (Number(offset.slice(1, 3)) > 23 || Number(offset.slice(4)) > 59))
+              || !Number.isFinite(Date.parse(value.toUpperCase()))) fail();
+            return value; // Do not truncate fractional precision or rewrite the offset.
+          };
           const list = (value, minimum = 0) => Array.isArray(value) && value.length >= minimum && value.length <= 10 ? value : fail();
           const distinct = values => new Set(values).size === values.length || fail();
+          // Only fixed schema names, types and bounded counts. Never emit unknown
+          // key names: even a JSON key can contain account data or a credential.
+          const shape = (value, keys = []) => {
+            const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+            if (type === 'array') return { type, count: Math.min(value.length, 11) };
+            if (type !== 'object') return { type };
+            const fields = {};
+            for (const key of keys) if (Object.hasOwn(value, key)) fields[key] = shape(value[key]);
+            return { type, fields, other_key_count: Math.min(Object.keys(value).length - Object.keys(fields).length, 11) };
+          };
           let stage = 'configuration';
           let httpStatus = null;
+          let checkpoint = 'configuration';
+          let responseShape = {};
           try {
             const token = process.env.CLOUDFLARE_API_TOKEN;
             const account = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -72,15 +115,24 @@ jobs:
             async function read(endpoint) {
               stage = endpoint;
               httpStatus = null;
+              checkpoint = 'request';
+              responseShape = {};
               const response = await fetch(`${base}/${endpoint}?page=1&per_page=10`, {
                 method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000),
                 headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
               });
               httpStatus = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
-              if (!response.ok || !/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) {
+              checkpoint = 'http_status';
+              if (!response.ok) {
                 await response.body?.cancel();
                 fail();
               }
+              checkpoint = 'response_content_type';
+              if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) {
+                await response.body?.cancel();
+                fail();
+              }
+              checkpoint = 'response_body';
               const reader = response.body.getReader();
               const chunks = [];
               let length = 0;
@@ -89,29 +141,59 @@ jobs:
                   const { value, done } = await reader.read();
                   if (done) break;
                   length += value.byteLength;
-                  if (length > 65536) { await reader.cancel(); fail(); }
+                  if (length > 65536) { checkpoint = 'response_size'; await reader.cancel(); fail(); }
                   chunks.push(value);
                 }
               } finally { reader.releaseLock(); }
-              const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));
-              if (body.success !== true) fail();
+              checkpoint = 'response_utf8';
+              const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+              checkpoint = 'response_json';
+              const body = JSON.parse(text);
+              responseShape.envelope = shape(body, ['success', 'result', 'errors', 'messages']);
+              checkpoint = 'envelope_success';
+              if (body?.success !== true) fail();
+              responseShape.result = shape(body.result, ['deployments', 'items']);
               return body.result;
             }
             // The first deployment is actively serving traffic (provider contract).
-            const deployments = list((await read('deployments')).deployments, 1).map(item => {
-              const versions = list(item.versions, 1).map(entry => {
-                if (!Number.isFinite(entry.percentage) || entry.percentage <= 0 || entry.percentage > 100) fail();
+            const deploymentResult = await read('deployments');
+            checkpoint = 'deployments_list';
+            const deployments = list(deploymentResult?.deployments, 1).map(item => {
+              responseShape.entry = shape(item, ['id', 'created_on', 'versions']);
+              checkpoint = 'deployment_versions';
+              const versions = list(item?.versions, 1).map(entry => {
+                responseShape.version_entry = shape(entry, ['version_id', 'percentage']);
+                checkpoint = 'deployment_percentage';
+                if (!entry) fail();
+                // Wrangler 4.106.0 permits an idle version at 0%; retain it.
+                // Every weight remains finite/in-range and the total must be 100.
+                if (!Number.isFinite(entry.percentage) || entry.percentage < 0 || entry.percentage > 100) fail();
+                checkpoint = 'deployment_version_id';
                 return { version_id: uuid(entry.version_id), percentage: entry.percentage };
               });
+              checkpoint = 'deployment_version_duplicate';
               distinct(versions.map(entry => entry.version_id));
+              checkpoint = 'deployment_percentage_total';
               if (Math.abs(versions.reduce((sum, entry) => sum + entry.percentage, 0) - 100) > 0.000001) fail();
-              return { id: uuid(item.id), created_on: time(item.created_on), versions };
+              checkpoint = 'deployment_id';
+              const id = uuid(item.id);
+              checkpoint = 'deployment_time';
+              return { id, created_on: time(item.created_on), versions };
             });
+            checkpoint = 'deployment_duplicate';
             distinct(deployments.map(item => item.id));
             // Do not use deployable=true: that API option ignores pagination.
-            const versions = list((await read('versions')).items).map(item => ({
-              id: uuid(item.id), created_on: time(item.metadata?.created_on),
-            }));
+            const versionResult = await read('versions');
+            checkpoint = 'versions_list';
+            const versions = list(versionResult?.items).map(item => {
+              responseShape.entry = shape(item, ['id', 'metadata']);
+              responseShape.metadata = shape(item?.metadata, ['created_on']);
+              checkpoint = 'version_id';
+              const id = uuid(item?.id);
+              checkpoint = 'version_time';
+              return { id, created_on: time(item.metadata?.created_on) };
+            });
+            checkpoint = 'version_duplicate';
             distinct(versions.map(item => item.id));
             console.log(JSON.stringify({
               ok: true, worker, read_only: true, active: deployments[0],
@@ -121,16 +203,131 @@ jobs:
             }));
           } catch {
             // Never print provider bodies, author/config fields, auth or exception text.
-            console.error(JSON.stringify({ ok: false, error: 'worker_preflight_failed', stage, http_status: httpStatus }));
+            console.error(JSON.stringify({ ok: false, error: 'worker_preflight_failed', stage, http_status: httpStatus,
+              checkpoint, response_shape: responseShape }));
             process.exitCode = 1;
           }
           JS
 
+      - name: Read fixed frontend baseline schema categories
+        if: inputs.release_frontend_assets
+        run: |
+          node --input-type=module <<'JS'
+          // Read-only diagnostic: keys, types and counts only. Never binding names,
+          // values, raw errors, credentials or response bodies. One fixed GET.
+          const fail = () => { throw new Error('frontend_schema_readback_failed'); };
+          let httpStatus = null;
+          try {
+            const account = process.env.CLOUDFLARE_ACCOUNT_ID, token = process.env.CLOUDFLARE_API_TOKEN;
+            if (process.env.GITHUB_REF !== 'refs/heads/main' || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
+            const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console/versions/2beea000-cce5-43a5-9255-9724f7318e83`, {
+              method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000),
+              headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'identity' },
+            });
+            httpStatus = response.status;
+            if (!response.ok) { await response.body?.cancel(); fail(); }
+            if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '') || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail();
+            const length = response.headers.get('content-length');
+            if (length !== null && (!/^\d+$/.test(length) || Number(length) > 524288)) fail();
+            const reader = response.body?.getReader(); if (!reader) fail();
+            let size = 0, text = ''; const decoder = new TextDecoder('utf-8', { fatal: true });
+            try {
+              for (;;) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > 524288) fail(); text += decoder.decode(value, { stream: true }); }
+              text += decoder.decode();
+            } finally { await reader.cancel(); }
+            if (length !== null && Number(length) !== size) fail();
+            const body = JSON.parse(text);
+            if (body?.success !== true || (body.errors !== undefined && (!Array.isArray(body.errors) || body.errors.length))) fail();
+            const kind = x => x === null ? 'null' : Array.isArray(x) ? 'array' : typeof x;
+            const keys = ['resources','metadata','number','annotations','startup_time_ms','bindings','script','script_runtime','etag','handlers','named_handlers','last_deployed_from','placement_mode','compatibility_date','compatibility_flags','usage_model','limits','migration_tag','exports','name','type','namespace_id','class_name','script_name','environment','text','json','dispatch_namespace','id','raw','tag','version_id','secret_name','store_id'];
+            const shape = x => {
+              if (!x || kind(x) !== 'object') return { kind: kind(x) };
+              const entries = Object.entries(x); if (entries.length > 128) fail();
+              return { kind: 'object', fields: Object.fromEntries(entries.filter(([k]) => keys.includes(k)).map(([k,v]) => [k,kind(v)])), unknown_fields: entries.filter(([k]) => !keys.includes(k)).length };
+            };
+            const resources = body.result?.resources, bindings = resources?.bindings;
+            const categories = [];
+            const types = ['plain_text','json','secret_text','kv_namespace','durable_object_namespace','service','r2_bucket','d1','ai','browser','analytics_engine','version_metadata','secret_key','secrets_store_secret','queue','workflow','assets'];
+            if (Array.isArray(bindings)) {
+              if (bindings.length > 128) fail();
+              for (const binding of bindings) {
+                const type = types.includes(binding?.type) ? binding.type : 'OTHER';
+                const fields = shape(binding); const signature = JSON.stringify({ type, shape: fields });
+                const found = categories.find(item => item.signature === signature);
+                if (found) found.count++; else categories.push({ signature, type, shape: fields, count: 1 });
+              }
+            }
+            // Fixed booleans identify the rejecting contract without revealing
+            // configuration values, binding identities or arbitrary field names.
+            const runtime = resources?.script_runtime, script = resources?.script;
+            const object = x => !!x && kind(x) === 'object';
+            const only = (x, keys) => object(x) && Object.keys(x).every(key => keys.includes(key));
+            const identifier = x => typeof x === 'string' && /^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(x);
+            const bindingName = x => typeof x === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(x);
+            const hex = x => typeof x === 'string' && /^[0-9a-f]{32}$/i.test(x);
+            const bounded = (x, n) => typeof x === 'string' && !!x && x.length <= n;
+            const list = Array.isArray(bindings) && bindings.length > 0 && bindings.length <= 128 ? bindings : null;
+            const all = check => !!list && list.every(check);
+            const named = script?.named_handlers;
+            // Each valid identifier needs at least three JSON bytes (quotes
+            // plus one character). The existing 512 KiB response cap therefore
+            // bounds this list without inventing a provider limit of 32 items.
+            const handlerEntryLimit = Math.floor(524288 / 3);
+            const namedList = Array.isArray(named) && named.length <= 128 ? named : null;
+            const namedCategories = [];
+            if (namedList) for (const item of namedList) {
+              const fields = shape(item), signature = JSON.stringify(fields);
+              const found = namedCategories.find(entry => entry.signature === signature);
+              if (found) found.count++; else namedCategories.push({ signature, shape: fields, count: 1 });
+            }
+            const contracts = {
+              resources_keys: only(resources, ['bindings','script','script_runtime']),
+              runtime_keys: only(runtime, ['compatibility_date','compatibility_flags','usage_model','limits','migration_tag','exports']),
+              script_keys: only(script, ['etag','handlers','named_handlers','last_deployed_from','placement_mode']),
+              binding_list_bounds: !!list,
+              etag_bounds: bounded(script?.etag, 256),
+              default_handlers: script?.handlers === null || (Array.isArray(script?.handlers) && script.handlers.every(x => typeof x === 'string')),
+              date_ymd: typeof runtime?.compatibility_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(runtime.compatibility_date),
+              date_midnight_utc: typeof runtime?.compatibility_date === 'string' && /^\d{4}-\d{2}-\d{2}T00:00:00(?:\.0{1,3})?Z$/.test(runtime.compatibility_date),
+              compatibility_flags: runtime?.compatibility_flags === undefined || (Array.isArray(runtime.compatibility_flags) && runtime.compatibility_flags.every(x => typeof x === 'string')),
+              usage_model: ['standard','bundled','unbound'].includes(runtime?.usage_model),
+              named_handlers: named === undefined || (Array.isArray(named) && named.length <= 128 && named.every(item => only(item,['name','handlers']) && identifier(item.name) && (item.handlers === undefined || (Array.isArray(item.handlers) && item.handlers.length <= handlerEntryLimit && item.handlers.every(identifier)))) && new Set(named.map(item => item.name)).size === named.length),
+              named_list_bounds: named === undefined || !!namedList,
+              named_item_keys: named === undefined || (!!namedList && namedList.every(item => only(item,['name','handlers']))),
+              named_name_format: named === undefined || (!!namedList && namedList.every(item => identifier(item?.name))),
+              named_names_unique: named === undefined || (!!namedList && new Set(namedList.map(item => item?.name)).size === namedList.length),
+              named_handler_list_bounds: named === undefined || (!!namedList && namedList.every(item => item?.handlers === undefined || (Array.isArray(item.handlers) && item.handlers.length <= handlerEntryLimit))),
+              named_handler_identifiers: named === undefined || (!!namedList && namedList.every(item => item?.handlers === undefined || (Array.isArray(item.handlers) && item.handlers.every(identifier)))),
+              binding_names: all(b => object(b) && bindingName(b.name)),
+              binding_names_unique: !!list && new Set(list.map(b => b?.name)).size === list.length,
+              binding_types: all(b => ['plain_text','json','secret_text','kv_namespace','durable_object_namespace'].includes(b?.type)),
+              kv_namespace_hex: all(b => b?.type !== 'kv_namespace' || hex(b.namespace_id)),
+              do_namespace_hex: all(b => b?.type !== 'durable_object_namespace' || hex(b.namespace_id)),
+              do_class_name: all(b => b?.type !== 'durable_object_namespace' || identifier(b.class_name)),
+              do_optional_references: all(b => b?.type !== 'durable_object_namespace' || ['script_name','environment','dispatch_namespace'].every(key => b[key] === undefined || bounded(b[key],128))),
+              plain_text_bounds: all(b => b?.type !== 'plain_text' || (typeof b.text === 'string' && b.text.length <= 131072)),
+              json_present: all(b => b?.type !== 'json' || Object.hasOwn(b,'json')),
+              secret_shape: all(b => b?.type !== 'secret_text' || only(b,['name','type'])),
+              required_kv: !!list && list.some(b => b?.name === 'STRATEGY_SWITCH_CONFIG' && b.type === 'kv_namespace'),
+              required_do: !!list && list.some(b => b?.name === 'STRATEGY_SWITCH_RUNTIME_INSTANCES' && b.type === 'durable_object_namespace'),
+            };
+            console.log(JSON.stringify({ status: 'frontend_schema_categories', version_id: '2beea000-cce5-43a5-9255-9724f7318e83', result_id_matches: body.result?.id === '2beea000-cce5-43a5-9255-9724f7318e83', result: shape(body.result), resources: shape(resources),
+              binding_container: kind(bindings), binding_count: Array.isArray(bindings) ? bindings.length : null,
+              binding_categories: categories.map(({ signature, ...item }) => item), script: shape(resources?.script), runtime: shape(resources?.script_runtime), contracts,
+              named_handler_categories: namedCategories.map(({ signature, ...item }) => item),
+              named_handler_max_entries: namedList ? Math.max(0, ...namedList.map(item => Array.isArray(item?.handlers) ? item.handlers.length : 0)) : null,
+              writes: 0, retry: false }));
+          } catch {
+            console.error(JSON.stringify({ error: 'frontend_schema_readback_failed', http_status: httpStatus, writes: 0, retry: false })); process.exitCode = 1;
+          }
+          JS
+
+
   deploy:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.rollback_to_pre_release
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       WORKER_DIR: web/strategy-switch-console
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -164,7 +361,82 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: 0
+
+      - name: Select reviewed historical main source
+        env:
+          RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_FRONTEND_ASSETS: ${{ inputs.release_frontend_assets }}
+          SYNC_SECRETS: ${{ inputs.sync_secrets }}
+          SYNC_STRATEGY_PROFILES: ${{ inputs.sync_strategy_profiles }}
+          SKIP_BINANCE_RECEIVER_CHECKS: ${{ inputs.skip_binance_receiver_checks }}
+        run: |
+          set -euo pipefail
+          frontend_mode="${RELEASE_FRONTEND_ASSETS:-false}"
+          case "$frontend_mode" in true|false) ;; *) exit 2 ;; esac
+          if [ "$RELEASE_SOURCE_SHA" = "20dad166be317dd0d57e492ed06e56dfb82b7aef" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$frontend_mode" != "true" ] \
+              || [ "$SYNC_SECRETS" != "false" ] || [ "$SYNC_STRATEGY_PROFILES" != "false" ] \
+              || [ "$SKIP_BINANCE_RECEIVER_CHECKS" != "true" ]; then
+              echo "invalid_pr764_release_mode" >&2
+              exit 2
+            fi
+            control_sha="$(git rev-parse HEAD)"
+            if [ "$control_sha" != "$GITHUB_SHA" ]; then exit 2; fi
+            git cat-file -e "${RELEASE_SOURCE_SHA}^{commit}"
+            git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$control_sha"
+            expected_tree="7db7dbd1b1749b42187dbc1c9658669fa426ffa6"
+            if [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" != "$expected_tree" ] \
+              || [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" != "de87e1c1c6b62fa94bd514c8936a4ec32e14c0e4" ]; then
+              echo "pr764_release_source_mismatch" >&2
+              exit 2
+            fi
+            git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
+            if [ "$(git rev-parse HEAD)" != "$RELEASE_SOURCE_SHA" ] || [ "$(git rev-parse 'HEAD^{tree}')" != "$expected_tree" ]; then exit 2; fi
+            exit 0
+          fi
+          if [ "$frontend_mode" = "true" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$RELEASE_SOURCE_SHA" != "9f024547dbcb410d5c3369668c37e021e2caf45f" ] \
+              || [ "$SYNC_SECRETS" != "false" ] || [ "$SYNC_STRATEGY_PROFILES" != "false" ] \
+              || [ "$SKIP_BINANCE_RECEIVER_CHECKS" != "true" ]; then
+              echo "invalid_frontend_release_mode" >&2
+              exit 2
+            fi
+          fi
+          # Empty input preserves the original workflow-ref deployment behavior.
+          if [ -z "$RELEASE_SOURCE_SHA" ]; then exit 0; fi
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$RELEASE_SOURCE_SHA" != "9f024547dbcb410d5c3369668c37e021e2caf45f" ]; then
+            echo "unapproved_console_release_source" >&2
+            exit 2
+          fi
+          control_sha="$(git rev-parse HEAD)"
+          if [ "$control_sha" != "$GITHUB_SHA" ]; then
+            echo "console_control_source_mismatch" >&2
+            exit 2
+          fi
+          if [ "$frontend_mode" = "true" ]; then
+            frontend_sha="4f04827a262c122847d78e02ac760ba741a8f3d2"
+            git cat-file -e "${frontend_sha}^{commit}"
+            git merge-base --is-ancestor "$frontend_sha" "$control_sha"
+            if [ "$(git rev-parse "${frontend_sha}^{tree}")" != "63fbe73594356e6f1c88186cf06f907aed1bbac2" ] \
+              || [ "$(git rev-parse "${frontend_sha}:web/strategy-switch-console/v2_asset_map.js")" != "edb46bdb3c19b50b0bdc8672bab91c2a6e72a1ad" ]; then
+              echo "frontend_release_source_mismatch" >&2
+              exit 2
+            fi
+          fi
+          git cat-file -e "${RELEASE_SOURCE_SHA}^{commit}"
+          git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$control_sha"
+          expected_tree="6a4825751a4527ae296632bc718b5405d5d8d2f5"
+          if [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" != "$expected_tree" ]; then
+            echo "console_release_tree_mismatch" >&2
+            exit 2
+          fi
+          git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
+          if [ "$(git rev-parse HEAD)" != "$RELEASE_SOURCE_SHA" ] || [ "$(git rev-parse 'HEAD^{tree}')" != "$expected_tree" ]; then
+            echo "console_selected_source_mismatch" >&2
+            exit 2
+          fi
+          printf 'Reviewed console source: %s tree: %s\n' "$RELEASE_SOURCE_SHA" "$expected_tree"
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -203,6 +475,35 @@ jobs:
           python3 python/scripts/build_platform_config.py
           python3 python/scripts/build_platform_config.py --check
 
+      - name: Overlay fixed reviewed frontend assets
+        if: inputs.release_frontend_assets && inputs.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef'
+        run: |
+          set -euo pipefail
+          backend="9f024547dbcb410d5c3369668c37e021e2caf45f"
+          frontend="4f04827a262c122847d78e02ac760ba741a8f3d2"
+          asset="web/strategy-switch-console/v2_asset_map.js"
+          blob="edb46bdb3c19b50b0bdc8672bab91c2a6e72a1ad"
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$(git rev-parse HEAD)" != "$backend" ] \
+            || [ "$(git rev-parse 'HEAD^{tree}')" != "6a4825751a4527ae296632bc718b5405d5d8d2f5" ] \
+            || [ "$(git rev-parse "${frontend}^{tree}")" != "63fbe73594356e6f1c88186cf06f907aed1bbac2" ]; then
+            echo "frontend_overlay_source_mismatch" >&2
+            exit 2
+          fi
+          staged_asset="$(mktemp)"
+          trap 'rm -f "$staged_asset"' EXIT
+          git show "${frontend}:${asset}" > "$staged_asset"
+          if [ "$(git hash-object "$staged_asset")" != "$blob" ]; then
+            echo "frontend_overlay_blob_mismatch" >&2
+            exit 2
+          fi
+          cp "$staged_asset" "$asset"
+          if [ "$(git diff --name-only "$backend")" != "$asset" ] \
+            || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "frontend_overlay_extra_source_change" >&2
+            exit 2
+          fi
+          printf 'Frontend map: %s; backend source: %s\n' "$blob" "$backend"
+
       - name: Validate Worker assets
         run: |
           set -euo pipefail
@@ -210,6 +511,17 @@ jobs:
           node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
           node --check --input-type=module < web/strategy-switch-console/v2_asset_map.js
           node --check --input-type=module < web/strategy-switch-console/worker.js
+
+      - name: Validate fixed backend with reviewed frontend
+        if: inputs.release_frontend_assets
+        run: |
+          set -euo pipefail
+          node tests/console_v2_assets_validation.mjs
+          node tests/console_v2_worker_validation.mjs
+          node tests/console_external_flow_validation.mjs
+          node tests/external_flow_receiver_validation.mjs
+          node tests/external_flow_date_precision_validation.mjs
+          node tests/native_daily_returns_validation.mjs
 
       - name: Validate optional Binance account-facts binding
         if: env.BINANCE_ACCOUNT_FACTS_BINDING_JSON != ''
@@ -230,6 +542,7 @@ jobs:
       - name: Prepare Wrangler config
         env:
           UX1_RESEARCH_JOB_TOKEN: ${{ secrets.UX1_RESEARCH_JOB_TOKEN }}
+          RELEASE_FRONTEND_ASSETS: ${{ inputs.release_frontend_assets }}
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] && [ -z "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]; then
@@ -412,6 +725,13 @@ jobs:
                   raise SystemExit("wrangler.toml.example must contain a [vars] section.")
               rendered_vars = "".join(f"{key} = {json.dumps(value)}\n" for key, value in ux1_vars.items())
               text = text.replace(vars_header, vars_header + rendered_vars, 1)
+          if os.environ.get("RELEASE_FRONTEND_ASSETS") == "true":
+              # --keep-vars preserves remote values only when no local values
+              # override them. This release changes code/assets, never flags.
+              import re
+              text, count = re.subn(r"(?ms)^\[vars\]\n.*?(?=^\[|\Z)", "[vars]\n\n", text)
+              if count != 1:
+                  raise SystemExit("frontend_release_vars_section_mismatch")
           target.write_text(text, encoding="utf-8")
           PY
 
@@ -429,9 +749,304 @@ jobs:
             exit 2
           fi
 
-      - name: Deploy Worker
+      - name: Build reviewed website Worker bundle without publishing
+        if: inputs.release_frontend_assets
         working-directory: web/strategy-switch-console
-        run: npx wrangler@4.106.0 deploy --config wrangler.toml
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          set -euo pipefail
+          npx wrangler@4.106.0 deploy --dry-run --config wrangler.toml --outdir "$RUNNER_TEMP/console-frontend-bundle"
+
+      - name: Publish fixed reviewed website Worker version
+        if: inputs.release_frontend_assets
+        env:
+          RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFile, readdir } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          let checkpoint = 'configuration';
+          const fail = label => { if (label) checkpoint = label; throw new Error('frontend_release_stopped'); };
+          const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value) ? value : fail();
+          const canonical = value => JSON.stringify(value, function (_key, item) {
+            return item && typeof item === 'object' && !Array.isArray(item)
+              ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item;
+          });
+          let stage = 'configuration', httpStatus = null, uploadAttempted = false, deployAttempted = false, uploaded = null;
+          try {
+            const account = process.env.CLOUDFLARE_ACCOUNT_ID, token = process.env.CLOUDFLARE_API_TOKEN;
+            if (process.env.GITHUB_REF !== 'refs/heads/main' || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
+            const pr764 = process.env.RELEASE_SOURCE_SHA === '20dad166be317dd0d57e492ed06e56dfb82b7aef';
+            const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
+            // Fixed host/Worker, bounded response, no pagination or retry. Remote configuration
+            // stays in process memory; never write it or include it in an error/receipt.
+            // Allowlisted names only: unknown keys, strategy values and header parameters
+            // can themselves contain credentials. Never serialize raw provider objects.
+            const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+            const safeKeys = (value, allowed) => object(value)
+              ? [...new Set(Object.keys(value).map(key => allowed.includes(key) ? key : '[redacted]'))] : [];
+            const isUuid = value => typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
+            function responseEvidence(body, contentType) {
+              const result = body?.result;
+              console.error(JSON.stringify({ stage, http_status: httpStatus, content_type: contentType,
+                top_level_keys: safeKeys(body, ['success', 'result', 'errors', 'messages', 'result_info']),
+                result_id_present: object(result) && Object.hasOwn(result, 'id'), result_id_uuid: isUuid(result?.id),
+                strategy: result?.strategy === 'percentage' ? 'percentage' : result?.strategy == null ? null : '[redacted]',
+                versions_count: Array.isArray(result?.versions) ? result.versions.length : null,
+                percentages: Array.isArray(result?.versions) ? result.versions.slice(0, 10).map(entry =>
+                  typeof entry?.percentage === 'number' && Number.isFinite(entry.percentage) ? entry.percentage : null) : [],
+                errors_keys: [...new Set((Array.isArray(body?.errors) ? body.errors.slice(0, 10) : [body?.errors])
+                  .flatMap(error => safeKeys(error, ['code', 'message', 'error_chain'])))],
+                errors_count: Array.isArray(body?.errors) ? body.errors.length : body?.errors == null ? 0 : null }));
+            }
+            async function request(path, method = 'GET', body) {
+              httpStatus = null;
+              checkpoint = 'request';
+              let evidenceBody = null, contentType = null;
+              try {
+                const response = await fetch(base + path, { method, body, redirect: 'error', signal: AbortSignal.timeout(20000),
+                  headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'identity', ...(typeof body === 'string' ? { 'Content-Type': 'application/json' } : {}) } });
+                httpStatus = response.status;
+                const jsonType = /^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '');
+                contentType = jsonType ? 'application/json' : response.headers.has('content-type') ? '[redacted]' : null;
+                if (!response.ok) { checkpoint = 'http_status'; await response.body?.cancel(); fail(); }
+                if (!jsonType) { checkpoint = 'response_content_type'; await response.body?.cancel(); fail(); }
+                if (!['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail('response_content_encoding');
+                const length = response.headers.get('content-length');
+                if (length !== null && (!/^\d+$/.test(length) || Number(length) > 524288)) fail('response_content_length');
+                const reader = response.body?.getReader(); if (!reader) fail('response_body');
+                let size = 0, text = ''; const decoder = new TextDecoder('utf-8', { fatal: true });
+                try {
+                  for (;;) {
+                    checkpoint = 'response_stream';
+                    const { done, value } = await reader.read(); if (done) break;
+                    size += value.byteLength; if (size > 524288) fail('response_size');
+                    checkpoint = 'response_utf8'; text += decoder.decode(value, { stream: true });
+                  }
+                  checkpoint = 'response_utf8'; text += decoder.decode();
+                } finally { await reader.cancel(); }
+                if (length !== null && Number(length) !== size) fail('response_length_mismatch');
+                checkpoint = 'response_json'; const result = JSON.parse(text);
+                evidenceBody = result;
+                // The versions list reports errors: null, not []. Both mean no errors.
+                if (result?.success !== true) fail('envelope_success');
+                if (result.errors != null && (!Array.isArray(result.errors) || result.errors.length)) fail('envelope_errors');
+                checkpoint = 'result_validation';
+                return result.result;
+              } finally {
+                if (stage === 'activate') responseEvidence(evidenceBody, contentType);
+              }
+            }
+            async function active(id, version) {
+              const value = await request('/deployments?page=1&per_page=10'), list = value?.deployments;
+              if (!Array.isArray(list) || !list.length || list.length > 10
+                || list[0]?.strategy !== 'percentage' || !Array.isArray(list[0]?.versions) || list[0].versions.length !== 1
+                || list[0].versions[0]?.percentage !== 100) fail();
+              const current = { id: uuid(list[0].id), version: uuid(list[0].versions[0].version_id) };
+              if (id !== undefined && (current.id !== id || current.version !== version)) fail();
+              return current;
+            }
+            async function validateScriptContent() {
+              // Script content only; never use a caller-supplied URL or log its body.
+              // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/content/methods/get/
+              const response = await fetch(base + '/content/v2', { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(20000),
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/javascript, multipart/form-data', 'Accept-Encoding': 'identity' } });
+              httpStatus = response.status;
+              if (!response.ok) { await response.body?.cancel(); fail(); }
+              const contentType = response.headers.get('content-type') ?? '';
+              const javascript = type => /^(?:application\/javascript(?:\+module)?|text\/javascript)(?:\s*;\s*charset=utf-8)?$/i.test(type);
+              const multipart = /^multipart\/form-data\s*;\s*boundary=(?:"[A-Za-z0-9'()+_,.\/:=? -]{1,70}"|[A-Za-z0-9'()+_,.\/:=?-]{1,70})$/i.test(contentType);
+              const limit = multipart ? 10551296 : 10485760; // 10 MiB script + at most 64 KiB multipart overhead.
+              const length = response.headers.get('content-length');
+              try {
+                if ((!javascript(contentType) && !multipart) || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '')
+                  || (length !== null && (!/^\d+$/.test(length) || Number(length) > limit))) fail();
+              } catch { await response.body?.cancel(); fail(); }
+              const reader = response.body?.getReader(); if (!reader) fail();
+              const chunks = []; let size = 0;
+              try {
+                for (;;) {
+                  const { done, value } = await reader.read(); if (done) break;
+                  size += value.byteLength; if (size > limit) fail();
+                  chunks.push(value);
+                }
+              } finally { await reader.cancel(); }
+              if (!size || (length !== null && Number(length) !== size)) fail();
+              let script = Buffer.concat(chunks);
+              if (multipart) {
+                // This release uploads one module. Extra/duplicate parts must not
+                // make an otherwise matching entrypoint look like an identical bundle.
+                const parts = [...(await new Response(script, { headers: { 'Content-Type': contentType } }).formData()).entries()];
+                const entrypoint = response.headers.get('cf-entrypoint');
+                if (parts.length !== 1 || parts[0][0] !== 'worker.js' || !(parts[0][1] instanceof File)
+                  || parts[0][1].name !== 'worker.js' || !javascript(parts[0][1].type)
+                  || (entrypoint !== null && entrypoint !== 'worker.js')) fail();
+                script = Buffer.from(await parts[0][1].arrayBuffer());
+              }
+              if (!script.byteLength || script.byteLength > 10485760 || size - script.byteLength > 65536) fail();
+              // Validated bytes are not evidence of the deployed version: this endpoint
+              // is script-scoped and does not identify the version supplying the content.
+            }
+            async function latest(version) {
+              const item = await request('/versions/' + version);
+              if (item?.id !== version) fail();
+            }
+            function resources(version, id) {
+              if (version?.id !== id) fail();
+              const value = version.resources, runtime = value?.script_runtime, script = value?.script;
+              if (!value || Object.keys(value).some(key => !['bindings', 'script', 'script_runtime'].includes(key))
+                || !Array.isArray(value.bindings) || !value.bindings.length || value.bindings.length > 128 || !runtime || !script
+                || Object.keys(runtime).some(key => !['compatibility_date', 'compatibility_flags', 'usage_model', 'limits', 'migration_tag', 'exports'].includes(key))
+                || Object.keys(script).some(key => !['etag', 'handlers', 'named_handlers', 'last_deployed_from', 'placement_mode'].includes(key))
+                || typeof script.etag !== 'string' || !script.etag || script.etag.length > 256
+                || !(script.handlers === null || (Array.isArray(script.handlers) && script.handlers.every(x => typeof x === 'string')))
+                || !/^\d{4}-\d{2}-\d{2}$/.test(runtime.compatibility_date ?? '')
+                || (runtime.compatibility_flags !== undefined && (!Array.isArray(runtime.compatibility_flags) || runtime.compatibility_flags.some(x => typeof x !== 'string')))
+                || !['standard', 'bundled', 'unbound'].includes(runtime.usage_model)) fail();
+              // Current API also reports named exports (including DO classes).
+              // Validate their identity/handler shape and compare them below; do
+              // not discard this field merely to accept a newer response schema.
+              if (script.named_handlers !== undefined) {
+                if (!Array.isArray(script.named_handlers) || script.named_handlers.length > 128) fail();
+                // A handler identifier occupies at least three JSON bytes. The
+                // 512 KiB transport limit bounds the complete list; 32 is not
+                // an API contract and rejects the existing unchanged export.
+                const handlerEntryLimit = Math.floor(524288 / 3);
+                const exports = new Set();
+                for (const item of script.named_handlers) {
+                  if (!item || Object.keys(item).some(key => !['name', 'handlers'].includes(key))
+                    || typeof item.name !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(item.name) || exports.has(item.name)
+                    || (item.handlers !== undefined && (!Array.isArray(item.handlers) || item.handlers.length > handlerEntryLimit
+                      || item.handlers.some(handler => typeof handler !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(handler))))) fail();
+                  exports.add(item.name);
+                }
+              }
+              const names = new Set();
+              for (const binding of value.bindings) {
+                if (!binding || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(binding.name ?? '') || names.has(binding.name)
+                  || !['plain_text', 'json', 'secret_text', 'kv_namespace', 'durable_object_namespace'].includes(binding.type)) fail();
+                if (binding.type === 'kv_namespace' && !/^[0-9a-f]{32}$/i.test(typeof binding.namespace_id === 'string' ? binding.namespace_id : '')) fail();
+                if (binding.type === 'durable_object_namespace' && (
+                  !/^[0-9a-f]{32}$/i.test(typeof binding.namespace_id === 'string' ? binding.namespace_id : '')
+                  || typeof binding.class_name !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(binding.class_name)
+                  || ['script_name', 'environment', 'dispatch_namespace'].some(key => binding[key] !== undefined && (typeof binding[key] !== 'string' || !binding[key] || binding[key].length > 128)))) fail();
+                if (binding.type === 'plain_text' && (typeof binding.text !== 'string' || binding.text.length > 131072)) fail();
+                if (binding.type === 'json' && !Object.hasOwn(binding, 'json')) fail();
+                if (binding.type === 'secret_text' && Object.keys(binding).some(key => !['name', 'type'].includes(key))) fail();
+                names.add(binding.name);
+              }
+              // Existing resources only: no resource provisioning or DO migration request.
+              if (!value.bindings.some(b => b.name === 'STRATEGY_SWITCH_CONFIG' && b.type === 'kv_namespace')
+                || !value.bindings.some(b => b.name === 'STRATEGY_SWITCH_RUNTIME_INSTANCES' && b.type === 'durable_object_namespace')) fail();
+              return value;
+            }
+            stage = 'pre_release_active'; const { id: priorDeployment, version: prior } = await active();
+            stage = 'pre_release_configuration'; const old = resources(await request(`/versions/${prior}`), prior);
+            stage = 'bundle';
+            const bundleDir = `${process.env.RUNNER_TEMP}/console-frontend-bundle`;
+            // Wrangler 4.106.0 inlines the embedded frontend into one module. Reject
+            // additional modules/assets rather than silently omitting them from upload.
+            const files = await readdir(bundleDir, { withFileTypes: true });
+            if (files.length !== 3 || files.some(file => !file.isFile())
+              || canonical(files.map(file => file.name).sort()) !== canonical(['README.md', 'worker.js', 'worker.js.map'])) fail();
+            const bundle = await readFile(`${bundleDir}/worker.js`);
+            if (!bundle.byteLength || bundle.byteLength > 10485760) fail();
+            const assetMap = await readFile(`${process.env.WORKER_DIR}/v2_asset_map.js`, 'utf8');
+            const buildIds = [...assetMap.matchAll(/^export const V2_BUILD_ID = "([a-f0-9]{64})";$/gm)];
+            const bundledIds = [...bundle.toString('utf8').matchAll(/^var V2_BUILD_ID = "([a-f0-9]{64})";$/gm)];
+            if (buildIds.length !== 1 || bundledIds.length !== 1 || buildIds[0][1] !== bundledIds[0][1]) fail('bundle_build_id');
+            if (pr764 && buildIds[0][1] !== '96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6') fail('pr764_build_id');
+            const bundleSha256 = createHash('sha256').update(bundle).digest('hex');
+            // Never skip a release using script-scoped content. Even a complete byte
+            // match cannot associate /content/v2 with the active deployment's version.
+            stage = 'pre_upload_content'; await validateScriptContent();
+            // The bundler is offline (--dry-run). Inherit EVERY existing binding, including
+            // secrets, without supplying any value or trusting current Environment inputs.
+            // Script-version inherit resolves 'latest', not a historical ID. The uploaded
+            // configuration comparison below verifies the active baseline was retained.
+            const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name })),
+              compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
+              annotations: { 'workers/message': pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : 'Reviewed website backend 9f024547 with fixed frontend 4f04827a; retained bindings' } };
+            for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
+            const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
+            form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
+            if (pr764) {
+              // inherit resolves latest, including opaque secrets. Refuse a pending
+              // version instead of inferring secret equality from redacted metadata.
+              stage = 'inherit_baseline';
+              const items = (await request('/versions?page=1&per_page=10'))?.items;
+              if (!Array.isArray(items) || !items.length || items.length > 10 || items[0]?.id !== prior) fail('inherit_baseline_mismatch');
+            }
+            stage = 'pre_upload_active'; await active(priorDeployment, prior);
+            stage = 'upload'; uploadAttempted = true;
+            uploaded = uuid((await request('/versions?bindings_inherit=strict', 'POST', form))?.id);
+            if (uploaded === prior) fail();
+            stage = 'uploaded_configuration'; const next = resources(await request(`/versions/${uploaded}`), uploaded);
+            const comparable = value => ({ bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
+              script_runtime: value.script_runtime, handlers: value.script.handlers,
+              named_handlers: value.script.named_handlers === undefined ? null : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name)),
+              placement_mode: value.script.placement_mode ?? null });
+            const configHash = value => createHash('sha256').update(canonical(comparable(value))).digest('hex');
+            const configBefore = configHash(old), configUploaded = configHash(next);
+            if (configUploaded !== configBefore || next.script.etag === old.script.etag) fail('configuration_hash_mismatch');
+            if (pr764) {
+              // A different uploader between baseline and inherit can change hidden
+              // Secret values without changing their names/types. Require adjacent
+              // versions before activation; list is newest first, bounded to page 1.
+              stage = 'inherit_lineage';
+              const items = (await request('/versions?page=1&per_page=10'))?.items;
+              if (!Array.isArray(items) || items.length < 2 || items.length > 10
+                || items[0]?.id !== uploaded || items[1]?.id !== prior) fail('inherit_lineage_mismatch');
+            }
+            // Same-Worker workflow concurrency serializes our release controls. These fresh
+            // GETs detect observed external drift; Cloudflare offers no compare-and-swap
+            // precondition here. No automatic retry or force fallback on an unknown result.
+            stage = 'pre_deploy_active'; await active(priorDeployment, prior);
+            stage = 'pre_deploy_latest'; await latest(uploaded);
+            stage = 'activate'; deployAttempted = true;
+            const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
+              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': pr764 ? 'Reviewed PR764 full source; retained configuration' : 'Reviewed website backend 9f024547 and frontend 4f04827a; retained configuration' } }));
+            if (!object(deployment) || !Object.hasOwn(deployment, 'id')) fail('missing_id');
+            if (!isUuid(deployment.id)) fail('invalid_id');
+            const deploymentId = deployment.id;
+            // Wrangler 4.106.0 createDeployment declares a result of { id: string }:
+            // https://github.com/cloudflare/workers-sdk/blob/wrangler%404.106.0/packages/deploy-helpers/src/deploy/helpers/versions-api.ts#L123
+            // Echo fields may be omitted, but present fields (including null) must
+            // match. Only the exact active id/version/100% readback proves success.
+            if (Object.hasOwn(deployment, 'strategy') && deployment.strategy !== 'percentage') fail('invalid_strategy');
+            if (Object.hasOwn(deployment, 'versions')) {
+              if (!Array.isArray(deployment.versions) || deployment.versions.length !== 1) fail('invalid_versions');
+              if (deployment.versions[0]?.version_id !== uploaded) fail('version_mismatch');
+              if (deployment.versions[0]?.percentage !== 100) fail('percentage_mismatch');
+            }
+            stage = 'readback'; await active(deploymentId, uploaded);
+            if (pr764) {
+              stage = 'post_release_configuration';
+              const configAfter = configHash(resources(await request(`/versions/${uploaded}`), uploaded));
+              if (configAfter !== configBefore) fail('post_release_configuration_hash_mismatch');
+              // Version metadata hides secret values. Hash all comparable bindings/runtime/
+              // handlers/placement, never code etag or provider bookkeeping. No KV writes.
+              console.log(JSON.stringify({ status: 'pr764_configuration_verified', config_before_sha256: configBefore,
+                config_uploaded_sha256: configUploaded, config_after_sha256: configAfter, secret_values_read: false }));
+            }
+            console.log(JSON.stringify({ status: 'frontend_release_verified', prior_version: prior, version_id: uploaded,
+              deployment_id: deploymentId, percentage: 100, bindings_equal: true, runtime_equal: true,
+              bundle_sha256: bundleSha256, force: false, provider_cas: false }));
+          } catch {
+            console.error(JSON.stringify({ error: 'frontend_release_stopped', stage, checkpoint, http_status: httpStatus,
+              upload_attempted: uploadAttempted, deploy_attempted: deployAttempted, uploaded_version: uploaded,
+              outcome: deployAttempted ? 'UNKNOWN_REQUIRES_READBACK' : uploadAttempted ? 'UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED' : 'NOT_ATTEMPTED', retry: false }));
+            process.exitCode = 1;
+          }
+          JS
+
+      - name: Deploy Worker
+        if: ${{ !inputs.release_frontend_assets }}
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          npx wrangler@4.106.0 deploy --config wrangler.toml
 
       # Secret writes require an explicit manual opt-in.
       - name: Sync UX1 research job token
@@ -677,3 +1292,103 @@ jobs:
             echo "Live strategy profile catalog is stale. Waiting for deployed Worker propagation..." >&2
             sleep 5
           done
+
+  rollback:
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && inputs.rollback_to_pre_release
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_FRONTEND_ASSETS: ${{ inputs.release_frontend_assets }}
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Restore fixed pre-release Worker version
+        env:
+          ROLLBACK_VERSION: ${{ inputs.rollback_version }}
+        run: |
+          node --input-type=module <<'JS'
+          // One fixed deployment request. In particular, never retry with force:
+          // Wrangler 4.106.0 rollback can implicitly do that after API error 10220.
+          // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/create/
+          const target = process.env.ROLLBACK_VERSION || '2beea000-cce5-43a5-9255-9724f7318e83';
+          const fe11 = target === 'c8dc4852-fa9d-4d14-bca3-7941587a494f';
+          const fail = () => { throw new Error('console_restore_failed'); };
+          let stage = 'configuration';
+          let httpStatus = null;
+          let requested = false;
+          try {
+            const token = process.env.CLOUDFLARE_API_TOKEN;
+            const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+            if (process.env.GITHUB_REF !== 'refs/heads/main' || process.env.RELEASE_SOURCE_SHA || process.env.RELEASE_FRONTEND_ASSETS === 'true'
+              || (!fe11 && target !== '2beea000-cce5-43a5-9255-9724f7318e83')
+              || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
+            const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
+            async function request(path, method = 'GET', payload) {
+              const response = await fetch(base + path, {
+                method, redirect: 'error', signal: AbortSignal.timeout(15000),
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', ...(payload ? { 'Content-Type': 'application/json' } : {}) },
+                body: payload,
+              });
+              httpStatus = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
+              stage = 'http_status';
+              if (!response.ok) { await response.body?.cancel(); fail(); }
+              stage = 'response_bounds';
+              if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
+                || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail();
+              const length = response.headers.get('content-length');
+              if (length !== null && (!/^\d+$/.test(length) || Number(length) > 65536)) fail();
+              const reader = response.body?.getReader();
+              if (!reader) fail();
+              const decoder = new TextDecoder('utf-8', { fatal: true });
+              let size = 0, text = '';
+              try {
+                for (;;) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  size += value.byteLength;
+                  if (size > 65536) fail();
+                  text += decoder.decode(value, { stream: true });
+                }
+                text += decoder.decode();
+              } finally { await reader.cancel(); }
+              if (length !== null && size !== Number(length)) fail();
+              stage = 'response_schema';
+              const body = JSON.parse(text);
+              if (body?.success !== true || (body.errors != null && (!Array.isArray(body.errors) || body.errors.length))) fail();
+              return body.result;
+            }
+            if (fe11) {
+              stage = 'target_readback';
+              if ((await request(`/versions/${target}`))?.id !== target) fail();
+            }
+            stage = 'request'; requested = true;
+            const result = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
+              versions: [{ version_id: target, percentage: 100 }], annotations: { 'workers/message': fe11
+                ? 'Restore verified FE-RELEASE-11 c8dc4852 baseline' : 'Restore verified pre-frontend 2beea000 baseline' } }));
+            if (typeof result?.id !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(result.id)
+              || ((!fe11 || Object.hasOwn(result, 'strategy')) && result.strategy !== 'percentage')
+              || ((!fe11 || Object.hasOwn(result, 'versions')) && (!Array.isArray(result.versions) || result.versions.length !== 1
+                || result.versions[0]?.version_id !== target || result.versions[0]?.percentage !== 100))) fail();
+            if (fe11) {
+              stage = 'active_readback';
+              const current = (await request('/deployments?page=1&per_page=10'))?.deployments;
+              if (!Array.isArray(current) || !current.length || current.length > 10 || current[0]?.id !== result.id
+                || current[0]?.strategy !== 'percentage' || !Array.isArray(current[0]?.versions) || current[0].versions.length !== 1
+                || current[0].versions[0]?.version_id !== target || current[0].versions[0]?.percentage !== 100) fail();
+            }
+            console.log(JSON.stringify({ status: 'restore_response_verified', deployment_id: result.id, version_id: target, percentage: 100, force: false }));
+          } catch {
+            // A failed/unknown response after POST may follow a committed change.
+            // No automatic retry and no provider body, identity or error text.
+            console.error(JSON.stringify({ error: 'console_restore_failed', stage, http_status: httpStatus,
+              outcome: requested ? 'UNKNOWN_REQUIRES_READBACK' : 'NOT_ATTEMPTED', retry: false }));
+            process.exitCode = 1;
+          }
+          JS

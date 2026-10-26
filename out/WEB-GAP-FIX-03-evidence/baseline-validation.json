@@ -1,0 +1,17 @@
+{
+  "base": "289fec431ea14264ec028207c5c627fa39ecf231",
+  "directory": "/var/folders/xw/76_sbhl94c57s4f88pcw7kqc0000gn/T/web-gap-fix-03-baseline-uh53l5m4",
+  "command": [
+    "python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "python/tests",
+    "-p",
+    "test_checkout_internal_dependency_consumers.py",
+    "-v"
+  ],
+  "exit_code": 1,
+  "log": "baseline-python.log"
+}

@@ -42,3 +42,12 @@ secrets/
 /web/strategy-switch-console/node_modules/
 /web/strategy-switch-console/frontend/node_modules/
 /web/strategy-switch-console/frontend/dist/
+
+# Keep AI rule files and shared engineering conventions tracked even when a
+# personal global ignore excludes Markdown.
+!AGENTS.md
+!CLAUDE.md
+!.github/engineering.md
+
+# Local editor, OS and tool cache files.
+.DS_Store

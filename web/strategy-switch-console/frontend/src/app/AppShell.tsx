@@ -110,7 +110,7 @@ export function AppShell({
       </nav>
       <div className="shell-main">
         <header className="topbar">
-          <ScopeSwitcher />
+          {page !== "health" && <ScopeSwitcher />}
           {updated && <span className="topbar-updated">{t("common.updated_at", { value: `${updated.text}${updated.zone ? ` (${updated.zone})` : ""}` })}</span>}
           <span className="spacer" />
           <button type="button" className="button button-secondary button-sm appearance-toggle" aria-label={t("prefs.language")} title={t("prefs.language")} onClick={() => setPrefs({ ...prefs, language: language === "zh" ? "en" : "zh" })}>

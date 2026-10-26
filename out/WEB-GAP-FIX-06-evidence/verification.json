@@ -1,0 +1,74 @@
+[
+  {
+    "command": "node --test tests/console_execution_evidence_validation.mjs",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:28.478659+00:00",
+    "local_log": "/tmp/web-gap-06-check-0.log"
+  },
+  {
+    "command": "node tests/console_strategy_execution_validation.mjs",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:28.874766+00:00",
+    "local_log": "/tmp/web-gap-06-check-1.log"
+  },
+  {
+    "command": "node tests/console_api_contract_validation.mjs",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:29.213034+00:00",
+    "local_log": "/tmp/web-gap-06-check-2.log"
+  },
+  {
+    "command": "node tests/console_api_worker_validation.mjs",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:30.853172+00:00",
+    "local_log": "/tmp/web-gap-06-check-3.log"
+  },
+  {
+    "command": "node tests/console_design_api_validation.mjs",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:31.512010+00:00",
+    "local_log": "/tmp/web-gap-06-check-4.log"
+  },
+  {
+    "command": "node tests/console_v2_i18n_validation.mjs",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:32.185398+00:00",
+    "local_log": "/tmp/web-gap-06-check-5.log"
+  },
+  {
+    "command": "node tests/binance_resume_worker_validation.mjs",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:33.286529+00:00",
+    "local_log": "/tmp/web-gap-06-check-6.log"
+  },
+  {
+    "command": "npm run build --prefix web/strategy-switch-console/frontend",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:41.168190+00:00",
+    "local_log": "/tmp/web-gap-06-check-7.log"
+  },
+  {
+    "command": "npm run sync:v2-assets --prefix web/strategy-switch-console/frontend",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:41.742712+00:00",
+    "local_log": "/tmp/web-gap-06-check-8.log"
+  },
+  {
+    "command": "node tests/console_v2_assets_validation.mjs",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:42.135110+00:00",
+    "local_log": "/tmp/web-gap-06-check-9.log"
+  },
+  {
+    "command": "git diff --check",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:42.202321+00:00",
+    "local_log": "/tmp/web-gap-06-check-10.log"
+  },
+  {
+    "command": "python3 python/scripts/runtime_settings.py validate",
+    "exit_code": 0,
+    "observed_at": "2026-10-22T22:46:42.392632+00:00",
+    "local_log": "/tmp/web-gap-06-check-11.log"
+  }
+]

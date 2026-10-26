@@ -1,5 +1,7 @@
 # QuantRuntimeSettings Architecture
 
+[Documentation index](README.md). This is the package architecture entry; repository governance is covered separately in [organization architecture](qsl_org_architecture.md). The [2026-06-29 design](architecture_config_driven_20260629.md) preserves the earlier rationale and migration plan.
+
 ## Overview
 
 QuantRuntimeSettings is a **config-driven** runtime settings package that serves as the central control plane for QuantStrategyLab deployments. It defines versioned strategy-to-platform assignments and hosts a Cloudflare Workers-based console. The console is evolving into the personal deployment's single human-facing global decision surface; see [Unified Control Console V1](qsl_unified_control_console_architecture_v1.zh-CN.md). It remains separate from broker credentials and execution.
