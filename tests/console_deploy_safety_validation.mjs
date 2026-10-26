@@ -165,8 +165,8 @@ const pr764Source = "20dad166be317dd0d57e492ed06e56dfb82b7aef";
 const pr764Tree = "7db7dbd1b1749b42187dbc1c9658669fa426ffa6";
 const pr764Blob = "de87e1c1c6b62fa94bd514c8936a4ec32e14c0e4";
 const pr764Build = "96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6";
-const approved = "9f024547dbcb410d5c3369668c37e021e2caf45f";
-const approvedTree = "6a4825751a4527ae296632bc718b5405d5d8d2f5";
+const approved = "1f734379da9aa0a5eec8aafb77164260a579fb80";
+const approvedTree = "f81178aee5eb969fbe2035d61ca6f9cd9118d5a9";
 const frontend = "4f04827a262c122847d78e02ac760ba741a8f3d2";
 const frontendTree = "63fbe73594356e6f1c88186cf06f907aed1bbac2";
 const frontendBlob = "edb46bdb3c19b50b0bdc8672bab91c2a6e72a1ad";
@@ -427,7 +427,7 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
    assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
    assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
-  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend 9f024547 and frontend 4f04827a; retained configuration"}});
+  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend 1f734379 and frontend 4f04827a; retained configuration"}});
  }
  if(expected){
   if(pr764){const h=JSON.parse(stdout[0]);assert.equal(h.status,"pr764_configuration_verified");
