@@ -167,6 +167,29 @@ convert queued intent into delivery, send notifications or store destinations.
 Pagination syntax is validated for compatibility with a future stored source.
 Connecting that source requires a separately scoped integration.
 
+## Native Binance account-card reads
+
+Account cards and account details read the existing authenticated
+`GET /api/binance-account-facts` independently of `/api/account-facts`.
+Match the report to the directory by exact `platform` and `account_key`; a
+different account's report must not supply its amount, timestamp or asset count.
+Refresh uses the same explicit page refresh as the other account sources.
+
+`report_status=available` covers the reported Spot + Flexible Earn quantities.
+The optional `wallet_valuation` has its own scope,
+`provider_returned_wallet_rows`, and its own observation time. Display a valid
+decimal-string USDT amount as **Wallet valuation**, preserving its precision
+and the amount-visibility preference. It is not account NAV, cash, cost basis,
+profit or TWR and does not join the generic live-account total. Funding, margin,
+futures and locked Earn remain outside the quantity inventory's coverage.
+
+Missing or unavailable valuation does not erase valid scoped quantities.
+A successful empty inventory is distinct from missing reports, expired reports,
+unavailable sources and HTTP read failures. None of these states supplies zero
+or implies that a previously connected source was never connected. Keep scope
+and diagnostic state in accessible titles and machine-readable attributes
+without adding persistent audit prose to the account cards.
+
 ## Run-control availability
 
 `/api/accounts/run-controls` is the backend authority for button availability.
