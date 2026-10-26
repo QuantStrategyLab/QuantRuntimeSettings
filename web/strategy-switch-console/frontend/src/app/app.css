@@ -987,3 +987,24 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   border-style: solid;
   background: var(--surface-2);
 }
+
+/* A snapshot the producer marks pending is today's data still arriving, not a
+   future day: a thin accent border and a small dot keep it distinct from
+   future (neutral solid) and genuinely missing (dashed/striped) cells. */
+.calendar-cell.cell-pending {
+  position: relative;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: var(--surface);
+}
+.calendar-cell.cell-pending::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.65;
+}
