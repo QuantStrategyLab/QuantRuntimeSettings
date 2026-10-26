@@ -223,8 +223,10 @@ try {
     ok(staleCards.includes("+10.00%"));
     ok(staleCards.includes('hidden="" data-status="stale"'),
       "summary retains stale status as a hidden diagnostic");
-    ok(visibleText(staleCards).includes(AS_OF[language]) && staleCards.includes("10/16"),
-      "stale summary keeps its as-of time visible once");
+    const asOfLabels = [...staleCards.matchAll(/class="asof"[^>]*>([\s\S]*?)<\/span>/g)];
+    assert.equal(asOfLabels.length, 1, "stale summary shows exactly one as-of caption");
+    ok(asOfLabels[0][1].includes(AS_OF[language]) && asOfLabels[0][1].includes("2026-10-16"),
+      "stale summary preserves its business date without inventing a clock time");
     ok(!staleCards.includes(DIETZ[language]), "no method metadata means no approximate label");
     // A real stale reason must stay reachable too, without becoming default body copy.
     const staleWithReason = structuredClone(stale.summary);
