@@ -72,25 +72,27 @@ export function CalendarHeatmap({
         </div>
         <div className="calendar-year-grid" style={{ marginTop: 12 }}>
           {cells.map(cell => {
-            // The producer's explicit future_date wins over the local-clock
-            // comparison, so timezone or month-boundary skew cannot turn a
-            // future month into a missing-history claim. The date comparison
-            // stays as a fallback for older payloads without the reason.
+            // The producer's explicit states win over the local clock: a month
+            // it marks pending is still arriving, not future, even when the
+            // browser's timezone trails the server. future_date stays neutral,
+            // and the date comparison is only a fallback for older payloads.
             const wireReason = cell.unavailable_reason as string | null;
-            const future = Boolean(cell.month && cell.month > currentMonth) || wireReason === "future_date";
+            const pending = wireReason === "snapshot_pending";
+            const future = wireReason === "future_date" || (!pending && Boolean(cell.month && cell.month > currentMonth));
             return (
             <button
               key={cell.month}
               type="button"
-              className={`calendar-cell${future ? " cell-future" : ""}${finiteNumber(cell.return_percent) === null && finiteNumber(cell.amount) === null ? " cell-empty" : ""}`}
+              className={`calendar-cell${future ? " cell-future" : ""}${pending ? " cell-pending" : ""}${finiteNumber(cell.return_percent) === null && finiteNumber(cell.amount) === null ? " cell-empty" : ""}`}
               style={{ background: future ? undefined : cellColor(cell, maxAbs) }}
-              title={future || !cell.unavailable_reason ? undefined : t(`reason.${cell.unavailable_reason}`)}
+              title={future ? undefined : pending ? t("reason.snapshot_pending") : cell.unavailable_reason ? t(`reason.${cell.unavailable_reason}`) : undefined}
               onClick={() => cell.month && onNavigate(year, Number(cell.month.split("-")[1]))}
             >
               <span className="cell-date">{cell.month}</span>
               <span className={`cell-value ${future ? "" : cellTone(cell)}`}>
                 {future ? " " : valueText(cell) || " "}
               </span>
+              {pending && <span className="sr-only">{t("reason.snapshot_pending")}</span>}
             </button>
             );
           })}
@@ -135,10 +137,12 @@ export function CalendarHeatmap({
             if (!cell) return <div key={`${weekIndex}-${column}`} />;
             const wireStatus = String(cell.status);
             const wireReason = cell.unavailable_reason as string | null;
-            // Future days stay neutral: the producer's explicit future_date
-            // wins over the local-clock comparison, which remains only as a
-            // fallback for older payloads without the reason.
-            const future = Boolean(cell.date && cell.date > today) || wireReason === "future_date";
+            // Explicit producer states beat the local clock. A day the producer
+            // marks pending is today's data still arriving, even when the
+            // browser's timezone is a day behind the server; only older
+            // payloads without a reason fall back to the date comparison.
+            const pending = wireReason === "snapshot_pending";
+            const future = wireReason === "future_date" || (!pending && Boolean(cell.date && cell.date > today));
             const hasValue = !future && (finiteNumber(cell.return_percent) !== null || finiteNumber(cell.amount) !== null);
             // Only explicit producer states mark a closed day. Missing prices or
             // an empty weekend never infer a holiday, so 7×24 crypto calendars
@@ -147,15 +151,17 @@ export function CalendarHeatmap({
             const closed = !future && (wireStatus === "market_closed"
               || wireReason === "market_closed" || wireReason === "non_trading_weekend");
             const title = future ? undefined
+              : pending ? t("reason.snapshot_pending")
               : wireStatus === "market_closed" || wireReason === "market_closed" ? t("state.market_closed")
               : wireReason === "non_trading_weekend" ? t("reason.non_trading_weekend")
               : cell.unavailable_reason ? t(`reason.${cell.unavailable_reason}`) : undefined;
             return (
               <div
                 key={cell.date}
-                className={`calendar-cell${future ? " cell-future" : ""}${closed ? " cell-closed" : ""}${hasValue ? "" : " cell-empty"}`}
+                className={`calendar-cell${future ? " cell-future" : ""}${pending ? " cell-pending" : ""}${closed ? " cell-closed" : ""}${hasValue ? "" : " cell-empty"}`}
                 style={{ background: future ? undefined : cellColor(cell, maxAbs) }}
                 title={title}
+                tabIndex={pending ? 0 : undefined}
               >
                 <span className="cell-date num">{cell.date ? Number(cell.date.slice(8)) : ""}</span>
                 {hasValue && (
@@ -163,6 +169,7 @@ export function CalendarHeatmap({
                     {valueText(cell)}
                   </span>
                 )}
+                {pending && <span className="sr-only">{t("reason.snapshot_pending")}</span>}
               </div>
             );
           }),
