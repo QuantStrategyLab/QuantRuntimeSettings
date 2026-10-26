@@ -415,11 +415,11 @@ jobs:
             exit 2
           fi
           if [ "$frontend_mode" = "true" ]; then
-            frontend_sha="8e1c50a0a09d69d24be4ef7c75ec4615d3281638"
+            frontend_sha="80c29bd4ee8a69678ac93afa178ee42ddb904713"
             git cat-file -e "${frontend_sha}^{commit}"
             git merge-base --is-ancestor "$frontend_sha" "$control_sha"
-            if [ "$(git rev-parse "${frontend_sha}^{tree}")" != "6199b0b611c74b3d61278a90788eedfb5b8539a7" ] \
-              || [ "$(git rev-parse "${frontend_sha}:web/strategy-switch-console/v2_asset_map.js")" != "b2dcfd8a921fc8aa3fda8e6356af3ff9b5bebdeb" ]; then
+            if [ "$(git rev-parse "${frontend_sha}^{tree}")" != "173eaee075011e6ae8db6eba8662769aa9005a25" ] \
+              || [ "$(git rev-parse "${frontend_sha}:web/strategy-switch-console/v2_asset_map.js")" != "c71319f77d78a38664b4b618c395090720b0b198" ]; then
               echo "frontend_release_source_mismatch" >&2
               exit 2
             fi
@@ -480,12 +480,12 @@ jobs:
         run: |
           set -euo pipefail
           backend="27ec8efd6d56bf72072a808d0b0998edb15daae0"
-          frontend="8e1c50a0a09d69d24be4ef7c75ec4615d3281638"
+          frontend="80c29bd4ee8a69678ac93afa178ee42ddb904713"
           asset="web/strategy-switch-console/v2_asset_map.js"
-          blob="b2dcfd8a921fc8aa3fda8e6356af3ff9b5bebdeb"
+          blob="c71319f77d78a38664b4b618c395090720b0b198"
           if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$(git rev-parse HEAD)" != "$backend" ] \
             || [ "$(git rev-parse 'HEAD^{tree}')" != "f2965ec92054f908109caafe4a1f952dacce71a0" ] \
-            || [ "$(git rev-parse "${frontend}^{tree}")" != "6199b0b611c74b3d61278a90788eedfb5b8539a7" ]; then
+            || [ "$(git rev-parse "${frontend}^{tree}")" != "173eaee075011e6ae8db6eba8662769aa9005a25" ]; then
             echo "frontend_overlay_source_mismatch" >&2
             exit 2
           fi
@@ -963,7 +963,7 @@ jobs:
             // configuration comparison below verifies the active baseline was retained.
             const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name })),
               compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
-              annotations: { 'workers/message': pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : 'Reviewed website backend 27ec8efd with fixed frontend 8e1c50a0; retained bindings' } };
+              annotations: { 'workers/message': pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : 'Reviewed website backend 27ec8efd with fixed frontend 80c29bd4; retained bindings' } };
             for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
             const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
             form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
@@ -1002,7 +1002,7 @@ jobs:
             stage = 'pre_deploy_latest'; await latest(uploaded);
             stage = 'activate'; deployAttempted = true;
             const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
-              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': pr764 ? 'Reviewed PR764 full source; retained configuration' : 'Reviewed website backend 27ec8efd and frontend 8e1c50a0; retained configuration' } }));
+              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': pr764 ? 'Reviewed PR764 full source; retained configuration' : 'Reviewed website backend 27ec8efd and frontend 80c29bd4; retained configuration' } }));
             if (!object(deployment) || !Object.hasOwn(deployment, 'id')) fail('missing_id');
             if (!isUuid(deployment.id)) fail('invalid_id');
             const deploymentId = deployment.id;
