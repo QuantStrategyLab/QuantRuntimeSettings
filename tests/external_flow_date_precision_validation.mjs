@@ -3,7 +3,9 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import { normalizeExternalFlow, mergeExternalFlow } from "../web/strategy-switch-console/application/account_facts/external_flow.js";
-import { intervalFlows } from "../web/strategy-switch-console/application/console_api/cashflow_performance.js";
+import { applyNativeDailyReturns } from "../web/strategy-switch-console/application/console_api/native_daily_returns.js";
+import { performanceBlocks } from "../web/strategy-switch-console/application/console_api/performance.js";
+import { intervalFlows, applyCashflowPerformance } from "../web/strategy-switch-console/application/console_api/cashflow_performance.js";
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
 const record = { source_ref: "c".repeat(64), type: "deposit", amount: "100.12345678", effective_date: "2026-10-02", settlement_date: null, transfer_ref: null };
@@ -29,6 +31,18 @@ const precise = { schema_version: "external_flow.v1", windows: [{ currency: "USD
   records: [{ ...record, source_ref: "d".repeat(64), effective_at: "2026-10-03T12:00:00Z" }] }] };
 delete precise.windows[0].records[0].effective_date;
 assert.equal(intervalFlows(mergeExternalFlow(precise, flow), "USD", precise.windows[0].period_start, precise.windows[0].period_end).length, 1, "v1 exact-time facts remain usable after the v2 upgrade");
+
+// Exercise the production calculation order: date-only facts cannot erase native returns.
+const nativeRow = (date, value) => ({ status: "available", method: "native_ibkr_twr", source: "ChangeInNAV.twr",
+  unit: "ratio", currency: "USD", period: { from: date, to: date }, value });
+const nativeInput = { accounts: [{ platform: "ibkr", account_key: "synthetic-ibkr", return: { daily: [nativeRow("2026-10-22", "0.1"), nativeRow("2026-10-23", "-0.05")] } }],
+  histories: [{ id: "synthetic-ibkr", currency: "USD", externalFlow: flow, points: [{ date: "2026-10-22", value: 100, observed_at: "2026-10-22T12:00:00Z" },
+    { date: "2026-10-23", value: 1100, observed_at: "2026-10-23T12:00:00Z" }] }], range: "ALL", today: "2026-10-24", year: 2026, month: 10, failed: [], benchmarks: [] };
+const result = applyNativeDailyReturns(applyCashflowPerformance(performanceBlocks(nativeInput), nativeInput, { CONSOLE_EXTERNAL_FLOW_ENABLED: "true" }), nativeInput);
+assert.ok(Math.abs(result.summary.twr_return_percent - 4.5) < 1e-10);
+assert.deepEqual(result.returns.points.map(p => p.daily_return_percent), [10, -5]);
+assert.equal(result.assets.points.at(-1).value, 1100);
+assert.equal(result.summary.amount, null, "unknown money P/L is not manufactured from a dated deposit");
 
 const option = { key: "synthetic-ibkr", label: "Synthetic", account_scope: "synthetic-live", target_name: "synthetic-target",
   service_name: "synthetic-service", deployment_selector: "synthetic-deploy", account_selector: "U100001" };
