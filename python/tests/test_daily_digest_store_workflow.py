@@ -29,9 +29,28 @@ def workflow_body(name):
 
 
 class DailyDigestStoreWorkflowTests(unittest.TestCase):
+    def prepare_runner(self, root):
+        """Run the real workflow scripts with an isolated, fixed fixture clock."""
+        if not (root / "python").exists():
+            (root / "python").symlink_to(ROOT / "python", target_is_directory=True)
+        fixture = root / "fixture-clock"
+        fixture.mkdir(exist_ok=True)
+        (fixture / "sitecustomize.py").write_text(
+            "import datetime, time\n"
+            "class FixtureDateTime(datetime.datetime):\n"
+            "    @classmethod\n"
+            "    def now(cls, tz=None):\n"
+            "        value = cls.fromisoformat('2026-10-13T07:10:00+08:00')\n"
+            "        return value.astimezone(tz) if tz else value.replace(tzinfo=None)\n"
+            "datetime.datetime = FixtureDateTime\n"
+            "time.sleep = lambda seconds: None\n"
+        )
+        return str(fixture)
+
     def execute_opts(self, root, **overrides):
         env = {
             "PATH": os.environ["PATH"], "GITHUB_ENV": str(root / "github-env"),
+            "PYTHONPATH": self.prepare_runner(root),
             "GITHUB_OUTPUT": str(root / "github-output"), "INPUT_EVENT_NAME": "workflow_dispatch",
             "INPUT_REF": "refs/heads/main", "INPUT_DRY_RUN": "true",
             "INPUT_PREFLIGHT_PRIVATE_STORE": "true", "INPUT_BUSINESS_DAY": "2026-10-12",
@@ -72,7 +91,10 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
             }
             result, env, outputs, updates = self.execute_opts(root, **existing)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(updates, {})
+            self.assertEqual(updates, {
+                "DIGEST_DEADLINE_ENABLED": "true", "DIGEST_BUSINESS_DAY": "2026-10-12",
+                "DIGEST_REPORT_DATE": "2026-10-13",
+            })
             self.assertEqual(outputs["preflight_private_store"], "true")
             for key, value in existing.items():
                 self.assertEqual(env[key], value)
@@ -126,10 +148,14 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
                             "preflight_private_store": "false",
                             "dry_run": "true" if event != "schedule" and dry_run == "true" else "false",
                             "business_day": "2026-10-12", "locale": "zh",
+                            "upstream_allowed": "true",
                             "layout": "v1" if event == "schedule" else "sections_v2",
                             "include_github": "false",
                         })
-                        self.assertEqual(updates, {})
+                        self.assertEqual(updates, {
+                            "DIGEST_DEADLINE_ENABLED": "true", "DIGEST_BUSINESS_DAY": "2026-10-12",
+                            "DIGEST_REPORT_DATE": "2026-10-13",
+                        })
                         self.assertEqual(env["DIGEST_CANDIDATES_GCS_URI"], "")
                         self.assertEqual(env["DIGEST_CANDIDATES_PATH"], str(legacy))
                         self.assertEqual(env["DIGEST_CANDIDATES_JSON"], '{"runs":[]}')
@@ -155,7 +181,7 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
             "    raise SystemExit(99)\n"
         )
         fake_gcloud.chmod(0o755)
-        (root / "python").symlink_to(ROOT / "python", target_is_directory=True)
+        fixture = self.prepare_runner(root)
         candidate = {
             "platform_id": "schwab", "strategy_profile": "soxl_soxx_trend_income",
             "opaque_account_uid": "synthetic-account", "target_id": "schwab/private-target-account",
@@ -164,6 +190,8 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
             "equity": 123456.78,
         }
         env = {**(initial_env or {}), "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"], "RUNNER_TEMP": str(root),
+               "PYTHONPATH": fixture, "DIGEST_DEADLINE_ENABLED": "true",
+               "DIGEST_BUSINESS_DAY": "2026-10-12", "DIGEST_REPORT_DATE": "2026-10-13",
                "GITHUB_ENV": str(root / "github-env"), "INPUT_BUSINESS_DAY": "2026-10-12",
                "AUTH_OUTCOME": "failure" if failure == "auth" else "success",
                "FAIL_STAGE": failure, "OBJECTS": "true" if objects else "false",
@@ -195,7 +223,7 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
                 with self.subTest(failure=failure, old=old), tempfile.TemporaryDirectory() as tmp:
                     result, env = self.execute_fetch(Path(tmp), failure, old_candidate=old)
                     self.assertNotEqual(result.returncode, 0)
-                    expected = {"auth": "auth", "ls": "list", "cp": "copy", "merge": "merge"}[failure]
+                    expected = {"auth": "auth", "ls": "read", "cp": "read", "merge": "merge"}[failure]
                     self.assertEqual(env["DIGEST_CANDIDATES_STORE_STATUS"], "failed")
                     self.assertEqual(env["DIGEST_CANDIDATES_STORE_REASON"], f"candidate_store_{expected}_failed")
                     for layout in ["v1", "sections_v2"]:
@@ -215,17 +243,19 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
                         else:
                             self.assertEqual(receipt["evidence_status"], "evidence_unknown")
 
-    def test_complete_successful_list_preserves_empty_and_known_run_semantics(self):
+    def test_confirmed_rows_are_loaded_but_empty_store_stays_unverified(self):
         for objects in [False, True]:
             with self.subTest(objects=objects), tempfile.TemporaryDirectory() as tmp:
                 result, env = self.execute_fetch(Path(tmp), objects=objects)
-                self.assertEqual(result.returncode, 0)
-                self.assertEqual(env["DIGEST_CANDIDATES_STORE_STATUS"], "loaded")
+                self.assertEqual(result.returncode, 0 if objects else 1)
+                self.assertEqual(env["DIGEST_CANDIDATES_STORE_STATUS"], "loaded" if objects else "failed")
                 receipt, _ = self.digest_receipt(env)
-                self.assertFalse(receipt["source_coverage"]["has_source_failures"])
-                self.assertEqual(receipt["total_fills"], 0)
-                self.assertEqual(receipt["total_fills_status"], "known")
-                self.assertEqual(receipt["evidence_status"], "has_runs" if objects else "verified_idle")
+                self.assertEqual(receipt["source_coverage"]["has_source_failures"], not objects)
+                self.assertEqual(receipt["total_fills"], 0 if objects else None)
+                self.assertEqual(receipt["total_fills_status"], "known" if objects else "unknown")
+                self.assertEqual(receipt["evidence_status"], "has_runs" if objects else "evidence_unknown")
+                if not objects:
+                    self.assertEqual(env["DIGEST_CANDIDATES_STORE_REASON"], "candidate_store_not_ready")
 
     def test_configured_store_without_valid_outcome_cannot_claim_complete_coverage(self):
         for state in ["", "disabled", "private-target-invalid"]:
@@ -303,12 +333,16 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
                 private_path = root / "data/output/daily-digest/receipt.json"
                 private = json.loads(private_path.read_text())
                 self.assertEqual(private["status"], "dry_run")
-                if old_candidate != "malformed":
+                if env["DIGEST_CANDIDATES_STORE_STATUS"] == "loaded":
                     self.assertIn("private-target-account", json.dumps(private))
                     self.assertIn("123,456.78", (root / "digest-message-private.log").read_text())
                 else:
                     self.assertEqual(private["evidence_status"], "evidence_unknown")
-                    self.assertIn("候选读取失败", (root / "digest-message-private.log").read_text())
+                    self.assertTrue(private["business_digest_failed"])
+                    self.assertIn("guarded exception path", (root / "digest-message-private.log").read_text())
+                    self.assertGreater(private["message_chars"], 0)
+                    self.assertEqual(private["layout"], "v1")
+                    self.assertNotIn("private-target-account", json.dumps(private))
                 self.assertEqual(private_path.stat().st_mode & 0o077, 0)
                 for step in ["Prepare public receipt summary", "Summarize (no secrets)"]:
                     result = subprocess.run(["bash", "-c", workflow_body(step)], cwd=root, env=env,
@@ -324,7 +358,7 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
                 if env["DIGEST_CANDIDATES_STORE_STATUS"] == "failed":
                     self.assertIsNone(private["total_fills"])
                     self.assertIsNone(public["total_fills"])
-                    self.assertIn(env["DIGEST_CANDIDATES_STORE_REASON"], public_text)
+                    self.assertTrue(public["business_digest_failed"])
                     gate = subprocess.run(["bash", "-c", workflow_body("Require complete private candidate intake")],
                                           cwd=root, env=env, capture_output=True, text=True, timeout=15)
                     self.assertEqual(gate.returncode, 1)

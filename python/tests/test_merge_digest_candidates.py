@@ -180,4 +180,6 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("QRS_UNIFIED_NOTIFICATION_ENABLED || 'false'", live)
         self.assertIn("DIGEST_CANDIDATES_GCS_URI: ${{ vars.DIGEST_CANDIDATES_GCS_URI || '' }}", live)
         self.assertIn("steps.resend_guard.outputs.proceed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != ''", live)
-        self.assertIn("merge_digest_candidates.py", live)
+        self.assertIn("fetch_daily_digest_candidates.py", live)
+        helper = (root / "python/scripts/fetch_daily_digest_candidates.py").read_text()
+        self.assertIn("from merge_digest_candidates import merge", helper)

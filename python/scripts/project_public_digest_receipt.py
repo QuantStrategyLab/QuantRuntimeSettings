@@ -109,6 +109,13 @@ def project_public_receipt(receipt: Mapping[str, Any], *, source_sha: str = "") 
             "history_error": _enum(guard.get("history_error"), HISTORY_ERRORS | {""}),
             "history_attempts": _count(guard.get("history_attempts")),
         }
+    # Public timing fields are validated; private routing/content is never projected.
+    for key in ('accepted_at', 'deadline_at'):
+        if key in receipt:
+            public[key] = _time(receipt[key], local=False)
+    for key in ('late', 'business_digest_failed'):
+        if key in receipt:
+            public[key] = receipt[key] if type(receipt[key]) is bool else None
     if source_sha:
         if not isinstance(source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", source_sha):
             raise ValueError("source_sha_invalid")

@@ -20,6 +20,15 @@ legacy force-test inputs and a disabled local guard cannot bypass this limit.
 An uncertain previous send or missing send receipt blocks another attempt.
 Keep the workflow concurrency group shared by manual and scheduled runs.
 
+The workflow freezes the business window before reading send history. Upstream
+candidate reads share at most 120 seconds and stop at 07:20 Asia/Singapore.
+The 07:30 deadline leaves time for a single guarded failure notice when source
+verification is incomplete. A run starting after the deadline reports that it
+is late, keeps trading and asset facts unknown, and does not send an automatic
+follow-up. Actions queue delays remain observable; this does not guarantee a
+07:30 start or delivery. Public receipts preserve acceptance time, the deadline
+and late/failure flags without private message text.
+
 No variables are applied, workflow dispatched, secrets read or messages sent by
 this code-only change. Validate protected source bindings and the approved UES
 fingerprint/baseline release plan before production adoption.

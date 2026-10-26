@@ -13,6 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+import daily_digest_deadline as deadline
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
@@ -22,7 +23,7 @@ from zoneinfo import ZoneInfo
 
 # Public diagnostics must never contain exception text, URLs, or credentials.
 HISTORY_ERRORS = frozenset({
-    "guard_response_too_large", "guard_history_incomplete", "guard_marker_invalid",
+    "guard_read_budget_exhausted", "guard_response_too_large", "guard_history_incomplete", "guard_marker_invalid",
     "guard_marker_business_day_missing", "guard_configuration_invalid", "guard_future_business_day",
     "guard_run_invalid", "guard_prior_run_in_progress", "guard_job_history_missing",
     "guard_send_receipt_missing", "guard_send_receipt_expired", "guard_http_access_denied", "guard_http_request_failed",
@@ -38,6 +39,8 @@ MARKER_FIELDS = (
 
 
 def report_date() -> str:
+    if deadline.enabled(os.environ):
+        return date.fromisoformat(os.environ["DIGEST_REPORT_DATE"]).isoformat()
     return datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Singapore")).date().isoformat()
 
 
@@ -196,6 +199,8 @@ def history_error(exc: Exception) -> str:
         if exc.code in {401, 403}:
             return "guard_http_access_denied"
         return "guard_http_unavailable" if exc.code == 429 or exc.code >= 500 else "guard_http_request_failed"
+    if isinstance(exc, TimeoutError) and str(exc) == "guard_read_budget_exhausted":
+        return "guard_read_budget_exhausted"
     if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError)):
         return "guard_transport_unavailable"
     if isinstance(exc, ValueError) and str(exc) in HISTORY_ERRORS:
@@ -216,7 +221,7 @@ def recovery_notice(day: str, env: Mapping[str, str]) -> str:
             "Do not force resend or retry uncertain delivery.\n" + command)
 
 
-def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False) -> Decision:
+def _evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False) -> Decision:
     if dry_run:
         return Decision("preview", "DRY_RUN")
     event = env.get("GITHUB_EVENT_NAME", "local")
@@ -241,6 +246,8 @@ def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False
         try:
             history = read_history(business_day, env)
             break
+        except deadline.ReadBudgetExceeded:
+            raise
         except Exception as exc:
             code = history_error(exc)
             if attempt == attempts or code not in RETRYABLE_HISTORY_ERRORS:
@@ -292,12 +299,24 @@ def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False
                     and receipt.get("dry_run") is False and not receipt.get("test_message", False)]
         if any(receipt.get("delivered") is True and receipt.get("status") == "delivered" for receipt in same_day):
             return Decision("skip", "ALREADY_DELIVERED", previous_failures=previous_failures, history_attempts=attempt)
-        if any(receipt.get("status") == "send_failed" for receipt in same_day):
+        if any(receipt.get("status") in {"send_failed", "sending", "business_digest_failed"} for receipt in same_day):
             return Decision("blocked", "DELIVERY_UNCERTAIN", previous_failures=previous_failures, history_attempts=attempt)
         return Decision("send", "FIRST_SEND", previous_failures=previous_failures, history_attempts=attempt)
+    except deadline.ReadBudgetExceeded:
+        raise
     except Exception as exc:
         # Never echo HTTP errors, URLs, tokens, or artifact contents.
         return Decision("blocked", "HISTORY_UNAVAILABLE", history_error=history_error(exc), history_attempts=attempt)
+
+
+def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False) -> Decision:
+    if not deadline.enabled(env):
+        return _evaluate(business_day, env, dry_run=dry_run)
+    try:
+        with deadline.read_budget(120, 'guard_read_budget_exhausted'):
+            return _evaluate(business_day, env, dry_run=dry_run)
+    except deadline.ReadBudgetExceeded:
+        return Decision('blocked', 'HISTORY_UNAVAILABLE', history_error='guard_read_budget_exhausted')
 
 
 def skip_receipt(day: str, locale: str, decision: Decision) -> dict[str, Any]:
