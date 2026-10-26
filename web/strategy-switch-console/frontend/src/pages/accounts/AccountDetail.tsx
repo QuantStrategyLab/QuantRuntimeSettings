@@ -9,6 +9,7 @@ import { useT, type Translate } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { AsOfStamp, Badge, ErrorState, StatusBadge } from "../../components/primitives";
 import { AccountFactsAmounts, EnvironmentBadge, type AccountEnvironment } from "../../components/AccountFactsAmounts";
+import { BinanceWalletFacts } from "../../components/BinanceWalletFacts";
 import type { AccountFactsView } from "../../components/AccountGroups";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { Tabs } from "../../components/Tabs";
@@ -116,7 +117,9 @@ export function AccountDetail({
             <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{runBadge}</span>
           </div>
         </div>
-        <AccountFactsAmounts fact={fact} phase={facts.phase} />
+        {account.platform === "binance"
+          ? <BinanceWalletFacts platform={account.platform} accountKey={account.account_alias} view={facts.binance} />
+          : <AccountFactsAmounts fact={fact} phase={facts.phase} />}
       </section>
       <Tabs
         id="account-detail"

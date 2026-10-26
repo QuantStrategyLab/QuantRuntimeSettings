@@ -1,8 +1,9 @@
 import { AccountGroups, type AccountFactsView } from "../../components/AccountGroups";
 import { findAccount } from "../../lib/accountDirectory";
+import type { BinanceFactsView } from "../../lib/binanceWalletFacts";
 import { useState } from "react";
 import { getJson } from "../../api/client";
-import { loadAccountFacts, loadAccounts, loadTodayRuns } from "../../api/endpoints";
+import { loadAccountFacts, loadAccounts, loadBinanceAccountFacts, loadTodayRuns } from "../../api/endpoints";
 import { useNavigate } from "../../app/context";
 import { useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
@@ -20,13 +21,19 @@ export default function AccountsPage({ account, tab }: { account: string | null;
   const configState = useApi(() => getJson<ConsoleConfig>("/api/config").catch(() => null), [epoch]);
   const todayState = useApi(() => loadTodayRuns(), [epoch]);
   const factsState = useApi(() => loadAccountFacts(), [epoch]);
+  // A separate read and epoch: a failed ordinary facts request must not hide a
+  // readable Binance wallet report, and vice versa.
+  const binanceState = useApi(() => loadBinanceAccountFacts(), [epoch]);
 
   const config = configState.phase === "ready" ? configState.data : null;
   const accounts = accountsState.phase === "ready" ? accountsState.data.accounts : [];
   const selected = account ? findAccount(accounts, account) : undefined;
+  const binance: BinanceFactsView = binanceState.phase === "ready"
+    ? { phase: "ready", status: binanceState.data.report_status, report: binanceState.data.report }
+    : { phase: binanceState.phase, status: null, report: null };
   const facts: AccountFactsView = factsState.phase === "ready"
-    ? { rows: factsState.data.accounts, phase: "ready" }
-    : { rows: [], phase: factsState.phase };
+    ? { rows: factsState.data.accounts, phase: "ready", binance }
+    : { rows: [], phase: factsState.phase, binance };
 
   const todayFailed =
     todayState.phase === "error" || (todayState.phase === "ready" && todayState.data.status === "read_failed");

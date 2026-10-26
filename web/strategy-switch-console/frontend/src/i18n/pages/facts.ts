@@ -19,6 +19,14 @@ export const zh: Record<string, string> = {
   "facts.stale_pending": "待更新",
   "facts.as_of_stale": "截至 {value} · 待更新",
   "facts.identity_action": "去核验账户",
+  "facts.wallet_valuation": "钱包估值",
+  "facts.wallet_holdings": "持仓 · {count} 种资产",
+  "facts.wallet_scope_note": "Binance 返回的钱包估值，不代表完整账户净值或现金；不计入实盘账户合计。",
+  "facts.wallet_holdings_scope_note": "持仓数量仅覆盖现货与活期理财，不含资金账户、杠杆、合约及锁定理财。",
+  "facts.wallet_unavailable": "暂不可用",
+  "facts.wallet_no_data": "暂无数据",
+  "facts.wallet_pending": "待更新",
+  "facts.wallet_read_failed": "读取失败",
 };
 export const en: Record<string, string> = {
   "facts.assets": "Assets",
@@ -40,4 +48,12 @@ export const en: Record<string, string> = {
   "facts.stale_pending": "Update pending",
   "facts.as_of_stale": "As of {value} · update pending",
   "facts.identity_action": "Verify accounts",
+  "facts.wallet_valuation": "Wallet valuation",
+  "facts.wallet_holdings": "Holdings · {count} assets",
+  "facts.wallet_scope_note": "Provider-returned wallet valuation, not complete account NAV or cash; excluded from live-account totals.",
+  "facts.wallet_holdings_scope_note": "Quantities cover Spot and Flexible Earn only; funding, margin, futures, and locked Earn are excluded.",
+  "facts.wallet_unavailable": "Temporarily unavailable",
+  "facts.wallet_no_data": "No data",
+  "facts.wallet_pending": "Update pending",
+  "facts.wallet_read_failed": "Read failed",
 };

@@ -706,3 +706,53 @@ export interface AccountFactsResponse extends ReadOnlyProjection {
   enabled: true;
   configured: boolean;
 }
+
+/**
+ * Dedicated single-account Binance facts. This wallet valuation is a provider
+ * wallet rollup, not a complete account net value: it never joins the generic
+ * AccountFactsAccount totals, cash, P/L, or TWR. Amounts stay decimal strings.
+ */
+export type BinanceWalletValuation =
+  | {
+      status: "available";
+      amount: string;
+      currency: "USDT";
+      source: string;
+      scope: string;
+      observed_at: string;
+      wallet_count: number;
+    }
+  | {
+      status: "unavailable";
+      amount: null;
+      currency: null;
+      source: string;
+      scope: string;
+      observed_at: null;
+      wallet_count: null;
+      reason_code: string;
+    };
+export interface BinanceAccountFactsAsset {
+  asset: string;
+  quantity: string;
+  spot_free: string;
+  spot_locked: string;
+  flexible_earn: string;
+}
+export interface BinanceAccountFactsReport {
+  platform: "binance";
+  account_key: string;
+  scope: "spot+flexible_earn";
+  observed_finished_at: string;
+  snapshot_atomic: false;
+  assets: BinanceAccountFactsAsset[];
+  uncovered_scopes: string[];
+  wallet_valuation?: BinanceWalletValuation;
+}
+export type BinanceAccountFactsReportStatus = "available" | "missing" | "expired" | "unavailable";
+/** Body of GET /api/binance-account-facts; `report` is present only when the status is available. */
+export interface BinanceAccountFactsResponse {
+  ok: true;
+  report_status: BinanceAccountFactsReportStatus;
+  report: BinanceAccountFactsReport | null;
+}
