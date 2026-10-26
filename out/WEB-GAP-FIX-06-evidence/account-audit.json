@@ -1,0 +1,101 @@
+[
+  {
+    "account_label": "LongBridge·新加坡",
+    "value": "unknown",
+    "reason": "permission_denied",
+    "reason_detail": "current_account_directory_hidden_without_allowed_session",
+    "source": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/config",
+    "observed_at": "2026-10-22T22:45:13.100832+00:00",
+    "candidate_repository": "QuantStrategyLab/LongBridgePlatform",
+    "candidate_note": "environment longbridge-sg 的 RUNTIME_TARGET_JSON 读取成功，含 live / false；当前目录绑定不可见",
+    "configuration_applied": false
+  },
+  {
+    "account_label": "LongBridge·香港",
+    "value": "unknown",
+    "reason": "permission_denied",
+    "reason_detail": "current_account_directory_hidden_without_allowed_session",
+    "source": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/config",
+    "observed_at": "2026-10-22T22:45:13.100832+00:00",
+    "candidate_repository": "QuantStrategyLab/LongBridgePlatform",
+    "candidate_note": "候选 environment longbridge-hk 的目标变量不可见（404不能区分不存在与权限隐藏）",
+    "configuration_applied": false
+  },
+  {
+    "account_label": "IBKR·SOXL",
+    "value": "unknown",
+    "reason": "permission_denied",
+    "reason_detail": "current_account_directory_hidden_without_allowed_session",
+    "source": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/config",
+    "observed_at": "2026-10-22T22:45:13.100832+00:00",
+    "candidate_repository": "QuantStrategyLab/InteractiveBrokersPlatform",
+    "candidate_note": "服务目标清单读取成功，4个显式 live / false；当前账户与服务的精确绑定不可见",
+    "configuration_applied": false
+  },
+  {
+    "account_label": "IBKR·TQQQ",
+    "value": "unknown",
+    "reason": "permission_denied",
+    "reason_detail": "current_account_directory_hidden_without_allowed_session",
+    "source": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/config",
+    "observed_at": "2026-10-22T22:45:13.100832+00:00",
+    "candidate_repository": "QuantStrategyLab/InteractiveBrokersPlatform",
+    "candidate_note": "同上；不从策略名或别名选择4个服务中的任一个",
+    "configuration_applied": false
+  },
+  {
+    "account_label": "IBKR·Global ETF",
+    "value": "unknown",
+    "reason": "permission_denied",
+    "reason_detail": "current_account_directory_hidden_without_allowed_session",
+    "source": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/config",
+    "observed_at": "2026-10-22T22:45:13.100832+00:00",
+    "candidate_repository": "QuantStrategyLab/InteractiveBrokersPlatform",
+    "candidate_note": "同上；当前账户与服务的精确绑定不可见",
+    "configuration_applied": false
+  },
+  {
+    "account_label": "IBKR·Russell Top 50",
+    "value": "unknown",
+    "reason": "permission_denied",
+    "reason_detail": "current_account_directory_hidden_without_allowed_session",
+    "source": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/config",
+    "observed_at": "2026-10-22T22:45:13.100832+00:00",
+    "candidate_repository": "QuantStrategyLab/InteractiveBrokersPlatform",
+    "candidate_note": "同上；当前账户与服务的精确绑定不可见",
+    "configuration_applied": false
+  },
+  {
+    "account_label": "Schwab·实盘",
+    "value": "unknown",
+    "reason": "permission_denied",
+    "reason_detail": "current_account_directory_hidden_without_allowed_session",
+    "source": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/config",
+    "observed_at": "2026-10-22T22:45:13.100832+00:00",
+    "candidate_repository": "QuantStrategyLab/CharlesSchwabPlatform",
+    "candidate_note": "RUNTIME_TARGET_JSON 读取成功，含 live / false；当前目录绑定不可见",
+    "configuration_applied": false
+  },
+  {
+    "account_label": "Firstrade·实盘",
+    "value": "unknown",
+    "reason": "permission_denied",
+    "reason_detail": "current_account_directory_hidden_without_allowed_session",
+    "source": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/config",
+    "observed_at": "2026-10-22T22:45:13.100832+00:00",
+    "candidate_repository": "QuantStrategyLab/FirstradePlatform",
+    "candidate_note": "仓库目标变量不可见（404不能证明配置缺失）；当前目录绑定不可见",
+    "configuration_applied": false
+  },
+  {
+    "account_label": "Binance·实盘",
+    "value": "unknown",
+    "reason": "permission_denied",
+    "reason_detail": "current_account_directory_hidden_without_allowed_session",
+    "source": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/config",
+    "observed_at": "2026-10-22T22:45:13.100832+00:00",
+    "candidate_repository": "QuantStrategyLab/BinancePlatform",
+    "candidate_note": "RUNTIME_TARGET_JSON 为 live / false，BINANCE_DRY_RUN=false；当前目录绑定不可见",
+    "configuration_applied": false
+  }
+]

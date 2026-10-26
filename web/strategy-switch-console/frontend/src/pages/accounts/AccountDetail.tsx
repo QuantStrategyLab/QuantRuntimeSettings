@@ -2,13 +2,18 @@ import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useEffect, useRef, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import { loadSettingsDiff } from "../../api/endpoints";
+import { factEnvironment, factForAccount } from "../../lib/accountFacts";
 import { useNavigate } from "../../app/context";
 import { setNavigationGuard } from "../../app/router";
 import { useT, type Translate } from "../../i18n";
 import { useApi } from "../../lib/hooks";
-import { AsOfStamp, Badge, StatusBadge } from "../../components/primitives";
+import { AsOfStamp, Badge, ErrorState, StatusBadge } from "../../components/primitives";
+import { AccountFactsAmounts, EnvironmentBadge, type AccountEnvironment } from "../../components/AccountFactsAmounts";
+import { BinanceWalletFacts } from "../../components/BinanceWalletFacts";
+import type { AccountFactsView } from "../../components/AccountGroups";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { Tabs } from "../../components/Tabs";
+import { accountOption } from "../../lib/accountDirectory";
 import { platformLabel, type AccountRow, type ConsoleConfig, type EditMap } from "./helpers";
 import { DiffSummary, StrategyTab } from "./StrategyTab";
 import { ControlsTab } from "./ControlsTab";
@@ -29,6 +34,7 @@ export function AccountDetail({
   config,
   todayRun,
   todayFailed,
+  facts,
   onBack,
 }: {
   account: AccountRow;
@@ -36,6 +42,7 @@ export function AccountDetail({
   config: ConsoleConfig | null;
   todayRun: TodayRun | undefined;
   todayFailed: boolean;
+  facts: AccountFactsView;
   onBack: () => void;
 }) {
   const t = useT();
@@ -65,6 +72,11 @@ export function AccountDetail({
   }, [dirty]);
 
   const active = normalizeTab(tab);
+  const selector = accountOption(config, account.platform, account.account_alias)?.account_selector?.trim();
+  const fact = factForAccount(facts.rows, account.platform, account.account_alias);
+  const evidenceEnvironment = config?.currentStrategies?.[account.platform]?.[account.account_alias]?.execution_evidence?.broker_environment;
+  const environment: AccountEnvironment | null = factEnvironment(fact)
+    ?? (evidenceEnvironment === "paper" || evidenceEnvironment === "live" ? evidenceEnvironment : null);
 
   const runBadge = todayFailed ? (
     <StatusBadge status="read_failed" />
@@ -85,17 +97,29 @@ export function AccountDetail({
         </button>
       </div>
       <section className="card">
-        <h2 className="card-title" title={`${account.platform}:${account.account_alias}`}>{names.account(account.account_alias, account.platform)}</h2>
+        <div className="accounts-detail-head">
+          <h2 className="card-title">{names.account(account.account_alias, account.platform)}</h2>
+          <EnvironmentBadge environment={environment} />
+        </div>
         <div className="accounts-summary-rows">
           <div className="accounts-summary-row">
             <span>{t("common.platform")}</span>
             <span>{platformLabel(config, account.platform)}</span>
           </div>
+          {selector && (
+            <div className="accounts-summary-row">
+              <span>{t("accounts.identity")}</span>
+              <span className="num">{selector}</span>
+            </div>
+          )}
           <div className="accounts-summary-row">
             <span>{t("accounts.run_state")}</span>
             <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{runBadge}</span>
           </div>
         </div>
+        {account.platform === "binance"
+          ? <BinanceWalletFacts platform={account.platform} accountKey={account.account_alias} view={facts.binance} />
+          : <AccountFactsAmounts fact={fact} phase={facts.phase} />}
       </section>
       <Tabs
         id="account-detail"
@@ -109,15 +133,7 @@ export function AccountDetail({
           <section className="card">
             <h2 className="card-title">{t("accounts.tab.overview")}</h2>
             {diffState.phase === "loading" && <div className="skeleton" style={{ height: 200 }} aria-hidden="true" />}
-            {diffState.phase === "error" && (
-              <div className="error-state" role="alert">
-                <div className="error-title">{t("state.read_failed")}</div>
-                <div>{t("error.generic")}</div>
-                <div style={{ marginTop: 12 }}>
-                  <button type="button" className="button button-secondary" onClick={diffState.reload}>{t("common.retry")}</button>
-                </div>
-              </div>
-            )}
+            {diffState.phase === "error" && <ErrorState onRetry={diffState.reload} />}
             {diffState.phase === "ready" && (
               <>
                 {diffState.data.identity_status === "identity_conflict" && (

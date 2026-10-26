@@ -91,13 +91,13 @@ export async function accountFactsResponse(request, env, deps) {
   try {
     accountConfig = await loadAccountOptionsConfig(env);
   } catch {
-    accountConfig = { options: {} };
+    return json({ ok: false, error: "account_options_unreadable" }, 503);
   }
   let bindings = null;
   try {
     bindings = await loadAccountFactsBindings(env);
   } catch {
-    bindings = null;
+    return json({ ok: false, error: "account_facts_bindings_unreadable" }, 503);
   }
   let storedByAccount;
   try {

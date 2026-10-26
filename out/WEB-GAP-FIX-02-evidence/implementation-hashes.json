@@ -1,0 +1,7 @@
+{
+  "web/strategy-switch-console/worker.js": "e9a24dc4fed41e99e5ec42c4249ae574c5510fd7ea9377b2ddef176c5a150630",
+  "tests/runtime_daily_worker_validation.mjs": "e10f695ac412e5063ebf050f41cd156c050f4f2abaa084dcef5690f55bd36789",
+  "tests/runtime_daily_health_integration_validation.mjs": "c2cc83e063a35d2b83c66f6556fba5f047050fe56b1ad941872cb2c4b1fa7552",
+  "web/strategy-switch-console/README.md": "2ddcfc216a225b1086a8636f7bd641086612b306f06716dd8e1b9c15c3c13d57",
+  "web/strategy-switch-console/README.zh-CN.md": "00e719084171e6f57c58d90ba74f88d66f29b07357ec8ee7af959a4d94ffb848"
+}

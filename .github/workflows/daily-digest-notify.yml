@@ -10,7 +10,10 @@ name: Daily Digest Notify
 # when GitHub/candidates evidence could not be loaded).
 #
 # Schedule (GitHub Actions cron is UTC):
-#   0 22 * * 1-5  == Tue–Sat 06:00 Asia/Shanghai (covers prior US RTH close).
+#   10 23 * * 1-5 == Tue–Sat 07:10 Asia/Shanghai (after 06:20 producer uploads).
+# The business-day cutoff remains 06:00 Asia/Shanghai. This gives the
+# 22:20 UTC producer jobs time to upload; their actual completion is verified
+# by candidate coverage, not assumed from the schedule.
 # Optional Asia cash session digest is not scheduled yet; add a second cron
 # only after an Asia evidence contract exists (do not invent runs).
 #
@@ -67,8 +70,8 @@ on:
         type: boolean
         default: true
   schedule:
-    # Asia/Shanghai Tue–Sat 06:00 → UTC Mon–Fri 22:00
-    - cron: "0 22 * * 1-5"
+    # Asia/Shanghai Tue–Sat 07:10 → UTC Mon–Fri 23:10, after 22:20 producers
+    - cron: "10 23 * * 1-5"
     # Additional crypto windows run only when unified mode is explicitly enabled.
     - cron: "0 23 * * *"
 
@@ -142,7 +145,7 @@ jobs:
           mode = os.environ.get("QSL_ROUTINE_NOTIFICATION_MODE", "immediate")
           if os.environ.get("QRS_UNIFIED_NOTIFICATION_ENABLED", "").strip().lower() == "true":
               mode = "daily_digest"
-          expected = "0 23 * * *" if mode == "daily_digest" else "0 22 * * 1-5"
+          expected = "0 23 * * *" if mode == "daily_digest" else "10 23 * * 1-5"
           proceed = os.environ.get("DIGEST_EVENT_NAME") != "schedule" or os.environ.get("DIGEST_EVENT_SCHEDULE") == expected
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"proceed={str(proceed).lower()}\n")

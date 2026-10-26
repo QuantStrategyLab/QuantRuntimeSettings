@@ -46,7 +46,25 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
         '/api/reconciliation-recovery': { data_status: 'ready', recoveries: [] },
         '/api/research-promotion-tickets': { data_status: 'ready', tickets: scenario === 'many-decisions' ? Array.from({length: 12}, (_, i) => ticket(i + 1)) : [], applications: [] },
         '/api/account-diagnosis': { task: null },
-        '/api/account-facts': { data_status: 'unavailable', accounts: [], summary: {} },
+        '/api/account-facts': (() => {
+          const observed = scenario !== 'api-not-connected';
+          const status = scenario === 'api-stale' ? 'stale' : 'fresh';
+          const at = new Date().toISOString();
+          // Real producer LongBridge wire shape: balances carry
+          // currency/net_assets/total_cash, cash rows carry
+          // available/frozen/settling (never cash_balance), and the channel
+          // identity never proves a physical account, so the row is
+          // aggregation_status "unverified" and totals stay unavailable.
+          return { ok: true, no_order: true, execution_authority_granted: false,
+            accounts: [{ platform: 'longbridge', account_key: 'synthetic-alpha', binding_status: 'bound', identity_status: 'partial_identity', identity_mismatch: false,
+              data_status: observed ? status : 'unavailable', broker_environment: 'paper', account_scope: 'PAPER',
+              observation_date: observed ? at.slice(0, 10) : null, observed_started_at: observed ? at : null, observed_finished_at: observed ? at : null,
+              aggregation_status: 'unverified',
+              balances: observed ? [{ currency: 'USD', net_assets: '1234.56', total_cash: '100.25' }, { currency: 'HKD', net_assets: '0', total_cash: '0' }] : [],
+              cash: observed ? [{ currency: 'USD', available_cash: '100.25', frozen_cash: '0', settling_cash: '0' }] : [] }],
+            totals: { status: 'unavailable', reason: 'physical_identity_unverified', by_currency: [] },
+            account_options_revision: 1, enabled: true, configured: true };
+        })(),
         '/api/market-benchmark': { ok: true, points: [] },
         '/api/account-facts/history': { data_status: 'unavailable', series: { points: [] } },
         '/api/binance-account-facts': { data_status: 'unavailable', report: null },

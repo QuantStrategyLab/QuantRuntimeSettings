@@ -1,0 +1,44 @@
+[
+  {
+    "command": "node tests/account_facts_validation.mjs",
+    "exit_code": 0,
+    "elapsed_seconds": 3.74,
+    "log": "review-fix-01.log"
+  },
+  {
+    "command": "node tests/account_facts_readonly_extract_validation.mjs",
+    "exit_code": 0,
+    "elapsed_seconds": 0.24,
+    "log": "review-fix-02.log"
+  },
+  {
+    "command": "node tests/account_facts_sync_extract_validation.mjs",
+    "exit_code": 0,
+    "elapsed_seconds": 0.22,
+    "log": "review-fix-03.log"
+  },
+  {
+    "command": "node tests/console_api_worker_validation.mjs",
+    "exit_code": 0,
+    "elapsed_seconds": 1.6,
+    "log": "review-fix-04.log"
+  },
+  {
+    "command": "node tests/console_design_api_validation.mjs",
+    "exit_code": 0,
+    "elapsed_seconds": 0.62,
+    "log": "review-fix-05.log"
+  },
+  {
+    "command": "node --check web/strategy-switch-console/worker.js",
+    "exit_code": 0,
+    "elapsed_seconds": 0.15,
+    "log": "review-fix-06.log"
+  },
+  {
+    "command": "git diff --check",
+    "exit_code": 0,
+    "elapsed_seconds": 0.05,
+    "log": "review-fix-07.log"
+  }
+]

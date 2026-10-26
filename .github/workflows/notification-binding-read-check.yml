@@ -1,0 +1,58 @@
+name: Notification Binding Read Check
+
+# One existing protected configuration context; no runtime/cloud API or send.
+on:
+  workflow_dispatch:
+    inputs:
+      selected_platform:
+        description: "Pilot platform for optional anonymous membership matching."
+        required: true
+        type: choice
+        default: ibkr
+        options:
+          - ibkr
+          - schwab
+      selected_identity_sha256:
+        description: "Approved four-tuple identity SHA256; empty leaves membership unverified."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notification-binding-read-check
+  cancel-in-progress: false
+
+jobs:
+  notification-binding-read-check:
+    name: Read anonymous notification bindings only
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: runtime-strategy-switch
+    env:
+      DIGEST_EXPECTED_TARGETS_JSON: ${{ secrets.DIGEST_EXPECTED_TARGETS_JSON }}
+      DIGEST_CANDIDATES_GCS_URI: ${{ vars.DIGEST_CANDIDATES_GCS_URI || '' }}
+      DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT: ${{ vars.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT || vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+      QRS_UNIFIED_NOTIFICATION_ENABLED: ${{ vars.QRS_UNIFIED_NOTIFICATION_ENABLED || 'false' }}
+      QSL_ROUTINE_NOTIFICATION_MODE: ${{ vars.QSL_ROUTINE_NOTIFICATION_MODE || 'immediate' }}
+      BINDING_SELECTED_PLATFORM: ${{ inputs.selected_platform }}
+      BINDING_SELECTED_IDENTITY_SHA256: ${{ inputs.selected_identity_sha256 }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Emit anonymous configuration evidence only
+        run: python3 python/scripts/check_notification_binding_read.py --out data/output/daily-digest/notification-binding-read.json
+      - name: Preserve anonymous binding certificate
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: notification-binding-read-${{ github.run_id }}
+          path: data/output/daily-digest/notification-binding-read.json
+          if-no-files-found: error
