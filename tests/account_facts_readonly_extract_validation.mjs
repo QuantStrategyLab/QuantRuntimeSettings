@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   accountFactsHistoryResponse,
@@ -64,6 +65,7 @@ function baseDeps(overrides = {}) {
     },
     periodReturnCommand: () => ({ action: "account_period_return_read" }),
     accountFactsErrorResponse: (error) => json({ ok: false, error: error?.message || "error" }, error?.status || 400),
+    sha256Hex: async value => createHash("sha256").update(value).digest("hex"),
     ...overrides,
   };
 }
@@ -136,6 +138,8 @@ function baseDeps(overrides = {}) {
       return { records: [
         { observation_date: "2026-10-15", observed_finished_at: "2026-10-15T19:45:05.443766Z",
           target_id_matches: true, source_binding_id_matches: false, account_scope_matches: null,
+          row_present: true, source_binding_id_trusted: false, stored_source_binding_id: "a".repeat(64),
+          stored_source_binding_sha256: "forged-hash",
           record_revision: "invented", payload_json: "private-asset-sentinel" },
       ], unexpected: "private-asset-sentinel" };
     },
@@ -153,15 +157,19 @@ function baseDeps(overrides = {}) {
   assert.equal(body.source_binding_id, binding.source_binding.id);
   assert.deepEqual(body.records, [
     { observation_date: "2026-10-15", observed_finished_at: "2026-10-15T19:45:05.443766Z",
-      target_id_matches: true, source_binding_id_matches: false, account_scope_matches: null, record_revision: null },
+      target_id_matches: true, source_binding_id_matches: false, account_scope_matches: null, record_revision: null,
+      row_present: true, source_binding_id_trusted: false,
+      stored_source_binding_sha256: createHash("sha256").update("a".repeat(64)).digest("hex") },
     { observation_date: "2026-10-16", observed_finished_at: null,
-      target_id_matches: null, source_binding_id_matches: null, account_scope_matches: null, record_revision: null },
+      target_id_matches: null, source_binding_id_matches: null, account_scope_matches: null, record_revision: null,
+      row_present: null, source_binding_id_trusted: null, stored_source_binding_sha256: null },
   ]);
   assert.equal(JSON.stringify(body).includes("sentinel"), false);
+  assert.equal(JSON.stringify(body).includes("a".repeat(64)), false, "the stored source id never leaves HTTP");
   assert.equal(commands[0].projection, "identity");
   assert.equal(commands[0].from, "2026-10-15");
-  for (const query of [params.replace("identity", "unknown"), params.replace("schwab", "ibkr"),
-    params.replace("USD", "EUR"), params.replace("2026-10-16", "2026-10-18"),
+  for (const query of [params.replace("identity", "unknown"), params.replace("schwab", "unsupported"),
+    params.replace("USD", "usd"), params.replace("2026-10-16", "2026-10-18"),
     params.replace("2026-10-15", "2026-02-30"), params + "&from=2026-10-15"]) {
     commands = [];
     assert.equal((await invoke(query)).status, 400);
@@ -174,6 +182,44 @@ function baseDeps(overrides = {}) {
   const failed = await invoke(params, { runtimeInstanceCommand: async () => { throw new Error("private-asset-sentinel"); } });
   assert.equal(failed.status, 503);
   assert.equal((await failed.text()).includes("private-asset-sentinel"), false);
+  for (const platform of ["longbridge", "ibkr", "schwab", "firstrade"]) {
+    const configured = { ...option, account_scope: platform === "longbridge" ? "paper" : "live",
+      account_selector: platform === "ibkr" ? "U100001" : platform === "longbridge" ? "PAPER" : "selector" };
+    const configuredBinding = { ...binding, ...configured, platform, account_key: configured.key,
+      history_source_binding_ids: ["a".repeat(64)], ...(platform === "firstrade" ? { broker_account_id: "synthetic-native" } : {}) };
+    commands = [];
+    const result = await invoke(params.replace("schwab", platform).replace("USD", "EUR"), {
+      loadAccountOptionsConfig: async () => ({ options: { [platform]: [configured] } }),
+      loadAccountFactsBindings: async () => ({ bindings: [configuredBinding] }),
+    });
+    assert.equal(result.status, 200);
+    assert.deepEqual(commands[0].history_source_binding_ids, ["a".repeat(64)]);
+    assert.equal(commands[0].broker_account_hash, platform === "schwab" ? configuredBinding.broker_account_hash : undefined);
+    assert.equal(commands[0].broker_account_id, platform === "firstrade" ? configuredBinding.broker_account_id : undefined);
+  }
+  for (const time of ["2026-10-15T19:45:05.443766+00:00", "2026-10-15T19:45:05Z",
+    "2026-02-30T19:45:05Z", "2026-10-15T24:00:00Z", "2026-10-15T19:45:60Z", "2026-10-15T19:45:05+08:00"]) {
+    const result = await invoke(params, { runtimeInstanceCommand: async () => ({ records: [{
+      observation_date: "2026-10-15", observed_finished_at: time, stored_source_binding_id: "not-64-hex", row_present: true,
+    }] }) });
+    const record = (await result.json()).records[0];
+    assert.equal(record.observed_finished_at, ["2026-10-15T19:45:05.443766+00:00", "2026-10-15T19:45:05Z"].includes(time) ? time : null);
+    assert.equal(record.stored_source_binding_sha256, null);
+  }
+  const duplicate = await invoke(params, { runtimeInstanceCommand: async () => ({ records: [
+    { observation_date: "2026-10-15", stored_source_binding_id: "a".repeat(64), row_present: true },
+    { observation_date: "2026-10-15", stored_source_binding_id: "b".repeat(64), row_present: true },
+  ] }) });
+  const duplicateRow = (await duplicate.json()).records[0];
+  assert.equal(duplicateRow.row_present, null);
+  assert.equal(duplicateRow.stored_source_binding_sha256, null);
+  const noRow = await invoke(params, { runtimeInstanceCommand: async () => ({ records: [{
+    observation_date: "2026-10-15", stored_source_binding_id: "a".repeat(64), row_present: false, source_binding_id_trusted: true,
+  }] }) });
+  const absentRow = (await noRow.json()).records[0];
+  assert.equal(absentRow.row_present, false);
+  assert.equal(absentRow.stored_source_binding_sha256, null);
+  assert.equal(absentRow.source_binding_id_trusted, null);
 }
 
 console.log("account_facts_readonly_extract_validation: ok");

@@ -105,6 +105,37 @@ outbound requests. It runs within the existing `account_facts_validation.mjs`
 entry point. It does not fabricate a return or infer complete cashflow coverage
 from historical balances.
 
+## Bounded identity-only history diagnostics
+
+The existing authenticated history GET supports `projection=identity` for all
+four configured platforms. It retains the exact configured account match,
+unique protected binding and one or two consecutive UTC dates (`from` / `to`).
+`currency` remains a required three-uppercase-letter query value; this projection
+does not inspect or establish that currency's financial coverage.
+
+The Durable Object selects only date, observation time, target, source and scope
+metadata, never `payload_json`. Existing Schwab fields remain: observation date
+and time, current target/source/scope comparisons, and null `record_revision`.
+The additive `row_present` distinguishes an absent date from a stored row;
+ambiguous duplicate records remain null. `source_binding_id_trusted` means only
+membership in the current or explicitly qualified historical source list; the
+target and scope comparisons must be considered separately.
+
+`stored_source_binding_sha256` is computed by the HTTP layer from a unique
+present row's original lowercase 64-hex source id. The private stored source id
+is never included in HTTP. Missing, malformed or ambiguous metadata does not
+produce a fingerprint. The response is rebuilt from permitted fields; it does
+not echo storage/error objects, native account identities or financial payloads.
+Valid original UTC ISO timestamps ending in `Z` or `+00:00`, with up to six
+fractional digits, are preserved. Unknown or invalid timestamps remain null.
+
+This projection changes no write, source qualification or normal history filter.
+A stored hidden day can conflict with archive replay even when ordinary GET
+does not show a point. These metadata distinguish absence, identity mismatch and
+unqualified source; they do not prove that a same-source row contains usable
+balances for a requested currency. Such a remaining question needs a separate
+bounded field-shape inspection, not a permissive overwrite.
+
 ## Reproduce
 
 The two report templates under `tests/fixtures/producer_contract/` contain only

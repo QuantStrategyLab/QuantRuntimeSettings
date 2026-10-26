@@ -130,7 +130,6 @@ import {
   accountFactsResponse as accountFactsResponseImpl,
   accountFactsHistoryResponse as accountFactsHistoryResponseImpl,
   accountFactsIdentityDates,
-  accountFactsIdentityRecords,
 } from "./application/account_facts/read.js";
 import {
   syncAccountFactsResponse as syncAccountFactsResponseImpl,
@@ -3462,7 +3461,7 @@ export class RuntimeInstances {
     const { platform, account_key: accountKey } = context;
     if (command.projection !== undefined) {
       const dates = accountFactsIdentityDates(command.from, command.to);
-      if (command.projection !== "identity" || platform !== SCHWAB_ACCOUNT_FACTS_PLATFORM || !dates) {
+      if (command.projection !== "identity" || !dates) {
         throw new HttpError("invalid_account_facts_identity_query", 400);
       }
       // Deliberately exclude payload_json: identity inspection must not read assets.
@@ -3474,12 +3473,22 @@ export class RuntimeInstances {
       ).toArray();
       const same = (value, expected) => typeof value === "string" && value.length > 0 && value.length <= 512
         ? value === expected : null;
-      return { ok: true, records: accountFactsIdentityRecords(rows.map((row) => ({
-        observation_date: row.observation_date, observed_finished_at: row.observed_finished_at,
-        target_id_matches: same(row.target_id, context.target_id),
-        source_binding_id_matches: same(row.source_binding_id, context.source_binding_id),
-        account_scope_matches: same(row.account_scope, context.account_scope),
-      })), dates) };
+      return { ok: true, records: dates.map(date => {
+        const matches = rows.filter(row => row.observation_date === date);
+        const row = matches.length === 1 ? matches[0] : null;
+        const source = row?.source_binding_id;
+        return {
+          observation_date: date, observed_finished_at: row?.observed_finished_at ?? null,
+          target_id_matches: same(row?.target_id, context.target_id),
+          source_binding_id_matches: same(source, context.source_binding_id),
+          account_scope_matches: same(row?.account_scope, context.account_scope),
+          record_revision: null,
+          row_present: matches.length > 1 ? null : Boolean(row),
+          source_binding_id_trusted: typeof source === "string" && source.length > 0 && source.length <= 512
+            ? [context.source_binding_id, ...(context.history_source_binding_ids || [])].includes(source) : null,
+          stored_source_binding_id: typeof source === "string" && /^[a-f0-9]{64}$/.test(source) ? source : null,
+        };
+      }) };
     }
     const rows = this.sql.exec(
       `SELECT payload_json, observed_finished_at, observation_date, target_id, source_binding_id, account_scope
@@ -11241,6 +11250,7 @@ async function accountFactsHistoryResponse(request, env, url) {
     loadAccountFactsBindings,
     runtimeInstanceCommand,
     accountFactsErrorResponse,
+    sha256Hex,
   });
 }
 
