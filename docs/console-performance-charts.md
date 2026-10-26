@@ -162,8 +162,10 @@ Definitions are informed by Longbridge's public
 credential and server-owned target/source/account bindings. Its
 `account_external_flow.v1` envelope contains those identity fields and
 `externalFlow`, independently of a current account snapshot. Historical imports
-do not update balances, snapshot dates or freshness. The existing external-flow
-switch controls ingestion and reads; no new credential or storage service is used.
+do not update balances, snapshot dates or freshness. Date-only facts use the existing account-facts read-model switch.
+The existing external-flow switch continues to control exact-time ingress and
+performance calculation; it is not enabled merely to store dates. No new
+credential or storage service is used.
 
 `external_flow.v2` retains v1 exact-time windows and also accepts native date
 windows: `time_precision: "date"`, inclusive ISO `period_start`/`period_end` of at

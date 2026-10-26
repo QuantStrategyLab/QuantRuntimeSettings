@@ -7,7 +7,6 @@
  * does not import worker.js (avoids cycles) and wire stays identical.
  */
 
-import { externalFlowEnabled } from "./external_flow.js";
 import {
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   ACCOUNT_FACTS_SUPPORTED_PLATFORMS,
@@ -235,7 +234,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
           ? { history_source_binding_ids: binding.history_source_binding_ids } : {}),
       });
       days = Array.isArray(listed?.days) ? listed.days : [];
-      if (externalFlowEnabled(env)) externalFlow = listed?.externalFlow || null;
+      externalFlow = listed?.externalFlow || null;
     } catch (error) {
       return accountFactsErrorResponse(error);
     }
@@ -253,6 +252,6 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
     ...model,
     enabled: true,
     retention_days: ACCOUNT_FACTS_HISTORY_MAX_DAYS,
-    ...(externalFlowEnabled(env) && externalFlow ? { externalFlow } : {}),
+    ...(externalFlow ? { externalFlow } : {}),
   });
 }

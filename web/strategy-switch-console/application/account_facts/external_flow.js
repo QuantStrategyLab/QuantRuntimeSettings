@@ -8,6 +8,8 @@ const SOURCES = new Set(["ibkr_flex", "schwab_transactions", "longbridge_cashflo
 const TYPES = new Set(["deposit", "withdrawal", "transfer_in", "transfer_out"]);
 const HASH = /^[a-f0-9]{64}$/;
 const MONEY = /^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,8})?$/;
+export const dateOnlyExternalFlow = flow => flow?.schema_version === DATED_FLOW_SCHEMA
+  && flow.windows.every(w => w.time_precision === "date");
 export const externalFlowEnabled = (env) => env?.CONSOLE_EXTERNAL_FLOW_ENABLED === "true";
 export function flowError(code = "invalid_external_flow", status = 400) {
   const error = new Error(code);
@@ -103,11 +105,14 @@ export function initializeExternalFlow(sql) {
 }
 const identity = c => stable([c.target_id, c.source_binding_id, c.account_scope, c.account_selector,
   c.broker_account_hash ?? null, c.broker_account_id ?? null]);
-export function readExternalFlow(sql, context) {
+export function readExternalFlow(sql, context, { dateOnly = false } = {}) {
   const row = sql.exec("SELECT context_json, payload_json FROM account_external_flow WHERE platform = ? AND account_key = ?",
     context.platform, context.account_key).toArray()[0];
   if (!row || row.context_json !== identity(context)) return null;
-  return normalizeExternalFlow(JSON.parse(row.payload_json), { maxWindows: 4096, maxRecords: 4096 });
+  const flow = normalizeExternalFlow(JSON.parse(row.payload_json), { maxWindows: 4096, maxRecords: 4096 });
+  if (!dateOnly) return flow;
+  const windows = flow.windows.filter(w => w.time_precision === "date");
+  return windows.length ? { schema_version: DATED_FLOW_SCHEMA, windows } : null;
 }
 export function putExternalFlow(sql, context, raw) {
   const incoming = normalizeExternalFlow(raw);

@@ -52,7 +52,7 @@ delete binding.key; delete binding.label;
 const payload = { schema_version: "account_external_flow.v1", target_id: binding.target_id, source_binding_id: binding.source_binding.id,
   account_scope: option.account_scope, account_selector: option.account_selector, externalFlow: flow };
 const settings = { SESSION_SECRET: "synthetic-session", ALLOWED_GITHUB_LOGINS: "synthetic-reader", ACCOUNT_FACTS_READ_MODEL_ENABLED: "true",
-  CONSOLE_EXTERNAL_FLOW_ENABLED: "true", IBKR_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-ibkr-token", SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-other-token" };
+  CONSOLE_EXTERNAL_FLOW_ENABLED: "false", IBKR_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-ibkr-token", SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-other-token" };
 let outbound = 0;
 const mf = new Miniflare({ modules: true, modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
   scriptPath: fileURLToPath(new URL("../web/strategy-switch-console/worker.js", import.meta.url)), compatibilityDate: "2026-06-08", bindings: settings,
@@ -72,7 +72,7 @@ try {
   assert.equal((await post(payload, settings.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN)).status, 409);
   assert.equal((await post({ ...payload, account_selector: "U100002" })).status, 409);
   assert.equal((await post({ ...payload, account_key: option.key })).status, 400);
-  assert.equal((await post(payload, settings.IBKR_ACCOUNT_FACTS_SYNC_TOKEN, { CONSOLE_EXTERNAL_FLOW_ENABLED: "false" })).status, 409);
+  assert.equal((await post({ ...payload, externalFlow: precise })).status, 409, "the existing switch still blocks exact-time flow ingress and calculation");
   let response = await post(); assert.equal(response.status, 200, await response.clone().text());
   assert.equal((await response.json()).record_count, 1);
   assert.equal((await (await post()).json()).unchanged, true);

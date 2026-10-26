@@ -2180,7 +2180,7 @@ async function runtimeInstancesResponse(request, env) {
   return json(await runtimeInstanceCommand(env, command));
 }
 
-import { externalFlowEnabled, initializeExternalFlow, normalizeExternalFlow, putExternalFlow, readExternalFlow } from "./application/account_facts/external_flow.js";
+import { dateOnlyExternalFlow, externalFlowEnabled, initializeExternalFlow, normalizeExternalFlow, putExternalFlow, readExternalFlow } from "./application/account_facts/external_flow.js";
 import { initializeExecutions, normalizeExecutions, putExecutions, readExecutions } from "./application/account_facts/executions.js";
 
 export class RuntimeInstances {
@@ -2190,7 +2190,7 @@ export class RuntimeInstances {
     this.sql = ctx.storage.sql;
     initializeExecutions(this.sql);
     this.externalFlowEnabled = externalFlowEnabled(env);
-    if (this.externalFlowEnabled) initializeExternalFlow(this.sql);
+    initializeExternalFlow(this.sql);
     initializeCredentialMaintenance(this.sql);
     // Native intervals remain in the existing private account read-model store.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS account_period_return (
@@ -2794,9 +2794,9 @@ export class RuntimeInstances {
         : { ok: true, ...putExecutions(this.sql, context, command.payload) };
     }
     if (command.action === "account_external_flow_put") {
-      if (!this.externalFlowEnabled) throw new HttpError("external_flow_disabled", 409);
       const context = this.accountFactsStorageContext(command);
       const flow = normalizeExternalFlow(command.externalFlow);
+      if (!this.externalFlowEnabled && !dateOnlyExternalFlow(flow)) throw new HttpError("external_flow_disabled", 409);
       const source = { ibkr: "ibkr_flex", schwab: "schwab_transactions", longbridge: "longbridge_cashflow" }[context.platform];
       if (!source || flow.windows.some(w => w.source !== source)) throw new HttpError("external_flow_source_mismatch", 409);
       const stored = putExternalFlow(this.sql, context, flow);
@@ -3479,7 +3479,7 @@ export class RuntimeInstances {
       });
     }
     return { ok: true, days,
-      ...(this.externalFlowEnabled ? { externalFlow: readExternalFlow(this.sql, context) } : {}),
+      externalFlow: readExternalFlow(this.sql, context, { dateOnly: !this.externalFlowEnabled }),
     };
   }
 
@@ -10820,7 +10820,6 @@ async function syncAccountExternalFlowResponse(request, env) {
   if (!accountFactsReadModelEnabled(env)) return accountFactsDisabledResponse();
   try {
     const platform = requireDedicatedAccountFactsSyncToken(request, env);
-    if (!externalFlowEnabled(env)) throw new HttpError("external_flow_disabled", 409);
     if (!hasConfigStore(env) || !hasRuntimeInstanceStore(env)) throw new HttpError("account_facts_store_unavailable", 503);
     const raw = await readBoundedJson(request, ACCOUNT_FACTS_MAX_BODY_BYTES);
     const fields = ["schema_version", "target_id", "source_binding_id", "account_scope", "account_selector", "externalFlow"];
@@ -10839,6 +10838,7 @@ async function syncAccountExternalFlowResponse(request, env) {
     const options = (config.options?.[platform] || []).filter(item => item.key === binding.account_key);
     if (options.length !== 1 || !accountFactsOptionMatchesBinding(options[0], binding)) throw new HttpError("account_facts_account_unattributed", 409);
     const flow = normalizeExternalFlow(raw.externalFlow);
+    if (!externalFlowEnabled(env) && !dateOnlyExternalFlow(flow)) throw new HttpError("external_flow_disabled", 409);
     const source = { ibkr: "ibkr_flex", schwab: "schwab_transactions", longbridge: "longbridge_cashflow" }[platform];
     if (!source || flow.windows.some(w => w.source !== source)) throw new HttpError("external_flow_source_mismatch", 409);
     const stored = await runtimeInstanceCommand(env, { action: "account_external_flow_put", platform,
