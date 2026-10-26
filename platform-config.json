@@ -180,7 +180,15 @@
       "market": "US",
       "market_calendar": "NYSE",
       "market_timezone": "America/New_York",
-      "scheduler_profile": "us_daily"
+      "scheduler_profile": "us_daily",
+      "trade_date_boundary": "20:00",
+      "maintenance_pause": ["20:00", "21:00"],
+      "sessions": {
+        "overnight": {"start": "21:00", "end": "04:00", "enabled": false},
+        "pre": {"start": "04:00", "end": "09:30", "enabled": false},
+        "regular": {"start": "09:30", "end": "16:00", "enabled": true},
+        "post": {"start": "16:00", "end": "20:00", "enabled": false}
+      }
     },
     "hk_equity": {
       "label_zh": "港股",

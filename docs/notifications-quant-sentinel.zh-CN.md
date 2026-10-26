@@ -64,7 +64,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 ### 调度（合同默认）
 
 - 时区：`Asia/Shanghai`
-- Cron：`0 6 * * 2-6`（周二至周六 06:00，覆盖前一美股 RTH 收盘）
+- 普通模式 Cron：UTC `10 23 * * 1-5`（上海时间周二至周六 07:10，在平台 06:20 候选上传后；业务日窗口仍于 06:00 截止，覆盖前一美股 RTH 收盘）。统一模式按现有 UTC 23:00 每日槽运行。
 - 加密按同一窗口并入；若当日 UTC 有周期则出现在列表中
 
 ### 文案与 i18n
@@ -171,7 +171,7 @@ Receipt totals follow the same evidence boundary: absent evidence, stale candida
 
 - Workflow：`.github/workflows/daily-digest-notify.yml`（文稿同步于 `docs/workflows/daily-digest-notify.yml`）
 - 脚本：`python/scripts/daily_digest_aggregator.py` + `python/scripts/send_daily_digest_telegram.py`
-- 调度：UTC `0 22 * * 1-5` = **Asia/Shanghai 周二至周六 06:00**（覆盖前一美股 RTH）
+- 调度：UTC `10 23 * * 1-5` = **Asia/Shanghai 周二至周六 07:10**（在 06:20 的平台候选上传后；业务日截止仍为 06:00，覆盖前一美股 RTH）
 - 证据：私有日报候选存储 `DigestCandidateStore` 经 `DIGEST_CANDIDATES_GCS_URI` 读取，与保留的 `DIGEST_CANDIDATES_JSON` 合并后由 `DIGEST_CANDIDATES_PATH` 消费（见 [接线与采用状态](./digest-candidates-wiring.zh-CN.md)）；另有可选 allowlisted GitHub workflow 成功结论（**存在性 only；成交数未知≠0**）。接线完成、自然周期和真实送达分别验收。
 - 聚合键：`platform_id + strategy + opaque_account_uid|unknown + target_id|unknown`；同策略多账户不得混拼
 - 发送：Environment `runtime-strategy-switch`；`TELEGRAM_TOKEN` 或 `TELEGRAM_TOKEN_SECRET_NAME`→GCP `quant-sentinel-telegram-bot-token`；chat 走 `QSL_GLOBAL_TELEGRAM_CHAT_ID` / `GLOBAL_TELEGRAM_CHAT_ID`

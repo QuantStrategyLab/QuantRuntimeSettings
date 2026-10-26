@@ -1,21 +1,36 @@
 import { useLanguage, useT } from "../i18n";
 import type { CalendarCell } from "../api/contracts";
-import { formatPercent } from "../lib/format";
+import { formatPercent, maskedAmount } from "../lib/format";
 import { usePrefs } from "../app/context";
 
-const WEEKDAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
-const WEEKDAY_ZH: Record<string, string> = { Mon: "一", Tue: "二", Wed: "三", Thu: "四", Fri: "五" };
+const WEEKDAY_KEYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+const WEEKDAY_ZH: Record<string, string> = {
+  Mon: "一", Tue: "二", Wed: "三", Thu: "四", Fri: "五", Sat: "六", Sun: "日",
+};
+
+/** Only a finite number is a real observation; null, undefined and NaN stay blank. */
+function finiteNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** 0% is neutral; missing or non-finite values have no up/down/flat tone at all. */
+function cellTone(cell: CalendarCell): "up" | "down" | "flat" | "" {
+  const value = finiteNumber(cell.return_percent);
+  return value === null ? "" : value > 0 ? "up" : value < 0 ? "down" : "flat";
+}
 
 function cellColor(cell: CalendarCell, maxAbs: number): string | undefined {
-  if (cell.return_percent === null || !Number.isFinite(cell.return_percent) || maxAbs <= 0) return undefined;
-  const intensity = Math.min(1, Math.abs(cell.return_percent) / maxAbs);
+  const value = finiteNumber(cell.return_percent);
+  if (value === null || value === 0 || maxAbs <= 0) return undefined;
+  const intensity = Math.min(1, Math.abs(value) / maxAbs);
   const alpha = 8 + Math.round(intensity * 40);
-  return `color-mix(in srgb, var(--${cell.return_percent > 0 ? "up" : "down"}) ${alpha}%, transparent)`;
+  return `color-mix(in srgb, var(--${value > 0 ? "up" : "down"}) ${alpha}%, transparent)`;
 }
 
 /**
- * Return calendar. Month view: Mon–Fri grid (weekends/holidays not rendered);
- * no-data cells are blank with a diagonal hatch. Year view: 12 monthly cells.
+ * Return calendar. Month view: all seven natural days are laid out; a day with
+ * no record stays blank rather than being hidden or assumed closed. Year view:
+ * 12 monthly cells.
  */
 export function CalendarHeatmap({
   year,
@@ -31,11 +46,19 @@ export function CalendarHeatmap({
   const t = useT();
   const language = useLanguage();
   const { prefs } = usePrefs();
-  const maxAbs = Math.max(0, ...cells.map(cell => (cell.return_percent !== null && Number.isFinite(cell.return_percent) ? Math.abs(cell.return_percent) : 0)));
+  const maxAbs = Math.max(0, ...cells.map(cell => {
+    const value = finiteNumber(cell.return_percent);
+    return value === null ? 0 : Math.abs(value);
+  }));
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const currentMonth = today.slice(0, 7);
 
   const valueText = (cell: CalendarCell): string => {
-    if (cell.return_percent !== null && Number.isFinite(cell.return_percent)) return formatPercent(cell.return_percent, language);
-    if (cell.amount !== null && Number.isFinite(cell.amount)) return prefs.hideAmounts ? "•••" : String(Math.round(cell.amount));
+    const percent = finiteNumber(cell.return_percent);
+    if (percent !== null) return formatPercent(percent, language);
+    const amount = finiteNumber(cell.amount);
+    if (amount !== null) return prefs.hideAmounts ? maskedAmount(amount) : String(Math.round(amount));
     return "";
   };
 
@@ -48,21 +71,31 @@ export function CalendarHeatmap({
           <button type="button" className="button button-secondary button-sm" onClick={() => onNavigate(year + 1, null)} aria-label="›">›</button>
         </div>
         <div className="calendar-year-grid" style={{ marginTop: 12 }}>
-          {cells.map(cell => (
+          {cells.map(cell => {
+            // The producer's explicit states win over the local clock: a month
+            // it marks pending is still arriving, not future, even when the
+            // browser's timezone trails the server. future_date stays neutral,
+            // and the date comparison is only a fallback for older payloads.
+            const wireReason = cell.unavailable_reason as string | null;
+            const pending = wireReason === "snapshot_pending";
+            const future = wireReason === "future_date" || (!pending && Boolean(cell.month && cell.month > currentMonth));
+            return (
             <button
               key={cell.month}
               type="button"
-              className={`calendar-cell${cell.return_percent === null && cell.amount === null ? " cell-empty" : ""}`}
-              style={{ background: cellColor(cell, maxAbs) }}
-              title={cell.unavailable_reason ? t(`reason.${cell.unavailable_reason}`) : undefined}
+              className={`calendar-cell${future ? " cell-future" : ""}${pending ? " cell-pending" : ""}${finiteNumber(cell.return_percent) === null && finiteNumber(cell.amount) === null ? " cell-empty" : ""}`}
+              style={{ background: future ? undefined : cellColor(cell, maxAbs) }}
+              title={future ? undefined : pending ? t("reason.snapshot_pending") : cell.unavailable_reason ? t(`reason.${cell.unavailable_reason}`) : undefined}
               onClick={() => cell.month && onNavigate(year, Number(cell.month.split("-")[1]))}
             >
               <span className="cell-date">{cell.month}</span>
-              <span className={`cell-value ${cell.return_percent !== null ? (cell.return_percent > 0 ? "up" : cell.return_percent < 0 ? "down" : "flat") : ""}`}>
-                {valueText(cell) || " "}
+              <span className={`cell-value ${future ? "" : cellTone(cell)}`}>
+                {future ? " " : valueText(cell) || " "}
               </span>
+              {pending && <span className="sr-only">{t("reason.snapshot_pending")}</span>}
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -75,8 +108,7 @@ export function CalendarHeatmap({
   for (let day = 1; day <= daysInMonth; day++) {
     const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-    if (weekday === 0 || weekday === 6) continue; // weekends are not rendered
-    const column = weekday - 1;
+    const column = (weekday + 6) % 7; // Monday-first natural week, weekends included
     if (column === 0 && week.length) {
       weeks.push(week);
       week = [];
@@ -100,23 +132,44 @@ export function CalendarHeatmap({
           <div key={day} className="calendar-weekday">{language === "zh" ? WEEKDAY_ZH[day] : day}</div>
         ))}
         {weeks.flatMap((row, weekIndex) =>
-          [0, 1, 2, 3, 4].map(column => {
+          [0, 1, 2, 3, 4, 5, 6].map(column => {
             const cell = row[column];
             if (!cell) return <div key={`${weekIndex}-${column}`} />;
-            const hasValue = cell.return_percent !== null || cell.amount !== null;
+            const wireStatus = String(cell.status);
+            const wireReason = cell.unavailable_reason as string | null;
+            // Explicit producer states beat the local clock. A day the producer
+            // marks pending is today's data still arriving, even when the
+            // browser's timezone is a day behind the server; only older
+            // payloads without a reason fall back to the date comparison.
+            const pending = wireReason === "snapshot_pending";
+            const future = wireReason === "future_date" || (!pending && Boolean(cell.date && cell.date > today));
+            const hasValue = !future && (finiteNumber(cell.return_percent) !== null || finiteNumber(cell.amount) !== null);
+            // Only explicit producer states mark a closed day. Missing prices or
+            // an empty weekend never infer a holiday, so 7×24 crypto calendars
+            // keep real history gaps visible. The wire may carry a closed status
+            // beyond today's narrower contract union.
+            const closed = !future && (wireStatus === "market_closed"
+              || wireReason === "market_closed" || wireReason === "non_trading_weekend");
+            const title = future ? undefined
+              : pending ? t("reason.snapshot_pending")
+              : wireStatus === "market_closed" || wireReason === "market_closed" ? t("state.market_closed")
+              : wireReason === "non_trading_weekend" ? t("reason.non_trading_weekend")
+              : cell.unavailable_reason ? t(`reason.${cell.unavailable_reason}`) : undefined;
             return (
               <div
                 key={cell.date}
-                className={`calendar-cell${hasValue ? "" : " cell-empty"}`}
-                style={{ background: cellColor(cell, maxAbs) }}
-                title={cell.unavailable_reason ? t(`reason.${cell.unavailable_reason}`) : undefined}
+                className={`calendar-cell${future ? " cell-future" : ""}${pending ? " cell-pending" : ""}${closed ? " cell-closed" : ""}${hasValue ? "" : " cell-empty"}`}
+                style={{ background: future ? undefined : cellColor(cell, maxAbs) }}
+                title={title}
+                tabIndex={pending ? 0 : undefined}
               >
                 <span className="cell-date num">{cell.date ? Number(cell.date.slice(8)) : ""}</span>
                 {hasValue && (
-                  <span className={`cell-value ${cell.return_percent !== null ? (cell.return_percent > 0 ? "up" : cell.return_percent < 0 ? "down" : "flat") : ""}`}>
+                  <span className={`cell-value ${cellTone(cell)}`}>
                     {valueText(cell)}
                   </span>
                 )}
+                {pending && <span className="sr-only">{t("reason.snapshot_pending")}</span>}
               </div>
             );
           }),

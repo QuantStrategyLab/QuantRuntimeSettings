@@ -107,8 +107,8 @@ class UnifiedScheduleTests(unittest.TestCase):
         steps = re.split(r'(?m)^      - (?:name|uses): ', job)[1:]
         self.assertIn('id: schedule_slot', steps[0])
         script = textwrap.dedent(steps[0].split('        run: |\n', 1)[1])
-        for mode, selected in [('immediate', '0 22 * * 1-5'), ('daily_digest', '0 23 * * *')]:
-            for slot in ['0 22 * * 1-5', '0 23 * * *']:
+        for mode, selected in [('immediate', '10 23 * * 1-5'), ('daily_digest', '0 23 * * *')]:
+            for slot in ['10 23 * * 1-5', '0 23 * * *']:
                 with self.subTest(mode=mode, slot=slot), tempfile.TemporaryDirectory() as directory:
                     output = Path(directory) / 'output'
                     result = subprocess.run(['bash', '-c', script], env={

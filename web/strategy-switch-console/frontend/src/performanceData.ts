@@ -29,7 +29,7 @@ export async function loadPerformanceData(
       if (account.platformKey === "binance") {
         const payload = await loaders.wallet(account.accountKey);
         if (payload.currency !== "USDT" || !Array.isArray(payload.points)) throw new Error("invalid_wallet_history");
-        return { id: account.id, points: payload.points.flatMap(p => {
+        return { id: account.id, crypto: true, points: payload.points.flatMap(p => {
           const value = parseMoneyForChart(p.amount);
           return value === null ? [] : [{ date: p.observation_date, value, externalFlow: null, breakBefore: p.break_before }];
         }) };

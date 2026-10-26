@@ -28,6 +28,8 @@ assert.equal(gap.accounts[0].points.length,1);
 const wallet = await loadPerformanceData([{id:'synthetic-wallet',platformKey:'binance',accountKey:'synthetic-wallet'}],{},loaders);
 assert.equal(wallet.accounts[0].points[0].value,100,'existing USDT/USD convention retained');
 assert.equal(wallet.accounts[0].points[0].externalFlow,null);
+assert.equal(wallet.accounts[0].crypto,true,'Binance wallet is marked as a 24/7 market');
+assert.equal(valid.accounts[0].crypto,undefined,'equity accounts never claim 24/7 trading');
 assert.deepEqual((await loadPerformanceData([],{},loaders)).accounts,[]);
 assert.ok(calls.every(([p,k,c])=>p==='longbridge'&&k.startsWith('synthetic-')&&['USD','HKD'].includes(c)));
 const originalFetch = globalThis.fetch;

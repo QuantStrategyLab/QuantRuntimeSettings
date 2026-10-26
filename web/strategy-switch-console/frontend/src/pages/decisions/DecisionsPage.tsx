@@ -24,6 +24,7 @@ import {
   Badge,
   EmptyState,
   Skeleton,
+  StatusBadge,
 } from "../../components/primitives";
 import { Tabs } from "../../components/Tabs";
 import { DiffTable } from "../../components/DiffTable";
@@ -241,8 +242,19 @@ export default function DecisionsPage() {
     () => (category === "all" ? pendingItems : pendingItems.filter(item => item.category === category)),
     [pendingItems, category],
   );
+  const degradedSources = useMemo(
+    () => (inbox.phase === "ready" && inbox.data.status !== "read_failed"
+      ? inbox.data.sources.filter(source => source.status !== "ok")
+      : []),
+    [inbox],
+  );
 
   const selected = visibleItems.find(item => item.id === selectedId) || null;
+
+  /** A missing account link is an unbound item, never a global "all accounts" scope. */
+  const accountLabel = (item: InboxItem) => item.account_alias
+    ? names.account(item.account_alias, item.platform)
+    : t("decisions.account_unbound");
 
   useEffect(() => {
     if (inbox.phase === "ready" && selectedId && !visibleItems.some(item => item.id === selectedId)) setSelectedId(null);
@@ -607,13 +619,20 @@ export default function DecisionsPage() {
           <h2 className="card-title" style={{ margin: 0 }}>{itemTitle(item, t)}</h2>
           <p className="decision-prompt">{t(`decisions.prompt.${item.category}`)}</p>
           <div className="decision-meta">
-            <span>{item.account_alias ? names.account(item.account_alias, item.platform) : t("decisions.account_global")}</span>
-            {item.platform && <span>{item.platform}</span>}
+            <span>{accountLabel(item)}</span>
+            {item.platform && <span>{names.platform(item.platform)}</span>}
+            <span className="decision-ref">{t("decisions.ref", { id: item.short_id })}</span>
             {item.created_at && (
               <span>{t("decisions.created_at", { value: formatDateTime(item.created_at, language).text })}</span>
             )}
             {item.expires_at && (
               <span>{t("decisions.expires_at", { value: formatDateTime(item.expires_at, language).text })}</span>
+            )}
+            {item.evidence_freshness && (
+              <Badge tone={item.evidence_freshness.status === "stale" ? "warn"
+                : item.evidence_freshness.status === "ready" || item.evidence_freshness.status === "fresh" ? "ok" : "unknown"}>
+                {t(freshnessKey(item.evidence_freshness.status))}
+              </Badge>
             )}
             {showsStaleHint(item) && <span className="decision-stale-hint">{t("decisions.stale_hint")}</span>}
           </div>
@@ -624,10 +643,20 @@ export default function DecisionsPage() {
             <DiffTable rows={diffRows} />
           </>
         )}
+        {item.category === "reconciliation_recovery" && (
+          <details className="decision-materials reconciliation-detail">
+            <summary>{t("reconciliation.materials")}</summary>
+            <ReconciliationMaterials
+              data={inbox.phase === "ready" ? inbox.data : null}
+              language={language}
+              t={t}
+              itemId={item.id}
+            />
+          </details>
+        )}
         <details className="decision-materials">
-          <summary>{t("decisions.materials")}</summary>
+          <summary>{t("decisions.more_info")}</summary>
           <p>{t("decisions.ref", { id: item.short_id })}</p>
-          <p>{t("decisions.material_freshness", { value: t(freshnessKey(item.evidence_freshness?.status)) })}</p>
           {item.evidence_freshness?.as_of && <AsOfStamp value={item.evidence_freshness.as_of} />}
         </details>
         {actions}
@@ -638,33 +667,24 @@ export default function DecisionsPage() {
   const renderPending = () => {
     if (inbox.phase === "loading") {
       return (
-        <div className="inbox">
+        <div className="inbox list-only">
           <div className="inbox-list">
             <Skeleton height={64} />
             <Skeleton height={64} />
             <Skeleton height={64} />
           </div>
-          <Skeleton height={280} />
         </div>
       );
     }
     if (inbox.phase === "error" || inbox.data.status === "read_failed") {
       return <InboxReadFailed data={inbox.data} error={inbox.error} onRetry={inbox.phase === "error" ? inbox.reload : refresh} />;
     }
-    const degraded = inbox.data.sources.filter(source => source.status !== "ok");
     return (
       <>
-        {degraded.length > 0 && (
-          <p className="decision-note" role="status">
-            {t("decisions.partial_sources", {
-              value: degraded.map(source => t(`decisions.source.${source.source}`)).join(language === "zh" ? "、" : ", "),
-            })}
-          </p>
-        )}
         {visibleItems.length === 0 ? (
           <EmptyState title={t("decisions.empty_pending")} />
         ) : (
-          <div className={`inbox${selected ? " detail-open" : ""}`}>
+          <div className={`inbox${selected ? " detail-open" : " list-only"}`}>
             <div className="inbox-list" role="list">
               {visibleItems.map(item => {
                 const expired = isExpired(item);
@@ -684,9 +704,12 @@ export default function DecisionsPage() {
                         {item.category === "reconciliation_recovery" && (
                           <Badge tone="warn">{t("category.reconciliation_recovery")}</Badge>
                         )}
-                        <span>{item.account_alias ? names.account(item.account_alias, item.platform) : t("decisions.account_global")}</span>
-                        {fresh && <span>{fresh}</span>}
-                        {showsStaleHint(item) && <span className="decision-stale-hint">{t("decisions.stale_hint")}</span>}
+                        <span>{accountLabel(item)}</span>
+                        {item.platform && <span>{names.platform(item.platform)}</span>}
+                        <span className="item-ref">{t("decisions.ref", { id: item.short_id })}</span>
+                        {fresh && (
+                          <span title={showsStaleHint(item) ? t("decisions.stale_hint") : undefined}>{fresh}</span>
+                        )}
                       </span>
                     </span>
                     <Badge tone={expired ? "unknown" : "warn"}>
@@ -696,11 +719,8 @@ export default function DecisionsPage() {
                 );
               })}
             </div>
-            {renderDetail() || (
-              <div className="card inbox-detail">
-                <EmptyState title={t("decisions.select_prompt")} />
-              </div>
-            )}
+            {/* No selected todo => list only; never an empty detail pane. */}
+            {selected && renderDetail()}
           </div>
         )}
       </>
@@ -711,33 +731,48 @@ export default function DecisionsPage() {
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">{t("decisions.title")}</h1>
-        <button type="button" className="button button-secondary decision-refresh" onClick={refresh}>
-          {t("common.refresh")}
-        </button>
-      </div>
-      <div className="decisions-filters">
-        <Tabs id="decisions" items={categoryTabs} active={category} onChange={id => setCategory(id as CategoryFilter)} ariaLabel={t("decisions.title")} />
-        <div className="segmented" role="group" aria-label={t("decisions.title")}>
-          <button
-            type="button"
-            aria-pressed={view === "pending"}
-            className={`segment${view === "pending" ? " active" : ""}`}
-            onClick={() => setView("pending")}
-          >
-            {t("decisions.tab.pending")}
-            {pendingCount > 0 && <span className="segment-sub">{pendingCount}</span>}
-          </button>
-          <button
-            type="button"
-            aria-pressed={view === "decided"}
-            className={`segment${view === "decided" ? " active" : ""}`}
-            onClick={() => setView("decided")}
-          >
-            {t("decisions.tab.decided")}
+        <div className="page-header-actions">
+          <button type="button" className="button button-secondary" onClick={refresh}>
+            {t("common.refresh")}
           </button>
         </div>
       </div>
-      <ReconciliationMaterials data={inbox.phase === "ready" ? inbox.data : null} language={language} t={t} />
+      <div className="decisions-filters">
+        <Tabs id="decisions" items={categoryTabs} active={category} onChange={id => setCategory(id as CategoryFilter)} ariaLabel={t("decisions.title")} />
+        <div className="decisions-filter-controls">
+          {view === "pending" && degradedSources.length > 0 && (
+            <span
+              className="decision-degraded"
+              role="status"
+              title={t("decisions.partial_notice")}
+              aria-label={t("decisions.partial_notice")}
+              data-state="partial"
+              data-degraded-count={degradedSources.length}
+            >
+              <StatusBadge status="partial" />
+            </span>
+          )}
+          <div className="segmented" role="group" aria-label={t("decisions.title")}>
+            <button
+              type="button"
+              aria-pressed={view === "pending"}
+              className={`segment${view === "pending" ? " active" : ""}`}
+              onClick={() => setView("pending")}
+            >
+              {t("decisions.tab.pending")}
+              {pendingCount > 0 && <span className="segment-sub">{pendingCount}</span>}
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === "decided"}
+              className={`segment${view === "decided" ? " active" : ""}`}
+              onClick={() => setView("decided")}
+            >
+              {t("decisions.tab.decided")}
+            </button>
+          </div>
+        </div>
+      </div>
       <div id="decisions-panel" role="tabpanel" aria-labelledby={`decisions-tab-${category}`} tabIndex={0}>
         {view === "pending" ? renderPending() : <HistoryPanel epoch={epoch} category={category} />}
       </div>
