@@ -57,3 +57,30 @@ assert.equal(stale.positions, undefined); assert.equal(stale.positions_complete,
 assert.equal(holdings({ ...row, positions: undefined, positions_scope: undefined, positions_complete: undefined }).unavailable_reason,
   "positions_not_connected", "an absent inventory remains disconnected");
 console.log("account_facts_stock_inventory_validation: PASS (bound stock inventory, nullable price, complete empty vs absent, partial P/L, malformed and stale rejection)");
+
+// Native configured cost survives storage/read-model projection without inventing P/L.
+for (const price of ["-12.34000000000000000001", "0.00000000", "123.4500"]) {
+  const native = { ...payload.broker_reported_positions[0],
+    broker_cost_price: price, broker_cost_method: "broker_configured" };
+  const record = normalize({ ...payload, broker_reported_positions: [native] });
+  const costAccount = read(record);
+  assert.equal(costAccount.positions[0].broker_cost_price, price);
+  const block = holdings(costAccount);
+  validateHoldings(block);
+  assert.equal(block.rows[0].broker_cost_price, price);
+  assert.equal(block.rows[0].broker_cost_method, "broker_configured");
+  assert.equal(block.rows[0].avg_cost, null);
+  assert.equal(block.rows[0].unrealized_pnl, null);
+  const quoted = holdings({ ...costAccount, positions: [{ ...native, market_value: "100" }] });
+  assert.equal(quoted.rows[0].unrealized_pnl, null, "even a known quote cannot turn configured cost into average cost");
+}
+for (const extension of [
+  { broker_cost_price: "1" }, { broker_cost_method: "broker_configured" },
+  { broker_cost_price: 1, broker_cost_method: "broker_configured" },
+  { broker_cost_price: "1", broker_cost_method: "average" },
+  ...["NaN", "Infinity", "1e3", "1\n", "1".repeat(31), "0." + "1".repeat(29)].map(
+    price => ({ broker_cost_price: price, broker_cost_method: "broker_configured" })),
+]) assert.throws(() => normalize({ ...payload, broker_reported_positions: [{
+  ...payload.broker_reported_positions[0], ...extension,
+}] }));
+console.log("account_facts_stock_inventory_validation: broker cost precision and semantics PASS");
