@@ -36,6 +36,7 @@ import daily_digest_aggregator as aggregator
 import daily_digest_delivery_axes as delivery_axes  # noqa: E402
 import daily_digest_notify as digest  # noqa: E402
 import daily_digest_resend_guard as resend_guard
+import daily_digest_deadline as deadline
 
 DEFAULT_SECRET_NAME = "quant-sentinel-telegram-bot-token"
 
@@ -317,7 +318,15 @@ def send_telegram_message(*, token: str, chat_id: str, text: str) -> bool:
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         print(f"Telegram send failed: {type(exc).__name__}", file=sys.stderr)
         return False
-    return bool(payload.get("ok"))
+    result = payload.get('result')
+    chat = result.get('chat') if isinstance(result, dict) else None
+    if payload.get('ok') is not True or not isinstance(chat, dict):
+        return False
+    if type(result.get('message_id')) is not int or result['message_id'] <= 0:
+        return False
+    if type(chat.get('id')) is not int:
+        return False
+    return ('@' + str(chat.get('username', ''))).casefold() == chat_id.casefold() if chat_id.startswith('@') else str(chat['id']) == str(chat_id)
 
 
 def _receipt_base(*, dry_run: bool, route: dict[str, Any]) -> dict[str, Any]:
@@ -463,17 +472,30 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if os.environ.get("DIGEST_CANDIDATES_INPUT_STATUS") == "failure":
             raise ValueError("candidate_input_materialization_failed")
-        payload, text, collected = aggregator.build_digest_payload(
-            business_day=day, locale=args.locale, candidates_path=args.candidates,
-            include_github=not args.no_github, config_path=args.platform_config, layout=args.layout,
-        )
+        if deadline.enabled(os.environ):
+            if deadline.upstream_seconds(os.environ) <= 0:
+                raise TimeoutError('candidate_store_wait_stopped')
+            if os.environ.get('DIGEST_CANDIDATES_STORE_STATUS') == 'failed':
+                raise ValueError('candidate_store_failed')
+            with deadline.read_budget(deadline.upstream_seconds(os.environ)):
+                payload, text, collected = aggregator.build_digest_payload(
+                    business_day=day, locale=args.locale, candidates_path=args.candidates,
+                    include_github=not args.no_github, config_path=args.platform_config, layout=args.layout,
+                )
+        else:
+            payload, text, collected = aggregator.build_digest_payload(
+                business_day=day, locale=args.locale, candidates_path=args.candidates,
+                include_github=not args.no_github, config_path=args.platform_config, layout=args.layout,
+            )
     except Exception:
-        if reminder is None: raise
+        if reminder is None and not deadline.enabled(os.environ): raise
         # Expiry may be why candidates are absent. Keep the business failure and
         # unknown counts while allowing only this independently sourced reminder.
         business_failed = True
         payload, text, collected = None, "", []
-        print("Daily digest construction failed; maintenance fallback only.", file=sys.stderr)
+        if deadline.enabled(os.environ):
+            text = deadline.failure_text(os.environ, is_late=deadline.late(os.environ, reserve_seconds=30), locale=args.locale or 'zh')
+        print("Daily digest construction failed; guarded exception path.", file=sys.stderr)
 
     delivery_locale = str(payload.locale) if payload is not None else aggregator.resolve_locale(args.locale)
     delivery_labels = {"test": guard.test_message,
@@ -485,7 +507,10 @@ def main(argv: list[str] | None = None) -> int:
         probe_secret_manager=probe_sm if dry_run else False,
         include_chat_fingerprint=include_fp,
     )
-    base_receipt = aggregator.build_receipt(payload, collected, message_chars=len(text)) if payload is not None else {"total_fills": None, "run_count": None, "business_digest_failed": True}
+    base_receipt = aggregator.build_receipt(payload, collected, message_chars=len(text)) if payload is not None else {
+        "total_fills": None, "run_count": None, "business_digest_failed": True,
+        "layout": args.layout, "message_chars": len(text),
+    }
     receipt = _receipt_base(dry_run=dry_run, route=route)
     receipt.update(base_receipt)
     receipt["resend_guard"] = guard.to_dict()
@@ -494,7 +519,7 @@ def main(argv: list[str] | None = None) -> int:
         receipt["maintenance"] = maintenance_client.diagnostic
     receipt.update(
         {
-            "business_day": payload.business_day if payload is not None else None,
+            "business_day": day if payload is not None or deadline.enabled(os.environ) else None,
             "locale": digest.normalize_locale(str(payload.locale)) if payload is not None else digest.normalize_locale(args.locale or "zh"),
             "run_count": len(payload.runs) if payload is not None else None,
             "missing": [],
@@ -504,9 +529,19 @@ def main(argv: list[str] | None = None) -> int:
         receipt["run_count"] = None
 
     receipt["report_date"] = resend_guard.report_date()
+    deadline_notice = deadline.enabled(os.environ) and business_failed
+    if deadline_notice:
+        receipt.update(total_fills_status='unknown', evidence_status='evidence_unknown')
+    if deadline.enabled(os.environ):
+        receipt['late'] = deadline.late(os.environ, reserve_seconds=30)
+        receipt['deadline_at'] = deadline.cutoff(os.environ, 7, 30).astimezone(deadline.timezone.utc).isoformat()
     receipt["recipient_scope"] = os.environ.get("DIGEST_RECIPIENT_SCOPE", "default")
     if unified_enabled():
         receipt["languages"] = [receipt["locale"]] if consolidation_enabled() else ["zh", "en"]
+    if deadline.enabled(os.environ) and deadline.late(os.environ, reserve_seconds=30):
+        deadline_notice, business_failed = True, True
+        text = deadline.failure_text(os.environ, is_late=True, locale=delivery_locale)
+        receipt.update(late=True, business_digest_failed=True, total_fills=None, total_fills_status='unknown', run_count=None, evidence_status='evidence_unknown')
     if unified_enabled() and not text and reminder is None:
         receipt.update(status="skipped_empty", delivered=False)
         if args.write_receipt:
@@ -595,6 +630,10 @@ def main(argv: list[str] | None = None) -> int:
         rerendered = True
     if rerendered:
         text = digest.label_delivery_text(text, delivery_locale, **delivery_labels)
+    if deadline.enabled(os.environ) and deadline.late(os.environ, reserve_seconds=30):
+        deadline_notice, business_failed = True, True
+        text = deadline.failure_text(os.environ, is_late=True, locale=delivery_locale)
+        receipt.update(late=True, business_digest_failed=True, total_fills=None, total_fills_status='unknown', run_count=None, evidence_status='evidence_unknown')
     combined = (text + "\n\n" if text else "") + (reminder.block("zh") + "\n" + reminder.block("en") if unified_enabled() and not consolidation_enabled() else reminder.block(receipt["locale"])) if reminder is not None else text
     compatible = maintenance.can_combine_reminder(text=combined, chat_id=chat_id)
     reserved = bool(reminder is not None and maintenance_client and compatible and maintenance_client.reserve(reminder))
@@ -603,14 +642,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.write_receipt:
             _write_receipt(args.write_receipt, receipt)
         return 0
-    if consolidation_enabled() and args.write_receipt:
+    if args.write_receipt:
         receipt.update(status="sending", delivered=False)
         _write_receipt(args.write_receipt, receipt)
+    if deadline.enabled(os.environ) and deadline.late(os.environ, reserve_seconds=30) and not receipt.get('late'):
+        deadline_notice, business_failed = True, True
+        text = deadline.failure_text(os.environ, is_late=True, locale=delivery_locale)
+        receipt.update(late=True, business_digest_failed=True, total_fills=None, total_fills_status='unknown', run_count=None, evidence_status='evidence_unknown')
+        if reserved:
+            combined = text + '\n\n' + (reminder.block('zh') + '\n' + reminder.block('en') if unified_enabled() and not consolidation_enabled() else reminder.block(receipt['locale']))
     if reserved:
         ok = maintenance.send_strict_telegram(token=token, chat_id=chat_id, text=combined)
+        accepted_at = deadline.utc_now() if ok else None
         delivery = maintenance_client.ack(reminder, "delivered" if ok else "unknown")
         receipt["maintenance"].update(phase=reminder.phase, delivery=delivery)
-    elif business_failed:
+    elif business_failed and not deadline_notice:
         receipt["status"] = "business_digest_failed"
         receipt["delivered"] = False
         delivery_axes.attach_delivery_axes(receipt)
@@ -619,8 +665,16 @@ def main(argv: list[str] | None = None) -> int:
     else:
         transport = maintenance.send_strict_telegram if consolidation_enabled() else send_telegram_message
         ok = transport(token=token, chat_id=chat_id, text=text)
+        accepted_at = deadline.utc_now() if ok else None
     receipt["delivered"] = ok
-    receipt["status"] = "business_digest_failed" if business_failed else "delivered" if ok else "send_failed"
+    receipt['business_digest_failed'] = business_failed
+    receipt["status"] = "business_digest_failed" if business_failed and not deadline.enabled(os.environ) else "delivered" if ok else "send_failed"
+    if ok and deadline.enabled(os.environ):
+        receipt['accepted_at'] = accepted_at.isoformat()
+        receipt['late'] = deadline.late(os.environ, now=accepted_at)
+        receipt['receipt_persistence'] = 'runner_local_only'
+    elif deadline.enabled(os.environ):
+        receipt['delivery_outcome'] = 'unknown'
     delivery_axes.attach_delivery_axes(receipt)
     if args.write_receipt:
         _write_receipt(args.write_receipt, receipt)

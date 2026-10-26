@@ -221,7 +221,7 @@ jobs:
               echo "dry_run=false" >> "$GITHUB_OUTPUT"
             fi
           fi
-          echo "business_day=$INPUT_BUSINESS_DAY" >> "$GITHUB_OUTPUT"
+          python3 python/scripts/daily_digest_deadline.py
           echo "locale=$INPUT_LOCALE" >> "$GITHUB_OUTPUT"
           # Scheduled runs stay on v1 until the NOTIFY-04 switch-over is approved.
           if [[ "$INPUT_EVENT_NAME" == "schedule" ]]; then
@@ -258,6 +258,7 @@ jobs:
           CANDIDATES_PATH_VAR: ${{ env.DIGEST_CANDIDATES_PATH_VAR }}
         run: |
           set -euo pipefail
+          python3 python/scripts/daily_digest_deadline.py --start-upstream
           dest="data/input/daily-digest/candidates.json"
           if [[ -n "${CANDIDATES_JSON:-}" ]]; then
             # Secret JSON materialized locally; do not echo contents.
@@ -286,7 +287,7 @@ jobs:
 
       - name: Authenticate to Google Cloud for producer candidates (optional)
         id: candidates_gcp_auth
-        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != '') }}
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && steps.candidates.outputs.upstream_allowed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != '') }}
         continue-on-error: true
         uses: google-github-actions/auth@v3
         with:
@@ -294,7 +295,7 @@ jobs:
           service_account: ${{ env.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud for producer candidates (optional)
-        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && steps.candidates_gcp_auth.outcome == 'success') }}
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && steps.candidates.outputs.upstream_allowed == 'true' && steps.candidates_gcp_auth.outcome == 'success') }}
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Fetch producer candidates from private store (optional)
@@ -308,41 +309,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Never echo row contents (may carry equity); counts only.
-          store_failed() {
-            printf 'DIGEST_CANDIDATES_STORE_STATUS=failed\nDIGEST_CANDIDATES_STORE_REASON=%s\n' "$1" >> "$GITHUB_ENV"
-            echo "::warning::$1" >&2
-            exit 1
-          }
-          # Fail closed if the step ends before it records a complete outcome.
-          printf 'DIGEST_CANDIDATES_STORE_STATUS=failed\nDIGEST_CANDIDATES_STORE_REASON=candidate_store_outcome_missing\n' >> "$GITHUB_ENV"
-          if [[ "$AUTH_OUTCOME" != "success" ]]; then
-            store_failed candidate_store_auth_failed
-          fi
-          day="${INPUT_BUSINESS_DAY:-$(TZ=America/New_York date +%F)}"
-          fetched="data/input/daily-digest/fetched"
-          mkdir -p "$fetched"
-          uri="${DIGEST_CANDIDATES_GCS_URI%/}"
-          listing="$RUNNER_TEMP/digest-candidates-list.txt"
-          if ! gcloud storage ls "${uri}/*/${day}/*.json" > "$listing" 2>/dev/null; then
-            store_failed candidate_store_list_failed
-          fi
-          found=0
-          while IFS= read -r object; do
-            [[ "$object" == "${uri}/"* ]] || store_failed candidate_store_list_failed
-            [[ "$object" == *"/${day}/"*.json ]] || continue
-            if ! gcloud storage cp "$object" "$fetched/candidate-${found}.json" --no-user-output-enabled > /dev/null 2>&1; then
-              store_failed candidate_store_copy_failed
-            fi
-            found=$((found + 1))
-          done < "$listing"
-          echo "Producer candidate files for ${day}: ${found}"
-          base="${DIGEST_CANDIDATES_PATH:-}"
-          out="data/input/daily-digest/candidates-merged.json"
-          if ! python3 python/scripts/merge_digest_candidates.py ${base:+--base "$base"} --input-dir "$fetched" --output "$out"; then
-            store_failed candidate_store_merge_failed
-          fi
-          printf 'DIGEST_CANDIDATES_PATH=%s\nDIGEST_CANDIDATES_STORE_STATUS=loaded\nDIGEST_CANDIDATES_STORE_REASON=\n' "$out" >> "$GITHUB_ENV"
+          python3 python/scripts/fetch_daily_digest_candidates.py
 
       - name: Authenticate to Google Cloud for sentinel secret (optional)
         id: gcp_auth

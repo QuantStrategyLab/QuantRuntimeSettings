@@ -217,7 +217,8 @@ def load_candidates_from_file(path: Path | None) -> tuple[list[dict[str, Any]], 
 CANDIDATE_STORE_FAILURE_REASONS = frozenset({
     "candidate_store_auth_failed", "candidate_store_list_failed", "candidate_store_copy_failed",
     "candidate_store_merge_failed", "candidate_store_outcome_missing", "candidate_store_outcome_invalid",
-    "candidate_input_unavailable_or_invalid",
+    "candidate_input_unavailable_or_invalid", "candidate_store_wait_stopped",
+    "candidate_store_read_timeout", "candidate_store_not_ready", "candidate_store_read_failed",
 })
 
 
