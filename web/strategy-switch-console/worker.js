@@ -114,7 +114,6 @@ import {
   MARKET_BENCHMARK_API_PATH,
   MARKET_BENCHMARK_SYNC_PATH,
   MARKET_BENCHMARK_SCHEMA,
-  MARKET_BENCHMARK_INCEPTION_DATE as MARKET_BENCHMARK_INCEPTION_DATE_CONST,
   MARKET_BENCHMARK_SERIES_IDS,
   MarketBenchmarkError,
   normalizeMarketBenchmarkSyncPayload,
@@ -2825,14 +2824,10 @@ export class RuntimeInstances {
     throw new HttpError("unsupported_market_benchmark_action", 400);
   }
 
-  readMarketBenchmarkPoints(command = {}) {
-    const inception = typeof command.inception_date === "string" && command.inception_date
-      ? command.inception_date
-      : MARKET_BENCHMARK_INCEPTION_DATE_CONST;
+  readMarketBenchmarkPoints() {
     const rows = this.sql.exec(
       `SELECT series_id, observation_date, close, source FROM market_benchmark_daily
-       WHERE observation_date >= ? ORDER BY series_id ASC, observation_date ASC`,
-      inception,
+       ORDER BY series_id ASC, observation_date ASC`,
     ).toArray();
     const points = rows.map((row) => ({
       seriesId: row.series_id,
@@ -2840,16 +2835,13 @@ export class RuntimeInstances {
       close: row.close,
       ...(row.source ? { source: row.source } : {}),
     }));
-    return { ok: true, ...publicMarketBenchmarkReadModel(points, { inceptionDate: inception }) };
+    return { ok: true, ...publicMarketBenchmarkReadModel(points) };
   }
 
   putMarketBenchmarkPoints(command) {
     let normalized;
     try {
-      normalized = normalizeMarketBenchmarkSyncPayload(command.payload || command, {
-        inceptionDate: MARKET_BENCHMARK_INCEPTION_DATE_CONST,
-        allowDropBeforeInception: true,
-      });
+      normalized = normalizeMarketBenchmarkSyncPayload(command.payload || command);
     } catch (error) {
       if (error instanceof MarketBenchmarkError) throw new HttpError(error.code, error.status || 400);
       throw error;
@@ -2890,7 +2882,7 @@ export class RuntimeInstances {
       ok: true,
       stored: true,
       schema_version: MARKET_BENCHMARK_SCHEMA,
-      inception_date: MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+      inception_date: this.readMarketBenchmarkPoints().inception_date,
       written,
       unchanged,
       points: normalized.points.length,
@@ -16456,12 +16448,11 @@ async function marketBenchmarkResponse(request, env) {
   try {
     const stored = await runtimeInstanceCommand(env, {
       action: "market_benchmark_read",
-      inception_date: MARKET_BENCHMARK_INCEPTION_DATE_CONST,
     });
     const body = {
       ok: true,
       schema_version: MARKET_BENCHMARK_SCHEMA,
-      inception_date: stored.inception_date || MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+      inception_date: stored.inception_date ?? null,
       timezone: stored.timezone || "Asia/Shanghai",
       points: Array.isArray(stored.points) ? stored.points : [],
     };
@@ -16514,7 +16505,6 @@ async function reviseMarketBenchmarkResponse(request, env) {
   try {
     const stored = await runtimeInstanceCommand(env, {
       action: "market_benchmark_read",
-      inception_date: MARKET_BENCHMARK_INCEPTION_DATE_CONST,
     });
     const appliedAt = typeof raw.applied_at === "string" && !Number.isNaN(Date.parse(raw.applied_at))
       ? raw.applied_at
@@ -16624,7 +16614,7 @@ async function syncMarketBenchmarkResponse(request, env) {
       ok: true,
       stored: true,
       schema_version: MARKET_BENCHMARK_SCHEMA,
-      inception_date: MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+      inception_date: result.inception_date ?? null,
       written: result.written || 0,
       unchanged: result.unchanged || 0,
       points: result.points || 0,
@@ -16753,7 +16743,6 @@ export const __test = {
   MARKET_BENCHMARK_REVISION_PATH,
   MARKET_BENCHMARK_SYNC_PATH,
   MARKET_BENCHMARK_SCHEMA,
-  MARKET_BENCHMARK_INCEPTION_DATE_CONST,
   normalizeMarketBenchmarkSyncPayload,
   publicMarketBenchmarkReadModel,
   MarketBenchmarkError,

@@ -3,14 +3,16 @@
  * Fetch public Yahoo daily closes for the four overview legend series and POST
  * them to the console market-benchmark sync endpoint.
  *
- * Rules (QRS #568): only observation dates >= 2026-10-09; reject zero closes;
- * do not backfill earlier history (Yahoo window may be short; pre-inception
- * rows are dropped by the receiver).
+ * Keep real completed New York dates and positive closes. Historical requests
+ * append to the same frozen store; existing closes are never silently replaced.
  *
  * Env:
  *   MARKET_BENCHMARK_SYNC_URL  required HTTPS sync endpoint
  *   MARKET_BENCHMARK_SYNC_TOKEN  required bearer
  *   MARKET_BENCHMARK_RANGE     Yahoo range query, default 10d
+ *   MARKET_BENCHMARK_FROM_DATE / MARKET_BENCHMARK_THROUGH_DATE  optional paired
+ *     inclusive New York dates; both must be completed days, at most 64 points
+ *     across all series, mutually exclusive with apply-revision.
  *   MARKET_BENCHMARK_DRY_RUN   when "true", compare conflict counts without POST
  *   MARKET_BENCHMARK_APPLY_REVISION  when "true", POST an owner-approved revision
  *     (requires MARKET_BENCHMARK_REVISION_TOKEN + MARKET_BENCHMARK_REVISION_PAYLOAD_JSON).
@@ -26,7 +28,8 @@ import { pathToFileURL } from "node:url";
 import {
   MARKET_BENCHMARK_SCHEMA,
   MARKET_BENCHMARK_YAHOO_SYMBOLS,
-  MARKET_BENCHMARK_INCEPTION_DATE,
+  MARKET_BENCHMARK_MAX_POINTS,
+  isMarketBenchmarkDate,
   parseYahooChartDailyCloses,
   normalizeMarketBenchmarkPoint,
 } from "../web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark.js";
@@ -45,19 +48,28 @@ import {
 const SYNC_URL = process.env.MARKET_BENCHMARK_SYNC_URL || "";
 const TOKEN = process.env.MARKET_BENCHMARK_SYNC_TOKEN || "";
 const RANGE = process.env.MARKET_BENCHMARK_RANGE || "10d";
+const FROM_DATE = process.env.MARKET_BENCHMARK_FROM_DATE || "";
+const THROUGH_DATE = process.env.MARKET_BENCHMARK_THROUGH_DATE || "";
 const DRY_RUN = process.env.MARKET_BENCHMARK_DRY_RUN === "true";
 const APPLY_REVISION = process.env.MARKET_BENCHMARK_APPLY_REVISION === "true";
 const REVISION_TOKEN = process.env.MARKET_BENCHMARK_REVISION_TOKEN || "";
 const REVISION_PAYLOAD_JSON = process.env.MARKET_BENCHMARK_REVISION_PAYLOAD_JSON || "";
 const APPROVED_PROPOSAL_SHA256 = (process.env.MARKET_BENCHMARK_APPROVED_PROPOSAL_SHA256 || "").trim();
 
-function yahooUrl(symbol) {
+function yahooUrl(symbol, window) {
   const encoded = encodeURIComponent(symbol);
+  if (window) {
+    // UTC padding includes the entire last New York date across DST. The
+    // resulting bars are always clipped again by their New York session date.
+    const period1 = Date.parse(`${window.from}T00:00:00Z`) / 1000;
+    const period2 = Date.parse(`${window.through}T00:00:00Z`) / 1000 + 2 * 86400;
+    return `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&period1=${period1}&period2=${period2}`;
+  }
   return `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=${encodeURIComponent(RANGE)}`;
 }
 
-async function fetchSeries(seriesId, symbol) {
-  const response = await fetch(yahooUrl(symbol), {
+async function fetchSeries(seriesId, symbol, window) {
+  const response = await fetch(yahooUrl(symbol, window), {
     method: "GET",
     headers: {
       Accept: "application/json",
@@ -70,7 +82,6 @@ async function fetchSeries(seriesId, symbol) {
   const payload = await response.json();
   return parseYahooChartDailyCloses(payload, {
     seriesId,
-    inceptionDate: MARKET_BENCHMARK_INCEPTION_DATE,
   });
 }
 
@@ -81,6 +92,15 @@ export function newYorkDate(now = new Date()) {
   }).formatToParts(now);
   const get = (type) => parts.find((part) => part.type === type).value;
   return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+export function benchmarkHistoryWindow(from, through, now = new Date()) {
+  if (!from && !through) return null;
+  if (!isMarketBenchmarkDate(from) || !isMarketBenchmarkDate(through) || from > through) {
+    throw new Error("benchmark_history_window_invalid");
+  }
+  if (through >= newYorkDate(now)) throw new Error("benchmark_history_window_not_closed");
+  return { from, through };
 }
 
 /**
@@ -180,14 +200,17 @@ export function buildUpstreamRevisionPayload(candidatePoints, storedPoints, appr
   };
 }
 
-async function fetchCandidatePoints() {
+async function fetchCandidatePoints(window = null) {
   const points = [];
   for (const [seriesId, symbol] of Object.entries(MARKET_BENCHMARK_YAHOO_SYMBOLS)) {
-    const fetched = await fetchSeries(seriesId, symbol);
-    const seriesPoints = closedSessionPoints(fetched);
-    console.log(`fetched series=${seriesId} symbol=${symbol} points=${seriesPoints.length} skipped_open_session=${fetched.length - seriesPoints.length}`);
+    const fetched = await fetchSeries(seriesId, symbol, window);
+    const closed = closedSessionPoints(fetched);
+    const seriesPoints = closed.filter(point => !window
+      || (point.observationDate >= window.from && point.observationDate <= window.through));
+    console.log(`fetched series=${seriesId} symbol=${symbol} points=${seriesPoints.length} skipped_open_session=${fetched.length - closed.length} skipped_outside_window=${closed.length - seriesPoints.length}`);
     points.push(...seriesPoints);
   }
+  if (window && points.length > MARKET_BENCHMARK_MAX_POINTS) throw new Error("market_benchmark_points_limit");
   return points;
 }
 
@@ -221,7 +244,7 @@ async function readStoredPoints() {
   } finally { reader.releaseLock(); }
   const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   if (parsed?.ok !== true || parsed.schema_version !== MARKET_BENCHMARK_SCHEMA
-      || parsed.inception_date !== MARKET_BENCHMARK_INCEPTION_DATE
+      || (parsed.inception_date !== null && !isMarketBenchmarkDate(parsed.inception_date))
       || !Array.isArray(parsed.points) || parsed.points.length > 4096) {
     throw new Error("benchmark_read_model_invalid");
   }
@@ -230,6 +253,8 @@ async function readStoredPoints() {
 
 export async function main() {
   if (!SYNC_URL) throw new Error("MARKET_BENCHMARK_SYNC_URL is required");
+  const window = benchmarkHistoryWindow(FROM_DATE, THROUGH_DATE);
+  if (window && APPLY_REVISION) throw new Error("benchmark_history_revision_exclusive");
 
 function nodeDigest(value) {
   return createHash("sha256").update(String(value)).digest("hex");
@@ -330,7 +355,7 @@ async function applyApprovedRevision() {
     console.error("MARKET_BENCHMARK_SYNC_TOKEN is required unless MARKET_BENCHMARK_DRY_RUN=true");
     process.exit(2);
   }
-  const points = await fetchCandidatePoints();
+  const points = await fetchCandidatePoints(window);
   const body = {
     schema_version: MARKET_BENCHMARK_SCHEMA,
     points: points.map((point) => ({
@@ -340,10 +365,11 @@ async function applyApprovedRevision() {
       source: point.source || "yahoo_chart_v8",
     })),
   };
-  console.log(`payload_points=${body.points.length} inception=${MARKET_BENCHMARK_INCEPTION_DATE}`);
+  console.log(`payload_points=${body.points.length}`);
   if (body.points.length === 0) {
-    console.log("no_inception_points_yet");
-    // Soft success: schedule may run before the first US close on/after inception.
+    if (window) throw new Error("benchmark_history_no_points");
+    console.log("no_closed_points_yet");
+    // Preserve ordinary scheduled runs that have no completed-session bars yet.
     process.exit(0);
   }
   const storedPoints = await readStoredPoints();
@@ -378,6 +404,7 @@ async function applyApprovedRevision() {
     console.log("nothing_to_post");
     process.exit(0);
   }
+  if (plan.post_candidates.length > MARKET_BENCHMARK_MAX_POINTS) throw new Error("market_benchmark_points_limit");
   body.points = plan.post_candidates.map((point) => ({
     seriesId: point.seriesId, observationDate: point.observationDate,
     close: point.close, source: point.source || "yahoo_chart_v8",
@@ -411,7 +438,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       "benchmark_read_body_too_large", "benchmark_read_model_invalid",
       "invalid_market_benchmark_point", "invalid_market_benchmark_series", "invalid_market_benchmark_date",
       "invalid_market_benchmark_close", "invalid_market_benchmark_source", "market_benchmark_zero_close_rejected",
-      "market_benchmark_before_inception", "market_benchmark_upstream_invalid",
+      "market_benchmark_upstream_invalid", "market_benchmark_points_limit",
+      "benchmark_history_window_invalid", "benchmark_history_window_not_closed",
+      "benchmark_history_revision_exclusive", "benchmark_history_no_points",
       "benchmark_candidate_conflicting_key", "benchmark_close_not_decimal",
       "benchmark_revision_approval_required", "benchmark_revision_approval_mismatch",
       "benchmark_revision_already_applied", "benchmark_revision_url_invalid",

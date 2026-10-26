@@ -2,6 +2,43 @@
 
 Status: wired into the sync producer with the owner-approved 0.01% tolerance.
 
+## Historical close windows
+
+The backend no longer uses the product launch date (2026-10-09) as an admission
+or read boundary. Valid historical session dates and strictly positive decimal
+closes use the same frozen-key rules below. `inception_date` in sync ACKs and
+`GET /api/market-benchmark` is the earliest valid persisted observation across
+the series, or `null` for an empty store. Invalid stored rows do not establish
+that date. The response schema and series identifiers are unchanged; a reader
+must not require the former fixed launch date.
+
+For one bounded historical request, dispatch `Sync Market Benchmark Closes` with
+both `from_date` and `through_date` (inclusive `YYYY-MM-DD` New York session
+dates). They map to `MARKET_BENCHMARK_FROM_DATE` and
+`MARKET_BENCHMARK_THROUGH_DATE`. Missing pairs, invalid dates, reversed windows,
+today/future New York dates, and combining a window with `apply_revision` fail
+before upstream or receiver requests. The pair takes precedence over `range`.
+Yahoo requests use finite `period1` / `period2` UTC bounds padded through the
+last New York date; parsed bars are clipped again to the exact New York date
+window. The existing completed-session filter remains in effect. Logs count
+open-session and outside-window exclusions separately.
+
+A historical window is limited to 64 candidate points across all four series.
+No automatic batching is introduced. Zero historical points fail explicitly;
+they do not use scheduled pre-close soft success. Normal cron requests still
+use `range=10d` and retain their existing empty-result behavior. Ordinary large
+range dry runs and approved revision planning retain their existing candidate
+capacity; an actual ordinary sync POST is separately limited to 64 submitted
+points, including identical replays under the existing plan contract.
+The historical mode uses the existing sync token and frozen append path, not
+the revision credential. Existing closes are kept or block the request under
+the same exact/tolerance policy; historical dates do not authorize overwrites.
+
+The synthetic producer and real local SQLite regressions are included in
+`tests/market_benchmark_validation.mjs`. They prove earlier dates, dynamic/empty
+inception, New York window boundaries, size and empty-result failures, and
+conflict rollback. Local validation does not establish a production backfill.
+
 ## Background
 QRS#646 diagnostics (run 38566351201): 12 candidate keys, 0 internal duplicates or
 conflicts, 4 keys already stored (2 with different closes), 8 new keys, 0 POSTs.
