@@ -1,6 +1,7 @@
 import { ExecutionEvidence } from "./ExecutionEvidence";
 import { accountKey, groupAccounts, type DirectoryConfig } from "../lib/accountDirectory";
 import { factForAccount } from "../lib/accountFacts";
+import { cardAccountKey, type BinanceFactsView } from "../lib/binanceWalletFacts";
 import { useDisplayNames } from "../lib/useDisplayNames";
 import { useT } from "../i18n";
 import type { AccountFactsAccount, AccountsResponse } from "../api/contracts";
@@ -13,6 +14,7 @@ import {
   type AccountEnvironment,
   type FactsPhase,
 } from "./AccountFactsAmounts";
+import { BinanceWalletFacts } from "./BinanceWalletFacts";
 
 type Account = AccountsResponse["accounts"][number];
 type EnvironmentSection = AccountEnvironment | "unknown";
@@ -28,6 +30,8 @@ function evidenceEnvironment(evidence: { broker_environment?: "live" | "paper" |
 export interface AccountFactsView {
   rows: AccountFactsAccount[];
   phase: FactsPhase;
+  /** Dedicated single-account source; only an exact platform+account_key card may consume it. */
+  binance?: BinanceFactsView;
 }
 
 /**
@@ -79,7 +83,10 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
         unique,
         evidenceEnvironments.size === 1 ? [...evidenceEnvironments][0]! : null,
       );
-      return { account, canonical, representative, environment };
+      // The dedicated Binance report is one physical account; a card that
+      // merges distinct keys stays unverified instead of borrowing one row.
+      const binanceKey = group.platform === "binance" ? cardAccountKey(account.rows, group.platform) : null;
+      return { account, canonical, representative, environment, binanceKey };
     });
     const sections = ENVIRONMENT_ORDER
       .map(environment => ({ environment, cards: cards.filter(card => sectionOf(card.environment) === environment) }))
@@ -92,18 +99,22 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
         <div className="account-environment-head">
           <h3 className="account-environment-title">{t(`accounts.environment.${section.environment}`)}</h3>
           <span className="card-note">{t("accounts.environment_count", { count: section.cards.length })}</span>
-          {section.environment === "live" && facts && units
+          {/* Binance's dedicated wallet rollup is one account, not a complete
+              platform net value, so it is never rolled into a generic total. */}
+          {section.environment === "live" && facts && units && group.platform !== "binance"
             ? <div className="account-platform-summary"><PlatformFactsSummary rows={units.rows} expected={units.expected} phase={facts.phase} /></div>
             : null}
         </div>
         {section.environment !== "live" && <p className="card-note account-environment-note">{t(`accounts.environment.${section.environment}_note`)}</p>}
-        <div className="account-grid">{section.cards.map(({ account, canonical, representative, environment }) => <article className="card account-group-card" key={account.identity}>
+        <div className="account-grid">{section.cards.map(({ account, canonical, representative, environment, binanceKey }) => <article className="card account-group-card" key={account.identity}>
           <div className="account-card-head">
             <h3 className="account-broker-title">{names.account(account.rows[0].account_alias, group.platform)}</h3>
             <EnvironmentBadge environment={environment} />
           </div>
           {facts && <div className="account-card-facts">
-            <AccountFactsAmounts fact={representative} phase={facts.phase} ambiguous={canonical.length > 1} />
+            {group.platform === "binance"
+              ? <BinanceWalletFacts platform={group.platform} accountKey={binanceKey} view={facts.binance} />
+              : <AccountFactsAmounts fact={representative} phase={facts.phase} ambiguous={canonical.length > 1} />}
           </div>}
           {account.rows.map(row => {
             const strategy = names.currentStrategy(row);

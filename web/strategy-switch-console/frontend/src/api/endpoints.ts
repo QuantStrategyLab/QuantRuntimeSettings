@@ -4,6 +4,7 @@ import type {
   AccountFactsResponse,
   AccountsResponse,
   AssetsResponse,
+  BinanceAccountFactsResponse,
   CalendarResponse,
   CombinedDraftRequest,
   CombinedDraftResponse,
@@ -65,6 +66,15 @@ export function loadAccounts(): Promise<AccountsResponse> {
 /** Read-only broker-reported facts. Amounts stay decimal strings; a failed read rejects. */
 export function loadAccountFacts(): Promise<AccountFactsResponse> {
   return getJson<AccountFactsResponse>("/api/account-facts");
+}
+
+/**
+ * Dedicated Binance wallet facts for the one protected-configuration account.
+ * The read stays independent of /api/account-facts so its failure only affects
+ * Binance cards; the card still matches the report by platform + account_key.
+ */
+export function loadBinanceAccountFacts(): Promise<BinanceAccountFactsResponse> {
+  return getJson<BinanceAccountFactsResponse>("/api/binance-account-facts");
 }
 
 export function loadSettingsDiff(account: string, platform?: string): Promise<SettingsDiffResponse> {
