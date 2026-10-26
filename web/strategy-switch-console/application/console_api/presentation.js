@@ -34,6 +34,11 @@ export function settingsDiff(settings) {
       draft: overridden ? overrides[field] : current,
       affects_live: true,
       current_status: known ? "known" : "unknown",
+      current_source: settings.effective_read?.[field]?.source === "github_runtime_configuration" ? "github_runtime_configuration" : null,
+      current_reason: known ? null : ["reader_not_configured", "repository_not_configured", "account_config_unavailable",
+        "runtime_configuration_read_failed", "runtime_setting_unresolved", "dca_not_applicable", "strategy_profile_unresolved"]
+        .includes(settings.effective_read?.[field]?.reason) ? settings.effective_read[field].reason : "effective_field_unavailable",
+      current_source_as_of: null,
       overridden,
       changed: overridden && (!known || overrides[field] !== current),
     };

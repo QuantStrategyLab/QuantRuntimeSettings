@@ -37,6 +37,23 @@ export function formatMoney(value: number | null | undefined, currency: string |
   return currency ? `${currency} ${formatted}` : formatted;
 }
 
+const DECIMAL_TEXT = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+/**
+ * Hidden amount placeholder: a real negative keeps its sign as −••• so a cash
+ * deficit is not mistaken for a positive balance; positive and zero stay •••.
+ * Missing or invalid values stay an em dash, never a signed or zero amount.
+ * Decimal strings are validated in place and never converted to a number.
+ */
+export function maskedAmount(value: number | string | null | undefined): string {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return "—";
+    return value < 0 ? "−•••" : "•••";
+  }
+  if (typeof value !== "string" || !DECIMAL_TEXT.test(value)) return "—";
+  return value.startsWith("-") && /[1-9]/.test(value) ? "−•••" : "•••";
+}
+
 export function formatQuantity(value: number | null | undefined, language: Language): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   return numberFormatter(language, { maximumFractionDigits: 6 }).format(value);

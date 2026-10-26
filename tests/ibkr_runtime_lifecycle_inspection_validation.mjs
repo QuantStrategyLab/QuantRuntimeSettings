@@ -361,7 +361,7 @@ assert.match(workflow, /INSPECT_IBKR_LIFECYCLE: \$\{\{ inputs\.inspect_ibkr_life
 assert.match(workflow, /inspection_mode_invalid/);
 assert.match(workflow, /node \.\/inspect_ibkr_runtime_lifecycle\.mjs/);
 assert.ok(workflow.indexOf("inspect_ibkr_runtime_lifecycle.mjs") < workflow.indexOf('temp_dir="$(mktemp'));
-assert.match(workflow, /CLOUDFLARE_WRANGLER_CONFIG_TOML: \$\{\{ !inputs\.inspect_ibkr_lifecycle && secrets\.CLOUDFLARE_WRANGLER_CONFIG_TOML \|\| '' \}\}/);
+assert.match(workflow, /CLOUDFLARE_WRANGLER_CONFIG_TOML: \$\{\{ !inputs\.backup_primary_ibkr_binding && !inputs\.inspect_ibkr_lifecycle && secrets\.CLOUDFLARE_WRANGLER_CONFIG_TOML \|\| '' \}\}/);
 assert.match(workflow, /!inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON/);
 assert.match(workflow, /!inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON/);
 assert.match(workflow, /SCHWAB_ACCOUNT_FACTS_BINDING_JSON: \$\{\{ inputs\.platform == 'schwab' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle/);

@@ -1,15 +1,14 @@
 import type { ReactNode } from "react";
 import { useLanguage, useT, type MessageKey } from "../i18n";
 import { usePrefs } from "../app/context";
-import { formatDate, formatDateTime, formatMoney, formatPercent } from "../lib/format";
+import { formatDate, formatDateTime, formatMoney, formatPercent, maskedAmount } from "../lib/format";
 import type { Status } from "../api/contracts";
 
 /* ---------- status badges (icon + text, never color alone) ---------- */
 
 type Tone = "ok" | "warn" | "error" | "unknown";
 
-function ToneIcon({ tone }: { tone: Tone }) {
-  const size = 10;
+function ToneIcon({ tone, size = 10 }: { tone: Tone; size?: number }) {
   if (tone === "ok")
     return (
       <svg width={size} height={size} viewBox="0 0 10 10" aria-hidden="true">
@@ -72,12 +71,37 @@ export function statusTone(status: string | null | undefined): Tone {
   return STATUS_TONE[status || ""] || "unknown";
 }
 
+/**
+ * Statuses that only describe data availability, not an operational outcome.
+ * They must not tile the pages with small error text: the amount, as-of stamp
+ * or empty state already says what is known, and the exact state plus reason
+ * stay in a hidden marker for API debugging. Operational outcomes
+ * (failed/blocked/critical/watch/review, ...) keep their visible badge.
+ */
+const DIAGNOSTIC_STATUSES = new Set([
+  "partial",
+  "stale",
+  "no_data",
+  "not_connected",
+  "unavailable",
+  "unknown",
+  "read_failed",
+  "read_incomplete",
+  "insufficient",
+]);
+
 export function StatusBadge({ status, reason }: { status: string | null | undefined; reason?: string | null }) {
   const t = useT();
-  const key = `state.${status || "unknown"}`;
+  const value = status || "unknown";
+  // A hidden element takes no space and stays out of the accessibility tree;
+  // the attributes keep the exact diagnostic available to interface debugging.
+  if (DIAGNOSTIC_STATUSES.has(value)) {
+    return <span hidden data-status={value} data-reason={reason ?? undefined} />;
+  }
+  const key = `state.${value}`;
   const reasonKey = reason ? `reason.${reason}` : null;
   const title = reasonKey ? t(reasonKey as MessageKey) : undefined;
-  return <Badge tone={statusTone(status)} title={title}>{t(key as MessageKey)}</Badge>;
+  return <Badge tone={statusTone(value)} title={title}>{t(key as MessageKey)}</Badge>;
 }
 
 /* ---------- as-of stamp ---------- */
@@ -92,7 +116,9 @@ export function AsOfStamp({ value, prefix = "common.as_of" }: { value: string | 
 
 export function DateText({ value }: { value: string | null | undefined }) {
   const language = useLanguage();
-  return <>{formatDate(value, language)}</>;
+  // Keep the value in its own element so flex rows can place the label left
+  // and the date right instead of letting auto margins move the only span.
+  return <span className="account-row-value">{formatDate(value, language)}</span>;
 }
 
 /* ---------- money / percent ---------- */
@@ -100,8 +126,9 @@ export function DateText({ value }: { value: string | null | undefined }) {
 export function Money({ value, currency, signed = false }: { value: number | null | undefined; currency?: string | null; signed?: boolean }) {
   const language = useLanguage();
   const { prefs } = usePrefs();
-  if (prefs.hideAmounts) return <span className="money">•••</span>;
+  // Missing values stay an em dash even while amounts are hidden.
   if (value === null || value === undefined || !Number.isFinite(value)) return <span className="money flat">—</span>;
+  if (prefs.hideAmounts) return <span className="money">{maskedAmount(value)}</span>;
   const text = formatMoney(signed ? Math.abs(value) : value, currency, language);
   const sign = signed ? (value > 0 ? "+" : value < 0 ? "-" : "") : "";
   const tone = !signed || value === 0 ? "flat" : value > 0 ? "up" : "down";
@@ -121,12 +148,29 @@ export function Skeleton({ height = 16, width = "100%" }: { height?: number; wid
   return <div className="skeleton" style={{ height, width }} aria-hidden="true" />;
 }
 
-export function EmptyState({ title, body, action }: { title: string; body?: string; action?: ReactNode }) {
+/**
+ * Compact placeholder: one short state and an em dash stay visible. Extra
+ * explanation is a single short line, not an audit-style disclosure.
+ */
+export function EmptyState({
+  title,
+  body,
+  action,
+  state = "no_data",
+}: {
+  title: string;
+  body?: string;
+  action?: ReactNode;
+  state?: string;
+}) {
   return (
-    <div className="empty-state">
-      <div className="empty-title">{title}</div>
-      {body && <div>{body}</div>}
-      {action && <div style={{ marginTop: 12 }}>{action}</div>}
+    <div className="empty-state" data-state={state}>
+      <span className="state-icon" aria-hidden="true"><ToneIcon tone="unknown" size={14} /></span>
+      <div className="state-copy">
+        <div className="empty-title">{title}</div>
+        {body && <p className="state-short">{body}</p>}
+      </div>
+      {action && <div className="state-action">{action}</div>}
     </div>
   );
 }
@@ -134,12 +178,15 @@ export function EmptyState({ title, body, action }: { title: string; body?: stri
 export function ErrorState({ onRetry }: { onRetry?: () => void }) {
   const t = useT();
   return (
-    <div className="error-state" role="alert">
-      <div className="error-title">{t("state.read_failed")}</div>
-      <div>{t("error.generic")}</div>
+    <div className="error-state" role="alert" data-state="read_failed">
+      <span className="state-icon state-icon-error" aria-hidden="true"><ToneIcon tone="error" size={14} /></span>
+      <div className="state-copy">
+        <div className="error-title">{t("state.load_failed")}</div>
+      </div>
+      {/* A retry control exists only when the caller has a real reload callback. */}
       {onRetry && (
-        <div style={{ marginTop: 12 }}>
-          <button type="button" className="button button-secondary" onClick={onRetry}>{t("common.retry")}</button>
+        <div className="state-action">
+          <button type="button" className="button button-secondary button-sm" onClick={onRetry}>{t("common.retry")}</button>
         </div>
       )}
     </div>
@@ -165,13 +212,18 @@ export function DataBlock({
 }) {
   const t = useT();
   if (status === "ok" || status === "partial" || status === "stale") {
+    const reasonText = reason ? t(`reason.${reason}` as MessageKey) : null;
     return (
       <>
         {children}
-        <div className="kpi-foot">
-          {status !== "ok" && <StatusBadge status={status} reason={reason} />}
-          {asOf && <AsOfStamp value={asOf} />}
-        </div>
+        {(status !== "ok" || asOf || reasonText) && (
+          <div className="state-inline" data-state={status}>
+            {status !== "ok" && <StatusBadge status={status} reason={reason} />}
+            {/* Coverage/freshness reason is shown once, next to the time it qualifies. */}
+            {reasonText && <span className="state-short">{reasonText}</span>}
+            {asOf && <AsOfStamp value={asOf} />}
+          </div>
+        )}
       </>
     );
   }
@@ -180,6 +232,7 @@ export function DataBlock({
     <EmptyState
       title={emptyTitle || t(`state.${status || "no_data"}` as MessageKey)}
       body={reasonText}
+      state={status || "no_data"}
     />
   );
 }

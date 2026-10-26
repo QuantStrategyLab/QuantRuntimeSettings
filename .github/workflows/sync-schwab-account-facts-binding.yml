@@ -3,6 +3,16 @@ name: Sync account-facts binding
 on:
   workflow_dispatch:
     inputs:
+      backup_primary_ibkr_binding:
+        description: Back up exactly one compared primary IBKR binding to private KV; no binding change
+        type: boolean
+        required: true
+        default: false
+      primary_backup_hashes:
+        description: Exact target/configured/candidate SHA256 JSON from the authenticated primary comparison
+        type: string
+        required: false
+        default: ''
       platform:
         description: Platform whose protected account-facts binding action will run.
         type: choice
@@ -54,17 +64,19 @@ jobs:
     env:
       STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ !inputs.inspect_ibkr_lifecycle && secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML || '' }}
+      CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ !inputs.backup_primary_ibkr_binding && !inputs.inspect_ibkr_lifecycle && secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML || '' }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       SCHWAB_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.platform == 'schwab' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || '' }}
       FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.platform == 'firstrade' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON || '' }}
       FIRSTRADE_ACCOUNT_FACTS_RUNTIME_JSON: ${{ inputs.platform == 'firstrade' && secrets.FIRSTRADE_ACCOUNT_FACTS_RUNTIME_JSON || '' }}
       GH_TOKEN: ${{ inputs.platform == 'firstrade' && secrets.RUNTIME_SETTINGS_GH_TOKEN || '' }}
-      IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'ibkr' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
+      IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'ibkr' && !inputs.backup_primary_ibkr_binding && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
       LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'longbridge' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
       FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'firstrade' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
       IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: ${{ inputs.platform == 'ibkr' && inputs.initialize_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && secrets.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON || '' }}
+      BACKUP_PRIMARY_IBKR_BINDING: ${{ inputs.backup_primary_ibkr_binding }}
+      IBKR_PRIMARY_BACKUP_HASHES: ${{ inputs.primary_backup_hashes }}
       BINDING_PLATFORM: ${{ inputs.platform || 'schwab' }}
       INSPECT_IBKR_BINDINGS: ${{ inputs.inspect_ibkr_bindings }}
       INSPECT_IBKR_LIFECYCLE: ${{ inputs.inspect_ibkr_lifecycle }}
@@ -92,7 +104,13 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Back up compared primary IBKR binding and verify private readback
+        if: ${{ inputs.backup_primary_ibkr_binding }}
+        working-directory: web/strategy-switch-console
+        run: node ./backup_ibkr_primary_binding.mjs
+
       - name: Prepare protected Wrangler credentials
+        if: ${{ !inputs.backup_primary_ibkr_binding }}
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
@@ -156,6 +174,7 @@ jobs:
           fi
 
       - name: Validate and sync exactly one protected binding
+        if: ${{ !inputs.backup_primary_ibkr_binding }}
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
@@ -282,12 +301,21 @@ jobs:
           try {
             existing = normalizeAccountFactsBindings(existingRaw);
             if (platform === "ibkr" || platform === "longbridge") {
+              const configurePhysicalIdentity = platform === "longbridge"
+                && Object.hasOwn(rotation || {}, "physical_account_id");
+              const qualifyHistory = Object.hasOwn(rotation || {}, "history_source_binding_ids");
+              const rotationKeys = ["next_source_binding_id", "previous_source_binding_id", "target_id"];
+              if (configurePhysicalIdentity) rotationKeys.push("physical_account_id");
+              if (qualifyHistory) rotationKeys.push("history_source_binding_ids");
               if (!rotation || Array.isArray(rotation)
-                  || Object.keys(rotation).sort().join(",") !== "next_source_binding_id,previous_source_binding_id,target_id"
+                  || (configurePhysicalIdentity && qualifyHistory)
+                  || Object.keys(rotation).sort().join(",") !== rotationKeys.sort().join(",")
                   || !/^[a-f0-9]{64}$/.test(rotation.previous_source_binding_id)
                   || !/^[a-f0-9]{64}$/.test(rotation.next_source_binding_id)
-                  || (platform === "longbridge"
-                    && rotation.next_source_binding_id === rotation.previous_source_binding_id)) {
+                  || (qualifyHistory && rotation.next_source_binding_id !== rotation.previous_source_binding_id)
+                  || (platform === "longbridge" && ((configurePhysicalIdentity || qualifyHistory)
+                    ? rotation.next_source_binding_id !== rotation.previous_source_binding_id
+                    : rotation.next_source_binding_id === rotation.previous_source_binding_id))) {
                 stop("rotation_config_invalid");
               }
               // LongBridge target_id is lowercase; HK option/account_scope stays "HK".
@@ -304,12 +332,31 @@ jobs:
                 stop("expected_existing_longbridge_binding");
               }
               const index = existing.bindings.indexOf(candidates[0]);
-              proposedRaw = {
-                schema_version: existingRaw.schema_version,
-                bindings: [{ ...existingRaw.bindings[index], source_binding: {
-                  ...existingRaw.bindings[index].source_binding, id: rotation.next_source_binding_id,
-                } }],
+              if (configurePhysicalIdentity && candidates[0].physical_account_id
+                  && candidates[0].physical_account_id !== rotation.physical_account_id) stop("physical_identity_change_forbidden");
+              const sourceOwnerVerified = platform === "ibkr" || Boolean(candidates[0].physical_account_id);
+              const requestedHistory = qualifyHistory ? rotation.history_source_binding_ids : [];
+              if (qualifyHistory && (!sourceOwnerVerified || !Array.isArray(requestedHistory)
+                  || requestedHistory.length < 1 || requestedHistory.length > 64
+                  || new Set(requestedHistory).size !== requestedHistory.length
+                  || requestedHistory.some(id => typeof id !== "string" || !/^[a-f0-9]{64}$/.test(id)
+                    || id === rotation.next_source_binding_id))) stop("history_qualification_invalid");
+              // Only the protected, same-account CAS may carry trusted predecessors.
+              // A history-only qualification cannot move the current source or identity.
+              const historyIds = [...new Set([
+                ...(candidates[0].history_source_binding_ids || []), ...requestedHistory,
+                ...(!configurePhysicalIdentity && sourceOwnerVerified
+                  && candidates[0].source_binding.id === rotation.previous_source_binding_id
+                  && rotation.previous_source_binding_id !== rotation.next_source_binding_id
+                  ? [rotation.previous_source_binding_id] : []),
+              ])].filter(id => id !== rotation.next_source_binding_id);
+              const nextBinding = { ...existingRaw.bindings[index],
+                ...(configurePhysicalIdentity ? { physical_account_id: rotation.physical_account_id } : {}),
+                source_binding: { ...existingRaw.bindings[index].source_binding, id: rotation.next_source_binding_id },
               };
+              if (historyIds.length) nextBinding.history_source_binding_ids = historyIds;
+              else delete nextBinding.history_source_binding_ids;
+              proposedRaw = { schema_version: existingRaw.schema_version, bindings: [nextBinding] };
             }
             proposed = normalizeAccountFactsBindings(proposedRaw);
           } catch {
@@ -357,7 +404,12 @@ jobs:
             const previousId = rotation.previous_source_binding_id;
             if (!/^[a-f0-9]{64}$/.test(previousId) || !sameKey
                 || sameKey.source_binding.id !== previousId) stop("previous_binding_mismatch");
-            const identity = (item) => ({ ...item, source_binding: { kind: item.source_binding.kind } });
+            const identity = (item) => {
+              const copy = { ...item, source_binding: { kind: item.source_binding.kind } };
+              delete copy.history_source_binding_ids;
+              if (platform === "longbridge" && Object.hasOwn(rotation, "physical_account_id")) delete copy.physical_account_id;
+              return copy;
+            };
             if (JSON.stringify(identity(sameKey)) !== JSON.stringify(identity(binding))) {
               stop("binding_identity_change_forbidden");
             }

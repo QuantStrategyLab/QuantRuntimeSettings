@@ -199,6 +199,13 @@ try {
   assert.equal(diff.status, 200);
   validate("settings_diff", diff.body);
   assert.equal(diff.body.rows.length, 7);
+  for (const row of diff.body.rows) {
+    assert.equal(row.current, null);
+    assert.equal(row.current_status, "unknown");
+    assert.equal(row.current_reason, "reader_not_configured");
+    assert.equal(row.current_source, "github_runtime_configuration");
+    assert.equal(row.current_source_as_of, null);
+  }
   const history = await call(
     "/api/account-settings/history?account=synthetic-alpha",
   );
@@ -242,6 +249,10 @@ try {
     const read = await call(path, { cookie: reader });
     assert.equal(read.status, 200);
     validate(schema, read.body);
+    if (schema === "notification_log") {
+      assert.equal(read.body.read_status, "not_connected");
+      assert.deepEqual(read.body.read_reason_codes, ["notification_log_not_connected"]);
+    }
     assert.equal(read.body.no_order, true);
     assert.equal(read.body.execution_authority_granted, false);
     assert.equal((await call(path, { cookie: null })).status, 401);

@@ -45,60 +45,69 @@ const input = {
 };
 const assets = performanceBlocks(input).assets;
 
-test("P1: healthy current balances still show independent partial history in zh/en", () => {
+test("P1: healthy balances keep one compact independent partial-history status in zh/en", () => {
   assert.equal(assets.status, "ok");
   assert.equal(assets.per_currency[0].status, "ok");
   assert.equal(assets.curve_status, "partial");
+  const notice = (html, state) => new RegExp(`class="history-notice"[^>]*data-state="${state}"`).test(html);
   for (const language of ["zh", "en"]) {
     const html = ui.assets(language, assets);
-    assert.ok(html.includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"));
-    assert.ok(html.includes(language === "zh" ? "前值填充" : "Forward-filled"));
-    assert.ok(html.includes(language === "zh" ? "不代表当日新估值" : "not a new valuation for that date"));
-    assert.ok(html.includes(language === "zh" ? "合成账户甲" : "Synthetic Alpha"), "shared display-name configuration is used");
+    assert.ok(notice(html, "partial"), "healthy current balances cannot mask incomplete history");
+    assert.ok(html.includes('hidden="" data-status="partial"'), "exact partial status remains a hidden diagnostic");
+    assert.match(html, /data-affected-count="[1-9][0-9]*"/, "affected coverage remains diagnostic");
+    assert.doesNotMatch(html, /部分账户缺少历史数据|Some accounts lack history|个账户的历史数据不完整|History is incomplete for/,
+      "history diagnostics do not occupy the chart");
+    assert.ok(!html.includes(language === "zh" ? "合成账户甲" : "Synthetic Alpha"));
+    assert.doesNotMatch(html, /前值填充|Forward-filled|不代表当日新估值|not a new valuation/i);
     assert.doesNotMatch(html, /synthetic-a|synthetic-b|perf\.|reason\.|state\./);
     if (language === "en") assert.doesNotMatch(html, /[\u4e00-\u9fff]/);
     const { curve_coverage, history_per_currency, ...legacy } = assets;
-    assert.ok(ui.assets(language, legacy).includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"), "curve_status alone must trigger the warning");
+    assert.ok(notice(ui.assets(language, legacy), "partial"), "curve_status alone still reports partial history");
     const complete = performanceBlocks({ ...input, histories: [history("synthetic-a", [point(7, 107), point(8, 108)])] }).assets;
     assert.equal(complete.curve_status, "ok");
-    assert.ok(!ui.assets(language, complete).includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"));
-    assert.ok(ui.assets(language, { ...complete, curve_status: "partial" }).includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"), "independent curve status cannot be masked by healthy per-currency status");
+    assert.ok(!ui.assets(language, complete).includes('class="history-notice"'));
+    assert.ok(notice(ui.assets(language, { ...complete, curve_status: "partial" }), "partial"));
     const truncated = { ...complete, curve_status: "partial", curve_coverage: { ...complete.curve_coverage, truncated: true } };
-    assert.ok(ui.assets(language, truncated).includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"));
+    assert.ok(notice(ui.assets(language, truncated), "partial"));
     const missingOnly = performanceBlocks({ ...input, histories: [history("synthetic-a", [point(7, 107), point(8, 108)]), history("synthetic-b", [])] }).assets;
-    assert.equal(missingOnly.curve_coverage.forward_filled_points, 0);
-    assert.ok(ui.assets(language, missingOnly).includes(language === "zh" ? "历史覆盖不完整" : "Incomplete history"));
+    assert.ok(notice(ui.assets(language, missingOnly), "partial"));
     const mixed = performanceBlocks({ ...input, histories: [...input.histories, { id: "synthetic-wallet", currency: "USDT", points: [point(7, 500), point(8, 500)] }] }).assets;
-    assert.match(ui.assets(language, mixed), language === "zh" ? /USD · 历史覆盖不完整/ : /USD · Incomplete history/);
+    assert.ok(notice(ui.assets(language, mixed), "partial"), "the selected currency keeps its partial history");
     const unknown = { ...assets, points: assets.points.map(p => ({ ...p, missing_accounts: ["synthetic-raw-strategy-key"] })), history_per_currency: undefined };
     assert.doesNotMatch(ui.assets(language, unknown), /synthetic-raw-strategy-key/);
     const stale = performanceBlocks({ ...input, today: "2026-01-12" }).assets;
     assert.equal(stale.status, "ok");
     assert.equal(stale.curve_status, "stale");
-    assert.ok(ui.assets(language, stale).includes(language === "zh" ? "历史数据偏旧" : "History is stale"));
+    assert.ok(notice(ui.assets(language, stale), "stale"));
   }
 });
 
-test("P2: rendered fill follows stroke breaks at join, expiry and re-entry; singletons stay visible", () => {
+test("P2: fill covers only runs of three or more points; sparse tails keep their line and markers", () => {
   assert.deepEqual(assets.points.map(p => p.breakBefore), [false, true, false, false, true, true, false, false]);
   const check = points => {
     const html = ui.area(points);
-    const paths = [...html.matchAll(/<path d="([^"]+)"[^>]*>/g)].map(m => m[1]);
+    const paths = [...html.matchAll(/<path d="([^"]*)"[^>]*>/g)].map(m => m[1]);
     assert.equal(paths.length, points.length ? 2 : 0);
     if (!points.length) return;
-    const lineSegments = paths[1].match(/M[^M]+/g);
-    const areas = paths[0].match(/M[^M]+/g);
-    assert.equal(areas.length, lineSegments.length, "fill must have exactly the stroke's segments");
-    for (const [i, segment] of lineSegments.entries()) {
+    const [area, line] = paths;
+    const lineSegments = line.match(/M[^M]+/g) ?? [];
+    const areaSegments = area.match(/M[^M]+/g) ?? [];
+    const filled = lineSegments.filter(segment => [...segment.matchAll(/[ML]([\d.]+),([\d.]+)/g)].length >= 3);
+    assert.equal(areaSegments.length, filled.length, "only a run of at least three real points gets a fill");
+    for (const [i, segment] of filled.entries()) {
       const linePoints = [...segment.matchAll(/[ML]([\d.]+),([\d.]+)/g)].map(m => [m[1], m[2]]);
-      const areaPoints = [...areas[i].matchAll(/[ML]([\d.]+),([\d.]+)/g)].map(m => [m[1], m[2]]);
-      assert.ok(areas[i].endsWith("Z"));
+      const areaPoints = [...areaSegments[i].matchAll(/[ML]([\d.]+),([\d.]+)/g)].map(m => [m[1], m[2]]);
+      assert.ok(areaSegments[i].endsWith("Z"));
       assert.deepEqual(areaPoints.slice(1, -1), linePoints, "no filled polygon may bridge a membership break");
       assert.equal(areaPoints[0][0], linePoints[0][0]);
       assert.equal(areaPoints.at(-1)[0], linePoints.at(-1)[0]);
-      if (linePoints.length === 1) {
-        const circles = [...html.matchAll(/<circle cx="([^"]+)" cy="([^"]+)"/g)];
-        assert.ok(circles.some(m => Math.abs(Number(m[1]) - Number(linePoints[0][0])) < 0.01 && Math.abs(Number(m[2]) - Number(linePoints[0][1])) < 0.01), "isolated observation needs a visible marker");
+    }
+    for (const segment of lineSegments) {
+      const linePoints = [...segment.matchAll(/[ML]([\d.]+),([\d.]+)/g)].map(m => [m[1], m[2]]);
+      if (linePoints.length >= 3) continue;
+      const circles = [...html.matchAll(/<circle cx="([^"]+)" cy="([^"]+)"/g)];
+      for (const [x, y] of linePoints) {
+        assert.ok(circles.some(m => Math.abs(Number(m[1]) - Number(x)) < 0.01 && Math.abs(Number(m[2]) - Number(y)) < 0.01), "each point in a sparse segment stays visible");
       }
     }
   };
@@ -106,5 +115,6 @@ test("P2: rendered fill follows stroke breaks at join, expiry and re-entry; sing
   check([point(1, 100)]);
   check([point(1, 100), { ...point(2, 200), breakBefore: true }]);
   check([point(1, 100), point(2, 110)]);
+  check([point(1, 100), point(2, 110), point(3, 120)]);
   check([]);
 });

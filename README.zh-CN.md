@@ -1,5 +1,7 @@
 # QuantRuntimeSettings
 
+[文档索引](docs/README.md)：架构适用范围、早期设计英文概要与控制台操作入口。
+
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
@@ -55,6 +57,18 @@ AI 与监测系统只能创建不可变、无订单的 `qsl.research_task.v1` �
 账户事实读模型使用已与受保护绑定精确核对的 IBKR、Schwab 和 Firstrade 原生身份去重。原生身份只在 Worker 内存中处理；公开账户行仅返回 `aggregation_status`（`included`、`duplicate`、`conflict` 或 `unverified`）。同一物理账户只计最新核实观察；同一观察时点金额冲突或实盘/模拟分类冲突时均不计入。旧快照不阻塞较新的有效观察。LongBridge 的渠道身份仍不足以证明独立物理账户。
 
 只有全部非模拟账户绑定、资料新鲜、物理身份可核实且资产值完整时，`totals.status` 才为 `by_currency`。币种分别合计，不隐含换汇。`cash_balance` 与 `available_cash` 分开且允许为 null；缺现金不否定已知资产，也不补零。看板只有在配置集合相同、快照尚未过期时才使用完整合计，否则继续显示明确标注的部分资产合计。这些投影不授予交易权限，也不证明投资收益。
+
+## 美股交易时段配置
+
+`platform-config.json.domains.us_equity` 定义可配置交易时段。所有时间均使用 `market_timezone`（`America/New_York`）当地时间，随夏令时变化。
+
+| 键 | 用途 | 默认值 |
+|---|---|---|
+| `trade_date_boundary` | 交易日期的分界时间 | `20:00` |
+| `maintenance_pause` | 每日维护暂停的起止时间 | `["20:00", "21:00"]` |
+| `sessions` | 每个时段的 `start`、`end` 和布尔值 `enabled` 开关 | `overnight` 21:00–04:00、`pre` 04:00–09:30、`regular` 09:30–16:00、`post` 16:00–20:00 |
+
+默认只有 `regular.enabled=true`，扩展时段均为 `false`；结束时间早于开始时间表示跨午夜。这些键为美股 23x5 准备配置，本改动不接入平台 consumer，不改变现有交易或调度行为，`scheduling.profiles` 保持不变。
 
 ## 仓库结构
 
@@ -131,6 +145,10 @@ confirm_apply=APPLY_AND_SYNC
 - 贡献前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，确认 PR 范围、本地校验和文档要求。
 - 讨论、issue 和 review 请遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
 - 涉及密钥、自动化、券商/交易所或云资源的漏洞请按 [SECURITY.md](SECURITY.md) 私密报告；不要为 secret 或实盘风险开公开 issue。
+
+## 参与贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。AI 助手与维护者遵循 [AGENTS.md](AGENTS.md)。
 
 ## 许可证
 

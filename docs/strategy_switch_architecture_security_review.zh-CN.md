@@ -12,9 +12,9 @@
 
 ## 当前架构理解
 
-- 前端页面在 [web/strategy-switch-console/index.html](/home/ubuntu/Projects/QuantRuntimeSettings/web/strategy-switch-console/index.html:580) 提供四个平台的账号、策略、模式选择。
-- Worker 在 [web/strategy-switch-console/worker.js](/home/ubuntu/Projects/QuantRuntimeSettings/web/strategy-switch-console/worker.js:47) 负责路由、GitHub OAuth、session、allowlist/admin 校验、账号配置读取和 workflow dispatch。
-- workflow 在 [.github/workflows/manual-strategy-switch.yml](/home/ubuntu/Projects/QuantRuntimeSettings/.github/workflows/manual-strategy-switch.yml:125) 使用 `runtime-strategy-switch` environment，并只给 job `contents: read`。
+- 前端页面在 [web/strategy-switch-console/index.html](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/a57298490843bb3cee9ca3a5a57dd272495d9ca8/web/strategy-switch-console/index.html#L580) 提供四个平台的账号、策略、模式选择。
+- Worker 在 [web/strategy-switch-console/worker.js](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/a57298490843bb3cee9ca3a5a57dd272495d9ca8/web/strategy-switch-console/worker.js#L47) 负责路由、GitHub OAuth、session、allowlist/admin 校验、账号配置读取和 workflow dispatch。
+- workflow 在 [.github/workflows/manual-strategy-switch.yml](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/a57298490843bb3cee9ca3a5a57dd272495d9ca8/.github/workflows/manual-strategy-switch.yml#L125) 使用 `runtime-strategy-switch` environment，并只给 job `contents: read`。
 - 真正的跨平台写入使用 GitHub Actions secret `RUNTIME_SETTINGS_GH_TOKEN`，Worker 只持有 dispatch token。
 
 ## 已处理发现
@@ -23,7 +23,7 @@
 
 Severity：Medium
 
-Location：[web/strategy-switch-console/worker.js](/home/ubuntu/Projects/QuantRuntimeSettings/web/strategy-switch-console/worker.js:29)
+Location：[web/strategy-switch-console/worker.js](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/a57298490843bb3cee9ca3a5a57dd272495d9ca8/web/strategy-switch-console/worker.js#L29)
 
 Evidence：现在所有 HTML、JSON、redirect 响应都会经过 `responseHeaders()`，并带上：
 
@@ -35,7 +35,7 @@ Evidence：现在所有 HTML、JSON、redirect 响应都会经过 `responseHeade
 
 Impact：开源项目的公开 Worker 页面如果缺少 clickjacking、nosniff、referrer 等防护，浏览器侧暴露面更大。
 
-Fix：新增 `SECURITY_HEADERS`，并在 [responseHeaders](/home/ubuntu/Projects/QuantRuntimeSettings/web/strategy-switch-console/worker.js:1444) 统一应用。
+Fix：新增 `SECURITY_HEADERS`，并在 [responseHeaders](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/a57298490843bb3cee9ca3a5a57dd272495d9ca8/web/strategy-switch-console/worker.js#L1444) 统一应用。
 
 False positive notes：如果 Cloudflare 账号侧也配置了同类 header，这是 defense-in-depth，不冲突。
 
@@ -43,7 +43,7 @@ False positive notes：如果 Cloudflare 账号侧也配置了同类 header，�
 
 Severity：Medium
 
-Location：[web/strategy-switch-console/worker.js](/home/ubuntu/Projects/QuantRuntimeSettings/web/strategy-switch-console/worker.js:162)、[dispatchSwitch](/home/ubuntu/Projects/QuantRuntimeSettings/web/strategy-switch-console/worker.js:555)
+Location：[web/strategy-switch-console/worker.js](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/a57298490843bb3cee9ca3a5a57dd272495d9ca8/web/strategy-switch-console/worker.js#L162)、[dispatchSwitch](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/a57298490843bb3cee9ca3a5a57dd272495d9ca8/web/strategy-switch-console/worker.js#L555)
 
 Evidence：
 
@@ -61,13 +61,13 @@ False positive notes：非浏览器脚本如果手动带 session cookie 调 POST
 
 Severity：Low/Medium
 
-Location：[web/strategy-switch-console/index.html](/home/ubuntu/Projects/QuantRuntimeSettings/web/strategy-switch-console/index.html:1106)
+Location：[web/strategy-switch-console/index.html](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/a57298490843bb3cee9ca3a5a57dd272495d9ca8/web/strategy-switch-console/index.html#L1106)
 
 Evidence：平台按钮、账号下拉、策略下拉、摘要列表现在使用 `document.createElement()`、`textContent`、`new Option()` 和 `replaceChildren()`。
 
 Impact：账号和策略目录未来会继续动态化，减少 HTML 字符串拼接能降低 DOM XSS 误用风险。
 
-Fix：主切换页删除了 `.innerHTML` 动态渲染路径，并在 [tests/strategy_switch_worker_validation.mjs](/home/ubuntu/Projects/QuantRuntimeSettings/tests/strategy_switch_worker_validation.mjs:12) 加了回归检查。
+Fix：主切换页删除了 `.innerHTML` 动态渲染路径，并在 [tests/strategy_switch_worker_validation.mjs](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/a57298490843bb3cee9ca3a5a57dd272495d9ca8/tests/strategy_switch_worker_validation.mjs#L12) 加了回归检查。
 
 ## 主要设计压力点
 

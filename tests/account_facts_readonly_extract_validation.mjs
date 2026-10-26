@@ -177,3 +177,31 @@ function baseDeps(overrides = {}) {
 }
 
 console.log("account_facts_readonly_extract_validation: ok");
+
+// Coverage must not claim an empty account inventory after a source read failure.
+for (const [name, code] of [["loadAccountOptionsConfig", "account_options_unreadable"],
+  ["loadAccountFactsBindings", "account_facts_bindings_unreadable"]]) {
+  let reads = 0;
+  const response = await accountFactsResponse(new Request("https://console.example/api/account-facts"),
+    { ACCOUNT_FACTS_READ_MODEL_ENABLED: "true" }, baseDeps({
+      [name]: async () => { throw new Error("private-provider-sentinel"); },
+      loadStoredAccountFactsMap: async () => { reads++; return new Map(); },
+    }));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {ok: false, error: code});
+  assert.equal(reads, 0);
+}
+
+{
+  const response = await accountFactsResponse(new Request("https://console.example/api/account-facts"),
+    { ACCOUNT_FACTS_READ_MODEL_ENABLED: "true" }, baseDeps({loadAccountOptionsConfig: async () => ({
+      revision: 9, options: {firstrade: [{key: "synthetic-missing"}], binance: [{key: "synthetic-wallet"}]},
+    })}));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.account_options_revision, 9);
+  assert.equal(body.asset_coverage.accounts.length, 2);
+  assert.ok(body.asset_coverage.accounts.every(a => a.status === "unavailable" && a.observation_date === null));
+  assert.equal(body.asset_coverage.accounts.find(a => a.platform === "firstrade").reason, "binding_missing");
+  assert.equal(body.asset_coverage.accounts.find(a => a.platform === "binance").reason, "source_not_supported");
+}

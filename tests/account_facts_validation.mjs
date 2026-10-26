@@ -394,6 +394,28 @@ assert.equal((await get()).status, 401);
 assert.equal((await get(sessionHeaders, { ...env, STRATEGY_SWITCH_RUNTIME_INSTANCES: undefined })).status, 503);
 assert.equal((await (await get(sessionHeaders, { ...env, STRATEGY_SWITCH_RUNTIME_INSTANCES: undefined })).json()).error, "account_facts_store_unavailable");
 
+// WEB-GAP-FIX-01: exercise the real binding loader, not an injected throwing loader.
+for (const readMode of ["throw", "invalid_json", "missing"]) {
+  const readEnv = {...env, STRATEGY_SWITCH_CONFIG: {
+    async get(key) {
+      if (key !== ACCOUNT_FACTS_BINDINGS_KEY) return kv.get(key);
+      if (readMode === "throw") throw new Error("private-provider-sentinel");
+      return readMode === "invalid_json" ? "{private-invalid-json-sentinel" : null;
+    },
+    async put() { throw new Error("GET must not write configuration"); },
+  }};
+  const response = await get(sessionHeaders, readEnv);
+  const body = await response.json();
+  if (readMode === "missing") {
+    assert.equal(response.status, 200);
+    assert.equal(body.configured, false);
+    assert.equal(body.asset_coverage.accounts.length, 2);
+  } else {
+    assert.equal(response.status, 503, `real binding loader must propagate ${readMode}`);
+    assert.deepEqual(body, {ok: false, error: "account_facts_bindings_unreadable"});
+  }
+}
+
 const auth = { Authorization: `Bearer ${token}` };
 
 // A recent completion is accepted even when a snapshot takes over 15 minutes.
@@ -1858,3 +1880,5 @@ assert.match(workerSource, /\/api\/account-facts\/history/);
 
 await mf.dispose();
 console.log("account_facts_validation ok");
+
+await import("./firstrade_positions_validation.mjs");

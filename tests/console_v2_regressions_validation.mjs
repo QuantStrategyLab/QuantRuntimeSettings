@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { dailyReturnsFromCumulative } from "../web/strategy-switch-console/frontend/src/charts/returns.ts";
+import { nicePercentTicks } from "../web/strategy-switch-console/frontend/src/charts/ticks.ts";
 import { latestAssetBalance } from "../web/strategy-switch-console/frontend/src/lib/performance.ts";
 import { humanDecisionDigest, humanDecisionExpectation, reviewedDecisionMatches } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { resolveAccountChoice } from "../web/strategy-switch-console/frontend/src/pages/decisions/helpers.ts";
@@ -33,6 +34,16 @@ close(dailyReturnsFromCumulative(points([0, -100]))[0].value, -100);
 assert.deepEqual(dailyReturnsFromCumulative(points([-100, 0])), [], "zero denominator must not become a return");
 assert.deepEqual(dailyReturnsFromCumulative(points([-101, 0])), [], "negative index is invalid");
 assert.deepEqual(dailyReturnsFromCumulative(points([-99.99999999999999, Number.MAX_VALUE])), [], "overflow must not enter the SVG");
+
+// Percent axes use a 1/2/2.5/5 grid and always include zero, never raw min/max fractions like -6.1%.
+const wideTicks = nicePercentTicks([0.1, 9.8, -6.1, -9.1]);
+assert.ok(wideTicks.ticks.includes(0));
+assert.ok(wideTicks.ticks.every(value => Math.abs(value / wideTicks.step - Math.round(value / wideTicks.step)) < 1e-9));
+assert.ok(wideTicks.digits <= 1);
+const smallTicks = nicePercentTicks([0, 1.2, 0.7]);
+assert.deepEqual(smallTicks.ticks, [0, 0.5, 1, 1.5]);
+assert.equal(smallTicks.digits, 1);
+assert.deepEqual(nicePercentTicks([]).ticks, [-1, -0.5, 0, 0.5, 1]);
 
 // Exercise the real existing projection: its latest balance differs from its interval P&L.
 // Freeze the fixture clock: the synthetic snapshot is stamped 12:00Z on the fixture day and
@@ -124,4 +135,5 @@ assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, completeness:
 assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, status: "missing_report" } }), "incomplete");
 assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, status: "read_incomplete" } }), "read-failed");
 
+await import("./console_holdings_known_fields_ui_validation.mjs");
 console.log("console_v2_regressions_validation: PASS (balances, compounded daily returns, reviewed bindings, account choice, explicit runtime outcomes; synthetic only)");

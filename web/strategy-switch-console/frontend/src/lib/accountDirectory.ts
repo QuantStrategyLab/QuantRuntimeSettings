@@ -1,10 +1,11 @@
+import type { AccountExecutionEvidence } from "../api/contracts";
 export interface AccountOption {
   key?: string; label?: string; target_name?: string; account_selector?: string; broker_environment?: string;
 }
 export interface DirectoryConfig {
   accountOptions?: Record<string, AccountOption[]>;
   platformMeta?: Record<string, { label?: string }>;
-  currentStrategies?: Record<string, Record<string, { strategy_profile?: string; runtime_target_enabled?: boolean; execution_mode?: string }>>;
+  currentStrategies?: Record<string, Record<string, { execution_evidence?: AccountExecutionEvidence; strategy_profile?: string; runtime_target_enabled?: boolean; execution_mode?: string }>>;
   strategyProfiles?: { profile?: string; label?: string; label_zh?: string; label_en?: string }[];
 }
 export interface AccountRef { platform: string; account_alias: string }
