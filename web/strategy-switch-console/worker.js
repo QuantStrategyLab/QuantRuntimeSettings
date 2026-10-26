@@ -79,6 +79,7 @@ import {
   historyRetentionCutoff,
   normalizeAccountFactsBindings,
   normalizeAccountFactsHistoryPayload,
+  normalizeAccountFactsHistoricalPayload,
   resolveTrustedAccountFactsBinding,
   AccountFactsError,
 } from "./account_facts.js";
@@ -474,7 +475,7 @@ const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_external_flow_put",
   "account_executions_put", "account_executions_read",
   "account_period_return_put", "account_period_return_read",
-  "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read",
+  "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read", "account_facts_history_put",
   "binance_wallet_history_put", "binance_wallet_history_read",
 ]);
 const MARKET_BENCHMARK_DO_ACTIONS = new Set([
@@ -963,6 +964,9 @@ export default {
       }
       if (url.pathname === "/api/account-facts/sync" && request.method === "POST") {
         return await syncAccountFactsResponse(request, env);
+      }
+      if (url.pathname === "/api/account-facts/history/sync" && request.method === "POST") {
+        return await syncAccountFactsResponse(request, env, { historical: true });
       }
       if (url.pathname === "/api/account-facts/history" && request.method === "GET") {
         return await accountFactsHistoryResponse(request, env, url);
@@ -2808,6 +2812,7 @@ export class RuntimeInstances {
       return { ok: true, ...stored, readback_verified: true };
     }
     if (command.action === "account_facts_put") return this.putAccountFactsObservation(command);
+    if (command.action === "account_facts_history_put") return this.putAccountFactsHistoricalObservation(command);
     if (command.action === "account_facts_read") return this.readAccountFactsObservation(command);
     if (command.action === "account_facts_list") return this.listAccountFactsObservations(command);
     if (command.action === "account_facts_history_read") return this.readAccountFactsDailyHistory(command);
@@ -3162,7 +3167,7 @@ export class RuntimeInstances {
       throw new HttpError("invalid_account_facts_account", 400);
     }
     const historyIds = command.history_source_binding_ids;
-    if (historyIds !== undefined && (!["account_facts_history_read", "account_period_return_read", "account_period_return_put", "account_executions_read", "account_executions_put"].includes(command.action)
+    if (historyIds !== undefined && (!["account_facts_history_read", "account_facts_history_put", "account_period_return_read", "account_period_return_put", "account_executions_read", "account_executions_put"].includes(command.action)
         || !Array.isArray(historyIds) || historyIds.length < 1 || historyIds.length > 64
         || new Set(historyIds).size !== historyIds.length
         || historyIds.some(id => typeof id !== "string" || !/^[a-f0-9]{64}$/.test(id)
@@ -3193,9 +3198,10 @@ export class RuntimeInstances {
     };
   }
 
-  validateAccountFactsStoragePayload(payload, context) {
+  validateAccountFactsStoragePayload(payload, context, { historical = false } = {}) {
     try {
-      return normalizeAccountFactsHistoryPayload(payload, {
+      const normalize = historical ? normalizeAccountFactsHistoricalPayload : normalizeAccountFactsHistoryPayload;
+      return normalize(payload, {
         expectedPlatform: context.platform,
         expectedTargetId: context.target_id,
         expectedBindingId: context.source_binding_id,
@@ -3343,6 +3349,19 @@ export class RuntimeInstances {
     };
   }
 
+  putAccountFactsHistoricalObservation(command) {
+    const context = this.accountFactsStorageContext(command);
+    const sourceId = command.history?.source_binding?.id;
+    if (![context.source_binding_id, ...(context.history_source_binding_ids || [])].includes(sourceId)) {
+      throw new HttpError("account_facts_binding_unmatched", 409);
+    }
+    const history = this.validateAccountFactsStoragePayload(command.history,
+      { ...context, source_binding_id: sourceId }, { historical: true });
+    // Deliberately bypass latest observation and external-flow writes. Reuse
+    // daily storage with replacement and retention deletion disabled.
+    return { ok: true, stored: true, ...this.upsertAccountFactsDaily(context, history, { appendOnly: true }) };
+  }
+
   readAccountFactsDailyRow(platform, accountKey, observationDate, context = null) {
     const row = this.sql.exec(
       `SELECT payload_json, observed_finished_at, observation_date, target_id, source_binding_id, account_scope
@@ -3375,12 +3394,19 @@ export class RuntimeInstances {
     };
   }
 
-  upsertAccountFactsDaily(context, history) {
+  upsertAccountFactsDaily(context, history, { appendOnly = false } = {}) {
     const { platform, account_key: accountKey, account_scope: accountScope } = context;
     const existing = this.validatePriorAccountFactsForAccount(
       this.readAccountFactsDailyRow(platform, accountKey, history.observation_date),
       context,
     );
+    if (appendOnly && existing) {
+      if (existing.observed_finished_at !== history.observed_finished_at
+          || canonicalizeAccountFactsHistory(existing.payload) !== canonicalizeAccountFactsHistory(history)) {
+        throw new HttpError("account_facts_daily_conflict", 409);
+      }
+      return { unchanged: true };
+    }
     let decision;
     try {
       decision = decideAccountFactsDailyUpsert(existing?.payload || null, history);
@@ -3399,13 +3425,13 @@ export class RuntimeInstances {
         platform, account_key, observation_date, payload_json, observed_finished_at,
         target_id, source_binding_id, account_scope, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(platform, account_key, observation_date) DO UPDATE SET
+      ${appendOnly ? "" : `ON CONFLICT(platform, account_key, observation_date) DO UPDATE SET
         payload_json = excluded.payload_json,
         observed_finished_at = excluded.observed_finished_at,
         target_id = excluded.target_id,
         source_binding_id = excluded.source_binding_id,
         account_scope = excluded.account_scope,
-        updated_at = excluded.updated_at`,
+        updated_at = excluded.updated_at`}`,
       platform,
       accountKey,
       history.observation_date,
@@ -3416,7 +3442,7 @@ export class RuntimeInstances {
       accountScope,
       updatedAt,
     );
-    this.pruneAccountFactsDaily(platform, accountKey, history.observation_date);
+    if (!appendOnly) this.pruneAccountFactsDaily(platform, accountKey, history.observation_date);
     return { unchanged: false };
   }
 
@@ -3464,7 +3490,7 @@ export class RuntimeInstances {
     const days = [];
     for (const row of rows) {
       // Same-account history may use an explicitly qualified prior source.
-      // Current observations and ingress still require the current source.
+      // Current observations and ordinary sync still require the current source.
       if (row.target_id !== context.target_id
           || ![context.source_binding_id, ...(context.history_source_binding_ids || [])].includes(row.source_binding_id)
           || row.account_scope !== context.account_scope) continue;
@@ -11176,7 +11202,7 @@ async function syncAccountPeriodReturnResponse(request, env) {
   }
 }
 
-async function syncAccountFactsResponse(request, env) {
+async function syncAccountFactsResponse(request, env, options) {
   return syncAccountFactsResponseImpl(request, env, {
     json,
     hasConfigStore,
@@ -11187,7 +11213,7 @@ async function syncAccountFactsResponse(request, env) {
     readBoundedJson,
     requireDedicatedAccountFactsSyncToken,
     accountFactsErrorResponse,
-  });
+  }, options);
 }
 
 async function accountFactsResponse(request, env) {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import "./account_facts_totals_validation.mjs";
 import "./account_facts_stock_inventory_validation.mjs";
 import "./account_facts_source_lineage_validation.mjs";
+import "./account_facts_history_receiver_validation.mjs";
 import { createRequire } from "node:module";
 import { mkdtemp } from "node:fs/promises";
 import { readFileSync } from "node:fs";
