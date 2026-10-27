@@ -1,5 +1,7 @@
 # 中央日报 DIGEST_CANDIDATES 接线（无密钥）
 
+当前正式入口是 Cloud Scheduler → Cloud Run，见[统一日报运行合同](unified-daily-notification.md)。它直接读取批准绑定的 GCS 对象并显式传入 SDK 读取结果；不依赖 Actions 状态变量。本页的 Environment、列表/复制、历史状态及 workflow 说明仅用于手动只读预览和旧证据解释，不能重新启用旧发送器。
+
 本文说明如何把**某一平台**的日报候选证据接到 `QuantRuntimeSettings` 中央日报，不写密钥、不写真实账户号、不写资产金额。
 
 ## 目标
@@ -56,7 +58,7 @@ Schwab 可附加通知专用的 `block_reason` 对象：`reason_code`、`observe
 
 ## 中央 workflow 接线点
 
-文件：`.github/workflows/daily-digest-notify.yml`（文稿同步 `docs/workflows/`）。
+文件：`.github/workflows/daily-digest-notify.yml`，仅手动只读预览；旧 `docs/workflows/` 安装副本已删除。
 
 Environment：`runtime-strategy-switch`。
 
@@ -146,9 +148,9 @@ python3 python/scripts/send_daily_digest_telegram.py \
 
 预检建议选定准确的纽约 `business_day`，可选 `layout=sections_v2` 检查已有四段式消费链。旧 legacy 来源仍参与合并：读取成功、候选新鲜度/完整覆盖和全源已知成交必须分别验收；存在 stale / unknown 或 intake 失败时保留未知状态。预检通过不能代替生产 reader 接线、自然送达、bot/chat/topic 与去重验收或真实 Telegram 截图。
 
-### 生产注入（人闸）
+### 生产接线
 
-写入 Environment `runtime-strategy-switch` 的 secret `DIGEST_CANDIDATES_JSON`（或由私有前置步骤写出文件后设 `DIGEST_CANDIDATES_PATH`），再对 `daily-digest-notify.yml` 做 **dry-run** `workflow_dispatch`。改生产 Environment / 关 dry-run 需人工确认；本任务与自动化**不得**直接改生产 Environment。
+新增正式候选绑定及生产配置变更遵循具体用户授权，使用独立 Cloud Run 的受保护配置、最小权限及只读预览验收。Actions 中的候选 JSON/文件只用于手动预览；关闭 dry-run 也不会恢复旧生产发送路径。
 
 ## Dry-run 验收
 
