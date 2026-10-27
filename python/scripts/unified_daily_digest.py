@@ -168,6 +168,9 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     for platform, source in summary.get("source_inventory", {}).items():
         label = display_name("platforms", platform, "zh" if zh else "en")
         expected, covered, runs = source["expected_targets"], source["covered_targets"], source["runs"]
+        if not expected:
+            lines.append(f"{label}：未接入，运行状态未知" if zh else f"{label}: not connected; run state unknown")
+            continue
         runs = runs if runs is not None else ("未知" if zh else "unknown")
         state = f"{covered}/{expected}" if expected else ("未配置" if zh else "not configured")
         lines.append(f"{label}：运行 {runs} 次，覆盖 {state}" if zh else f"{label}: {runs} runs, coverage {state}")
