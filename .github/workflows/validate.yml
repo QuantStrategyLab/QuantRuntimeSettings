@@ -175,6 +175,7 @@ jobs:
           node tests/website_cohort_regression_validation.mjs
           node tests/website_strategy_freshness_validation.mjs
           node --experimental-strip-types tests/website_mobile_gaps_validation.mjs
+          node tests/website_latest_balance_ui_validation.mjs
           node tests/console_calendar_currency_validation.mjs
           node --test tests/fe8a_performance_validation.mjs tests/fe8a_runtime_today_validation.mjs tests/fe8a_overview_runtime_ui_validation.mjs
           node tests/account_settings_worker_validation.mjs

@@ -43,8 +43,12 @@ try {
       assert.match(html, /123/);
       assert.match(html, /456/);
       assert.doesNotMatch(html, /579/, "native amounts are never combined");
-      assert.ok(html.includes(language === "zh" ? "USD 资产合计" : "USD asset total"));
-      assert.ok(html.includes(language === "zh" ? "USDT 资产合计" : "USDT asset total"));
+      assert.ok(html.includes(blocks.assets.per_currency[0].latest_as_of !== undefined
+        ? language === "zh" ? "USD 最近已知余额合计" : "USD latest known balance total"
+        : language === "zh" ? "USD 资产合计" : "USD asset total"));
+      assert.ok(html.includes(blocks.assets.per_currency[1].latest_as_of !== undefined
+        ? language === "zh" ? "USDT 最近已知余额合计" : "USDT latest known balance total"
+        : language === "zh" ? "USDT 资产合计" : "USDT asset total"));
       assert.doesNotMatch(html, /已观测小计|Observed subtotal/, "internal subtotal wording is gone");
       assert.doesNotMatch(html, /reason\.|state\.|perf\./);
       if (language === "en") assert.doesNotMatch(html, /[\u4e00-\u9fff]/);
@@ -53,8 +57,9 @@ try {
       globalThis.__currencyState = { phase: "ready", data: { ...blocks.assets, status: "unavailable", unavailable_reason: "stored_records_unreadable", curve_status: "unavailable", curve_unavailable_reason: "stored_records_unreadable" } };
       assert.doesNotMatch(render(language), /123|456/, "failed reads cannot expose retained balances as current");
     }
+    const { latest_as_of, ...legacyTotal } = blocks.assets.per_currency[0];
     const partialTotal = {
-      ...blocks.assets.per_currency[0], status: "partial", unavailable_reason: "valuation_date_mismatch",
+      ...legacyTotal, status: "partial", unavailable_reason: "valuation_date_mismatch",
       total: 123.45, account_count: 2, expected_account_count: 8, excluded_account_count: 6,
       as_of: "2026-10-16T10:00:00Z",
     };

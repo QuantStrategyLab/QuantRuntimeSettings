@@ -258,6 +258,9 @@ export interface CurrencyAccountCoverage extends AccountFreshness {
   observation_date: string | null;
 }
 export interface CurrencyTotal {
+  /** Present for totals of each account's latest known balance; absent on legacy same-date totals. */
+  latest_as_of?: string | null;
+  observation_date?: string | null;
   account_coverage?: CurrencyAccountCoverage[];
   currency: string;
   total: number | null;

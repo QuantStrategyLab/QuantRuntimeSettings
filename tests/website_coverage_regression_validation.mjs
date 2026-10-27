@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { accountFreshness, currencyTotals, currencyDrawdowns } from "../web/strategy-switch-console/application/console_api/performance_snapshots.js";
 import { performanceResponse } from "../web/strategy-switch-console/application/console_api/performance_routes.js";
 import { aggregateEquity } from "../web/strategy-switch-console/performance_math.js";
-import { maxDrawdown } from "../web/strategy-switch-console/application/console_api/performance.js";
+import { maxDrawdown, performanceBlocks } from "../web/strategy-switch-console/application/console_api/performance.js";
 
 const now = Date.parse("2026-10-27T12:00:00Z");
 const account = (key, date = "2026-10-27", changes = {}) => ({
@@ -13,17 +13,27 @@ const account = (key, date = "2026-10-27", changes = {}) => ({
 });
 const row = accounts => currencyTotals(accounts, accountFreshness(accounts, now))[0];
 
-test("three of eight current balances identify every excluded valuation without changing totals", () => {
-  const accounts = Array.from({ length: 8 }, (_, i) => account(`synthetic-${i}`, i < 3 ? "2026-10-27" : "2026-10-26"));
+test("three accounts crossing a UTC day cannot remove five fresh known balances from the current total", () => {
+  const accounts = Array.from({ length: 8 }, (_, i) => account(`synthetic-${i}`, "2026-10-26"));
+  assert.equal(row(accounts).total, 800);
+  assert.equal(row(accounts).account_count, 8);
+  for (const current of accounts.slice(0, 3)) {
+    current.observation_date = "2026-10-27";
+    current.observed_finished_at = "2026-10-27T10:00:00Z";
+  }
   const total = row(accounts);
-  assert.equal(total.total, 300);
-  assert.equal(total.account_count, 3);
+  assert.equal(total.total, 800);
+  assert.equal(total.account_count, 8);
   assert.equal(total.expected_account_count, 8);
-  assert.equal(total.unavailable_reason, "valuation_date_mismatch");
+  assert.equal(total.status, "ok");
+  assert.equal(total.unavailable_reason, null);
+  assert.equal(total.observation_date, null, "different observation days do not become a fabricated common date");
+  assert.equal(total.as_of, "2026-10-26T10:00:00Z");
+  assert.equal(total.latest_as_of, "2026-10-27T10:00:00Z");
   assert.equal(total.account_coverage.length, 8);
-  assert.equal(total.account_coverage.filter(entry => entry.included).length, 3);
+  assert.equal(total.account_coverage.filter(entry => entry.included).length, 8);
   for (const entry of total.account_coverage.slice(3)) {
-    assert.equal(entry.unavailable_reason, "valuation_date_mismatch");
+    assert.equal(entry.unavailable_reason, null);
     assert.equal(entry.observation_date, "2026-10-26");
     assert.equal(entry.freshness, "fresh", "a different valuation date is not automatically stale");
     assert.equal(entry.account_ref, `synthetic:${entry.account_alias}`);
@@ -46,6 +56,30 @@ test("snapshot exclusions distinguish missing, identity, invalid amount/date and
   assert.equal(old.status, "stale");
   assert.equal(old.account_coverage[0].included, true);
   assert.equal(old.account_coverage[0].unavailable_reason, "snapshot_stale");
+  const mixedAges = row([account("fresh"), account("stale", "2026-10-20")]);
+  assert.equal(mixedAges.total, 200, "last known stale amounts are retained with their original status");
+  assert.equal(mixedAges.account_count, 2);
+  assert.equal(mixedAges.status, "stale");
+  assert.equal(mixedAges.stale, true);
+  assert.equal(mixedAges.as_of, "2026-10-20T10:00:00Z");
+  assert.equal(mixedAges.latest_as_of, "2026-10-27T10:00:00Z");
+  assert.equal(mixedAges.observation_date, null);
+  assert.equal(mixedAges.account_coverage.find(entry => entry.account_alias === "stale").fresh, false);
+});
+
+test("missing and future observations remain excluded from latest known totals and time ranges", () => {
+  const accounts = [account("fresh"), account("future", "2026-10-28"),
+    { platform: "synthetic", account_key: "missing", snapshot_unavailable_reason: "snapshot_invalid" }];
+  const total = currencyTotals(accounts, accountFreshness(accounts, now), ["synthetic:missing"])[0];
+  assert.equal(total.total, 100);
+  assert.equal(total.account_count, 1);
+  assert.equal(total.status, "partial");
+  assert.equal(total.as_of, "2026-10-27T10:00:00Z");
+  assert.equal(total.latest_as_of, "2026-10-27T10:00:00Z");
+  assert.equal(total.observation_date, "2026-10-27");
+  assert.equal(total.account_coverage.find(entry => entry.account_alias === "future").included, false);
+  assert.equal(total.account_coverage.find(entry => entry.account_alias === "missing").included, false);
+  assert.equal(total.account_coverage.find(entry => entry.account_alias === "missing").unavailable_reason, "snapshot_invalid");
 });
 
 test("currency coverage separates known other currencies while retaining unknown members", () => {
@@ -54,12 +88,43 @@ test("currency coverage separates known other currencies while retaining unknown
   const totals = currencyTotals(accounts, accountFreshness(accounts, now), ["synthetic:unknown"]);
   for (const total of totals) {
     assert.equal(total.status, "partial");
+    assert.equal(total.expected_account_count, 2);
     assert.equal(total.account_coverage.length, 2);
     assert.equal(total.account_coverage.find(entry => entry.account_alias === "unknown").included, false);
     assert.equal(total.account_coverage.find(entry => entry.account_alias === "unknown").unavailable_reason, "no_snapshot");
   }
   assert.equal(totals[0].account_coverage.some(entry => entry.account_alias === "wallet"), false);
   assert.equal(totals[1].account_coverage.some(entry => entry.account_alias === "usd"), false);
+});
+
+test("balance coverage counts unknown snapshot members without counting known other currencies or history failures twice", () => {
+  const accounts = Array.from({ length: 7 }, (_, i) => account(`synthetic-${i}`));
+  const input = { accounts, histories: [], now, today: "2026-10-27", year: 2026, month: 10 };
+  const missing = performanceBlocks({ ...input,
+    accounts: [...accounts, { platform: "synthetic", account_key: "missing" }],
+  }).assets.per_currency[0];
+  assert.equal(missing.total, 700);
+  assert.equal(missing.account_count, 7);
+  assert.equal(missing.expected_account_count, 8);
+  assert.equal(missing.excluded_account_count, 1);
+  assert.equal(missing.status, "partial");
+  const otherCurrency = performanceBlocks({ ...input,
+    accounts: [...accounts, account("wallet", undefined, { balances: [{ currency: "USDT", net_assets: "50" }] })],
+  }).assets.per_currency.find(total => total.currency === "USD");
+  assert.equal(otherCurrency.account_count, 7);
+  assert.equal(otherCurrency.expected_account_count, 7);
+  assert.equal(otherCurrency.excluded_account_count, 0);
+  const historyOnly = performanceBlocks({ ...input, failed: [accounts[0].account_key] }).assets.per_currency[0];
+  assert.equal(historyOnly.total, 700);
+  assert.equal(historyOnly.account_count, 7);
+  assert.equal(historyOnly.expected_account_count, 7);
+  assert.equal(historyOnly.excluded_account_count, 0);
+  assert.equal(historyOnly.status, "ok", "history-only failures do not erase qualified balance coverage");
+  const legacyFailure = performanceBlocks({ ...input, failed: ["unrepresented-source"] }).assets.per_currency[0];
+  assert.equal(legacyFailure.total, 700);
+  assert.equal(legacyFailure.expected_account_count, 7);
+  assert.equal(legacyFailure.excluded_account_count, 1);
+  assert.equal(legacyFailure.status, "partial", "an excluded source outside accounts still prevents a complete claim");
 });
 
 const json = (body, status = 200) => Response.json(body, { status });

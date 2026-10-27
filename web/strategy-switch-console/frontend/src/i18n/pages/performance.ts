@@ -1,5 +1,10 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
+  "perf.latest_balance_total": "{currency} 最近已知余额合计",
+  "perf.latest_balance_subtotal": "{currency} 最近已知余额小计",
+  "perf.balance_oldest_time": "最早数据 {value}",
+  "perf.balance_latest_time": "最晚数据 {value}",
+  "perf.balance_source_time": "余额数据 {value}",
   "perf.average_cost_field": "平均成本",
   "perf.col.cost_basis": "成本价",
   "perf.broker_cost_label": "券商成本（按券商设置）",
@@ -93,6 +98,11 @@ export const zh: Record<string, string> = {
   "perf.executions_empty_partial": "部分记录，当前范围内暂无可展示成交。",
 };
 export const en: Record<string, string> = {
+  "perf.latest_balance_total": "{currency} latest known balance total",
+  "perf.latest_balance_subtotal": "{currency} latest known balance subtotal",
+  "perf.balance_oldest_time": "Earliest data {value}",
+  "perf.balance_latest_time": "Latest data {value}",
+  "perf.balance_source_time": "Balance data {value}",
   "perf.average_cost_field": "Avg cost",
   "perf.col.cost_basis": "Cost basis",
   "perf.broker_cost_label": "Broker cost (broker settings)",
