@@ -107,6 +107,23 @@ try {
     setReturns({ ...mixedReturns, per_currency: [] });
     assert.doesNotMatch(render(language), /perf-currency-switch/);
 
+    // Missing cash-flow coverage explains a zero-point response without changing other empty/error states.
+    const missingFlows = language === "zh" ? "缺少入出金记录，暂无法计算收益"
+      : "Cash-flow records are missing; returns cannot be calculated yet.";
+    const empty = { ...mixedReturns, status: "partial", per_currency: [], points: [],
+      unavailable_reason: "external_cashflow_required", benchmark_availability: [] };
+    setReturns(empty);
+    assert.ok(visibleText(render(language)).includes(missingFlows));
+    assert.equal(globalThis.__gapCharts.length, 0);
+    setReturns({ ...empty, per_currency: mixedReturns.per_currency.map(item => ({ ...item,
+      status: "partial", points: [], unavailable_reason: "external_cashflow_required" })) });
+    assert.ok(visibleText(render(language)).includes(missingFlows));
+    assert.equal(globalThis.__gapCharts.length, 0);
+    setReturns({ ...empty, unavailable_reason: null });
+    assert.ok(visibleText(render(language)).includes(language === "zh" ? "暂无数据" : "No data"));
+    setReturns({ ...empty, status: "unavailable" });
+    assert.ok(!visibleText(render(language)).includes(missingFlows));
+
     // 3. Qualified TWR in USD: one or two relevant US benchmarks are visible by default; the rest are opt-in.
     setReturns({ ...mixedReturns, status: "ok", unavailable_reason: null, per_currency: [], currency: "USD",
       return_kind: "twr", points: twrPoints, aligned_start: "2026-10-09", no_common_date: false, benchmarks: benchmarkSeries,

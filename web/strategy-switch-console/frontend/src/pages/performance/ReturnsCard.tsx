@@ -228,7 +228,8 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
           <div>
             {switchControl}
             <div data-reason={entry.unavailable_reason ?? undefined}>
-              <EmptyState title={t(`state.${stateKey}`)} state={stateKey} />
+              <EmptyState title={t(stateKey === "no_data" && entry.unavailable_reason === "external_cashflow_required"
+                ? "perf.missing_cashflow_records" : `state.${stateKey}`)} state={stateKey} />
             </div>
           </div>
         );
@@ -240,7 +241,12 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
         </div>
       );
     } else if (returned.points.length === 0) {
-      body = <div data-reason={returned.unavailable_reason ?? undefined}><EmptyState title={t("state.no_data")} state="no_data" /></div>;
+      body = (
+        <div data-reason={returned.unavailable_reason ?? undefined}>
+          <EmptyState title={t(returned.unavailable_reason === "external_cashflow_required"
+            ? "perf.missing_cashflow_records" : "state.no_data")} state="no_data" />
+        </div>
+      );
     } else {
       const singleView: ReturnView = {
         points: returned.points,
