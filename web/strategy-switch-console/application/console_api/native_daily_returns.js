@@ -1,4 +1,5 @@
 import { cleanPoints, dateMs, hasGap, rangeStart, sliceRange } from "../../performance_math.js";
+import { performanceBlocks } from "./performance.js";
 
 // Amounts have already passed the private period-return receiver. Sum their
 // decimal text exactly before converting the final display value to a number.
@@ -48,8 +49,32 @@ function nativeBenchmarks(index, input, gaps) {
 
 /** Broker-native daily TWR for one account. Never average account returns. */
 export function applyNativeDailyReturns(blocks, input) {
-  if (input.accounts.length !== 1) return blocks;
+  if (input.accounts.length !== 1) {
+    // Preserve qualified single-account observations without manufacturing a
+    // portfolio return from averages or a subset of the requested accounts.
+    const counts = new Map();
+    for (const account of input.accounts) {
+      const key = `${account.platform}:${account.account_key}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    const results = input.accounts.flatMap(account => {
+      if (counts.get(`${account.platform}:${account.account_key}`) !== 1
+        || account.broker_environment === "paper" || account.brokerEnvironment === "paper"
+        || account.account_scope === "paper" || !Array.isArray(account.return?.daily)) return [];
+      const own = { ...input, accounts: [account], histories: [], failed: [] };
+      const calculated = applyNativeDailyReturns(performanceBlocks(own), own);
+      return calculated.returns.coverage.native_return_source ? [{ account, calculated }] : [];
+    });
+    if (results.length) for (const endpoint of ["summary", "returns", "calendar"]) {
+      blocks[endpoint].per_account = results.map(({ account, calculated }) => ({
+        ...calculated[endpoint], platform: account.platform, account_alias: account.account_key,
+      }));
+    }
+    return blocks;
+  }
   const account = input.accounts[0];
+  if (account.broker_environment === "paper" || account.brokerEnvironment === "paper"
+    || account.account_scope === "paper") return blocks;
   if (!Array.isArray(account.return?.daily)) return blocks;
   const rows = account.return.daily.filter(row => row.status === "available"
     && row.method === "native_ibkr_twr" && row.unit === "ratio" && row.source === "ChangeInNAV.twr"

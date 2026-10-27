@@ -72,6 +72,8 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
     : health.data_status === "stale" ? "stale" : "not_connected";
   const strategies = profiles.map(profile => {
       const observation = (health.strategies || []).find(s => s.profile === profile.profile);
+      const rowStatus = observation && status === "ok" && observation.freshness?.status === "stale"
+        ? "stale" : observation ? status : status === "read_failed" ? status : "not_connected";
       return { profile: profile.profile, domain: profile.domain,
         allowed_execution_modes: profile.allowed_execution_modes || [],
         configured_accounts: accounts.filter(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile === profile.profile)
@@ -79,13 +81,23 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
             ...configuredStrategyExecution(currentStrategies[a.platform][a.key], profile, a.platform) })),
         health_status: status === "ok" || status === "stale" ? observation?.status || null : null,
         health_score: status === "ok" || status === "stale" ? observation?.score ?? null : null,
-        status: observation ? status : status === "read_failed" ? status : "not_connected",
-        unavailable_reason: observation && status !== "read_failed" ? null : invalid
+        as_of: observation?.as_of || null,
+        freshness: observation?.freshness || null,
+        status: rowStatus,
+        unavailable_reason: rowStatus === "stale" ? "strategy_health_stale"
+          : observation && status !== "read_failed" ? null : invalid
           ? "stored_records_unreadable" : "strategy_health_not_connected" };
     });
-  return { status: status === "ok" && strategies.some(row => row.status !== "ok") ? "partial" : status,
+  const assignmentFailures = accounts.flatMap(account => {
+    const readStatus = currentStrategies[account.platform]?.[account.key]?.execution_evidence?.status;
+    return ["read_failed", "permission_denied"].includes(readStatus)
+      ? [{ platform: account.platform, account_alias: account.key, status: readStatus }] : [];
+  });
+  return { status: status === "read_failed" ? "read_failed"
+      : assignmentFailures.length || status === "ok" && strategies.some(row => row.status !== "ok") ? "partial" : status,
+    account_assignment_read_failures: assignmentFailures,
     configured_accounts_source: "currentStrategies",
-    account_assignment_status: accounts.every(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile) ? "complete"
+    account_assignment_status: assignmentFailures.length ? "read_failed" : accounts.every(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile) ? "complete"
       : accounts.some(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile) ? "partial" : "unavailable",
     as_of: health.computed_at || health.generated_at || null,
     coverage: "configured_catalog_and_stored_health_not_runtime_deployment", strategies, ...READ_ONLY };
