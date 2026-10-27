@@ -291,8 +291,11 @@ def main():
                 return
             try:
                 status, value = execute(dict(self.headers), configuration, store, send, preview=self.path == '/preview')
-            except Exception:  # noqa: BLE001 -- The HTTP boundary must never emit private exception details.
-                status, value = 503, {'delivery': 'request_failed'}
+            except Exception as error:  # noqa: BLE001 -- Only closed error classes leave the HTTP boundary.
+                kind = type(error).__name__
+                allowed = {'FileNotFoundError', 'PermissionError', 'ValueError', 'TypeError', 'KeyError',
+                           'AttributeError', 'ImportError', 'OSError'}
+                status, value = 503, {'delivery': 'request_failed', 'error_type': kind if kind in allowed else 'InternalError'}
             print(json.dumps({'component': 'daily_digest', 'severity': 'ERROR' if value.get('delivery') in {
                 'unknown', 'request_failed', 'reservation_unconfirmed', 'reservation_invalid',
                 'receipt_unverified'} else 'INFO', **value}), flush=True)

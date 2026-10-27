@@ -11,6 +11,7 @@ COPY python/scripts/cloud_run_daily_digest.py \
      python/scripts/daily_digest_deadline.py \
      python/scripts/daily_digest_notify.py \
      python/scripts/display_names.py \
+     python/scripts/display_names.json \
      python/scripts/merge_digest_candidates.py \
      python/scripts/notification_candidate_adapter.py \
      python/scripts/notification_approved_gates.py \
