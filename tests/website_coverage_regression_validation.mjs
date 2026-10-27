@@ -161,3 +161,64 @@ test("a missing member withholds currency drawdown rather than certifying its su
   assert.equal(drawdown.max_drawdown.percent, null);
   assert.equal(drawdown.max_drawdown.unavailable_reason, "snapshot_history_missing");
 });
+
+const calendarOptions = { synthetic: [{ key: "synthetic-a" }], binance: [{ key: "synthetic-wallet" }] };
+const walletCalendar = async () => json({ currency: "USDT", points: [
+  { observation_date: "2026-10-23", observed_at: "2026-10-23T12:00:00Z", amount: "100" },
+  { observation_date: "2026-10-24", observed_at: "2026-10-24T12:00:00Z", amount: "110" },
+  { observation_date: "2026-10-25", observed_at: "2026-10-25T12:00:00Z", amount: "121" },
+] });
+const readCalendar = async (deps = {}, currency = "USDT") => {
+  const clock = Date.now;
+  Date.now = () => now;
+  try {
+    return await read("calendar", { accountOptions: async () => ({ options: calendarOptions }),
+      facts: async () => json({}, 503), wallet: walletCalendar, ...deps },
+    `?scope=all&range=ALL&year=2026&month=10${currency === null ? "" : `&currency=${currency}`}`);
+  } finally { Date.now = clock; }
+};
+
+test("explicit USDT calendar retains independent wallet observations and discloses unreadable broker coverage", async () => {
+  const result = await readCalendar();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.status, "partial");
+  assert.equal(result.body.unavailable_reason, "stored_records_unreadable");
+  assert.equal(result.body.cells.find(cell => cell.date === "2026-10-24").amount, 10);
+  assert.equal(result.body.cells.find(cell => cell.date === "2026-10-24").return_percent, null);
+  assert.equal(result.body.value_kind, "asset_change", "observed wallet change is not certified portfolio P/L");
+  assert.equal(result.body.coverage.cashflows, "unknown");
+  assert.equal(result.body.coverage.trading_dates, "calendar_days");
+  assert.deepEqual(result.body.coverage.read_failures, ["account_facts_unreadable"]);
+  assert.ok(result.body.coverage.excluded_accounts.includes("synthetic-a"));
+  assert.ok(result.body.coverage.account_aliases.includes("synthetic-a"));
+});
+
+test("facts failures still fail dependent calendars and scopes instead of falling back to a wallet", async () => {
+  for (const currency of ["USD", null]) {
+    let walletReads = 0;
+    const result = await readCalendar({ wallet: async () => { walletReads++; return walletCalendar(); } }, currency);
+    assert.equal(result.status, 503);
+    assert.equal(result.body.status, "unavailable");
+    assert.equal(walletReads, 0);
+  }
+  const noWallet = await readCalendar({ accountOptions: defaults.accountOptions });
+  assert.equal(noWallet.status, 503, "USDT query alone does not invent a native wallet source");
+});
+
+test("the independent calendar exception does not mask a failed wallet or another missing wallet member", async () => {
+  const failed = await readCalendar({ wallet: async () => json({}, 503) });
+  assert.equal(failed.status, 503);
+  assert.equal(failed.body.status, "unavailable");
+  assert.ok(failed.body.coverage.read_failures.includes("synthetic-wallet"));
+  const partial = await readCalendar({
+    accountOptions: async () => ({ options: { ...calendarOptions,
+      binance: [...calendarOptions.binance, { key: "synthetic-missing-wallet" }] } }),
+    wallet: async request => new URL(request.url).searchParams.get("account_key") === "synthetic-missing-wallet"
+      ? json({}, 503) : walletCalendar(),
+  });
+  assert.notEqual(partial.body.status, "ok");
+  assert.equal(partial.body.cells.find(cell => cell.date === "2026-10-24").amount, null,
+    "a surviving wallet must not stand in for the complete wallet cohort");
+  assert.ok(partial.body.coverage.read_failures.includes("synthetic-missing-wallet"));
+  assert.ok(partial.body.coverage.excluded_accounts.includes("synthetic-missing-wallet"));
+});
