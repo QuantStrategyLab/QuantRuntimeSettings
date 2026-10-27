@@ -22,6 +22,7 @@ function HistoryNotice({ status, points, coverage, reason }: {
   coverage?: HistoryCoverage | null;
   reason?: string | null;
 }) {
+  const t = useT();
   const partial = points.some(point => point.partial) || Boolean(coverage?.truncated) || Boolean(coverage?.read_failures?.length);
   const badgeStatus = status === "ok" ? (partial ? "partial" : "ok") : status;
   if (badgeStatus === "ok") return null;
@@ -34,6 +35,8 @@ function HistoryNotice({ status, points, coverage, reason }: {
   return <span className="history-notice" role="status" data-state={badgeStatus}
     data-reason={reason ?? undefined} data-affected-count={affected.length || undefined}>
     <StatusBadge status={badgeStatus} />
+    {affected.length > 0 && <span className="card-note">{t("perf.history_affected_accounts", { count: affected.length })}</span>}
+    {reason && <span className="card-note">{t(`reason.${reason}`)}</span>}
   </span>;
 }
 
@@ -108,14 +111,14 @@ export function AssetsCard({ scope, platform, range, epoch }: AssetsCardProps) {
       if (!renderableStatus(curveStatus)) {
         body = (
           <div data-reason={curveReason ?? undefined}>
-            <EmptyState title={t(`state.${curveStatus}`)} state={curveStatus} />
+            <EmptyState title={t(`state.${curveStatus}`)} state={curveStatus} body={curveReason ? t(`reason.${curveReason}`) : undefined} />
           </div>
         );
       } else if (curveReason === "mixed_currency") {
         // Native currencies are never summed into one asset curve.
         body = <div data-reason="mixed_currency"><EmptyState title={t("perf.mixed_currency_title")} state="unavailable" /></div>;
       } else if (data.points.length === 0) {
-        body = <div data-reason={data.unavailable_reason ?? undefined}><EmptyState title={t("state.no_data")} state="no_data" /></div>;
+        body = <div data-reason={data.unavailable_reason ?? undefined}><EmptyState title={t("state.no_data")} state="no_data" body={curveReason ? t(`reason.${curveReason}`) : undefined} /></div>;
       } else {
         // externalFlow markers only appear when the API actually reports a flow.
         const points = data.points as (Point & { externalFlow?: number | null })[];

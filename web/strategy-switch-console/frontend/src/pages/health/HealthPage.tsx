@@ -73,7 +73,8 @@ function StatStrip({
     ? t("health.kpi.today_runs_note", { not_connected: stateCounts.not_connected, no_data: stateCounts.no_data })
     : undefined;
   const credentialData = credential.phase === "ready" ? credential.data : null;
-  const credentialCount = credentialData && ATTENTION_PHASES.includes(credentialData.phase) ? 1 : 0;
+  const credentialCount = credentialData?.requires_action === true || (credentialData && ATTENTION_PHASES.includes(credentialData.phase)) ? 1 : 0;
+  const credentialUnknown = !credentialData || credentialData.phase === "unknown";
   const notificationData = notifications?.phase === "ready" ? notifications.data : null;
   const notificationItems = notificationData?.items ?? [];
   const notificationDelivered = notificationItems.filter(item => item.delivered === true).length;
@@ -112,7 +113,7 @@ function StatStrip({
         />
         <KpiCard
           title={t("health.kpi.credentials")}
-          value={<StatValue state={credential} render={() => String(credentialCount)} />}
+          value={<StatValue state={credential} render={() => credentialUnknown ? t("state.unknown") : String(credentialCount)} />}
           sub={t("health.kpi.credentials_unit")}
         />
         <KpiCard

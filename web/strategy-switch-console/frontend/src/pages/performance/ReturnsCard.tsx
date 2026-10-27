@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useScope } from "../../app/context";
 import { useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
+import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useScopeLabel } from "../../lib/useScopeLabel";
 import { loadPerformanceReturns } from "../../api/endpoints";
 import type { CashflowMethodMeta, Point, Range, ReturnsResponse } from "../../api/contracts";
@@ -146,11 +147,13 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
   const t = useT();
   const { options } = useScope();
   const scopeLabel = useScopeLabel(scope);
+  const names = useDisplayNames();
   const [mode, setMode] = useState<Mode>("cumulative");
   const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
   const state = useApi(() => loadPerformanceReturns(scope, range, platform), [scope, platform, range, epoch]);
   const data = state.phase === "ready" ? state.data : null;
   const policy = benchmarkPolicy(scope, platform, options);
+  const nativeAccounts = data?.per_account?.filter(account => renderableStatus(account.status) && account.return_kind === "twr" && account.points.length > 0) ?? [];
 
   const multi = Boolean(data && scope === "all" && data.per_currency.length > 0
     && (renderableStatus(data.status) || data.unavailable_reason === "mixed_currency"));
@@ -229,7 +232,7 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
             {switchControl}
             <div data-reason={entry.unavailable_reason ?? undefined}>
               <EmptyState title={t(stateKey === "no_data" && entry.unavailable_reason === "external_cashflow_required"
-                ? "perf.missing_cashflow_records" : `state.${stateKey}`)} state={stateKey} />
+                ? "perf.missing_cashflow_records" : `state.${stateKey}`)} state={stateKey} body={entry.unavailable_reason ? t(`reason.${entry.unavailable_reason}`) : undefined} />
             </div>
           </div>
         );
@@ -237,14 +240,14 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
     } else if (!renderableStatus(returned.status)) {
       body = (
         <div data-reason={returned.unavailable_reason ?? undefined}>
-          <EmptyState title={t(`state.${returned.status}`)} state={returned.status} />
+          <EmptyState title={t(`state.${returned.status}`)} state={returned.status} body={returned.unavailable_reason ? t(`reason.${returned.unavailable_reason}`) : undefined} />
         </div>
       );
     } else if (returned.points.length === 0) {
       body = (
         <div data-reason={returned.unavailable_reason ?? undefined}>
           <EmptyState title={t(returned.unavailable_reason === "external_cashflow_required"
-            ? "perf.missing_cashflow_records" : "state.no_data")} state="no_data" />
+            ? "perf.missing_cashflow_records" : "state.no_data")} state="no_data" body={returned.unavailable_reason ? t(`reason.${returned.unavailable_reason}`) : undefined} />
         </div>
       );
     } else {
@@ -323,6 +326,7 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
         </span>
       </div>
       {body}
+      {nativeAccounts.length > 0 ? <p className="card-note" data-native-return-accounts={nativeAccounts.length}>{t("perf.native_return_accounts", { accounts: nativeAccounts.map(account => `${names.platform(account.platform)} · ${names.account(account.account_alias, account.platform)}`).join("、") })}</p> : null}
       <MethodNote titleKey="perf.how_calculated" bodyKey={methodBodyKey} />
     </div>
   );

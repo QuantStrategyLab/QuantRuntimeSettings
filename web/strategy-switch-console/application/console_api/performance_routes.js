@@ -70,19 +70,21 @@ export async function performanceResponse(request, env, deps) {
       for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
       return new Request(u, { headers: request.headers });
     };
-    const nativeBinanceOnly = endpoint === "holdings" && matches.length > 0
+    const nativeBinanceOnly = matches.length > 0
       && matches.every(option => option.platform === "binance");
     const factsResponse = nativeBinanceOnly ? Response.json({ accounts: [] }) : await deps.facts(
       makeRequest("/api/account-facts"),
       env,
     );
-    if (endpoint === "holdings" && !factsResponse.ok) {
-      const sourceError = await factsResponse.json().catch(() => null);
-      if (factsResponse.status !== 404 || sourceError?.error !== "account_facts_disabled") {
-        return json({ schema_version: "console_api.v1", scope, range,
-          status: "unavailable", unavailable_reason: "stored_records_unreadable",
-          rows: [], coverage: [], includes_cost_basis: false }, 503);
-      }
+    const sourceError = !factsResponse.ok ? await factsResponse.json().catch(() => null) : null;
+    const factsDisabled = factsResponse.status === 404 && sourceError?.error === "account_facts_disabled";
+    if (!factsResponse.ok && !factsDisabled) {
+      return json({ schema_version: "console_api.v1", scope, range,
+        status: "unavailable", unavailable_reason: "stored_records_unreadable", as_of: null,
+        ...(endpoint === "holdings" ? { rows: [], coverage: [], includes_cost_basis: false }
+          : { coverage: { account_aliases: matches.map(option => option.key),
+            read_failures: ["account_facts_unreadable"] }, value_kind: "asset_change" }),
+      }, 503);
     }
     const factsBody = factsResponse.ok
       ? await factsResponse.json()
@@ -90,9 +92,9 @@ export async function performanceResponse(request, env, deps) {
     const accounts = [],
       histories = [],
       failed = [],
-      readFailures = [];
+      readFailures = [],
+      unreadableHistoryCurrencies = new Set();
     let truncated = false;
-    if (!factsResponse.ok) readFailures.push("account_facts_unreadable");
     for (const option of matches) {
       if (option.platform === "binance") {
         // Current native quantities and wallet valuation history are separate sources.
@@ -132,13 +134,16 @@ export async function performanceResponse(request, env, deps) {
         );
         if (!response.ok) {
           readFailures.push(option.key);
+          unreadableHistoryCurrencies.add("USDT");
           failed.push(option.key);
-          accounts.push({ account_key: option.key, platform: option.platform });
+          accounts.push({ account_key: option.key, platform: option.platform,
+            snapshot_unavailable_reason: "stored_records_unreadable" });
           continue;
         }
         const body = await response.json();
         if (body.currency !== "USDT") {
-          accounts.push({ account_key: option.key, platform: option.platform });
+          accounts.push({ account_key: option.key, platform: option.platform,
+            snapshot_unavailable_reason: "currency_mismatch" });
           failed.push(option.key);
           continue;
         }
@@ -177,7 +182,11 @@ export async function performanceResponse(request, env, deps) {
         ["duplicate", "conflict"].includes(fact.aggregation_status)
       ) {
         failed.push(option.key);
-        accounts.push({ account_key: option.key, platform: option.platform });
+        accounts.push({ account_key: option.key, platform: option.platform,
+          snapshot_unavailable_reason: !fact ? factsDisabled ? "account_facts_disabled" : "no_snapshot"
+            : fact.identity_mismatch ? "identity_mismatch"
+            : fact.binding_status !== "bound" ? "identity_not_bound"
+            : `aggregation_${fact.aggregation_status}` });
         continue;
       }
       if (
@@ -208,6 +217,7 @@ export async function performanceResponse(request, env, deps) {
         );
         if (!response.ok) {
           readFailures.push(option.key);
+          unreadableHistoryCurrencies.add(currency);
           failed.push(option.key);
           continue;
         }
@@ -318,13 +328,24 @@ export async function performanceResponse(request, env, deps) {
     if (["calendar", "summary", "returns", "assets"].includes(endpoint)) {
       block.coverage.truncated = truncated;
       block.coverage.read_failures = readFailures;
+      // Assets status describes current balances; its separate curve status
+      // carries history failures without hiding a readable current snapshot.
+      if (endpoint !== "assets" && readFailures.length && block.status === "ok") block.status = "partial";
       if (endpoint === "assets") {
         for (const history of block.history_per_currency) {
           history.coverage.truncated = truncated;
           history.coverage.read_failures = readFailures;
           if ((truncated || readFailures.length) && history.status === "ok") history.status = "partial";
+          if (unreadableHistoryCurrencies.has(history.currency) && history.status === "no_data") {
+            history.status = "unavailable";
+            history.unavailable_reason = "stored_records_unreadable";
+          }
         }
         if ((truncated || readFailures.length) && block.curve_status === "ok") block.curve_status = "partial";
+        if (readFailures.length && block.curve_status === "no_data") {
+          block.curve_status = "unavailable";
+          block.curve_unavailable_reason = "stored_records_unreadable";
+        }
       }
       if (readFailures.length && block.status === "no_data") {
         block.status = "unavailable";

@@ -53,11 +53,11 @@ test("P1: healthy balances keep one compact independent partial-history status i
   for (const language of ["zh", "en"]) {
     const html = ui.assets(language, assets);
     assert.ok(notice(html, "partial"), "healthy current balances cannot mask incomplete history");
-    assert.ok(html.includes('hidden="" data-status="partial"'), "exact partial status remains a hidden diagnostic");
+    assert.ok(html.includes('data-status="partial"'), "exact partial status remains a visible status");
     assert.match(html, /data-affected-count="[1-9][0-9]*"/, "affected coverage remains diagnostic");
-    assert.doesNotMatch(html, /部分账户缺少历史数据|Some accounts lack history|个账户的历史数据不完整|History is incomplete for/,
-      "history diagnostics do not occupy the chart");
-    assert.ok(!html.includes(language === "zh" ? "合成账户甲" : "Synthetic Alpha"));
+    assert.match(html, /个账户的历史数据不完整|History is incomplete for/,
+      "partial history states its affected account count");
+    assert.ok(html.includes(language === "zh" ? "合成账户甲" : "Synthetic Alpha"), "account coverage exposes display names in an expandable detail");
     assert.doesNotMatch(html, /前值填充|Forward-filled|不代表当日新估值|not a new valuation/i);
     assert.doesNotMatch(html, /synthetic-a|synthetic-b|perf\.|reason\.|state\./);
     if (language === "en") assert.doesNotMatch(html, /[\u4e00-\u9fff]/);
