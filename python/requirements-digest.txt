@@ -1,0 +1,2 @@
+# The standalone notification image needs only the official storage client.
+google-cloud-storage==3.17.1

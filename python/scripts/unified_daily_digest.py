@@ -168,6 +168,9 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     for platform, source in summary.get("source_inventory", {}).items():
         label = display_name("platforms", platform, "zh" if zh else "en")
         expected, covered, runs = source["expected_targets"], source["covered_targets"], source["runs"]
+        if not expected:
+            lines.append(f"{label}：未接入，运行状态未知" if zh else f"{label}: not connected; run state unknown")
+            continue
         runs = runs if runs is not None else ("未知" if zh else "unknown")
         state = f"{covered}/{expected}" if expected else ("未配置" if zh else "not configured")
         lines.append(f"{label}：运行 {runs} 次，覆盖 {state}" if zh else f"{label}: {runs} runs, coverage {state}")
@@ -186,6 +189,9 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
                 detail += "，统计未接入" if zh else "; counting not connected"
             elif not all(_known_count(row, name) for name in ("order", "fill")):
                 detail += "，统计未知" if zh else "; counts unknown"
+            else:
+                detail += (f"，本轮 {row.order_count} 单，成交 {row.fill_count}" if zh else
+                           f"; this run: {row.order_count} orders, {row.fill_count} fills")
             line = f"• {label}：{detail}" if zh else f"• {label}: {detail}"
             if line not in seen:
                 (attention_lines if row.status == "alert" else healthy_lines).append(line)

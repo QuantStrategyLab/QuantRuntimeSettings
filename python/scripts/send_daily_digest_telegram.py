@@ -454,6 +454,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     dry_run = args.dry_run or str(os.environ.get("DIGEST_DRY_RUN") or "").lower() in {"1", "true", "yes"}
+    if not dry_run and os.environ.get('DIGEST_DELIVERY_RUNTIME') == 'cloud_run':
+        print('Daily digest delivery moved to the authenticated Cloud Run entry point.', file=sys.stderr)
+        return 2
     day = aggregator.resolve_business_day(explicit=args.business_day)
     guard = resend_guard.evaluate(day, os.environ, dry_run=dry_run)
     print(guard.log(day, os.environ.get("GITHUB_EVENT_NAME", "local")))

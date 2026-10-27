@@ -98,6 +98,7 @@ jobs:
     env:
       QSL_ROUTINE_NOTIFICATION_MODE: ${{ vars.QSL_ROUTINE_NOTIFICATION_MODE || 'immediate' }}
       QRS_UNIFIED_NOTIFICATION_ENABLED: ${{ vars.QRS_UNIFIED_NOTIFICATION_ENABLED || 'false' }}
+      DIGEST_DELIVERY_RUNTIME: ${{ vars.DIGEST_DELIVERY_RUNTIME || 'github_actions' }}
       DIGEST_RECIPIENT_SCOPE: ${{ vars.DIGEST_RECIPIENT_SCOPE || 'default' }}
       # Read-only guard recovery; these settings never retry message delivery.
       DIGEST_GUARD_READ_ATTEMPTS: ${{ vars.DIGEST_GUARD_READ_ATTEMPTS || '3' }}
@@ -139,6 +140,7 @@ jobs:
         env:
           DIGEST_EVENT_NAME: ${{ github.event_name }}
           DIGEST_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          DIGEST_INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
         run: |
           python3 - <<'PY_SLOT'
           import os
@@ -147,6 +149,11 @@ jobs:
               mode = "daily_digest"
           expected = "0 23 * * *" if mode == "daily_digest" else "10 23 * * 1-5"
           proceed = os.environ.get("DIGEST_EVENT_NAME") != "schedule" or os.environ.get("DIGEST_EVENT_SCHEDULE") == expected
+          # Cloud Run owns production delivery after migration. Actions may
+          # render explicit previews, but must not become an independent failover.
+          owner = os.environ.get("DIGEST_DELIVERY_RUNTIME", "github_actions")
+          preview = os.environ.get("DIGEST_EVENT_NAME") == "workflow_dispatch" and os.environ.get("DIGEST_INPUT_DRY_RUN") == "true"
+          proceed = proceed and (owner == "github_actions" or (owner == "cloud_run" and preview))
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"proceed={str(proceed).lower()}\n")
           PY_SLOT

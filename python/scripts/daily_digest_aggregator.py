@@ -913,8 +913,9 @@ def build_digest_payload(
     include_github: bool = True,
     config_path: Path | None = None,
     layout: str | None = None,
+    config: Mapping[str, Any] | None = None,
 ) -> tuple[digest.DailyDigestInput, str, CollectResult]:
-    config = load_platform_config(config_path)
+    config = config if config is not None else load_platform_config(config_path)
     contract = digest_contract(config)
     day = resolve_business_day(explicit=business_day)
     loc = resolve_locale(locale)
