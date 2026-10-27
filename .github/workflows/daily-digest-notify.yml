@@ -1,27 +1,8 @@
-# INSTALL: copy this file to .github/workflows/daily-digest-notify.yml
-# with a credential that has the GitHub OAuth `workflow` scope, then push.
-# Until then Actions will not schedule or accept workflow_dispatch for this job.
-#
-name: Daily Digest Notify
+name: Daily Digest Preview
 
-# Post-close QuantSentinel aggregator: one message for all platforms that
-# actually ran. Empty evidence → heartbeat via daily_digest_notify renderer.
-# Distinguishes verified idle vs source-read failure (never claim link healthy
-# when GitHub/candidates evidence could not be loaded).
-#
-# Schedule (GitHub Actions cron is UTC):
-#   10 23 * * 1-5 == Tue–Sat 07:10 Asia/Shanghai (after 06:20 producer uploads).
-# The business-day cutoff remains 06:00 Asia/Shanghai. This gives the
-# 22:20 UTC producer jobs time to upload; their actual completion is verified
-# by candidate coverage, not assumed from the schedule.
-# Optional Asia cash session digest is not scheduled yet; add a second cron
-# only after an Asia evidence contract exists (do not invent runs).
-#
-# DIGEST_CANDIDATES wiring (optional, preferred over GitHub stubs):
-#   - Environment secret DIGEST_CANDIDATES_JSON → materialized to a local file
-#   - or Environment variable DIGEST_CANDIDATES_PATH pointing at a runner file
-#   Do NOT upload account-asset candidates as a public artifact by default.
-#   See docs/digest-candidates-wiring.zh-CN.md
+# Explicit manual previews only. Production reports and delivery reservations
+# are owned by Cloud Run; this workflow has no scheduled or forced sends.
+# Private preview bodies remain on the runner, never in public artifacts.
 
 on:
   workflow_dispatch:
@@ -31,11 +12,6 @@ on:
         required: true
         type: boolean
         default: true
-      force_resend:
-        description: "Legacy test resend. Unified mode never bypasses the daily guard."
-        required: true
-        type: boolean
-        default: false
       maintenance_read_check:
         description: "Independent main-only maintenance GET check; never sends notifications or runs the digest job."
         required: true
@@ -69,11 +45,6 @@ on:
         required: true
         type: boolean
         default: true
-  schedule:
-    # Asia/Shanghai Tue–Sat 07:10 → UTC Mon–Fri 23:10, after 22:20 producers
-    - cron: "10 23 * * 1-5"
-    # Additional crypto windows run only when unified mode is explicitly enabled.
-    - cron: "0 23 * * *"
 
 permissions:
   contents: read
@@ -88,33 +59,18 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      # Read this workflow's existing public receipts; no new state-store writes.
-      actions: read
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true }}
-    name: Aggregate and notify
+    name: Render manual preview
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: runtime-strategy-switch
     env:
       QSL_ROUTINE_NOTIFICATION_MODE: ${{ vars.QSL_ROUTINE_NOTIFICATION_MODE || 'immediate' }}
       QRS_UNIFIED_NOTIFICATION_ENABLED: ${{ vars.QRS_UNIFIED_NOTIFICATION_ENABLED || 'false' }}
-      DIGEST_DELIVERY_RUNTIME: ${{ vars.DIGEST_DELIVERY_RUNTIME || 'github_actions' }}
+      DIGEST_DELIVERY_RUNTIME: 'cloud_run'
       DIGEST_RECIPIENT_SCOPE: ${{ vars.DIGEST_RECIPIENT_SCOPE || 'default' }}
-      # Read-only guard recovery; these settings never retry message delivery.
-      DIGEST_GUARD_READ_ATTEMPTS: ${{ vars.DIGEST_GUARD_READ_ATTEMPTS || '3' }}
-      DIGEST_GUARD_RETRY_DELAY_SECONDS: ${{ vars.DIGEST_GUARD_RETRY_DELAY_SECONDS || '2' }}
-      DIGEST_GUARD_LEGACY_RECEIPT: ${{ vars.DIGEST_GUARD_LEGACY_RECEIPT || 'receipt.json' }}
-      # Sentinel secret *name* contract (value never committed).
-      TELEGRAM_TOKEN_SECRET_NAME: ${{ vars.TELEGRAM_TOKEN_SECRET_NAME || 'quant-sentinel-telegram-bot-token' }}
-      # Optional direct Environment secret; prefer this when present.
-      # Prefer Environment TELEGRAM_TOKEN; fall back to org/repo TG_TOKEN (legacy name).
-      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-      TG_TOKEN: ${{ secrets.TG_TOKEN }}
-      QSL_GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.QSL_GLOBAL_TELEGRAM_CHAT_ID }}
-      GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.GLOBAL_TELEGRAM_CHAT_ID }}
-      # Existing console authority; maintenance writes are main-only and never dry-run.
-      STRATEGY_SWITCH_CONSOLE_URL: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.dry_run != true) && vars.STRATEGY_SWITCH_CONSOLE_URL || '' }}
-      STRATEGY_SWITCH_SYNC_TOKEN: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.dry_run != true) && secrets.STRATEGY_SWITCH_SYNC_TOKEN || '' }}
+      STRATEGY_SWITCH_CONSOLE_URL: ''
+      STRATEGY_SWITCH_SYNC_TOKEN: ''
       QSL_NOTIFY_LANG: ${{ vars.QSL_NOTIFY_LANG || vars.NOTIFY_LANG || 'zh' }}
       NOTIFY_LANG: ${{ vars.NOTIFY_LANG || 'zh' }}
       # Cross-repo evidence (optional). Same token used elsewhere for remote reads.
@@ -135,25 +91,17 @@ jobs:
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
       GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
     steps:
-      - name: Select the configured digest schedule
+      - name: Require explicit manual preview
         id: schedule_slot
         env:
           DIGEST_EVENT_NAME: ${{ github.event_name }}
-          DIGEST_EVENT_SCHEDULE: ${{ github.event.schedule }}
           DIGEST_INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
         run: |
           python3 - <<'PY_SLOT'
           import os
-          mode = os.environ.get("QSL_ROUTINE_NOTIFICATION_MODE", "immediate")
-          if os.environ.get("QRS_UNIFIED_NOTIFICATION_ENABLED", "").strip().lower() == "true":
-              mode = "daily_digest"
-          expected = "0 23 * * *" if mode == "daily_digest" else "10 23 * * 1-5"
-          proceed = os.environ.get("DIGEST_EVENT_NAME") != "schedule" or os.environ.get("DIGEST_EVENT_SCHEDULE") == expected
-          # Cloud Run owns production delivery after migration. Actions may
-          # render explicit previews, but must not become an independent failover.
-          owner = os.environ.get("DIGEST_DELIVERY_RUNTIME", "github_actions")
-          preview = os.environ.get("DIGEST_EVENT_NAME") == "workflow_dispatch" and os.environ.get("DIGEST_INPUT_DRY_RUN") == "true"
-          proceed = proceed and (owner == "github_actions" or (owner == "cloud_run" and preview))
+          proceed = os.environ.get("DIGEST_EVENT_NAME") == "workflow_dispatch" and os.environ.get("DIGEST_INPUT_DRY_RUN") == "true"
+          if not proceed:
+              print("::notice::Production daily digest delivery is owned by Cloud Run; only explicit previews run here.")
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"proceed={str(proceed).lower()}\n")
           PY_SLOT
@@ -256,8 +204,6 @@ jobs:
         id: resend_guard
         env:
           DIGEST_RESEND_GUARD: 'true'
-          DIGEST_GUARD_TOKEN: ${{ github.token }}
-          DIGEST_FORCE_RESEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend || false }}
           DIGEST_BUSINESS_DAY: ${{ steps.opts.outputs.business_day }}
           DIGEST_DRY_RUN: ${{ steps.opts.outputs.dry_run }}
           DIGEST_LOCALE: ${{ steps.opts.outputs.locale }}
@@ -324,21 +270,6 @@ jobs:
           umask 077
           python3 python/scripts/fetch_daily_digest_candidates.py
 
-      - name: Authenticate to Google Cloud for sentinel secret (optional)
-        id: gcp_auth
-        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && env.TELEGRAM_TOKEN == '' && env.TELEGRAM_TOKEN_SECRET_NAME != '' && steps.opts.outputs.dry_run != 'true') }}
-        continue-on-error: true
-        uses: google-github-actions/auth@v3
-        with:
-          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
-
-      - name: Set up gcloud for sentinel secret (optional)
-        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && steps.gcp_auth.outcome == 'success') }}
-        uses: google-github-actions/setup-gcloud@v3
-        with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
-
       - name: Aggregate, render, and send daily digest
         id: send
         # A failed private path may still deliver only an independently sourced
@@ -349,12 +280,10 @@ jobs:
           DIGEST_BUSINESS_DAY: ${{ steps.opts.outputs.business_day }}
           DIGEST_DRY_RUN: ${{ steps.opts.outputs.dry_run }}
           DIGEST_RESEND_GUARD: 'true'
-          DIGEST_FORCE_RESEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend || false }}
-          DIGEST_GUARD_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           args=(
-            python3 python/scripts/send_daily_digest_telegram.py
+            python3 python/scripts/send_daily_digest_telegram.py --dry-run
             --write-receipt data/output/daily-digest/receipt.json
             --layout "${{ steps.opts.outputs.layout }}"
           )

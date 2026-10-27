@@ -529,22 +529,20 @@ class DailyDigestAggregatorTests(unittest.TestCase):
 
 
 class DailyDigestWorkflowContractTests(unittest.TestCase):
-    def test_workflow_schedule_matches_shanghai_post_close(self):
+    def test_retired_workflow_allows_manual_previews_only(self):
         workflow = (
             Path(__file__).resolve().parents[2]
-            / "docs/workflows/daily-digest-notify.yml"
+            / ".github/workflows/daily-digest-notify.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn('cron: "10 23 * * 1-5"', workflow)
-        self.assertIn("Asia/Shanghai", workflow)
+        self.assertNotIn("\n  schedule:\n", workflow)
+        self.assertIn("send_daily_digest_telegram.py --dry-run", workflow)
         self.assertIn("workflow_dispatch", workflow)
-        self.assertIn("quant-sentinel-telegram-bot-token", workflow)
         self.assertIn("runtime-strategy-switch", workflow)
         self.assertIn("send_daily_digest_telegram.py", workflow)
         self.assertNotIn("api.telegram.org/bot", workflow)
         self.assertIn("dry_run", workflow)
         self.assertIn("DIGEST_CANDIDATES", workflow)
         self.assertIn("Materialize DIGEST_CANDIDATES", workflow)
-        self.assertIn("digest-candidates-wiring.zh-CN.md", workflow)
 
 
 if __name__ == "__main__":
@@ -845,14 +843,9 @@ class SectionsLayoutTests(unittest.TestCase):
         self.assertIn("No run evidence in this window", text)
         self.assertIn("link health is not confirmed", text)
 
-    def test_workflow_schedule_forces_v1_layout(self):
+    def test_manual_preview_keeps_explicit_layout_selection(self):
         text = (ROOT.parent / ".github/workflows/daily-digest-notify.yml").read_text(encoding="utf-8")
         self.assertIn('echo "layout=v1" >> "$GITHUB_OUTPUT"', text)
         self.assertIn("default: v1", text)
-        # The deployable workflow has a default-off release flag. The user-owned
-        # documentation template is intentionally not edited in this code PR.
-        template = (ROOT.parent / "docs/workflows/daily-digest-notify.yml").read_text(encoding="utf-8")
-        for schedule in ('cron: "10 23 * * 1-5"', 'cron: "0 23 * * *"'):
-            self.assertIn(schedule, text)
-            self.assertIn(schedule, template)
+        self.assertNotIn("\n  schedule:\n", text)
         self.assertIn("QRS_UNIFIED_NOTIFICATION_ENABLED || 'false'", text)

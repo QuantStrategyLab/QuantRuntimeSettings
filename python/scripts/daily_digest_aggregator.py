@@ -772,8 +772,11 @@ def collect_digest_runs(
     candidates_path: Path | None = None,
     include_github: bool = True,
     locale: str = "zh",
+    candidate_failures: Sequence[Mapping[str, str]] | None = None,
 ) -> CollectResult:
-    store_failures = candidate_store_failures()
+    # SDK callers supply their actual intake outcomes; the CLI retains its
+    # explicit workflow outcome contract when no override is supplied.
+    store_failures = list(candidate_failures) if candidate_failures is not None else candidate_store_failures()
     try:
         loaded_rows, candidates_configured, candidates_loaded = load_candidates_from_file(candidates_path)
     except (OSError, ValueError):
@@ -914,6 +917,7 @@ def build_digest_payload(
     config_path: Path | None = None,
     layout: str | None = None,
     config: Mapping[str, Any] | None = None,
+    candidate_failures: Sequence[Mapping[str, str]] | None = None,
 ) -> tuple[digest.DailyDigestInput, str, CollectResult]:
     config = config if config is not None else load_platform_config(config_path)
     contract = digest_contract(config)
@@ -925,6 +929,7 @@ def build_digest_payload(
         candidates_path=candidates_path,
         include_github=include_github,
         locale=loc,
+        candidate_failures=candidate_failures,
     )
     evidence_status = "has_runs" if collected.runs else (
         "verified_idle"

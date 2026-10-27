@@ -56,7 +56,7 @@ class ConsolidationSelectorTests(unittest.TestCase):
             self.assertEqual(routine_mode({**env, "QSL_ROUTINE_NOTIFICATION_MODE": "daily_digest"}), "daily_digest")
         self.assertEqual(routine_mode({**ON, "QSL_ROUTINE_NOTIFICATION_MODE": "immediate"}), "daily_digest")
 
-    def test_both_crons_and_manual_calls_share_one_selected_slot(self):
+    def test_actions_schedules_are_retired_in_every_notification_mode(self):
         root = Path(__file__).resolve().parents[2]
         source = (root / ".github/workflows/daily-digest-notify.yml").read_text()
         job = source.split("  digest:\n", 1)[1].split("\n  maintenance-read-check:", 1)[0]
@@ -72,8 +72,8 @@ class ConsolidationSelectorTests(unittest.TestCase):
                                DIGEST_EVENT_SCHEDULE=slot, GITHUB_OUTPUT=str(output))
                     result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    expected = "0 23 * * *" if value.strip().lower() == "true" else "10 23 * * 1-5"
-                    self.assertEqual(output.read_text(), f"proceed={str(slot == expected).lower()}\n")
+                    self.assertEqual(output.read_text(), "proceed=false\n")
+        self.assertNotIn("\n  schedule:\n", source)
         self.assertIn("cancel-in-progress: false", source)
 
     def test_completed_sgt_window_is_used_even_for_late_manual_calls(self):

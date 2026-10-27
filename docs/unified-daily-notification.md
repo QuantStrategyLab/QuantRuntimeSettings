@@ -25,6 +25,9 @@ missing, stale, invalid or unreadable target is reported as such while other
 valid targets remain available. Global totals stay unknown if coverage is
 incomplete. An explicit `actually_ran=false` row proves non-execution, not its
 cause or zero fills. Empty input produces an unavailable report, not silence.
+SDK intake outcomes are passed explicitly to the aggregator. Production does
+not depend on the legacy Actions `DIGEST_CANDIDATES_STORE_STATUS` variable;
+read failures and invalid inputs still mark source coverage incomplete.
 
 Upstream reads share at most 120 seconds and stop no later than 07:20. Check the
 07:30 deadline again after reads and rendering. A late invocation sends only
@@ -81,7 +84,9 @@ execution separately, using the existing operations alert channel.
    definite future report-date boundary; do not backfill today's late report.
 3. Set the old protected environment `DIGEST_DELIVERY_RUNTIME=cloud_run` so real
    scheduled/manual Actions sends stop. Confirm the skip before enabling the
-   single Cloud Scheduler target. Remove the two Actions crons after cutover.
+   single Cloud Scheduler target. The Actions workflow now has no crons, no Bot
+   credentials in its digest job and an unconditional dry-run sender. Its old
+   installable workflow copy has been removed; do not reinstall it.
 4. Disable the old VPS briefing sender/timer only after verifying it owns no
    required collector work. Retain Binance's original collector/runtime and
    archived financial evidence. Remove uninstalled VPS relay proposals, not
@@ -91,44 +96,26 @@ execution separately, using the existing operations alert channel.
    image against the same ledger if necessary. Never re-enable the old Actions
    sender as an independent failover after cutover.
 
-The following Actions-era contracts remain as migration/preview compatibility
-until the old production sender has been retired. They do not grant a second
-production delivery path.
+The following Actions-era contracts remain for manual previews and historical
+receipt interpretation. They do not grant a second production delivery path.
 
 ## Actions-era compatibility
 
 Exact `QSL_ROUTINE_NOTIFICATION_MODE=daily_digest` enables the compact bilingual
-message. The default `immediate` preserves the existing renderer and schedule.
+message. The default `immediate` preserves the legacy renderer for previews.
 A healthy day without orders, fills or real evidence problems is silent.
 Normal orders and fills share one message; source failures, missing targets,
 stale reports and execution alerts add a diagnostics section only when present.
 The UTF-16 budget is bounded; long digests are summarized without multiple sends.
 
-Unified mode uses the existing digest workflow at 23:00 UTC daily, after the
-existing 22:20 UTC report monitors. Legacy mode runs at 23:10 UTC on weekdays,
-after those monitors; the business-day cutoff remains 22:00 UTC.
+The historical workflow used 23:00 UTC daily in unified mode and 23:10 UTC
+on weekdays in legacy mode. Both Actions schedules are retired. The retained
+workflow admits only explicit manual dry runs and cannot send or reserve a
+production delivery. Its old resend guard and public receipts remain for
+historical interpretation; they are not the current durable GCS ledger.
 No runtime trading schedule or disabled target is changed. Reports cover the
 completed 06:00 SGT window. Platform producers must supply real archived counts;
 a workflow conclusion alone is never an order or fill fact.
-
-The resend guard keys unified sends by current SGT report date and configured
-`DIGEST_RECIPIENT_SCOPE` (default `default`). Language and business-day overrides,
-legacy force-test inputs and a disabled local guard cannot bypass this limit.
-An uncertain previous send or missing send receipt blocks another attempt.
-Keep the workflow concurrency group shared by manual and scheduled runs.
-
-The workflow freezes the business window before reading send history. Upstream
-candidate reads share at most 120 seconds and stop at 07:20 Asia/Singapore.
-The 07:30 deadline leaves time for a single guarded failure notice when source
-verification is incomplete. A run starting after the deadline reports that it
-is late, keeps trading and asset facts unknown, and does not send an automatic
-follow-up. Actions queue delays remain observable; this does not guarantee a
-07:30 start or delivery. Public receipts preserve acceptance time, the deadline
-and late/failure flags without private message text.
-
-No variables are applied, workflow dispatched, secrets read or messages sent by
-this code-only change. Validate protected source bindings and the approved UES
-fingerprint/baseline release plan before production adoption.
 
 Unified mode requires a nonempty protected `DIGEST_EXPECTED_TARGETS_JSON` list
 (or the existing `aggregator.expected_targets` contract). Declare only approved

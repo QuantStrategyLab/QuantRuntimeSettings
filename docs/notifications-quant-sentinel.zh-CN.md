@@ -36,7 +36,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 
 | 变量 | 说明 |
 |------|------|
-| `TELEGRAM_TOKEN` | bot token（Cloud Run / preview 由 secret ref 注入；VPS 由 `load_telegram_env.sh`） |
+| `TELEGRAM_TOKEN` | bot token（正式 Cloud Run 由 secret ref 注入；Actions 日报预览不注入 Bot 凭据） |
 | `QSL_GLOBAL_TELEGRAM_CHAT_ID` | 首选跨平台路由变量 |
 | `GLOBAL_TELEGRAM_CHAT_ID` | 兼容回退 |
 | `QSL_NOTIFY_LANG` / `NOTIFY_LANG` | 日报与预览文案语言 |
@@ -61,10 +61,10 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 - 顺序：⚠️ 待处理（异常行、过期候选、证据未知）→ 📈 美股日策略（纽约周末写「休市」，工作日无证据写「本窗口无运行证据」）→ 💰 定投（`us_dca_month_end` 和加密 `*_dca`；只在有运行时出现）→ 🪙 加密小时策略（只在有运行时出现）→ 🧾 覆盖。
 - 分段：候选行的 `section`（`us_daily` / `dca` / `crypto_intraday`）优先；没有就按 `platform-config.json` 的 domain / scheduler_profile 推断。Binance 小时策略里的 BTC 定投腿要等生产者单独出一行 `section=dca`（B3）。
 
-### 调度（合同默认）
+### 正式日报调度
 
-- 时区：`Asia/Shanghai`
-- 普通模式 Cron：UTC `10 23 * * 1-5`（上海时间周二至周六 07:10，在平台 06:20 候选上传后；业务日窗口仍于 06:00 截止，覆盖前一美股 RTH 收盘）。统一模式按现有 UTC 23:00 每日槽运行。
+- 时区：`Asia/Singapore`
+- Cloud Scheduler 每日 07:00 调用独立 Cloud Run 发送；07:30 仅检查持久化回执。旧 Actions cron 已退役，统计窗口仍于 06:00 截止。
 - 加密按同一窗口并入；若当日 UTC 有周期则出现在列表中
 
 ### 文案与 i18n
@@ -169,13 +169,13 @@ Receipt totals follow the same evidence boundary: absent evidence, stale candida
 
 ### Aggregator（本仓已落地）
 
-- Workflow：`.github/workflows/daily-digest-notify.yml`（文稿同步于 `docs/workflows/daily-digest-notify.yml`）
-- 脚本：`python/scripts/daily_digest_aggregator.py` + `python/scripts/send_daily_digest_telegram.py`
-- 调度：UTC `10 23 * * 1-5` = **Asia/Shanghai 周二至周六 07:10**（在 06:20 的平台候选上传后；业务日截止仍为 06:00，覆盖前一美股 RTH）
-- 证据：私有日报候选存储 `DigestCandidateStore` 经 `DIGEST_CANDIDATES_GCS_URI` 读取，与保留的 `DIGEST_CANDIDATES_JSON` 合并后由 `DIGEST_CANDIDATES_PATH` 消费（见 [接线与采用状态](./digest-candidates-wiring.zh-CN.md)）；另有可选 allowlisted GitHub workflow 成功结论（**存在性 only；成交数未知≠0**）。接线完成、自然周期和真实送达分别验收。
+- 正式日报由独立 Cloud Run 入口发送，见 [统一日报运行合同](unified-daily-notification.md)。`.github/workflows/daily-digest-notify.yml` 仅保留手动只读预览，旧安装文稿及定时发送已退役。
+- 正式入口：`python/scripts/cloud_run_daily_digest.py`，复用 `daily_digest_aggregator.py`；`send_daily_digest_telegram.py` 仅供旧格式兼容及只读预览。
+- 调度：每日 **07:00 Asia/Singapore** 发送，07:30 只读回执检查，业务窗口截止仍为 06:00。
+- 证据：正式入口通过官方 GCS SDK 读取批准绑定的候选对象，不列举 bucket、不查询 GitHub。旧 JSON/文件合并及 workflow 存在性读取仅供手动预览兼容（见 [候选接线](./digest-candidates-wiring.zh-CN.md)）。接线、自然周期和真实送达分别验收。
 - 聚合键：`platform_id + strategy + opaque_account_uid|unknown + target_id|unknown`；同策略多账户不得混拼
-- 发送：Environment `runtime-strategy-switch`；`TELEGRAM_TOKEN` 或 `TELEGRAM_TOKEN_SECRET_NAME`→GCP `quant-sentinel-telegram-bot-token`；chat 走 `QSL_GLOBAL_TELEGRAM_CHAT_ID` / `GLOBAL_TELEGRAM_CHAT_ID`
-- 测试：`workflow_dispatch` 默认 `dry_run=true`；生产 schedule 会真实发送
+- 发送：Cloud Run 通过 `TELEGRAM_TOKEN` 的原 Secret 引用及批准的 `QSL_GLOBAL_TELEGRAM_CHAT_ID`；按接收范围和报告日期使用 GCS 防重账本。
+- 预览：`workflow_dispatch` 仅 `dry_run=true` 可运行；Cloud Run `/preview` 仅回传安全状态，不预留或发送。
 - 接线基线模板：[private-target-wiring-baseline.zh-CN.md](./private-target-wiring-baseline.zh-CN.md)
 - Binance：历史 `TG_TOKEN` 仍独立；对齐步骤见 `platform-config.json` → `daily_digest.aggregator.binance_alignment_note_*`（公开仓只记名称）
 
@@ -227,7 +227,7 @@ dry-run receipt 同样写入 `token_source_kind` / `chat_source_kind` / `warning
 
 ### 重复发送风险待证（公开代码证据，未改它仓）
 
-中央收盘日报由本仓 `daily-digest-notify` → `send_daily_digest_telegram.py` 发送。以下平台路径仍可能对**同一业务事件**另发 Telegram（是否与日报重复 = 待证，取决于 Environment 是否仍启用、文案是否同源）：
+中央收盘日报由本仓独立 Cloud Run `cloud_run_daily_digest.py` 发送。以下平台路径仍可能对**同一业务事件**另发 Telegram（是否与日报重复 = 待证，取决于 Environment 是否仍启用、文案是否同源）：
 
 | 仓 | 公开文件 | 路径角色 | 风险标注 |
 |----|----------|----------|----------|
@@ -235,7 +235,7 @@ dry-run receipt 同样写入 `token_source_kind` / `chat_source_kind` / `warning
 | LongBridgePlatform | `scripts/execution_report_heartbeat.py` | 执行报告心跳 | 重复发送风险待证 |
 | LongBridgePlatform | `scripts/cloud_run_runtime_guard.py` | Cloud Run 守卫告警 | 重复发送风险待证（异常类，可能与日报正交） |
 | LongBridgePlatform | `scripts/send_paper_notification_canary.py` | PAPER 预览 / canary | 预览路径；生产 schedule 勿与正式日报并行误触 |
-| QuantRuntimeSettings | `.github/workflows/daily-digest-notify.yml` | 中央跨平台日报 | 唯一合同入口（本仓） |
+| QuantRuntimeSettings | `python/scripts/cloud_run_daily_digest.py` | 中央跨平台日报 | 唯一正式发送入口；Actions 仅手动预览 |
 
 说明：LongBridge 若干脚本 chat 解析以 `GLOBAL_TELEGRAM_CHAT_ID` 为主、未统一优先 `QSL_GLOBAL_TELEGRAM_CHAT_ID`（公开代码）；与本仓优先级不一致本身会放大「同 bot 不同注入源」排障成本。其它券商仓未在本机克隆核到的发送点标为**未知**，不编造清单。
 

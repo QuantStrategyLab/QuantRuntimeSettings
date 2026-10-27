@@ -128,13 +128,17 @@ def _sources(configuration, store, day, end, *, now, monotonic):
 def _report(configuration, rows, outcomes, day, platform_config):
     config = deepcopy(platform_config or aggregator.load_platform_config())
     config['notifications']['quant_sentinel']['daily_digest'].setdefault('aggregator', {})['expected_targets'] = configuration.expected
+    failure_reasons = {'read_failed': 'candidate_store_read_failed',
+                       'invalid': 'candidate_input_unavailable_or_invalid'}
+    failures = [{'source_kind': 'candidate_store', 'reason_code': failure_reasons[outcome]}
+                for outcome in outcomes if outcome in failure_reasons]
     # Financial bodies are ephemeral inside the approved cloud runtime only.
     with tempfile.TemporaryDirectory(prefix='qsl-digest-') as directory:
         path = Path(directory) / 'candidates.json'
         path.write_text(json.dumps({'runs': rows}), encoding='utf-8')
         payload, _, _ = aggregator.build_digest_payload(
             business_day=day, locale=configuration.locale, candidates_path=path,
-            include_github=False, config=config,
+            include_github=False, config=config, candidate_failures=failures,
         )
     covered = sum(value in {'present', 'not_run'} for value in outcomes)
     coverage = 'complete' if covered == len(outcomes) else 'partial' if covered else 'unavailable'
