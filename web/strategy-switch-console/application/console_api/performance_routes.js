@@ -70,19 +70,25 @@ export async function performanceResponse(request, env, deps) {
       for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
       return new Request(u, { headers: request.headers });
     };
-    const nativeBinanceOnly = endpoint === "holdings" && matches.length > 0
+    const nativeBinanceOnly = matches.length > 0
       && matches.every(option => option.platform === "binance");
     const factsResponse = nativeBinanceOnly ? Response.json({ accounts: [] }) : await deps.facts(
       makeRequest("/api/account-facts"),
       env,
     );
-    if (endpoint === "holdings" && !factsResponse.ok) {
-      const sourceError = await factsResponse.json().catch(() => null);
-      if (factsResponse.status !== 404 || sourceError?.error !== "account_facts_disabled") {
-        return json({ schema_version: "console_api.v1", scope, range,
-          status: "unavailable", unavailable_reason: "stored_records_unreadable",
-          rows: [], coverage: [], includes_cost_basis: false }, 503);
-      }
+    const sourceError = !factsResponse.ok ? await factsResponse.json().catch(() => null) : null;
+    const factsDisabled = factsResponse.status === 404 && sourceError?.error === "account_facts_disabled";
+    const factsUnreadable = !factsResponse.ok && !factsDisabled;
+    const independentWalletCalendar = endpoint === "calendar" && scope === "all"
+      && url.searchParams.get("currency") === "USDT"
+      && matches.some(option => option.platform === "binance");
+    if (factsUnreadable && !independentWalletCalendar) {
+      return json({ schema_version: "console_api.v1", scope, range,
+        status: "unavailable", unavailable_reason: "stored_records_unreadable", as_of: null,
+        ...(endpoint === "holdings" ? { rows: [], coverage: [], includes_cost_basis: false }
+          : { coverage: { account_aliases: matches.map(option => option.key),
+            read_failures: ["account_facts_unreadable"] }, value_kind: "asset_change" }),
+      }, 503);
     }
     const factsBody = factsResponse.ok
       ? await factsResponse.json()
@@ -90,9 +96,10 @@ export async function performanceResponse(request, env, deps) {
     const accounts = [],
       histories = [],
       failed = [],
-      readFailures = [];
+      excludedCommonAccounts = [],
+      readFailures = factsUnreadable ? ["account_facts_unreadable"] : [],
+      unreadableHistoryCurrencies = new Set();
     let truncated = false;
-    if (!factsResponse.ok) readFailures.push("account_facts_unreadable");
     for (const option of matches) {
       if (option.platform === "binance") {
         // Current native quantities and wallet valuation history are separate sources.
@@ -132,13 +139,16 @@ export async function performanceResponse(request, env, deps) {
         );
         if (!response.ok) {
           readFailures.push(option.key);
+          unreadableHistoryCurrencies.add("USDT");
           failed.push(option.key);
-          accounts.push({ account_key: option.key, platform: option.platform });
+          accounts.push({ account_key: option.key, platform: option.platform,
+            snapshot_unavailable_reason: "stored_records_unreadable" });
           continue;
         }
         const body = await response.json();
         if (body.currency !== "USDT") {
-          accounts.push({ account_key: option.key, platform: option.platform });
+          accounts.push({ account_key: option.key, platform: option.platform,
+            snapshot_unavailable_reason: "currency_mismatch" });
           failed.push(option.key);
           continue;
         }
@@ -176,8 +186,17 @@ export async function performanceResponse(request, env, deps) {
         fact.binding_status !== "bound" ||
         ["duplicate", "conflict"].includes(fact.aggregation_status)
       ) {
-        failed.push(option.key);
-        accounts.push({ account_key: option.key, platform: option.platform });
+        // An explicit native-wallet calendar can show its observed asset
+        // changes independently. Unreadable brokers stay excluded in coverage;
+        // wallet failures still participate in the ordinary cohort guard.
+        if (factsUnreadable && independentWalletCalendar) excludedCommonAccounts.push(option.key);
+        else failed.push(option.key);
+        accounts.push({ account_key: option.key, platform: option.platform,
+          snapshot_unavailable_reason: !fact ? factsUnreadable ? "stored_records_unreadable"
+            : factsDisabled ? "account_facts_disabled" : "no_snapshot"
+            : fact.identity_mismatch ? "identity_mismatch"
+            : fact.binding_status !== "bound" ? "identity_not_bound"
+            : `aggregation_${fact.aggregation_status}` });
         continue;
       }
       if (
@@ -208,6 +227,7 @@ export async function performanceResponse(request, env, deps) {
         );
         if (!response.ok) {
           readFailures.push(option.key);
+          unreadableHistoryCurrencies.add(currency);
           failed.push(option.key);
           continue;
         }
@@ -314,17 +334,34 @@ export async function performanceResponse(request, env, deps) {
     if (endpoint === "calendar") {
       block.available_currencies = availableCurrencies;
       if (calendarCurrency) block.currency = calendarCurrency;
+      if (factsUnreadable && independentWalletCalendar) {
+        block.coverage.excluded_accounts = [...new Set([
+          ...block.coverage.excluded_accounts, ...excludedCommonAccounts,
+        ])];
+        block.unavailable_reason = "stored_records_unreadable";
+      }
     }
     if (["calendar", "summary", "returns", "assets"].includes(endpoint)) {
       block.coverage.truncated = truncated;
       block.coverage.read_failures = readFailures;
+      // Assets status describes current balances; its separate curve status
+      // carries history failures without hiding a readable current snapshot.
+      if (endpoint !== "assets" && readFailures.length && block.status === "ok") block.status = "partial";
       if (endpoint === "assets") {
         for (const history of block.history_per_currency) {
           history.coverage.truncated = truncated;
           history.coverage.read_failures = readFailures;
           if ((truncated || readFailures.length) && history.status === "ok") history.status = "partial";
+          if (unreadableHistoryCurrencies.has(history.currency) && history.status === "no_data") {
+            history.status = "unavailable";
+            history.unavailable_reason = "stored_records_unreadable";
+          }
         }
         if ((truncated || readFailures.length) && block.curve_status === "ok") block.curve_status = "partial";
+        if (readFailures.length && block.curve_status === "no_data") {
+          block.curve_status = "unavailable";
+          block.curve_unavailable_reason = "stored_records_unreadable";
+        }
       }
       if (readFailures.length && block.status === "no_data") {
         block.status = "unavailable";
@@ -335,7 +372,9 @@ export async function performanceResponse(request, env, deps) {
       block.benchmark_status = "unavailable";
       block.benchmark_unavailable_reason = "benchmark_history_unreadable";
     }
-    return json({ schema_version: "console_api.v1", scope, range, ...block });
+    const noIndependentWalletHistory = factsUnreadable && independentWalletCalendar
+      && !histories.some(history => history.crypto && history.currency === "USDT" && history.points.length);
+    return json({ schema_version: "console_api.v1", scope, range, ...block }, noIndependentWalletHistory ? 503 : 200);
   } catch {
     return json(
       {

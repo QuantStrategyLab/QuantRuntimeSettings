@@ -177,17 +177,18 @@ assert.match(fallback, /aria-pressed="false">USDT</);
 assert.equal((fallback.match(/<button/g) || []).length, 3, "one real link plus two currency buttons");
 assert.doesNotMatch(fallback, /role="button"/, "the card is not a button wrapping other buttons");
 assert.match(fallback, /打开收益分析/);
-assert.match(fallback, /hidden="" data-status="partial"/, "partial valuation keeps its exact hidden diagnostic");
+assert.match(fallback, /data-status="partial"/, "partial valuation keeps its exact visible status");
 assert.match(fallback, /USD [\d,]+\.\d{2}/, "the fallback axis carries balances, not percentages");
 assert.doesNotMatch(fallback, /%/, "an asset balance is never drawn as a return");
-assert.match(fallback, /Z\s*M/, "a real gap stays a gap instead of being bridged");
+const fallbackLine = fallback.match(/<path d="([^"]*)" fill="none"/)?.[1];
+assert.equal((fallbackLine?.match(/M/g) || []).length, 2, "a real gap splits the line into two paths even when sparse segments have no area fill");
 
 const stale = render({
   returns: ready(returnsUnavailable),
   assets: ready({ ...mixedAssets, history_per_currency: [history("USD", "stale", usdPoints), history("USDT", "ok", usdtPoints)] }),
 });
 assert.match(stale, /aria-label="资产余额"/);
-assert.match(stale, /hidden="" data-status="stale"/, "stale asset history keeps its exact hidden diagnostic");
+assert.match(stale, /data-status="stale"/, "stale asset history keeps its exact visible status");
 
 const privacy = render({ returns: ready(returnsUnavailable), assets: ready(mixedAssets) }, { hideAmounts: true });
 assert.match(privacy, /•••/);
@@ -197,7 +198,7 @@ const english = render({ returns: ready(returnsUnavailable), assets: ready(mixed
 assert.match(english, /aria-label="Asset balance"/);
 assert.match(english, /aria-label="Currency"/);
 assert.match(english, /Open performance/);
-assert.match(english, /hidden="" data-status="partial"/, "English retains the same hidden partial diagnostic");
+assert.match(english, /data-status="partial"/, "English retains the same visible partial status");
 
 // A drawable return trend wins: the fallback must not replace a qualified curve.
 const returnsOk = {
