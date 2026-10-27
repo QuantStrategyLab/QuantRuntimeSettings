@@ -1,0 +1,21 @@
+FROM python:3.12-slim@sha256:e70237b264442328526ff29d6b3c43bd8abcf6cbab78a949322fb69b7d91d6b6
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+COPY python/requirements-digest.txt /app/requirements-digest.txt
+RUN pip install --no-cache-dir -r /app/requirements-digest.txt
+COPY platform-config.json display-names.config.json /app/
+COPY python/scripts/cloud_run_daily_digest.py \
+     python/scripts/daily_digest_delivery_store.py \
+     python/scripts/daily_digest_aggregator.py \
+     python/scripts/daily_digest_delivery_axes.py \
+     python/scripts/daily_digest_deadline.py \
+     python/scripts/daily_digest_notify.py \
+     python/scripts/display_names.py \
+     python/scripts/merge_digest_candidates.py \
+     python/scripts/notification_candidate_adapter.py \
+     python/scripts/notification_approved_gates.py \
+     python/scripts/notification_mode.py \
+     python/scripts/unified_daily_digest.py /app/python/scripts/
+COPY python/scripts/notification_snapshot /app/python/scripts/notification_snapshot/
+USER 65532:65532
+CMD ["python", "python/scripts/cloud_run_daily_digest.py"]

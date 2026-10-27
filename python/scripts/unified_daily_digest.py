@@ -186,6 +186,9 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
                 detail += "，统计未接入" if zh else "; counting not connected"
             elif not all(_known_count(row, name) for name in ("order", "fill")):
                 detail += "，统计未知" if zh else "; counts unknown"
+            else:
+                detail += (f"，本轮 {row.order_count} 单，成交 {row.fill_count}" if zh else
+                           f"; this run: {row.order_count} orders, {row.fill_count} fills")
             line = f"• {label}：{detail}" if zh else f"• {label}: {detail}"
             if line not in seen:
                 (attention_lines if row.status == "alert" else healthy_lines).append(line)
