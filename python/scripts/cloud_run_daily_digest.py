@@ -82,10 +82,10 @@ def report_slot(headers, configuration, now):
     if stamp.tzinfo is None:
         raise ValueError('digest_schedule_timezone_required')
     local = stamp.astimezone(SGT)
-    if local.timetz().replace(tzinfo=None) != time(7) or stamp > now:
+    if local.timetz().replace(tzinfo=None) not in {time(7), time(7, 30)} or stamp > now:
         raise ValueError('digest_schedule_slot_invalid')
     report_date = local.date()
-    return report_date, (report_date - timedelta(days=1)).isoformat(), stamp
+    return report_date, (report_date - timedelta(days=1)).isoformat(), stamp, local.minute == 30
 
 
 def _units(text):
@@ -171,7 +171,7 @@ def _report(configuration, rows, outcomes, day, platform_config):
 def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
             monotonic=clock.monotonic, platform_config=None):
     try:
-        report_date, day, scheduled_at = report_slot(headers, configuration, now())
+        report_date, day, scheduled_at, check = report_slot(headers, configuration, now())
     except (ValueError, KeyError, TypeError, AttributeError):
         return 400, {'delivery': 'invalid_slot'}
     safe = {'report_date': report_date.isoformat(), 'business_day': day, 'delivery': 'not_attempted'}
@@ -181,6 +181,18 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
         return 200, {**safe, 'delivery': 'before_cutover'}
     if not preview and not configuration.enabled:
         return 200, {**safe, 'delivery': 'disabled'}
+    if check:
+        if preview:
+            return 400, {**safe, 'delivery': 'invalid_slot'}
+        try:
+            record = store.delivery(f'{configuration.recipient_scope}/{report_date.isoformat()}.json')
+        except StoreUnavailable:
+            return 200, {**safe, 'delivery': 'receipt_unverified', 'phase': 'deadline_check'}
+        matches = isinstance(record, dict) and all(record.get(key) == value for key, value in (
+            ('report_date', report_date.isoformat()), ('business_day', day),
+            ('recipient_scope', configuration.recipient_scope)))
+        confirmed = matches and record.get('delivery') == 'accepted' and record.get('late') is False
+        return 200, {**safe, 'delivery': 'confirmed' if confirmed else 'receipt_unverified', 'phase': 'deadline_check'}
     stop = datetime.combine(report_date, time(7, 20), SGT)
     deadline_at = datetime.combine(report_date, time(7, 30), SGT)
     late = now() + timedelta(seconds=30) >= deadline_at
@@ -282,7 +294,8 @@ def main():
             except Exception:  # noqa: BLE001 -- The HTTP boundary must never emit private exception details.
                 status, value = 503, {'delivery': 'request_failed'}
             print(json.dumps({'component': 'daily_digest', 'severity': 'ERROR' if value.get('delivery') in {
-                'unknown', 'request_failed', 'reservation_unconfirmed', 'reservation_invalid'} else 'INFO', **value}), flush=True)
+                'unknown', 'request_failed', 'reservation_unconfirmed', 'reservation_invalid',
+                'receipt_unverified'} else 'INFO', **value}), flush=True)
             self.respond(status, value)
 
     HTTPServer(('0.0.0.0', int(os.environ.get('PORT', '8080'))), Handler).serve_forever()

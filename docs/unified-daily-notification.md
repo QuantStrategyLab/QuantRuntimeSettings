@@ -3,10 +3,13 @@
 ## Cloud Run delivery
 
 The standalone notification image uses `python/Dockerfile.digest`. Cloud Scheduler
-calls its authenticated `POST /daily-digest` endpoint at `0 7 * * *`, timezone
+calls its authenticated `POST /daily-digest` endpoint at `0,30 7 * * *`, timezone
 `Asia/Singapore`, with an OIDC service identity. Set minimum instances to zero,
 maximum instances and concurrency to one, and request timeout to 300 seconds.
 Instance limits are capacity settings, not deduplication guarantees.
+The 07:00 slot sends the report. The 07:30 slot only checks the persisted receipt
+and emits a fixed error status when it cannot confirm on-time acceptance; it
+never reads financial inputs, reserves a send or produces a second report.
 
 The entry point validates the configured Scheduler job name and the original
 `X-CloudScheduler-ScheduleTime`. It freezes the report date, previous business

@@ -46,6 +46,9 @@ class MemoryStore:
             raise app.StoreUnavailable()
         self.records[key] = dict(record)
 
+    def delivery(self, key):
+        return self.records.get(key)
+
 
 class CloudRunDigestTests(unittest.TestCase):
     def setUp(self):
@@ -221,6 +224,22 @@ class CloudRunDigestTests(unittest.TestCase):
             self.run_request(configuration=self.enable())
         self.assertNotIn(ROW['opaque_account_uid'], stream.getvalue())
         self.assertNotIn('每日交易摘要', stream.getvalue())
+
+    def test_deadline_check_confirms_persisted_receipt_without_another_send(self):
+        self.run_request(configuration=self.enable())
+        self.now = NOW + timedelta(minutes=30)
+        headers = {**HEADERS, 'X-CloudScheduler-ScheduleTime': self.now.isoformat()}
+        self.store.candidate = lambda *args: self.fail('deadline check read financial inputs')
+        _, result = self.run_request(headers=headers, configuration=self.enable())
+        self.assertEqual((result['delivery'], result['phase']), ('confirmed', 'deadline_check'))
+        self.assertEqual(len(self.sent), 1)
+
+    def test_deadline_check_missing_or_uncertain_receipt_does_not_send_or_reserve(self):
+        self.now = NOW + timedelta(minutes=30)
+        headers = {**HEADERS, 'X-CloudScheduler-ScheduleTime': self.now.isoformat()}
+        _, result = self.run_request(headers=headers, configuration=self.enable())
+        self.assertEqual(result['delivery'], 'receipt_unverified')
+        self.assertFalse(self.sent or self.store.records)
 
 
 class OldSenderRetirementTests(unittest.TestCase):

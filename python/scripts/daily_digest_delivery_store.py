@@ -60,6 +60,16 @@ class GCSDeliveryStore:
         except Exception:  # noqa: BLE001 -- A timed-out conditional write may already have succeeded.
             raise StoreUnavailable() from None
 
+    def delivery(self, key):
+        from google.api_core.exceptions import NotFound
+        blob = self._blob(self.deliveries_bucket, self.deliveries_prefix, key)
+        try:
+            return json.loads(blob.download_as_bytes(retry=None, timeout=10))
+        except NotFound:
+            return None
+        except Exception:  # noqa: BLE001 -- A failed receipt check must never be reported as absence or success.
+            raise StoreUnavailable() from None
+
     def finish(self, key, generation, record):
         blob = self._blob(self.deliveries_bucket, self.deliveries_prefix, key)
         try:
