@@ -80,6 +80,13 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertNotIn('123456', json.dumps(result))
         self.assertNotIn('text', result)
 
+    def test_sdk_reads_do_not_require_an_actions_candidate_status_variable(self):
+        with patch.dict(os.environ, {'DIGEST_CANDIDATES_GCS_URI': 'gs://synthetic/candidates'}):
+            _, result = self.run_request(configuration=self.enable())
+        self.assertEqual(result['coverage'], 'complete')
+        self.assertIn('订单：0', self.sent[0])
+        self.assertNotIn('覆盖不完整', self.sent[0])
+
     def test_disabled_real_delivery_does_not_read_or_reserve(self):
         self.store.candidate = lambda *args: self.fail('disabled path read candidates')
         status, result = self.run_request()
@@ -143,6 +150,14 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertEqual((result['coverage'], result['delivery']), ('unavailable', 'accepted'))
         self.assertNotIn('订单：0', self.sent[0])
         self.assertIn('未知', self.sent[0])
+
+    def test_sdk_read_failure_overrides_legacy_loaded_state(self):
+        self.store.unreadable.add(next(iter(self.store.rows)))
+        with patch.dict(os.environ, {'DIGEST_CANDIDATES_STORE_STATUS': 'loaded'}):
+            _, result = self.run_request(configuration=self.enable())
+        self.assertEqual(result['coverage'], 'unavailable')
+        self.assertIn('报告读取失败', self.sent[0])
+        self.assertNotIn('订单：0', self.sent[0])
 
     def test_explicit_non_run_is_distinct_from_missing_without_inventing_its_cause(self):
         idle = {**ROW, 'actually_ran': False}
@@ -260,7 +275,7 @@ class OldSenderRetirementTests(unittest.TestCase):
         import tempfile
         import textwrap
         source = (Path(__file__).resolve().parents[2] / '.github/workflows/daily-digest-notify.yml').read_text()
-        step = source.split('      - name: Select the configured digest schedule', 1)[1].split('\n      - name:', 1)[0]
+        step = source.split('      - name: Require explicit manual preview', 1)[1].split('\n      - name:', 1)[0]
         script = textwrap.dedent(step.split('        run: |\n', 1)[1])
         for event, dry, expected in (('schedule', 'false', False), ('workflow_dispatch', 'false', False),
                                       ('workflow_dispatch', 'true', True)):

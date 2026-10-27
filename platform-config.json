@@ -93,10 +93,10 @@
           "heartbeat_only_when_no_runs_or_no_fills": true
         },
         "schedule": {
-          "timezone": "Asia/Shanghai",
-          "cron": "0 6 * * 2-6",
-          "description_zh": "周二至周六 06:00 Asia/Shanghai，覆盖前一美股 RTH 收盘；加密当日 UTC 有周期则并入同一条日报。",
-          "description_en": "Tue–Sat 06:00 Asia/Shanghai, after prior US RTH close; include crypto if any UTC-day cycle ran."
+          "timezone": "Asia/Singapore",
+          "cron": "0,30 7 * * *",
+          "description_zh": "每日 07:00 Asia/Singapore 发送统一日报，07:30 仅检查持久化回执；统计覆盖已完成的 06:00 窗口。",
+          "description_en": "Daily 07:00 Asia/Singapore delivery and 07:30 receipt-only check, covering the completed 06:00 window."
         },
         "message": {
           "title_key": "daily_digest_title",
@@ -107,7 +107,7 @@
         },
         "aggregator": {
           "schema_version": "qsl.daily_digest_aggregator.v1",
-          "workflow": "docs/workflows/daily-digest-notify.yml",
+          "workflow": ".github/workflows/daily-digest-notify.yml",
           "owner_repo": "QuantStrategyLab/QuantRuntimeSettings",
           "evidence_sources": [
             "candidates_file",

@@ -50,7 +50,7 @@ class InfrastructureConfigurationTests(unittest.TestCase):
                     promotion_signature.load_trusted_root("ibkr", {"ibkr": "a" * 64})
 
     def test_digest_preflight_requires_configured_store(self):
-        for name in (".github/workflows/daily-digest-notify.yml", "docs/workflows/daily-digest-notify.yml"):
+        for name in (".github/workflows/daily-digest-notify.yml",):
             workflow = (ROOT / name).read_text()
             self.assertIn("DIGEST_CANDIDATES_GCS_URI is required for private store preflight", workflow)
             self.assertIn("Require digest infrastructure variables", workflow)

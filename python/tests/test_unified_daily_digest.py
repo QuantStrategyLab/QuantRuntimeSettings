@@ -97,7 +97,7 @@ class UnifiedDailyDigestTests(unittest.TestCase):
 
 
 class UnifiedScheduleTests(unittest.TestCase):
-    def test_environment_mode_selects_exactly_one_slot_without_credentials(self):
+    def test_environment_mode_cannot_restore_a_retired_schedule(self):
         import subprocess
         import re
         import textwrap
@@ -107,7 +107,7 @@ class UnifiedScheduleTests(unittest.TestCase):
         steps = re.split(r'(?m)^      - (?:name|uses): ', job)[1:]
         self.assertIn('id: schedule_slot', steps[0])
         script = textwrap.dedent(steps[0].split('        run: |\n', 1)[1])
-        for mode, selected in [('immediate', '10 23 * * 1-5'), ('daily_digest', '0 23 * * *')]:
+        for mode in ['immediate', 'daily_digest']:
             for slot in ['10 23 * * 1-5', '0 23 * * *']:
                 with self.subTest(mode=mode, slot=slot), tempfile.TemporaryDirectory() as directory:
                     output = Path(directory) / 'output'
@@ -116,7 +116,7 @@ class UnifiedScheduleTests(unittest.TestCase):
                         'DIGEST_EVENT_NAME': 'schedule', 'DIGEST_EVENT_SCHEDULE': slot,
                         'GITHUB_OUTPUT': str(output)}, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(output.read_text(), f'proceed={str(slot == selected).lower()}\n')
+                    self.assertEqual(output.read_text(), 'proceed=false\n')
         self.assertTrue(all('steps.schedule_slot.outputs.proceed' in step for step in steps[1:]))
 
 

@@ -25,6 +25,9 @@ missing, stale, invalid or unreadable target is reported as such while other
 valid targets remain available. Global totals stay unknown if coverage is
 incomplete. An explicit `actually_ran=false` row proves non-execution, not its
 cause or zero fills. Empty input produces an unavailable report, not silence.
+SDK intake outcomes are passed explicitly to the aggregator. Production does
+not depend on the legacy Actions `DIGEST_CANDIDATES_STORE_STATUS` variable;
+read failures and invalid inputs still mark source coverage incomplete.
 
 Upstream reads share at most 120 seconds and stop no later than 07:20. Check the
 07:30 deadline again after reads and rendering. A late invocation sends only
@@ -81,7 +84,9 @@ execution separately, using the existing operations alert channel.
    definite future report-date boundary; do not backfill today's late report.
 3. Set the old protected environment `DIGEST_DELIVERY_RUNTIME=cloud_run` so real
    scheduled/manual Actions sends stop. Confirm the skip before enabling the
-   single Cloud Scheduler target. Remove the two Actions crons after cutover.
+   single Cloud Scheduler target. The Actions workflow now has no crons, no Bot
+   credentials in its digest job and an unconditional dry-run sender. Its old
+   installable workflow copy has been removed; do not reinstall it.
 4. Disable the old VPS briefing sender/timer only after verifying it owns no
    required collector work. Retain Binance's original collector/runtime and
    archived financial evidence. Remove uninstalled VPS relay proposals, not
@@ -91,9 +96,8 @@ execution separately, using the existing operations alert channel.
    image against the same ledger if necessary. Never re-enable the old Actions
    sender as an independent failover after cutover.
 
-The following Actions-era contracts remain as migration/preview compatibility
-until the old production sender has been retired. They do not grant a second
-production delivery path.
+The following Actions-era contracts remain for manual previews and historical
+receipt interpretation. They do not grant a second production delivery path.
 
 ## Actions-era compatibility
 

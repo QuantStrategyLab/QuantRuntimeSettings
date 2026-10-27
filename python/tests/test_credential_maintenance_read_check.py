@@ -41,9 +41,6 @@ class MaintenanceReadCheckTests(unittest.TestCase):
 
     def test_workflow_isolated_from_digest_with_minimum_existing_authority(self):
         source = (ROOT / '.github/workflows/daily-digest-notify.yml').read_text()
-        template = (ROOT / 'docs/workflows/daily-digest-notify.yml').read_text()
-        self.assertEqual(source.split('\n  maintenance-read-check:', 1)[1],
-                         template.split('\n  maintenance-read-check:', 1)[1])
         # Check this workflow's fixed text contract; actionlint validates YAML.
         self.assertIn('''      maintenance_read_check:
         description: "Independent main-only maintenance GET check; never sends notifications or runs the digest job."
@@ -51,16 +48,13 @@ class MaintenanceReadCheckTests(unittest.TestCase):
         type: boolean
         default: false
 ''', source)
-        self.assertIn('''  schedule:
-    # Asia/Shanghai Tue–Sat 07:10 → UTC Mon–Fri 23:10, after 22:20 producers
-    - cron: "10 23 * * 1-5"
-''', source)
+        self.assertNotIn('\n  schedule:\n', source)
         digest, check = source.split('jobs:\n  digest:\n', 1)[1].split('\n  maintenance-read-check:\n', 1)
         exclude_check = "github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true"
         self.assertIn(exclude_check, digest)
-        # Digest admission now has its own read-only history permission. Freeze
-        # the independent maintenance job, whose authority and steps must not change.
-        self.assertIn('      actions: read', digest)
+        # The retired digest preview needs no delivery-history permission.
+        # Freeze the independent maintenance job without changing its authority.
+        self.assertNotIn('      actions: read', digest)
         self.assertEqual(hashlib.sha256(check.encode()).hexdigest(),
                          '768c7a6e975c9ad3f7c24d29d6835733d4288f9da4096c5de40605f87432cd8c')
         self.assertIn("    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.maintenance_read_check == true }}\n", check)
