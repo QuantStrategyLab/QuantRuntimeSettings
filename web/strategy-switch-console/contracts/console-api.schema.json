@@ -1298,6 +1298,13 @@
                 "items": {
                   "$ref": "#/$defs/currency_account_coverage"
                 }
+              },
+              "latest_as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Latest observation time among included current account snapshots; as_of remains the earliest. These balances need not share an observation date."
               }
             }
           }
@@ -1887,6 +1894,13 @@
                 "items": {
                   "$ref": "#/$defs/currency_account_coverage"
                 }
+              },
+              "latest_as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Latest observation time among included current account snapshots; as_of remains the earliest. These balances need not share an observation date."
               }
             }
           }

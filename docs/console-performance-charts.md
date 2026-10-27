@@ -93,11 +93,16 @@ history only; a current snapshot is not inserted into missing history.
 
 ## Current coverage and read failures
 
-Native-currency current totals retain the same-valuation-date rule. Optional
-`per_currency[].account_coverage` identifies each account's inclusion, observation
-date, actual freshness and exclusion reason. An older known balance is not zero
-and is not silently promoted to the current valuation date. These details are
-available in both overview and performance views.
+Native-currency current totals sum each account's latest qualified stored balance.
+Asynchronous updates across UTC dates must not remove otherwise valid balances.
+These are latest known balances, not a simultaneous portfolio valuation: `as_of`
+is the earliest included observation time, optional `latest_as_of` is the latest,
+and `observation_date` is null when the included dates differ. Optional
+`per_currency[].account_coverage` identifies each account's inclusion, original
+date, actual freshness and exclusion reason. Stale balances remain explicitly
+stale; missing or invalid balances are excluded rather than counted as zero.
+Both overview and performance show coverage and the source time range. Historical
+curves and return statistics retain their date and cohort requirements.
 
 A failed account-facts read returns HTTP 503 for dependent performance endpoints,
 with `stored_records_unreadable`; it cannot become a successful empty result.

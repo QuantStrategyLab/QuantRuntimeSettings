@@ -113,3 +113,6 @@
 .currency-coverage-list li { display: flex; flex-wrap: wrap; gap: 3px 10px; padding-block: 8px; border-top: 1px solid var(--line); }
 .currency-coverage-list li > span { overflow-wrap: anywhere; }
 .currency-coverage-list .currency-detail-name { flex-basis: 100%; }
+
+.currency-observation-time { display: flex; flex-wrap: wrap; gap: 2px 12px; min-width: 0; }
+.currency-observation-time .asof { white-space: normal; }
