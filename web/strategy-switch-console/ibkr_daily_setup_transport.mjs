@@ -171,7 +171,7 @@ const io={
   async verifyDeployment(version,id) { const d=await deployment(); if (!id || d.id!==id || d.version!==version || d.percentage!==100) throw Error('deployment_readback'); },
 };
 if (process.env.DAILY_SETUP_MODE==='preflight') {
-  let healthBindingPresent=null, healthRouteReachable=false, healthVersion=null;
+  let healthBindingPresent=null, healthRouteReachable=null, healthVersion=null;
   try {
     const current=await deployment();
     if (current.percentage!==100 || !validUuid(current.version)) throw Error('deployment_invalid');

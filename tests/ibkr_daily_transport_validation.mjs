@@ -43,7 +43,7 @@ const b64=Buffer.from('synthetic module').toString('base64');
 const resources=(isNew)=>({bindings:[{name:'STRATEGY_SWITCH_CONFIG',type:'kv_namespace',namespace_id:(process.env.MOCK_FAIL==='namespace'?'c':'b').repeat(32)},{name:'STRATEGY_HEALTH_SYNC_TOKEN',type:'secret_text'},...(isNew?[{name:'IBKR_RUNTIME_DAILY_SYNC_TOKEN',type:'secret_text'},{name:'IBKR_RUNTIME_DAILY_TARGET_KEY',type:'secret_text'}]:[])],script_runtime:{compatibility_date:'2026-01-01',usage_model:'bundled',migration_tag:'v1'},script:{handlers:['fetch']}});
 globalThis.fetch=async(url,opts={})=>{let s=JSON.parse(readFileSync(file));let u=new URL(url),body;
  const save=()=>writeFileSync(file,JSON.stringify(s));
- if(u.hostname==='qsl-strategy-switch-console.pigbibi.workers.dev')return new Response(JSON.stringify({ok:false,error:'login required'}),{status:401,headers:{'content-type':'application/json'}});
+ if(u.hostname==='qsl-strategy-switch-console.pigbibi.workers.dev'){if(process.env.MOCK_FAIL==='health_unavailable')throw Error('synthetic');return new Response(JSON.stringify({ok:false,error:'login required'}),{status:401,headers:{'content-type':'application/json'}});}
  if(u.pathname.includes('/storage/kv/')){const k=u.pathname.split('/').at(-1);if(opts.method==='PUT'){s.effects.push('registry');s.registry=JSON.parse(opts.body);save();if(process.env.MOCK_FAIL==='registry')throw Error('synthetic');body={success:true,result:null};}
  else if(k==='runtime_daily_bindings'&&!s.registry)return new Response('',{status:404});else return new Response(JSON.stringify(k==='runtime_daily_bindings'?s.registry:{}),{status:200,headers:{'content-type':'application/json'}});}
  else if(u.pathname.endsWith('/deployments')&&opts.method==='POST'){s.effects.push('activate');s.deployed=true;save();body={success:true,result:process.env.MOCK_FAIL==='activate_id'?{}:{id:'dddddddd-dddd-4ddd-addd-dddddddddddd'}};}
@@ -57,7 +57,7 @@ globalThis.fetch=async(url,opts={})=>{let s=JSON.parse(readFileSync(file));let u
 `);
 try {
   const script=resolve('web/strategy-switch-console/ibkr_daily_setup_transport.mjs');
-  const cases=[['preflight','','preflight_verified'],['preflight','preflight_403','preflight_blocked'],['execute','','configured'],['execute','IBKR_RUNTIME_DAILY_TARGET_KEY','stopped'],['execute','registry','stopped'],['execute','upload_id','stopped'],['execute','activate_id','stopped'],['execute','namespace','stopped']];
+  const cases=[['preflight','','preflight_verified'],['preflight','preflight_403','preflight_blocked'],['preflight','health_unavailable','preflight_verified'],['execute','','configured'],['execute','IBKR_RUNTIME_DAILY_TARGET_KEY','stopped'],['execute','registry','stopped'],['execute','upload_id','stopped'],['execute','activate_id','stopped'],['execute','namespace','stopped']];
   for(const [mode,fail,expected] of cases.filter(([,f])=>!process.env.TEST_FILTER||f===process.env.TEST_FILTER)) {
     writeFileSync(state,JSON.stringify({secrets:syntheticSecrets,effects:[],uploaded:false,deployed:false,registry:null}));
     const env={...process.env,PATH:`${dir}:${process.env.PATH}`,NODE_OPTIONS:`--import ${preload} --loader ${loader}`,
@@ -68,7 +68,8 @@ try {
     const seen=JSON.parse(readFileSync(state));
     if(mode==='preflight'){assert.deepEqual(seen.effects,[]);if(!fail){assert.equal(result.health_binding_present,true);assert.equal(result.health_route_reachable,true);}}
     if(mode==='execute'&&!fail)assert.deepEqual(seen.effects,['upload','IBKR_RUNTIME_DAILY_SYNC_TOKEN','IBKR_RUNTIME_DAILY_TARGET_KEY','registry','activate']);
-    if(fail==='preflight_403'){assert.equal(result.stage,'writer_check');assert.equal(result.operation,'gh_runs');assert.equal(result.reason,'github_request_failed');assert.equal(result.http_status,403);assert.equal(result.writes,0);assert.equal(result.health_binding_present,true);assert.equal(result.health_route_reachable,true);}
+    if(fail==='health_unavailable'){assert.equal(result.health_route_reachable,null);assert.deepEqual(seen.effects,[]);}
+    else if(fail==='preflight_403'){assert.equal(result.stage,'writer_check');assert.equal(result.operation,'gh_runs');assert.equal(result.reason,'github_request_failed');assert.equal(result.http_status,403);assert.equal(result.writes,0);assert.equal(result.health_binding_present,true);assert.equal(result.health_route_reachable,true);}
     else if(fail==='namespace'){assert.equal(result.phase,'preflight');assert.deepEqual(seen.effects,[]);}
     else if(fail){assert.equal(result.outcome,'unknown_requires_readback');assert.equal(result.retry,false);assert.equal(seen.effects.at(-1),fail.replace('_id',''));}
     assert.ok(!child.stdout.includes('service|tqqq_growth_income|live|')); // no target or token in receipts
