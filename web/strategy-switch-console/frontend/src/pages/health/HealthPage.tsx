@@ -85,7 +85,7 @@ function StatStrip({
   const notificationIncomplete = notificationData !== null
     && (notificationData.status === "partial" || notificationData.read_status === "partial"
       || notificationData.read_status === "unknown" || notificationData.truncated === true);
-  const primaryStates = ["succeeded", "failed", "read_failed"] as const;
+  const primaryStates = ["succeeded", "failed", "read_failed", "incomplete"] as const;
   const stateEntries = stateCounts ? Object.entries(stateCounts) : [];
   const primaryCounts = stateEntries.filter(([state]) => (primaryStates as readonly string[]).includes(state));
   const secondaryCounts = stateEntries.filter(([state, count]) =>
