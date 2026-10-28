@@ -11,7 +11,7 @@ import { recoveryMaterialPresentation, currentReconciliationObservationPresentat
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
 import { V2_ASSETS, V2_PAGE_HTML, V2_BUILD_ID } from "./v2_asset_map.js";
 import { CycleHealthError, canonicalCycleJson, cycleHealthSha256, normalizeCycleHealth, normalizeCycleInstant, compareCycleInstants, cycleCoverageComplete, cycleHealthAttemptKey, cycleHealthFaultCategory, cycleHealthFaultTime } from "./runtime_cycle_health.js";
-import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
+import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue, parseRuntimeDailyTargetKey } from "./runtime_daily_contract.js";
 import {
   BINANCE_FACTS_KEY, BINANCE_FACTS_MAX_BYTES, BinanceFactsError,
   normalizeBinanceFactsBinding, binanceFactsOptionMatches, assertBinanceFactsSourceBinding,
@@ -8887,11 +8887,12 @@ function normalizeRuntimeDailyRun(run, observedMs, target) {
   };
 }
 
-function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
+function normalizeRuntimeDailyProjection(raw, now = Date.now(), registeredTarget = null) {
   if (!runtimeDailyExactKeys(raw, ["platform", "observed_at", "completeness", "read_errors", "records", "unmatched_reports"])) {
     runtimeDailyReject("invalid_runtime_daily_projection");
   }
-  const target = runtimeDailyTarget(raw.platform);
+  const target = registeredTarget || runtimeDailyTarget(raw.platform);
+  if (target && raw.platform !== target.platform) runtimeDailyReject("invalid_runtime_daily_target");
   if (!target || !runtimeDailyChoice(raw.completeness, ["complete", "incomplete"])) {
     runtimeDailyReject("invalid_runtime_daily_projection");
   }
@@ -9034,8 +9035,49 @@ async function runtimeDailyTrustedBinding(env, target, accountOptions = null) {
     fingerprint: await sha256Hex(canonicalResearchTaskJson({ target, binding: matches[0] })) };
 }
 
+// A protected registration opts an account into this read model; account-facts
+// bindings alone do not register a daily source or authorize a publisher.
+async function runtimeDailyRegisteredBindings(env, accountOptions) {
+  if (!hasConfigStore(env)) throw Error("runtime_daily_bindings_store_unavailable");
+  const registry = await readConfigJson(env, "runtime_daily_bindings");
+  if (registry === null) return [];
+  if (!runtimeDailyExactKeys(registry, ["schema_version", "bindings"])
+    || registry.schema_version !== "qsl_runtime_daily_bindings.v1" || !Array.isArray(registry.bindings) || registry.bindings.length > 64)
+    throw Error("runtime_daily_bindings_invalid");
+  if (!registry.bindings.length) return [];
+  const facts = await loadAccountFactsBindings(env, { propagateReadErrors: true });
+  const entries = registry.bindings.map(item => {
+    if (!runtimeDailyExactKeys(item, ["account_key", "target_id", "source_binding_id", "strategy_profile", "target_key"])
+      || !runtimeDailyBoundedText(item.account_key, 120) || !runtimeDailyBoundedText(item.target_id, 120)
+      || typeof item.source_binding_id !== "string" || !/^[a-f0-9]{64}$/.test(item.source_binding_id)
+      || !runtimeDailyBoundedText(item.strategy_profile, 120)) throw Error("runtime_daily_bindings_invalid");
+    const target = parseRuntimeDailyTargetKey(item.target_key, "ibkr");
+    if (!target || item.target_key.split("|").length !== 4 || target.strategy_profile !== item.strategy_profile
+      || ![target.service, target.strategy_profile, target.account_scope].every(value => /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(value)))
+      throw Error("runtime_daily_bindings_invalid");
+    return { item, target };
+  });
+  return Promise.all(entries.map(async ({ item, target }) => {
+    const collision = entries.some(other => other.item !== item && (other.item.account_key === item.account_key
+      || other.item.target_key === item.target_key || other.item.target_id === item.target_id
+      || other.item.source_binding_id === item.source_binding_id));
+    const resolved = resolveTrustedAccountFactsBinding(facts, item.target_id, item.source_binding_id);
+    const options = (accountOptions?.ibkr || []).filter(option => option.key === item.account_key);
+    const binding = resolved.ok && resolved.binding.platform === "ibkr" && resolved.binding.account_key === item.account_key
+      && options.length === 1 && accountFactsOptionMatchesBinding(options[0], resolved.binding)
+      && target.service === resolved.binding.service_name && target.account_scope === resolved.binding.account_scope
+      ? resolved.binding : null;
+    const sharedPhysicalAccount = binding && entries.some(other => other.item !== item && other.item.account_key !== item.account_key
+      && facts?.bindings.some(otherBinding => otherBinding.platform === "ibkr" && otherBinding.account_key === other.item.account_key
+        && otherBinding.account_selector === binding.account_selector));
+    if (collision || !binding || sharedPhysicalAccount) return { platform: "ibkr", target_key: item.target_key, account_key: item.account_key, status: "conflict" };
+    return { platform: "ibkr", target_key: item.target_key, account_key: item.account_key, status: "bound", target,
+      fingerprint: await sha256Hex(canonicalResearchTaskJson({ target, registration: item, binding })) };
+  }));
+}
+
 async function runtimeDailyPublicBindings(env, accountOptions) {
-  return Promise.all(Object.values(RUNTIME_DAILY_TARGETS).map(async target => {
+  const legacy = await Promise.all(Object.values(RUNTIME_DAILY_TARGETS).map(async target => {
     try {
       const binding = await runtimeDailyTrustedBinding(env, target, accountOptions);
       return { platform: target.platform, target_key: target.target_key, account_key: binding?.accountKey || null,
@@ -9044,6 +9086,12 @@ async function runtimeDailyPublicBindings(env, accountOptions) {
       return { platform: target.platform, target_key: target.target_key, account_key: null, status: "read_failed" };
     }
   }));
+  try {
+    const registered = await runtimeDailyRegisteredBindings(env, accountOptions);
+    return [...legacy, ...registered.map(({ platform, target_key, account_key, status }) => ({ platform, target_key, account_key, status }))];
+  } catch {
+    return [...legacy, { platform: "ibkr", target_key: "", account_key: null, status: "read_failed" }];
+  }
 }
 
 function runtimeDailyStoredProjection(raw, target, binding) {
@@ -9242,8 +9290,8 @@ async function runtimeDailyResponse(request, env, url) {
   if (platforms.length > 1 || accounts.length > 1 || url.searchParams.getAll("date").length !== 1
     || (platforms.length !== accounts.length)) return json({ ok: false, error: "invalid_runtime_daily_selection" }, 400);
   // Legacy date-only reads always mean PAPER, never the first configured target.
-  const target = platforms.length ? runtimeDailyTarget(platforms[0]) : RUNTIME_DAILY_TARGET;
-  if (!target || (accounts.length && !runtimeDailyBoundedText(accounts[0], 120))) return json({ ok: false, error: "invalid_runtime_daily_selection" }, 400);
+  let target = platforms.length ? runtimeDailyTarget(platforms[0]) : RUNTIME_DAILY_TARGET;
+  if ((!target && platforms[0] !== "ibkr") || (accounts.length && !runtimeDailyBoundedText(accounts[0], 120))) return json({ ok: false, error: "invalid_runtime_daily_selection" }, 400);
   const historyOptions = url.searchParams.getAll("include_history");
   if (historyOptions.length > 1 || historyOptions.some(value => !["true", "false"].includes(value)))
     return json({ ok: false, error: "invalid_runtime_daily_selection" }, 400);
@@ -9251,7 +9299,15 @@ async function runtimeDailyResponse(request, env, url) {
   const businessDate = runtimeDailyCalendarDate(url.searchParams.get("date"));
   if (!businessDate || businessDate > runtimeDailyToday()) return json({ ok: false, error: "invalid_runtime_daily_date" }, 400);
   let binding;
-  try { binding = await runtimeDailyTrustedBinding(env, target); }
+  try {
+    if (platforms[0] === "ibkr") {
+      const config = await loadAccountOptionsConfig(env);
+      const matches = (await runtimeDailyRegisteredBindings(env, config.options)).filter(item => item.account_key === accounts[0]);
+      if (matches.length !== 1 || matches[0].status !== "bound") return runtimeDailyUnattributedResponse();
+      binding = { accountKey: matches[0].account_key, fingerprint: matches[0].fingerprint };
+      target = matches[0].target;
+    } else binding = await runtimeDailyTrustedBinding(env, target);
+  }
   catch { return json({ ok: false, error: "runtime_daily_read_failed" }, 503); }
   if (!binding || (accounts.length && accounts[0] !== binding.accountKey)) return runtimeDailyUnattributedResponse();
   const accountKey = binding.accountKey;
@@ -9277,7 +9333,7 @@ async function runtimeDailyResponse(request, env, url) {
   }
   let projection;
   try {
-    projection = normalizeRuntimeDailyProjection(runtimeDailyStoredProjection(stored, target, binding));
+    projection = normalizeRuntimeDailyProjection(runtimeDailyStoredProjection(stored, target, binding), Date.now(), target);
   } catch (error) {
     if (error.message === "runtime_daily_binding_changed") return json({ ok: false, error: error.message }, 409);
     return json({ ok: false, error: "runtime_daily_record_invalid",

@@ -140,6 +140,19 @@ Multiple matching bindings return `partial/runtime_daily_binding_conflict` for
 the account; no target is selected and its run state stays unknown. A missing
 binding remains `not_connected/runtime_daily_not_connected`.
 
+IBKR's local multi-target read contract requires the protected
+`runtime_daily_bindings` registry (`qsl_runtime_daily_bindings.v1`): each entry
+contains `account_key`, `target_id`, `source_binding_id`, `strategy_profile`
+and a stable `target_key` in `service|strategy_profile|scope|opaque` form,
+where `opaque` is 32 lowercase hexadecimal characters and contains no account
+identifier. Each entry must uniquely match the existing protected account-facts
+binding and account option. Missing registration is `not_connected`; collisions
+or mismatches are `partial/runtime_daily_binding_conflict`, and unreadable
+registration or bindings are `read_failed`. Stored records are checked against
+the registration and binding fingerprint, so a change cannot reattribute history.
+This read-only preparation does not register an account, grant access to a
+publisher or allow the existing runtime-daily sync route to ingest IBKR records.
+
 The internal Durable Object command `account_daily_native_return_research_read`
 is limited to one IBKR account, one currency and an inclusive range of at most
 366 days. It returns validated stored rows with their actual source binding,
