@@ -57,6 +57,8 @@ test("P1: healthy balances keep one compact independent partial-history status i
     assert.match(html, /data-affected-count="[1-9][0-9]*"/, "affected coverage remains diagnostic");
     assert.match(html, /个账户的历史数据不完整|History is incomplete for/,
       "partial history states its affected account count");
+    assert.ok(html.includes(language === "zh" ? "部分日期包含沿用的此前余额，这些余额并非当日观测。" : "Some dates include earlier balances; those balances were not observed on those dates."),
+      "carried balances are distinguished from same-day observations");
     assert.ok(html.includes(language === "zh" ? "合成账户甲" : "Synthetic Alpha"), "account coverage exposes display names in an expandable detail");
     assert.doesNotMatch(html, /前值填充|Forward-filled|不代表当日新估值|not a new valuation/i);
     assert.doesNotMatch(html, /synthetic-a|synthetic-b|perf\.|reason\.|state\./);
@@ -71,6 +73,8 @@ test("P1: healthy balances keep one compact independent partial-history status i
     assert.ok(notice(ui.assets(language, truncated), "partial"));
     const missingOnly = performanceBlocks({ ...input, histories: [history("synthetic-a", [point(7, 107), point(8, 108)]), history("synthetic-b", [])] }).assets;
     assert.ok(notice(ui.assets(language, missingOnly), "partial"));
+    assert.ok(!ui.assets(language, missingOnly).includes(language === "zh" ? "部分日期包含沿用的此前余额" : "Some dates include earlier balances"),
+      "missing history alone does not imply balances were carried");
     const mixed = performanceBlocks({ ...input, histories: [...input.histories, { id: "synthetic-wallet", currency: "USDT", points: [point(7, 500), point(8, 500)] }] }).assets;
     assert.ok(notice(ui.assets(language, mixed), "partial"), "the selected currency keeps its partial history");
     const unknown = { ...assets, points: assets.points.map(p => ({ ...p, missing_accounts: ["synthetic-raw-strategy-key"] })), history_per_currency: undefined };

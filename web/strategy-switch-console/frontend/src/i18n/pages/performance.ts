@@ -1,5 +1,6 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
+  "perf.latest_balance_scope_note": "可能包含环境待确认账户，不代表已核实的实盘合计。",
   "perf.latest_balance_total": "{currency} 最近已知余额合计",
   "perf.latest_balance_subtotal": "{currency} 最近已知余额小计",
   "perf.balance_oldest_time": "最早数据 {value}",
@@ -33,6 +34,7 @@ export const zh: Record<string, string> = {
   "perf.history_stale": "历史数据可能不是最新",
   "perf.history_coverage_note": "部分账户缺少历史数据，曲线仅包含有数据的账户。",
   "perf.history_affected_accounts": "{count} 个账户的历史数据不完整",
+  "perf.history_carried_balances": "部分日期包含沿用的此前余额，这些余额并非当日观测。",
   "perf.currency_excluded_accounts": "另有 {count} 个账户的币种或金额未确认。",
   "perf.drawdown_twr_title": "TWR 最大回撤",
   "perf.native_totals_note": "按币种分别展示，不换汇。",
@@ -98,6 +100,7 @@ export const zh: Record<string, string> = {
   "perf.executions_empty_partial": "部分记录，当前范围内暂无可展示成交。",
 };
 export const en: Record<string, string> = {
+  "perf.latest_balance_scope_note": "May include accounts with unconfirmed environments; this is not a verified live-account total.",
   "perf.latest_balance_total": "{currency} latest known balance total",
   "perf.latest_balance_subtotal": "{currency} latest known balance subtotal",
   "perf.balance_oldest_time": "Earliest data {value}",
@@ -131,6 +134,7 @@ export const en: Record<string, string> = {
   "perf.history_stale": "History may not be up to date",
   "perf.history_coverage_note": "Some accounts lack history; the curve includes only accounts with data.",
   "perf.history_affected_accounts": "History is incomplete for {count} accounts",
+  "perf.history_carried_balances": "Some dates include earlier balances; those balances were not observed on those dates.",
   "perf.currency_excluded_accounts": "Currency or balance is unconfirmed for {count} additional accounts.",
   "perf.drawdown_twr_title": "Maximum TWR drawdown",
   "perf.native_totals_note": "Shown by currency without FX conversion.",
