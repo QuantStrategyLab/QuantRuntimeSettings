@@ -51,7 +51,6 @@ export function CurrencyTotals({ totals, freshness, notes }: {
             ? !coverage && <Badge tone="warn">{t("perf.partial_accounts")}</Badge>
             : status !== "ok" && <StatusBadge status={status} />}
         </span>
-        {latestBalance && coverage && <p className="card-note">{t("perf.latest_balance_scope_note")}</p>}
         {item.account_coverage?.length ? <details className="currency-details">
           <summary>{t("perf.coverage_details")}</summary>
           <ul className="currency-coverage-list">{item.account_coverage.map(account => <li key={`${account.platform}:${account.account_alias}`}>

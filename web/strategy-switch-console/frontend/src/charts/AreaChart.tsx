@@ -12,6 +12,15 @@ function dayMs(date: string): number {
   return Date.parse(`${date}T00:00:00Z`);
 }
 
+/**
+ * A break is a real backend gap: an omitted observation or a change in the set
+ * of accounts behind the balance. Both end the drawn line instead of joining
+ * two different scopes into one continuous total.
+ */
+function isBreak(point: Point): boolean {
+  return point.breakBefore === true || point.membership_changed === true;
+}
+
 /** Single-series asset area chart; cash-flow points (externalFlow ≠ 0) get markers. No benchmarks. */
 export function AreaChart({
   points,
@@ -70,10 +79,10 @@ export function AreaChart({
   };
   const yFor = (value: number) => PAD.top + (1 - (value - yMin) / (yMax - yMin)) * (HEIGHT - PAD.top - PAD.bottom);
 
-  const linePath = points.map((point, i) => `${point.breakBefore || i === 0 ? "M" : "L"}${xFor(i).toFixed(2)},${yFor(point.value).toFixed(2)}`).join("");
+  const linePath = points.map((point, i) => `${isBreak(point) || i === 0 ? "M" : "L"}${xFor(i).toFixed(2)},${yFor(point.value).toFixed(2)}`).join("");
   const segments: number[][] = [];
   points.forEach((point, i) => {
-    if (i === 0 || point.breakBefore) segments.push([]);
+    if (i === 0 || isBreak(point)) segments.push([]);
     segments.at(-1)!.push(i);
   });
   // A one- or two-point segment is a sparse tail, not a filled area: filling it
@@ -157,7 +166,17 @@ export function AreaChart({
             <path d={areaPath} fill="var(--accent)" opacity="0.12" />
             <path d={linePath} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
             {segments.filter(indices => indices.length < 3).flatMap(indices =>
-              indices.map(i => <circle key={points[i].date} cx={xFor(i)} cy={yFor(points[i].value)} r="3" fill="var(--accent)" />),
+              indices.map(i => (
+                <circle
+                  key={points[i].date}
+                  cx={xFor(i)}
+                  cy={yFor(points[i].value)}
+                  r={indices.length === 1 ? 4.5 : 3}
+                  fill="var(--accent)"
+                  stroke="var(--surface)"
+                  strokeWidth={indices.length === 1 ? 1.5 : 0}
+                />
+              )),
             )}
             {points.map((point, i) =>
               point.externalFlow ? (

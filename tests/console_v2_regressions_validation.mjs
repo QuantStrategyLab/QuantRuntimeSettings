@@ -159,7 +159,9 @@ assert.equal(cellKind({ ...snapshot, data_status: "unavailable" }), "no-record")
 assert.equal(cellKind({ ...snapshot, data_status: "stale" }), "stale");
 assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, completeness: "incomplete" } }), "incomplete");
 assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, status: "missing_report" } }), "incomplete");
-assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, status: "read_incomplete" } }), "read-failed");
+for (const code of ["coverage_unconfirmed", "read_truncated", "report_read_error"]) {
+  assert.equal(cellKind({ ...snapshot, read_error_codes: [code], record: { ...snapshot.record, status: "read_incomplete" } }), "incomplete");
+}
 
 await import("./console_holdings_known_fields_ui_validation.mjs");
 console.log("console_v2_regressions_validation: PASS (balances, compounded daily returns, reviewed bindings, account choice, explicit runtime outcomes; synthetic only)");
