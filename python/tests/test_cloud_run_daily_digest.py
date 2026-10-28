@@ -184,6 +184,52 @@ class CloudRunDigestTests(unittest.TestCase):
             self.assertEqual(status, 400)
         self.assertFalse(self.sent or self.store.records)
 
+    def test_scheduler_seconds_and_fraction_preserve_send_slot_and_deduplication(self):
+        self.now = NOW + timedelta(seconds=5)
+        stamp = NOW + timedelta(seconds=2, microseconds=131439)
+        headers = {**HEADERS, 'X-CloudScheduler-ScheduleTime': stamp.isoformat()}
+        status, result = self.run_request(headers=headers, configuration=self.enable())
+        self.assertEqual((status, result['delivery']), (200, 'accepted'))
+        record = self.store.records['synthetic/2026-10-16.json']
+        self.assertEqual(record['scheduled_at'], stamp.isoformat())
+        _, repeated = self.run_request(headers=headers, configuration=self.enable())
+        self.assertEqual(repeated['delivery'], 'duplicate')
+        self.assertEqual(len(self.sent), 1)
+
+    def test_fractional_receipt_slot_remains_read_only(self):
+        self.run_request(configuration=self.enable())
+        self.now = NOW + timedelta(minutes=30, seconds=5)
+        stamp = NOW + timedelta(minutes=30, seconds=2, microseconds=131439)
+        headers = {**HEADERS, 'X-CloudScheduler-ScheduleTime': stamp.isoformat()}
+        self.store.candidate = lambda *args: self.fail('receipt slot read financial inputs')
+        self.store.reserve = lambda *args: self.fail('receipt slot reserved a new send')
+        status, result = self.run_request(headers=headers, configuration=self.enable())
+        self.assertEqual((status, result['delivery']), (200, 'confirmed'))
+        self.assertEqual(len(self.sent), 1)
+
+    def test_fractional_time_does_not_allow_other_minutes_or_future_time(self):
+        self.now = NOW + timedelta(minutes=3)
+        for stamp in (NOW + timedelta(minutes=1, seconds=2), NOW + timedelta(minutes=4)):
+            with self.subTest(stamp=stamp):
+                headers = {**HEADERS, 'X-CloudScheduler-ScheduleTime': stamp.isoformat()}
+                status, result = self.run_request(headers=headers, configuration=self.enable())
+                self.assertEqual((status, result['delivery']), (400, 'invalid_slot'))
+        self.assertFalse(self.sent or self.store.records)
+
+    def test_slot_errors_expose_only_fixed_reason_codes(self):
+        private = 'private-header-value-not-for-logs'
+        for headers, expected in (
+            ({'X-CloudScheduler-JobName': private}, 'digest_scheduler_job_mismatch'),
+            ({'X-CloudScheduler-JobName': JOB}, 'digest_schedule_header_missing'),
+            ({**HEADERS, 'X-CloudScheduler-ScheduleTime': private}, 'digest_schedule_header_invalid'),
+        ):
+            with self.subTest(reason=expected):
+                status, result = self.run_request(headers=headers, configuration=self.enable())
+                self.assertEqual(status, 400)
+                self.assertEqual(result['reason_code'], expected)
+                self.assertNotIn(private, json.dumps(result))
+        self.assertFalse(self.sent or self.store.records)
+
     def test_after_cutoff_sends_one_late_notice_without_reading_candidates(self):
         self.now = NOW + timedelta(hours=2)
         self.store.candidate = lambda *args: self.fail('late path read candidates')
