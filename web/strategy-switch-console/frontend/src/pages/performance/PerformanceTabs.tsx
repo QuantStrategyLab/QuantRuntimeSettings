@@ -1,6 +1,6 @@
 import { FreshnessSummary } from "../../components/CurrencyTotals";
 import { useDisplayNames } from "../../lib/useDisplayNames";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { usePrefs } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
@@ -119,53 +119,120 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
   );
 }
 
+interface RankableHolding {
+  row: HoldingRow;
+  id: string;
+  symbol: string;
+  /** Null when the source did not provide a usable currency; such a row is never ranked. */
+  currency: string | null;
+  pnl: number;
+  value: number;
+}
+
+interface CurrencyRanking {
+  currency: string;
+  winners: BarListItem[];
+  losers: BarListItem[];
+}
+
+function rankableHolding(row: HoldingRow): RankableHolding | null {
+  if (!renderableStatus(row.status)) return null;
+  const { quantity, avg_cost, unrealized_pnl } = row;
+  // Bars show P/L relative to cost basis; both inputs come from the same row, nothing is estimated.
+  if (!Number.isFinite(unrealized_pnl) || !Number.isFinite(avg_cost) || !Number.isFinite(quantity)) return null;
+  if (unrealized_pnl === null || avg_cost === null || quantity === null || !(avg_cost * quantity > 0)) return null;
+  const currency = typeof row.currency === "string" && row.currency.trim() ? row.currency.trim() : null;
+  return {
+    row,
+    id: `${row.platform}:${row.account_alias}|${row.symbol}`,
+    symbol: row.symbol,
+    currency,
+    pnl: unrealized_pnl,
+    value: (unrealized_pnl / (avg_cost * quantity)) * 100,
+  };
+}
+
+/**
+ * Rank native unrealized P/L inside each currency. Amounts are never compared
+ * or converted across currencies; a row without a currency is excluded rather
+ * than folded into a known one. Duplicate symbols stay distinguishable through
+ * the caller-provided account label.
+ */
+function rankHoldingsByCurrency(
+  rows: readonly HoldingRow[],
+  accountLabel: (row: HoldingRow) => string,
+): { groups: CurrencyRanking[]; rankedCount: number; missingCurrencyCount: number } {
+  const rankable = rows.map(rankableHolding).filter((item): item is RankableHolding => item !== null);
+  const missingCurrencyCount = rankable.filter(item => item.currency === null).length;
+  const buckets = new Map<string, RankableHolding[]>();
+  for (const item of rankable) {
+    if (item.currency === null) continue;
+    const bucket = buckets.get(item.currency);
+    if (bucket) bucket.push(item);
+    else buckets.set(item.currency, [item]);
+  }
+  const groups = [...buckets.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([currency, items]): CurrencyRanking => {
+      const toItem = (item: RankableHolding): BarListItem => ({
+        id: item.id,
+        label: `${item.symbol} · ${accountLabel(item.row)}`,
+        value: item.value,
+      });
+      return {
+        currency,
+        winners: items.filter(item => item.pnl > 0).sort((a, b) => b.pnl - a.pnl).slice(0, RANKING_SIZE).map(toItem),
+        losers: items.filter(item => item.pnl < 0).sort((a, b) => a.pnl - b.pnl).slice(0, RANKING_SIZE).map(toItem),
+      };
+    })
+    .filter(group => group.winners.length > 0 || group.losers.length > 0);
+  return { groups, rankedCount: rankable.length - missingCurrencyCount, missingCurrencyCount };
+}
+
 function RankingTab({ state }: { state: Api<HoldingsResponse> }) {
   const t = useT();
-  const { winners, losers, eligibleCount } = useMemo(() => {
-    if (state.phase !== "ready" || !renderableStatus(state.data.status)) return { winners: [], losers: [], eligibleCount: 0 };
-    // Bars show P/L relative to cost basis; both inputs come from the same row, nothing is estimated.
-    const ranked = state.data.rows
-      .filter(row => renderableStatus(row.status) && Number.isFinite(row.unrealized_pnl) && Number.isFinite(row.avg_cost) && Number.isFinite(row.quantity) && row.unrealized_pnl !== null && row.avg_cost !== null && row.quantity !== null && row.avg_cost * row.quantity > 0)
-      .map(row => ({
-        id: `${row.platform}:${row.account_alias}|${row.symbol}`,
-        label: row.symbol,
-        pnl: row.unrealized_pnl!,
-        value: (row.unrealized_pnl! / (row.avg_cost! * row.quantity!)) * 100,
-      }));
-    const winners = ranked
-      .filter(item => item.pnl > 0)
-      .sort((a, b) => b.pnl - a.pnl)
-      .slice(0, RANKING_SIZE)
-      .map(({ id, label, value }): BarListItem => ({ id, label, value }));
-    const losers = ranked
-      .filter(item => item.pnl < 0)
-      .sort((a, b) => a.pnl - b.pnl)
-      .slice(0, RANKING_SIZE)
-      .map(({ id, label, value }): BarListItem => ({ id, label, value }));
-    return { winners, losers, eligibleCount: ranked.length };
-  }, [state]);
-
+  const names = useDisplayNames();
   if (state.phase === "loading") return <Skeleton height={160} />;
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
-  if (!renderableStatus(state.data.status)) {
-    return <EmptyState title={t(`state.${state.data.status}`)} state={state.data.status} />;
+  const data = state.data;
+  if (!renderableStatus(data.status)) {
+    return <EmptyState title={t(`state.${data.status}`)} state={data.status} />;
   }
-  if (!winners.length && !losers.length) return <EmptyState title={t(eligibleCount > 0 ? "perf.ranking_no_movement" : "perf.ranking_unavailable")}
-    body={eligibleCount > 0 ? undefined : t(state.data.rows.length > 0 ? "perf.ranking_missing_fields" : state.data.unavailable_reason ? `reason.${state.data.unavailable_reason}` : "reason.positions_not_connected")} />;
+  const { groups, rankedCount, missingCurrencyCount } = rankHoldingsByCurrency(
+    data.rows,
+    row => names.account(row.account_alias, row.platform),
+  );
+  if (!groups.length) {
+    const body = missingCurrencyCount > 0
+      ? t("perf.ranking_missing_currency")
+      : rankedCount > 0
+        ? undefined
+        : data.rows.length > 0
+          ? t("perf.ranking_missing_fields")
+          : data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : t("reason.positions_not_connected");
+    return <EmptyState title={t(rankedCount > 0 ? "perf.ranking_no_movement" : "perf.ranking_unavailable")} body={body} />;
+  }
   return (
     <div>
-      {winners.length > 0 && (
-        <div className="perf-ranking-section">
-          <h3 className="perf-ranking-heading">{t("perf.ranking_winners")}</h3>
-          <BarList items={winners} />
-        </div>
-      )}
-      {losers.length > 0 && (
-        <div className="perf-ranking-section">
-          <h3 className="perf-ranking-heading">{t("perf.ranking_losers")}</h3>
-          <BarList items={losers} />
-        </div>
-      )}
+      {groups.map(group => (
+        <section className="perf-ranking-currency" key={group.currency} data-currency={group.currency}>
+          <h3 className="perf-ranking-heading perf-ranking-currency-heading">{group.currency}</h3>
+          {group.winners.length > 0 && (
+            <div className="perf-ranking-section">
+              <h4 className="perf-ranking-heading">{t("perf.ranking_winners")}</h4>
+              <BarList items={group.winners} />
+            </div>
+          )}
+          {group.losers.length > 0 && (
+            <div className="perf-ranking-section">
+              <h4 className="perf-ranking-heading">{t("perf.ranking_losers")}</h4>
+              <BarList items={group.losers} />
+            </div>
+          )}
+        </section>
+      ))}
+      {missingCurrencyCount > 0 && <p className="card-note">{t("perf.ranking_missing_currency")}</p>}
+      <p className="card-note">{t("perf.native_totals_note")}</p>
       <p className="card-note">{t("perf.ranking_note")}</p>
     </div>
   );

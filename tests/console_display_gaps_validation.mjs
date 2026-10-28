@@ -32,7 +32,7 @@ try {
       summary: { phase: 'ready', data, reload() {} }, credential: { phase: 'loading', reload() {} } });
     export const credentials = (language, data) => render(language, CredentialsCard, {
       credential: { phase: 'ready', data, reload() {} } });
-    export const summary = language => render(language, SummaryCards, { scope: 'all', range: 'YTD', epoch: 0 });
+    export const summary = language => render(language, SummaryCards, { scope: 'all', state: globalThis.__displayState });
     export const tabs = language => render(language, Tabs, {
       id: 'test-tabs', items: [{ id: 'first', label: 'First' }, { id: 'second', label: 'Second' }], active: 'second', onChange() {} });
     export const detail = (language, snapshot) => render(language, DayDetail, {

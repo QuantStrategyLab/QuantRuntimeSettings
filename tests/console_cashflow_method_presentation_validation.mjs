@@ -27,7 +27,7 @@ try {
         import { I18nProvider } from './src/i18n';
         export const cards = (language, data) =>
           renderToStaticMarkup(h(I18nProvider, { language },
-            h(SummaryCards, { scope: 'all', platform: undefined, range: 'ALL', epoch: 0 })));
+            h(SummaryCards, { scope: 'all', platform: undefined, state: globalThis.__dietzState })));
         export const returns = (language, data, scope = 'all') =>
           renderToStaticMarkup(h(I18nProvider, { language },
             h(ReturnsCard, { scope, platform: undefined, range: 'ALL', epoch: 0 })));`,

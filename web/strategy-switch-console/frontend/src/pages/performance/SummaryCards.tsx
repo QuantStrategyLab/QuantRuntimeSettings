@@ -1,21 +1,22 @@
 import type { ReactNode } from "react";
 import { useScope } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
-import { useApi } from "../../lib/hooks";
+import type { AsyncState } from "../../lib/hooks";
 import { formatDate, formatPercentagePoints } from "../../lib/format";
-import { loadPerformanceSummary } from "../../api/endpoints";
-import type { Range, SummaryResponse } from "../../api/contracts";
+import type { SummaryResponse } from "../../api/contracts";
 import { AsOfStamp, ErrorState, Money, Percent, Skeleton, StatusBadge } from "../../components/primitives";
 import { KpiCard } from "../../components/KpiCard";
 import { renderableStatus } from "./shared";
 import { DIETZ_APPROX_LABEL_KEY, UNKNOWN_METHOD_LABEL_KEY, classifyCashflowMethod } from "./cashflowMethod";
 import { benchmarkPolicy, type BenchmarkPolicy } from "./benchmarkPolicy";
 
+export type SummaryState = AsyncState<SummaryResponse> & { reload: () => void };
+
 export interface SummaryCardsProps {
   scope: string;
   platform: string | undefined;
-  range: Range;
-  epoch: number;
+  /** The page owns the single summary read; cards never fetch their own copy. */
+  state: SummaryState;
 }
 
 /** The shared summary carries the state once; unavailable values themselves stay compact. */
@@ -160,11 +161,10 @@ function DayCard({ data, field, titleKey }: { data: SummaryResponse; field: "bes
   return <KpiCard title={title} value={value} sub={`${day.date}${kind}`} />;
 }
 
-export function SummaryCards({ scope, platform, range, epoch }: SummaryCardsProps) {
+export function SummaryCards({ scope, platform, state }: SummaryCardsProps) {
   const t = useT();
   const { options } = useScope();
   const policy = benchmarkPolicy(scope, platform, options);
-  const state = useApi(() => loadPerformanceSummary(scope, range, platform), [scope, platform, range, epoch]);
 
   if (state.phase === "loading") {
     const titles = ["perf.card.twr", "perf.card.amount", "perf.card.max_drawdown", "perf.card.excess", "perf.card.best_day", "perf.card.worst_day"];

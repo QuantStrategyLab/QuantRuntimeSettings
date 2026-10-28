@@ -156,8 +156,12 @@ the same `currentStrategies[platform][alias].strategy_profile` source and bounde
 cache used by `/api/config`, preserving platform, alias and additive
 `account_ref=platform:alias`. It describes observed configuration, not a verified
 runtime deployment. `configured_accounts_source=currentStrategies` and
-`account_assignment_status=complete|partial|unavailable` describe whether every
-configured account has a current profile. Missing current assignments stay
+`account_assignment_status=complete|partial|unavailable|read_failed` describe whether every
+configured account has a current profile. Each configured account includes
+`execution_evidence` for its explicitly observed configuration; it does not
+prove a runtime observation or grant execution authority. Permission and read
+failures are listed in `account_assignment_read_failures` rather than treated
+as missing configuration. Missing current assignments stay
 unassigned; declared defaults never fill the gap. Missing
 health remains null with `strategy_health_not_connected`; invalid stored health
 returns `read_failed/stored_records_unreadable`; stale health stays stale. It

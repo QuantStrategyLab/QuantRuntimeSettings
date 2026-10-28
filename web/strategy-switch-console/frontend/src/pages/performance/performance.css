@@ -105,6 +105,11 @@
 
 .perf-ranking-section + .perf-ranking-section { margin-top: 18px; }
 .perf-ranking-heading { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+/* Each currency is its own ranking; sections are never scaled against each other. */
+.perf-ranking-currency + .perf-ranking-currency { margin-top: 22px; }
+.perf-ranking-currency-heading { font-size: 14px; letter-spacing: .02em; }
+.perf-ranking-currency .barlist-row { grid-template-columns: minmax(0, 1fr) minmax(55px, 1fr) auto; }
+.perf-ranking-currency .barlist-label { white-space: normal; overflow-wrap: anywhere; }
 
 /* Assets and calendar share one balanced row; each keeps its own readable width. */
 .perf-duo-grid {
