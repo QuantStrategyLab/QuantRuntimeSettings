@@ -3082,7 +3082,7 @@ export class RuntimeInstances {
     let prior = null;
     if (existing) {
       try { prior = readStored(existing.payload_json); }
-      catch { if (command.action === "account_period_return_read") return { ok: true, return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE } }; }
+      catch { /* Keep the latest interval unavailable; independently qualify daily rows below. */ }
     }
     if (command.action === "account_period_return_read") {
       const dailyByDay = new Map();
