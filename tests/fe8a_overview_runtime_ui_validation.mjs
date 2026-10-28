@@ -55,6 +55,8 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       assert.ok(html.includes("2/8"));
       assert.ok(!html.includes("—"));
       assert.equal(data.counts.runs, null);
+      const conflict = ui.render(language, { phase: "ready", data: { ...data, accounts: [{ unavailable_reason: "runtime_daily_binding_conflict" }] } });
+      assert.ok(conflict.includes(language === "zh" ? "运行记录存在多个账户绑定" : "Multiple run-record bindings match this account"));
       const empty = ui.render(language, { phase: "ready", data: { ...data, counts: { ...data.counts, observed: 0 } } });
       assert.ok(empty.includes(language === "zh" ? "暂无数据" : "No data"));
       assert.ok(!empty.includes("0/8"));

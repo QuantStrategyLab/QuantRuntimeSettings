@@ -208,7 +208,7 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   const data = state.data;
   const { configured, observed } = data.counts;
   const value = observed === 0 ? <KpiState status="no_data" /> : <>{observed}/{configured}</>;
-  const reason = data.accounts.some(account => account.unavailable_reason === "runtime_daily_binding_conflict")
+  const reason = data.accounts?.some(account => account.unavailable_reason === "runtime_daily_binding_conflict")
     ? "runtime_daily_binding_conflict" : "runtime_daily_not_connected";
   const footer = observed === 0
     ? <><span className="asof"><DateText value={data.date} /></span>{data.status === "partial" && <StatusBadge status="partial" reason={reason} />}</>

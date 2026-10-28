@@ -158,7 +158,9 @@ test("ambiguous ownership never reads or merges reports across bindings", async 
   assert.equal(reads.length, 0);
   assert.equal(summary.counts.observed, 0);
   assert.equal(summary.counts.runs, null);
-  assert.equal(summary.accounts[0].status, "not_connected");
+  assert.equal(summary.accounts[0].status, "partial");
+  assert.equal(summary.accounts[0].unavailable_reason, "runtime_daily_binding_conflict");
+  assert.equal(summary.accounts[0].run_status, "unknown");
 });
 
 for (const [name, overrides, recordOverrides] of [
