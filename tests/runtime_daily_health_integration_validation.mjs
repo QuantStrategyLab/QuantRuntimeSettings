@@ -357,6 +357,9 @@ try {
       assert.equal(localWrites.length, putsBefore);
     }
     assert.equal((await send(sourceBody)).status, 200, "current protected source ID admits a valid projection");
+    localEnv.IBKR_RUNTIME_DAILY_SYNC_TOKEN = "synthetic-daily-sync";
+    assert.equal((await send(sourceBody)).status, 200, "IBKR token collision does not block Schwab");
+    delete localEnv.IBKR_RUNTIME_DAILY_SYNC_TOKEN;
     const priorProjection = localStore.get(sourceKey);
     for (const body of [sourceBody, { ...sourceBody, read_errors: ["coverage_unconfirmed"], completeness: "incomplete",
       records: [{ ...sourceBody.records[0], completeness: "incomplete", status: "read_incomplete", kind: "incomplete" }] }]) {

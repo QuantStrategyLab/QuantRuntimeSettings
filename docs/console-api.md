@@ -150,8 +150,15 @@ binding and account option. Missing registration is `not_connected`; collisions
 or mismatches are `partial/runtime_daily_binding_conflict`, and unreadable
 registration or bindings are `read_failed`. Stored records are checked against
 the registration and binding fingerprint, so a change cannot reattribute history.
-This read-only preparation does not register an account, grant access to a
-publisher or allow the existing runtime-daily sync route to ingest IBKR records.
+Registration alone does not grant access to a publisher. IBKR ingestion on the
+existing sync route additionally requires an independently configured
+`IBKR_RUNTIME_DAILY_SYNC_TOKEN` and a single authorized
+`IBKR_RUNTIME_DAILY_TARGET_KEY`. The source-binding header must match that
+target's unique registered account-facts binding. The token must differ from
+the existing execution-evidence and account-facts tokens. Stored IBKR records
+carry the registration fingerprint; binding changes cannot reattribute them.
+Successful IBKR acknowledgements include the original `observed_at` for
+correlation. These settings and the registration are not provisioned by code.
 
 The internal Durable Object command `account_daily_native_return_research_read`
 is limited to one IBKR account, one currency and an inclusive range of at most

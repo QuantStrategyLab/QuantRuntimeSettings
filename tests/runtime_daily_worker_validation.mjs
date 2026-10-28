@@ -201,6 +201,9 @@ const firstObservation = projection({}, { business_date: orderedDate, observed_a
 const writesBeforeFirstObservation = puts.length;
 assert.equal((await post(firstObservation, auth)).status, 200);
 assert.equal(puts.length, writesBeforeFirstObservation + 1);
+env.IBKR_RUNTIME_DAILY_SYNC_TOKEN = token;
+assert.equal((await post(firstObservation, auth)).status, 200, "IBKR token collision does not block LongBridge");
+delete env.IBKR_RUNTIME_DAILY_SYNC_TOKEN;
 
 // Simulate an equivalent stored object with a different JSON key order.
 const firstStored = JSON.parse(store.get(orderedKey));

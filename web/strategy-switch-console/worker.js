@@ -9072,6 +9072,7 @@ async function runtimeDailyRegisteredBindings(env, accountOptions) {
         && otherBinding.account_selector === binding.account_selector));
     if (collision || !binding || sharedPhysicalAccount) return { platform: "ibkr", target_key: item.target_key, account_key: item.account_key, status: "conflict" };
     return { platform: "ibkr", target_key: item.target_key, account_key: item.account_key, status: "bound", target,
+      sourceBindingId: item.source_binding_id,
       fingerprint: await sha256Hex(canonicalResearchTaskJson({ target, registration: item, binding })) };
   }));
 }
@@ -9202,7 +9203,18 @@ function runtimeDailyReadStatus(stored, now) {
 
 async function syncRuntimeDailyResponse(request, env) {
   if (!runtimeDailyReadModelEnabled(env)) return runtimeDailyDisabledResponse();
-  requireDedicatedExecutionEvidenceSyncToken(request, env);
+  const ibkrToken = String(env.IBKR_RUNTIME_DAILY_SYNC_TOKEN || "");
+  const supplied = (request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  const isIbkr = !!ibkrToken && supplied === ibkrToken && supplied !== String(env.EXECUTION_EVIDENCE_SYNC_TOKEN || "");
+  if (isIbkr && [env.ACCOUNT_FACTS_SYNC_TOKEN,
+    env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN, env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN, env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.STRATEGY_SWITCH_SYNC_TOKEN, env.RECONCILIATION_RECOVERY_SYNC_TOKEN,
+    env.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN, env.CYCLE_HEALTH_PROVISIONER_TOKEN]
+    .some(value => value && String(value) === ibkrToken)) {
+    throw new HttpError("runtime_daily_token_ambiguous", 503);
+  }
+  if (!isIbkr) requireDedicatedExecutionEvidenceSyncToken(request, env);
   if (!hasConfigStore(env)) return json({ ok: false, error: "runtime daily KV is not configured" }, 503);
   let raw;
   try {
@@ -9210,13 +9222,32 @@ async function syncRuntimeDailyResponse(request, env) {
   } catch (error) {
     return json({ ok: false, error: error.message || "invalid_runtime_daily_projection" }, error.status || 400);
   }
-  const projection = normalizeRuntimeDailyProjection(raw);
-  const target = runtimeDailyTarget(projection.platform);
-  let binding;
-  try { binding = await runtimeDailyTrustedBinding(env, target); }
-  catch { return json({ ok: false, error: "runtime_daily_read_failed" }, 503); }
+  let target, binding, projection;
+  try {
+    if (isIbkr) {
+      const allowed = String(env.IBKR_RUNTIME_DAILY_TARGET_KEY || "");
+      if (!allowed || raw?.platform !== "ibkr" || raw?.records?.length !== 1 || raw.records[0]?.target_key !== allowed) {
+        throw new HttpError("runtime_daily_target_unauthorized", 403);
+      }
+      const options = (await loadAccountOptionsConfig(env)).options;
+      const matches = (await runtimeDailyRegisteredBindings(env, options)).filter(item => item.target_key === allowed);
+      if (matches.length !== 1 || matches[0].status !== "bound") return runtimeDailyUnattributedResponse();
+      target = matches[0].target;
+      binding = { accountKey: matches[0].account_key, fingerprint: matches[0].fingerprint,
+        sourceBindingId: matches[0].sourceBindingId };
+    } else {
+      projection = normalizeRuntimeDailyProjection(raw);
+      target = runtimeDailyTarget(projection.platform);
+      binding = await runtimeDailyTrustedBinding(env, target);
+    }
+  }
+  catch (error) {
+    if (error instanceof HttpError) throw error;
+    return json({ ok: false, error: "runtime_daily_read_failed" }, 503);
+  }
   if (!binding) return runtimeDailyUnattributedResponse();
-  if (target.platform === "schwab") {
+  if (isIbkr) projection = normalizeRuntimeDailyProjection(raw, Date.now(), target);
+  if (target.platform === "schwab" || isIbkr) {
     // Reuse the existing protected source_binding.id, not a new identity or a
     // body-supplied account. This also guards a new day with no cached fingerprint.
     const sourceBindingId = request.headers.get("X-QSL-Source-Binding-ID");
@@ -9237,7 +9268,7 @@ async function syncRuntimeDailyResponse(request, env) {
     let storedProjection;
     try {
       storedRaw = JSON.parse(storedText);
-      storedProjection = normalizeRuntimeDailyProjection(runtimeDailyStoredProjection(storedRaw, target, binding));
+      storedProjection = normalizeRuntimeDailyProjection(runtimeDailyStoredProjection(storedRaw, target, binding), Date.now(), target);
     } catch (error) {
       if (error.message === "runtime_daily_binding_changed") return json({ ok: false, error: error.message }, 409);
       return json({ ok: false, error: "runtime_daily_existing_record_invalid" }, 409);
@@ -9263,12 +9294,13 @@ async function syncRuntimeDailyResponse(request, env) {
           platform: target.platform,
           target_key: target.target_key,
           account_key: accountKey,
+          ...(isIbkr ? { observed_at: projection.observed_at } : {}),
         });
       }
       return json({ ok: false, error: "runtime_daily_observation_conflict" }, 409);
     }
   }
-  await writeConfigJson(env, key, target.platform === "schwab"
+  await writeConfigJson(env, key, target.platform !== "longbridge"
     ? { binding_fingerprint: binding.fingerprint, projection } : projection);
   return json({
     ok: true,
@@ -9277,6 +9309,7 @@ async function syncRuntimeDailyResponse(request, env) {
     platform: target.platform,
     target_key: target.target_key,
     account_key: accountKey,
+    ...(isIbkr ? { observed_at: projection.observed_at } : {}),
   });
 }
 
