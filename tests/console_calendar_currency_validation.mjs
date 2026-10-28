@@ -14,7 +14,7 @@ const deps = {
   facts: async () => json({ accounts: [fact] }),
   history: async request => new URL(request.url).searchParams.get("projection") === "currencies"
     ? json({ok:true,platform:fact.platform,account_key:fact.account_key,projection:"currencies",currencies:["USD"]})
-    : json({ platform: fact.platform, account_key: fact.account_key,
+    : json({ platform: fact.platform, account_key: fact.account_key, currencies: ["USD"],
     series: { currency: "USD", points: [
       { observation_date: "2026-10-22", net_assets: "100", currency: "USD", observed_finished_at: start },
       { observation_date: "2026-10-23", net_assets: "215", currency: "USD", observed_finished_at: end },

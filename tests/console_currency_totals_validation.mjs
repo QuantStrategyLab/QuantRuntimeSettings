@@ -84,7 +84,7 @@ const deps = {
   facts: async () => Response.json({ accounts: [input.accounts[0]] }),
   history: async request => new URL(request.url).searchParams.get("projection") === "currencies"
     ? Response.json({ok:true,platform:"synthetic",account_key:"alpha",projection:"currencies",currencies:["USD"]})
-    : Response.json({ platform: "synthetic", account_key: "alpha", series: { currency: "USD", points: [] } }),
+    : Response.json({ platform: "synthetic", account_key: "alpha", currencies: ["USD"], series: { currency: "USD", points: [] } }),
   wallet: async () => Response.json({ currency: "USDT", points: [{ observation_date: "2026-10-16", observed_at: "2026-10-16T10:00:00Z", amount: "50" }] }),
   benchmarks: async () => Response.json({ points: [] }),
 };

@@ -37,6 +37,13 @@ assert.deepEqual((await response.json()).currencies,['HKD','USD']);
 const legacyUrl=new URL('https://synthetic.invalid/api/account-facts/history?platform=longbridge&account_key=synthetic&currency=USD');
 response=await accountFactsHistoryResponse(new Request(legacyUrl),{ACCOUNT_FACTS_READ_MODEL_ENABLED:'true'},legacyUrl,deps);
 assert.equal(response.status,200);assert.equal((await response.json()).series.points.length,1, 'legacy currency projection remains supported');
+const combined=new URL(legacyUrl);combined.searchParams.set('include_currencies','true');
+response=await accountFactsHistoryResponse(new Request(combined),{ACCOUNT_FACTS_READ_MODEL_ENABLED:'true'},combined,deps);
+const combinedBody=await response.json();assert.equal(response.status,200);assert.deepEqual(combinedBody.currencies,['HKD','USD']);
+assert.equal(combinedBody.series.points.length,1);
+response=await accountFactsHistoryResponse(new Request(combined),{ACCOUNT_FACTS_READ_MODEL_ENABLED:'true'},combined,
+  {...deps,loadAccountOptionsConfig:async()=>({options:{longbridge:[{...option,account_selector:'HK'}]}})});
+assert.equal(response.status,409,'combined read must reject mismatched identity');
 response=await accountFactsHistoryResponse(new Request(url),{ACCOUNT_FACTS_READ_MODEL_ENABLED:'true'},url,{...deps,readSession:async()=>null});
 assert.equal(response.status,401);
 response=await accountFactsHistoryResponse(new Request(url),{ACCOUNT_FACTS_READ_MODEL_ENABLED:'true'},url,
