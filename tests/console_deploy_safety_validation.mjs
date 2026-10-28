@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const workflow = readFileSync(new URL("../.github/workflows/deploy-strategy-switch-console.yml", import.meta.url), "utf8");
 const triggers = workflow.slice(workflow.indexOf("\non:\n"), workflow.indexOf("\npermissions:"));
 assert.deepEqual([...triggers.matchAll(/^  (\w+):/gm)].map(match => match[1]), ["workflow_dispatch"], "merges must not deploy");
-for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_preflight", "skip_binance_receiver_checks", "release_frontend_assets", "rollback_to_pre_release"]) {
+for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_preflight", "check_explicit_version_inherit", "skip_binance_receiver_checks", "release_frontend_assets", "rollback_to_pre_release"]) {
   const block = triggers.match(new RegExp(`      ${input}:\\n([\\s\\S]*?)(?=\\n      \\w+:|$)`))?.[1];
   assert.ok(block, input);
   assert.match(block, /type: boolean/);
@@ -16,6 +16,40 @@ for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_prefli
 }
 assert.match(triggers, /      source_sha:\n[\s\S]*?type: string\n        default: ""/);
 const steps = workflow.split(/\n      - name: /).slice(1);
+const versionReadStep = steps.find(step => step.startsWith("Check fixed Worker version API\n"));
+assert.match(versionReadStep, /^        if: inputs\.check_explicit_version_inherit$/m);
+const versionReadScript = versionReadStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1]
+  .split("\n").map(line=>line.slice(10)).join("\n");
+const runVersionRead = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console",versionReadScript);
+for (const [status,body,expected] of [[200,{success:true,result:{id:"06043e24-f8c9-4129-8c59-abb9957217bf",secret:"PRIVATE_SENTINEL"}},"version_read"],
+  [200,{success:true,result:{id:"wrong"}},"response_mismatch"],
+  [200,{success:true,errors:[{}],result:{id:"06043e24-f8c9-4129-8c59-abb9957217bf"}},"response_mismatch"], [403,{},"http_error"]]) {
+  const calls=[], output=[];
+  await runVersionRead({env:{CLOUDFLARE_API_TOKEN:"PRIVATE_SENTINEL",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32)}},
+    async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json"}});},
+    {log:value=>output.push(value)});
+  assert.equal(calls.length,1); assert.equal(calls[0].options.method,"GET");
+  assert.ok(calls[0].url.endsWith("/workers/workers/qsl-strategy-switch-console/versions/06043e24-f8c9-4129-8c59-abb9957217bf"));
+  assert.equal(JSON.parse(output[0]).category,expected); assert.ok(!output[0].includes("PRIVATE_SENTINEL"));
+}
+const compareStep = steps.find(step => step.startsWith("Compare fixed Worker version configuration\n"));
+assert.match(compareStep, /^        if: inputs\.check_explicit_version_inherit$/m);
+const compareScript = compareStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1].split("\n").map(line=>line.slice(10)).join("\n");
+const runCompare = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console",compareScript);
+const syntheticResources = {bindings:[{name:"PRIVATE_NAME",type:"plain_text",text:"PRIVATE_VALUE"}],script:{etag:"old",handlers:["fetch"],named_handlers:[]},script_runtime:{compatibility_date:"2026-01-01",usage_model:"standard"}};
+for (const changed of [false,true]) {
+ const calls=[], out=[], process={env:{CLOUDFLARE_API_TOKEN:"PRIVATE_SENTINEL",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32)}};
+ await runCompare(process,async (url,options)=>{calls.push({url,options});const v=structuredClone(syntheticResources);if(changed && calls.length===2)v.bindings[0].text="DIFFERENT_PRIVATE_VALUE";
+ return new Response(JSON.stringify({success:true,result:{id:url.split("/").at(-1),resources:v}}),{headers:{"content-type":"application/json"}});}, {log:x=>out.push(x)});
+ assert.equal(calls.length,2);assert.ok(calls.every(c=>c.options.method==="GET"));assert.equal(JSON.parse(out[0]).bindings_equal,!changed);
+ assert.equal(JSON.parse(out[0]).binding_types_equal.plain_text,!changed);assert.ok(!out[0].includes("PRIVATE"));
+}
+for (const missingAt of [1,2]) {
+ const calls=[],out=[],process={env:{CLOUDFLARE_API_TOKEN:"PRIVATE_SENTINEL",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32)}};
+ await runCompare(process,async (url,options)=>{calls.push(url);const v=structuredClone(syntheticResources);if(calls.length===missingAt)delete v.script.etag;
+ return new Response(JSON.stringify({success:true,result:{id:url.split("/").at(-1),resources:v}}),{headers:{"content-type":"application/json"}});}, {log:x=>out.push(x)});
+ assert.equal(JSON.parse(out[0]).category,"comparison_failed");assert.equal(process.exitCode,1);assert.ok(!out[0].includes("PRIVATE"));
+}
 const writers = steps.filter(step => /\bsecret put\b|\/api\/internal\/sync-strategy-profiles/.test(step));
 assert.equal(writers.length, 16, "inspect every secret and profile writer");
 for (const step of writers) {
@@ -54,10 +88,13 @@ assert.ok(rollback, "normal fixed-baseline recovery is available without a new s
 const rollbackGate = rollback.match(/^    if: (.+)$/m)?.[1];
 for (const event of ["push", "workflow_dispatch"]) {
   for (const read_only_preflight of [false, true]) {
+    for (const check_explicit_version_inherit of [false, true]) {
     for (const rollback_to_pre_release of [false, true]) {
-    assert.equal(evaluate(preflightGate, { read_only_preflight }, "", event), event === "workflow_dispatch" && read_only_preflight);
-    assert.equal(evaluate(deployGate, { read_only_preflight, rollback_to_pre_release }, "", event), event === "workflow_dispatch" && !read_only_preflight && !rollback_to_pre_release);
-    assert.equal(evaluate(rollbackGate, { read_only_preflight, rollback_to_pre_release }, "", event), event === "workflow_dispatch" && !read_only_preflight && rollback_to_pre_release);
+    const inputs={read_only_preflight,check_explicit_version_inherit,rollback_to_pre_release};
+    assert.equal(evaluate(preflightGate, inputs, "", event), event === "workflow_dispatch" && (read_only_preflight || check_explicit_version_inherit));
+    assert.equal(evaluate(deployGate, inputs, "", event), event === "workflow_dispatch" && !read_only_preflight && !check_explicit_version_inherit && !rollback_to_pre_release);
+    assert.equal(evaluate(rollbackGate, inputs, "", event), event === "workflow_dispatch" && !read_only_preflight && !check_explicit_version_inherit && rollback_to_pre_release);
+    }
     }
   }
 }
@@ -165,11 +202,11 @@ const pr764Source = "20dad166be317dd0d57e492ed06e56dfb82b7aef";
 const pr764Tree = "7db7dbd1b1749b42187dbc1c9658669fa426ffa6";
 const pr764Blob = "de87e1c1c6b62fa94bd514c8936a4ec32e14c0e4";
 const pr764Build = "96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6";
-const approved = "795798f9a4ea629e9978d50939f385d9328c5713";
-const approvedTree = "983e0ac8b1cb546e6e0148fda4eb7ab5b1075662";
-const frontend = "4f3f9030c26bd44d4bbfb935f60d695ce79b4401";
-const frontendTree = "6e9b7190f7cd5fbf2e3a8315fd68d20760030790";
-const frontendBlob = "232b95dd4e3f69b439fed90c6f2214232ff66807";
+const approved = "9722414a99298cd7079a88eb8e3e703d50e986de";
+const approvedTree = "9e2c9f2fb840d5b74401b32e1e593c4e41b62b4a";
+const frontend = "9636363371c6fe2a14a0f8e3830d56dd4b9902d9";
+const frontendTree = "92d6dd1bccb68f5659d0b3f37b50b68f4d7a714b";
+const frontendBlob = "c73e59a6fb22ab612251d331bdd4db5d9ae68b7a";
 // Exercise the real release graph as well as the simulated shell below. A
 // copied patch can match every frozen tree while its source is not yet adopted.
 for (const source of [approved, frontend]) {
@@ -179,6 +216,8 @@ for (const source of [approved, frontend]) {
   assert.equal(ancestry.status, 0, `fixed release source must be adopted in this checkout: ${source}`);
 }
 const assetPath = "web/strategy-switch-console/v2_asset_map.js";
+const ibkrSource = "aaa46a811a7cfa863f90261d516b197e5e554779";
+const ibkrTree = "3ac93c0b2caf30a650ab46d4bf62220e45582a46";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
 assert.ok(selectionStep);
@@ -190,15 +229,16 @@ const fakeGit = `git() {
   printf '%s\\n' "$*" >> "$TRACE"
   case "$*" in
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
-    'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
+    'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
     'cat-file -e ${frontend}^{commit}') return "$FAKE_FRONTEND_OBJECT_EXIT" ;;
     'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${frontend} ${control}') return "$FAKE_FRONTEND_ANCESTRY_EXIT" ;;
-    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${ibkrSource}^') printf '%s' "$FAKE_PARENT" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
-    'rev-parse ${pr764Source}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
+    'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
     'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
-    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}') touch "$SELECTED" ;;
+    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -211,7 +251,7 @@ function sourceCase(delta, expected) {
       RELEASE_SOURCE_SHA: approved, TRACE: trace, SELECTED: selected, FAKE_CONTROL_HEAD: control,
       FAKE_SELECTED_HEAD: approved, FAKE_TREE: approvedTree, FAKE_OBJECT_EXIT: "0", FAKE_ANCESTRY_EXIT: "0",
       RELEASE_FRONTEND_ASSETS: "false", SYNC_SECRETS: "false", SYNC_STRATEGY_PROFILES: "false", SKIP_BINANCE_RECEIVER_CHECKS: "true",
-      FAKE_FRONTEND_OBJECT_EXIT: "0", FAKE_FRONTEND_ANCESTRY_EXIT: "0", FAKE_FRONTEND_TREE: frontendTree, FAKE_FRONTEND_BLOB: frontendBlob, ...delta };
+      FAKE_FRONTEND_OBJECT_EXIT: "0", FAKE_FRONTEND_ANCESTRY_EXIT: "0", FAKE_FRONTEND_TREE: frontendTree, FAKE_FRONTEND_BLOB: frontendBlob, FAKE_PARENT: approved, ...delta };
     const result = spawnSync("bash", ["-c", fakeGit + selectShell], { env, encoding: "utf8" });
     assert.equal(result.status === 0, expected, result.stderr);
     assert.ok(!result.stdout.includes("PRIVATE_SOURCE_SENTINEL") && !result.stderr.includes("PRIVATE_SOURCE_SENTINEL"));
@@ -258,6 +298,26 @@ for (const delta of [{FAKE_TREE:"a".repeat(40)}, {FAKE_PR764_BLOB:"a".repeat(40)
 }
 assert.equal(sourceCase({...pr764Env,FAKE_SELECTED_HEAD:approved}, false).selected, true);
 
+const ibkrEnv = { RELEASE_SOURCE_SHA: ibkrSource, RELEASE_FRONTEND_ASSETS: "true",
+  FAKE_TREE: ibkrTree, FAKE_SELECTED_HEAD: ibkrSource, FAKE_PR764_BLOB: frontendBlob };
+assert.equal(sourceCase(ibkrEnv, true).selected, true);
+for (const mode of ["verify","activate"]) for (const sync of ["false","true"]) for (const profiles of ["false","true"]) for (const skip of ["false","true"]) {
+ const accepted=sync==="false" && profiles==="false" && skip==="true";
+ const checked=sourceCase({...ibkrEnv,IBKR_CANDIDATE_RESUME:mode,SYNC_SECRETS:sync,SYNC_STRATEGY_PROFILES:profiles,SKIP_BINANCE_RECEIVER_CHECKS:skip},accepted);
+ if(!accepted)assert.deepEqual(checked.calls,[],"unsafe verify or activation settings rejected before checkout or later steps");
+}
+for(const source of ["",approved,pr764Source])assert.deepEqual(sourceCase({...ibkrEnv,RELEASE_SOURCE_SHA:source,IBKR_CANDIDATE_RESUME:"verify"},false).calls,[]);
+assert.deepEqual(sourceCase({...ibkrEnv,IBKR_CANDIDATE_RESUME:"unexpected"},false).calls,[]);
+for (const delta of [{RELEASE_FRONTEND_ASSETS:"false"}, {SYNC_SECRETS:"true"}, {SYNC_STRATEGY_PROFILES:"true"},
+  {SKIP_BINANCE_RECEIVER_CHECKS:"false"}, {GITHUB_REF:"refs/heads/other"}]) {
+  assert.deepEqual(sourceCase({...ibkrEnv,...delta}, false).calls, []);
+}
+for (const delta of [{FAKE_TREE:"a".repeat(40)}, {FAKE_PR764_BLOB:"a".repeat(40)}, {FAKE_PARENT:"a".repeat(40)},
+  {FAKE_OBJECT_EXIT:"1"}, {FAKE_ANCESTRY_EXIT:"1"}, {FAKE_CONTROL_HEAD:"a".repeat(40)}]) {
+  assert.equal(sourceCase({...ibkrEnv,...delta}, false).selected, false);
+}
+assert.equal(sourceCase({...ibkrEnv,FAKE_SELECTED_HEAD:approved}, false).selected, true);
+
 // The superseded frontend baseline is no longer an admissible release source.
 for (const delta of [
   { FAKE_FRONTEND_TREE: "a98498a60753cadc7b010f2e9d9c5a5e34f812f4" },
@@ -288,8 +348,10 @@ const fakeOverlayGit = `git() {
     'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
     'show ${frontend}:${assetPath}') cat "$FROZEN_MAP" ;;
+    'show ${ibkrSource}:${assetPath}') cat "$FROZEN_MAP" ;;
     hash-object*) command git "$@" ;;
     'diff --name-only ${approved}') printf '%s' "$FAKE_DIFF" ;;
+    'diff --name-only ${ibkrSource}') printf '%s' "$FAKE_DIFF" ;;
     'ls-files --others --exclude-standard') printf '%s' "$FAKE_UNTRACKED" ;;
     *) return 91 ;;
   esac
@@ -318,6 +380,11 @@ for (const delta of [{ GITHUB_REF: "refs/heads/unapproved" }, { FAKE_HEAD: front
   { FAKE_DIFF: assetPath + "\nweb/strategy-switch-console/wrangler.toml" },
   { FAKE_DIFF: "" }, { FAKE_UNTRACKED: "unreviewed-runtime.js" }]) overlayCase(delta, false);
 overlayCase({}, false, Buffer.concat([reviewedMap, Buffer.from("\n// corrupt synthetic input")]));
+const ibkrOverlay = { FAKE_HEAD:ibkrSource, FAKE_TREE:ibkrTree, FAKE_DIFF:"" };
+overlayCase(ibkrOverlay);
+for (const delta of [{GITHUB_REF:"refs/heads/other"}, {FAKE_TREE:approvedTree},
+  {FAKE_DIFF:assetPath}, {FAKE_UNTRACKED:"unreviewed-runtime.js"}]) overlayCase({...ibkrOverlay,...delta},false);
+overlayCase(ibkrOverlay,false,Buffer.concat([reviewedMap,Buffer.from("\n// corrupt synthetic input")]));
 const currentMap = readFileSync(new URL("../" + assetPath, import.meta.url));
 if (!currentMap.equals(reviewedMap)) overlayCase({}, false, currentMap);
 
@@ -386,25 +453,28 @@ const remoteBindings=[{name:"STRATEGY_SWITCH_CONFIG",type:"kv_namespace",namespa
 const runtime={compatibility_date:"2026-06-08",compatibility_flags:[],usage_model:"standard",limits:{},migration_tag:"runtime-instances-v1",exports:{RuntimeInstances:{type:"durable-object",storage:"sqlite"}}};
 const resource=etag=>({bindings:structuredClone(remoteBindings),script_runtime:structuredClone(runtime),script:{etag,handlers:["fetch","scheduled"],named_handlers:[{name:"RuntimeInstances",handlers:[]}],last_deployed_from:"api"}});
 const wrap=result=>({success:true,errors:[],result}), dep=(id,v)=>({id,strategy:"percentage",versions:[{version_id:v,percentage:100}]});
-const responseSequence=(alreadyActive)=>[wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:priorVersion,resources:resource("old-code")}),
+const responseSequence=(alreadyActive, activeVersion=priorVersion)=>[wrap({deployments:[dep(priorDeployment,activeVersion)]}),wrap({id:activeVersion,resources:resource("old-code")}),
  scriptResponse(alreadyActive ? syntheticBundle : "export default {}; // " + privateRelease),
- wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
- wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion,resources:resource("new-code")}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})];
+ wrap({deployments:[dep(priorDeployment,activeVersion)]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
+ wrap({deployments:[dep(priorDeployment,activeVersion)]}),wrap({id:newVersion,resources:resource("new-code")}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})];
 const apiSequence=[["/deployments?page=1&per_page=10","GET"],[`/versions/${priorVersion}`,"GET"],["/content/v2","GET"],["/deployments?page=1&per_page=10","GET"],["/versions?bindings_inherit=strict","POST"],
  [`/versions/${newVersion}`,"GET"],["/deployments?page=1&per_page=10","GET"],[`/versions/${newVersion}`,"GET"],["/deployments?force=false","POST"],["/deployments?page=1&per_page=10","GET"]];
 let releaseCases=0;
-async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPredecessor=priorVersion,mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle,assetMap=syntheticAssetMap,files=bundleFiles.map(name=>dirent(name))}={}, expected=true,count=10){
+async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inheritVersion=null,inheritedPredecessor=null,mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle,assetMap=syntheticAssetMap,files=bundleFiles.map(name=>dirent(name))}={}, expected=true,count=10){
  if(pr764){
   bundle=Buffer.from(bundle.toString().replace(syntheticBuildId,pr764Build));
   assetMap=assetMap.replace(syntheticBuildId,pr764Build);
   env={RELEASE_SOURCE_SHA:pr764Source,...env};
  }
- const responses=responseSequence(alreadyActive);
+ if(ibkrDaily)env={RELEASE_SOURCE_SHA:ibkrSource,...env};
+ const activeVersion=activeOverride ?? (ibkrDaily?"06043e24-f8c9-4129-8c59-abb9957217bf":priorVersion);
+ const previousLatest=ibkrDaily?"26996cc3-732a-4774-af02-b46842913d36":priorVersion;
+ const responses=responseSequence(alreadyActive,activeVersion);
  if(pr764)responses.push(wrap({id:newVersion,resources:resource("new-code")}));
  mutate(responses);
- if(pr764){
-  responses.splice(3,0,wrap({items:[{id:inheritVersion}]}));
-  responses.splice(7,0,wrap({items:[{id:newVersion},{id:inheritedPredecessor}]}));
+ if(pr764 || ibkrDaily){
+  responses.splice(3,0,wrap({items:[{id:inheritVersion ?? previousLatest}]}));
+  responses.splice(7,0,wrap({items:[{id:newVersion},{id:inheritedPredecessor ?? previousLatest}]}));
  }
  const calls=[],stdout=[],stderr=[];
  const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"d".repeat(32),...env},exitCode:0};
@@ -417,17 +487,24 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
  assert.equal(process.exitCode===0,expected,stderr.join("\n"));assert.equal(calls.length,count);
  assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));assert.ok(!JSON.stringify({stdout,stderr}).includes("a".repeat(32)));
  for(const [actual,{url,options}] of calls.entries()){
-  if(pr764 && actual===3){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
-  if(pr764 && actual===7){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
-  const i=actual-(pr764 && actual>3?1:0)-(pr764 && actual>7?1:0);
-  assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+(i===10?`/versions/${newVersion}`:apiSequence[i][0]));
+  if((pr764 || ibkrDaily) && actual===3){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
+  if((pr764 || ibkrDaily) && actual===7){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
+  const i=actual-((pr764 || ibkrDaily) && actual>3?1:0)-((pr764 || ibkrDaily) && actual>7?1:0);
+  const base=`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/`;
+  const expectedPath=ibkrDaily && i===4 ? "workers/qsl-strategy-switch-console/versions?deploy=false"
+   : "scripts/qsl-strategy-switch-console"+(i===1?`/versions/${activeVersion}`:i===10?`/versions/${newVersion}`:apiSequence[i][0]);
+  assert.equal(url,base+expectedPath);
   assert.equal(options.headers["Accept-Encoding"],"identity");assert.equal(options.method,i===10?"GET":apiSequence[i][1]);assert.equal(options.redirect,"error");assert.ok(options.signal instanceof AbortSignal);assert.equal(options.headers.Authorization,`Bearer ${privateRelease}`);
   if(options.method==="GET")assert.equal(options.body,undefined);
-  if(i===4){assert.deepEqual(Buffer.from(await options.body.get("worker.js").arrayBuffer()),bundle);assert.ok(options.body instanceof FormData);assert.deepEqual([...options.body.keys()],["metadata","worker.js"]);const m=JSON.parse(options.body.get("metadata"));
-   assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
+  if(i===4){
+   let m;
+   if(ibkrDaily){m=JSON.parse(options.body);assert.equal(options.headers["Content-Type"],"application/json");
+    assert.deepEqual(m.modules,[{name:"worker.js",content_type:"application/javascript+module",content_base64:bundle.toString("base64")}]);delete m.modules;}
+   else {assert.deepEqual(Buffer.from(await options.body.get("worker.js").arrayBuffer()),bundle);assert.ok(options.body instanceof FormData);assert.deepEqual([...options.body.keys()],["metadata","worker.js"]);m=JSON.parse(options.body.get("metadata"));assert.equal(options.headers["Content-Type"],undefined);}
+   assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name,...(ibkrDaily?{version_id:activeVersion}:{})})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
-   assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
-  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend 795798f9 and frontend 4f3f9030; retained configuration"}});
+   assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");}
+  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":ibkrDaily?"Reviewed IBKR daily candidate aaa46a81; retained configuration":"Reviewed website backend 9722414a and frontend 96363633; retained configuration"}});
  }
  if(expected){
   if(pr764){const h=JSON.parse(stdout[0]);assert.equal(h.status,"pr764_configuration_verified");
@@ -435,12 +512,52 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
    assert.equal(h.config_before_sha256,h.config_after_sha256);assert.equal(h.secret_values_read,false);}
   const r=JSON.parse(stdout.at(-1));assert.equal(r.status,"frontend_release_verified");assert.equal(r.bundle_sha256,createHash("sha256").update(bundle).digest("hex"));assert.equal(r.version_id,newVersion);assert.equal(r.deployment_id,newDeployment);assert.equal(r.bindings_equal,true);assert.equal(r.runtime_equal,true);assert.equal(r.provider_cas,false);}
  else{assert.equal(stdout.length,0);const error=JSON.parse(stderr.at(-1));assert.equal(error.retry,false);
-  assert.equal(error.upload_attempted,calls.length>=(pr764?6:5));
-  assert.equal(error.deploy_attempted,calls.length>=(pr764?11:9));
+  assert.equal(error.upload_attempted,calls.length>=((pr764 || ibkrDaily)?6:5));
+  assert.equal(error.deploy_attempted,calls.length>=((pr764 || ibkrDaily)?11:9));
  }
  releaseCases++;return {calls,stdout,stderr};
 }
+const fixedPrior="06043e24-f8c9-4129-8c59-abb9957217bf", fixedCandidate="2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee", fixedPrevious="26996cc3-732a-4774-af02-b46842913d36";
+async function resumeCase({mode="verify",wrongModule=false,tag="missing",migrations=undefined,drift=false,afterTag=false,afterMissing=false,wrongLatest=false,lateDrift=false,alterCandidate=()=>{}}={}, expected=true){
+ const calls=[],out=[],err=[],proc={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:ibkrSource,IBKR_CANDIDATE_RESUME:mode},exitCode:0};let activated=false, listReads=0;
+ await runRelease(proc,async(url,options)=>{calls.push({url,options});let data;
+ if(url.includes("workers/workers/")){assert.ok(url.endsWith(`/versions/${fixedCandidate}?include=modules`));data={id:fixedCandidate,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:Buffer.from(wrongModule?"wrong":syntheticBundle).toString("base64")}],...(migrations===undefined?{}:{migrations})};alterCandidate(data);}
+ else if(url.endsWith("/content/v2"))return scriptResponse("export default {};");
+ else if(url.endsWith("/deployments?force=false")){activated=true;data=dep(newDeployment,fixedCandidate);}
+ else if(url.includes("/deployments?page="))data={deployments:[dep(activated?newDeployment:priorDeployment,activated?fixedCandidate:fixedPrior)]};
+ else if(url.includes("/versions?page=")){listReads++;data={items:[{id:wrongLatest || (lateDrift && listReads===3)?fixedPrevious:fixedCandidate},{id:fixedPrevious}]};}
+ else if(url.endsWith(`/versions/${fixedPrior}`))data={id:fixedPrior,resources:resource("old-code")};
+ else if(url.endsWith(`/versions/${fixedCandidate}`)){const v=resource("new-code");if(!activated && tag==="missing")delete v.script_runtime.migration_tag;if(!activated && tag==="wrong")v.script_runtime.migration_tag="different";if(drift)v.bindings[0].namespace_id="e".repeat(32);if(activated && afterTag)v.script_runtime.migration_tag="different";if(activated && afterMissing)delete v.script_runtime.migration_tag;data={id:fixedCandidate,resources:v};}
+ else throw Error("unexpected");return new Response(JSON.stringify(wrap(data)),{headers:{"content-type":"application/json"}});
+ },{log:x=>out.push(x),error:x=>err.push(x)},async path=>path.endsWith("v2_asset_map.js")?syntheticAssetMap:syntheticBundle,createHash,async()=>bundleFiles.map(x=>dirent(x)));
+ assert.equal(proc.exitCode===0,expected,err.join("\n"));assert.ok(!JSON.stringify({out,err}).includes(privateRelease));
+ const writes=calls.filter(c=>c.options.method==="POST");assert.ok(writes.length<=1);assert.ok(writes.every(c=>c.url.endsWith("/deployments?force=false")));
+ if(mode==="verify" || wrongModule || tag==="wrong" || migrations!==undefined || drift || wrongLatest || lateDrift)assert.equal(writes.length,0);
+ if(expected && mode==="activate")assert.equal(writes.length,1);
+ return {calls,out,err};
+}
+await resumeCase();await resumeCase({mode:"activate"});await resumeCase({tag:"same"});
+for (const [alterCandidate,checkpoint] of [
+ [x=>x.id="wrong", "candidate_id_mismatch"], [x=>x.migrations=null,"candidate_migrations_invalid"],
+ [x=>x.migrations={new_tag:"x"},"candidate_migrations_present"], [x=>delete x.modules,"candidate_modules_missing"],
+ [x=>x.modules={},"candidate_modules_invalid"], [x=>x.modules=[],"candidate_modules_count"],
+ [x=>x.modules[0].name="other","candidate_module_identity"], [x=>delete x.modules[0].content_base64,"candidate_module_content_missing"]]) {
+ const result=await resumeCase({alterCandidate},false);assert.equal(JSON.parse(result.err.at(-1)).checkpoint,checkpoint);
+}
+for(const opts of [{wrongModule:true},{tag:"wrong"},{migrations:{new_tag:"x"}},{drift:true},{wrongLatest:true},{mode:"activate",lateDrift:true},{mode:"activate",afterTag:true},{mode:"activate",afterMissing:true}])await resumeCase(opts,false);
 await releaseCase({pr764:true},true,13);
+await releaseCase({ibkrDaily:true},true,12);
+const echoedBundle=Buffer.concat([syntheticBundle,Buffer.alloc(600000,32)]);
+const echoedLimit=Math.ceil(echoedBundle.length/3)*4+524288;
+const echoedBody=JSON.stringify(wrap({id:newVersion,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:echoedBundle.toString("base64")}]}));
+assert.ok(Buffer.byteLength(echoedBody)>524288 && Buffer.byteLength(echoedBody)<echoedLimit);
+await releaseCase({ibkrDaily:true,bundle:echoedBundle,responseAt:5,response:new Response(echoedBody,{headers:{"content-type":"application/json"}})},true,12);
+await releaseCase({ibkrDaily:true,bundle:echoedBundle,responseAt:5,response:new Response("{}",{headers:{"content-type":"application/json","content-length":String(echoedLimit+1)}})},false,6);
+await releaseCase({ibkrDaily:true,bundle:echoedBundle,responseAt:5,response:new Response("x".repeat(echoedLimit+1),{headers:{"content-type":"application/json"}})},false,6);
+await releaseCase({ibkrDaily:true,activeOverride:priorVersion},false,1);
+await releaseCase({ibkrDaily:true,inheritVersion:newVersion},false,4);
+await releaseCase({ibkrDaily:true,inheritedPredecessor:"00000000-0000-4000-8000-000000000099"},false,8);
+await releaseCase({ibkrDaily:true,responseAt:5,response:new Response("denied",{status:403})},false,6);
 await releaseCase({pr764:true,inheritVersion:newVersion},false,4);
 // Another uploader inserted a version with different opaque Secret values after
 // the first baseline GET. Equal visible resource hashes must not allow activation.
@@ -739,7 +856,7 @@ async function restoreCase({ env = {}, status = 200, body = restoreBody, raw, he
     assert.equal(options.method, "POST");
     assert.equal(options.redirect, "error");
     assert.ok(options.signal instanceof AbortSignal);
-    assert.deepEqual(options.headers, { Authorization: `Bearer ${restoreSentinel}`, Accept: "application/json", "Content-Type": "application/json" });
+    assert.deepEqual(options.headers, { Authorization: `Bearer ${restoreSentinel}`, Accept: "application/json", "Accept-Encoding": "identity", "Content-Type": "application/json" });
     assert.deepEqual(JSON.parse(options.body), { strategy: "percentage", versions: [{ version_id: restoreTarget, percentage: 100 }],
       annotations: { "workers/message": "Restore verified pre-frontend 2beea000 baseline" } });
   }
@@ -788,6 +905,7 @@ async function fe11Case({mutate=()=>{},env={},failAt=-1}={},expected=true,count=
   assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+
    [`/versions/${fe11Target}`,"/deployments?force=false","/deployments?page=1&per_page=10"][i]);
   assert.equal(options.redirect,"error");assert.equal(options.method,i===1?"POST":"GET");
+  assert.equal(options.headers["Accept-Encoding"],"identity");
   if(i===1)assert.deepEqual(JSON.parse(options.body).versions,[{version_id:fe11Target,percentage:100}]);
   else assert.equal(options.body,undefined);
  }
@@ -805,6 +923,37 @@ for(const mutate of [r=>r[2].result.deployments[0].versions[0].version_id=priorV
  r=>r[2].result.deployments=[]])await fe11Case({mutate},false,3);
 for(let i=0;i<3;i++)await fe11Case({failAt:i},false,i+1);
 console.log(`PR764 exact FE-RELEASE-11 restore: ${fe11Cases} cases passed`);
+
+const dailyRestoreTarget="06043e24-f8c9-4129-8c59-abb9957217bf";
+const dailyCurrentVersion="26996cc3-732a-4774-af02-b46842913d36";
+const dailyCurrentDeployment="62ff9408-050a-442a-afa9-884405132768";
+async function dailyRestoreCase({mutate=()=>{},env={},failAt=-1}={},expected=true,count=6){
+ const replies=[wrap({id:dailyRestoreTarget}),wrap({deployments:[dep(dailyCurrentDeployment,dailyCurrentVersion)]}),
+  wrap({items:[{id:dailyCurrentVersion},{id:dailyRestoreTarget}]}),wrap({deployments:[dep(dailyCurrentDeployment,dailyCurrentVersion)]}),
+  wrap({id:restoreId}),wrap({deployments:[dep(restoreId,dailyRestoreTarget)]})];
+ mutate(replies);const calls=[],stdout=[],stderr=[];
+ const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),
+  CLOUDFLARE_API_TOKEN:restoreSentinel,ROLLBACK_VERSION:dailyRestoreTarget,...env},exitCode:0};
+ await runRestore(process,async(url,options)=>{const i=calls.length;calls.push({url,options});
+  if(i===failAt)throw Error(restoreSentinel);assert.ok(i<replies.length,"no retry");
+  return new Response(JSON.stringify(replies[i]),{headers:{"content-type":"application/json"}});
+ },{log:x=>stdout.push(x),error:x=>stderr.push(x)});
+ assert.equal(process.exitCode===0,expected,stderr.join("\n")); assert.equal(calls.length,count);
+ assert.ok(!JSON.stringify({stdout,stderr}).includes(restoreSentinel));
+ assert.equal(calls.filter(call=>call.options.method==="POST").length,count>=5?1:0);
+ for(const call of calls)assert.equal(call.options.headers["Accept-Encoding"],"identity");
+ if(count>=5){assert.ok(calls[4].url.endsWith('/deployments?force=false'));
+  assert.deepEqual(JSON.parse(calls[4].options.body).versions,[{version_id:dailyRestoreTarget,percentage:100}]);}
+ if(expected)assert.equal(JSON.parse(stdout[0]).version_id,dailyRestoreTarget);
+ else assert.equal(JSON.parse(stderr[0]).outcome,count>=5?"UNKNOWN_REQUIRES_READBACK":"NOT_ATTEMPTED");
+}
+await dailyRestoreCase();
+await dailyRestoreCase({mutate:r=>r[0].result.id=priorVersion},false,1);
+for(const index of [1,3])await dailyRestoreCase({mutate:r=>r[index].result.deployments[0].versions[0].version_id=priorVersion},false,index+1);
+await dailyRestoreCase({mutate:r=>r[2].result.items[0].id=priorVersion},false,3);
+await dailyRestoreCase({mutate:r=>r[2].result.items[1].id=priorVersion},false,3);
+await dailyRestoreCase({mutate:r=>r[5].result.deployments[0].versions[0].percentage=99},false,6);
+for(let i=0;i<6;i++)await dailyRestoreCase({failAt:i},false,i+1);
 
 // Execute the exact workflow body with fake HTTP, not a rewritten projection.
 const script = preflight.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)?.[1]

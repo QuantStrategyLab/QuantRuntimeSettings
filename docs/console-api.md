@@ -38,6 +38,13 @@ reads also allow configured paper accounts.
 An ambiguous alias requires `platform`. Settings reads also accept the existing
 `platform` and `key` parameter pair.
 
+For a uniquely bound account, the existing authenticated account-facts history
+route accepts `projection=currencies` with `platform` and `account_key` and
+returns currencies actually present in qualified retained observations. It
+returns no balances. Performance history uses the union of these currencies and
+the latest snapshot currencies; discovery failures remain read failures rather
+than being treated as empty history. The existing single-currency route is unchanged.
+
 `range` is `1M|3M|YTD|1Y|ALL`, default `ALL`. The server's Asia/Shanghai date
 ends the range. The calendar uses its explicit `year` and `month`, independently
 of the range. `year` defaults to the current year. Omitting `month` returns twelve
@@ -139,6 +146,47 @@ silently substituted.
 Multiple matching bindings return `partial/runtime_daily_binding_conflict` for
 the account; no target is selected and its run state stays unknown. A missing
 binding remains `not_connected/runtime_daily_not_connected`.
+
+IBKR's local multi-target read contract requires the protected
+`runtime_daily_bindings` registry (`qsl_runtime_daily_bindings.v1`): each entry
+contains `account_key`, `target_id`, `source_binding_id`, `strategy_profile`
+and a stable `target_key` in `service|strategy_profile|scope|opaque` form,
+where `opaque` is 32 lowercase hexadecimal characters and contains no account
+identifier. Each entry must uniquely match the existing protected account-facts
+binding and account option. Missing registration is `not_connected`; collisions
+or mismatches are `partial/runtime_daily_binding_conflict`, and unreadable
+registration or bindings are `read_failed`. Stored records are checked against
+the registration and binding fingerprint, so a change cannot reattribute history.
+Registration alone does not grant access to a publisher. IBKR ingestion on the
+existing sync route additionally requires an independently configured
+`IBKR_RUNTIME_DAILY_SYNC_TOKEN` and a single authorized
+`IBKR_RUNTIME_DAILY_TARGET_KEY`. The source-binding header must match that
+target's unique registered account-facts binding. The token must differ from
+the existing execution-evidence and account-facts tokens. Stored IBKR records
+carry the registration fingerprint; binding changes cannot reattribute them.
+Successful IBKR acknowledgements include the original `observed_at` for
+correlation. These settings and the registration are not provisioned by code.
+
+The protected IBKR binding inspection can calculate a nonce-bound comparison
+digest for the fixed primary account. It does not register a target or write
+data. Its output and the corresponding IBKR workflow result compare existing
+configuration only; a public nonce does not make the digest confidential.
+
+The one-time primary daily setup workflow defaults to a read-only preflight.
+The explicit execute mode creates a version pinned to the fixed active Worker,
+adds the two dedicated bindings, registers the matched primary target and sets
+the corresponding producer secrets. It reports attempted stages without secret
+values and stops without retrying if a write outcome is unknown. The workflow
+does not schedule or send a daily projection.
+
+The internal Durable Object command `account_daily_native_return_research_read`
+is limited to one IBKR account, one currency and an inclusive range of at most
+366 days. It returns validated stored rows with their actual source binding,
+rejects unqualified or invalid rows and exact-decimal conflicts, and reports
+dates without records without interpreting the trading calendar. The caller
+must independently verify account and current/historical source authorization;
+this command is not exposed through a website session or publisher token and
+does not itself provide a research access identity or export destination.
 
 In `/api/config`, `runtimeDailyBindings` uses `unresolved` for a missing or
 ambiguous binding and `read_failed` when its source cannot be read; a failure

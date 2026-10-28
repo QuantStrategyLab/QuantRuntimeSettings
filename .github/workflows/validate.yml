@@ -130,7 +130,11 @@ jobs:
           node --experimental-strip-types tests/credential_maintenance_presentation_validation.mjs
           node tests/runtime_daily_worker_validation.mjs
           node tests/account_facts_validation.mjs
+          node tests/account_facts_history_currencies_validation.mjs
+          node tests/console_equity_history_validation.mjs
+          node tests/console_calendar_currency_validation.mjs
           node tests/ibkr_period_return_validation.mjs
+          node tests/native_return_research_read_validation.mjs
           node tests/console_external_flow_validation.mjs
           node tests/external_flow_receiver_validation.mjs
           node tests/external_flow_date_precision_validation.mjs
@@ -140,6 +144,11 @@ jobs:
           node tests/firstrade_account_facts_preparation_validation.mjs
           node tests/ibkr_runtime_lifecycle_inspection_validation.mjs
           node tests/ibkr_primary_binding_backup_validation.mjs
+          node tests/ibkr_daily_binding_comparison_validation.mjs
+          node tests/ibkr_daily_setup_checks_validation.mjs
+          node tests/ibkr_daily_version_prepare_validation.mjs
+          node tests/ibkr_daily_setup_validation.mjs
+          node tests/ibkr_daily_transport_validation.mjs
           node --experimental-strip-types tests/account_history_presentation_validation.mjs
           node --experimental-strip-types tests/console_chart_visibility_validation.mjs
           node tests/console_synthetic_development_validation.mjs

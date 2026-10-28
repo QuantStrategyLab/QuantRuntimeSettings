@@ -201,6 +201,9 @@ const firstObservation = projection({}, { business_date: orderedDate, observed_a
 const writesBeforeFirstObservation = puts.length;
 assert.equal((await post(firstObservation, auth)).status, 200);
 assert.equal(puts.length, writesBeforeFirstObservation + 1);
+env.IBKR_RUNTIME_DAILY_SYNC_TOKEN = token;
+assert.equal((await post(firstObservation, auth)).status, 200, "IBKR token collision does not block LongBridge");
+delete env.IBKR_RUNTIME_DAILY_SYNC_TOKEN;
 
 // Simulate an equivalent stored object with a different JSON key order.
 const firstStored = JSON.parse(store.get(orderedKey));
@@ -475,6 +478,11 @@ for (const invalid of [{ invalid: true }, false, 0]) {
   assert.equal(invalidRecord.status, 503);
   assert.equal((await invalidRecord.json()).error, "runtime_daily_record_invalid");
 }
+const wrongPlatformProjection = { ...JSON.parse(preserved), platform: "schwab" };
+store.set(historicalKey, JSON.stringify(wrongPlatformProjection));
+const wrongPlatformRead = await get("2020-01-03", sessionHeaders);
+assert.equal(wrongPlatformRead.status, 503);
+assert.equal((await wrongPlatformRead.json()).error, "runtime_daily_record_invalid");
 store.set(historicalKey, preserved);
 assert.equal((await get("2020-01-03", sessionHeaders)).status, 200, "UI's 90-day range does not restrict retained older records");
 
@@ -604,3 +612,4 @@ assert.equal(puts.length, writesBeforeSummaryReads, "daily GET summaries never w
 
 console.log("runtime_daily_worker_validation ok");
 await import("./runtime_daily_health_integration_validation.mjs");
+await import("./runtime_daily_multi_target_validation.mjs");
