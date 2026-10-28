@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit} from '../web/strategy-switch-console/ibkr_daily_setup_checks.mjs';
+import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace} from '../web/strategy-switch-console/ibkr_daily_setup_checks.mjs';
 assert.equal(hasRelevantWriter([{id:1,path:'.github/workflows/publish-ibkr-primary-day-once.yml'}],'ibkr','2'),true);
 assert.equal(hasRelevantWriter([{id:1,path:'.github/workflows/publish-ibkr-primary-day-once.yml@refs/heads/main'}],'ibkr','2'),true);
 assert.equal(hasRelevantWriter([{id:2,path:'.github/workflows/configure-ibkr-primary-daily-once.yml'}],'qrs','2'),false);
@@ -14,4 +14,8 @@ assert.equal(writtenSecretsHaveFreshMetadata(secrets.map(x=>({...x,updated_at:'2
 assert.equal(versionResponseLimit(827276),827276+524288);
 assert.equal(versionResponseLimit(),Math.ceil(10485760/3)*4+524288);
 assert.throws(()=>versionResponseLimit(Math.ceil(10485760/3)*4+1));
+const kv={name:'STRATEGY_SWITCH_CONFIG',type:'kv_namespace',namespace_id:'b'.repeat(32)};
+assert.equal(matchesConfigNamespace({bindings:[kv]},'b'.repeat(32)),true);
+assert.equal(matchesConfigNamespace({bindings:[kv]},'c'.repeat(32)),false);
+assert.equal(matchesConfigNamespace({bindings:[kv,kv]},'b'.repeat(32)),false);
 console.log('IBKR daily setup guards: synthetic cases passed');

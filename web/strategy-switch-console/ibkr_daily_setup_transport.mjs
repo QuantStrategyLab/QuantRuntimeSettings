@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {executePrimaryDailySetup} from './execute_ibkr_daily_setup.mjs';
 import {comparison,primaryBinding} from './compare_ibkr_daily_binding.mjs';
 import {appendPrimaryDailyRegistration,prepareIbkrDailyVersion} from './prepare_ibkr_daily_version.mjs';
-import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit} from './ibkr_daily_setup_checks.mjs';
+import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace} from './ibkr_daily_setup_checks.mjs';
 
 const qrs='QuantStrategyLab/QuantRuntimeSettings', ibkr='QuantStrategyLab/InteractiveBrokersPlatform';
 const oldVersion='2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee';
@@ -47,6 +47,7 @@ async function request(url,{method='GET',body,raw=false,missing=false,limit=5242
 }
 const kvRead = async key => request(`${kvBase}/${key}`,{raw:true,missing:true});
 const canonical = x => JSON.stringify(x);
+const validUuid = value => typeof value==='string' && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(value);
 async function deployment() {
   const list=(await request(`${scriptBase}/deployments?page=1&per_page=10`))?.deployments;
   if (!Array.isArray(list) || !list.length || list.length>10 || list[0].strategy!=='percentage'
@@ -121,6 +122,7 @@ const io={
     noWriters(); const evidence=compareEvidence(), secrets=secretsMetadata(); validateSourceSecrets(secrets,evidence.sourceTime);
     gh(['api',`repos/${ibkr}/actions/secrets/public-key`],{repo:ibkr});
     const [current,versions,config,version]=await Promise.all([deployment(),latest(),configuration(),readVersion(oldVersion)]);
+    if (!matchesConfigNamespace(version.resources,namespace)) throw Error('kv_namespace_mismatch');
     moduleResponseLimit=versionResponseLimit(version.moduleBase64.length);
     const own=JSON.parse(gh(['api',`repos/${qrs}/actions/runs/${ownRun}`]));
     if (!Number.isFinite(Date.parse(own.created_at))) throw Error('run_metadata_invalid');
@@ -129,7 +131,7 @@ const io={
     return baseline;
   },
   verifyUnchanged:unchanged,
-  async uploadVersion(value) { const x=await request(`${betaBase}/versions?deploy=false`,{method:'POST',body:JSON.stringify(value),limit:moduleResponseLimit}); return x?.id; },
+  async uploadVersion(value) { const x=await request(`${betaBase}/versions?deploy=false`,{method:'POST',body:JSON.stringify(value),limit:moduleResponseLimit}); if(!validUuid(x?.id))throw Error('upload_id_invalid'); return x.id; },
   readVersion,
   async writeGithubSecret(name,value) { gh(['secret','set',name,'--repo',ibkr],{input:value,repo:ibkr}); },
   async verifyGithubSecretMetadata() { if (!writtenSecretsHaveFreshMetadata(secretsMetadata(),baseline.startedAt)) throw Error('secret_readback'); },
@@ -142,7 +144,7 @@ const io={
         || comparison(config.options,config.bindings,before.nonce)!==before.expectedComparison) throw Error('activation_guard');
     validateSourceSecrets(secretsMetadata(),before.sourceTime);
   },
-  async activate(version) { return (await request(`${scriptBase}/deployments?force=false`,{method:'POST',body:JSON.stringify({strategy:'percentage',versions:[{version_id:version,percentage:100}],annotations:{'workers/message':'IBKR primary daily binding'}})}))?.id; },
+  async activate(version) { const x=await request(`${scriptBase}/deployments?force=false`,{method:'POST',body:JSON.stringify({strategy:'percentage',versions:[{version_id:version,percentage:100}],annotations:{'workers/message':'IBKR primary daily binding'}})}); if(!validUuid(x?.id))throw Error('deployment_id_invalid'); return x.id; },
   async verifyDeployment(version,id) { const d=await deployment(); if (!id || d.id!==id || d.version!==version || d.percentage!==100) throw Error('deployment_readback'); },
 };
 if (process.env.DAILY_SETUP_MODE==='preflight') {
@@ -160,7 +162,15 @@ if (process.env.DAILY_SETUP_MODE==='preflight') {
     prepareIbkrDailyVersion({activeVersion:oldVersion,existingBindings:state.resources.bindings,runtime:state.resources.script_runtime,
       moduleBase64:state.moduleBase64,token:'0'.repeat(64),targetKey});
     await io.verifyUnchanged(state);
-    console.log(JSON.stringify({status:'preflight_verified',writes:0}));
+    const healthBindingPresent=state.resources.bindings.some(b=>b.name==='STRATEGY_HEALTH_SYNC_TOKEN' && b.type==='secret_text');
+    let healthRouteReachable=false;
+    try {
+      const response=await fetch('https://qsl-strategy-switch-console.pigbibi.workers.dev/api/strategy-health',
+        {method:'GET',redirect:'error',signal:AbortSignal.timeout(10000)});
+      const body=await response.json();
+      healthRouteReachable=response.status===401 && body?.ok===false && body?.error==='login required';
+    } catch { /* Health diagnostics do not change the setup decision. */ }
+    console.log(JSON.stringify({status:'preflight_verified',writes:0,health_binding_present:healthBindingPresent,health_route_reachable:healthRouteReachable}));
   } catch { console.log(JSON.stringify({status:'preflight_blocked',writes:0})); process.exitCode=1; }
 } else if (process.env.DAILY_SETUP_MODE==='execute') {
   const result=await executePrimaryDailySetup(io);

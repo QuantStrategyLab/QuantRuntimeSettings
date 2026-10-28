@@ -27,3 +27,9 @@ export function versionResponseLimit(moduleBase64Length) {
   if (!Number.isSafeInteger(length) || length<1 || length>Math.ceil(10485760/3)*4) throw Error('invalid_module_length');
   return length + 524288;
 }
+
+export function matchesConfigNamespace(resources, namespace) {
+  if (!/^[a-f0-9]{32}$/i.test(namespace ?? '') || !Array.isArray(resources?.bindings)) return false;
+  const matches=resources.bindings.filter(binding=>binding?.name==='STRATEGY_SWITCH_CONFIG');
+  return matches.length===1 && matches[0].type==='kv_namespace' && matches[0].namespace_id===namespace;
+}

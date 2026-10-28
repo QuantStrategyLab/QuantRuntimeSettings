@@ -39,14 +39,15 @@ writeFileSync(preload,`
 import {readFileSync,writeFileSync} from 'node:fs';
 const file=process.env.MOCK_STATE, old='2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee', next='cccccccc-cccc-4ccc-accc-cccccccccccc';
 const b64=Buffer.from('synthetic module').toString('base64');
-const resources=(isNew)=>({bindings:[{name:'CONFIG',type:'kv_namespace'},...(isNew?[{name:'IBKR_RUNTIME_DAILY_SYNC_TOKEN',type:'secret_text'},{name:'IBKR_RUNTIME_DAILY_TARGET_KEY',type:'secret_text'}]:[])],script_runtime:{compatibility_date:'2026-01-01',usage_model:'bundled',migration_tag:'v1'},script:{handlers:['fetch']}});
+const resources=(isNew)=>({bindings:[{name:'STRATEGY_SWITCH_CONFIG',type:'kv_namespace',namespace_id:(process.env.MOCK_FAIL==='namespace'?'c':'b').repeat(32)},{name:'STRATEGY_HEALTH_SYNC_TOKEN',type:'secret_text'},...(isNew?[{name:'IBKR_RUNTIME_DAILY_SYNC_TOKEN',type:'secret_text'},{name:'IBKR_RUNTIME_DAILY_TARGET_KEY',type:'secret_text'}]:[])],script_runtime:{compatibility_date:'2026-01-01',usage_model:'bundled',migration_tag:'v1'},script:{handlers:['fetch']}});
 globalThis.fetch=async(url,opts={})=>{let s=JSON.parse(readFileSync(file));let u=new URL(url),body;
  const save=()=>writeFileSync(file,JSON.stringify(s));
+ if(u.hostname==='qsl-strategy-switch-console.pigbibi.workers.dev')return new Response(JSON.stringify({ok:false,error:'login required'}),{status:401,headers:{'content-type':'application/json'}});
  if(u.pathname.includes('/storage/kv/')){const k=u.pathname.split('/').at(-1);if(opts.method==='PUT'){s.effects.push('registry');s.registry=JSON.parse(opts.body);save();if(process.env.MOCK_FAIL==='registry')throw Error('synthetic');body={success:true,result:null};}
  else if(k==='runtime_daily_bindings'&&!s.registry)return new Response('',{status:404});else return new Response(JSON.stringify(k==='runtime_daily_bindings'?s.registry:{}),{status:200,headers:{'content-type':'application/json'}});}
- else if(u.pathname.endsWith('/deployments')&&opts.method==='POST'){s.effects.push('activate');s.deployed=true;save();body={success:true,result:{id:'deployment-new'}};}
- else if(u.pathname.endsWith('/deployments'))body={success:true,result:{deployments:[{id:s.deployed?'deployment-new':'deployment-old',strategy:'percentage',versions:[{version_id:s.deployed?next:old,percentage:100}]}]}};
- else if(u.pathname.endsWith('/versions')&&opts.method==='POST'){s.effects.push('upload');s.uploaded=true;save();body={success:true,result:{id:next}};}
+ else if(u.pathname.endsWith('/deployments')&&opts.method==='POST'){s.effects.push('activate');s.deployed=true;save();body={success:true,result:process.env.MOCK_FAIL==='activate_id'?{}:{id:'dddddddd-dddd-4ddd-addd-dddddddddddd'}};}
+ else if(u.pathname.endsWith('/deployments'))body={success:true,result:{deployments:[{id:s.deployed?'dddddddd-dddd-4ddd-addd-dddddddddddd':'eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee',strategy:'percentage',versions:[{version_id:s.deployed?next:old,percentage:100}]}]}};
+ else if(u.pathname.endsWith('/versions')&&opts.method==='POST'){s.effects.push('upload');s.uploaded=true;save();body={success:true,result:process.env.MOCK_FAIL==='upload_id'?{}:{id:next}};}
  else if(u.pathname.endsWith('/versions'))body={success:true,result:{items:(s.uploaded?[{id:next},{id:old}]:[{id:old}])}};
  else if(u.pathname.includes('/versions/')){const id=u.pathname.split('/').at(-1),isNew=id===next;body={success:true,result:u.searchParams.has('include')?{id,modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:b64}]}:{id,resources:resources(isNew)}};}
  else throw Error('unexpected request');
@@ -55,17 +56,18 @@ globalThis.fetch=async(url,opts={})=>{let s=JSON.parse(readFileSync(file));let u
 `);
 try {
   const script=resolve('web/strategy-switch-console/ibkr_daily_setup_transport.mjs');
-  for(const [mode,fail,expected] of [['preflight','','preflight_verified'],['execute','','configured'],['execute','IBKR_RUNTIME_DAILY_TARGET_KEY','stopped'],['execute','registry','stopped']]) {
+  for(const [mode,fail,expected] of [['preflight','','preflight_verified'],['execute','','configured'],['execute','IBKR_RUNTIME_DAILY_TARGET_KEY','stopped'],['execute','registry','stopped'],['execute','upload_id','stopped'],['execute','activate_id','stopped'],['execute','namespace','stopped']]) {
     writeFileSync(state,JSON.stringify({secrets:syntheticSecrets,effects:[],uploaded:false,deployed:false,registry:null}));
     const env={...process.env,PATH:`${dir}:${process.env.PATH}`,NODE_OPTIONS:`--import ${preload} --loader ${loader}`,
       MOCK_STATE:state,MOCK_FAIL:fail,CLOUDFLARE_API_TOKEN:'synthetic',CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:'b'.repeat(32),RUNTIME_SETTINGS_GH_TOKEN:'synthetic',GITHUB_TOKEN:'synthetic',GITHUB_RUN_ID:'123',DAILY_SETUP_MODE:mode};
-    const child=spawnSync(process.execPath,[script],{env,encoding:'utf8',timeout:30000});
+    const child=spawnSync(process.execPath,[script],{env,encoding:'utf8',timeout:120000});
     assert.ok(child.stdout.trim(),child.stderr);const result=JSON.parse(child.stdout.trim());assert.equal(result.status,expected,child.stderr);
     const seen=JSON.parse(readFileSync(state));
-    if(mode==='preflight')assert.deepEqual(seen.effects,[]);
+    if(mode==='preflight'){assert.deepEqual(seen.effects,[]);assert.equal(result.health_binding_present,true);assert.equal(result.health_route_reachable,true);}
     if(mode==='execute'&&!fail)assert.deepEqual(seen.effects,['upload','IBKR_RUNTIME_DAILY_SYNC_TOKEN','IBKR_RUNTIME_DAILY_TARGET_KEY','registry','activate']);
-    if(fail){assert.equal(result.outcome,'unknown_requires_readback');assert.equal(result.retry,false);assert.equal(seen.effects.at(-1),fail);}
+    if(fail==='namespace'){assert.equal(result.phase,'preflight');assert.deepEqual(seen.effects,[]);}
+    else if(fail){assert.equal(result.outcome,'unknown_requires_readback');assert.equal(result.retry,false);assert.equal(seen.effects.at(-1),fail.replace('_id',''));}
     assert.ok(!child.stdout.includes('service|tqqq_growth_income|live|')); // no target or token in receipts
   }
   console.log('IBKR daily transport: synthetic preflight, success and uncertain-write cases passed');
