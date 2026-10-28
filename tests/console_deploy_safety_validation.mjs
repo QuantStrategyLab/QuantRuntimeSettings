@@ -287,7 +287,7 @@ for (const delta of [
 // are synthetic; hash-object validates the real reviewed map bytes.
 const overlayStep = steps.find(step => step.startsWith("Overlay fixed reviewed frontend assets\n"));
 assert.ok(overlayStep);
-assert.match(overlayStep, /^        if: inputs\.release_frontend_assets && inputs\.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef' && inputs\.source_sha != 'aaa46a811a7cfa863f90261d516b197e5e554779'$/m);
+assert.match(overlayStep, /^        if: inputs\.release_frontend_assets && inputs\.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef'$/m);
 assert.ok(deploy.indexOf("Build config & assets") < deploy.indexOf("Overlay fixed reviewed frontend assets"));
 assert.ok(deploy.indexOf("Overlay fixed reviewed frontend assets") < deploy.indexOf("Validate fixed backend with reviewed frontend"));
 assert.match(deploy, /Validate fixed backend with reviewed frontend[\s\S]*?node tests\/console_v2_assets_validation\.mjs\n          node tests\/console_v2_worker_validation\.mjs/);
@@ -304,8 +304,10 @@ const fakeOverlayGit = `git() {
     'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
     'show ${frontend}:${assetPath}') cat "$FROZEN_MAP" ;;
+    'show ${ibkrSource}:${assetPath}') cat "$FROZEN_MAP" ;;
     hash-object*) command git "$@" ;;
     'diff --name-only ${approved}') printf '%s' "$FAKE_DIFF" ;;
+    'diff --name-only ${ibkrSource}') printf '%s' "$FAKE_DIFF" ;;
     'ls-files --others --exclude-standard') printf '%s' "$FAKE_UNTRACKED" ;;
     *) return 91 ;;
   esac
@@ -334,6 +336,11 @@ for (const delta of [{ GITHUB_REF: "refs/heads/unapproved" }, { FAKE_HEAD: front
   { FAKE_DIFF: assetPath + "\nweb/strategy-switch-console/wrangler.toml" },
   { FAKE_DIFF: "" }, { FAKE_UNTRACKED: "unreviewed-runtime.js" }]) overlayCase(delta, false);
 overlayCase({}, false, Buffer.concat([reviewedMap, Buffer.from("\n// corrupt synthetic input")]));
+const ibkrOverlay = { FAKE_HEAD:ibkrSource, FAKE_TREE:ibkrTree, FAKE_DIFF:"" };
+overlayCase(ibkrOverlay);
+for (const delta of [{GITHUB_REF:"refs/heads/other"}, {FAKE_TREE:approvedTree},
+  {FAKE_DIFF:assetPath}, {FAKE_UNTRACKED:"unreviewed-runtime.js"}]) overlayCase({...ibkrOverlay,...delta},false);
+overlayCase(ibkrOverlay,false,Buffer.concat([reviewedMap,Buffer.from("\n// corrupt synthetic input")]));
 const currentMap = readFileSync(new URL("../" + assetPath, import.meta.url));
 if (!currentMap.equals(reviewedMap)) overlayCase({}, false, currentMap);
 

@@ -536,12 +536,30 @@ jobs:
           python3 python/scripts/build_platform_config.py --check
 
       - name: Overlay fixed reviewed frontend assets
-        if: inputs.release_frontend_assets && inputs.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef' && inputs.source_sha != 'aaa46a811a7cfa863f90261d516b197e5e554779'
+        if: inputs.release_frontend_assets && inputs.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef'
         run: |
           set -euo pipefail
+          candidate="aaa46a811a7cfa863f90261d516b197e5e554779"
+          asset="web/strategy-switch-console/v2_asset_map.js"
+          if [ "$(git rev-parse HEAD)" = "$candidate" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ] \
+              || [ "$(git rev-parse 'HEAD^{tree}')" != "3ac93c0b2caf30a650ab46d4bf62220e45582a46" ]; then
+              echo "ibkr_daily_overlay_source_mismatch" >&2
+              exit 2
+            fi
+            staged_asset="$(mktemp)"
+            trap 'rm -f "$staged_asset"' EXIT
+            git show "${candidate}:${asset}" > "$staged_asset"
+            [ "$(git hash-object "$staged_asset")" = "c73e59a6fb22ab612251d331bdd4db5d9ae68b7a" ] || exit 2
+            cp "$staged_asset" "$asset"
+            if [ -n "$(git diff --name-only "$candidate")" ] || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+              echo "ibkr_daily_overlay_extra_source_change" >&2
+              exit 2
+            fi
+            exit 0
+          fi
           backend="9722414a99298cd7079a88eb8e3e703d50e986de"
           frontend="9636363371c6fe2a14a0f8e3830d56dd4b9902d9"
-          asset="web/strategy-switch-console/v2_asset_map.js"
           blob="c73e59a6fb22ab612251d331bdd4db5d9ae68b7a"
           if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$(git rev-parse HEAD)" != "$backend" ] \
             || [ "$(git rev-parse 'HEAD^{tree}')" != "9e2c9f2fb840d5b74401b32e1e593c4e41b62b4a" ] \
