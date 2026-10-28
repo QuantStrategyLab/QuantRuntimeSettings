@@ -59,6 +59,15 @@ assert.equal(result.status, "read_failed");
 assert.equal(result.counts.runs, null);
 result = await todaySummary(request, {}, { ...deps, dailyBindings: async () => [] }, [account], now);
 assert.equal(result.accounts[0].status, "not_connected");
+for (const dailyBindings of [async () => { throw Error("directory unavailable"); },
+  async () => [{ platform: account.platform, account_key: null, status: "read_failed" }]]) {
+  result = await todaySummary(request, {}, { ...deps, dailyBindings, daily: async () => { throw Error("unexpected daily read"); } }, [account], now);
+  assert.equal(result.status, "read_failed");
+  assert.equal(result.accounts[0].status, "read_failed");
+  assert.equal(result.accounts[0].run_status, "read_failed");
+  assert.equal(result.counts.runs, null);
+  validate("today_runs", result);
+}
 let duplicateReads = 0;
 result = await todaySummary(request, {}, { ...deps, dailyBindings: async () => [binding, { ...binding, target_key: "synthetic-other-target" }],
   daily: async () => { duplicateReads++; throw Error("must not read an ambiguous binding"); } }, [account], now);

@@ -172,9 +172,11 @@ function dailyCandidateWithoutTarget(accountOptions, platform, accountKey) {
   return fixtures.some((target) => target.account_scope === option.account_scope);
 }
 
-/** @returns {"bound" | "unresolved" | "not_applicable"} */
+/** @returns {"bound" | "unresolved" | "not_applicable" | "read_failed"} */
 export function runtimeDailySelectionBinding(accountOptions, platform, accountKey, trustedBindings = []) {
   const target = resolveRuntimeDailyTarget({ platform, accountKey, accountOptions, trustedBindings });
+  if ((target || dailyCandidateWithoutTarget(accountOptions, platform, accountKey))
+    && Array.isArray(trustedBindings) && trustedBindings.some(item => item?.platform === platform && item?.status === "read_failed")) return "read_failed";
   if (!target) {
     return dailyCandidateWithoutTarget(accountOptions, platform, accountKey) ? "unresolved" : "not_applicable";
   }
