@@ -10,8 +10,7 @@ const targetAnchor = '5069050c930b4951fdbb99138b0d1844ae719afb8743d803692084f64e
 const sha = value => createHash('sha256').update(value, 'utf8').digest('hex');
 const token = /^[A-Za-z0-9][A-Za-z0-9._|:-]{0,119}$/;
 
-export function comparison(optionsRaw, bindingsRaw, nonce, anchor = targetAnchor) {
-  if (!/^[a-f0-9]{64}$/.test(nonce)) throw Error('invalid_input');
+export function primaryBinding(optionsRaw, bindingsRaw, anchor = targetAnchor) {
   const options = normalizeAccountOptionsPayload(optionsRaw).ibkr;
   const bindings = normalizeAccountFactsBindings(bindingsRaw).bindings;
   const selected = bindings.filter(b => b.platform === 'ibkr' && sha(b.target_id) === anchor);
@@ -24,6 +23,12 @@ export function comparison(optionsRaw, bindingsRaw, nonce, anchor = targetAnchor
     source_binding_id:b.source_binding.id, strategy_profile:'tqqq_growth_income', target_id:b.target_id};
   if (Object.values(binding).some(v => typeof v !== 'string' || !token.test(v))
       || !/^[a-f0-9]{64}$/.test(binding.source_binding_id)) throw Error('invalid_input');
+  return binding;
+}
+
+export function comparison(optionsRaw, bindingsRaw, nonce, anchor = targetAnchor) {
+  if (!/^[a-f0-9]{64}$/.test(nonce)) throw Error('invalid_input');
+  const binding = primaryBinding(optionsRaw, bindingsRaw, anchor);
   return sha(JSON.stringify({binding, domain:'qsl.ibkr-daily-binding-comparison.v1', nonce}));
 }
 

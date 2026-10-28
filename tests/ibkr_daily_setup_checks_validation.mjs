@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit} from '../web/strategy-switch-console/ibkr_daily_setup_checks.mjs';
+assert.equal(hasRelevantWriter([{id:1,path:'.github/workflows/publish-ibkr-primary-day-once.yml'}],'ibkr','2'),true);
+assert.equal(hasRelevantWriter([{id:1,path:'.github/workflows/publish-ibkr-primary-day-once.yml@refs/heads/main'}],'ibkr','2'),true);
+assert.equal(hasRelevantWriter([{id:2,path:'.github/workflows/configure-ibkr-primary-daily-once.yml'}],'qrs','2'),false);
+assert.equal(hasRelevantWriter([{id:1,path:'.github/workflows/ci.yml'}],'ibkr','2'),false);
+assert.throws(()=>hasRelevantWriter([{id:1}],'ibkr','2'));
+const start='2026-10-28T12:00:00Z';
+const secrets=['IBKR_RUNTIME_DAILY_SYNC_TOKEN','IBKR_RUNTIME_DAILY_TARGET_KEY'].map(name=>({name,updated_at:'2026-10-28T12:00:01Z'}));
+assert.equal(writtenSecretsHaveFreshMetadata(secrets,start),true);
+assert.equal(writtenSecretsHaveFreshMetadata(secrets.slice(1),start),false);
+assert.equal(writtenSecretsHaveFreshMetadata([...secrets,secrets[0]],start),false);
+assert.equal(writtenSecretsHaveFreshMetadata(secrets.map(x=>({...x,updated_at:'2026-10-28T11:59:59Z'})),start),false);
+assert.equal(versionResponseLimit(827276),827276+524288);
+assert.equal(versionResponseLimit(),Math.ceil(10485760/3)*4+524288);
+assert.throws(()=>versionResponseLimit(Math.ceil(10485760/3)*4+1));
+console.log('IBKR daily setup guards: synthetic cases passed');

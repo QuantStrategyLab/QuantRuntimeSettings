@@ -165,6 +165,13 @@ digest for the fixed primary account. It does not register a target or write
 data. Its output and the corresponding IBKR workflow result compare existing
 configuration only; a public nonce does not make the digest confidential.
 
+The one-time primary daily setup workflow defaults to a read-only preflight.
+The explicit execute mode creates a version pinned to the fixed active Worker,
+adds the two dedicated bindings, registers the matched primary target and sets
+the corresponding producer secrets. It reports attempted stages without secret
+values and stops without retrying if a write outcome is unknown. The workflow
+does not schedule or send a daily projection.
+
 The internal Durable Object command `account_daily_native_return_research_read`
 is limited to one IBKR account, one currency and an inclusive range of at most
 366 days. It returns validated stored rows with their actual source binding,
