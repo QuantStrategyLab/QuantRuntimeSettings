@@ -62,7 +62,7 @@ export function validate(name, data) {
     if (schema.properties)
       for (const [key, sub] of Object.entries(schema.properties))
         if (Object.hasOwn(value, key)) visit(sub, value[key], path + "." + key);
-    if (schema.items)
+    if (schema.items && Array.isArray(value))
       value.forEach((item, i) => visit(schema.items, item, `${path}[${i}]`));
   };
   assert.ok(schemas[name], name);

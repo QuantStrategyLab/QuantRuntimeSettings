@@ -165,3 +165,5 @@ for (const code of ["coverage_unconfirmed", "read_truncated", "report_read_error
 
 await import("./console_holdings_known_fields_ui_validation.mjs");
 console.log("console_v2_regressions_validation: PASS (balances, compounded daily returns, reviewed bindings, account choice, explicit runtime outcomes; synthetic only)");
+
+await import("./health_today_incomplete_ui_validation.mjs");

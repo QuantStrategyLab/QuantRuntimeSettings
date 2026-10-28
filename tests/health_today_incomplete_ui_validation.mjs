@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { runActivityState, runActivityCounts, todayFailures } from '../web/strategy-switch-console/frontend/src/pages/health/status.ts';
+const base = { status:'ok', activity:'read_incomplete', completeness:'incomplete', run_status:'incomplete', read_error_count:1, read_error_codes:['coverage_unconfirmed'], run_count:2, runs:[{activity:'unknown',errors_present:null},{activity:'no_rebalance',errors_present:false}] };
+assert.equal(runActivityState(base), 'incomplete');
+for (const code of ['coverage_unconfirmed','report_rejected','read_truncated','listing_truncated']) assert.equal(runActivityState({...base,read_error_codes:[code]}), 'incomplete', code);
+for (const code of ['report_read_error','read_failed','list_failed','source_read_error']) assert.equal(runActivityState({...base,run_status:'read_failed',read_error_codes:[code]}), 'read_failed', code);
+for (const [count,codes] of [[null,null],[0,[]],[2,['coverage_unconfirmed']],[2,['list_failed','unknown_code']],[1,['unknown_code']]]) assert.equal(runActivityState({...base,run_status:'unknown',read_error_count:count,read_error_codes:codes}), 'unknown', JSON.stringify([count,codes]));
+assert.equal(runActivityState({...base,activity:'failed',run_status:'failed',read_error_codes:null}), 'failed');
+assert.equal(runActivityState({...base,activity:'blocked',run_status:'blocked',read_error_codes:null}), 'blocked');
+assert.equal(runActivityState({...base, activity:'market_closed', completeness:'complete', run_status:'not_run', read_error_count:0, read_error_codes:[], runs:[]}), 'market_closed', 'preserve the existing specific not-run label');
+assert.equal(runActivityCounts([base]).incomplete, 1);
+const summary={status:'partial',counts:{runs:null,configured:1,observed:1},accounts:[base]};
+assert.deepEqual(todayFailures(summary),{count:0,complete:false});
+console.log('health today incomplete UI: PASS');

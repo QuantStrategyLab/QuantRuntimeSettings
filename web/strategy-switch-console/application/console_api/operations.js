@@ -41,10 +41,19 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
       const record = body.record;
       if (record.business_date !== date || record.target_key !== matches[0].target_key)
         throw Error("daily_record_mismatch");
+      const safeReadCodes = new Set(["coverage_unconfirmed", "report_read_error", "report_rejected", "read_failed",
+        "read_truncated", "list_failed", "listing_truncated", "source_read_error"]);
+      const readErrorCount = Number.isSafeInteger(body.read_error_count) && body.read_error_count >= 0
+        ? body.read_error_count : null;
+      const readErrorCodes = readErrorCount !== null && Array.isArray(body.read_error_codes)
+        && body.read_error_codes.length === readErrorCount
+        && body.read_error_codes.every(code => typeof code === "string" && safeReadCodes.has(code))
+        ? body.read_error_codes : null;
       const incomplete = record.completeness !== "complete" || body.read_error_count > 0 || body.unmatched_count > 0 || record.conflict_count > 0;
       return { ...base, status: body.data_status !== "fresh" ? "stale" : incomplete ? "partial" : "ok",
         unavailable_reason: body.data_status !== "fresh" ? "runtime_daily_stale" : incomplete ? "runtime_daily_incomplete" : null,
         as_of: record.observed_at, activity: record.status,
+        read_error_count: readErrorCount, read_error_codes: readErrorCodes,
         run_status_reason: typeof record.block_reason_code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(record.block_reason_code) ? record.block_reason_code : null,
         completeness: incomplete ? "incomplete" : "complete",
         run_count: record.runs.length,
