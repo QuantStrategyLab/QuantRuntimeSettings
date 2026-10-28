@@ -518,10 +518,10 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
  releaseCases++;return {calls,stdout,stderr};
 }
 const fixedPrior="06043e24-f8c9-4129-8c59-abb9957217bf", fixedCandidate="2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee", fixedPrevious="26996cc3-732a-4774-af02-b46842913d36";
-async function resumeCase({mode="verify",wrongModule=false,tag="missing",migrations=undefined,drift=false,afterTag=false,afterMissing=false,wrongLatest=false,lateDrift=false}={}, expected=true){
+async function resumeCase({mode="verify",wrongModule=false,tag="missing",migrations=undefined,drift=false,afterTag=false,afterMissing=false,wrongLatest=false,lateDrift=false,alterCandidate=()=>{}}={}, expected=true){
  const calls=[],out=[],err=[],proc={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:ibkrSource,IBKR_CANDIDATE_RESUME:mode},exitCode:0};let activated=false, listReads=0;
  await runRelease(proc,async(url,options)=>{calls.push({url,options});let data;
- if(url.includes("workers/workers/")){data={id:fixedCandidate,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:Buffer.from(wrongModule?"wrong":syntheticBundle).toString("base64")}],...(migrations===undefined?{}:{migrations})};}
+ if(url.includes("workers/workers/")){assert.ok(url.endsWith(`/versions/${fixedCandidate}?include=modules`));data={id:fixedCandidate,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:Buffer.from(wrongModule?"wrong":syntheticBundle).toString("base64")}],...(migrations===undefined?{}:{migrations})};alterCandidate(data);}
  else if(url.endsWith("/content/v2"))return scriptResponse("export default {};");
  else if(url.endsWith("/deployments?force=false")){activated=true;data=dep(newDeployment,fixedCandidate);}
  else if(url.includes("/deployments?page="))data={deployments:[dep(activated?newDeployment:priorDeployment,activated?fixedCandidate:fixedPrior)]};
@@ -537,6 +537,13 @@ async function resumeCase({mode="verify",wrongModule=false,tag="missing",migrati
  return {calls,out,err};
 }
 await resumeCase();await resumeCase({mode:"activate"});await resumeCase({tag:"same"});
+for (const [alterCandidate,checkpoint] of [
+ [x=>x.id="wrong", "candidate_id_mismatch"], [x=>x.migrations=null,"candidate_migrations_invalid"],
+ [x=>x.migrations={new_tag:"x"},"candidate_migrations_present"], [x=>delete x.modules,"candidate_modules_missing"],
+ [x=>x.modules={},"candidate_modules_invalid"], [x=>x.modules=[],"candidate_modules_count"],
+ [x=>x.modules[0].name="other","candidate_module_identity"], [x=>delete x.modules[0].content_base64,"candidate_module_content_missing"]]) {
+ const result=await resumeCase({alterCandidate},false);assert.equal(JSON.parse(result.err.at(-1)).checkpoint,checkpoint);
+}
 for(const opts of [{wrongModule:true},{tag:"wrong"},{migrations:{new_tag:"x"}},{drift:true},{wrongLatest:true},{mode:"activate",lateDrift:true},{mode:"activate",afterTag:true},{mode:"activate",afterMissing:true}])await resumeCase(opts,false);
 await releaseCase({pr764:true},true,13);
 await releaseCase({ibkrDaily:true},true,12);
