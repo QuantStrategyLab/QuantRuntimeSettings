@@ -3,7 +3,7 @@ import { usePrefs, useScope } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { formatPercent } from "../../lib/format";
-import { RangeSelector, RANGES } from "../../components/RangeSelector";
+import { RangeSelector } from "../../components/RangeSelector";
 import { loadPerformanceSummary } from "../../api/endpoints";
 import type { Range } from "../../api/contracts";
 import { SummaryCards } from "./SummaryCards";
@@ -26,33 +26,29 @@ export default function PerformancePage() {
   const [epoch, setEpoch] = useState(0);
   const reloadAll = () => setEpoch(value => value + 1);
 
-  // Per-range return figures under the range buttons; one fetch per scope, never fabricated.
-  const rangeReturns = useApi(async () => {
-    const results = await Promise.allSettled(RANGES.map(item => loadPerformanceSummary(scope, item, platform)));
-    const map: Partial<Record<Range, string | null>> = {};
-    results.forEach((result, index) => {
-      const key = RANGES[index]!;
-      map[key] =
-        result.status === "fulfilled" && renderableStatus(result.value.status) && result.value.twr_return_percent !== null
-          ? formatPercent(result.value.twr_return_percent, language)
-          : null;
-    });
-    return map;
-  }, [scope, platform, language, epoch]);
+  // One summary read for the current range feeds both the cards and the range
+  // buttons; other ranges are read only after selection, never in parallel and
+  // never cached.
+  const summary = useApi(() => loadPerformanceSummary(scope, range, platform), [scope, platform, range, epoch]);
+  const currentReturn = summary.phase === "ready" && renderableStatus(summary.data.status) && summary.data.twr_return_percent !== null
+    ? formatPercent(summary.data.twr_return_percent, language)
+    : null;
+  const rangeReturns: Partial<Record<Range, string | null>> | undefined =
+    summary.phase === "ready" ? { [range]: currentReturn } : undefined;
 
   return (
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">{t("nav.performance")}</h1>
         <div className="page-header-actions">
-          <RangeSelector value={range} onChange={setRange} returns={rangeReturns.phase === "ready" ? rangeReturns.data : undefined} />
+          <RangeSelector value={range} onChange={setRange} returns={rangeReturns} />
           <button type="button" className="button button-secondary" onClick={reloadAll}>
             {t("common.refresh")}
           </button>
         </div>
       </div>
       <p className="page-subtitle">{scopeLabel} · {t(`perf.range.${range}`)}</p>
-      <SummaryCards scope={scope} platform={platform} range={range} epoch={epoch} />
+      <SummaryCards scope={scope} platform={platform} state={summary} />
       <ReturnsCard scope={scope} platform={platform} range={range} epoch={epoch} />
       <div className="perf-duo-grid">
         <AssetsCard scope={scope} platform={platform} range={range} epoch={epoch} />

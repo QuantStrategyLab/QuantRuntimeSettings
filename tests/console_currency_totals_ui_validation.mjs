@@ -21,7 +21,7 @@ try {
     export const freshness = (language, counts) => render(language, FreshnessSummary, { counts });
     export const assets = language => render(language, AssetsCard, { scope: 'all', range: 'ALL', epoch: 0 });
     export const overview = language => render(language, AssetKpi, { state: globalThis.__currencyState });
-    export const summary = language => render(language, SummaryCards, { scope: 'all', range: 'ALL', epoch: 0 });`, resolveDir: root },
+    export const summary = language => render(language, SummaryCards, { scope: 'all', state: globalThis.__currencyState });`, resolveDir: root },
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },
     plugins: [{ name: "controlled-read", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: "export const useApi = () => globalThis.__currencyState;", loader: "js" }));
