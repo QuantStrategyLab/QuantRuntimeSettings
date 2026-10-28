@@ -217,6 +217,7 @@ for (const source of [approved, frontend]) {
 }
 const assetPath = "web/strategy-switch-console/v2_asset_map.js";
 const ibkrSource = "aaa46a811a7cfa863f90261d516b197e5e554779";
+const integratedSource = "0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a";
 const ibkrTree = "3ac93c0b2caf30a650ab46d4bf62220e45582a46";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
@@ -228,17 +229,19 @@ const selectShell = shellBody(selectionStep);
 const fakeGit = `git() {
   printf '%s\\n' "$*" >> "$TRACE"
   case "$*" in
+    'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029') return 0 ;;
+    'rev-parse FETCH_HEAD') printf '%s' "$FAKE_FETCH_HEAD" ;;
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
     'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
     'cat-file -e ${frontend}^{commit}') return "$FAKE_FRONTEND_OBJECT_EXIT" ;;
     'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${frontend} ${control}') return "$FAKE_FRONTEND_ANCESTRY_EXIT" ;;
-    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
-    'rev-parse ${ibkrSource}^') printf '%s' "$FAKE_PARENT" ;;
+    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${ibkrSource}^'|'rev-parse ${integratedSource}^') printf '%s' "$FAKE_PARENT" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
-    'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
+    'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
     'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
-    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}') touch "$SELECTED" ;;
+    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -251,7 +254,7 @@ function sourceCase(delta, expected) {
       RELEASE_SOURCE_SHA: approved, TRACE: trace, SELECTED: selected, FAKE_CONTROL_HEAD: control,
       FAKE_SELECTED_HEAD: approved, FAKE_TREE: approvedTree, FAKE_OBJECT_EXIT: "0", FAKE_ANCESTRY_EXIT: "0",
       RELEASE_FRONTEND_ASSETS: "false", SYNC_SECRETS: "false", SYNC_STRATEGY_PROFILES: "false", SKIP_BINANCE_RECEIVER_CHECKS: "true",
-      FAKE_FRONTEND_OBJECT_EXIT: "0", FAKE_FRONTEND_ANCESTRY_EXIT: "0", FAKE_FRONTEND_TREE: frontendTree, FAKE_FRONTEND_BLOB: frontendBlob, FAKE_PARENT: approved, ...delta };
+      FAKE_FETCH_HEAD: integratedSource, FAKE_FRONTEND_OBJECT_EXIT: "0", FAKE_FRONTEND_ANCESTRY_EXIT: "0", FAKE_FRONTEND_TREE: frontendTree, FAKE_FRONTEND_BLOB: frontendBlob, FAKE_PARENT: approved, ...delta };
     const result = spawnSync("bash", ["-c", fakeGit + selectShell], { env, encoding: "utf8" });
     assert.equal(result.status === 0, expected, result.stderr);
     assert.ok(!result.stdout.includes("PRIVATE_SOURCE_SENTINEL") && !result.stderr.includes("PRIVATE_SOURCE_SENTINEL"));
@@ -297,6 +300,17 @@ for (const delta of [{FAKE_TREE:"a".repeat(40)}, {FAKE_PR764_BLOB:"a".repeat(40)
   assert.equal(sourceCase({...pr764Env,...delta}, false).selected, false);
 }
 assert.equal(sourceCase({...pr764Env,FAKE_SELECTED_HEAD:approved}, false).selected, true);
+
+const integratedEnv = { RELEASE_SOURCE_SHA: integratedSource, RELEASE_FRONTEND_ASSETS: "true",
+ FAKE_TREE: "990ef5339c792ba36afc4b9c22df0d52c74d6eb7", FAKE_PARENT: ibkrSource,
+ FAKE_PR764_BLOB: "3bb11bcbbf04330651a74fd355fd0c35c55a8c35", FAKE_SELECTED_HEAD: integratedSource };
+assert.equal(sourceCase(integratedEnv, true).selected, true);
+for (const delta of [{RELEASE_FRONTEND_ASSETS:"false"},{SYNC_SECRETS:"true"},{SYNC_STRATEGY_PROFILES:"true"},
+ {SKIP_BINANCE_RECEIVER_CHECKS:"false"},{GITHUB_REF:"refs/heads/other"},{IBKR_CANDIDATE_RESUME:"verify"}])
+ assert.equal(sourceCase({...integratedEnv,...delta}, false).selected, false);
+for (const delta of [{FAKE_TREE:"a".repeat(40)},{FAKE_PARENT:"a".repeat(40)},
+ {FAKE_PR764_BLOB:"a".repeat(40)},{FAKE_FETCH_HEAD:"a".repeat(40)},{FAKE_CONTROL_HEAD:"a".repeat(40)}])
+ assert.equal(sourceCase({...integratedEnv,...delta}, false).selected, false);
 
 const ibkrEnv = { RELEASE_SOURCE_SHA: ibkrSource, RELEASE_FRONTEND_ASSETS: "true",
   FAKE_TREE: ibkrTree, FAKE_SELECTED_HEAD: ibkrSource, FAKE_PR764_BLOB: frontendBlob };
@@ -517,11 +531,46 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
  }
  releaseCases++;return {calls,stdout,stderr};
 }
+// Exact integrated candidate: explicit inheritance, verified module, one non-forced activation.
+async function integratedReleaseCase({ active="600ec84d-a804-4ede-8d1d-0a34819ce46a", latest=active, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag } = {}, expected=true) {
+ const calls=[], stdout=[], stderr=[], prior="600ec84d-a804-4ede-8d1d-0a34819ce46a";
+ const responses=responseSequence(false,active);
+ responses.splice(3,0,wrap({items:[{id:latest}]}));
+ responses.splice(6,0,wrap({id:newVersion,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:moduleContent}]}));
+ responses.splice(8,0,wrap({items:[{id:newVersion},{id:latest}]}));
+ const uploadedResources=responses[7].result.resources;
+ if (uploadedTag === undefined) delete uploadedResources.script_runtime.migration_tag;
+ else uploadedResources.script_runtime.migration_tag=uploadedTag;
+ const postResources=resource("new-code");
+ if (postTag === null) delete postResources.script_runtime.migration_tag;
+ else postResources.script_runtime.migration_tag=postTag;
+ responses.push(wrap({id:newVersion,resources:postResources}));
+ const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,
+  RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:integratedSource},exitCode:0};
+ await runRelease(process,async(url,options)=>{calls.push({url,options}); const response=responses[calls.length-1];
+  assert.ok(response,"no retry"); return response instanceof Response ? response : new Response(JSON.stringify(response),{headers:{"content-type":"application/json"}});},
+  {log:x=>stdout.push(x),error:x=>stderr.push(x)},async path=>path.endsWith("v2_asset_map.js")?syntheticAssetMap:syntheticBundle,
+  createHash,async()=>bundleFiles.map(name=>dirent(name)));
+ assert.equal(process.exitCode===0,expected,stderr.join("\n"));
+ const posts=calls.filter(x=>x.options.method==="POST");
+ if(expected){assert.equal(posts.length,2);assert.ok(posts[0].url.endsWith("/versions?deploy=false"));
+  const upload=JSON.parse(posts[0].options.body);assert.deepEqual(upload.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name,version_id:prior})));
+  assert.ok(posts[1].url.endsWith("/deployments?force=false"));assert.equal(JSON.parse(stdout.at(-1)).version_id,newVersion);
+ } else {if (postTag !== null) assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,0); else { assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,1); assert.equal(JSON.parse(stderr.at(-1)).outcome,"UNKNOWN_REQUIRES_READBACK"); } assert.equal(JSON.parse(stderr.at(-1)).retry,false);}
+ assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));
+}
+await integratedReleaseCase();
+await integratedReleaseCase({active:priorVersion},false);
+await integratedReleaseCase({latest:priorVersion},false);
+await integratedReleaseCase({moduleContent:Buffer.from("wrong").toString("base64")},false);
+await integratedReleaseCase({uploadedTag:"wrong-tag"},false);
+await integratedReleaseCase({postTag:null},false);
+
 const fixedPrior="06043e24-f8c9-4129-8c59-abb9957217bf", fixedCandidate="2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee", fixedPrevious="26996cc3-732a-4774-af02-b46842913d36";
-async function resumeCase({mode="verify",wrongModule=false,tag="missing",migrations=undefined,drift=false,afterTag=false,afterMissing=false,wrongLatest=false,lateDrift=false}={}, expected=true){
+async function resumeCase({mode="verify",wrongModule=false,tag="missing",migrations=undefined,drift=false,afterTag=false,afterMissing=false,wrongLatest=false,lateDrift=false,alterCandidate=()=>{}}={}, expected=true){
  const calls=[],out=[],err=[],proc={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:ibkrSource,IBKR_CANDIDATE_RESUME:mode},exitCode:0};let activated=false, listReads=0;
  await runRelease(proc,async(url,options)=>{calls.push({url,options});let data;
- if(url.includes("workers/workers/")){data={id:fixedCandidate,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:Buffer.from(wrongModule?"wrong":syntheticBundle).toString("base64")}],...(migrations===undefined?{}:{migrations})};}
+ if(url.includes("workers/workers/")){assert.ok(url.endsWith(`/versions/${fixedCandidate}?include=modules`));data={id:fixedCandidate,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:Buffer.from(wrongModule?"wrong":syntheticBundle).toString("base64")}],...(migrations===undefined?{}:{migrations})};alterCandidate(data);}
  else if(url.endsWith("/content/v2"))return scriptResponse("export default {};");
  else if(url.endsWith("/deployments?force=false")){activated=true;data=dep(newDeployment,fixedCandidate);}
  else if(url.includes("/deployments?page="))data={deployments:[dep(activated?newDeployment:priorDeployment,activated?fixedCandidate:fixedPrior)]};
@@ -537,6 +586,13 @@ async function resumeCase({mode="verify",wrongModule=false,tag="missing",migrati
  return {calls,out,err};
 }
 await resumeCase();await resumeCase({mode:"activate"});await resumeCase({tag:"same"});
+for (const [alterCandidate,checkpoint] of [
+ [x=>x.id="wrong", "candidate_id_mismatch"], [x=>x.migrations=null,"candidate_migrations_invalid"],
+ [x=>x.migrations={new_tag:"x"},"candidate_migrations_present"], [x=>delete x.modules,"candidate_modules_missing"],
+ [x=>x.modules={},"candidate_modules_invalid"], [x=>x.modules=[],"candidate_modules_count"],
+ [x=>x.modules[0].name="other","candidate_module_identity"], [x=>delete x.modules[0].content_base64,"candidate_module_content_missing"]]) {
+ const result=await resumeCase({alterCandidate},false);assert.equal(JSON.parse(result.err.at(-1)).checkpoint,checkpoint);
+}
 for(const opts of [{wrongModule:true},{tag:"wrong"},{migrations:{new_tag:"x"}},{drift:true},{wrongLatest:true},{mode:"activate",lateDrift:true},{mode:"activate",afterTag:true},{mode:"activate",afterMissing:true}])await resumeCase(opts,false);
 await releaseCase({pr764:true},true,13);
 await releaseCase({ibkrDaily:true},true,12);

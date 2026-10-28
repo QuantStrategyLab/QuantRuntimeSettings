@@ -38,6 +38,13 @@ reads also allow configured paper accounts.
 An ambiguous alias requires `platform`. Settings reads also accept the existing
 `platform` and `key` parameter pair.
 
+For a uniquely bound account, the existing authenticated account-facts history
+route accepts `projection=currencies` with `platform` and `account_key` and
+returns currencies actually present in qualified retained observations. It
+returns no balances. Performance history uses the union of these currencies and
+the latest snapshot currencies; discovery failures remain read failures rather
+than being treated as empty history. The existing single-currency route is unchanged.
+
 `range` is `1M|3M|YTD|1Y|ALL`, default `ALL`. The server's Asia/Shanghai date
 ends the range. The calendar uses its explicit `year` and `month`, independently
 of the range. `year` defaults to the current year. Omitting `month` returns twelve
@@ -159,6 +166,18 @@ the existing execution-evidence and account-facts tokens. Stored IBKR records
 carry the registration fingerprint; binding changes cannot reattribute them.
 Successful IBKR acknowledgements include the original `observed_at` for
 correlation. These settings and the registration are not provisioned by code.
+
+The protected IBKR binding inspection can calculate a nonce-bound comparison
+digest for the fixed primary account. It does not register a target or write
+data. Its output and the corresponding IBKR workflow result compare existing
+configuration only; a public nonce does not make the digest confidential.
+
+The one-time primary daily setup workflow defaults to a read-only preflight.
+The explicit execute mode creates a version pinned to the fixed active Worker,
+adds the two dedicated bindings, registers the matched primary target and sets
+the corresponding producer secrets. It reports attempted stages without secret
+values and stops without retrying if a write outcome is unknown. The workflow
+does not schedule or send a daily projection.
 
 The internal Durable Object command `account_daily_native_return_research_read`
 is limited to one IBKR account, one currency and an inclusive range of at most

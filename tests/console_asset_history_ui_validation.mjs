@@ -118,6 +118,9 @@ test("P2: fill covers only runs of three or more points; sparse tails keep their
   check(assets.points);
   check([point(1, 100)]);
   check([point(1, 100), { ...point(2, 200), breakBefore: true }]);
+  const membership = ui.area([point(1, 100), { ...point(2, 200), membership_changed: true }]);
+  const lines = [...membership.matchAll(/<path d="([^"]*)"[^>]*>/g)].map(m => m[1]);
+  assert.equal((lines[1].match(/M/g) ?? []).length, 2, "account membership changes break the line without adding points");
   check([point(1, 100), point(2, 110)]);
   check([point(1, 100), point(2, 110), point(3, 120)]);
   check([]);

@@ -174,6 +174,22 @@ try {
   await kv.put("account_options", JSON.stringify(Object.fromEntries(fixtures.map(f => [f.platform, [f.option]]))));
 
   const cookie = await __test.makeSession("synthetic-reader", [], settings);
+  const hkd = payload(first, 6, currentId);
+  hkd.broker_reported_balances[0].currency = "HKD";
+  hkd.cash[0].currency = "HKD";
+  assert.equal((await post(first, hkd)).status, 200);
+  const currenciesUrl = `https://synthetic.example/api/account-facts/history?platform=longbridge&account_key=${first.option.key}&projection=currencies`;
+  response = await worker.fetch(new Request(currenciesUrl), env);
+  assert.equal(response.status, 401, "currency enumeration retains session authentication");
+  response = await worker.fetch(new Request(currenciesUrl, { headers: { Cookie: `qsl_switch_session=${cookie}` } }), env);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).currencies, ["HKD", "USD"], "actual trusted historic currencies are returned");
+  const combinedUrl = `https://synthetic.example/api/account-facts/history?platform=longbridge&account_key=${first.option.key}&currency=USD&include_currencies=true`;
+  response = await worker.fetch(new Request(combinedUrl, { headers: { Cookie: `qsl_switch_session=${cookie}` } }), env);
+  const combined = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(combined.currencies, ["HKD", "USD"]);
+  assert.ok(combined.series.points.some(point => point.observation_date === old.observation_date));
   response = await worker.fetch(new Request(`https://synthetic.example/api/account-facts/history?platform=longbridge&account_key=${first.option.key}&currency=USD`,
     { headers: { Cookie: `qsl_switch_session=${cookie}` } }), env);
   assert.equal(response.status, 200);

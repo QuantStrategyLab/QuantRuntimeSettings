@@ -132,8 +132,11 @@ const deps = {
   history: async request => {
     assert.equal(request.method, "GET");
     const key = new URL(request.url).searchParams.get("account_key");
+    if (new URL(request.url).searchParams.get("projection") === "currencies") {
+      return Response.json({ ok: true, platform: "ibkr", account_key: key, projection: "currencies", currencies: ["USD"] });
+    }
     if (key === "synthetic-b" && failSecond) return Response.json({}, { status: 503 });
-    return Response.json({ platform: "ibkr", account_key: key, series: { currency: "USD", truncated, points: [{
+    return Response.json({ platform: "ibkr", account_key: key, ...(new URL(request.url).searchParams.has("include_currencies") ? {currencies: ["USD"]} : {}), series: { currency: "USD", truncated, points: [{
       observation_date: key === "synthetic-a" ? previous : today,
       currency: "USD", net_assets: key === "synthetic-a" ? "100" : "200",
     }] } });
@@ -171,6 +174,57 @@ assert.equal(failedBody.curve_status, "partial");
 assert.equal(failedBody.status, "ok", "history read failure does not overwrite current snapshot health");
 console.log("console_equity_history_validation: PASS (synthetic union, overlap, age cutoff, first observation, empty/single, currencies, coverage and return segments)");
 
+// A bound facts row can retain historic currencies when current balances are empty or omit one.
+{
+  let latestBalances = [], discoveryFails = false;
+  const seen = [];
+  const one = { platform: "ibkr", account_key: "synthetic", binding_status: "bound", identity_mismatch: false,
+    aggregation_status: "included", get balances() { return latestBalances; } };
+  const testDeps = { ...deps, accountOptions: async () => ({ options: { ibkr: [{ key: "synthetic", broker_environment: "live" }] } }),
+    facts: async () => Response.json({ accounts: [one] }), history: async req => {
+      const u = new URL(req.url), currency = u.searchParams.get("currency");
+      if (u.searchParams.get("projection") === "currencies") return discoveryFails
+        ? Response.json({ ok: false }, { status: 503 })
+        : Response.json({ ok: true, platform: "ibkr", account_key: "synthetic", projection: "currencies", currencies: ["HKD", "USD"] });
+      if (u.searchParams.has("include_currencies") && discoveryFails) return Response.json({}, { status: 503 });
+      seen.push(currency);
+      return Response.json({ platform: "ibkr", account_key: "synthetic", ...(u.searchParams.has("include_currencies") ? { currencies: ["HKD", "USD"] } : {}), series: { currency, points: [{
+        observation_date: previous, currency, net_assets: currency === "HKD" ? "200" : "100" }] } });
+    } };
+  let body = await (await performanceResponse(new Request("https://console.example.invalid/api/performance/assets?scope=synthetic&platform=ibkr"), {}, testDeps)).json();
+  assert.deepEqual([...seen].sort(), ["HKD", "USD"]);
+  assert.deepEqual(body.history_per_currency.map(x => x.currency).sort(), ["HKD", "USD"]);
+  assert.ok(body.history_per_currency.every(x => x.points.length === 1));
+  latestBalances = [{ currency: "USD", net_assets: "123" }]; seen.length = 0;
+  body = await (await performanceResponse(new Request("https://console.example.invalid/api/performance/assets?scope=synthetic&platform=ibkr"), {}, testDeps)).json();
+  assert.deepEqual([...seen].sort(), ["HKD", "USD"], "historical-only currency is retained with one read per currency");
+  assert.deepEqual(body.history_per_currency.map(x => x.currency).sort(), ["HKD", "USD"]);
+  discoveryFails = true; seen.length = 0;
+  body = await (await performanceResponse(new Request("https://console.example.invalid/api/performance/assets?scope=synthetic&platform=ibkr"), {}, testDeps)).json();
+  assert.deepEqual(seen, ["USD"], "known current currency remains readable");
+  assert.deepEqual(body.coverage.read_failures, ["synthetic"], "failed currency discovery is not an empty history");
+  assert.equal(body.history_per_currency[0].status, "partial");
+}
+
+
+// Each configured single-currency account uses one shared history read.
+{
+  const eight = Array.from({length: 8}, (_, index) => ({ ...facts[0], account_key: `synthetic-${index}` }));
+  let reads = 0;
+  const eightDeps = { ...deps,
+    accountOptions: async () => ({ options: { ibkr: eight.map(account => ({ key: account.account_key, broker_environment: "live" })) } }),
+    facts: async () => Response.json({ accounts: eight }),
+    history: async request => {
+      reads++;
+      const params = new URL(request.url).searchParams;
+      assert.equal(params.get("include_currencies"), "true");
+      return Response.json({ platform: "ibkr", account_key: params.get("account_key"), currencies: ["USD"],
+        series: { currency: "USD", points: [] } });
+    },
+  };
+  assert.equal((await performanceResponse(request("assets"), {}, eightDeps)).status, 200);
+  assert.equal(reads, 8, "one history read per single-currency account");
+}
 
 // The production e2 baseline must retain unqualified observations without a benchmark calendar.
 const coreDates = Array.from({ length: 10 }, (_, i) => `2026-10-${String(i + 10).padStart(2, "0")}`);

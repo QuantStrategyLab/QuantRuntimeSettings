@@ -138,7 +138,7 @@ export async function performanceResponse(request, env, deps) {
           env,
         );
         if (!response.ok) {
-          readFailures.push(option.key);
+          if (!readFailures.includes(option.key)) readFailures.push(option.key);
           unreadableHistoryCurrencies.add("USDT");
           failed.push(option.key);
           accounts.push({ account_key: option.key, platform: option.platform,
@@ -209,29 +209,51 @@ export async function performanceResponse(request, env, deps) {
         continue;
       accounts.push(fact);
       if (endpoint === "holdings") continue;
-      const currencies = [
-        ...new Set((fact.balances || []).map((b) => b.currency)),
-      ];
-      if (!currencies.length) failed.push(option.key);
+      const currentCurrencies = (fact.balances || []).map((b) => b.currency);
+      if (!currentCurrencies.length && !failed.includes(option.key)) failed.push(option.key);
+      let historicalCurrencies = [];
+      let firstHistory = null;
+      const firstCurrency = currentCurrencies[0];
+      try {
+        const params = firstCurrency
+          ? { platform: option.platform, account_key: option.key, currency: firstCurrency, include_currencies: "true" }
+          : { platform: option.platform, account_key: option.key, projection: "currencies" };
+        const response = await deps.history(makeRequest("/api/account-facts/history", params), env);
+        if (!response.ok) throw Error("history_currencies_unavailable");
+        const body = await response.json();
+        if (body.platform !== option.platform || body.account_key !== option.key
+            || (!firstCurrency && (body.ok !== true || body.projection !== "currencies"))
+            || (firstCurrency && (body.identity_mismatch || body.series?.currency !== firstCurrency))
+            || !Array.isArray(body.currencies)
+            || body.currencies.some(currency => typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency))
+            || new Set(body.currencies).size !== body.currencies.length) throw Error("history_currencies_unavailable");
+        historicalCurrencies = body.currencies;
+        if (firstCurrency) firstHistory = body;
+      } catch {
+        if (!readFailures.includes(option.key)) readFailures.push(option.key);
+        if (!failed.includes(option.key)) failed.push(option.key);
+      }
+      const currencies = [...new Set([...currentCurrencies, ...historicalCurrencies])];
       const accountHistories = [];
       for (const currency of currencies) {
         const member = { id: `${option.platform}:${option.key}:${currency}`, currency, points: [] };
         accountHistories.push(member);
-        const response = await deps.history(
-          makeRequest("/api/account-facts/history", {
-            platform: option.platform,
-            account_key: option.key,
-            currency,
-          }),
-          env,
-        );
-        if (!response.ok) {
-          readFailures.push(option.key);
+        const response = currency === firstCurrency && firstHistory
+          ? null : await deps.history(
+            makeRequest("/api/account-facts/history", {
+              platform: option.platform,
+              account_key: option.key,
+              currency,
+            }),
+            env,
+          );
+        if (response && !response.ok) {
+          if (!readFailures.includes(option.key)) readFailures.push(option.key);
           unreadableHistoryCurrencies.add(currency);
-          failed.push(option.key);
+          if (!failed.includes(option.key)) failed.push(option.key);
           continue;
         }
-        const body = await response.json();
+        const body = firstHistory && currency === firstCurrency ? firstHistory : await response.json();
         truncated ||= body.series?.truncated === true;
         if (
           body.identity_mismatch ||
@@ -239,7 +261,7 @@ export async function performanceResponse(request, env, deps) {
           body.account_key !== option.key ||
           body.series?.currency !== currency
         ) {
-          failed.push(option.key);
+          if (!failed.includes(option.key)) failed.push(option.key);
           continue;
         }
         if (externalFlowEnabled(env) && body.externalFlow) member.externalFlow = body.externalFlow;
@@ -258,7 +280,7 @@ export async function performanceResponse(request, env, deps) {
         );
       }
       histories.push(...accountHistories);
-      if (accountHistories.some((h) => !h.points.length)) failed.push(option.key);
+      if (accountHistories.some((h) => !h.points.length) && !failed.includes(option.key)) failed.push(option.key);
     }
     if (endpoint === "holdings") {
       const block = performanceBlocks({ accounts, histories: [], today, year, month,
