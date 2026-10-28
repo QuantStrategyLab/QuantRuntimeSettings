@@ -27,6 +27,7 @@ try {
     assert.ok(html.includes(language==='zh'?'USD 最近已知余额合计':'USD latest known balance total'));
     assert.ok(html.includes('USD 800.00'));
     assert.ok(html.includes(language==='zh'?'已计入 8/8 个账户':'Includes 8 of 8 accounts'),'full coverage remains visible across asynchronous updates');
+    assert.ok(html.includes(language==='zh'?'可能包含环境待确认账户':'May include accounts with unconfirmed environments'),'latest balance explains the scope');
     assert.ok(html.includes(language==='zh'?'最早数据':'Earliest data'));
     assert.ok(html.includes(language==='zh'?'最晚数据':'Latest data'));
     assert.ok(html.includes('2026-10-27')&&html.includes('2026-10-28'),'individual native observation dates are retained');
@@ -52,6 +53,7 @@ try {
     const {latest_as_of,...legacy}=total;
     const old=ui.render(language,[legacy]);
     assert.ok(old.includes(language==='zh'?'USD 资产合计':'USD asset total'));
+    assert.ok(!old.includes(language==='zh'?'可能包含环境待确认账户':'May include accounts with unconfirmed environments'),'legacy totals do not receive the latest-balance note');
     assert.ok(!old.includes(language==='zh'?'最晚数据':'Latest data'),'older interfaces retain their single source-time rendering');
     assert.doesNotMatch(html,/perf\.|reason\.|state\./);
   }

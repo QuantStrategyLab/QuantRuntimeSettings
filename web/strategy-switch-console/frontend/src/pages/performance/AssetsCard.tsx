@@ -23,7 +23,8 @@ function HistoryNotice({ status, points, coverage, reason }: {
   reason?: string | null;
 }) {
   const t = useT();
-  const partial = points.some(point => point.partial) || Boolean(coverage?.truncated) || Boolean(coverage?.read_failures?.length);
+  const hasCarriedBalances = points.some(point => (point.forward_filled_accounts?.length || 0) > 0);
+  const partial = hasCarriedBalances || points.some(point => point.partial) || Boolean(coverage?.truncated) || Boolean(coverage?.read_failures?.length);
   const badgeStatus = status === "ok" ? (partial ? "partial" : "ok") : status;
   if (badgeStatus === "ok") return null;
   const affected = [...new Set([
@@ -36,6 +37,7 @@ function HistoryNotice({ status, points, coverage, reason }: {
     data-reason={reason ?? undefined} data-affected-count={affected.length || undefined}>
     <StatusBadge status={badgeStatus} />
     {affected.length > 0 && <span className="card-note">{t("perf.history_affected_accounts", { count: affected.length })}</span>}
+    {hasCarriedBalances && <span className="card-note">{t("perf.history_carried_balances")}</span>}
     {reason && <span className="card-note">{t(`reason.${reason}`)}</span>}
   </span>;
 }
