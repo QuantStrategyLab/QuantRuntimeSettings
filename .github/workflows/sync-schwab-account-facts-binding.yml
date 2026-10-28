@@ -96,7 +96,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "$DAILY_COMPARISON_NONCE" ] && { [ "$BINDING_PLATFORM" != "ibkr" ] || [ "$INSPECT_IBKR_BINDINGS" != "true" ] || [ "$INSPECT_IBKR_LIFECYCLE" = "true" ] || [ "$INITIALIZE_IBKR_BINDINGS" = "true" ] || [ "$APPLY_INITIAL_IBKR_BINDINGS" = "true" ] || [ "$PREVIEW_IBKR_SOURCE_ROTATION" = "true" ] || [ "$BACKUP_PRIMARY_IBKR_BINDING" = "true" ]; }; then
+          if [ -n "${DAILY_COMPARISON_NONCE:-}" ] && { [ "$BINDING_PLATFORM" != "ibkr" ] || [ "$INSPECT_IBKR_BINDINGS" != "true" ] || [ "$INSPECT_IBKR_LIFECYCLE" = "true" ] || [ "$INITIALIZE_IBKR_BINDINGS" = "true" ] || [ "$APPLY_INITIAL_IBKR_BINDINGS" = "true" ] || [ "$PREVIEW_IBKR_SOURCE_ROTATION" = "true" ] || [ "$BACKUP_PRIMARY_IBKR_BINDING" = "true" ]; }; then
             echo "status=blocked reason=comparison_mode_invalid"
             exit 1
           fi
@@ -250,7 +250,7 @@ jobs:
           fi
 
           if [ "$INSPECT_IBKR_BINDINGS" = "true" ]; then
-            if [ -n "$DAILY_COMPARISON_NONCE" ]; then
+            if [ -n "${DAILY_COMPARISON_NONCE:-}" ]; then
               node ./compare_ibkr_daily_binding.mjs "$temp_dir/account-options.json" "$temp_dir/account-facts-bindings.json"
               exit $?
             fi
