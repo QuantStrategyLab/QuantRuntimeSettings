@@ -409,7 +409,6 @@ export function TrendCard({ returns, assets }: { returns: Api<ReturnsResponse>; 
 
 export default function OverviewPage() {
   const t = useT();
-  const navigate = useNavigate();
   const { scope } = useScope();
   const [epoch, setEpoch] = useState(0);
   const refresh = () => setEpoch(value => value + 1);
@@ -442,20 +441,6 @@ export default function OverviewPage() {
         </div>
       </section>
       <TrendCard returns={returns} assets={assets} />
-      <nav className="overview-shortcuts" aria-label={t("overview.quick_links")}>
-        <button type="button" className="overview-shortcut" onClick={() => navigate({ page: "accounts" })}>
-          {t("nav.accounts")}<span aria-hidden="true">→</span>
-        </button>
-        <button type="button" className="overview-shortcut" onClick={() => navigate({ page: "strategies" })}>
-          {t("nav.strategies")}<span aria-hidden="true">→</span>
-        </button>
-        <button type="button" className="overview-shortcut" onClick={() => navigate({ page: "decisions" })}>
-          {t("nav.decisions")}<span aria-hidden="true">→</span>
-        </button>
-        <button type="button" className="overview-shortcut" onClick={() => navigate({ page: "health" })}>
-          {t("nav.health")}<span aria-hidden="true">→</span>
-        </button>
-      </nav>
     </div>
   );
 }

@@ -151,6 +151,12 @@ const single = assetBalanceHistories(singleData);
 assert.equal(single.length, 1);
 assert.equal(single[0].currency, "USD");
 assert.equal(single[0].status, "ok");
+const changedCoverage = assetBalanceHistories({ ...singleData, points: [
+  { date: "2026-10-01", value: 1000 },
+  { date: "2026-10-02", value: 1200, membership_changed: true },
+] });
+assert.equal(changedCoverage[0].points[1].membership_changed, true, "account cohort changes remain marked for the chart");
+assert.equal(changedCoverage[0].partial, false, "a cohort change is not automatically a data error");
 assert.deepEqual(assetBalanceHistories({ ...singleData, currency: null }), [],
   "an unlabelled balance is never guessed into a currency");
 

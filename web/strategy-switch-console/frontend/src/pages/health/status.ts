@@ -62,7 +62,9 @@ export function cellKind(snapshot: RuntimeDailySnapshot): CellKind {
   if (record.status === "blocked") return "blocked";
   if (["failed", "error"].includes(record.status) || runs.some(run => run.activity !== "blocked" && runtimeDailyRunIssue(run) === "failure")) return "failed";
   if (runs.some(run => run.activity === "blocked")) return "blocked";
-  if (record.status === "read_incomplete") return "read-failed";
+  // A truncated or partially read record still carries valid content; it is
+  // reported as incomplete. Only a failed API request is a read failure.
+  if (record.status === "read_incomplete") return "incomplete";
   if (snapshot.data_status === "stale") return "stale";
   if (!["fresh", "historical"].includes(snapshot.data_status)) return "unknown";
   if (record.status === "unknown") return "unknown";

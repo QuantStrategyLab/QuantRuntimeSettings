@@ -1,6 +1,6 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
-  "perf.latest_balance_scope_note": "可能包含环境待确认账户，不代表已核实的实盘合计。",
+  "perf.latest_balance_scope_note": "可能包含环境待确认账户，合计可能不完整。",
   "perf.latest_balance_total": "{currency} 最近已知余额合计",
   "perf.latest_balance_subtotal": "{currency} 最近已知余额小计",
   "perf.balance_oldest_time": "最早数据 {value}",
@@ -101,7 +101,7 @@ export const zh: Record<string, string> = {
   "perf.executions_empty_partial": "部分记录，当前范围内暂无可展示成交。",
 };
 export const en: Record<string, string> = {
-  "perf.latest_balance_scope_note": "May include accounts with unconfirmed environments; this is not a verified live-account total.",
+  "perf.latest_balance_scope_note": "May include accounts with unconfirmed environments; the total may be incomplete.",
   "perf.latest_balance_total": "{currency} latest known balance total",
   "perf.latest_balance_subtotal": "{currency} latest known balance subtotal",
   "perf.balance_oldest_time": "Earliest data {value}",
