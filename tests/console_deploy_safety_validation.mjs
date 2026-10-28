@@ -218,6 +218,7 @@ for (const source of [approved, frontend]) {
 const assetPath = "web/strategy-switch-console/v2_asset_map.js";
 const ibkrSource = "aaa46a811a7cfa863f90261d516b197e5e554779";
 const integratedSource = "0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a";
+const cpuSource = "974354b98ebe0cd55931baa03034d887d4fac560";
 const ibkrTree = "3ac93c0b2caf30a650ab46d4bf62220e45582a46";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
@@ -229,19 +230,20 @@ const selectShell = shellBody(selectionStep);
 const fakeGit = `git() {
   printf '%s\\n' "$*" >> "$TRACE"
   case "$*" in
-    'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029') return 0 ;;
+    'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-history-cpu-candidate-20261029') return 0 ;;
     'rev-parse FETCH_HEAD') printf '%s' "$FAKE_FETCH_HEAD" ;;
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
     'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
     'cat-file -e ${frontend}^{commit}') return "$FAKE_FRONTEND_OBJECT_EXIT" ;;
     'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
+    'merge-base --is-ancestor ${integratedSource} ${cpuSource}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${frontend} ${control}') return "$FAKE_FRONTEND_ANCESTRY_EXIT" ;;
-    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse ${cpuSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
     'rev-parse ${ibkrSource}^'|'rev-parse ${integratedSource}^') printf '%s' "$FAKE_PARENT" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
-    'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
+    'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}'|'rev-parse ${cpuSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
     'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
-    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}') touch "$SELECTED" ;;
+    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}'|'-c advice.detachedHead=false checkout --detach ${cpuSource}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -312,6 +314,14 @@ for (const delta of [{FAKE_TREE:"a".repeat(40)},{FAKE_PARENT:"a".repeat(40)},
  {FAKE_PR764_BLOB:"a".repeat(40)},{FAKE_FETCH_HEAD:"a".repeat(40)},{FAKE_CONTROL_HEAD:"a".repeat(40)}])
  assert.equal(sourceCase({...integratedEnv,...delta}, false).selected, false);
 
+const cpuEnv = {...integratedEnv, RELEASE_SOURCE_SHA:cpuSource, FAKE_FETCH_HEAD:cpuSource,
+ FAKE_TREE:"fd8f06dd2c310431d30a676f596d4eeac0bda57f", FAKE_SELECTED_HEAD:cpuSource};
+assert.equal(sourceCase(cpuEnv,true).selected,true);
+for(const delta of [{SYNC_SECRETS:"true"},{SYNC_STRATEGY_PROFILES:"true"},{RELEASE_FRONTEND_ASSETS:"false"},
+ {IBKR_CANDIDATE_RESUME:"verify"},{SKIP_BINANCE_RECEIVER_CHECKS:"false"},{GITHUB_REF:"refs/heads/other"},
+ {FAKE_TREE:"a".repeat(40)},{FAKE_PR764_BLOB:"a".repeat(40)},{FAKE_FETCH_HEAD:"a".repeat(40)}, {FAKE_ANCESTRY_EXIT:"1"}])
+ assert.equal(sourceCase({...cpuEnv,...delta},false).selected,false);
+
 const ibkrEnv = { RELEASE_SOURCE_SHA: ibkrSource, RELEASE_FRONTEND_ASSETS: "true",
   FAKE_TREE: ibkrTree, FAKE_SELECTED_HEAD: ibkrSource, FAKE_PR764_BLOB: frontendBlob };
 assert.equal(sourceCase(ibkrEnv, true).selected, true);
@@ -365,7 +375,7 @@ const fakeOverlayGit = `git() {
     'show ${ibkrSource}:${assetPath}') cat "$FROZEN_MAP" ;;
     hash-object*) command git "$@" ;;
     'diff --name-only ${approved}') printf '%s' "$FAKE_DIFF" ;;
-    'diff --name-only ${ibkrSource}') printf '%s' "$FAKE_DIFF" ;;
+    'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}') printf '%s' "$FAKE_DIFF" ;;
     'ls-files --others --exclude-standard') printf '%s' "$FAKE_UNTRACKED" ;;
     *) return 91 ;;
   esac
@@ -384,6 +394,21 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
     if (expected) assert.deepEqual(readFileSync(dest), reviewedMap);
     overlayCases++;
   } finally { rmSync(temp, { recursive: true, force: true }); }
+}
+// The CPU candidate carries its own exact generated map, never the older overlay.
+{
+  const asset = readFileSync(new URL(`../${assetPath}`, import.meta.url));
+  const assetHash = spawnSync("git", ["hash-object", "--stdin"], {input:asset,encoding:"utf8"});
+  assert.equal(assetHash.stdout.trim(), "3bb11bcbbf04330651a74fd355fd0c35c55a8c35");
+  const temp = mkdtempSync(join(tmpdir(), "console-cpu-overlay-"));
+  try {
+    const dest=join(temp,assetPath); mkdirSync(join(temp,"web/strategy-switch-console"),{recursive:true});
+    writeFileSync(dest,asset);
+    const env={PATH:process.env.PATH,GITHUB_REF:"refs/heads/main",FAKE_HEAD:cpuSource,FAKE_DIFF:"",FAKE_UNTRACKED:""};
+    assert.equal(spawnSync("bash",["-c",fakeOverlayGit+overlayShell],{cwd:temp,env}).status,0);
+    writeFileSync(dest,"synthetic wrong asset");
+    assert.notEqual(spawnSync("bash",["-c",fakeOverlayGit+overlayShell],{cwd:temp,env}).status,0);
+  } finally {rmSync(temp,{recursive:true,force:true});}
 }
 overlayCase();
 for (const delta of [{ GITHUB_REF: "refs/heads/unapproved" }, { FAKE_HEAD: frontend }, { FAKE_TREE: frontendTree },
@@ -532,8 +557,9 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
  releaseCases++;return {calls,stdout,stderr};
 }
 // Exact integrated candidate: explicit inheritance, verified module, one non-forced activation.
-async function integratedReleaseCase({ active="600ec84d-a804-4ede-8d1d-0a34819ce46a", latest=active, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag } = {}, expected=true) {
- const calls=[], stdout=[], stderr=[], prior="600ec84d-a804-4ede-8d1d-0a34819ce46a";
+async function integratedReleaseCase({ cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag } = {}, expected=true) {
+ const calls=[], stdout=[], stderr=[], prior=cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
+ active ??= prior; latest ??= active;
  const responses=responseSequence(false,active);
  responses.splice(3,0,wrap({items:[{id:latest}]}));
  responses.splice(6,0,wrap({id:newVersion,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:moduleContent}]}));
@@ -546,7 +572,7 @@ async function integratedReleaseCase({ active="600ec84d-a804-4ede-8d1d-0a34819ce
  else postResources.script_runtime.migration_tag=postTag;
  responses.push(wrap({id:newVersion,resources:postResources}));
  const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,
-  RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:integratedSource},exitCode:0};
+  RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:cpu?cpuSource:integratedSource},exitCode:0};
  await runRelease(process,async(url,options)=>{calls.push({url,options}); const response=responses[calls.length-1];
   assert.ok(response,"no retry"); return response instanceof Response ? response : new Response(JSON.stringify(response),{headers:{"content-type":"application/json"}});},
   {log:x=>stdout.push(x),error:x=>stderr.push(x)},async path=>path.endsWith("v2_asset_map.js")?syntheticAssetMap:syntheticBundle,
@@ -565,6 +591,12 @@ await integratedReleaseCase({latest:priorVersion},false);
 await integratedReleaseCase({moduleContent:Buffer.from("wrong").toString("base64")},false);
 await integratedReleaseCase({uploadedTag:"wrong-tag"},false);
 await integratedReleaseCase({postTag:null},false);
+await integratedReleaseCase({cpu:true});
+await integratedReleaseCase({cpu:true,active:"600ec84d-a804-4ede-8d1d-0a34819ce46a"},false);
+await integratedReleaseCase({cpu:true,latest:priorVersion},false);
+await integratedReleaseCase({cpu:true,moduleContent:Buffer.from("wrong").toString("base64")},false);
+await integratedReleaseCase({cpu:true,uploadedTag:"wrong-tag"},false);
+await integratedReleaseCase({cpu:true,postTag:null},false);
 
 const fixedPrior="06043e24-f8c9-4129-8c59-abb9957217bf", fixedCandidate="2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee", fixedPrevious="26996cc3-732a-4774-af02-b46842913d36";
 async function resumeCase({mode="verify",wrongModule=false,tag="missing",migrations=undefined,drift=false,afterTag=false,afterMissing=false,wrongLatest=false,lateDrift=false,alterCandidate=()=>{}}={}, expected=true){
