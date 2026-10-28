@@ -180,7 +180,9 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
     {
       id: "status",
       header: t("health.col.status"),
-      cell: row => <StatusBadge status={row.freshness ?? (row.stale === true ? "stale" : row.fresh === true ? "fresh" : row.status)} reason={row.unavailable_reason} />,
+      cell: row => row.unavailable_reason === "runtime_daily_binding_conflict"
+        ? <span>{t("reason.runtime_daily_binding_conflict")}</span>
+        : <StatusBadge status={row.freshness ?? (row.stale === true ? "stale" : row.fresh === true ? "fresh" : row.status)} reason={row.unavailable_reason} />,
       sortValue: row => row.status,
     },
     {
