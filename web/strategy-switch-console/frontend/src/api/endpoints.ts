@@ -188,7 +188,7 @@ export interface RuntimeDailyBinding {
   platform: string;
   target_key: string;
   account_key: string | null;
-  status: "bound" | "unresolved" | "read_failed";
+  status: "bound" | "unresolved" | "read_failed" | "conflict";
 }
 
 export async function loadRuntimeDailyBindings(): Promise<RuntimeDailyBinding[]> {

@@ -20,6 +20,8 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
       as_of: null, activity: null, completeness: null, run_count: null, runs: [] };
     if (!bindings || bindings.some(b => b.platform === account.platform && b.status === "read_failed"))
       return { ...base, status: "read_failed", unavailable_reason: "stored_records_unreadable" };
+    if (bindings.some(b => b.platform === account.platform && b.account_key === account.key && b.status === "conflict"))
+      return { ...base, status: "partial", unavailable_reason: "runtime_daily_binding_conflict" };
     const matches = bindings.filter(b => b.platform === account.platform && b.account_key === account.key && b.status === "bound");
     if (matches.length === 0) return base;
     if (matches.length > 1) return { ...base, status: "partial", unavailable_reason: "runtime_daily_binding_conflict" };
