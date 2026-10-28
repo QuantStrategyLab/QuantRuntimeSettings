@@ -103,6 +103,8 @@ jobs:
           node tests/console_v2_assets_validation.mjs
           node tests/console_deploy_safety_validation.mjs
           npm ci --prefix web/strategy-switch-console/frontend
+          node --test tests/website_execution_evidence_release_validation.mjs
+          node tests/website_release_combination_validation.mjs
           npm run build --prefix web/strategy-switch-console/frontend
           npm run sync:v2-assets --prefix web/strategy-switch-console/frontend
           node tests/console_v2_assets_validation.mjs
