@@ -23,6 +23,11 @@ on:
         required: true
         type: boolean
         default: false
+      check_explicit_version_inherit:
+        description: "Read the fixed Worker version through the Workers API."
+        required: true
+        type: boolean
+        default: false
       skip_binance_receiver_checks:
         description: "Skip only Binance readiness GETs and receiver-credential POST; retain all other checks."
         required: true
@@ -62,7 +67,7 @@ concurrency:
 
 jobs:
   preflight:
-    if: github.event_name == 'workflow_dispatch' && inputs.read_only_preflight
+    if: github.event_name == 'workflow_dispatch' && (inputs.read_only_preflight || inputs.check_explicit_version_inherit)
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 5
@@ -365,8 +370,43 @@ jobs:
           console.log(JSON.stringify(result));
           JS
 
+      - name: Check fixed Worker version API
+        if: inputs.check_explicit_version_inherit
+        run: |
+          node --input-type=module <<'JS'
+          const out = { status: null, target_matched: false, category: null, writes: 0 };
+          try {
+            const token = process.env.CLOUDFLARE_API_TOKEN, account = process.env.CLOUDFLARE_ACCOUNT_ID;
+            if (!token || !/^[0-9a-f]{32}$/i.test(account ?? '')) throw Error('config');
+            const expected = '06043e24-f8c9-4129-8c59-abb9957217bf';
+            const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/workers/qsl-strategy-switch-console/versions/${expected}`, {
+              method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000),
+              headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'identity' },
+            });
+            out.status = response.status;
+            if (!response.ok) { await response.body?.cancel(); out.category = 'http_error'; }
+            else if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
+              || !['', 'identity'].includes(response.headers.get('content-encoding') ?? '') || !response.body) {
+              await response.body?.cancel(); out.category = 'response_invalid';
+            } else {
+              const reader = response.body.getReader(); const chunks = []; let size = 0;
+              try {
+                for (;;) {
+                  const { value, done } = await reader.read(); if (done) break;
+                  size += value.byteLength; if (size > 524288) throw Error('size');
+                  chunks.push(value);
+                }
+              } finally { await reader.cancel(); }
+              const body = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(Buffer.concat(chunks)));
+              out.target_matched = body?.success === true && (body.errors == null || (Array.isArray(body.errors) && body.errors.length === 0)) && body?.result?.id === expected;
+              out.category = out.target_matched ? 'version_read' : 'response_mismatch';
+            }
+          } catch { out.category = 'request_or_response_failed'; }
+          console.log(JSON.stringify(out));
+          JS
+
   deploy:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.rollback_to_pre_release
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && !inputs.rollback_to_pre_release
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 25
@@ -1376,7 +1416,7 @@ jobs:
           done
 
   rollback:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && inputs.rollback_to_pre_release
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && inputs.rollback_to_pre_release
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 5
