@@ -472,7 +472,7 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
 const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_external_flow_put",
   "account_executions_put", "account_executions_read",
-  "account_period_return_put", "account_period_return_read",
+  "account_period_return_put", "account_period_return_read", "account_daily_native_return_research_read",
   "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read", "account_facts_history_put",
   "binance_wallet_history_put", "binance_wallet_history_read",
 ]);
@@ -2786,6 +2786,7 @@ export class RuntimeInstances {
 
   accountFactsCommand(command) {
     if (!command || typeof command.action !== "string") throw new HttpError("unsupported_account_facts_action", 400);
+    if (command.action === "account_daily_native_return_research_read") return this.researchNativeDailyReturns(command);
     if (command.action === "binance_wallet_history_put" || command.action === "binance_wallet_history_read") {
       return this.binanceWalletHistoryCommand(command);
     }
@@ -3148,6 +3149,73 @@ export class RuntimeInstances {
     return { ok: true, unchanged: false };
   }
 
+  // Internal only: a future authorized caller must supply verified account and
+  // source bindings. The browser/session and publisher routes do not call this.
+  researchNativeDailyReturns(command) {
+    const context = this.accountFactsStorageContext(command);
+    const from = runtimeDailyCalendarDate(command.from), to = runtimeDailyCalendarDate(command.to);
+    const start = Date.parse(`${from}T00:00:00Z`), end = Date.parse(`${to}T00:00:00Z`);
+    if (context.platform !== "ibkr" || !/^[a-f0-9]{64}$/.test(context.source_binding_id)
+      || !context.account_scope || !context.account_selector || !context.target_id
+      || typeof command.currency !== "string" || !/^[A-Z]{3}$/.test(command.currency)
+      || !from || !to || end < start || (end - start) / 86400000 >= 366)
+      throw new HttpError("invalid_native_return_research_range", 400);
+    const sources = new Set([context.source_binding_id, ...(context.history_source_binding_ids || [])]);
+    let stored;
+    try {
+      stored = this.sql.exec(`SELECT source_binding_id, currency, observation_date, payload_json
+        FROM account_daily_native_return WHERE account_key = ? AND currency = ? AND observation_date >= ? AND observation_date <= ?
+        ORDER BY observation_date, source_binding_id LIMIT ?`, context.account_key, command.currency, from, to, 366 * 65 + 1).toArray();
+    } catch { throw new HttpError("native_return_read_failed", 503); }
+    if (stored.length > 366 * 65) throw new HttpError("native_return_read_limit_exceeded", 503);
+    const byDate = new Map();
+    const navByDate = new Map();
+    const decimal = text => {
+      const [whole, fraction = ""] = text.split(".");
+      return { number: BigInt(whole + fraction), scale: fraction.length };
+    };
+    const decimalEqual = (left, right) => {
+      const a = decimal(left), b = decimal(right);
+      return a.number * 10n ** BigInt(b.scale) === b.number * 10n ** BigInt(a.scale);
+    };
+    const navFields = ["startingValue", "endingValue", "depositsWithdrawals", "internalCashTransfers", "assetTransfers", "linkingAdjustments"];
+    for (const item of stored) {
+      const date = runtimeDailyCalendarDate(item.observation_date);
+      if (!date) return { ok: false, error: "native_return_record_invalid", date: null };
+      if (!sources.has(item.source_binding_id)) return { ok: false, error: "native_return_source_unqualified", date };
+      let raw;
+      try {
+        raw = JSON.parse(item.payload_json);
+        const validated = normalizeIbkrPeriodReturn(raw, { binding: { ...context, source_binding: { id: item.source_binding_id } }, enforceFresh: false });
+        if (validated.currency !== item.currency || validated.period.from !== date || validated.period.to !== date) throw Error();
+      } catch { return { ok: false, error: "native_return_record_invalid", date }; }
+      const previous = byDate.get(date);
+      if (previous) {
+        if (!decimalEqual(previous.value, raw.value))
+          return { ok: false, error: "native_return_history_conflict", date };
+      }
+      if (raw.nav_change) {
+        const priorNav = navByDate.get(date), nav = raw.nav_change;
+        if (priorNav && (!decimalEqual(priorNav.amount, nav.amount)
+          || navFields.some(field => !decimalEqual(priorNav.components[field], nav.components[field]))))
+          return { ok: false, error: "native_return_nav_conflict", date };
+        navByDate.set(date, nav);
+      }
+      // SQL order is deterministic; prefer the currently configured source.
+      if (!previous || raw.source_binding_id === context.source_binding_id) byDate.set(date, raw);
+    }
+    const rows = [...byDate.values()];
+    const datesWithoutRecords = [];
+    for (let day = start; day <= end; day += 86400000) {
+      const date = new Date(day).toISOString().slice(0, 10);
+      if (!byDate.has(date)) datesWithoutRecords.push(date);
+    }
+    return { ok: true, status: "ok", currency: command.currency, from, to, rows,
+      source_row_count: stored.length, duplicate_row_count: stored.length - rows.length,
+      returned_from: rows[0]?.period.to || null, returned_to: rows.at(-1)?.period.to || null,
+      dates_without_records: datesWithoutRecords, calendar_qualification: "unknown", published_at: null, historical_pit: "unknown" };
+  }
+
   accountFactsStorageContext(command) {
     if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(command?.platform)
         || typeof command.account_key !== "string" || !command.account_key
@@ -3158,7 +3226,7 @@ export class RuntimeInstances {
       throw new HttpError("invalid_account_facts_account", 400);
     }
     const historyIds = command.history_source_binding_ids;
-    if (historyIds !== undefined && (!["account_facts_history_read", "account_facts_history_put", "account_period_return_read", "account_period_return_put", "account_executions_read", "account_executions_put"].includes(command.action)
+    if (historyIds !== undefined && (!["account_facts_history_read", "account_facts_history_put", "account_period_return_read", "account_period_return_put", "account_daily_native_return_research_read", "account_executions_read", "account_executions_put"].includes(command.action)
         || !Array.isArray(historyIds) || historyIds.length < 1 || historyIds.length > 64
         || new Set(historyIds).size !== historyIds.length
         || historyIds.some(id => typeof id !== "string" || !/^[a-f0-9]{64}$/.test(id)
@@ -4157,7 +4225,8 @@ export class RuntimeInstances {
         return json(this.storage.transactionSync(() => this.accountSettingsCommand(command)));
       }
       if (ACCOUNT_FACTS_DO_ACTIONS.has(command?.action)) {
-        return json(this.storage.transactionSync(() => this.accountFactsCommand(command)));
+        const result = this.storage.transactionSync(() => this.accountFactsCommand(command));
+        return json(result, command.action === "account_daily_native_return_research_read" && !result.ok ? 409 : 200);
       }
       if (MARKET_BENCHMARK_DO_ACTIONS.has(command?.action)) {
         return json(this.storage.transactionSync(() => this.marketBenchmarkCommand(command)));
