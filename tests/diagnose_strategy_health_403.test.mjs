@@ -12,15 +12,19 @@ test('queries only fixed worker and two bounded windows, emits only allowed fiel
     return ok({ events: { count: 1, events: [{ $metadata: { statusCode: 403, message: 'SENTINEL_PRIVATE' } }] } });
   };
   const result = await diagnose({ account, token, request });
-  assert.equal(result.status, 'complete'); assert.equal(calls.length, 3);
-  assert.deepEqual(result.windows.map(x => x.status_403_count), [1, 1]);
+  assert.equal(result.status, 'complete'); assert.equal(calls.length, 4);
+  assert.deepEqual(result.windows.map(x => x.status_403_count), [1, 1, 1]);
   assert(!JSON.stringify(result).includes('SENTINEL'));
-  for (const call of calls.slice(1)) {
+  for (const call of calls.slice(1, 3)) {
     const body = JSON.parse(call.options.body);
     assert.equal(body.dry, true); assert.equal(body.limit, 25);
     assert.equal(body.parameters.filters[0].value, 'qsl-strategy-switch-console');
     assert.equal(body.parameters.filters[1].value, '/api/internal/sync-strategy-health');
   }
+  const mobile = JSON.parse(calls[3].options.body);
+  assert.deepEqual(mobile.parameters.filters[1].filters.map(x => x.value),
+    ['/api/decisions-inbox', '/api/accounts', '/api/performance/', '/api/runtime/today']);
+  assert.equal(result.windows[2].exception_count, 0);
 });
 test('permission rejection stops without retries or leaking response', async () => {
   let count = 0;

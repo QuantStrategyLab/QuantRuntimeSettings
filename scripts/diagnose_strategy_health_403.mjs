@@ -4,6 +4,7 @@ const PATH = '/api/internal/sync-strategy-health';
 const WINDOWS = [
   { name: '0130_sgt', from: Date.parse('2026-10-28T17:30:50Z'), to: Date.parse('2026-10-28T17:31:40Z') },
   { name: '0200_sgt', from: Date.parse('2026-10-28T18:00:50Z'), to: Date.parse('2026-10-28T18:01:30Z') },
+  { name: 'mobile_0210_sgt', from: Date.parse('2026-10-28T18:10:00Z'), to: Date.parse('2026-10-28T18:14:00Z') },
 ];
 const boundedStatus = n => Number.isInteger(n) && n >= 100 && n <= 599 ? n : null;
 const bool = value => typeof value === 'boolean' ? value : null;
@@ -67,11 +68,17 @@ export async function diagnose({ account, token, request = fetch }) {
       invocation_logs: bool(logs?.invocation_logs), head_sampling_rate: sample(logs?.head_sampling_rate) };
     for (const window of WINDOWS) {
       result.stage = window.name;
+      const mobile = window.name === 'mobile_0210_sgt';
+      const triggers = mobile ? ['/api/decisions-inbox', '/api/accounts', '/api/performance/', '/api/runtime/today'] : [PATH];
+      const triggerFilter = triggers.length === 1
+        ? { key: '$metadata.trigger', operation: 'includes', type: 'string', value: triggers[0] }
+        : { kind: 'group', filterCombination: 'or', filters: triggers.map(value =>
+          ({ key: '$metadata.trigger', operation: 'includes', type: 'string', value })) };
       const query = { queryId: 'monitor-403-readonly', dry: true, view: 'events', limit: 25,
         timeframe: { from: window.from, to: window.to }, parameters: { datasets: ['cloudflare-workers'],
           filterCombination: 'and', filters: [
             { key: '$metadata.service', operation: 'eq', type: 'string', value: WORKER },
-            { key: '$metadata.trigger', operation: 'includes', type: 'string', value: PATH },
+            triggerFilter,
           ] } };
       const value = await call('/workers/observability/telemetry/query', query);
       const collection = value?.events;
@@ -82,6 +89,10 @@ export async function diagnose({ account, token, request = fetch }) {
       result.windows.push({ window: window.name, matched_count: Math.min(collection.count, 1000000),
         returned_count: rows.length, truncated: collection.count > rows.length,
         status_403_count: codes.filter(code => code === 403).length,
+        status_2xx_count: codes.filter(code => code !== null && code >= 200 && code < 300).length,
+        status_4xx_count: codes.filter(code => code !== null && code >= 400 && code < 500).length,
+        status_5xx_count: codes.filter(code => code !== null && code >= 500).length,
+        exception_count: rows.filter(row => typeof row?.$metadata?.error === 'string' && row.$metadata.error.length > 0).length,
         status_unknown_count: codes.filter(code => code === null).length });
     }
     result.stage = 'complete'; result.status = 'complete'; result.reason = null;
