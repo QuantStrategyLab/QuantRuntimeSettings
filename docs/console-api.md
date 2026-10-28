@@ -136,6 +136,10 @@ null. `counts.runs` is null whenever any account lacks a complete usable record;
 `counts.observed` discloses coverage. No records from another business day are
 silently substituted.
 
+Multiple matching bindings return `partial/runtime_daily_binding_conflict` for
+the account; no target is selected and its run state stays unknown. A missing
+binding remains `not_connected/runtime_daily_not_connected`.
+
 The summary window is exactly `date` in its returned `timezone`, including New
 York daylight-saving changes. It is not a rolling 24-hour or 14-day failure
 statistic. `counts.observed` counts accounts with a record, including incomplete

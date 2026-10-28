@@ -49,6 +49,15 @@ assert.equal(result.status, "read_failed");
 assert.equal(result.counts.runs, null);
 result = await todaySummary(request, {}, { ...deps, dailyBindings: async () => [] }, [account], now);
 assert.equal(result.accounts[0].status, "not_connected");
+let duplicateReads = 0;
+result = await todaySummary(request, {}, { ...deps, dailyBindings: async () => [binding, { ...binding, target_key: "synthetic-other-target" }],
+  daily: async () => { duplicateReads++; throw Error("must not read an ambiguous binding"); } }, [account], now);
+assert.equal(duplicateReads, 0);
+assert.equal(result.accounts[0].status, "partial");
+assert.equal(result.accounts[0].unavailable_reason, "runtime_daily_binding_conflict");
+assert.equal(result.accounts[0].run_status, "unknown");
+assert.equal(result.counts.runs, null);
+validate("today_runs", result);
 
 // Reproduce the UTC/Shanghai date lead and both New York midnight offsets.
 for (const [instant, expected] of [
