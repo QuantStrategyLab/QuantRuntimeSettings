@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const workflow = readFileSync(new URL("../.github/workflows/deploy-strategy-switch-console.yml", import.meta.url), "utf8");
 const triggers = workflow.slice(workflow.indexOf("\non:\n"), workflow.indexOf("\npermissions:"));
 assert.deepEqual([...triggers.matchAll(/^  (\w+):/gm)].map(match => match[1]), ["workflow_dispatch"], "merges must not deploy");
-for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_preflight", "skip_binance_receiver_checks", "release_frontend_assets", "rollback_to_pre_release"]) {
+for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_preflight", "check_explicit_version_inherit", "skip_binance_receiver_checks", "release_frontend_assets", "rollback_to_pre_release"]) {
   const block = triggers.match(new RegExp(`      ${input}:\\n([\\s\\S]*?)(?=\\n      \\w+:|$)`))?.[1];
   assert.ok(block, input);
   assert.match(block, /type: boolean/);
@@ -16,6 +16,21 @@ for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_prefli
 }
 assert.match(triggers, /      source_sha:\n[\s\S]*?type: string\n        default: ""/);
 const steps = workflow.split(/\n      - name: /).slice(1);
+const versionReadStep = steps.find(step => step.startsWith("Check fixed Worker version API\n"));
+assert.match(versionReadStep, /^        if: inputs\.check_explicit_version_inherit$/m);
+const versionReadScript = versionReadStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1]
+  .split("\n").map(line=>line.slice(10)).join("\n");
+const runVersionRead = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console",versionReadScript);
+for (const [status,body,expected] of [[200,{success:true,result:{id:"06043e24-f8c9-4129-8c59-abb9957217bf",secret:"PRIVATE_SENTINEL"}},"version_read"],
+  [200,{success:true,result:{id:"wrong"}},"response_mismatch"], [403,{},"http_error"]]) {
+  const calls=[], output=[];
+  await runVersionRead({env:{CLOUDFLARE_API_TOKEN:"PRIVATE_SENTINEL",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32)}},
+    async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json"}});},
+    {log:value=>output.push(value)});
+  assert.equal(calls.length,1); assert.equal(calls[0].options.method,"GET");
+  assert.ok(calls[0].url.endsWith("/workers/workers/qsl-strategy-switch-console/versions/06043e24-f8c9-4129-8c59-abb9957217bf"));
+  assert.equal(JSON.parse(output[0]).category,expected); assert.ok(!output[0].includes("PRIVATE_SENTINEL"));
+}
 const writers = steps.filter(step => /\bsecret put\b|\/api\/internal\/sync-strategy-profiles/.test(step));
 assert.equal(writers.length, 16, "inspect every secret and profile writer");
 for (const step of writers) {
