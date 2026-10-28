@@ -1148,14 +1148,17 @@ function qualifiedHistoryDays(days, binding) {
   return matching;
 }
 
-export function projectAccountFactsHistoryCurrencies({ days = [], binding = null, maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS } = {}) {
-  if (!binding) return [];
+function historyCurrenciesFromQualified(qualified, maxDays) {
   const retentionDays = Number.isInteger(maxDays) && maxDays > 0
     ? Math.min(maxDays, ACCOUNT_FACTS_HISTORY_MAX_DAYS) : ACCOUNT_FACTS_HISTORY_MAX_DAYS;
-  const qualified = qualifiedHistoryDays(days, binding).slice(-retentionDays);
-  return [...new Set(qualified.flatMap(day => day.payload.broker_reported_balances
+  return [...new Set(qualified.slice(-retentionDays).flatMap(day => day.payload.broker_reported_balances
     .filter(balance => typeof balance.net_assets === "string")
     .map(balance => balance.currency)))].sort();
+}
+
+export function projectAccountFactsHistoryCurrencies({ days = [], binding = null, maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS } = {}) {
+  if (!binding) return [];
+  return historyCurrenciesFromQualified(qualifiedHistoryDays(days, binding), maxDays);
 }
 
 export function projectAccountFactsHistorySeries({
@@ -1176,8 +1179,12 @@ export function projectAccountFactsHistorySeries({
       note: "identity_or_currency_unavailable",
     };
   }
+  return historySeriesFromQualified(qualifiedHistoryDays(days, binding), currency, maxDays);
+}
+
+function historySeriesFromQualified(qualified, currency, maxDays) {
   const matching = [];
-  for (const { observation_date: observationDate, payload } of qualifiedHistoryDays(days, binding)) {
+  for (const { observation_date: observationDate, payload } of qualified) {
     const balance = balanceForCurrency(payload, currency);
     if (!balance) {
       matching.push({ observation_date: observationDate, gap: true, reason: "currency_missing" });
@@ -1248,6 +1255,7 @@ export function buildAccountFactsHistoryReadModel({
   binding = null,
   days = [],
   maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS,
+  includeCurrencies = false,
 } = {}) {
   if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || typeof accountKey !== "string" || !accountKey) {
     return {
@@ -1267,9 +1275,13 @@ export function buildAccountFactsHistoryReadModel({
   } else if (binding) {
     bindingStatus = "identity_mismatch";
   }
-  const series = bindingStatus === "bound"
-    ? projectAccountFactsHistorySeries({ days, binding, currency, maxDays })
-    : projectAccountFactsHistorySeries({ days: [], binding: null, currency });
+  const qualified = includeCurrencies && bindingStatus === "bound" && typeof currency === "string" && CURRENCY_RE.test(currency)
+    ? qualifiedHistoryDays(days, binding) : null;
+  const series = qualified
+    ? historySeriesFromQualified(qualified, currency, maxDays)
+    : bindingStatus === "bound"
+      ? projectAccountFactsHistorySeries({ days, binding, currency, maxDays })
+      : projectAccountFactsHistorySeries({ days: [], binding: null, currency });
   return {
     ok: true,
     platform,
@@ -1281,6 +1293,7 @@ export function buildAccountFactsHistoryReadModel({
     source_binding_id: bindingStatus === "bound" ? binding.source_binding.id : null,
     account_scope: bindingStatus === "bound" ? binding.account_scope : null,
     series,
+    ...(qualified ? { currencies: historyCurrenciesFromQualified(qualified, maxDays) } : {}),
     return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
   };
 }

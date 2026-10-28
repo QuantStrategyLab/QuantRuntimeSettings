@@ -289,12 +289,12 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
     binding,
     days,
     maxDays: ACCOUNT_FACTS_HISTORY_MAX_DAYS,
+    includeCurrencies,
   });
   return json({
     ...model,
     enabled: true,
     retention_days: ACCOUNT_FACTS_HISTORY_MAX_DAYS,
-    ...(includeCurrencies ? { currencies: projectAccountFactsHistoryCurrencies({ days, binding }) } : {}),
     ...(externalFlow ? { externalFlow } : {}),
   });
 }
