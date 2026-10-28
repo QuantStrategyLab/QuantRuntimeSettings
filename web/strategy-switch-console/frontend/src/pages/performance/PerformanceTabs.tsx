@@ -55,7 +55,7 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
   // status is not renderable shows no financial value even if numbers linger.
   const columns: Column<HoldingRow>[] = [
     { id: "account", header: t("perf.col.account"), cell: row => names.account(row.account_alias, row.platform), sortValue: row => row.account_alias },
-    { id: "symbol", header: t("perf.col.symbol"), cell: row => row.symbol, sortValue: row => row.symbol },
+    { id: "symbol", header: t("perf.col.symbol"), cell: row => <span className="holding-symbol">{row.symbol}</span>, sortValue: row => row.symbol },
     {
       id: "quantity",
       header: t("perf.col.quantity"),
@@ -72,9 +72,12 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
     },
     {
       id: "avg_cost",
-      header: t("perf.col.avg_cost"),
+      header: t("perf.col.cost_basis"),
       numeric: true,
-      cell: row => (renderableStatus(row.status) ? <Money value={row.avg_cost} currency={row.currency} /> : "—"),
+      cell: row => !renderableStatus(row.status) ? "—"
+        : row.avg_cost !== null && Number.isFinite(row.avg_cost) ? <Money value={row.avg_cost} currency={row.currency} />
+          : brokerCostOf(row) !== null ? <div className="holding-broker-cost"><DecimalText value={brokerCostOf(row)} currency={row.currency} /><small>{t("perf.broker_cost_label")}</small></div>
+            : "—",
       sortValue: row => row.avg_cost,
     },
     {
@@ -87,7 +90,10 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
     {
       id: "status",
       header: t("common.status"),
-      cell: row => (row.status !== "ok" ? <StatusBadge status={row.status} reason={row.unavailable_reason} /> : null),
+      cell: row => <div className="holding-status">
+        {row.status !== "ok" && <StatusBadge status={row.status} reason={row.unavailable_reason} />}
+        {renderableStatus(row.status) && ["quantity", "market_value", "avg_cost", "unrealized_pnl"].some(field => row[field as keyof HoldingRow] === null) && <small>{t("perf.fields_not_provided", { fields: (["quantity", "market_value", "avg_cost", "unrealized_pnl"] as const).filter(field => row[field] === null).map(field => t(field === "avg_cost" ? "perf.average_cost_field" : `perf.col.${field}`)).join(" / ") })}</small>}
+      </div>,
     },
   ];
   const coverage = data.coverage;
@@ -95,11 +101,13 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
     : coverage && typeof coverage === "object" && Array.isArray(coverage.account_aliases) ? coverage.account_aliases.length
       : undefined;
   return (
-    <div data-state={data.status} data-reason={data.unavailable_reason ?? undefined} data-coverage-count={coverageCount}>
+    <div className="holdings-view" data-state={data.status} data-reason={data.unavailable_reason ?? undefined} data-coverage-count={coverageCount}>
       <p className="card-note" style={{ marginTop: 0 }}>
         {t(data.label_key)}
         {data.status !== "ok" && <> · <StatusBadge status={data.status} /></>}
       </p>
+      {data.rows.some(row => renderableStatus(row.status) && [row.market_value, row.avg_cost, row.unrealized_pnl].some(value => value === null)) && <p className="card-note">{t("perf.holdings_missing_fields")}</p>}
+      <p className="card-note holdings-scroll-hint">{t("perf.holdings_scroll_hint")}</p>
       <DataTable
         columns={columns}
         rows={data.rows}
@@ -113,11 +121,11 @@ function HoldingsTab({ state }: { state: Api<HoldingsResponse> }) {
 
 function RankingTab({ state }: { state: Api<HoldingsResponse> }) {
   const t = useT();
-  const { winners, losers } = useMemo(() => {
-    if (state.phase !== "ready" || !renderableStatus(state.data.status)) return { winners: [], losers: [] };
+  const { winners, losers, eligibleCount } = useMemo(() => {
+    if (state.phase !== "ready" || !renderableStatus(state.data.status)) return { winners: [], losers: [], eligibleCount: 0 };
     // Bars show P/L relative to cost basis; both inputs come from the same row, nothing is estimated.
     const ranked = state.data.rows
-      .filter(row => row.unrealized_pnl !== null && row.avg_cost !== null && row.quantity !== null && row.avg_cost * row.quantity > 0)
+      .filter(row => renderableStatus(row.status) && Number.isFinite(row.unrealized_pnl) && Number.isFinite(row.avg_cost) && Number.isFinite(row.quantity) && row.unrealized_pnl !== null && row.avg_cost !== null && row.quantity !== null && row.avg_cost * row.quantity > 0)
       .map(row => ({
         id: `${row.platform}:${row.account_alias}|${row.symbol}`,
         label: row.symbol,
@@ -134,7 +142,7 @@ function RankingTab({ state }: { state: Api<HoldingsResponse> }) {
       .sort((a, b) => a.pnl - b.pnl)
       .slice(0, RANKING_SIZE)
       .map(({ id, label, value }): BarListItem => ({ id, label, value }));
-    return { winners, losers };
+    return { winners, losers, eligibleCount: ranked.length };
   }, [state]);
 
   if (state.phase === "loading") return <Skeleton height={160} />;
@@ -142,7 +150,8 @@ function RankingTab({ state }: { state: Api<HoldingsResponse> }) {
   if (!renderableStatus(state.data.status)) {
     return <EmptyState title={t(`state.${state.data.status}`)} state={state.data.status} />;
   }
-  if (!winners.length && !losers.length) return <EmptyState title={t("state.no_data")} />;
+  if (!winners.length && !losers.length) return <EmptyState title={t(eligibleCount > 0 ? "perf.ranking_no_movement" : "perf.ranking_unavailable")}
+    body={eligibleCount > 0 ? undefined : t(state.data.rows.length > 0 ? "perf.ranking_missing_fields" : state.data.unavailable_reason ? `reason.${state.data.unavailable_reason}` : "reason.positions_not_connected")} />;
   return (
     <div>
       {winners.length > 0 && (
@@ -165,6 +174,13 @@ function RankingTab({ state }: { state: Api<HoldingsResponse> }) {
 type ExecutionRow = ExecutionsResponse["rows"][number];
 
 const DECIMAL_TEXT = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+/** A broker-setting-dependent cost is display evidence, never an average cost or ranking input. */
+function brokerCostOf(row: HoldingRow): string | null {
+  return row.platform === "longbridge" && row.broker_cost_method === "broker_configured"
+    && typeof row.broker_cost_price === "string" && DECIMAL_TEXT.test(row.broker_cost_price)
+    ? row.broker_cost_price : null;
+}
 
 /** Exact decimal-text rendering: group the integer part and keep every fraction digit. */
 function formatDecimalText(value: string): string {

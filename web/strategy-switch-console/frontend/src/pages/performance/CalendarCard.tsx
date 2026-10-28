@@ -60,11 +60,11 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
     if (!renderableStatus(data.status)) {
       body = (
         <div data-reason={data.unavailable_reason ?? undefined}>
-          <EmptyState title={t(`state.${data.status}`)} state={data.status} />
+          <EmptyState title={t(`state.${data.status}`)} state={data.status} body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined} />
         </div>
       );
     } else if (data.cells.length === 0) {
-      body = <div data-reason={data.unavailable_reason ?? undefined}><EmptyState title={t("state.no_data")} state="no_data" /></div>;
+      body = <div data-reason={data.unavailable_reason ?? undefined}><EmptyState title={t("state.no_data")} state="no_data" body={data.unavailable_reason ? t(`reason.${data.unavailable_reason}`) : undefined} /></div>;
     } else {
       body = <CalendarHeatmap year={data.year} month={data.month} cells={data.cells} onNavigate={(year, month) => setView({ year, month })} />;
     }

@@ -221,8 +221,8 @@ try {
     const stale = fixture("stale-core");
     const staleCards = renderCards(language, stale.summary);
     ok(staleCards.includes("+10.00%"));
-    ok(staleCards.includes('hidden="" data-status="stale"'),
-      "summary retains stale status as a hidden diagnostic");
+    ok(staleCards.includes('data-status="stale"'),
+      "summary retains stale status as a visible status");
     const asOfLabels = [...staleCards.matchAll(/class="asof"[^>]*>([\s\S]*?)<\/span>/g)];
     assert.equal(asOfLabels.length, 1, "stale summary shows exactly one as-of caption");
     ok(asOfLabels[0][1].includes(AS_OF[language]) && asOfLabels[0][1].includes("2026-10-16"),
@@ -233,15 +233,15 @@ try {
     staleWithReason.unavailable_reason = "snapshot_history_missing";
     const staleReasonCards = renderCards(language, staleWithReason);
     const staleReason = language === "zh" ? "缺少历史资产快照" : "Historical asset snapshots are missing";
-    ok(staleReasonCards.includes('hidden="" data-status="stale"'),
-      "stale reason variant stays a hidden diagnostic");
+    ok(staleReasonCards.includes('data-status="stale"'),
+      "stale reason variant stays a visible status");
     ok(staleReasonCards.includes('data-reason="snapshot_history_missing"'), "the stale reason remains diagnostic");
     ok(!visibleText(staleReasonCards).includes(staleReason), "the stale reason does not repeat below the short state");
     checks += 1;
     const staleReturns = renderReturns(language, stale.returns);
     assert.equal(kindLabel(staleReturns), TWR_KIND[language]);
     checks += 1;
-    ok(staleReturns.includes('hidden="" data-status="stale"'), "curve keeps the exact stale diagnostic without a badge");
+    ok(staleReturns.includes('data-status="stale"'), "curve keeps the exact stale diagnostic with a short badge");
 
     // 7. In-memory contract variants (synthetic, derived from the fixed samples; golden fixtures untouched).
     // 7a. Legacy response with the method fields entirely absent keeps the old TWR behavior.

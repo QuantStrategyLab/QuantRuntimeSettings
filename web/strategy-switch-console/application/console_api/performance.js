@@ -64,11 +64,14 @@ export function dailyChanges(points, { crypto = false } = {}) {
     const interval = previous
       ? rows.filter((p) => p.date > previous.date && p.date <= point.date)
       : [point];
+    const incomplete = previous?.partial === true || previous?.forwardFilled === true
+      || previous?.forward_filled_accounts?.length || interval.some(p => p.breakBefore === true
+        || p.partial === true || p.forwardFilled === true || p.forward_filled_accounts?.length);
     const known = interval.every((p) => finite(p.externalFlow) !== null);
     const flow = known
       ? interval.reduce((sum, p) => sum + Number(p.externalFlow), 0)
       : null;
-    const amount = previous
+    const amount = previous && !incomplete
       ? point.value - previous.value - (known ? flow : 0)
       : null;
     // P/L daily convention follows the requested prior-close plus investment denominator.
@@ -80,15 +83,17 @@ export function dailyChanges(points, { crypto = false } = {}) {
         amount !== null && denominator > 0 && known
           ? (amount / denominator) * 100
           : null,
-      value_kind: known ? "pnl" : "asset_change",
-      status: !previous
+      value_kind: known && !incomplete ? "pnl" : "asset_change",
+      status: !previous || incomplete
         ? "no_data"
         : known && denominator > 0
           ? "ok"
           : "partial",
       unavailable_reason: !previous
         ? "previous_snapshot_missing"
-        : !known
+        : incomplete
+          ? "snapshot_history_missing"
+          : !known
           ? "external_cashflow_required"
           : denominator > 0
             ? null
@@ -273,18 +278,19 @@ export function performanceBlocks({
   const combined = aggregateEquity(
     histories.map((h) => ({ id: h.id, crypto: h.crypto, points: h.points })),
   );
+  const incompleteCohort = failed.length > 0 || combined.missingAccounts.length > 0;
   const allPoints = mixed ? [] : combined.points;
   const points = sliceRange(allPoints, range.toLowerCase(), today);
   const asOf = points.at(-1)?.date || null;
   const chained = chainReturns(points);
   const unknownFlow =
-    points.length < 2 ||
+    incompleteCohort || points.length < 2 ||
     points.slice(1).some((p) => finite(p.externalFlow) === null);
   const missing =
     failed.length || combined.missingAccounts.length || combined.omittedDates;
   const reason = mixed
     ? "mixed_currency"
-    : !points.length
+    : incompleteCohort || !points.length
       ? "snapshot_history_missing"
       : chained.invalidPeriod
         ? "invalid_return_period"
@@ -307,6 +313,7 @@ export function performanceBlocks({
     account_aliases: accounts.map((a) => a.account_key),
     currencies,
     excluded_accounts: failed,
+    missing_accounts: combined.missingAccounts,
     omitted_dates: combined.omittedDates,
     cashflows: unknownFlow
       ? "unknown"
@@ -334,16 +341,16 @@ export function performanceBlocks({
   }));
   const aligned = alignReturns(chained.index, availableBenchmarks);
   const qualified =
-    points.length > 1 && !chained.unknownFlow && !chained.invalidPeriod;
+    !incompleteCohort && points.length > 1 && !chained.unknownFlow && !chained.invalidPeriod;
   const drawdown = qualified
     ? maxDrawdown(chained.index)
     : {
         percent: null,
         peak_date: null,
         trough_date: null,
-        unavailable_reason: mixed ? "mixed_currency" : returnUnavailableReason(points),
+        unavailable_reason: mixed ? "mixed_currency" : incompleteCohort && points.length ? "snapshot_history_missing" : returnUnavailableReason(points),
       };
-  const daily = dailyChanges(allPoints, {
+  const daily = dailyChanges(incompleteCohort ? [] : allPoints, {
     crypto: histories.length > 0 && histories.every((history) => history.crypto === true),
   }).filter((d) => d.date >= (points[0]?.date || today) && d.date <= today);
   const validDays = daily.filter((d) => d.amount !== null);
@@ -353,17 +360,17 @@ export function performanceBlocks({
   const first = points[0],
     last = points.at(-1),
     flowKnown =
-      points.length > 1 &&
+      !incompleteCohort && points.length > 1 &&
       points.slice(1).every((p) => finite(p.externalFlow) !== null);
   const netFlow = flowKnown
     ? points.slice(1).reduce((s, p) => s + p.externalFlow, 0)
     : null;
   const amount =
-    points.length > 1
+    points.length > 1 && !incompleteCohort
       ? last.value - first.value - (flowKnown ? netFlow : 0)
       : null;
   const primaryByDate = new Map(aligned.primary.map((p) => [p.date, p.value]));
-  const cells = calendarCells(allPoints, year, month, {
+  const cells = calendarCells(incompleteCohort ? [] : allPoints, year, month, {
     today,
     crypto: histories.length > 0 && histories.every((history) => history.crypto === true),
   });
@@ -380,7 +387,12 @@ export function performanceBlocks({
     );
     // Excluded accounts can have unknown currencies; retain that uncertainty separately.
     curve.coverage.excluded_accounts = failed;
-    if (failed.length && curve.status === "ok") curve.status = "partial";
+    if (failed.length) {
+      if (curve.status === "ok") curve.status = "partial";
+      curve.return_kind = "unadjusted_asset_ratio";
+      curve.unavailable_reason = "snapshot_history_missing";
+      curve.benchmarks = [];
+    }
     return curve;
   });
   const singleHistory = mixed ? null : historyCurves[0];
@@ -440,17 +452,19 @@ export function performanceBlocks({
         : null,
       amount,
       simple_weighted_return_percent:
-        flowKnown && first.value + netFlow > 0
+        amount !== null && flowKnown && first.value + netFlow > 0
           ? (amount / (first.value + netFlow)) * 100
           : null,
       max_drawdown: drawdown,
-      metric_reasons: { twr: mixed ? "mixed_currency" : returnUnavailableReason(points) },
+      metric_reasons: { twr: mixed ? "mixed_currency" : incompleteCohort && points.length ? "snapshot_history_missing" : returnUnavailableReason(points) },
       per_currency: [...new Set([...totals.map((t) => t.currency), ...drawdowns.map((d) => d.currency)])].sort().map((currency) => ({
         total: null, account_count: 0, expected_account_count: 0, as_of: null, stale: null,
         status: "no_data", unavailable_reason: "no_snapshot",
         ...totals.find((t) => t.currency === currency),
         currency,
-        max_drawdown: drawdowns.find((d) => d.currency === currency)?.max_drawdown || {
+        max_drawdown: failed.length ? {
+          percent: null, peak_date: null, trough_date: null, unavailable_reason: "snapshot_history_missing",
+        } : drawdowns.find((d) => d.currency === currency)?.max_drawdown || {
           percent: null, peak_date: null, trough_date: null, unavailable_reason: "no_snapshot",
         },
       })),

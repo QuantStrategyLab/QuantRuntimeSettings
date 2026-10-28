@@ -91,7 +91,44 @@ change any account freshness, identity, auth or trading protection. Empty,
 truncated and incomplete histories are stated explicitly. Charts use stored
 history only; a current snapshot is not inserted into missing history.
 
-## Verification
+## Current coverage and read failures
+
+Native-currency current totals sum each account's latest qualified stored balance.
+Asynchronous updates across UTC dates must not remove otherwise valid balances.
+These are latest known balances, not a simultaneous portfolio valuation: `as_of`
+is the earliest included observation time, optional `latest_as_of` is the latest,
+and `observation_date` is null when the included dates differ. Optional
+`per_currency[].account_coverage` identifies each account's inclusion, original
+date, actual freshness and exclusion reason. Stale balances remain explicitly
+stale; missing or invalid balances are excluded rather than counted as zero.
+Both overview and performance show coverage and the source time range. Historical
+curves and return statistics retain their date and cohort requirements.
+
+A failed account-facts read returns HTTP 503 for dependent performance endpoints,
+with `stored_records_unreadable`; it cannot become a successful empty result.
+Explicitly disabled facts remain a separate not-connected condition. Current
+balance health and historical-curve health remain independent: a history failure
+does not erase a valid current balance, and an unreadable curve is not a confirmed
+empty history.
+
+Combination return statistics require every selected account's applicable
+history. Missing or unreadable members do not produce a subset TWR, drawdown,
+best/worst day or calendar labelled as the full portfolio. Explicit history
+breaks and partial endpoints cannot establish a daily return. For multiple
+accounts, optional `per_account` on summary, returns and calendar exposes
+independently qualified native results; it does not average them into a portfolio
+return. The UI directs the user to the existing single-account scope.
+
+Strategy summaries retain per-strategy source time and freshness. Configuration
+read failures remain distinct from an unassigned account and grant no execution
+authority. Unknown credential observations remain unknown rather than a zero
+attention count. Material partial, stale and unavailable states are visible.
+
+The mobile holdings view preserves whole symbols and quantities in a horizontally
+scrollable table. Ranking excludes non-renderable rows and distinguishes missing
+valuation/cost fields from a confirmed zero gain/loss.
+
+## Regression checks
 
 `node --experimental-strip-types tests/console_performance_math_validation.mjs`
 covers range boundaries (including month-end/leap-year), differing series

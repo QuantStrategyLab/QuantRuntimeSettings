@@ -43,8 +43,12 @@ try {
       assert.match(html, /123/);
       assert.match(html, /456/);
       assert.doesNotMatch(html, /579/, "native amounts are never combined");
-      assert.ok(html.includes(language === "zh" ? "USD 资产合计" : "USD asset total"));
-      assert.ok(html.includes(language === "zh" ? "USDT 资产合计" : "USDT asset total"));
+      assert.ok(html.includes(blocks.assets.per_currency[0].latest_as_of !== undefined
+        ? language === "zh" ? "USD 最近已知余额合计" : "USD latest known balance total"
+        : language === "zh" ? "USD 资产合计" : "USD asset total"));
+      assert.ok(html.includes(blocks.assets.per_currency[1].latest_as_of !== undefined
+        ? language === "zh" ? "USDT 最近已知余额合计" : "USDT latest known balance total"
+        : language === "zh" ? "USDT 资产合计" : "USDT asset total"));
       assert.doesNotMatch(html, /已观测小计|Observed subtotal/, "internal subtotal wording is gone");
       assert.doesNotMatch(html, /reason\.|state\.|perf\./);
       if (language === "en") assert.doesNotMatch(html, /[\u4e00-\u9fff]/);
@@ -53,8 +57,9 @@ try {
       globalThis.__currencyState = { phase: "ready", data: { ...blocks.assets, status: "unavailable", unavailable_reason: "stored_records_unreadable", curve_status: "unavailable", curve_unavailable_reason: "stored_records_unreadable" } };
       assert.doesNotMatch(render(language), /123|456/, "failed reads cannot expose retained balances as current");
     }
+    const { latest_as_of, ...legacyTotal } = blocks.assets.per_currency[0];
     const partialTotal = {
-      ...blocks.assets.per_currency[0], status: "partial", unavailable_reason: "valuation_date_mismatch",
+      ...legacyTotal, status: "partial", unavailable_reason: "valuation_date_mismatch",
       total: 123.45, account_count: 2, expected_account_count: 8, excluded_account_count: 6,
       as_of: "2026-10-16T10:00:00Z",
     };
@@ -64,15 +69,16 @@ try {
     assert.ok(partial.includes(language === "zh" ? "已计入 2/8 个账户" : "Includes 2 of 8 accounts"), "coverage sits next to the subtotal");
     assert.ok(partial.includes('data-stale-count="7"'), "stale coverage remains available for diagnostics");
     assert.ok(!partial.includes(language === "zh" ? "部分账户数据待更新" : "Some account data may be out of date"), "no repeated stale sentence occupies the card");
-    assert.ok(!partial.includes("<details"), "currency totals keep no audit details block");
+    assert.ok(partial.includes("<details"), "account coverage can be inspected without exposing all details by default");
+    assert.ok(partial.includes(language === "zh" ? "查看计入与排除的账户" : "View included and excluded accounts"));
     assert.ok(!partial.includes(language === "zh" ? "7 个账户" : "7 accounts"), "stale counts are not repeated");
     assert.ok(partial.includes('data-reason="valuation_date_mismatch"'), "the exact exclusion reason stays diagnostic");
     assert.ok(partial.includes('data-excluded-count="6"'), "excluded coverage is retained without another sentence");
-    assert.ok(!partial.includes(language === "zh" ? "部分账户估值日期不同" : "Some accounts have different valuation dates"));
+    assert.ok(partial.includes("synthetic"), "the API-provided account coverage remains available");
     assert.match(partial, /2026|10\/16|16\/10/, "the source time stays visible");
     const fresh = ui.freshness(language, { fresh: 1, stale: 1, unknown: 1, threshold_hours: 36 });
-    assert.match(fresh, /hidden=""[^>]*data-state="stale"[^>]*data-stale-count="1"/);
-    assert.equal(fresh.replace(/<[^>]*>/g, ""), "", "stale diagnostics have no visible prose");
+    assert.match(fresh, /data-state="stale"[^>]*data-stale-count="1"/);
+    assert.ok(fresh.replace(/<[^>]*>/g, "").length > 0, "stale availability stays visible");
     const freshZero = ui.freshness(language, { fresh: 2, stale: 0, unknown: 1, threshold_hours: 36 });
     assert.equal(freshZero, "", "freshness summary stays hidden when no account is stale");
     globalThis.__currencyState = { phase: "ready", data: blocks.summary };

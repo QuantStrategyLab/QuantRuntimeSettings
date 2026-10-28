@@ -930,6 +930,31 @@
               "unavailable_reason"
             ]
           }
+        },
+        "per_account": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/calendar"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "platform",
+                  "account_alias"
+                ],
+                "properties": {
+                  "platform": {
+                    "type": "string"
+                  },
+                  "account_alias": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
         }
       },
       "required": [
@@ -1267,6 +1292,19 @@
                   "trough_date",
                   "unavailable_reason"
                 ]
+              },
+              "account_coverage": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/currency_account_coverage"
+                }
+              },
+              "latest_as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Latest observation time among included current account snapshots; as_of remains the earliest. These balances need not share an observation date."
               }
             }
           }
@@ -1282,6 +1320,31 @@
         },
         "approximate": {
           "const": true
+        },
+        "per_account": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/summary"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "platform",
+                  "account_alias"
+                ],
+                "properties": {
+                  "platform": {
+                    "type": "string"
+                  },
+                  "account_alias": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
         }
       },
       "required": [
@@ -1544,6 +1607,31 @@
         },
         "approximate": {
           "const": true
+        },
+        "per_account": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/returns"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "platform",
+                  "account_alias"
+                ],
+                "properties": {
+                  "platform": {
+                    "type": "string"
+                  },
+                  "account_alias": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
         }
       },
       "required": [
@@ -1800,6 +1888,19 @@
                   "string",
                   "null"
                 ]
+              },
+              "account_coverage": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/currency_account_coverage"
+                }
+              },
+              "latest_as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Latest observation time among included current account snapshots; as_of remains the earliest. These balances need not share an observation date."
               }
             }
           }
@@ -2593,6 +2694,18 @@
                   "string",
                   "null"
                 ]
+              },
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "freshness": {
+                "type": [
+                  "object",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -2620,8 +2733,34 @@
           "enum": [
             "complete",
             "partial",
-            "unavailable"
+            "unavailable",
+            "read_failed"
           ]
+        },
+        "account_assignment_read_failures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "platform",
+              "account_alias",
+              "status"
+            ],
+            "properties": {
+              "platform": {
+                "type": "string"
+              },
+              "account_alias": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "read_failed",
+                  "permission_denied"
+                ]
+              }
+            }
+          }
         }
       },
       "required": [
@@ -3455,6 +3594,63 @@
         "reason",
         "source_as_of"
       ]
+    },
+    "currency_account_coverage": {
+      "type": "object",
+      "required": [
+        "platform",
+        "account_alias",
+        "included",
+        "observation_date",
+        "as_of",
+        "freshness",
+        "unavailable_reason"
+      ],
+      "properties": {
+        "platform": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "account_alias": {
+          "type": "string"
+        },
+        "account_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "included": {
+          "type": "boolean"
+        },
+        "observation_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "freshness": {
+          "enum": [
+            "fresh",
+            "stale",
+            "unknown"
+          ]
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
   }
 }

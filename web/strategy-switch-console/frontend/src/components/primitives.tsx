@@ -71,37 +71,13 @@ export function statusTone(status: string | null | undefined): Tone {
   return STATUS_TONE[status || ""] || "unknown";
 }
 
-/**
- * Statuses that only describe data availability, not an operational outcome.
- * They must not tile the pages with small error text: the amount, as-of stamp
- * or empty state already says what is known, and the exact state plus reason
- * stay in a hidden marker for API debugging. Operational outcomes
- * (failed/blocked/critical/watch/review, ...) keep their visible badge.
- */
-const DIAGNOSTIC_STATUSES = new Set([
-  "partial",
-  "stale",
-  "no_data",
-  "not_connected",
-  "unavailable",
-  "unknown",
-  "read_failed",
-  "read_incomplete",
-  "insufficient",
-]);
-
 export function StatusBadge({ status, reason }: { status: string | null | undefined; reason?: string | null }) {
   const t = useT();
   const value = status || "unknown";
-  // A hidden element takes no space and stays out of the accessibility tree;
-  // the attributes keep the exact diagnostic available to interface debugging.
-  if (DIAGNOSTIC_STATUSES.has(value)) {
-    return <span hidden data-status={value} data-reason={reason ?? undefined} />;
-  }
   const key = `state.${value}`;
   const reasonKey = reason ? `reason.${reason}` : null;
   const title = reasonKey ? t(reasonKey as MessageKey) : undefined;
-  return <Badge tone={statusTone(value)} title={title}>{t(key as MessageKey)}</Badge>;
+  return <span data-status={value} data-reason={reason ?? undefined}><Badge tone={statusTone(value)} title={title}>{t(key as MessageKey)}</Badge></span>;
 }
 
 /* ---------- as-of stamp ---------- */

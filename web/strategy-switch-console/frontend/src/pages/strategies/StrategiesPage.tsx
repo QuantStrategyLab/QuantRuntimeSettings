@@ -66,7 +66,7 @@ function AccountExecution({ accounts }: { accounts: Strategy["configured_account
   );
 }
 
-function StrategyCard({ strategy }: { strategy: Strategy }) {
+function StrategyCard({ strategy, assignmentKnown = true }: { strategy: Strategy; assignmentKnown?: boolean }) {
   const t = useT();
   const names = useDisplayNames();
   const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.map(names.lane).join(" · ") : t("common.na");
@@ -90,9 +90,9 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
           <dd>{modes}</dd>
         </div>
         {strategy.configured_accounts.length === 0 && (
-          <div className="strategy-row" data-binding="unbound">
+          <div className="strategy-row" data-binding={assignmentKnown ? "unbound" : "unknown"}>
             <dt>{t("strategies.binding")}</dt>
-            <dd><span className="strategy-unbound" title={t("strategies.unbound_note")}>{t("strategies.unbound")}</span></dd>
+            <dd>{assignmentKnown ? <span className="strategy-unbound" title={t("strategies.unbound_note")}>{t("strategies.unbound")}</span> : <span>{t("strategies.assignment_unknown")}</span>}</dd>
           </div>
         )}
         {strategy.configured_accounts.length > 0 && (
@@ -116,11 +116,10 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
           </div>
         </details>
       )}
-      {strategy.status !== "ok" && (
-        <div className="strategy-card-foot">
-          <StatusBadge status={strategy.status} reason={strategy.unavailable_reason} />
-        </div>
-      )}
+      {(strategy.status !== "ok" || strategy.as_of) && <div className="strategy-card-foot">
+        {strategy.status !== "ok" && <StatusBadge status={strategy.status} reason={strategy.unavailable_reason} />}
+        {strategy.as_of && <AsOfStamp value={strategy.as_of} prefix="strategies.health_as_of" />}
+      </div>}
     </article>
   );
 }
@@ -152,6 +151,7 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
     }
     return <EmptyState title={t("strategies.empty")} />;
   }
+  const assignmentKnown = summary.account_assignment_status === undefined || summary.account_assignment_status === "complete";
   const hasLive = summary.strategies.some(strategy =>
     strategy.configured_accounts.some(account => accountExecutionMode(account, names.config) === "live"));
   const configured = summary.strategies.filter(strategy => strategy.configured_accounts.length > 0);
@@ -169,7 +169,10 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
           <span className="state-short">{t("strategies.execution_source")}</span>
         </div>
       )}
-      <section className="strategy-section">
+      {!assignmentKnown ? <>
+        <p className="card-note" role="status">{t("strategies.assignment_unavailable")}</p>
+        <div className="strategy-grid">{summary.strategies.map(strategy => <StrategyCard key={strategy.profile} strategy={strategy} assignmentKnown={false} />)}</div>
+      </> : <><section className="strategy-section">
         <div className="strategy-section-head">
           <h2 className="strategy-section-title">{t("strategies.configured_section")}</h2>
           <span className="card-note">{t("strategies.section_count", { count: configured.length })}</span>
@@ -194,7 +197,7 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
             ))}
           </div>
         </section>
-      )}
+      )}</>}
     </section>
   );
 }

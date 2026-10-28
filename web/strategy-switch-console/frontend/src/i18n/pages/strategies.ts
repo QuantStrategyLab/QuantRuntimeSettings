@@ -1,5 +1,9 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
+  "strategies.assignment_unknown": "账户绑定待确认",
+  "strategies.assignment_unavailable": "账户配置未完整读取，暂无法确认策略绑定；已有健康数据仍按其来源日期展示。",
+  "strategies.health_as_of": "健康数据截至 {value}",
+  "reason.strategy_health_stale": "策略健康数据已过期。",
   "strategies.details": "详细信息",
   "strategies.research_unavailable": "研究资料暂时不可用。",
   "strategies.research_sources": "来源：{value}",
@@ -24,6 +28,10 @@ export const zh: Record<string, string> = {
   "strategies.unbound_note": "目录项尚未绑定账户；这不表示策略已停用或正在运行。",
 };
 export const en: Record<string, string> = {
+  "strategies.assignment_unknown": "Account binding unconfirmed",
+  "strategies.assignment_unavailable": "Account configuration could not be read completely, so strategy bindings are unconfirmed. Available health data keeps its source date.",
+  "strategies.health_as_of": "Health data as of {value}",
+  "reason.strategy_health_stale": "Strategy health data is stale.",
   "strategies.details": "Details",
   "strategies.research_unavailable": "Research data is temporarily unavailable.",
   "strategies.research_sources": "Sources: {value}",

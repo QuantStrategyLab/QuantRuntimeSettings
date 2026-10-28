@@ -89,7 +89,7 @@ test("missing cashflow coverage and disabled source never invent a zero flow or 
   assert.deepEqual(blocks.calendar, performanceBlocks(input).calendar);
 });
 
-test("eight real same-date balances are counted; missing and old valuations stay disclosed", () => {
+test("eight latest known balances remain counted across observation dates; missing values stay excluded", () => {
   const accounts = Array.from({ length: 8 }, (_, index) => ({ platform: "schwab", account_key: `synthetic-${index}`,
     observed_finished_at: stamp("2026-10-22"), observation_date: "2026-10-22", balances: [{ currency: "USD", net_assets: "100" }] }));
   const total = rows => currencyTotals(rows, accountFreshness(rows, now))[0];
@@ -97,10 +97,13 @@ test("eight real same-date balances are counted; missing and old valuations stay
   assert.equal(total(accounts).total, 800);
   accounts[7].observation_date = "2026-10-21";
   accounts[7].observed_finished_at = stamp("2026-10-21");
-  assert.equal(total(accounts).account_count, 7);
-  assert.equal(total(accounts).total, 700);
-  assert.equal(total(accounts).status, "partial");
-  assert.equal(total(accounts).unavailable_reason, "valuation_date_mismatch");
+  assert.equal(total(accounts).account_count, 8);
+  assert.equal(total(accounts).total, 800);
+  assert.equal(total(accounts).status, "ok");
+  assert.equal(total(accounts).unavailable_reason, null);
+  assert.equal(total(accounts).observation_date, null);
+  assert.equal(total(accounts).as_of, stamp("2026-10-21"));
+  assert.equal(total(accounts).latest_as_of, stamp("2026-10-22"));
   accounts[7].balances[0].net_assets = null;
   assert.equal(total(accounts).account_count, 7);
   assert.equal(total(accounts).expected_account_count, 8);

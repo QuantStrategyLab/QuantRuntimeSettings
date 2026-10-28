@@ -25,7 +25,22 @@ export type Reason =
   | "stored_records_unreadable"
   | "effect_verification_not_recorded"
   | "bounded_audit_log"
-  | "no_closed_trades";
+  | "no_closed_trades"
+  | "no_cashflow_data"
+  | "insufficient_history"
+  | "no_snapshot"
+  | "snapshot_stale"
+  | "valuation_date_mismatch"
+  | "incomplete_account_coverage"
+  | "invalid_valuation_date"
+  | "invalid_balance"
+  | "duplicate_currency"
+  | "identity_mismatch"
+  | "identity_not_bound"
+  | "aggregation_duplicate"
+  | "aggregation_conflict"
+  | "account_facts_disabled"
+  | "currency_mismatch";
 export type Scalar = string | number | boolean | null;
 export type Category =
   | "reconciliation_recovery"
@@ -238,7 +253,15 @@ export interface AccountFreshness {
   unavailable_reason: Reason | null;
 }
 export interface FreshnessCounts { fresh: number; stale: number; unknown: number; threshold_hours: number }
+export interface CurrencyAccountCoverage extends AccountFreshness {
+  included: boolean;
+  observation_date: string | null;
+}
 export interface CurrencyTotal {
+  /** Present for totals of each account's latest known balance; absent on legacy same-date totals. */
+  latest_as_of?: string | null;
+  observation_date?: string | null;
+  account_coverage?: CurrencyAccountCoverage[];
   currency: string;
   total: number | null;
   account_count: number;
@@ -310,6 +333,7 @@ export interface CalendarCell {
   coverage?: { observed_days: number; expected_weekdays: number };
 }
 export interface CalendarResponse extends PerformanceMeta {
+  per_account?: (CalendarResponse & { platform: string; account_alias: string })[];
   year: number;
   month: number | null;
   cells: CalendarCell[];
@@ -329,6 +353,7 @@ export interface CashflowMethodMeta {
   approximate?: boolean | null;
 }
 export interface SummaryResponse extends PerformanceMeta, CashflowMethodMeta {
+  per_account?: (SummaryResponse & { platform: string; account_alias: string })[];
   cashflow_per_currency?: CashflowReturnMetrics[];
   metric_reasons?: { twr: Reason | null };
   per_currency?: (CurrencyTotal & { max_drawdown: Drawdown } & CashflowMethodMeta)[];
@@ -352,6 +377,7 @@ export interface SummaryResponse extends PerformanceMeta, CashflowMethodMeta {
   }[];
 }
 export interface ReturnsResponse extends PerformanceMeta, CashflowMethodMeta {
+  per_account?: (ReturnsResponse & { platform: string; account_alias: string })[];
   cashflow_per_currency?: CashflowReturnMetrics[];
   aligned_start: string | null;
   return_kind: "twr" | "unadjusted_asset_ratio";
@@ -401,6 +427,8 @@ export interface HoldingsResponse extends PerformanceMeta {
     market_value: number | null;
     currency: string;
     avg_cost: number | null;
+    broker_cost_price?: string | null;
+    broker_cost_method?: "broker_configured" | string | null;
     unrealized_pnl: number | null;
     unavailable_reason: Reason | null;
     coverage: string;
@@ -509,7 +537,8 @@ export interface StrategySummary extends ReadOnlyProjection {
   as_of: string | null;
   coverage: string;
   configured_accounts_source?: "currentStrategies";
-  account_assignment_status?: "complete" | "partial" | "unavailable";
+  account_assignment_status?: "complete" | "partial" | "unavailable" | "read_failed";
+  account_assignment_read_failures?: { platform: string; account_alias: string; status: "read_failed" | "permission_denied" }[];
   strategies: {
     profile: string;
     domain: string;
@@ -524,6 +553,8 @@ export interface StrategySummary extends ReadOnlyProjection {
       mode_source?: "RUNTIME_TARGET_JSON" | "CLOUD_RUN_SERVICE_TARGETS_JSON" | "STRATEGY_PROFILE" | null;
       runtime_observation_status?: "unknown";
     }[];
+    as_of?: string | null;
+    freshness?: { status: "fresh" | "stale" | "unknown"; age_seconds: number | null } | null;
     health_status: StrategyHealthStatus | null;
     health_score: number | null;
     status: "ok" | "stale" | "not_connected" | "read_failed";
