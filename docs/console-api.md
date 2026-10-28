@@ -140,6 +140,15 @@ Multiple matching bindings return `partial/runtime_daily_binding_conflict` for
 the account; no target is selected and its run state stays unknown. A missing
 binding remains `not_connected/runtime_daily_not_connected`.
 
+The internal Durable Object command `account_daily_native_return_research_read`
+is limited to one IBKR account, one currency and an inclusive range of at most
+366 days. It returns validated stored rows with their actual source binding,
+rejects unqualified or invalid rows and exact-decimal conflicts, and reports
+dates without records without interpreting the trading calendar. The caller
+must independently verify account and current/historical source authorization;
+this command is not exposed through a website session or publisher token and
+does not itself provide a research access identity or export destination.
+
 In `/api/config`, `runtimeDailyBindings` uses `unresolved` for a missing or
 ambiguous binding and `read_failed` when its source cannot be read; a failure
 affects the corresponding platform's `/api/runtime/today` rows and summary.
