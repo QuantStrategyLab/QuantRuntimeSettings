@@ -38,6 +38,13 @@ reads also allow configured paper accounts.
 An ambiguous alias requires `platform`. Settings reads also accept the existing
 `platform` and `key` parameter pair.
 
+For a uniquely bound account, the existing authenticated account-facts history
+route accepts `projection=currencies` with `platform` and `account_key` and
+returns currencies actually present in qualified retained observations. It
+returns no balances. Performance history uses the union of these currencies and
+the latest snapshot currencies; discovery failures remain read failures rather
+than being treated as empty history. The existing single-currency route is unchanged.
+
 `range` is `1M|3M|YTD|1Y|ALL`, default `ALL`. The server's Asia/Shanghai date
 ends the range. The calendar uses its explicit `year` and `month`, independently
 of the range. `year` defaults to the current year. Omitting `month` returns twelve
