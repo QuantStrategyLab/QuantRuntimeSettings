@@ -494,7 +494,7 @@ export interface ReadOnlyProjection {
   no_order: true;
   execution_authority_granted: false;
 }
-export type RunState = "succeeded" | "failed" | "blocked" | "no_data" | "not_connected" | "not_run" | "unknown" | "read_failed";
+export type RunState = "succeeded" | "failed" | "blocked" | "no_data" | "not_connected" | "not_run" | "unknown" | "read_failed" | "incomplete";
 export interface TodayRunSummary extends ReadOnlyProjection {
   status: "ok" | "partial" | "read_failed";
   date: string;
@@ -511,6 +511,9 @@ export interface TodayRunSummary extends ReadOnlyProjection {
     activity: string | null;
     run_status?: RunState;
     run_status_reason?: string | null;
+    /** Optional read-error metadata; absent or null means unreported, not a confirmed clean read. */
+    read_error_count?: number | null;
+    read_error_codes?: string[] | null;
     freshness?: string;
     fresh?: boolean;
     stale?: boolean;

@@ -14,14 +14,14 @@ const NOT_RUN_ACTIVITY_SET = new Set<string>(NOT_RUN_ACTIVITIES);
 export type RunActivityState = RunState | NotRunActivity;
 
 export const RUN_ACTIVITY_STATES: readonly RunActivityState[] = [
-  "succeeded", "failed", "blocked", "no_data", "not_connected", "not_run", "unknown", "read_failed",
+  "succeeded", "failed", "blocked", "no_data", "not_connected", "not_run", "unknown", "read_failed", "incomplete",
   "market_closed", "not_due", "outside_window", "within_grace",
 ];
 
 /**
- * Presentation-only activity state. Failure and read-failure checks run before
- * the closed/not-due window checks, so a failed run is never masked by a
- * market-closed or outside-window activity. Missing activity stays unknown.
+ * Presentation-only activity state. Failure and blocking checks run before any
+ * read or coverage state, so a failed run is never masked by an incomplete or
+ * read-failed label.
  */
 export function runActivityState(account: SummaryAccount): RunActivityState {
   if (account.status === "not_connected" || account.status === "no_data" || account.status === "read_failed") {
@@ -33,7 +33,22 @@ export function runActivityState(account: SummaryAccount): RunActivityState {
   if (activity === "failed" || activity === "error") return "failed";
   if (runs.some(run => run.activity !== "blocked" && runtimeDailyRunIssue(run) === "failure")) return "failed";
   if (runs.some(run => run.activity === "blocked")) return "blocked";
-  if (activity === "read_incomplete") return "read_failed";
+  if (activity === "read_incomplete") {
+    // `read_incomplete` declares a read problem, so it must be backed by a
+    // positive count equal to the code count and only known codes. Anything
+    // else is contradictory and resolves to "unknown", never to "incomplete"
+    // by fallback and never to success.
+    const codes = account.read_error_codes;
+    const count = account.read_error_count;
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count <= 0) return "unknown";
+    if (!Array.isArray(codes) || codes.length !== count) return "unknown";
+    const incompleteCodes = ["coverage_unconfirmed", "report_rejected", "read_truncated", "listing_truncated"];
+    const failedCodes = ["report_read_error", "read_failed", "list_failed", "source_read_error"];
+    if (!codes.every(code => typeof code === "string"
+      && (incompleteCodes.includes(code) || failedCodes.includes(code)))) return "unknown";
+    if (codes.some(code => failedCodes.includes(code))) return "read_failed";
+    return "incomplete";
+  }
   if (activity && NOT_RUN_ACTIVITY_SET.has(activity) && runs.length === 0) return activity as NotRunActivity;
   if (account.completeness === "complete"
     && activity !== null
@@ -75,7 +90,7 @@ export function cellKind(snapshot: RuntimeDailySnapshot): CellKind {
   return "unknown";
 }
 
-/** Count failed accounts only within today's New York summary; read errors are coverage gaps. */
+/** Count failed accounts only within today's New York summary. */
 export function todayFailures(summary: TodayRunSummary): { count: number; complete: boolean } {
   const failureActivities = ["failed", "error"];
   const completeActivities = ["blocked", "no_submission", "no_signal", "no_rebalance", "filled"];
