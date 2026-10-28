@@ -1,5 +1,0 @@
-{
-  "command": "npm ci --prefix web/strategy-switch-console && node tests/console_notification_receipts_validation.mjs && node tests/console_design_api_validation.mjs && node tests/console_api_worker_validation.mjs && node tests/console_api_contract_validation.mjs",
-  "exit_code": 0,
-  "elapsed_seconds": 8.11
-}

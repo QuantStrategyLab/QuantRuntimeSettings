@@ -1,9 +1,0 @@
-{
-  "tests/console_api_worker_validation.mjs": "f728e75beedef7acedd03d0bd7d53e3fa7a11fab6ac54f005fbc93ba54344e78",
-  "tests/console_notification_receipts_validation.mjs": "0a7b55bda258096b87af72df8afeb923da56536516c932adaded2bd00b432c50",
-  "web/strategy-switch-console/README.md": "d181a1a5139fe12ddfac3fe6f268a1423e560e7c0036f95c9527017840ab8f13",
-  "web/strategy-switch-console/README.zh-CN.md": "106d5977728295e959c353cbf7335337c45dfce57ad4eaf02cd0e6a9f78f5fde",
-  "web/strategy-switch-console/application/console_api/notification_receipts.js": "c5a4335e45123e314e54963e48f18f915115cdb105c5f06ad22c45228aa12658",
-  "web/strategy-switch-console/application/console_api/operations.js": "19f040280986ee5ff29533417674999faa20c38352bac84c7f51c9b878748a9b",
-  "web/strategy-switch-console/contracts/console-api.schema.json": "c4ead93f3cdee97d35b8deb5cf76f39a4410c13ccfc78817d224d45b2418917e"
-}
