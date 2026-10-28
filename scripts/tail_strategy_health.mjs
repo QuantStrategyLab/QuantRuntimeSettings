@@ -38,6 +38,7 @@ export async function run() {
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   let id;
   let socket;
+  let opened = false;
   let result = { reason: 'unknown' };
   try {
     const response = await fetch(base, { method: 'POST', headers, body: JSON.stringify({ filters: [{ method: ['POST'] }] }), signal: AbortSignal.timeout(15000) });
@@ -52,6 +53,7 @@ export async function run() {
       const done = (value) => { clearTimeout(timer); resolve(value); };
       socket = new WebSocket(tailUrl, 'trace-v1');
       socket.addEventListener('open', () => {
+        opened = true;
         try { socket.send(JSON.stringify({ debug: false })); } catch { done({ reason: 'stream_error' }); }
       });
       socket.addEventListener('message', async (message) => {
@@ -74,9 +76,14 @@ export async function run() {
       } catch { result.cleanup = 'unconfirmed'; }
     }
   }
+  result.stream_opened = opened;
   return result;
 }
 
+export function finish(result, code, output = process.stdout, exit = process.exit) {
+  output.write(`${JSON.stringify(result)}\n`, () => exit(code));
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  run().then((result) => console.log(JSON.stringify(result))).catch(() => console.log('{"reason":"unknown"}'));
+  run().then((result) => finish(result, 0)).catch(() => finish({ reason: 'unknown' }, 1));
 }

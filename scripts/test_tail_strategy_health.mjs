@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { classifyEvent, decodeMessage } from './tail_strategy_health.mjs';
+import { classifyEvent, decodeMessage, finish } from './tail_strategy_health.mjs';
 const event = { outcome: 'exception', eventTimestamp: 1793214000000, event: { request: { method: 'POST', url: 'https://example.invalid/api/internal/sync-strategy-health', headers: { authorization: 'SENTINEL_SECRET' } }, response: { status: 403 } }, logs: [{ message: ['SENTINEL_BODY'] }] };
 const result = classifyEvent(JSON.stringify(event), 'https://example.invalid');
 assert.equal(result.http_status, 403);
@@ -43,6 +43,7 @@ globalThis.WebSocket = class {
 const observed = await run();
 assert.equal(observed.reason, 'matched');
 assert.equal(observed.cleanup, 'confirmed');
+assert.equal(observed.stream_opened, true);
 assert.deepEqual(requests, ['POST', 'DELETE']);
 assert(!JSON.stringify(observed).includes('SENTINEL'));
 globalThis.fetch = async () => ({ ok: false, status: 403 });
@@ -57,4 +58,18 @@ globalThis.fetch = async (url, options) => { requests.push(options.method); retu
 const invalid = await run();
 assert.equal(invalid.reason, 'tail_response_invalid');
 assert.equal(invalid.cleanup, 'confirmed');
+assert.equal(invalid.stream_opened, false);
 assert.deepEqual(requests, ['POST', 'DELETE']);
+
+// The exit is deferred until the fixed summary has been flushed.
+let callback, outputValue, exitCode;
+finish({ reason: 'window_elapsed' }, 0, { write(value, cb) { outputValue = value; callback = cb; } }, (code) => { exitCode = code; });
+assert.equal(exitCode, undefined);
+assert.deepEqual(JSON.parse(outputValue), { reason: 'window_elapsed' });
+callback();
+assert.equal(exitCode, 0);
+// The CLI also emits a fixed summary and exits on invalid configuration.
+const { spawnSync } = await import('node:child_process');
+const child = spawnSync(process.execPath, ['scripts/tail_strategy_health.mjs'], { env: { ...process.env, STRATEGY_SWITCH_CONSOLE_URL: '' }, encoding: 'utf8', timeout: 2000 });
+assert.equal(child.status, 0);
+assert.deepEqual(JSON.parse(child.stdout), { reason: 'config_invalid' });
