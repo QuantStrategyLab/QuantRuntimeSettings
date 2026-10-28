@@ -397,7 +397,9 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
 }
 // The CPU candidate carries its own exact generated map, never the older overlay.
 {
-  const asset = readFileSync(new URL(`../${assetPath}`, import.meta.url));
+  const fixedAsset = spawnSync("git", ["show", `${cpuSource}:${assetPath}`], { cwd: new URL("..", import.meta.url) });
+  assert.equal(fixedAsset.status, 0, "the CPU candidate asset fixture must be available");
+  const asset = fixedAsset.stdout;
   const assetHash = spawnSync("git", ["hash-object", "--stdin"], {input:asset,encoding:"utf8"});
   assert.equal(assetHash.stdout.trim(), "3bb11bcbbf04330651a74fd355fd0c35c55a8c35");
   const temp = mkdtempSync(join(tmpdir(), "console-cpu-overlay-"));
