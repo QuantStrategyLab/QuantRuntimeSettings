@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {accountFactsHistoryResponse} from '../web/strategy-switch-console/application/account_facts/read.js';
-import {projectAccountFactsHistoryCurrencies, projectAccountFactsHistorySeries} from '../web/strategy-switch-console/account_facts.js';
+import {buildAccountFactsHistoryReadModel, projectAccountFactsHistoryCurrencies, projectAccountFactsHistorySeries} from '../web/strategy-switch-console/account_facts.js';
 
 const id='a'.repeat(64), old='b'.repeat(64), unknown='c'.repeat(64);
 const option={key:'synthetic',label:'Synthetic',target_name:'synthetic-target',service_name:'synthetic-service',
@@ -23,6 +23,22 @@ assert.deepEqual(usd.points.map(point=>point.observation_date),['2026-10-01']);
 assert.deepEqual(usd.gap_dates,['2026-10-02'], 'a qualified date without the currency stays a gap');
 const retained=projectAccountFactsHistorySeries({days,binding,currency:'USD',maxDays:1});
 assert.equal(retained.truncated,true);assert.deepEqual(retained.points,[]);assert.deepEqual(retained.gap_dates,['2026-10-02']);
+// One qualification pass must match independent legacy projections, including
+// untrusted lineage, absent currencies and retention truncation.
+for (const limit of [1, 366]) {
+  const inputs = { platform:'longbridge', accountKey:option.key, option, binding, days, currency:'USD', maxDays:limit };
+  const separate = buildAccountFactsHistoryReadModel(inputs);
+  const combinedModel = buildAccountFactsHistoryReadModel({...inputs, includeCurrencies:true});
+  assert.deepEqual(combinedModel.series, separate.series);
+  assert.deepEqual(combinedModel.currencies, projectAccountFactsHistoryCurrencies({days,binding,maxDays:limit}));
+  const {currencies, ...withoutCurrencies} = combinedModel;
+  assert.deepEqual(withoutCurrencies, separate);
+}
+const invalidOption = {...option, account_selector:'OTHER'};
+const invalid = buildAccountFactsHistoryReadModel({platform:'longbridge',accountKey:option.key,
+  option:invalidOption,binding,days,currency:'USD',includeCurrencies:true});
+assert.equal(invalid.identity_mismatch,true);
+assert.equal(Object.hasOwn(invalid,'currencies'),false,'untrusted identities must not enumerate currencies');
 let readFails=false, malformed=false;
 const deps={json:(body,status=200)=>Response.json(body,{status}),readSession:async()=>({allowed:true}),
   hasConfigStore:()=>true,hasRuntimeInstanceStore:()=>true,
