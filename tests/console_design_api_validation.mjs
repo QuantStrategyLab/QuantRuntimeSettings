@@ -170,3 +170,5 @@ console.log("console_design_api_validation: PASS");
 
 await import("./console_notification_receipts_validation.mjs");
 await import("./console_grouping_runs_validation.mjs");
+
+await import("./runtime_today_incomplete_validation.mjs");

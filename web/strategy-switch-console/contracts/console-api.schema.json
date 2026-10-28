@@ -2416,6 +2416,10 @@
                 "read_failed": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "incomplete": {
+                  "type": "integer",
+                  "minimum": 0
                 }
               }
             }
@@ -2530,8 +2534,19 @@
                   "not_connected",
                   "not_run",
                   "unknown",
-                  "read_failed"
+                  "read_failed",
+                  "incomplete"
                 ]
+              },
+              "read_error_count": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              },
+              "read_error_codes": {
+                "type": ["array", "null"],
+                "items": {
+                  "enum": ["coverage_unconfirmed", "report_read_error", "report_rejected", "read_failed", "read_truncated", "list_failed", "listing_truncated", "source_read_error"]
+                }
               },
               "run_status_reason": {
                 "type": [
