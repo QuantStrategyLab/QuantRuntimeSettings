@@ -759,7 +759,7 @@ async function restoreCase({ env = {}, status = 200, body = restoreBody, raw, he
     assert.equal(options.method, "POST");
     assert.equal(options.redirect, "error");
     assert.ok(options.signal instanceof AbortSignal);
-    assert.deepEqual(options.headers, { Authorization: `Bearer ${restoreSentinel}`, Accept: "application/json", "Content-Type": "application/json" });
+    assert.deepEqual(options.headers, { Authorization: `Bearer ${restoreSentinel}`, Accept: "application/json", "Accept-Encoding": "identity", "Content-Type": "application/json" });
     assert.deepEqual(JSON.parse(options.body), { strategy: "percentage", versions: [{ version_id: restoreTarget, percentage: 100 }],
       annotations: { "workers/message": "Restore verified pre-frontend 2beea000 baseline" } });
   }
@@ -808,6 +808,7 @@ async function fe11Case({mutate=()=>{},env={},failAt=-1}={},expected=true,count=
   assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+
    [`/versions/${fe11Target}`,"/deployments?force=false","/deployments?page=1&per_page=10"][i]);
   assert.equal(options.redirect,"error");assert.equal(options.method,i===1?"POST":"GET");
+  assert.equal(options.headers["Accept-Encoding"],"identity");
   if(i===1)assert.deepEqual(JSON.parse(options.body).versions,[{version_id:fe11Target,percentage:100}]);
   else assert.equal(options.body,undefined);
  }
@@ -843,6 +844,7 @@ async function dailyRestoreCase({mutate=()=>{},env={},failAt=-1}={},expected=tru
  assert.equal(process.exitCode===0,expected,stderr.join("\n")); assert.equal(calls.length,count);
  assert.ok(!JSON.stringify({stdout,stderr}).includes(restoreSentinel));
  assert.equal(calls.filter(call=>call.options.method==="POST").length,count>=5?1:0);
+ for(const call of calls)assert.equal(call.options.headers["Accept-Encoding"],"identity");
  if(count>=5){assert.ok(calls[4].url.endsWith('/deployments?force=false'));
   assert.deepEqual(JSON.parse(calls[4].options.body).versions,[{version_id:dailyRestoreTarget,percentage:100}]);}
  if(expected)assert.equal(JSON.parse(stdout[0]).version_id,dailyRestoreTarget);
