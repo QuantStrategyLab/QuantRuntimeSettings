@@ -207,6 +207,25 @@ console.log("console_equity_history_validation: PASS (synthetic union, overlap, 
 }
 
 
+// Each configured single-currency account uses one shared history read.
+{
+  const eight = Array.from({length: 8}, (_, index) => ({ ...facts[0], account_key: `synthetic-${index}` }));
+  let reads = 0;
+  const eightDeps = { ...deps,
+    accountOptions: async () => ({ options: { ibkr: eight.map(account => ({ key: account.account_key, broker_environment: "live" })) } }),
+    facts: async () => Response.json({ accounts: eight }),
+    history: async request => {
+      reads++;
+      const params = new URL(request.url).searchParams;
+      assert.equal(params.get("include_currencies"), "true");
+      return Response.json({ platform: "ibkr", account_key: params.get("account_key"), currencies: ["USD"],
+        series: { currency: "USD", points: [] } });
+    },
+  };
+  assert.equal((await performanceResponse(request("assets"), {}, eightDeps)).status, 200);
+  assert.equal(reads, 8, "one history read per single-currency account");
+}
+
 // The production e2 baseline must retain unqualified observations without a benchmark calendar.
 const coreDates = Array.from({ length: 10 }, (_, i) => `2026-10-${String(i + 10).padStart(2, "0")}`);
 const coreHistory = flow => [{ id: "synthetic-core", currency: "USD",
