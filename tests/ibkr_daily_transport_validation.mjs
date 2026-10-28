@@ -25,6 +25,7 @@ writeFileSync(`${gh}.cjs`,`
 const fs=require('fs'), p=process.env.MOCK_STATE; let s=JSON.parse(fs.readFileSync(p)); const args=process.argv.slice(2), path=args[1]||'';
 const save=()=>fs.writeFileSync(p,JSON.stringify(s));
 if(args[0]==='secret'){const name=args[2];s.effects.push(name);s.secrets.push({name,updated_at:'2026-10-28T16:41:00Z'});save();if(process.env.MOCK_FAIL===name)process.exit(1);process.exit(0);}
+if(process.env.MOCK_FAIL==='preflight_403'&&path.includes('actions/runs?')){console.error('HTTP 403: synthetic');process.exit(1);}
 if(args[0]==='run'){let id=args[2];console.log(id==='40728959942'?'DAILY_COMPARISON_NONCE: '+ 'a'.repeat(64)+'\\nstatus=ok comparison='+ 'b'.repeat(64):'status=ok comparison='+ 'b'.repeat(64));process.exit(0);}
 if(path.includes('actions/secrets/public-key'))console.log('{}');
 else if(path.includes('actions/secrets?'))console.log(JSON.stringify({total_count:s.secrets.length,secrets:s.secrets}));
@@ -56,7 +57,8 @@ globalThis.fetch=async(url,opts={})=>{let s=JSON.parse(readFileSync(file));let u
 `);
 try {
   const script=resolve('web/strategy-switch-console/ibkr_daily_setup_transport.mjs');
-  for(const [mode,fail,expected] of [['preflight','','preflight_verified'],['execute','','configured'],['execute','IBKR_RUNTIME_DAILY_TARGET_KEY','stopped'],['execute','registry','stopped'],['execute','upload_id','stopped'],['execute','activate_id','stopped'],['execute','namespace','stopped']]) {
+  const cases=[['preflight','','preflight_verified'],['preflight','preflight_403','preflight_blocked'],['execute','','configured'],['execute','IBKR_RUNTIME_DAILY_TARGET_KEY','stopped'],['execute','registry','stopped'],['execute','upload_id','stopped'],['execute','activate_id','stopped'],['execute','namespace','stopped']];
+  for(const [mode,fail,expected] of cases.filter(([,f])=>!process.env.TEST_FILTER||f===process.env.TEST_FILTER)) {
     writeFileSync(state,JSON.stringify({secrets:syntheticSecrets,effects:[],uploaded:false,deployed:false,registry:null}));
     const env={...process.env,PATH:`${dir}:${process.env.PATH}`,NODE_OPTIONS:`--import ${preload} --loader ${loader}`,
       MOCK_STATE:state,MOCK_FAIL:fail,CLOUDFLARE_API_TOKEN:'synthetic',CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),
@@ -64,9 +66,10 @@ try {
     const child=spawnSync(process.execPath,[script],{env,encoding:'utf8',timeout:120000});
     assert.ok(child.stdout.trim(),child.stderr);const result=JSON.parse(child.stdout.trim());assert.equal(result.status,expected,child.stderr);
     const seen=JSON.parse(readFileSync(state));
-    if(mode==='preflight'){assert.deepEqual(seen.effects,[]);assert.equal(result.health_binding_present,true);assert.equal(result.health_route_reachable,true);}
+    if(mode==='preflight'){assert.deepEqual(seen.effects,[]);if(!fail){assert.equal(result.health_binding_present,true);assert.equal(result.health_route_reachable,true);}}
     if(mode==='execute'&&!fail)assert.deepEqual(seen.effects,['upload','IBKR_RUNTIME_DAILY_SYNC_TOKEN','IBKR_RUNTIME_DAILY_TARGET_KEY','registry','activate']);
-    if(fail==='namespace'){assert.equal(result.phase,'preflight');assert.deepEqual(seen.effects,[]);}
+    if(fail==='preflight_403'){assert.equal(result.stage,'writer_check');assert.equal(result.operation,'gh_runs');assert.equal(result.reason,'github_request_failed');assert.equal(result.http_status,403);assert.equal(result.writes,0);}
+    else if(fail==='namespace'){assert.equal(result.phase,'preflight');assert.deepEqual(seen.effects,[]);}
     else if(fail){assert.equal(result.outcome,'unknown_requires_readback');assert.equal(result.retry,false);assert.equal(seen.effects.at(-1),fail.replace('_id',''));}
     assert.ok(!child.stdout.includes('service|tqqq_growth_income|live|')); // no target or token in receipts
   }

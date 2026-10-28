@@ -18,17 +18,28 @@ if (!token || !ghToken || !ownToken || !/^[a-f0-9]{32}$/i.test(account ?? '') ||
 const scriptBase=`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${worker}`;
 const betaBase=`https://api.cloudflare.com/client/v4/accounts/${account}/workers/workers/${worker}`;
 const kvBase=`https://api.cloudflare.com/client/v4/accounts/${account}/storage/kv/namespaces/${namespace}/values`;
-let baseline, moduleResponseLimit=versionResponseLimit();
+let baseline, diagnosticStage='configuration', diagnosticOperation=null, diagnosticHttpStatus=null, moduleResponseLimit=versionResponseLimit();
 function gh(args,{input,repo=qrs}={}) {
+  const path=args[1] ?? '';
+  diagnosticOperation=args[0]==='run'?'gh_run_logs':path.includes('/actions/runs?')?'gh_runs':path.includes('/actions/runs/')?'gh_run_metadata':
+    path.includes('/actions/secrets/public-key')?'gh_public_key':path.includes('/actions/secrets?')?'gh_secret_metadata':'gh_other';
+  diagnosticHttpStatus=null;
   const p=spawnSync('gh',args,{input,encoding:'utf8',timeout:30000,maxBuffer:10*1024*1024,
     env:{...process.env,GH_TOKEN:repo===ibkr?ghToken:ownToken}});
-  if (p.status !== 0 || p.error) throw Error('github_request_failed');
+  if (p.status !== 0 || p.error) {
+    const status=/\bHTTP\s+([1-5]\d\d)\b/.exec(p.stderr ?? '');
+    if(status)diagnosticHttpStatus=Number(status[1]);
+    throw Error('github_request_failed');
+  }
   return p.stdout;
 }
 async function request(url,{method='GET',body,raw=false,missing=false,limit=524288}={}) {
+  diagnosticOperation=url.startsWith(kvBase)?'cf_kv':url.includes('/deployments')?'cf_deployment':url.includes('/versions')?'cf_version':'cf_other';
+  diagnosticHttpStatus=null;
   const r=await fetch(url,{method,body,redirect:'error',signal:AbortSignal.timeout(20000),
     headers:{Authorization:`Bearer ${token}`,Accept:raw?'application/json':'application/json','Accept-Encoding':'identity',
       ...(body===undefined?{}:{'Content-Type':'application/json'})}});
+  diagnosticHttpStatus=r.status;
   if (missing && r.status===404) { await r.body?.cancel(); return null; }
   if (!r.ok || !r.body || !['','identity'].includes(r.headers.get('content-encoding') ?? '')) { await r.body?.cancel(); throw Error('cloudflare_request_failed'); }
   const contentType=r.headers.get('content-type') ?? '';
@@ -109,6 +120,7 @@ async function configuration() {
 }
 async function unchanged(before,{uploaded,secretNames=[]}={}) {
   noWriters(); const current=await deployment(), versions=await latest(), config=await configuration();
+  diagnosticOperation='state_compare'; diagnosticHttpStatus=null;
   if (current.id!==before.deploymentId || current.version!==oldVersion || current.percentage!==100
       || versions[0] !== (uploaded ?? oldVersion) || (uploaded && versions[1]!==oldVersion)
       || config.registryRaw!==before.registryRaw || comparison(config.options,config.bindings,before.nonce)!==before.expectedComparison) throw Error('state_changed');
@@ -119,11 +131,19 @@ async function unchanged(before,{uploaded,secretNames=[]}={}) {
 }
 const io={
   async preflight() {
-    noWriters(); const evidence=compareEvidence(), secrets=secretsMetadata(); validateSourceSecrets(secrets,evidence.sourceTime);
+    diagnosticStage='writer_check'; noWriters();
+    diagnosticStage='comparison_evidence'; const evidence=compareEvidence();
+    diagnosticStage='source_secret_metadata'; const secrets=secretsMetadata(); validateSourceSecrets(secrets,evidence.sourceTime);
+    diagnosticStage='github_public_key';
     gh(['api',`repos/${ibkr}/actions/secrets/public-key`],{repo:ibkr});
-    const [current,versions,config,version]=await Promise.all([deployment(),latest(),configuration(),readVersion(oldVersion)]);
+    diagnosticStage='deployment'; const current=await deployment();
+    diagnosticStage='versions'; const versions=await latest();
+    diagnosticStage='configuration_read'; const config=await configuration();
+    diagnosticStage='version_read'; const version=await readVersion(oldVersion);
+    diagnosticStage='namespace_check'; diagnosticOperation='namespace_check'; diagnosticHttpStatus=null;
     if (!matchesConfigNamespace(version.resources,namespace)) throw Error('kv_namespace_mismatch');
     moduleResponseLimit=versionResponseLimit(version.moduleBase64.length);
+    diagnosticStage='own_run_metadata';
     const own=JSON.parse(gh(['api',`repos/${qrs}/actions/runs/${ownRun}`]));
     if (!Number.isFinite(Date.parse(own.created_at))) throw Error('run_metadata_invalid');
     baseline={...evidence,...config,...version,startedAt:own.created_at,deploymentId:current.id,activeVersion:current.version,percentage:current.percentage,
@@ -150,18 +170,19 @@ const io={
 if (process.env.DAILY_SETUP_MODE==='preflight') {
   try {
     const state=await io.preflight();
+    diagnosticStage='binding_comparison'; diagnosticOperation='binding_compare'; diagnosticHttpStatus=null;
     if (state.activeVersion!==oldVersion || state.latestVersion!==oldVersion || state.percentage!==100
         || state.githubSecretNames.some(name=>['IBKR_RUNTIME_DAILY_SYNC_TOKEN','IBKR_RUNTIME_DAILY_TARGET_KEY'].includes(name))
         || comparison(state.options,state.bindings,state.nonce)!==state.expectedComparison) throw Error('preflight_mismatch');
-    const module=Buffer.from(state.moduleBase64,'base64');
+    diagnosticStage='module_check'; diagnosticOperation='module_check'; diagnosticHttpStatus=null; const module=Buffer.from(state.moduleBase64,'base64');
     if (module.toString('base64')!==state.moduleBase64 || createHash('sha256').update(module).digest('hex')!=='d1e10f49c2a537733751ac8418384c1bffa52763cb959521f5c5bf7940e2149e') throw Error('module_mismatch');
-    const binding=primaryBinding(state.options,state.bindings);
+    diagnosticStage='registration_check'; diagnosticOperation='registration_check'; diagnosticHttpStatus=null; const binding=primaryBinding(state.options,state.bindings);
     const targetKey=`${binding.service_name}|tqqq_growth_income|${binding.account_scope}|${'0'.repeat(32)}`;
     appendPrimaryDailyRegistration(state.registry,{account_key:binding.account_key,target_id:binding.target_id,
       source_binding_id:binding.source_binding_id,strategy_profile:'tqqq_growth_income',target_key:targetKey});
     prepareIbkrDailyVersion({activeVersion:oldVersion,existingBindings:state.resources.bindings,runtime:state.resources.script_runtime,
       moduleBase64:state.moduleBase64,token:'0'.repeat(64),targetKey});
-    await io.verifyUnchanged(state);
+    diagnosticStage='final_readback'; await io.verifyUnchanged(state);
     const healthBindingPresent=state.resources.bindings.some(b=>b.name==='STRATEGY_HEALTH_SYNC_TOKEN' && b.type==='secret_text');
     let healthRouteReachable=false;
     try {
@@ -171,7 +192,15 @@ if (process.env.DAILY_SETUP_MODE==='preflight') {
       healthRouteReachable=response.status===401 && body?.ok===false && body?.error==='login required';
     } catch { /* Health diagnostics do not change the setup decision. */ }
     console.log(JSON.stringify({status:'preflight_verified',writes:0,health_binding_present:healthBindingPresent,health_route_reachable:healthRouteReachable}));
-  } catch { console.log(JSON.stringify({status:'preflight_blocked',writes:0})); process.exitCode=1; }
+  } catch (error) {
+    const allowed=new Set(['github_request_failed','cloudflare_request_failed','response_type','response_length','response_too_large','cloudflare_envelope',
+      'deployment_invalid','versions_invalid','version_invalid','module_invalid','secret_metadata_invalid','comparison_run_invalid','comparison_invalid',
+      'source_changed','runs_incomplete','concurrent_writer','binding_missing','state_changed','secret_state_changed','kv_namespace_mismatch',
+      'run_metadata_invalid','preflight_mismatch','module_mismatch','invalid_input','invalid_registry','registration_collision','invalid_bindings','binding_exists','invalid_runtime',
+      'target_not_unique','option_mismatch','invalid_runs','invalid_module_length']);
+    const reason=allowed.has(error?.message)?error.message:'unclassified';
+    console.log(JSON.stringify({status:'preflight_blocked',stage:diagnosticStage,operation:diagnosticOperation,reason,http_status:diagnosticHttpStatus,writes:0})); process.exitCode=1;
+  }
 } else if (process.env.DAILY_SETUP_MODE==='execute') {
   const result=await executePrimaryDailySetup(io);
   console.log(JSON.stringify(result));
