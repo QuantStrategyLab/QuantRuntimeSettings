@@ -171,6 +171,22 @@ const io={
   async verifyDeployment(version,id) { const d=await deployment(); if (!id || d.id!==id || d.version!==version || d.percentage!==100) throw Error('deployment_readback'); },
 };
 if (process.env.DAILY_SETUP_MODE==='preflight') {
+  let healthBindingPresent=null, healthRouteReachable=false, healthVersion=null;
+  try {
+    const current=await deployment();
+    if (current.percentage!==100 || !validUuid(current.version)) throw Error('deployment_invalid');
+    const version=await request(`${scriptBase}/versions/${current.version}`);
+    if (version?.id!==current.version || !Array.isArray(version.resources?.bindings)) throw Error('version_invalid');
+    const matches=version.resources.bindings.filter(binding=>binding?.name==='STRATEGY_HEALTH_SYNC_TOKEN');
+    healthBindingPresent=matches.length===1 && matches[0].type==='secret_text';
+    healthVersion=current.version;
+  } catch { /* Independent read-only diagnostic; unknown remains null. */ }
+  try {
+    const response=await fetch('https://qsl-strategy-switch-console.pigbibi.workers.dev/api/strategy-health',
+      {method:'GET',redirect:'error',signal:AbortSignal.timeout(10000)});
+    const body=await response.json();
+    healthRouteReachable=response.status===401 && body?.ok===false && body?.error==='login required';
+  } catch { /* Health diagnostics do not change the setup decision. */ }
   try {
     const state=await io.preflight();
     diagnosticStage='binding_comparison'; diagnosticOperation='binding_compare'; diagnosticHttpStatus=null;
@@ -186,15 +202,7 @@ if (process.env.DAILY_SETUP_MODE==='preflight') {
     prepareIbkrDailyVersion({activeVersion:oldVersion,existingBindings:state.resources.bindings,runtime:state.resources.script_runtime,
       moduleBase64:state.moduleBase64,token:'0'.repeat(64),targetKey});
     diagnosticStage='final_readback'; await io.verifyUnchanged(state);
-    const healthBindingPresent=state.resources.bindings.some(b=>b.name==='STRATEGY_HEALTH_SYNC_TOKEN' && b.type==='secret_text');
-    let healthRouteReachable=false;
-    try {
-      const response=await fetch('https://qsl-strategy-switch-console.pigbibi.workers.dev/api/strategy-health',
-        {method:'GET',redirect:'error',signal:AbortSignal.timeout(10000)});
-      const body=await response.json();
-      healthRouteReachable=response.status===401 && body?.ok===false && body?.error==='login required';
-    } catch { /* Health diagnostics do not change the setup decision. */ }
-    console.log(JSON.stringify({status:'preflight_verified',writes:0,health_binding_present:healthBindingPresent,health_route_reachable:healthRouteReachable}));
+    console.log(JSON.stringify({status:'preflight_verified',writes:0,health_binding_present:healthBindingPresent,health_route_reachable:healthRouteReachable,health_version:healthVersion}));
   } catch (error) {
     const allowed=new Set(['github_request_failed','cloudflare_request_failed','response_type','response_length','response_too_large','cloudflare_envelope',
       'deployment_invalid','versions_invalid','version_invalid','module_invalid','secret_metadata_invalid','comparison_run_invalid','comparison_invalid',
@@ -202,7 +210,8 @@ if (process.env.DAILY_SETUP_MODE==='preflight') {
       'run_metadata_invalid','preflight_mismatch','module_mismatch','invalid_input','invalid_registry','registration_collision','invalid_bindings','binding_exists','invalid_runtime',
       'target_not_unique','option_mismatch','invalid_runs','invalid_module_length']);
     const reason=allowed.has(error?.message)?error.message:'unclassified';
-    console.log(JSON.stringify({status:'preflight_blocked',stage:diagnosticStage,operation:diagnosticOperation,reason,http_status:diagnosticHttpStatus,writes:0})); process.exitCode=1;
+    console.log(JSON.stringify({status:'preflight_blocked',stage:diagnosticStage,operation:diagnosticOperation,reason,http_status:diagnosticHttpStatus,writes:0,
+      health_binding_present:healthBindingPresent,health_route_reachable:healthRouteReachable,health_version:healthVersion})); process.exitCode=1;
   }
 } else if (process.env.DAILY_SETUP_MODE==='execute') {
   const result=await executePrimaryDailySetup(io);

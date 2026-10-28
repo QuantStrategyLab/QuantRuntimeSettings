@@ -68,7 +68,7 @@ try {
     const seen=JSON.parse(readFileSync(state));
     if(mode==='preflight'){assert.deepEqual(seen.effects,[]);if(!fail){assert.equal(result.health_binding_present,true);assert.equal(result.health_route_reachable,true);}}
     if(mode==='execute'&&!fail)assert.deepEqual(seen.effects,['upload','IBKR_RUNTIME_DAILY_SYNC_TOKEN','IBKR_RUNTIME_DAILY_TARGET_KEY','registry','activate']);
-    if(fail==='preflight_403'){assert.equal(result.stage,'writer_check');assert.equal(result.operation,'gh_runs');assert.equal(result.reason,'github_request_failed');assert.equal(result.http_status,403);assert.equal(result.writes,0);}
+    if(fail==='preflight_403'){assert.equal(result.stage,'writer_check');assert.equal(result.operation,'gh_runs');assert.equal(result.reason,'github_request_failed');assert.equal(result.http_status,403);assert.equal(result.writes,0);assert.equal(result.health_binding_present,true);assert.equal(result.health_route_reachable,true);}
     else if(fail==='namespace'){assert.equal(result.phase,'preflight');assert.deepEqual(seen.effects,[]);}
     else if(fail){assert.equal(result.outcome,'unknown_requires_readback');assert.equal(result.retry,false);assert.equal(seen.effects.at(-1),fail.replace('_id',''));}
     assert.ok(!child.stdout.includes('service|tqqq_growth_income|live|')); // no target or token in receipts
