@@ -301,6 +301,13 @@ assert.equal(sourceCase({...pr764Env,FAKE_SELECTED_HEAD:approved}, false).select
 const ibkrEnv = { RELEASE_SOURCE_SHA: ibkrSource, RELEASE_FRONTEND_ASSETS: "true",
   FAKE_TREE: ibkrTree, FAKE_SELECTED_HEAD: ibkrSource, FAKE_PR764_BLOB: frontendBlob };
 assert.equal(sourceCase(ibkrEnv, true).selected, true);
+for (const mode of ["verify","activate"]) for (const sync of ["false","true"]) for (const profiles of ["false","true"]) for (const skip of ["false","true"]) {
+ const accepted=sync==="false" && profiles==="false" && skip==="true";
+ const checked=sourceCase({...ibkrEnv,IBKR_CANDIDATE_RESUME:mode,SYNC_SECRETS:sync,SYNC_STRATEGY_PROFILES:profiles,SKIP_BINANCE_RECEIVER_CHECKS:skip},accepted);
+ if(!accepted)assert.deepEqual(checked.calls,[],"unsafe verify or activation settings rejected before checkout or later steps");
+}
+for(const source of ["",approved,pr764Source])assert.deepEqual(sourceCase({...ibkrEnv,RELEASE_SOURCE_SHA:source,IBKR_CANDIDATE_RESUME:"verify"},false).calls,[]);
+assert.deepEqual(sourceCase({...ibkrEnv,IBKR_CANDIDATE_RESUME:"unexpected"},false).calls,[]);
 for (const delta of [{RELEASE_FRONTEND_ASSETS:"false"}, {SYNC_SECRETS:"true"}, {SYNC_STRATEGY_PROFILES:"true"},
   {SKIP_BINANCE_RECEIVER_CHECKS:"false"}, {GITHUB_REF:"refs/heads/other"}]) {
   assert.deepEqual(sourceCase({...ibkrEnv,...delta}, false).calls, []);
@@ -510,6 +517,27 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
  }
  releaseCases++;return {calls,stdout,stderr};
 }
+const fixedPrior="06043e24-f8c9-4129-8c59-abb9957217bf", fixedCandidate="2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee", fixedPrevious="26996cc3-732a-4774-af02-b46842913d36";
+async function resumeCase({mode="verify",wrongModule=false,tag="missing",migrations=undefined,drift=false,afterTag=false,afterMissing=false,wrongLatest=false,lateDrift=false}={}, expected=true){
+ const calls=[],out=[],err=[],proc={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:ibkrSource,IBKR_CANDIDATE_RESUME:mode},exitCode:0};let activated=false, listReads=0;
+ await runRelease(proc,async(url,options)=>{calls.push({url,options});let data;
+ if(url.includes("workers/workers/")){data={id:fixedCandidate,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:Buffer.from(wrongModule?"wrong":syntheticBundle).toString("base64")}],...(migrations===undefined?{}:{migrations})};}
+ else if(url.endsWith("/content/v2"))return scriptResponse("export default {};");
+ else if(url.endsWith("/deployments?force=false")){activated=true;data=dep(newDeployment,fixedCandidate);}
+ else if(url.includes("/deployments?page="))data={deployments:[dep(activated?newDeployment:priorDeployment,activated?fixedCandidate:fixedPrior)]};
+ else if(url.includes("/versions?page=")){listReads++;data={items:[{id:wrongLatest || (lateDrift && listReads===3)?fixedPrevious:fixedCandidate},{id:fixedPrevious}]};}
+ else if(url.endsWith(`/versions/${fixedPrior}`))data={id:fixedPrior,resources:resource("old-code")};
+ else if(url.endsWith(`/versions/${fixedCandidate}`)){const v=resource("new-code");if(!activated && tag==="missing")delete v.script_runtime.migration_tag;if(!activated && tag==="wrong")v.script_runtime.migration_tag="different";if(drift)v.bindings[0].namespace_id="e".repeat(32);if(activated && afterTag)v.script_runtime.migration_tag="different";if(activated && afterMissing)delete v.script_runtime.migration_tag;data={id:fixedCandidate,resources:v};}
+ else throw Error("unexpected");return new Response(JSON.stringify(wrap(data)),{headers:{"content-type":"application/json"}});
+ },{log:x=>out.push(x),error:x=>err.push(x)},async path=>path.endsWith("v2_asset_map.js")?syntheticAssetMap:syntheticBundle,createHash,async()=>bundleFiles.map(x=>dirent(x)));
+ assert.equal(proc.exitCode===0,expected,err.join("\n"));assert.ok(!JSON.stringify({out,err}).includes(privateRelease));
+ const writes=calls.filter(c=>c.options.method==="POST");assert.ok(writes.length<=1);assert.ok(writes.every(c=>c.url.endsWith("/deployments?force=false")));
+ if(mode==="verify" || wrongModule || tag==="wrong" || migrations!==undefined || drift || wrongLatest || lateDrift)assert.equal(writes.length,0);
+ if(expected && mode==="activate")assert.equal(writes.length,1);
+ return {calls,out,err};
+}
+await resumeCase();await resumeCase({mode:"activate"});await resumeCase({tag:"same"});
+for(const opts of [{wrongModule:true},{tag:"wrong"},{migrations:{new_tag:"x"}},{drift:true},{wrongLatest:true},{mode:"activate",lateDrift:true},{mode:"activate",afterTag:true},{mode:"activate",afterMissing:true}])await resumeCase(opts,false);
 await releaseCase({pr764:true},true,13);
 await releaseCase({ibkrDaily:true},true,12);
 const echoedBundle=Buffer.concat([syntheticBundle,Buffer.alloc(600000,32)]);
