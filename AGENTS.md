@@ -42,6 +42,8 @@ python3 -m unittest discover -s python/tests -v
 CI's `js` job runs the console and account-fact validation scripts with `npm ci`.
 Regenerate projections instead of editing them by hand.
 
+Organization documentation rules are checked by `python scripts/check_style.py`, which also runs in CI as the `Documentation check` job.
+
 ## Naming and documentation
 
 - Developer documentation is English by default; Chinese siblings use

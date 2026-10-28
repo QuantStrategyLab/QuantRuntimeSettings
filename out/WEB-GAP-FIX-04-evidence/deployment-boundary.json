@@ -1,9 +1,0 @@
-{
-  "workflow": "deploy-strategy-switch-console.yml",
-  "trigger": "workflow_dispatch only",
-  "workflows_modified": false,
-  "workflow_dispatch_calls": 0,
-  "production_access": 0,
-  "new_permissions": 0,
-  "chrome": "not applicable"
-}

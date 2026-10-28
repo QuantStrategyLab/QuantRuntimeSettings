@@ -1,9 +1,0 @@
-{
-  "baseline": "a97a4a5cce956428fd2fc24ee42ce5103bc08cc1",
-  "command": "python3 -m unittest discover -s python/tests -p test_checkout_internal_dependency_consumers.py -v",
-  "git_archive_exit": 0,
-  "tar_exit": 0,
-  "exit_code": 1,
-  "mapfile_error_present": true,
-  "tail": "Ran 13 tests in 4.678s\n\nFAILED (failures=11)\n"
-}
