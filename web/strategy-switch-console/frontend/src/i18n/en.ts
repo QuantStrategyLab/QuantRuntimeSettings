@@ -109,6 +109,7 @@ export const en: Record<CoreMessageKey, string> = {
   "reason.no_closed_trades": "No closed trades",
   "reason.notification_log_not_connected": "The notification log source is not connected",
   "reason.runtime_daily_not_connected": "The run-record source is not connected",
+  "reason.runtime_daily_binding_conflict": "Multiple run-record bindings match this account; check configuration",
   "reason.today_record_missing": "No run record for today",
   "reason.runtime_daily_stale": "The run record is stale",
   "reason.runtime_daily_incomplete": "The run record is incomplete",

@@ -107,6 +107,7 @@ export const zhCN = {
   "reason.no_closed_trades": "没有已平仓的交易",
   "reason.notification_log_not_connected": "通知发送记录源未接入",
   "reason.runtime_daily_not_connected": "运行记录源未接入",
+  "reason.runtime_daily_binding_conflict": "运行记录存在多个账户绑定，请检查配置",
   "reason.today_record_missing": "今日暂无运行记录",
   "reason.runtime_daily_stale": "运行记录已过期",
   "reason.runtime_daily_incomplete": "运行记录不完整",

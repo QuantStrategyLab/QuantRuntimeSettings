@@ -18,11 +18,11 @@ try {
       import { I18nProvider } from './src/i18n';
       import { AccountDirectoryContext, ScopeContext } from './src/app/context';
       import { AppShell } from './src/app/AppShell';
-      import HealthPage from './src/pages/health/HealthPage';
+      import HealthPage, { FreshnessTable } from './src/pages/health/HealthPage';
       import StrategiesPage from './src/pages/strategies/StrategiesPage';
       import { AssetsCard } from './src/pages/performance/AssetsCard';
       import { AccountGroups } from './src/components/AccountGroups';
-      const components = { shell: AppShell, health: HealthPage, strategies: StrategiesPage, assets: AssetsCard, groups: AccountGroups };
+      const components = { shell: AppShell, health: HealthPage, freshness: FreshnessTable, strategies: StrategiesPage, assets: AssetsCard, groups: AccountGroups };
       export const render = (language, component, props = {}, config = null, state = { phase: 'loading' }) => {
         globalThis.__fix03State = state;
         return renderToStaticMarkup(h(I18nProvider, { language },
@@ -34,6 +34,7 @@ try {
     loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },
     plugins: [{ name: "controlled-read", setup(builder) {
       builder.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: "export const useApi = () => ({ ...globalThis.__fix03State, reload: () => {} });", loader: "js" }));
+      builder.onLoad({ filter: /\/pages\/health\/HealthPage\.tsx$/ }, async ({ path }) => ({ contents: await readFile(path, "utf8") + "\nexport { FreshnessTable };", loader: "tsx" }));
     } }],
   });
   const ui = createRequire(import.meta.url)(outfile);
@@ -51,6 +52,16 @@ try {
       const health = ui.render(language, "health");
       const note = language === "zh" ? "本页展示全部平台与账户的运行状态。" : "This page shows runtime status for all platforms and accounts.";
       assert.equal(health.split(note).length - 1, 1);
+    }
+  });
+
+  test("health shows an ambiguous binding rather than an unconnected source", () => {
+    const row = { account_alias: "paper", platform: "longbridge", status: "partial",
+      unavailable_reason: "runtime_daily_binding_conflict", run_count: null, runs: [], as_of: null };
+    for (const [language, text] of [["zh", "运行记录存在多个账户绑定，请检查配置"], ["en", "Multiple run-record bindings match this account; check configuration"]]) {
+      const html = ui.render(language, "freshness", { summary: ready({ accounts: [row] }) });
+      assert.ok(html.includes(text));
+      assert.ok(!html.includes("reason.runtime_daily_binding_conflict"));
     }
   });
 
