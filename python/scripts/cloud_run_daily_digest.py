@@ -82,7 +82,7 @@ def report_slot(headers, configuration, now):
     if stamp.tzinfo is None:
         raise ValueError('digest_schedule_timezone_required')
     local = stamp.astimezone(SGT)
-    if local.timetz().replace(tzinfo=None) not in {time(7), time(7, 30)} or stamp > now:
+    if (local.hour, local.minute) not in {(7, 0), (7, 30)} or stamp > now:
         raise ValueError('digest_schedule_slot_invalid')
     report_date = local.date()
     return report_date, (report_date - timedelta(days=1)).isoformat(), stamp, local.minute == 30
@@ -176,8 +176,13 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
             monotonic=clock.monotonic, platform_config=None):
     try:
         report_date, day, scheduled_at, check = report_slot(headers, configuration, now())
-    except (ValueError, KeyError, TypeError, AttributeError):
-        return 400, {'delivery': 'invalid_slot'}
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
+        # Only fixed reasons leave this boundary, never header/exception values.
+        known = {'digest_scheduler_job_mismatch', 'digest_schedule_timezone_required',
+                 'digest_schedule_slot_invalid'}
+        reason = str(error) if isinstance(error, ValueError) and str(error) in known else (
+            'digest_schedule_header_missing' if isinstance(error, KeyError) else 'digest_schedule_header_invalid')
+        return 400, {'delivery': 'invalid_slot', 'reason_code': reason}
     safe = {'report_date': report_date.isoformat(), 'business_day': day, 'delivery': 'not_attempted'}
     if not preview and now().astimezone(SGT).date() != report_date:
         return 200, {**safe, 'delivery': 'expired_slot'}
@@ -302,7 +307,7 @@ def main():
                 status, value = 503, {'delivery': 'request_failed', 'error_type': kind if kind in allowed else 'InternalError'}
             print(json.dumps({'component': 'daily_digest', 'severity': 'ERROR' if value.get('delivery') in {
                 'unknown', 'request_failed', 'reservation_unconfirmed', 'reservation_invalid',
-                'receipt_unverified'} else 'INFO', **value}), flush=True)
+                'receipt_unverified', 'invalid_slot'} else 'INFO', **value}), flush=True)
             self.respond(status, value)
 
     HTTPServer(('0.0.0.0', int(os.environ.get('PORT', '8080'))), Handler).serve_forever()
