@@ -17,7 +17,8 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
       status: "not_connected", unavailable_reason: "runtime_daily_not_connected",
       as_of: null, activity: null, completeness: null, run_count: null, runs: [] };
     const matches = bindings.filter(b => b.platform === account.platform && b.account_key === account.key && b.status === "bound");
-    if (matches.length !== 1) return base;
+    if (matches.length === 0) return base;
+    if (matches.length > 1) return { ...base, status: "partial", unavailable_reason: "runtime_daily_binding_conflict" };
     const url = new URL("/api/runtime-daily", request.url);
     url.searchParams.set("date", date);
     url.searchParams.set("platform", account.platform);
