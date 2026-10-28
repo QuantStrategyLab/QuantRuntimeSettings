@@ -532,13 +532,19 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
  releaseCases++;return {calls,stdout,stderr};
 }
 // Exact integrated candidate: explicit inheritance, verified module, one non-forced activation.
-async function integratedReleaseCase({ active="600ec84d-a804-4ede-8d1d-0a34819ce46a", latest=active, moduleContent=syntheticBundle.toString("base64") } = {}, expected=true) {
+async function integratedReleaseCase({ active="600ec84d-a804-4ede-8d1d-0a34819ce46a", latest=active, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag } = {}, expected=true) {
  const calls=[], stdout=[], stderr=[], prior="600ec84d-a804-4ede-8d1d-0a34819ce46a";
  const responses=responseSequence(false,active);
  responses.splice(3,0,wrap({items:[{id:latest}]}));
  responses.splice(6,0,wrap({id:newVersion,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:moduleContent}]}));
  responses.splice(8,0,wrap({items:[{id:newVersion},{id:latest}]}));
- responses.push(wrap({id:newVersion,resources:resource("new-code")}));
+ const uploadedResources=responses[7].result.resources;
+ if (uploadedTag === undefined) delete uploadedResources.script_runtime.migration_tag;
+ else uploadedResources.script_runtime.migration_tag=uploadedTag;
+ const postResources=resource("new-code");
+ if (postTag === null) delete postResources.script_runtime.migration_tag;
+ else postResources.script_runtime.migration_tag=postTag;
+ responses.push(wrap({id:newVersion,resources:postResources}));
  const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,
   RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:integratedSource},exitCode:0};
  await runRelease(process,async(url,options)=>{calls.push({url,options}); const response=responses[calls.length-1];
@@ -550,13 +556,15 @@ async function integratedReleaseCase({ active="600ec84d-a804-4ede-8d1d-0a34819ce
  if(expected){assert.equal(posts.length,2);assert.ok(posts[0].url.endsWith("/versions?deploy=false"));
   const upload=JSON.parse(posts[0].options.body);assert.deepEqual(upload.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name,version_id:prior})));
   assert.ok(posts[1].url.endsWith("/deployments?force=false"));assert.equal(JSON.parse(stdout.at(-1)).version_id,newVersion);
- } else {assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,0); assert.equal(JSON.parse(stderr.at(-1)).retry,false);}
+ } else {if (postTag !== null) assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,0); else { assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,1); assert.equal(JSON.parse(stderr.at(-1)).outcome,"UNKNOWN_REQUIRES_READBACK"); } assert.equal(JSON.parse(stderr.at(-1)).retry,false);}
  assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));
 }
 await integratedReleaseCase();
 await integratedReleaseCase({active:priorVersion},false);
 await integratedReleaseCase({latest:priorVersion},false);
 await integratedReleaseCase({moduleContent:Buffer.from("wrong").toString("base64")},false);
+await integratedReleaseCase({uploadedTag:"wrong-tag"},false);
+await integratedReleaseCase({postTag:null},false);
 
 const fixedPrior="06043e24-f8c9-4129-8c59-abb9957217bf", fixedCandidate="2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee", fixedPrevious="26996cc3-732a-4774-af02-b46842913d36";
 async function resumeCase({mode="verify",wrongModule=false,tag="missing",migrations=undefined,drift=false,afterTag=false,afterMissing=false,wrongLatest=false,lateDrift=false,alterCandidate=()=>{}}={}, expected=true){

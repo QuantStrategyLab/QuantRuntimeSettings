@@ -1223,7 +1223,7 @@ jobs:
               placement_mode: value.script.placement_mode ?? null });
             const configHash = value => createHash('sha256').update(canonical(comparable(value))).digest('hex');
             const configBefore = configHash(old), configUploaded = configHash(next);
-            if (resume !== 'off') {
+            if (resume !== 'off' || integrated) {
               const oldTag = old.script_runtime.migration_tag, newTag = next.script_runtime.migration_tag;
               if (typeof oldTag !== 'string' || !oldTag || (newTag !== undefined && newTag !== oldTag)) fail('migration_tag_mismatch');
               const normalized = structuredClone(next); normalized.script_runtime.migration_tag = oldTag;
