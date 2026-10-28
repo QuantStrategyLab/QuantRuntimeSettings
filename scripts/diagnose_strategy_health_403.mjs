@@ -92,7 +92,8 @@ export async function diagnose({ account, token, request = fetch }) {
         status_2xx_count: codes.filter(code => code !== null && code >= 200 && code < 300).length,
         status_4xx_count: codes.filter(code => code !== null && code >= 400 && code < 500).length,
         status_5xx_count: codes.filter(code => code !== null && code >= 500).length,
-        exception_count: rows.filter(row => typeof row?.$metadata?.error === 'string' && row.$metadata.error.length > 0).length,
+        exception_present_count: rows.filter(row => typeof row?.$metadata?.error === 'string' && row.$metadata.error.length > 0).length,
+        exception_unknown_count: rows.filter(row => typeof row?.$metadata?.error !== 'string').length,
         status_unknown_count: codes.filter(code => code === null).length });
     }
     result.stage = 'complete'; result.status = 'complete'; result.reason = null;

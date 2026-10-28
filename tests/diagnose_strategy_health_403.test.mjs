@@ -24,7 +24,8 @@ test('queries only fixed worker and two bounded windows, emits only allowed fiel
   const mobile = JSON.parse(calls[3].options.body);
   assert.deepEqual(mobile.parameters.filters[1].filters.map(x => x.value),
     ['/api/decisions-inbox', '/api/accounts', '/api/performance/', '/api/runtime/today']);
-  assert.equal(result.windows[2].exception_count, 0);
+  assert.equal(result.windows[2].exception_present_count, 0);
+  assert.equal(result.windows[2].exception_unknown_count, 1);
 });
 test('permission rejection stops without retries or leaking response', async () => {
   let count = 0;
