@@ -179,6 +179,8 @@ for (const source of [approved, frontend]) {
   assert.equal(ancestry.status, 0, `fixed release source must be adopted in this checkout: ${source}`);
 }
 const assetPath = "web/strategy-switch-console/v2_asset_map.js";
+const ibkrSource = "aaa46a811a7cfa863f90261d516b197e5e554779";
+const ibkrTree = "3ac93c0b2caf30a650ab46d4bf62220e45582a46";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
 assert.ok(selectionStep);
@@ -190,15 +192,16 @@ const fakeGit = `git() {
   printf '%s\\n' "$*" >> "$TRACE"
   case "$*" in
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
-    'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
+    'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
     'cat-file -e ${frontend}^{commit}') return "$FAKE_FRONTEND_OBJECT_EXIT" ;;
     'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${frontend} ${control}') return "$FAKE_FRONTEND_ANCESTRY_EXIT" ;;
-    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${ibkrSource}^') printf '%s' "$FAKE_PARENT" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
-    'rev-parse ${pr764Source}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
+    'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
     'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
-    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}') touch "$SELECTED" ;;
+    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -211,7 +214,7 @@ function sourceCase(delta, expected) {
       RELEASE_SOURCE_SHA: approved, TRACE: trace, SELECTED: selected, FAKE_CONTROL_HEAD: control,
       FAKE_SELECTED_HEAD: approved, FAKE_TREE: approvedTree, FAKE_OBJECT_EXIT: "0", FAKE_ANCESTRY_EXIT: "0",
       RELEASE_FRONTEND_ASSETS: "false", SYNC_SECRETS: "false", SYNC_STRATEGY_PROFILES: "false", SKIP_BINANCE_RECEIVER_CHECKS: "true",
-      FAKE_FRONTEND_OBJECT_EXIT: "0", FAKE_FRONTEND_ANCESTRY_EXIT: "0", FAKE_FRONTEND_TREE: frontendTree, FAKE_FRONTEND_BLOB: frontendBlob, ...delta };
+      FAKE_FRONTEND_OBJECT_EXIT: "0", FAKE_FRONTEND_ANCESTRY_EXIT: "0", FAKE_FRONTEND_TREE: frontendTree, FAKE_FRONTEND_BLOB: frontendBlob, FAKE_PARENT: approved, ...delta };
     const result = spawnSync("bash", ["-c", fakeGit + selectShell], { env, encoding: "utf8" });
     assert.equal(result.status === 0, expected, result.stderr);
     assert.ok(!result.stdout.includes("PRIVATE_SOURCE_SENTINEL") && !result.stderr.includes("PRIVATE_SOURCE_SENTINEL"));
@@ -258,6 +261,19 @@ for (const delta of [{FAKE_TREE:"a".repeat(40)}, {FAKE_PR764_BLOB:"a".repeat(40)
 }
 assert.equal(sourceCase({...pr764Env,FAKE_SELECTED_HEAD:approved}, false).selected, true);
 
+const ibkrEnv = { RELEASE_SOURCE_SHA: ibkrSource, RELEASE_FRONTEND_ASSETS: "true",
+  FAKE_TREE: ibkrTree, FAKE_SELECTED_HEAD: ibkrSource, FAKE_PR764_BLOB: frontendBlob };
+assert.equal(sourceCase(ibkrEnv, true).selected, true);
+for (const delta of [{RELEASE_FRONTEND_ASSETS:"false"}, {SYNC_SECRETS:"true"}, {SYNC_STRATEGY_PROFILES:"true"},
+  {SKIP_BINANCE_RECEIVER_CHECKS:"false"}, {GITHUB_REF:"refs/heads/other"}]) {
+  assert.deepEqual(sourceCase({...ibkrEnv,...delta}, false).calls, []);
+}
+for (const delta of [{FAKE_TREE:"a".repeat(40)}, {FAKE_PR764_BLOB:"a".repeat(40)}, {FAKE_PARENT:"a".repeat(40)},
+  {FAKE_OBJECT_EXIT:"1"}, {FAKE_ANCESTRY_EXIT:"1"}, {FAKE_CONTROL_HEAD:"a".repeat(40)}]) {
+  assert.equal(sourceCase({...ibkrEnv,...delta}, false).selected, false);
+}
+assert.equal(sourceCase({...ibkrEnv,FAKE_SELECTED_HEAD:approved}, false).selected, true);
+
 // The superseded frontend baseline is no longer an admissible release source.
 for (const delta of [
   { FAKE_FRONTEND_TREE: "a98498a60753cadc7b010f2e9d9c5a5e34f812f4" },
@@ -271,7 +287,7 @@ for (const delta of [
 // are synthetic; hash-object validates the real reviewed map bytes.
 const overlayStep = steps.find(step => step.startsWith("Overlay fixed reviewed frontend assets\n"));
 assert.ok(overlayStep);
-assert.match(overlayStep, /^        if: inputs\.release_frontend_assets && inputs\.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef'$/m);
+assert.match(overlayStep, /^        if: inputs\.release_frontend_assets && inputs\.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef' && inputs\.source_sha != 'aaa46a811a7cfa863f90261d516b197e5e554779'$/m);
 assert.ok(deploy.indexOf("Build config & assets") < deploy.indexOf("Overlay fixed reviewed frontend assets"));
 assert.ok(deploy.indexOf("Overlay fixed reviewed frontend assets") < deploy.indexOf("Validate fixed backend with reviewed frontend"));
 assert.match(deploy, /Validate fixed backend with reviewed frontend[\s\S]*?node tests\/console_v2_assets_validation\.mjs\n          node tests\/console_v2_worker_validation\.mjs/);
@@ -393,16 +409,17 @@ const responseSequence=(alreadyActive)=>[wrap({deployments:[dep(priorDeployment,
 const apiSequence=[["/deployments?page=1&per_page=10","GET"],[`/versions/${priorVersion}`,"GET"],["/content/v2","GET"],["/deployments?page=1&per_page=10","GET"],["/versions?bindings_inherit=strict","POST"],
  [`/versions/${newVersion}`,"GET"],["/deployments?page=1&per_page=10","GET"],[`/versions/${newVersion}`,"GET"],["/deployments?force=false","POST"],["/deployments?page=1&per_page=10","GET"]];
 let releaseCases=0;
-async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPredecessor=priorVersion,mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle,assetMap=syntheticAssetMap,files=bundleFiles.map(name=>dirent(name))}={}, expected=true,count=10){
+async function releaseCase({pr764=false,ibkrDaily=false,inheritVersion=priorVersion,inheritedPredecessor=priorVersion,mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle,assetMap=syntheticAssetMap,files=bundleFiles.map(name=>dirent(name))}={}, expected=true,count=10){
  if(pr764){
   bundle=Buffer.from(bundle.toString().replace(syntheticBuildId,pr764Build));
   assetMap=assetMap.replace(syntheticBuildId,pr764Build);
   env={RELEASE_SOURCE_SHA:pr764Source,...env};
  }
+ if(ibkrDaily)env={RELEASE_SOURCE_SHA:ibkrSource,...env};
  const responses=responseSequence(alreadyActive);
  if(pr764)responses.push(wrap({id:newVersion,resources:resource("new-code")}));
  mutate(responses);
- if(pr764){
+ if(pr764 || ibkrDaily){
   responses.splice(3,0,wrap({items:[{id:inheritVersion}]}));
   responses.splice(7,0,wrap({items:[{id:newVersion},{id:inheritedPredecessor}]}));
  }
@@ -417,9 +434,9 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
  assert.equal(process.exitCode===0,expected,stderr.join("\n"));assert.equal(calls.length,count);
  assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));assert.ok(!JSON.stringify({stdout,stderr}).includes("a".repeat(32)));
  for(const [actual,{url,options}] of calls.entries()){
-  if(pr764 && actual===3){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
-  if(pr764 && actual===7){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
-  const i=actual-(pr764 && actual>3?1:0)-(pr764 && actual>7?1:0);
+  if((pr764 || ibkrDaily) && actual===3){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
+  if((pr764 || ibkrDaily) && actual===7){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
+  const i=actual-((pr764 || ibkrDaily) && actual>3?1:0)-((pr764 || ibkrDaily) && actual>7?1:0);
   assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+(i===10?`/versions/${newVersion}`:apiSequence[i][0]));
   assert.equal(options.headers["Accept-Encoding"],"identity");assert.equal(options.method,i===10?"GET":apiSequence[i][1]);assert.equal(options.redirect,"error");assert.ok(options.signal instanceof AbortSignal);assert.equal(options.headers.Authorization,`Bearer ${privateRelease}`);
   if(options.method==="GET")assert.equal(options.body,undefined);
@@ -427,7 +444,7 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
    assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
    assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
-  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend 9722414a and frontend 96363633; retained configuration"}});
+  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":ibkrDaily?"Reviewed IBKR daily candidate aaa46a81; retained configuration":"Reviewed website backend 9722414a and frontend 96363633; retained configuration"}});
  }
  if(expected){
   if(pr764){const h=JSON.parse(stdout[0]);assert.equal(h.status,"pr764_configuration_verified");
@@ -435,12 +452,15 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
    assert.equal(h.config_before_sha256,h.config_after_sha256);assert.equal(h.secret_values_read,false);}
   const r=JSON.parse(stdout.at(-1));assert.equal(r.status,"frontend_release_verified");assert.equal(r.bundle_sha256,createHash("sha256").update(bundle).digest("hex"));assert.equal(r.version_id,newVersion);assert.equal(r.deployment_id,newDeployment);assert.equal(r.bindings_equal,true);assert.equal(r.runtime_equal,true);assert.equal(r.provider_cas,false);}
  else{assert.equal(stdout.length,0);const error=JSON.parse(stderr.at(-1));assert.equal(error.retry,false);
-  assert.equal(error.upload_attempted,calls.length>=(pr764?6:5));
-  assert.equal(error.deploy_attempted,calls.length>=(pr764?11:9));
+  assert.equal(error.upload_attempted,calls.length>=((pr764 || ibkrDaily)?6:5));
+  assert.equal(error.deploy_attempted,calls.length>=((pr764 || ibkrDaily)?11:9));
  }
  releaseCases++;return {calls,stdout,stderr};
 }
 await releaseCase({pr764:true},true,13);
+await releaseCase({ibkrDaily:true},true,12);
+await releaseCase({ibkrDaily:true,inheritVersion:newVersion},false,4);
+await releaseCase({ibkrDaily:true,inheritedPredecessor:"00000000-0000-4000-8000-000000000099"},false,8);
 await releaseCase({pr764:true,inheritVersion:newVersion},false,4);
 // Another uploader inserted a version with different opaque Secret values after
 // the first baseline GET. Equal visible resource hashes must not allow activation.
