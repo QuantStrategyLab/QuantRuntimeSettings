@@ -3,12 +3,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
-import { __test } from "../web/strategy-switch-console/worker.js";
-import { strategySummary } from "../web/strategy-switch-console/application/console_api/operations.js";
 
 const workflow = await readFile(".github/workflows/deploy-strategy-switch-console.yml", "utf8");
 const pins = [...workflow.matchAll(/^\s*(?:frontend_sha|frontend)="([0-9a-f]{40})"\s*$/gm)].map(match => match[1]);
@@ -16,9 +15,23 @@ const pins = [...workflow.matchAll(/^\s*(?:frontend_sha|frontend)="([0-9a-f]{40}
 // integrated, always use that workflow's actual frontend pin and reject drift.
 if (pins.length && (pins.length !== 2 || pins[0] !== pins[1])) throw new Error("frontend_release_pin_mismatch");
 const frontendCommit = pins[0] ?? "256ae373bdb7c1d08c4455c7268490275f923346";
+const backendPins = [...workflow.matchAll(/^\s*backend="([0-9a-f]{40})"\s*$/gm)].map(match => match[1]);
+if (backendPins.length > 1) throw new Error("backend_release_pin_ambiguous");
 const directory = await mkdtemp(join(tmpdir(), "qsl-release-combination-"));
 const originalFetch = globalThis.fetch;
 try {
+  let backendRoot = resolve("web/strategy-switch-console");
+  if (backendPins.length) {
+    const archive = execFileSync("git", ["archive", "--format=tar", backendPins[0], "web/strategy-switch-console"],
+      { maxBuffer: 16 * 1024 * 1024 });
+    const backendDirectory = join(directory, "backend");
+    await mkdir(backendDirectory);
+    execFileSync("tar", ["-xf", "-", "-C", backendDirectory], { input: archive });
+    backendRoot = join(backendDirectory, "web/strategy-switch-console");
+    await symlink(resolve("web/strategy-switch-console/node_modules"), join(backendRoot, "node_modules"));
+  }
+  const { __test } = await import(pathToFileURL(join(backendRoot, "worker.js")).href);
+  const { strategySummary } = await import(pathToFileURL(join(backendRoot, "application/console_api/operations.js")).href);
   let root = process.env.QSL_FRONTEND_SOURCE_DIR;
   if (!root) {
     const path = "web/strategy-switch-console/frontend/src";
