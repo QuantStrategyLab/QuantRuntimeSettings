@@ -1105,24 +1105,7 @@ function balanceForCurrency(history, currency) {
   };
 }
 
-export function projectAccountFactsHistorySeries({
-  days = [],
-  binding = null,
-  currency = null,
-  maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS,
-} = {}) {
-  if (!binding || typeof currency !== "string" || !CURRENCY_RE.test(currency)) {
-    return {
-      ok: true,
-      currency: typeof currency === "string" ? currency : null,
-      points: [],
-      gap_dates: [],
-      first_sample_date: null,
-      truncated: false,
-      retention_days: ACCOUNT_FACTS_HISTORY_MAX_DAYS,
-      note: "identity_or_currency_unavailable",
-    };
-  }
+function qualifiedHistoryDays(days, binding) {
   const matching = [];
   for (const day of days) {
     if (!day || !accountFactsHistoryIdentityMatches(day, binding)) continue;
@@ -1159,6 +1142,42 @@ export function projectAccountFactsHistorySeries({
       || payload.source_binding.id !== expectedBindingId
       || !accountFactsScopesMatchForPlatform(binding.platform, binding.account_scope, payload.account_scope)
     ) continue;
+    matching.push({ observation_date: observationDate, payload });
+  }
+  matching.sort((left, right) => left.observation_date.localeCompare(right.observation_date));
+  return matching;
+}
+
+export function projectAccountFactsHistoryCurrencies({ days = [], binding = null, maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS } = {}) {
+  if (!binding) return [];
+  const retentionDays = Number.isInteger(maxDays) && maxDays > 0
+    ? Math.min(maxDays, ACCOUNT_FACTS_HISTORY_MAX_DAYS) : ACCOUNT_FACTS_HISTORY_MAX_DAYS;
+  const qualified = qualifiedHistoryDays(days, binding).slice(-retentionDays);
+  return [...new Set(qualified.flatMap(day => day.payload.broker_reported_balances
+    .filter(balance => typeof balance.net_assets === "string")
+    .map(balance => balance.currency)))].sort();
+}
+
+export function projectAccountFactsHistorySeries({
+  days = [],
+  binding = null,
+  currency = null,
+  maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS,
+} = {}) {
+  if (!binding || typeof currency !== "string" || !CURRENCY_RE.test(currency)) {
+    return {
+      ok: true,
+      currency: typeof currency === "string" ? currency : null,
+      points: [],
+      gap_dates: [],
+      first_sample_date: null,
+      truncated: false,
+      retention_days: ACCOUNT_FACTS_HISTORY_MAX_DAYS,
+      note: "identity_or_currency_unavailable",
+    };
+  }
+  const matching = [];
+  for (const { observation_date: observationDate, payload } of qualifiedHistoryDays(days, binding)) {
     const balance = balanceForCurrency(payload, currency);
     if (!balance) {
       matching.push({ observation_date: observationDate, gap: true, reason: "currency_missing" });

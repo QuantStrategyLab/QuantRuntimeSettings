@@ -293,8 +293,10 @@ const perfDeps = {
         },
       ],
     }),
-  history: async () =>
-    json({
+  history: async request =>
+    new URL(request.url).searchParams.get("projection") === "currencies"
+      ? json({ok:true,platform:"ibkr",account_key:"synthetic-alpha",projection:"currencies",currencies:["USD"]})
+      : json({
       platform: "ibkr",
       account_key: "synthetic-alpha",
       series: {

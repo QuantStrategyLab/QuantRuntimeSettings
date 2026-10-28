@@ -132,7 +132,9 @@ const defaults = {
   json, readSession: async () => ({ allowed: true }),
   accountOptions: async () => ({ options: { synthetic: [{ key: "synthetic-a", broker_environment: "live" }] } }),
   facts: async () => json({ accounts: [account("synthetic-a")] }),
-  history: async () => json({ platform: "synthetic", account_key: "synthetic-a", series: { currency: "USD", points: [] } }),
+  history: async request => new URL(request.url).searchParams.get("projection") === "currencies"
+    ? json({ok:true,platform:"synthetic",account_key:"synthetic-a",projection:"currencies",currencies:["USD"]})
+    : json({ platform: "synthetic", account_key: "synthetic-a", series: { currency: "USD", points: [] } }),
   benchmarks: async () => json({ points: [] }),
 };
 const read = async (endpoint, deps = {}, query = "") => {
@@ -196,8 +198,10 @@ test("an unreadable currency history stays distinct from another currency's succ
     facts: async () => json({ accounts: [account("synthetic-a", undefined, {
       balances: [{ currency: "USD", net_assets: "100" }, { currency: "HKD", net_assets: "50" }],
     })] }),
-    history: async request => new URL(request.url).searchParams.get("currency") === "USD"
-      ? json({}, 503) : json({ platform: "synthetic", account_key: "synthetic-a", series: { currency: "HKD", points: [] } }),
+    history: async request => new URL(request.url).searchParams.get("projection") === "currencies"
+      ? json({ok:true,platform:"synthetic",account_key:"synthetic-a",projection:"currencies",currencies:["USD","HKD"]})
+      : new URL(request.url).searchParams.get("currency") === "USD"
+        ? json({}, 503) : json({ platform: "synthetic", account_key: "synthetic-a", series: { currency: "HKD", points: [] } }),
   });
   const histories = new Map(result.body.history_per_currency.map(history => [history.currency, history]));
   assert.equal(histories.get("USD").status, "unavailable");

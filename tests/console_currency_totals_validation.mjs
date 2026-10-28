@@ -82,7 +82,9 @@ const deps = {
   json: (body, status = 200) => Response.json(body, { status }), readSession: async () => ({ allowed: true }),
   accountOptions: async () => ({ options: { synthetic: [{ key: "alpha" }], binance: [{ key: "wallet" }] } }),
   facts: async () => Response.json({ accounts: [input.accounts[0]] }),
-  history: async () => Response.json({ platform: "synthetic", account_key: "alpha", series: { currency: "USD", points: [] } }),
+  history: async request => new URL(request.url).searchParams.get("projection") === "currencies"
+    ? Response.json({ok:true,platform:"synthetic",account_key:"alpha",projection:"currencies",currencies:["USD"]})
+    : Response.json({ platform: "synthetic", account_key: "alpha", series: { currency: "USD", points: [] } }),
   wallet: async () => Response.json({ currency: "USDT", points: [{ observation_date: "2026-10-16", observed_at: "2026-10-16T10:00:00Z", amount: "50" }] }),
   benchmarks: async () => Response.json({ points: [] }),
 };
