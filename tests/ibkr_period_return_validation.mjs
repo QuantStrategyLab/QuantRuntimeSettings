@@ -105,5 +105,17 @@ try {
   assert.equal(response.accounts[0].return.value,payload.value);
   assert.equal(response.accounts[0].return.daily[0].nav_change,undefined,'an intervening no-money source cannot erase a prior money conflict');
   assert.equal(response.accounts[0].return.nav_change,undefined,'the top-level daily interval obeys the same money conflict');
+  // An unqualified latest interval must not hide separately qualified daily rows.
+  await setBinding({...binding,source_binding:{...binding.source_binding,id:'9'.repeat(64)},
+    history_source_binding_ids:[binding.source_binding.id]});
+  response=await (await get()).json();
+  assert.equal(response.accounts[0].return.status,'unavailable','unqualified latest stays unavailable');
+  assert.ok(response.accounts[0].return.daily?.some(row=>row.period.to===day.period.to),
+    'qualified prior-source daily record remains visible without admitting the latest source');
+  await setBinding({...binding,source_binding:{...binding.source_binding,id:'c'.repeat(64)},
+    history_source_binding_ids:[binding.source_binding.id,'b'.repeat(64)]});
+  response=await (await get()).json();
+  assert.equal(response.accounts[0].return.reason,'native_return_history_conflict',
+    'an unqualified latest never bypasses conflicts in independently qualified daily records');
   console.log('IBKR native period return: offline receiver, persistence, identity, units and privacy PASS');
 } finally { await mf.dispose(); }
