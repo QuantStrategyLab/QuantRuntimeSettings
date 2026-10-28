@@ -22,7 +22,8 @@ const versionReadScript = versionReadStep.match(/node --input-type=module <<'JS'
   .split("\n").map(line=>line.slice(10)).join("\n");
 const runVersionRead = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console",versionReadScript);
 for (const [status,body,expected] of [[200,{success:true,result:{id:"06043e24-f8c9-4129-8c59-abb9957217bf",secret:"PRIVATE_SENTINEL"}},"version_read"],
-  [200,{success:true,result:{id:"wrong"}},"response_mismatch"], [403,{},"http_error"]]) {
+  [200,{success:true,result:{id:"wrong"}},"response_mismatch"],
+  [200,{success:true,errors:[{}],result:{id:"06043e24-f8c9-4129-8c59-abb9957217bf"}},"response_mismatch"], [403,{},"http_error"]]) {
   const calls=[], output=[];
   await runVersionRead({env:{CLOUDFLARE_API_TOKEN:"PRIVATE_SENTINEL",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32)}},
     async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json"}});},
@@ -69,10 +70,13 @@ assert.ok(rollback, "normal fixed-baseline recovery is available without a new s
 const rollbackGate = rollback.match(/^    if: (.+)$/m)?.[1];
 for (const event of ["push", "workflow_dispatch"]) {
   for (const read_only_preflight of [false, true]) {
+    for (const check_explicit_version_inherit of [false, true]) {
     for (const rollback_to_pre_release of [false, true]) {
-    assert.equal(evaluate(preflightGate, { read_only_preflight }, "", event), event === "workflow_dispatch" && read_only_preflight);
-    assert.equal(evaluate(deployGate, { read_only_preflight, rollback_to_pre_release }, "", event), event === "workflow_dispatch" && !read_only_preflight && !rollback_to_pre_release);
-    assert.equal(evaluate(rollbackGate, { read_only_preflight, rollback_to_pre_release }, "", event), event === "workflow_dispatch" && !read_only_preflight && rollback_to_pre_release);
+    const inputs={read_only_preflight,check_explicit_version_inherit,rollback_to_pre_release};
+    assert.equal(evaluate(preflightGate, inputs, "", event), event === "workflow_dispatch" && (read_only_preflight || check_explicit_version_inherit));
+    assert.equal(evaluate(deployGate, inputs, "", event), event === "workflow_dispatch" && !read_only_preflight && !check_explicit_version_inherit && !rollback_to_pre_release);
+    assert.equal(evaluate(rollbackGate, inputs, "", event), event === "workflow_dispatch" && !read_only_preflight && !check_explicit_version_inherit && rollback_to_pre_release);
+    }
     }
   }
 }

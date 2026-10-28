@@ -24,7 +24,7 @@ on:
         type: boolean
         default: false
       check_explicit_version_inherit:
-        description: "Read the active fixed Worker version through the Workers API."
+        description: "Read the fixed Worker version through the Workers API."
         required: true
         type: boolean
         default: false
@@ -67,7 +67,7 @@ concurrency:
 
 jobs:
   preflight:
-    if: github.event_name == 'workflow_dispatch' && inputs.read_only_preflight
+    if: github.event_name == 'workflow_dispatch' && (inputs.read_only_preflight || inputs.check_explicit_version_inherit)
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 5
@@ -398,7 +398,7 @@ jobs:
                 }
               } finally { await reader.cancel(); }
               const body = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(Buffer.concat(chunks)));
-              out.target_matched = body?.success === true && body?.result?.id === expected;
+              out.target_matched = body?.success === true && (body.errors == null || (Array.isArray(body.errors) && body.errors.length === 0)) && body?.result?.id === expected;
               out.category = out.target_matched ? 'version_read' : 'response_mismatch';
             }
           } catch { out.category = 'request_or_response_failed'; }
@@ -406,7 +406,7 @@ jobs:
           JS
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.rollback_to_pre_release
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && !inputs.rollback_to_pre_release
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 25
@@ -1416,7 +1416,7 @@ jobs:
           done
 
   rollback:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && inputs.rollback_to_pre_release
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && inputs.rollback_to_pre_release
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 5
