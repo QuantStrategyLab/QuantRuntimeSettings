@@ -223,3 +223,17 @@ function baseDeps(overrides = {}) {
 }
 
 console.log("account_facts_readonly_extract_validation: ok");
+
+// Coverage cannot claim an empty account inventory after a source read failure.
+for (const [name, code] of [["loadAccountOptionsConfig", "account_options_unreadable"],
+  ["loadAccountFactsBindings", "account_facts_bindings_unreadable"]]) {
+  let reads = 0;
+  const response = await accountFactsResponse(new Request("https://console.example/api/account-facts"),
+    { ACCOUNT_FACTS_READ_MODEL_ENABLED: "true" }, baseDeps({
+      [name]: async () => { throw new Error("private-provider-sentinel"); },
+      loadStoredAccountFactsMap: async () => { reads++; return new Map(); },
+    }));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {ok: false, error: code});
+  assert.equal(reads, 0);
+}
