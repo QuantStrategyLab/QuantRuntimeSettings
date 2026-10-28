@@ -1,12 +1,15 @@
 import { performanceScope } from "../lib/accountDirectory";
 import { getJson, postJson, readRevision } from "./client";
 import type {
+  AccountFactsResponse,
   AccountsResponse,
   AssetsResponse,
+  BinanceAccountFactsResponse,
   CalendarResponse,
   CombinedDraftRequest,
   CombinedDraftResponse,
   DecisionHistoryResponse,
+  ExecutionsResponse,
   HoldingsResponse,
   InboxResponse,
   NotificationSendLog,
@@ -18,7 +21,6 @@ import type {
   StrategySummary,
   SummaryResponse,
   TodayRunSummary,
-  TradeStatsResponse,
 } from "./contracts";
 
 export interface Session {
@@ -59,6 +61,20 @@ export function loadDecisionHistory(limit = 25, cursor?: string | null): Promise
 
 export function loadAccounts(): Promise<AccountsResponse> {
   return getJson<AccountsResponse>("/api/accounts");
+}
+
+/** Read-only broker-reported facts. Amounts stay decimal strings; a failed read rejects. */
+export function loadAccountFacts(): Promise<AccountFactsResponse> {
+  return getJson<AccountFactsResponse>("/api/account-facts");
+}
+
+/**
+ * Dedicated Binance wallet facts for the one protected-configuration account.
+ * The read stays independent of /api/account-facts so its failure only affects
+ * Binance cards; the card still matches the report by platform + account_key.
+ */
+export function loadBinanceAccountFacts(): Promise<BinanceAccountFactsResponse> {
+  return getJson<BinanceAccountFactsResponse>("/api/binance-account-facts");
 }
 
 export function loadSettingsDiff(account: string, platform?: string): Promise<SettingsDiffResponse> {
@@ -127,15 +143,16 @@ export function loadPerformanceHoldings(scope: string, range: Range, platform?: 
   return getJson<HoldingsResponse>(`/api/performance/holdings?${performanceQuery(scope, range, platform)}`);
 }
 
-export function loadPerformanceTrades(scope: string, range: Range, platform?: string): Promise<TradeStatsResponse> {
-  return getJson<TradeStatsResponse>(`/api/performance/trades?${performanceQuery(scope, range, platform)}`);
+export function loadPerformanceTrades(scope: string, range: Range, platform?: string): Promise<ExecutionsResponse> {
+  return getJson<ExecutionsResponse>(`/api/performance/trades?${performanceQuery(scope, range, platform)}`);
 }
 
-export function loadPerformanceCalendar(scope: string, range: Range, year: number, month?: number | null, platform?: string): Promise<CalendarResponse> {
+export function loadPerformanceCalendar(scope: string, range: Range, year: number, month?: number | null, platform?: string, currency?: string): Promise<CalendarResponse> {
   const selected = performanceScope(scope, platform);
   const params = new URLSearchParams({ scope: selected.scope, range, year: String(year) });
   if (month !== null && month !== undefined) params.set("month", String(month));
   if (selected.platform) params.set("platform", selected.platform);
+  if (currency) params.set("currency", currency);
   return getJson<CalendarResponse>(`/api/performance/calendar?${params}`);
 }
 
@@ -171,7 +188,7 @@ export interface RuntimeDailyBinding {
   platform: string;
   target_key: string;
   account_key: string | null;
-  status: "bound" | "unresolved";
+  status: "bound" | "unresolved" | "read_failed";
 }
 
 export async function loadRuntimeDailyBindings(): Promise<RuntimeDailyBinding[]> {

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { dailyReturnsFromCumulative } from "../web/strategy-switch-console/frontend/src/charts/returns.ts";
+import { nicePercentTicks } from "../web/strategy-switch-console/frontend/src/charts/ticks.ts";
 import { latestAssetBalance } from "../web/strategy-switch-console/frontend/src/lib/performance.ts";
 import { humanDecisionDigest, humanDecisionExpectation, reviewedDecisionMatches } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { resolveAccountChoice } from "../web/strategy-switch-console/frontend/src/pages/decisions/helpers.ts";
@@ -7,6 +9,31 @@ import { cellKind } from "../web/strategy-switch-console/frontend/src/pages/heal
 import { consoleApiFixture } from "../web/strategy-switch-console/frontend/scripts/console-api-synthetic.mjs";
 
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+
+// An as-of business date must not become yesterday at midnight UTC. A timestamp
+// still shifts normally; separate processes avoid sharing Intl timezone caches.
+const formatModule = new URL("../web/strategy-switch-console/frontend/src/lib/format.ts", import.meta.url).href;
+for (const [zone, day, hour, offset] of [
+  ["America/Los_Angeles", "10/23", "10:00", "GMT-7"],
+  ["Asia/Singapore", "10/24", "01:00", "GMT+8"],
+]) {
+  const result = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", `
+    import assert from 'node:assert/strict';
+    import { formatDateTime } from ${JSON.stringify(formatModule)};
+    for (const language of ['zh', 'en']) {
+      for (const year of [false, true]) {
+        assert.deepEqual(formatDateTime('2026-10-23', language, year), { text: '2026-10-23', zone: '' });
+      }
+      for (const value of [null, undefined, '', 'not-a-date', '2026-99-99']) {
+        assert.deepEqual(formatDateTime(value, language), { text: '—', zone: '' });
+      }
+      const stamp = formatDateTime('2026-10-23T17:00:00Z', language);
+      assert.ok(stamp.text.includes(${JSON.stringify(day)}) && stamp.text.includes(${JSON.stringify(hour)}));
+      assert.equal(stamp.zone, ${JSON.stringify(offset)});
+    }
+  `], { encoding: "utf8", env: { ...process.env, TZ: zone } });
+  assert.equal(result.status, 0, result.stderr);
+}
 const points = values => values.map((value, i) => ({ date: `2026-10-${String(i + 1).padStart(2, "0")}`, value }));
 
 // Daily chart values are compounded returns, with no invented first-day or gap return.
@@ -33,6 +60,16 @@ close(dailyReturnsFromCumulative(points([0, -100]))[0].value, -100);
 assert.deepEqual(dailyReturnsFromCumulative(points([-100, 0])), [], "zero denominator must not become a return");
 assert.deepEqual(dailyReturnsFromCumulative(points([-101, 0])), [], "negative index is invalid");
 assert.deepEqual(dailyReturnsFromCumulative(points([-99.99999999999999, Number.MAX_VALUE])), [], "overflow must not enter the SVG");
+
+// Percent axes use a 1/2/2.5/5 grid and always include zero, never raw min/max fractions like -6.1%.
+const wideTicks = nicePercentTicks([0.1, 9.8, -6.1, -9.1]);
+assert.ok(wideTicks.ticks.includes(0));
+assert.ok(wideTicks.ticks.every(value => Math.abs(value / wideTicks.step - Math.round(value / wideTicks.step)) < 1e-9));
+assert.ok(wideTicks.digits <= 1);
+const smallTicks = nicePercentTicks([0, 1.2, 0.7]);
+assert.deepEqual(smallTicks.ticks, [0, 0.5, 1, 1.5]);
+assert.equal(smallTicks.digits, 1);
+assert.deepEqual(nicePercentTicks([]).ticks, [-1, -0.5, 0, 0.5, 1]);
 
 // Exercise the real existing projection: its latest balance differs from its interval P&L.
 // Freeze the fixture clock: the synthetic snapshot is stamped 12:00Z on the fixture day and
@@ -122,6 +159,9 @@ assert.equal(cellKind({ ...snapshot, data_status: "unavailable" }), "no-record")
 assert.equal(cellKind({ ...snapshot, data_status: "stale" }), "stale");
 assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, completeness: "incomplete" } }), "incomplete");
 assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, status: "missing_report" } }), "incomplete");
-assert.equal(cellKind({ ...snapshot, record: { ...snapshot.record, status: "read_incomplete" } }), "read-failed");
+for (const code of ["coverage_unconfirmed", "read_truncated", "report_read_error"]) {
+  assert.equal(cellKind({ ...snapshot, read_error_codes: [code], record: { ...snapshot.record, status: "read_incomplete" } }), "incomplete");
+}
 
+await import("./console_holdings_known_fields_ui_validation.mjs");
 console.log("console_v2_regressions_validation: PASS (balances, compounded daily returns, reviewed bindings, account choice, explicit runtime outcomes; synthetic only)");

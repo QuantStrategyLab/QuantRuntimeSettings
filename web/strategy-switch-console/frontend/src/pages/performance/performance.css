@@ -1,23 +1,31 @@
 /* 收益分析页局部样式；通用卡片/图表/日历样式在 app.css。 */
 
-.perf-spacer { flex: 1 1 auto; }
-
 .perf-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
   gap: 12px;
 }
+.perf-kpi-grid > .kpi-card { height: 100%; min-height: 96px; padding: 14px 16px; gap: 4px; border-radius: 10px; }
+.perf-kpi-grid .kpi-title { min-height: 2.7em; line-height: 1.35; }
+.perf-kpi-grid .kpi-value { font-size: 23px; line-height: 1.18; }
+.perf-kpi-grid .kpi-empty-value { font-size: 20px; }
+.perf-kpi-grid .kpi-reason { font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--muted); }
+.perf-summary-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; max-width: 88ch; line-height: 1.55; }
+.history-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 8px; }
+.perf-kpi-grid .kpi-sub, .perf-kpi-grid .kpi-reason, .perf-summary-note { overflow-wrap: anywhere; }
 
 .perf-card-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 8px 12px;
   flex-wrap: wrap;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
-.perf-card-head .card-title { margin: 0; }
+.perf-card-head .card-title { margin: 0; font-size: 16px; line-height: 1.35; }
 .perf-head-meta {
   margin-left: auto;
+  align-self: center;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -25,46 +33,154 @@
 }
 
 .perf-kind { font-size: 12px; color: var(--muted); }
+.perf-currency { font-size: 12px; color: var(--muted); }
 
 .kpi-foot .kpi-reason { flex-basis: 100%; font-size: 12px; color: var(--muted); }
 
 .perf-mode-toggle { margin-left: auto; }
 
-.perf-benchmarks-off {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  margin-top: 4px;
+.perf-benchmarks-off { margin-top: 6px; }
+.perf-benchmarks-off > summary {
+  width: fit-content;
+  min-height: 28px;
+  padding: 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
 }
+.perf-benchmarks-off > summary:hover { color: var(--ink); }
+.perf-benchmarks-off-list { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 2px; }
 .perf-benchmark-off {
   font-size: 12px;
   color: var(--muted);
-  opacity: 0.7;
   cursor: help;
 }
 
-.perf-currency-block + .perf-currency-block {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-.perf-currency-title { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.perf-currency-switch { margin: 0 0 10px; }
+.perf-currency-switch .segmented { max-width: 100%; }
 
 .perf-excess-list { display: flex; flex-direction: column; gap: 2px; }
 
-.perf-tab-body { margin-top: 12px; }
+.perf-tab-body { margin-top: 14px; }
+.trade-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 0 10px; }
+.trade-summary .card-note { margin: 0; }
+.trade-time { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 
-.perf-ranking-section + .perf-ranking-section { margin-top: 16px; }
+/* Trades: table on desktop, one card per execution on phones. The card is
+   hidden by default so the table stays the only rendering on wide screens. */
+.trade-cards { display: none; margin: 0; padding: 0; list-style: none; }
+.trade-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.trade-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.trade-card-date { font-size: 13px; white-space: nowrap; }
+.trade-card-time { color: var(--muted); font-size: 12px; overflow-wrap: break-word; }
+.trade-card-symbol { font-size: 14px; font-weight: 600; overflow-wrap: break-word; }
+.trade-side {
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.trade-card-account { font-size: 13px; line-height: 1.45; overflow-wrap: break-word; }
+.trade-card-figures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+  margin: 0;
+}
+.trade-figure { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 4px; min-width: 0; }
+.trade-figure dt { color: var(--muted); font-size: 12px; }
+.trade-figure dd { margin: 0; font-size: 13px; overflow-wrap: break-word; }
+
+.perf-ranking-section + .perf-ranking-section { margin-top: 18px; }
 .perf-ranking-heading { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+/* Each currency is its own ranking; sections are never scaled against each other. */
+.perf-ranking-currency + .perf-ranking-currency { margin-top: 22px; }
+.perf-ranking-currency-heading { font-size: 14px; letter-spacing: .02em; }
+.perf-ranking-currency .barlist-row { grid-template-columns: minmax(0, 1fr) minmax(55px, 1fr) auto; }
+.perf-ranking-currency .barlist-label { white-space: normal; overflow-wrap: anywhere; }
 
-.method-note { margin-top: 8px; }
-.method-note summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+/* Assets and calendar share one balanced row; each keeps its own readable width. */
+.perf-duo-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+  align-items: start;
+  gap: 18px;
+}
+.perf-duo-grid > .card { min-width: 0; }
 
-@media (max-width: 1200px) {
-  .perf-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* Keep month/year cells centered and readable instead of stretching across a wide card. */
+.calendar-month-grid { max-width: 520px; margin-inline: auto; }
+.calendar-year-grid { max-width: 600px; margin-inline: auto; }
+
+.method-note { margin-top: 10px; }
+.method-note summary { cursor: pointer; color: var(--accent); font-size: 13px; min-height: 28px; padding: 4px 0; }
+.method-note[open] .card-note { max-height: 40vh; overflow-y: auto; }
+
+@media (max-width: 1100px) {
+  .perf-duo-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
+  .perf-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 768px) {
-  .perf-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .perf-head-meta { margin-left: 0; }
+  .perf-card-head { align-items: flex-start; }
+  .perf-head-meta { margin-left: auto; }
+  .perf-mode-toggle { order: 3; width: 100%; margin-left: 0; }
+  .perf-mode-toggle .segmented { display: flex; width: 100%; }
+  .perf-mode-toggle .segment { flex: 1 1 auto; justify-content: center; }
+  .perf-currency-switch .segmented { display: flex; width: 100%; }
+  .perf-currency-switch .segment { flex: 1 1 auto; justify-content: center; }
+  .calendar-month-grid { max-width: 520px; }
+  .calendar-year-grid { max-width: 600px; }
+  /* Narrow screens get per-execution cards: no squeezed columns, no page overflow. */
+  .trade-table { display: none; }
+  .trade-cards { display: flex; flex-direction: column; gap: 8px; }
 }
+
+.holdings-view .table-wrap { max-width: 100%; overflow-x: auto; }
+.holdings-view .data-table { min-width: 920px; }
+.holdings-view .data-table th,
+.holdings-view .data-table td { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
+.holdings-scroll-hint { display: none; }
+@media (max-width: 1000px) {
+  .holdings-scroll-hint { display: block; }
+}
+
+@media (max-width: 480px) {
+  .perf-kpi-grid { gap: 8px; }
+  .perf-kpi-grid > .kpi-card { padding: 11px 12px; }
+  .perf-kpi-grid .kpi-value { font-size: 20px; }
+  .perf-card-head .card-title { font-size: 15px; }
+  .method-note[open] .card-note { max-height: 32vh; }
+}
+
+@media (max-width: 480px) {
+  .calendar-month-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 2px;
+    max-width: 100%;
+  }
+  .calendar-cell { min-width: 0; padding: 3px 2px; gap: 1px; }
+  .calendar-cell .cell-date { font-size: 10px; }
+  .calendar-cell .cell-value { min-width: 0; font-size: 9px; letter-spacing: -.02em; }
+}
+
+.holding-status { display: flex; flex-direction: column; gap: 4px; }
+.holding-status small { font-size: 12px; color: var(--muted); }
+
+.holding-broker-cost { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.holding-broker-cost small { font-size: 12px; color: var(--muted); }

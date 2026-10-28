@@ -4,10 +4,12 @@ export type Status =
 export type Reason =
   | "external_cashflow_required"
   | "fills_not_connected"
+  | "execution_coverage_unverified"
   | "avg_cost_missing"
   | "mixed_currency"
   | "snapshot_history_missing"
   | "snapshot_missing"
+  | "snapshot_pending"
   | "previous_snapshot_missing"
   | "non_trading_weekend"
   | "incomplete_month"
@@ -23,7 +25,22 @@ export type Reason =
   | "stored_records_unreadable"
   | "effect_verification_not_recorded"
   | "bounded_audit_log"
-  | "no_closed_trades";
+  | "no_closed_trades"
+  | "no_cashflow_data"
+  | "insufficient_history"
+  | "no_snapshot"
+  | "snapshot_stale"
+  | "valuation_date_mismatch"
+  | "incomplete_account_coverage"
+  | "invalid_valuation_date"
+  | "invalid_balance"
+  | "duplicate_currency"
+  | "identity_mismatch"
+  | "identity_not_bound"
+  | "aggregation_duplicate"
+  | "aggregation_conflict"
+  | "account_facts_disabled"
+  | "currency_mismatch";
 export type Scalar = string | number | boolean | null;
 export type Category =
   | "reconciliation_recovery"
@@ -236,7 +253,15 @@ export interface AccountFreshness {
   unavailable_reason: Reason | null;
 }
 export interface FreshnessCounts { fresh: number; stale: number; unknown: number; threshold_hours: number }
+export interface CurrencyAccountCoverage extends AccountFreshness {
+  included: boolean;
+  observation_date: string | null;
+}
 export interface CurrencyTotal {
+  /** Present for totals of each account's latest known balance; absent on legacy same-date totals. */
+  latest_as_of?: string | null;
+  observation_date?: string | null;
+  account_coverage?: CurrencyAccountCoverage[];
   currency: string;
   total: number | null;
   account_count: number;
@@ -272,6 +297,8 @@ export interface PerformanceMeta {
 export interface Point {
   date: string;
   value: number;
+  /** Native daily TWR percentage (not a ratio); absent when the backend cannot chain a day. */
+  daily_return_percent?: number;
   breakBefore?: boolean;
   contributing_accounts?: string[];
   missing_accounts?: string[];
@@ -306,9 +333,11 @@ export interface CalendarCell {
   coverage?: { observed_days: number; expected_weekdays: number };
 }
 export interface CalendarResponse extends PerformanceMeta {
+  per_account?: (CalendarResponse & { platform: string; account_alias: string })[];
   year: number;
   month: number | null;
   cells: CalendarCell[];
+  available_currencies?: string[];
 }
 export interface DailyChange {
   date: string;
@@ -324,6 +353,7 @@ export interface CashflowMethodMeta {
   approximate?: boolean | null;
 }
 export interface SummaryResponse extends PerformanceMeta, CashflowMethodMeta {
+  per_account?: (SummaryResponse & { platform: string; account_alias: string })[];
   cashflow_per_currency?: CashflowReturnMetrics[];
   metric_reasons?: { twr: Reason | null };
   per_currency?: (CurrencyTotal & { max_drawdown: Drawdown } & CashflowMethodMeta)[];
@@ -347,6 +377,7 @@ export interface SummaryResponse extends PerformanceMeta, CashflowMethodMeta {
   }[];
 }
 export interface ReturnsResponse extends PerformanceMeta, CashflowMethodMeta {
+  per_account?: (ReturnsResponse & { platform: string; account_alias: string })[];
   cashflow_per_currency?: CashflowReturnMetrics[];
   aligned_start: string | null;
   return_kind: "twr" | "unadjusted_asset_ratio";
@@ -396,15 +427,57 @@ export interface HoldingsResponse extends PerformanceMeta {
     market_value: number | null;
     currency: string;
     avg_cost: number | null;
+    broker_cost_price?: string | null;
+    broker_cost_method?: "broker_configured" | string | null;
     unrealized_pnl: number | null;
     unavailable_reason: Reason | null;
     coverage: string;
     status: Status;
   }[];
 }
-export interface TradeStatsResponse extends PerformanceMeta {
-  status: "not_connected";
-  unavailable_reason: "fills_not_connected";
+/**
+ * Broker executions are observed facts, not orders or a complete P/L ledger.
+ * quantity/price are decimal strings and commission/taxes are nullable signed
+ * decimal strings; they stay strings end-to-end so display never re-rounds them.
+ */
+export interface ExecutionRow {
+  platform: string;
+  account_alias: string;
+  execution_ref: string;
+  report_ref: string;
+  trade_date: string;
+  local_time: string | null;
+  time_zone: string | null;
+  symbol: string;
+  asset_category: string;
+  side: "BUY" | "SELL";
+  quantity: string;
+  price: string;
+  currency: string;
+  commission: string | null;
+  commission_currency: string | null;
+  taxes: string | null;
+}
+export interface ExecutionsResponse {
+  schema_version: "console_api.v1";
+  scope: string;
+  range: Range;
+  status: Status;
+  unavailable_reason: Reason | null;
+  as_of: string | null;
+  coverage: unknown[];
+  value_kind: "pnl";
+  rows: ExecutionRow[];
+  /** Equals rows.length for the current range; never a complete-history count. */
+  reported_execution_count: number | null;
+  per_currency: {
+    currency: string;
+    reported_execution_count: number;
+    buy_execution_count: number;
+    sell_execution_count: number;
+  }[];
+  win_rate_percent: null;
+  realized_pnl: null;
 }
 export interface ApiError {
   ok: false;
@@ -447,18 +520,32 @@ export interface TodayRunSummary extends ReadOnlyProjection {
       activity: string; execution_lane: string; errors_present: boolean | null }[];
   }[];
 }
+export interface AccountExecutionEvidence {
+  value: "live" | "paper" | "dry_run" | "unknown";
+  status: "confirmed" | "config_missing" | "not_connected" | "read_failed" | "permission_denied";
+  reason_codes: string[];
+  broker_environment: "live" | "paper" | null;
+  execution_mode: "live" | "paper" | "dry_run" | null;
+  dry_run_only: boolean | null;
+  environment_source: string | null;
+  configuration_source: string | null;
+  observed_at: string | null;
+  runtime_observation_status: "unknown";
+}
 export interface StrategySummary extends ReadOnlyProjection {
   status: "ok" | "partial" | "stale" | "not_connected" | "read_failed";
   as_of: string | null;
   coverage: string;
   configured_accounts_source?: "currentStrategies";
-  account_assignment_status?: "complete" | "partial" | "unavailable";
+  account_assignment_status?: "complete" | "partial" | "unavailable" | "read_failed";
+  account_assignment_read_failures?: { platform: string; account_alias: string; status: "read_failed" | "permission_denied" }[];
   strategies: {
     profile: string;
     domain: string;
     allowed_execution_modes: string[];
     configured_accounts: {
       account_alias: string; platform: string; account_ref?: string;
+      execution_evidence?: AccountExecutionEvidence;
       execution_mode?: "live" | "paper" | "dry_run" | "unknown";
       dry_run_only?: boolean | null;
       live_status?: "configured_live" | "not_live" | "unknown";
@@ -466,6 +553,8 @@ export interface StrategySummary extends ReadOnlyProjection {
       mode_source?: "RUNTIME_TARGET_JSON" | "CLOUD_RUN_SERVICE_TARGETS_JSON" | "STRATEGY_PROFILE" | null;
       runtime_observation_status?: "unknown";
     }[];
+    as_of?: string | null;
+    freshness?: { status: "fresh" | "stale" | "unknown"; age_seconds: number | null } | null;
     health_status: StrategyHealthStatus | null;
     health_score: number | null;
     status: "ok" | "stale" | "not_connected" | "read_failed";
@@ -492,6 +581,8 @@ export interface NotificationReceiptItem {
 }
 export interface NotificationSendLog extends ReadOnlyProjection {
   status: "ok" | "partial" | "read_failed" | "not_connected";
+  read_status?: "complete" | "partial" | "no_data" | "unknown" | "read_failed" | "not_connected";
+  read_reason_codes?: string[];
   unavailable_reason: string | null;
   as_of: string | null;
   items: NotificationReceiptItem[];
@@ -582,4 +673,117 @@ export interface CashflowReturnMetrics {
   cashflow_method: "modified_dietz";
   approximate: boolean;
   multi_day_intervals?: boolean;
+}
+
+/**
+ * Read-only projection of GET /api/account-facts. Broker-reported amounts stay
+ * decimal strings exactly as returned; null net_assets means the broker did not
+ * report a value, never zero. Per-currency rows are never summed across
+ * currencies and cash is never relabeled as buying power or available margin.
+ */
+export interface AccountFactsBalance {
+  currency: string;
+  net_assets: string | null;
+  total_cash?: string | null;
+  source_tag?: string;
+  currency_source?: string;
+}
+export interface AccountFactsCash {
+  currency: string;
+  cash_balance?: string;
+  available_cash?: string;
+  frozen_cash?: string;
+  settling_cash?: string;
+  source_tag?: string;
+  currency_source?: string;
+}
+export interface AccountFactsAccount {
+  platform: string;
+  account_key: string;
+  binding_status: "bound" | "missing" | "duplicate";
+  identity_status: "partial_identity" | "missing_identity";
+  identity_source?: "protected_configuration";
+  identity_mismatch: boolean;
+  data_status: "fresh" | "stale" | "unavailable";
+  broker_environment: string | null;
+  account_scope: string | null;
+  observation_date: string | null;
+  observed_started_at: string | null;
+  observed_finished_at: string | null;
+  /**
+   * Authoritative backend aggregation conclusion for this row: only "included"
+   * rows have validated physical-account mappings and may join a sum. Missing
+   * or unknown values are treated as unverified, never as included.
+   */
+  aggregation_status?: "included" | "unverified" | "conflict" | "duplicate";
+  balances: AccountFactsBalance[];
+  cash: AccountFactsCash[];
+}
+export interface AccountFactsResponse extends ReadOnlyProjection {
+  ok: true;
+  accounts: AccountFactsAccount[];
+  totals: {
+    status: "by_currency" | "unavailable";
+    reason: string | null;
+    by_currency: {
+      currency: string;
+      net_assets: string;
+      available_cash: string | null;
+      cash_balance: string | null;
+      account_count: number;
+    }[];
+  };
+  account_options_revision: number | null;
+  enabled: true;
+  configured: boolean;
+}
+
+/**
+ * Dedicated single-account Binance facts. This wallet valuation is a provider
+ * wallet rollup, not a complete account net value: it never joins the generic
+ * AccountFactsAccount totals, cash, P/L, or TWR. Amounts stay decimal strings.
+ */
+export type BinanceWalletValuation =
+  | {
+      status: "available";
+      amount: string;
+      currency: "USDT";
+      source: string;
+      scope: string;
+      observed_at: string;
+      wallet_count: number;
+    }
+  | {
+      status: "unavailable";
+      amount: null;
+      currency: null;
+      source: string;
+      scope: string;
+      observed_at: null;
+      wallet_count: null;
+      reason_code: string;
+    };
+export interface BinanceAccountFactsAsset {
+  asset: string;
+  quantity: string;
+  spot_free: string;
+  spot_locked: string;
+  flexible_earn: string;
+}
+export interface BinanceAccountFactsReport {
+  platform: "binance";
+  account_key: string;
+  scope: "spot+flexible_earn";
+  observed_finished_at: string;
+  snapshot_atomic: false;
+  assets: BinanceAccountFactsAsset[];
+  uncovered_scopes: string[];
+  wallet_valuation?: BinanceWalletValuation;
+}
+export type BinanceAccountFactsReportStatus = "available" | "missing" | "expired" | "unavailable";
+/** Body of GET /api/binance-account-facts; `report` is present only when the status is available. */
+export interface BinanceAccountFactsResponse {
+  ok: true;
+  report_status: BinanceAccountFactsReportStatus;
+  report: BinanceAccountFactsReport | null;
 }

@@ -16,6 +16,7 @@ import {
   accountFactsReadModelEnabled,
   buildAccountFactsHistoryReadModel,
   buildAccountFactsReadModel,
+  projectAccountFactsHistoryCurrencies,
 } from "../../account_facts.js";
 
 export function accountFactsIdentityDates(from, to) {
@@ -168,19 +169,25 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   const accountKey = String(url.searchParams.get("account_key") || "");
   const currency = String(url.searchParams.get("currency") || "");
   const projection = url.searchParams.get("projection");
+  const currenciesProjection = projection === "currencies";
   const dates = projection === "identity"
     ? accountFactsIdentityDates(url.searchParams.get("from"), url.searchParams.get("to")) : null;
-  if (projection !== null && (projection !== "identity" || !ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !dates
+  if (currenciesProjection && (["platform", "account_key", "projection"].some((key) => url.searchParams.getAll(key).length !== 1)
+      || ["currency", "from", "to"].some((key) => url.searchParams.has(key)))) {
+    return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
+  }
+  if (projection !== null && !currenciesProjection && (projection !== "identity" || !ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !dates
       || ["platform", "account_key", "currency", "projection", "from", "to"].some((key) => url.searchParams.getAll(key).length !== 1))) {
     return json({ ok: false, error: "invalid_account_facts_identity_query" }, 400);
   }
-  if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !accountKey || !/^[A-Z]{3}$/.test(currency)) {
+  if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !accountKey || (!currenciesProjection && !/^[A-Z]{3}$/.test(currency))) {
     return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
   }
   let accountConfig;
   try {
     accountConfig = await loadAccountOptionsConfig(env);
   } catch {
+    if (currenciesProjection) return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
     accountConfig = { options: {} };
   }
   const options = Array.isArray(accountConfig?.options?.[platform]) ? accountConfig.options[platform] : [];
@@ -190,11 +197,16 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   try {
     bindings = await loadAccountFactsBindings(env);
   } catch {
+    if (currenciesProjection) return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
     bindings = null;
   }
   const binding = bindings?.bindings?.find(
     (item) => item.platform === platform && item.account_key === accountKey,
   ) || null;
+  if (currenciesProjection && (!option || !binding || !accountFactsOptionMatchesBinding(option, binding)
+      || bindings.bindings.filter((item) => item.platform === platform && item.account_key === accountKey).length !== 1)) {
+    return json({ ok: false, error: "account_facts_identity_unavailable" }, 409);
+  }
   if (projection === "identity") {
     if (!option || !binding || !accountFactsOptionMatchesBinding(option, binding)
         || bindings.bindings.filter((item) => item.platform === platform && item.account_key === accountKey).length !== 1) {
@@ -250,11 +262,18 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
         ...(binding.history_source_binding_ids
           ? { history_source_binding_ids: binding.history_source_binding_ids } : {}),
       });
+      if (currenciesProjection && (!listed || listed.ok !== true || !Array.isArray(listed.days))) {
+        return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
+      }
       days = Array.isArray(listed?.days) ? listed.days : [];
       externalFlow = listed?.externalFlow || null;
     } catch (error) {
       return accountFactsErrorResponse(error);
     }
+  }
+  if (currenciesProjection) {
+    return json({ ok: true, platform, account_key: accountKey, projection: "currencies",
+      currencies: projectAccountFactsHistoryCurrencies({ days, binding }) });
   }
   const model = buildAccountFactsHistoryReadModel({
     platform,
