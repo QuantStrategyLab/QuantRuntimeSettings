@@ -428,26 +428,28 @@ const remoteBindings=[{name:"STRATEGY_SWITCH_CONFIG",type:"kv_namespace",namespa
 const runtime={compatibility_date:"2026-06-08",compatibility_flags:[],usage_model:"standard",limits:{},migration_tag:"runtime-instances-v1",exports:{RuntimeInstances:{type:"durable-object",storage:"sqlite"}}};
 const resource=etag=>({bindings:structuredClone(remoteBindings),script_runtime:structuredClone(runtime),script:{etag,handlers:["fetch","scheduled"],named_handlers:[{name:"RuntimeInstances",handlers:[]}],last_deployed_from:"api"}});
 const wrap=result=>({success:true,errors:[],result}), dep=(id,v)=>({id,strategy:"percentage",versions:[{version_id:v,percentage:100}]});
-const responseSequence=(alreadyActive)=>[wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:priorVersion,resources:resource("old-code")}),
+const responseSequence=(alreadyActive, activeVersion=priorVersion)=>[wrap({deployments:[dep(priorDeployment,activeVersion)]}),wrap({id:activeVersion,resources:resource("old-code")}),
  scriptResponse(alreadyActive ? syntheticBundle : "export default {}; // " + privateRelease),
- wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
- wrap({deployments:[dep(priorDeployment,priorVersion)]}),wrap({id:newVersion,resources:resource("new-code")}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})];
+ wrap({deployments:[dep(priorDeployment,activeVersion)]}),wrap({id:newVersion}),wrap({id:newVersion,resources:resource("new-code")}),
+ wrap({deployments:[dep(priorDeployment,activeVersion)]}),wrap({id:newVersion,resources:resource("new-code")}),wrap(dep(newDeployment,newVersion)),wrap({deployments:[dep(newDeployment,newVersion)]})];
 const apiSequence=[["/deployments?page=1&per_page=10","GET"],[`/versions/${priorVersion}`,"GET"],["/content/v2","GET"],["/deployments?page=1&per_page=10","GET"],["/versions?bindings_inherit=strict","POST"],
  [`/versions/${newVersion}`,"GET"],["/deployments?page=1&per_page=10","GET"],[`/versions/${newVersion}`,"GET"],["/deployments?force=false","POST"],["/deployments?page=1&per_page=10","GET"]];
 let releaseCases=0;
-async function releaseCase({pr764=false,ibkrDaily=false,inheritVersion=priorVersion,inheritedPredecessor=priorVersion,mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle,assetMap=syntheticAssetMap,files=bundleFiles.map(name=>dirent(name))}={}, expected=true,count=10){
+async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inheritVersion=null,inheritedPredecessor=null,mutate=()=>{},env={},failAt=-1,responseAt=-1,response,readError=false,alreadyActive=false,bundle=syntheticBundle,assetMap=syntheticAssetMap,files=bundleFiles.map(name=>dirent(name))}={}, expected=true,count=10){
  if(pr764){
   bundle=Buffer.from(bundle.toString().replace(syntheticBuildId,pr764Build));
   assetMap=assetMap.replace(syntheticBuildId,pr764Build);
   env={RELEASE_SOURCE_SHA:pr764Source,...env};
  }
  if(ibkrDaily)env={RELEASE_SOURCE_SHA:ibkrSource,...env};
- const responses=responseSequence(alreadyActive);
+ const activeVersion=activeOverride ?? (ibkrDaily?"06043e24-f8c9-4129-8c59-abb9957217bf":priorVersion);
+ const previousLatest=ibkrDaily?"26996cc3-732a-4774-af02-b46842913d36":priorVersion;
+ const responses=responseSequence(alreadyActive,activeVersion);
  if(pr764)responses.push(wrap({id:newVersion,resources:resource("new-code")}));
  mutate(responses);
  if(pr764 || ibkrDaily){
-  responses.splice(3,0,wrap({items:[{id:inheritVersion}]}));
-  responses.splice(7,0,wrap({items:[{id:newVersion},{id:inheritedPredecessor}]}));
+  responses.splice(3,0,wrap({items:[{id:inheritVersion ?? previousLatest}]}));
+  responses.splice(7,0,wrap({items:[{id:newVersion},{id:inheritedPredecessor ?? previousLatest}]}));
  }
  const calls=[],stdout=[],stderr=[];
  const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:"d".repeat(32),...env},exitCode:0};
@@ -463,13 +465,20 @@ async function releaseCase({pr764=false,ibkrDaily=false,inheritVersion=priorVers
   if((pr764 || ibkrDaily) && actual===3){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
   if((pr764 || ibkrDaily) && actual===7){assert.ok(url.endsWith("/versions?page=1&per_page=10"));assert.equal(options.method,"GET");continue;}
   const i=actual-((pr764 || ibkrDaily) && actual>3?1:0)-((pr764 || ibkrDaily) && actual>7?1:0);
-  assert.equal(url,`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/scripts/qsl-strategy-switch-console`+(i===10?`/versions/${newVersion}`:apiSequence[i][0]));
+  const base=`https://api.cloudflare.com/client/v4/accounts/${"a".repeat(32)}/workers/`;
+  const expectedPath=ibkrDaily && i===4 ? "workers/qsl-strategy-switch-console/versions?deploy=false"
+   : "scripts/qsl-strategy-switch-console"+(i===1?`/versions/${activeVersion}`:i===10?`/versions/${newVersion}`:apiSequence[i][0]);
+  assert.equal(url,base+expectedPath);
   assert.equal(options.headers["Accept-Encoding"],"identity");assert.equal(options.method,i===10?"GET":apiSequence[i][1]);assert.equal(options.redirect,"error");assert.ok(options.signal instanceof AbortSignal);assert.equal(options.headers.Authorization,`Bearer ${privateRelease}`);
   if(options.method==="GET")assert.equal(options.body,undefined);
-  if(i===4){assert.deepEqual(Buffer.from(await options.body.get("worker.js").arrayBuffer()),bundle);assert.ok(options.body instanceof FormData);assert.deepEqual([...options.body.keys()],["metadata","worker.js"]);const m=JSON.parse(options.body.get("metadata"));
-   assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
+  if(i===4){
+   let m;
+   if(ibkrDaily){m=JSON.parse(options.body);assert.equal(options.headers["Content-Type"],"application/json");
+    assert.deepEqual(m.modules,[{name:"worker.js",content_type:"application/javascript+module",content_base64:bundle.toString("base64")}]);delete m.modules;}
+   else {assert.deepEqual(Buffer.from(await options.body.get("worker.js").arrayBuffer()),bundle);assert.ok(options.body instanceof FormData);assert.deepEqual([...options.body.keys()],["metadata","worker.js"]);m=JSON.parse(options.body.get("metadata"));assert.equal(options.headers["Content-Type"],undefined);}
+   assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name,...(ibkrDaily?{version_id:activeVersion}:{})})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
-   assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
+   assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");}
   if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":ibkrDaily?"Reviewed IBKR daily candidate aaa46a81; retained configuration":"Reviewed website backend 9722414a and frontend 96363633; retained configuration"}});
  }
  if(expected){
@@ -485,8 +494,17 @@ async function releaseCase({pr764=false,ibkrDaily=false,inheritVersion=priorVers
 }
 await releaseCase({pr764:true},true,13);
 await releaseCase({ibkrDaily:true},true,12);
+const echoedBundle=Buffer.concat([syntheticBundle,Buffer.alloc(600000,32)]);
+const echoedLimit=Math.ceil(echoedBundle.length/3)*4+524288;
+const echoedBody=JSON.stringify(wrap({id:newVersion,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:echoedBundle.toString("base64")}]}));
+assert.ok(Buffer.byteLength(echoedBody)>524288 && Buffer.byteLength(echoedBody)<echoedLimit);
+await releaseCase({ibkrDaily:true,bundle:echoedBundle,responseAt:5,response:new Response(echoedBody,{headers:{"content-type":"application/json"}})},true,12);
+await releaseCase({ibkrDaily:true,bundle:echoedBundle,responseAt:5,response:new Response("{}",{headers:{"content-type":"application/json","content-length":String(echoedLimit+1)}})},false,6);
+await releaseCase({ibkrDaily:true,bundle:echoedBundle,responseAt:5,response:new Response("x".repeat(echoedLimit+1),{headers:{"content-type":"application/json"}})},false,6);
+await releaseCase({ibkrDaily:true,activeOverride:priorVersion},false,1);
 await releaseCase({ibkrDaily:true,inheritVersion:newVersion},false,4);
 await releaseCase({ibkrDaily:true,inheritedPredecessor:"00000000-0000-4000-8000-000000000099"},false,8);
+await releaseCase({ibkrDaily:true,responseAt:5,response:new Response("denied",{status:403})},false,6);
 await releaseCase({pr764:true,inheritVersion:newVersion},false,4);
 // Another uploader inserted a version with different opaque Secret values after
 // the first baseline GET. Equal visible resource hashes must not allow activation.

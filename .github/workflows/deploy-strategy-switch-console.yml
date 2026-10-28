@@ -901,6 +901,7 @@ jobs:
             const pr764 = process.env.RELEASE_SOURCE_SHA === '20dad166be317dd0d57e492ed06e56dfb82b7aef';
             const ibkrDaily = process.env.RELEASE_SOURCE_SHA === 'aaa46a811a7cfa863f90261d516b197e5e554779';
             const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
+            const workersBase = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/workers/qsl-strategy-switch-console`;
             // Fixed host/Worker, bounded response, no pagination or retry. Remote configuration
             // stays in process memory; never write it or include it in an error/receipt.
             // Allowlisted names only: unknown keys, strategy values and header parameters
@@ -922,12 +923,15 @@ jobs:
                   .flatMap(error => safeKeys(error, ['code', 'message', 'error_chain'])))],
                 errors_count: Array.isArray(body?.errors) ? body.errors.length : body?.errors == null ? 0 : null }));
             }
+            let betaUploadResponseLimit = 524288;
             async function request(path, method = 'GET', body) {
+              const betaUpload = ibkrDaily && method === 'POST' && path === '/versions?deploy=false';
+              const responseLimit = betaUpload ? betaUploadResponseLimit : 524288;
               httpStatus = null;
               checkpoint = 'request';
               let evidenceBody = null, contentType = null;
               try {
-                const response = await fetch(base + path, { method, body, redirect: 'error', signal: AbortSignal.timeout(20000),
+                const response = await fetch((betaUpload ? workersBase : base) + path, { method, body, redirect: 'error', signal: AbortSignal.timeout(20000),
                   headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'identity', ...(typeof body === 'string' ? { 'Content-Type': 'application/json' } : {}) } });
                 httpStatus = response.status;
                 const jsonType = /^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '');
@@ -936,14 +940,14 @@ jobs:
                 if (!jsonType) { checkpoint = 'response_content_type'; await response.body?.cancel(); fail(); }
                 if (!['', 'identity'].includes(response.headers.get('content-encoding') ?? '')) fail('response_content_encoding');
                 const length = response.headers.get('content-length');
-                if (length !== null && (!/^\d+$/.test(length) || Number(length) > 524288)) fail('response_content_length');
+                if (length !== null && (!/^\d+$/.test(length) || Number(length) > responseLimit)) fail('response_content_length');
                 const reader = response.body?.getReader(); if (!reader) fail('response_body');
                 let size = 0, text = ''; const decoder = new TextDecoder('utf-8', { fatal: true });
                 try {
                   for (;;) {
                     checkpoint = 'response_stream';
                     const { done, value } = await reader.read(); if (done) break;
-                    size += value.byteLength; if (size > 524288) fail('response_size');
+                    size += value.byteLength; if (size > responseLimit) fail('response_size');
                     checkpoint = 'response_utf8'; text += decoder.decode(value, { stream: true });
                   }
                   checkpoint = 'response_utf8'; text += decoder.decode();
@@ -1064,6 +1068,7 @@ jobs:
               return value;
             }
             stage = 'pre_release_active'; const { id: priorDeployment, version: prior } = await active();
+            if (ibkrDaily && prior !== '06043e24-f8c9-4129-8c59-abb9957217bf') fail('ibkr_active_version_mismatch');
             stage = 'pre_release_configuration'; const old = resources(await request(`/versions/${prior}`), prior);
             stage = 'bundle';
             const bundleDir = `${process.env.RUNNER_TEMP}/console-frontend-bundle`;
@@ -1074,6 +1079,8 @@ jobs:
               || canonical(files.map(file => file.name).sort()) !== canonical(['README.md', 'worker.js', 'worker.js.map'])) fail();
             const bundle = await readFile(`${bundleDir}/worker.js`);
             if (!bundle.byteLength || bundle.byteLength > 10485760) fail();
+            // The beta create response may echo the base64 module; allow one module plus bounded metadata.
+            betaUploadResponseLimit = Math.ceil(bundle.byteLength / 3) * 4 + 524288;
             const assetMap = await readFile(`${process.env.WORKER_DIR}/v2_asset_map.js`, 'utf8');
             const buildIds = [...assetMap.matchAll(/^export const V2_BUILD_ID = "([a-f0-9]{64})";$/gm)];
             const bundledIds = [...bundle.toString('utf8').matchAll(/^var V2_BUILD_ID = "([a-f0-9]{64})";$/gm)];
@@ -1085,24 +1092,27 @@ jobs:
             stage = 'pre_upload_content'; await validateScriptContent();
             // The bundler is offline (--dry-run). Inherit EVERY existing binding, including
             // secrets, without supplying any value or trusting current Environment inputs.
-            // Script-version inherit resolves 'latest', not a historical ID. The uploaded
-            // configuration comparison below verifies the active baseline was retained.
-            const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name })),
+            // The Workers version API pins each inherited binding to the active
+            // version; the older script-version API only supports latest.
+            const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name, ...(ibkrDaily ? {version_id: prior} : {}) })),
               compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
               annotations: { 'workers/message': pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a with fixed frontend 96363633; retained bindings' } };
             for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
             const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
             form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
+            const betaBody = ibkrDaily ? JSON.stringify({ ...metadata, modules: [{name:'worker.js', content_type:'application/javascript+module', content_base64:bundle.toString('base64')}] }) : null;
+            let previousLatest = prior;
             if (pr764 || ibkrDaily) {
-              // inherit resolves latest, including opaque secrets. Refuse a pending
-              // version instead of inferring secret equality from redacted metadata.
+              // Pin the observed latest version as a concurrency boundary. The
+              // legacy path inherits latest; IBKR inherits the active version.
               stage = 'inherit_baseline';
               const items = (await request('/versions?page=1&per_page=10'))?.items;
-              if (!Array.isArray(items) || !items.length || items.length > 10 || items[0]?.id !== prior) fail('inherit_baseline_mismatch');
+              previousLatest = ibkrDaily ? '26996cc3-732a-4774-af02-b46842913d36' : prior;
+              if (!Array.isArray(items) || !items.length || items.length > 10 || items[0]?.id !== previousLatest) fail('inherit_baseline_mismatch');
             }
             stage = 'pre_upload_active'; await active(priorDeployment, prior);
             stage = 'upload'; uploadAttempted = true;
-            uploaded = uuid((await request('/versions?bindings_inherit=strict', 'POST', form))?.id);
+            uploaded = uuid((await request(ibkrDaily ? '/versions?deploy=false' : '/versions?bindings_inherit=strict', 'POST', ibkrDaily ? betaBody : form))?.id);
             if (uploaded === prior) fail();
             stage = 'uploaded_configuration'; const next = resources(await request(`/versions/${uploaded}`), uploaded);
             const comparable = value => ({ bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
@@ -1113,13 +1123,12 @@ jobs:
             const configBefore = configHash(old), configUploaded = configHash(next);
             if (configUploaded !== configBefore || next.script.etag === old.script.etag) fail('configuration_hash_mismatch');
             if (pr764 || ibkrDaily) {
-              // A different uploader between baseline and inherit can change hidden
-              // Secret values without changing their names/types. Require adjacent
-              // versions before activation; list is newest first, bounded to page 1.
+              // Refuse concurrent uploads even when visible metadata is unchanged.
+              // The list is newest first and bounded to page 1.
               stage = 'inherit_lineage';
               const items = (await request('/versions?page=1&per_page=10'))?.items;
               if (!Array.isArray(items) || items.length < 2 || items.length > 10
-                || items[0]?.id !== uploaded || items[1]?.id !== prior) fail('inherit_lineage_mismatch');
+                || items[0]?.id !== uploaded || items[1]?.id !== previousLatest) fail('inherit_lineage_mismatch');
             }
             // Same-Worker workflow concurrency serializes our release controls. These fresh
             // GETs detect observed external drift; Cloudflare offers no compare-and-swap
