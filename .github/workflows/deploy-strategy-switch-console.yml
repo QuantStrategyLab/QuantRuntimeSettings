@@ -405,6 +405,51 @@ jobs:
           console.log(JSON.stringify(out));
           JS
 
+
+      - name: Compare fixed Worker version configuration
+        if: inputs.check_explicit_version_inherit
+        run: |
+          node --input-type=module <<'JS'
+          // Read only the two versions from the stopped candidate release.
+          const ids = ['06043e24-f8c9-4129-8c59-abb9957217bf', '2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee'];
+          const canonical = x => x === null || typeof x !== 'object' ? JSON.stringify(x) : Array.isArray(x)
+            ? `[${x.map(canonical).join(',')}]` : `{${Object.keys(x).sort().map(k => `${JSON.stringify(k)}:${canonical(x[k])}`).join(',')}}`;
+          const equal = (a, b) => canonical(a) === canonical(b);
+          try {
+            const token = process.env.CLOUDFLARE_API_TOKEN, account = process.env.CLOUDFLARE_ACCOUNT_ID;
+            if (!token || !/^[0-9a-f]{32}$/i.test(account ?? '')) throw Error('config');
+            async function read(id) {
+              const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console/versions/${id}`, {
+                method: 'GET', redirect: 'error', signal: AbortSignal.timeout(15000),
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'identity' } });
+              if (!r.ok || !/^application\/json(?:\s*;|$)/i.test(r.headers.get('content-type') ?? '')
+                || !['', 'identity'].includes(r.headers.get('content-encoding') ?? '') || !r.body) throw Error('response');
+              const length = r.headers.get('content-length');
+              if (length !== null && (!/^\d+$/.test(length) || Number(length) > 524288)) throw Error('length');
+              const reader = r.body.getReader(), chunks = []; let size = 0;
+              try { for (;;) { const {done,value} = await reader.read(); if (done) break; size += value.byteLength;
+                if (size > 524288) throw Error('size'); chunks.push(value); } } finally { await reader.cancel(); }
+              if (length !== null && Number(length) !== size) throw Error('length');
+              const body = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));
+              if (body?.success !== true || (body.errors != null && (!Array.isArray(body.errors) || body.errors.length)) || body.result?.id !== id) throw Error('envelope');
+              const v = body.result.resources;
+              if (!v || !Array.isArray(v.bindings) || !v.script || !v.script_runtime
+                || typeof v.script.etag !== 'string' || !v.script.etag || v.script.etag.length > 256) throw Error('shape');
+              return v;
+            }
+            const [a,b] = await Promise.all(ids.map(read));
+            const sortNamed = x => [...x].sort((a,b) => a.name.localeCompare(b.name));
+            const bindings = type => equal(sortNamed(a.bindings.filter(x => x.type === type)), sortNamed(b.bindings.filter(x => x.type === type)));
+            const runtime = {};
+            for (const k of ['compatibility_date','compatibility_flags','usage_model','limits','migration_tag','exports']) runtime[k] = equal(a.script_runtime[k],b.script_runtime[k]);
+            console.log(JSON.stringify({category:'compared',writes:0,bindings_equal:equal(sortNamed(a.bindings),sortNamed(b.bindings)),
+              binding_types_equal:Object.fromEntries(['plain_text','json','secret_text','kv_namespace','durable_object_namespace'].map(t => [t,bindings(t)])),
+              runtime_all_equal:equal(a.script_runtime,b.script_runtime),runtime_equal:runtime,handlers_equal:equal(a.script.handlers,b.script.handlers),
+              named_handlers_equal:equal(a.script.named_handlers === undefined ? null : sortNamed(a.script.named_handlers),b.script.named_handlers === undefined ? null : sortNamed(b.script.named_handlers)),
+              placement_mode_equal:equal(a.script.placement_mode ?? null,b.script.placement_mode ?? null),etag_equal:a.script.etag === b.script.etag}));
+          } catch { console.log(JSON.stringify({category:'comparison_failed',writes:0})); process.exitCode = 1; }
+          JS
+
   deploy:
     if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && !inputs.rollback_to_pre_release
     runs-on: ubuntu-latest

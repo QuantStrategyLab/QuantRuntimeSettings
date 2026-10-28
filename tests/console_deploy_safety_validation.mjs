@@ -32,6 +32,24 @@ for (const [status,body,expected] of [[200,{success:true,result:{id:"06043e24-f8
   assert.ok(calls[0].url.endsWith("/workers/workers/qsl-strategy-switch-console/versions/06043e24-f8c9-4129-8c59-abb9957217bf"));
   assert.equal(JSON.parse(output[0]).category,expected); assert.ok(!output[0].includes("PRIVATE_SENTINEL"));
 }
+const compareStep = steps.find(step => step.startsWith("Compare fixed Worker version configuration\n"));
+assert.match(compareStep, /^        if: inputs\.check_explicit_version_inherit$/m);
+const compareScript = compareStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1].split("\n").map(line=>line.slice(10)).join("\n");
+const runCompare = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console",compareScript);
+const syntheticResources = {bindings:[{name:"PRIVATE_NAME",type:"plain_text",text:"PRIVATE_VALUE"}],script:{etag:"old",handlers:["fetch"],named_handlers:[]},script_runtime:{compatibility_date:"2026-01-01",usage_model:"standard"}};
+for (const changed of [false,true]) {
+ const calls=[], out=[], process={env:{CLOUDFLARE_API_TOKEN:"PRIVATE_SENTINEL",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32)}};
+ await runCompare(process,async (url,options)=>{calls.push({url,options});const v=structuredClone(syntheticResources);if(changed && calls.length===2)v.bindings[0].text="DIFFERENT_PRIVATE_VALUE";
+ return new Response(JSON.stringify({success:true,result:{id:url.split("/").at(-1),resources:v}}),{headers:{"content-type":"application/json"}});}, {log:x=>out.push(x)});
+ assert.equal(calls.length,2);assert.ok(calls.every(c=>c.options.method==="GET"));assert.equal(JSON.parse(out[0]).bindings_equal,!changed);
+ assert.equal(JSON.parse(out[0]).binding_types_equal.plain_text,!changed);assert.ok(!out[0].includes("PRIVATE"));
+}
+for (const missingAt of [1,2]) {
+ const calls=[],out=[],process={env:{CLOUDFLARE_API_TOKEN:"PRIVATE_SENTINEL",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32)}};
+ await runCompare(process,async (url,options)=>{calls.push(url);const v=structuredClone(syntheticResources);if(calls.length===missingAt)delete v.script.etag;
+ return new Response(JSON.stringify({success:true,result:{id:url.split("/").at(-1),resources:v}}),{headers:{"content-type":"application/json"}});}, {log:x=>out.push(x)});
+ assert.equal(JSON.parse(out[0]).category,"comparison_failed");assert.equal(process.exitCode,1);assert.ok(!out[0].includes("PRIVATE"));
+}
 const writers = steps.filter(step => /\bsecret put\b|\/api\/internal\/sync-strategy-profiles/.test(step));
 assert.equal(writers.length, 16, "inspect every secret and profile writer");
 for (const step of writers) {
