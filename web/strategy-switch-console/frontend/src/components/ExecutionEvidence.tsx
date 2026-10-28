@@ -9,16 +9,17 @@ export function ExecutionEvidence({ evidence, compact = false, showState = false
   const t = useT(), language = useLanguage();
   const checked = formatDateTime(evidence?.observed_at, language, true);
   const value = evidence?.value || "unknown";
-  const reasons = evidence?.reason_codes?.length ? evidence.reason_codes : ["evidence_missing"];
+  const reasons = evidence?.reason_codes?.length ? evidence.reason_codes :
+    [evidence?.status && reasonKeys.has(evidence.status) ? evidence.status : "evidence_missing"];
   const source = evidence?.configuration_source === "RUNTIME_TARGET_JSON" ? "runtime_target"
     : evidence?.configuration_source === "CLOUD_RUN_SERVICE_TARGETS_JSON" ? "service_target" : "missing";
   const environmentKnown = evidence?.broker_environment === "live" || evidence?.broker_environment === "paper";
   const environment = t(evidence?.broker_environment === "live" ? "strategies.execution.live" : evidence?.broker_environment === "paper" ? "strategies.execution.paper" : "common.unknown");
   if (showState) {
-    // Ordinary list/card view: one short configuration-state badge. Reasons,
-    // source and check time stay on the protected detail surfaces.
+    // Show the reason for unknown values; source and time remain in details.
     return <div className="execution-evidence-status">
       <span className={`badge badge-${value === "live" ? "warn" : value === "unknown" ? "unknown" : "accent"}`}>{t(`strategies.execution.${value}`)}</span>
+      {value === "unknown" && <span>{reasons.map(reason => t(`accounts.execution.reason.${reasonKeys.has(reason) ? reason : "evidence_missing"}`)).join(" · ")}</span>}
     </div>;
   }
   if (compact) {

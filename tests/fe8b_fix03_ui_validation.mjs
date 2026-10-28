@@ -96,7 +96,8 @@ try {
         const before = structuredClone(row);
         const html = ui.render(language, "strategies", {}, config, ready(summary(row)));
         if (expected === "unknown") {
-          assert.ok(!html.includes('class="strategy-execution"'), "unknown evidence cannot become a displayed execution mode");
+          assert.match(html, new RegExp(`class="strategy-execution-account"[\\s\\S]*?>${labels.unknown}<`), "unknown evidence remains explicitly unknown");
+          assert.match(html, /class="execution-evidence-status"><span class="badge badge-unknown"/, "unknown evidence cannot become live mode");
         } else {
           assert.match(html, new RegExp(`class="strategy-execution-account"[\\s\\S]*?>${labels[expected]}<`));
           if (expected !== "live") assert.ok(!html.match(/class="strategy-execution-account"([\s\S]*?)<\/div>/)[1].includes('class="badge badge-warn"'));
