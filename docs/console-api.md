@@ -160,6 +160,11 @@ carry the registration fingerprint; binding changes cannot reattribute them.
 Successful IBKR acknowledgements include the original `observed_at` for
 correlation. These settings and the registration are not provisioned by code.
 
+The protected IBKR binding inspection can calculate a nonce-bound comparison
+digest for the fixed primary account. It does not register a target or write
+data. Its output and the corresponding IBKR workflow result compare existing
+configuration only; a public nonce does not make the digest confidential.
+
 The internal Durable Object command `account_daily_native_return_research_read`
 is limited to one IBKR account, one currency and an inclusive range of at most
 366 days. It returns validated stored rows with their actual source binding,
