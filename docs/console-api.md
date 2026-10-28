@@ -140,6 +140,13 @@ Multiple matching bindings return `partial/runtime_daily_binding_conflict` for
 the account; no target is selected and its run state stays unknown. A missing
 binding remains `not_connected/runtime_daily_not_connected`.
 
+In `/api/config`, `runtimeDailyBindings` uses `unresolved` for a missing or
+ambiguous binding and `read_failed` when its source cannot be read; a failure
+affects the corresponding platform's `/api/runtime/today` rows and summary.
+Binding or stored-record read failures on `/api/runtime-daily` return HTTP 503
+with `runtime_daily_read_failed`; an account-directory read failure returns
+HTTP 503 with `read_failed` from `/api/runtime/today`.
+
 The summary window is exactly `date` in its returned `timezone`, including New
 York daylight-saving changes. It is not a rolling 24-hour or 14-day failure
 statistic. `counts.observed` counts accounts with a record, including incomplete

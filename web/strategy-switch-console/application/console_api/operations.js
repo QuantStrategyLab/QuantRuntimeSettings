@@ -11,11 +11,15 @@ export function businessDate(now = Date.now()) {
 export async function todaySummary(request, env, deps, accounts, now = Date.now()) {
   // Daily records, their reader, and this summary must share one date domain.
   const date = runtimeDailyBusinessDate(now);
-  const bindings = await deps.dailyBindings(env);
+  let bindings;
+  try { bindings = await deps.dailyBindings(env); }
+  catch { bindings = null; }
   const rows = await Promise.all(accounts.map(async (account) => {
     const base = { account_alias: account.key, platform: account.platform,
       status: "not_connected", unavailable_reason: "runtime_daily_not_connected",
       as_of: null, activity: null, completeness: null, run_count: null, runs: [] };
+    if (!bindings || bindings.some(b => b.platform === account.platform && b.status === "read_failed"))
+      return { ...base, status: "read_failed", unavailable_reason: "stored_records_unreadable" };
     const matches = bindings.filter(b => b.platform === account.platform && b.account_key === account.key && b.status === "bound");
     if (matches.length === 0) return base;
     if (matches.length > 1) return { ...base, status: "partial", unavailable_reason: "runtime_daily_binding_conflict" };
