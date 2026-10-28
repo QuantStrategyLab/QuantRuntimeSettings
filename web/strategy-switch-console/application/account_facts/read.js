@@ -170,6 +170,12 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   const currency = String(url.searchParams.get("currency") || "");
   const projection = url.searchParams.get("projection");
   const currenciesProjection = projection === "currencies";
+  const includeCurrencies = url.searchParams.get("include_currencies") === "true";
+  if (url.searchParams.has("include_currencies") && (!includeCurrencies || projection !== null
+      || ["platform", "account_key", "currency", "include_currencies"].some(key => url.searchParams.getAll(key).length !== 1))) {
+    return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
+  }
+  const requireCurrencies = currenciesProjection || includeCurrencies;
   const dates = projection === "identity"
     ? accountFactsIdentityDates(url.searchParams.get("from"), url.searchParams.get("to")) : null;
   if (currenciesProjection && (["platform", "account_key", "projection"].some((key) => url.searchParams.getAll(key).length !== 1)
@@ -187,7 +193,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   try {
     accountConfig = await loadAccountOptionsConfig(env);
   } catch {
-    if (currenciesProjection) return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
+    if (requireCurrencies) return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
     accountConfig = { options: {} };
   }
   const options = Array.isArray(accountConfig?.options?.[platform]) ? accountConfig.options[platform] : [];
@@ -197,13 +203,13 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   try {
     bindings = await loadAccountFactsBindings(env);
   } catch {
-    if (currenciesProjection) return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
+    if (requireCurrencies) return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
     bindings = null;
   }
   const binding = bindings?.bindings?.find(
     (item) => item.platform === platform && item.account_key === accountKey,
   ) || null;
-  if (currenciesProjection && (!option || !binding || !accountFactsOptionMatchesBinding(option, binding)
+  if (requireCurrencies && (!option || !binding || !accountFactsOptionMatchesBinding(option, binding)
       || bindings.bindings.filter((item) => item.platform === platform && item.account_key === accountKey).length !== 1)) {
     return json({ ok: false, error: "account_facts_identity_unavailable" }, 409);
   }
@@ -262,7 +268,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
         ...(binding.history_source_binding_ids
           ? { history_source_binding_ids: binding.history_source_binding_ids } : {}),
       });
-      if (currenciesProjection && (!listed || listed.ok !== true || !Array.isArray(listed.days))) {
+      if (requireCurrencies && (!listed || listed.ok !== true || !Array.isArray(listed.days))) {
         return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
       }
       days = Array.isArray(listed?.days) ? listed.days : [];
@@ -288,6 +294,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
     ...model,
     enabled: true,
     retention_days: ACCOUNT_FACTS_HISTORY_MAX_DAYS,
+    ...(includeCurrencies ? { currencies: projectAccountFactsHistoryCurrencies({ days, binding }) } : {}),
     ...(externalFlow ? { externalFlow } : {}),
   });
 }

@@ -136,7 +136,7 @@ const deps = {
       return Response.json({ ok: true, platform: "ibkr", account_key: key, projection: "currencies", currencies: ["USD"] });
     }
     if (key === "synthetic-b" && failSecond) return Response.json({}, { status: 503 });
-    return Response.json({ platform: "ibkr", account_key: key, series: { currency: "USD", truncated, points: [{
+    return Response.json({ platform: "ibkr", account_key: key, ...(new URL(request.url).searchParams.has("include_currencies") ? {currencies: ["USD"]} : {}), series: { currency: "USD", truncated, points: [{
       observation_date: key === "synthetic-a" ? previous : today,
       currency: "USD", net_assets: key === "synthetic-a" ? "100" : "200",
     }] } });
@@ -186,8 +186,9 @@ console.log("console_equity_history_validation: PASS (synthetic union, overlap, 
       if (u.searchParams.get("projection") === "currencies") return discoveryFails
         ? Response.json({ ok: false }, { status: 503 })
         : Response.json({ ok: true, platform: "ibkr", account_key: "synthetic", projection: "currencies", currencies: ["HKD", "USD"] });
+      if (u.searchParams.has("include_currencies") && discoveryFails) return Response.json({}, { status: 503 });
       seen.push(currency);
-      return Response.json({ platform: "ibkr", account_key: "synthetic", series: { currency, points: [{
+      return Response.json({ platform: "ibkr", account_key: "synthetic", ...(u.searchParams.has("include_currencies") ? { currencies: ["HKD", "USD"] } : {}), series: { currency, points: [{
         observation_date: previous, currency, net_assets: currency === "HKD" ? "200" : "100" }] } });
     } };
   let body = await (await performanceResponse(new Request("https://console.example.invalid/api/performance/assets?scope=synthetic&platform=ibkr"), {}, testDeps)).json();
@@ -196,7 +197,7 @@ console.log("console_equity_history_validation: PASS (synthetic union, overlap, 
   assert.ok(body.history_per_currency.every(x => x.points.length === 1));
   latestBalances = [{ currency: "USD", net_assets: "123" }]; seen.length = 0;
   body = await (await performanceResponse(new Request("https://console.example.invalid/api/performance/assets?scope=synthetic&platform=ibkr"), {}, testDeps)).json();
-  assert.deepEqual([...seen].sort(), ["HKD", "USD"], "historical-only currency is retained");
+  assert.deepEqual([...seen].sort(), ["HKD", "USD"], "historical-only currency is retained with one read per currency");
   assert.deepEqual(body.history_per_currency.map(x => x.currency).sort(), ["HKD", "USD"]);
   discoveryFails = true; seen.length = 0;
   body = await (await performanceResponse(new Request("https://console.example.invalid/api/performance/assets?scope=synthetic&platform=ibkr"), {}, testDeps)).json();
