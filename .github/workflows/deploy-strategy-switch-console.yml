@@ -1179,12 +1179,17 @@ jobs:
             } else {
               uploaded = '2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee';
               stage = 'candidate_module';
-              const candidate = await request(`/versions/${uploaded}`, 'GET', undefined, true);
-              if (candidate?.id !== uploaded || (candidate.migrations !== undefined && (!object(candidate.migrations) || Object.keys(candidate.migrations).length))
-                || !Array.isArray(candidate.modules) || candidate.modules.length !== 1) fail('candidate_metadata');
+              const candidate = await request(`/versions/${uploaded}?include=modules`, 'GET', undefined, true);
+              if (candidate?.id !== uploaded) fail('candidate_id_mismatch');
+              if (candidate.migrations !== undefined && !object(candidate.migrations)) fail('candidate_migrations_invalid');
+              if (candidate.migrations !== undefined && Object.keys(candidate.migrations).length) fail('candidate_migrations_present');
+              if (candidate.modules === undefined) fail('candidate_modules_missing');
+              if (!Array.isArray(candidate.modules)) fail('candidate_modules_invalid');
+              if (candidate.modules.length !== 1) fail('candidate_modules_count');
               const module = candidate.modules[0];
-              if (module?.name !== 'worker.js' || module.content_type !== 'application/javascript+module'
-                || typeof module.content_base64 !== 'string' || module.content_base64 !== bundle.toString('base64')) fail('candidate_module_mismatch');
+              if (module?.name !== 'worker.js' || module.content_type !== 'application/javascript+module') fail('candidate_module_identity');
+              if (typeof module.content_base64 !== 'string') fail('candidate_module_content_missing');
+              if (module.content_base64 !== bundle.toString('base64')) fail('candidate_module_mismatch');
             }
             if (uploaded === prior) fail();
             stage = 'uploaded_configuration'; const next = resources(await request(`/versions/${uploaded}`), uploaded);
