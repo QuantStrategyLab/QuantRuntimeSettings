@@ -46,6 +46,7 @@ on:
         options:
           - "2beea000-cce5-43a5-9255-9724f7318e83"
           - "c8dc4852-fa9d-4d14-bca3-7941587a494f"
+          - "06043e24-f8c9-4129-8c59-abb9957217bf"
 
 permissions:
   contents: read
@@ -1341,6 +1342,7 @@ jobs:
           // https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/create/
           const target = process.env.ROLLBACK_VERSION || '2beea000-cce5-43a5-9255-9724f7318e83';
           const fe11 = target === 'c8dc4852-fa9d-4d14-bca3-7941587a494f';
+          const dailyRestore = target === '06043e24-f8c9-4129-8c59-abb9957217bf';
           const fail = () => { throw new Error('console_restore_failed'); };
           let stage = 'configuration';
           let httpStatus = null;
@@ -1349,7 +1351,7 @@ jobs:
             const token = process.env.CLOUDFLARE_API_TOKEN;
             const account = process.env.CLOUDFLARE_ACCOUNT_ID;
             if (process.env.GITHUB_REF !== 'refs/heads/main' || process.env.RELEASE_SOURCE_SHA || process.env.RELEASE_FRONTEND_ASSETS === 'true'
-              || (!fe11 && target !== '2beea000-cce5-43a5-9255-9724f7318e83')
+              || (!fe11 && !dailyRestore && target !== '2beea000-cce5-43a5-9255-9724f7318e83')
               || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
             const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
             async function request(path, method = 'GET', payload) {
@@ -1386,19 +1388,37 @@ jobs:
               if (body?.success !== true || (body.errors != null && (!Array.isArray(body.errors) || body.errors.length))) fail();
               return body.result;
             }
-            if (fe11) {
+            if (fe11 || dailyRestore) {
               stage = 'target_readback';
               if ((await request(`/versions/${target}`))?.id !== target) fail();
+            }
+            if (dailyRestore) {
+              const expectedVersion = '26996cc3-732a-4774-af02-b46842913d36';
+              const expectedDeployment = '62ff9408-050a-442a-afa9-884405132768';
+              const currentIsExpected = async () => {
+                const current = (await request('/deployments?page=1&per_page=10'))?.deployments;
+                if (!Array.isArray(current) || !current.length || current.length > 10 || current[0]?.id !== expectedDeployment
+                  || current[0]?.strategy !== 'percentage' || !Array.isArray(current[0]?.versions)
+                  || current[0].versions.length !== 1 || current[0].versions[0]?.version_id !== expectedVersion
+                  || current[0].versions[0]?.percentage !== 100) fail();
+              };
+              stage = 'active_before_restore'; await currentIsExpected();
+              stage = 'version_lineage';
+              const items = (await request('/versions?page=1&per_page=10'))?.items;
+              if (!Array.isArray(items) || items.length < 2 || items.length > 10
+                || items[0]?.id !== expectedVersion || items[1]?.id !== target) fail();
+              stage = 'active_before_request'; await currentIsExpected();
             }
             stage = 'request'; requested = true;
             const result = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
               versions: [{ version_id: target, percentage: 100 }], annotations: { 'workers/message': fe11
-                ? 'Restore verified FE-RELEASE-11 c8dc4852 baseline' : 'Restore verified pre-frontend 2beea000 baseline' } }));
+                ? 'Restore verified FE-RELEASE-11 c8dc4852 baseline' : dailyRestore
+                  ? 'Restore previous website version 06043e24 after daily release regression' : 'Restore verified pre-frontend 2beea000 baseline' } }));
             if (typeof result?.id !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(result.id)
-              || ((!fe11 || Object.hasOwn(result, 'strategy')) && result.strategy !== 'percentage')
-              || ((!fe11 || Object.hasOwn(result, 'versions')) && (!Array.isArray(result.versions) || result.versions.length !== 1
+              || ((!(fe11 || dailyRestore) || Object.hasOwn(result, 'strategy')) && result.strategy !== 'percentage')
+              || ((!(fe11 || dailyRestore) || Object.hasOwn(result, 'versions')) && (!Array.isArray(result.versions) || result.versions.length !== 1
                 || result.versions[0]?.version_id !== target || result.versions[0]?.percentage !== 100))) fail();
-            if (fe11) {
+            if (fe11 || dailyRestore) {
               stage = 'active_readback';
               const current = (await request('/deployments?page=1&per_page=10'))?.deployments;
               if (!Array.isArray(current) || !current.length || current.length > 10 || current[0]?.id !== result.id

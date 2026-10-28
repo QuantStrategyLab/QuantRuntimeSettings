@@ -826,6 +826,36 @@ for(const mutate of [r=>r[2].result.deployments[0].versions[0].version_id=priorV
 for(let i=0;i<3;i++)await fe11Case({failAt:i},false,i+1);
 console.log(`PR764 exact FE-RELEASE-11 restore: ${fe11Cases} cases passed`);
 
+const dailyRestoreTarget="06043e24-f8c9-4129-8c59-abb9957217bf";
+const dailyCurrentVersion="26996cc3-732a-4774-af02-b46842913d36";
+const dailyCurrentDeployment="62ff9408-050a-442a-afa9-884405132768";
+async function dailyRestoreCase({mutate=()=>{},env={},failAt=-1}={},expected=true,count=6){
+ const replies=[wrap({id:dailyRestoreTarget}),wrap({deployments:[dep(dailyCurrentDeployment,dailyCurrentVersion)]}),
+  wrap({items:[{id:dailyCurrentVersion},{id:dailyRestoreTarget}]}),wrap({deployments:[dep(dailyCurrentDeployment,dailyCurrentVersion)]}),
+  wrap({id:restoreId}),wrap({deployments:[dep(restoreId,dailyRestoreTarget)]})];
+ mutate(replies);const calls=[],stdout=[],stderr=[];
+ const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),
+  CLOUDFLARE_API_TOKEN:restoreSentinel,ROLLBACK_VERSION:dailyRestoreTarget,...env},exitCode:0};
+ await runRestore(process,async(url,options)=>{const i=calls.length;calls.push({url,options});
+  if(i===failAt)throw Error(restoreSentinel);assert.ok(i<replies.length,"no retry");
+  return new Response(JSON.stringify(replies[i]),{headers:{"content-type":"application/json"}});
+ },{log:x=>stdout.push(x),error:x=>stderr.push(x)});
+ assert.equal(process.exitCode===0,expected,stderr.join("\n")); assert.equal(calls.length,count);
+ assert.ok(!JSON.stringify({stdout,stderr}).includes(restoreSentinel));
+ assert.equal(calls.filter(call=>call.options.method==="POST").length,count>=5?1:0);
+ if(count>=5){assert.ok(calls[4].url.endsWith('/deployments?force=false'));
+  assert.deepEqual(JSON.parse(calls[4].options.body).versions,[{version_id:dailyRestoreTarget,percentage:100}]);}
+ if(expected)assert.equal(JSON.parse(stdout[0]).version_id,dailyRestoreTarget);
+ else assert.equal(JSON.parse(stderr[0]).outcome,count>=5?"UNKNOWN_REQUIRES_READBACK":"NOT_ATTEMPTED");
+}
+await dailyRestoreCase();
+await dailyRestoreCase({mutate:r=>r[0].result.id=priorVersion},false,1);
+for(const index of [1,3])await dailyRestoreCase({mutate:r=>r[index].result.deployments[0].versions[0].version_id=priorVersion},false,index+1);
+await dailyRestoreCase({mutate:r=>r[2].result.items[0].id=priorVersion},false,3);
+await dailyRestoreCase({mutate:r=>r[2].result.items[1].id=priorVersion},false,3);
+await dailyRestoreCase({mutate:r=>r[5].result.deployments[0].versions[0].percentage=99},false,6);
+for(let i=0;i<6;i++)await dailyRestoreCase({failAt:i},false,i+1);
+
 // Execute the exact workflow body with fake HTTP, not a rewritten projection.
 const script = preflight.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)?.[1]
   ?.split("\n").map(line => line.slice(10)).join("\n");
