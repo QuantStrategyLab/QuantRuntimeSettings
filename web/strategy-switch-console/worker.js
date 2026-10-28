@@ -8950,35 +8950,30 @@ function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
 }
 
 async function runtimeDailyTrustedBinding(env, target, accountOptions = null) {
-  let config;
-  try {
-    config = accountOptions ? { options: accountOptions } : await loadAccountOptionsConfig(env);
-  } catch {
-    return null;
-  }
+  const config = accountOptions ? { options: accountOptions } : await loadAccountOptionsConfig(env);
   const accountKey = runtimeDailyBoundAccountKey(config?.options, target.platform);
   if (!accountKey) return null;
   if (target.platform === "longbridge") return { accountKey, fingerprint: null };
   // The payload never supplies this identity. Reuse the protected account-facts
   // contract rather than inferring a physical account from service/live labels.
-  try {
-    const bindings = await loadAccountFactsBindings(env);
-    const matches = (bindings?.bindings || []).filter(item => item.platform === target.platform
-      && item.service_name === target.service && item.account_scope === target.account_scope);
-    const option = config.options.schwab.find(item => item.key === accountKey);
-    if (matches.length !== 1 || !accountFactsOptionMatchesBinding(option, matches[0])) return null;
-    return { accountKey, sourceBindingId: matches[0].source_binding.id,
-      fingerprint: await sha256Hex(canonicalResearchTaskJson({ target, binding: matches[0] })) };
-  } catch {
-    return null;
-  }
+  const bindings = await loadAccountFactsBindings(env, { propagateReadErrors: true });
+  const matches = (bindings?.bindings || []).filter(item => item.platform === target.platform
+    && item.service_name === target.service && item.account_scope === target.account_scope);
+  const option = config.options.schwab.find(item => item.key === accountKey);
+  if (matches.length !== 1 || !accountFactsOptionMatchesBinding(option, matches[0])) return null;
+  return { accountKey, sourceBindingId: matches[0].source_binding.id,
+    fingerprint: await sha256Hex(canonicalResearchTaskJson({ target, binding: matches[0] })) };
 }
 
 async function runtimeDailyPublicBindings(env, accountOptions) {
   return Promise.all(Object.values(RUNTIME_DAILY_TARGETS).map(async target => {
-    const binding = await runtimeDailyTrustedBinding(env, target, accountOptions);
-    return { platform: target.platform, target_key: target.target_key, account_key: binding?.accountKey || null,
-      status: binding ? "bound" : "unresolved" };
+    try {
+      const binding = await runtimeDailyTrustedBinding(env, target, accountOptions);
+      return { platform: target.platform, target_key: target.target_key, account_key: binding?.accountKey || null,
+        status: binding ? "bound" : "unresolved" };
+    } catch {
+      return { platform: target.platform, target_key: target.target_key, account_key: null, status: "read_failed" };
+    }
   }));
 }
 
@@ -9100,7 +9095,9 @@ async function syncRuntimeDailyResponse(request, env) {
   }
   const projection = normalizeRuntimeDailyProjection(raw);
   const target = runtimeDailyTarget(projection.platform);
-  const binding = await runtimeDailyTrustedBinding(env, target);
+  let binding;
+  try { binding = await runtimeDailyTrustedBinding(env, target); }
+  catch { return json({ ok: false, error: "runtime_daily_read_failed" }, 503); }
   if (!binding) return runtimeDailyUnattributedResponse();
   if (target.platform === "schwab") {
     // Reuse the existing protected source_binding.id, not a new identity or a
@@ -9184,7 +9181,9 @@ async function runtimeDailyResponse(request, env, url) {
   const includeHistory = historyOptions[0] !== "false";
   const businessDate = runtimeDailyCalendarDate(url.searchParams.get("date"));
   if (!businessDate || businessDate > runtimeDailyToday()) return json({ ok: false, error: "invalid_runtime_daily_date" }, 400);
-  const binding = await runtimeDailyTrustedBinding(env, target);
+  let binding;
+  try { binding = await runtimeDailyTrustedBinding(env, target); }
+  catch { return json({ ok: false, error: "runtime_daily_read_failed" }, 503); }
   if (!binding || (accounts.length && accounts[0] !== binding.accountKey)) return runtimeDailyUnattributedResponse();
   const accountKey = binding.accountKey;
   let stored;
@@ -11043,7 +11042,10 @@ async function runtimeCycleHealthSourceResponse(request, env) {
 }
 
 async function loadAccountFactsBindings(env, { propagateReadErrors = false } = {}) {
-  if (!hasConfigStore(env)) return null;
+  if (!hasConfigStore(env)) {
+    if (propagateReadErrors) throw new Error("account_facts_bindings_store_unavailable");
+    return null;
+  }
   let raw;
   try {
     raw = await readConfigJson(env, ACCOUNT_FACTS_BINDINGS_KEY);

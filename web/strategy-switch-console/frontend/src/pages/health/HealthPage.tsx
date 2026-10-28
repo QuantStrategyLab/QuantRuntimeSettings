@@ -343,7 +343,9 @@ export default function HealthPage() {
         {(accounts.phase === "loading" || dailyBindings.phase === "loading") && <Skeleton height={160} />}
         {accounts.phase === "error" && <ErrorState onRetry={accounts.reload} />}
         {dailyBindings.phase === "error" && <ErrorState onRetry={dailyBindings.reload} />}
-        {accounts.phase === "ready" && dailyBindings.phase === "ready" && (
+        {dailyBindings.phase === "ready" && dailyBindings.data.some(binding => binding.status === "read_failed") && <p role="alert">{t("state.read_failed")}</p>}
+        {accounts.phase === "ready" && dailyBindings.phase === "ready"
+          && (gridAccounts.length > 0 || !dailyBindings.data.some(binding => binding.status === "read_failed")) && (
           <RunGrid
             accounts={gridAccounts}
             epoch={epoch}

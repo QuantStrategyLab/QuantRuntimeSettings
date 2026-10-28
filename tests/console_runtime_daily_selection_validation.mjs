@@ -14,4 +14,5 @@ assert.deepEqual(boundDailyAccounts(accounts, [{ ...binding, account_key: null }
 assert.deepEqual(boundDailyAccounts(accounts, [{ ...binding, target_key: "" }]), []);
 assert.deepEqual(boundDailyAccounts(accounts, [binding, binding]), [], "ambiguous ownership must not trigger reads");
 assert.deepEqual(boundDailyAccounts(accounts, [binding, { ...binding, platform: "synthetic-b" }]), accounts.slice(0, 2), "account aliases are scoped by platform");
+assert.deepEqual(boundDailyAccounts(accounts, [binding, { ...binding, account_key: null, status: "read_failed" }, { ...binding, platform: "synthetic-b" }]), [accounts[1]], "failure blocks that platform without hiding other platforms");
 console.log("console_runtime_daily_selection_validation: PASS");

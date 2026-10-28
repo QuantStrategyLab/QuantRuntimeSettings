@@ -165,11 +165,11 @@ const pr764Source = "20dad166be317dd0d57e492ed06e56dfb82b7aef";
 const pr764Tree = "7db7dbd1b1749b42187dbc1c9658669fa426ffa6";
 const pr764Blob = "de87e1c1c6b62fa94bd514c8936a4ec32e14c0e4";
 const pr764Build = "96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6";
-const approved = "795798f9a4ea629e9978d50939f385d9328c5713";
-const approvedTree = "983e0ac8b1cb546e6e0148fda4eb7ab5b1075662";
-const frontend = "4f3f9030c26bd44d4bbfb935f60d695ce79b4401";
-const frontendTree = "6e9b7190f7cd5fbf2e3a8315fd68d20760030790";
-const frontendBlob = "232b95dd4e3f69b439fed90c6f2214232ff66807";
+const approved = "9722414a99298cd7079a88eb8e3e703d50e986de";
+const approvedTree = "9e2c9f2fb840d5b74401b32e1e593c4e41b62b4a";
+const frontend = "9636363371c6fe2a14a0f8e3830d56dd4b9902d9";
+const frontendTree = "92d6dd1bccb68f5659d0b3f37b50b68f4d7a714b";
+const frontendBlob = "c73e59a6fb22ab612251d331bdd4db5d9ae68b7a";
 // Exercise the real release graph as well as the simulated shell below. A
 // copied patch can match every frozen tree while its source is not yet adopted.
 for (const source of [approved, frontend]) {
@@ -427,7 +427,7 @@ async function releaseCase({pr764=false,inheritVersion=priorVersion,inheritedPre
    assert.deepEqual(m.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name})));
    assert.deepEqual(Object.keys(m).sort(),["main_module","bindings","compatibility_date","compatibility_flags","usage_model","limits","annotations"].sort());
    assert.ok(!JSON.stringify(m).includes(privateRelease));assert.ok(!JSON.stringify(m).includes("d".repeat(32)),"Environment namespace must not rebind existing KV");assert.equal(options.headers["Content-Type"],undefined);}
-  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend 795798f9 and frontend 4f3f9030; retained configuration"}});
+  if(i===8)assert.deepEqual(JSON.parse(options.body),{strategy:"percentage",versions:[{version_id:newVersion,percentage:100}],annotations:{"workers/message":pr764?"Reviewed PR764 full source; retained configuration":"Reviewed website backend 9722414a and frontend 96363633; retained configuration"}});
  }
  if(expected){
   if(pr764){const h=JSON.parse(stdout[0]);assert.equal(h.status,"pr764_configuration_verified");

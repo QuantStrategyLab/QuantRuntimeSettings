@@ -70,6 +70,13 @@ const health = (runtime, snapshot, selection = paperSelection) => overviewRuntim
 try {
   saveOptions(options);
   assert.equal(runtimeDailySelectionEligible(paperSelection), true);
+  const failureBindings = [{ platform: "longbridge", target_key: RUNTIME_DAILY_TARGET.target_key, account_key: null, status: "read_failed" }];
+  const failedSelection = { ...paperSelection, dailyBinding: runtimeDailySelectionBinding(options, "longbridge", paper.key, failureBindings) };
+  assert.equal(failedSelection.dailyBinding, "read_failed");
+  assert.equal(runtimeDailySelectionEligible(failedSelection), false);
+  assert.equal(presentRuntimeDaily(null, failedSelection).statusLabel, "读取失败");
+  assert.equal(health(runtimeFor("longbridge"), null, failedSelection).detail, "周期记录绑定读取失败");
+  assert.equal(runtimeDailySelectionBinding(options, "longbridge", live.key, failureBindings), "not_applicable");
   assert.equal(runtimeDailySelectionEligible(liveSelection), false, "same platform does not bind live accounts to PAPER daily");
   assert.equal(runtimeDailySelectionBinding({ longbridge: [{ ...live, account_scope: "paper" }] }, "longbridge", live.key), "not_applicable", "scope alone is not the source binding");
   assert.equal(runtimeDailySelectionBinding({ longbridge: [{ ...paper, account_scope: "PAPER" }] }, "longbridge", paper.key), "not_applicable", "scope is exact, not inferred from a name or lane");
@@ -223,8 +230,9 @@ try {
     ["account_facts_bindings", JSON.stringify({ schema_version: "qsl_account_facts_bindings.v1", bindings: [protectedBinding] })],
   ]);
   const localWrites = [];
+  let failingKey = null;
   const localEnv = { ...env, STRATEGY_SWITCH_CONFIG: {
-    async get(key) { return localStore.get(key) ?? null; }, async put(key, value) { localWrites.push(key); localStore.set(key, value); },
+    async get(key) { if (key === failingKey) throw Error("synthetic storage failure"); return localStore.get(key) ?? null; }, async put(key, value) { localWrites.push(key); localStore.set(key, value); },
   } };
   const sourceBody = fixture.cases[0].projection;
   const sourceKey = `runtime_daily:${sourceBody.records[0].target_key}:2026-10-06`;
@@ -372,10 +380,33 @@ try {
       assert.equal((await send(sourceBody)).status, 409); assert.equal((await readDaily()).status, 409);
     }
     localStore.set("account_facts_bindings", "malformed");
-    assert.equal((await readDaily()).status, 409);
-    const config = await readPath("/api/config"); assert.equal(config.status, 200, "bad daily binding cannot break account/strategy configuration");
-    assert.equal((await config.json()).runtimeDailyBindings.find(item => item.platform === "schwab").status, "unresolved");
+    assert.equal((await readDaily()).status, 503);
+    const config = await readPath("/api/config"); assert.equal(config.status, 200);
+    assert.equal((await config.json()).runtimeDailyBindings.find(item => item.platform === "schwab").status, "read_failed");
     saveBinding();
+    failingKey = "account_facts_bindings";
+    assert.equal((await readDaily()).status, 503);
+    const failedConfig = await (await readPath("/api/config")).json();
+    assert.equal(failedConfig.runtimeDailyBindings.find(item => item.platform === "schwab").status, "read_failed");
+    const failedSummary = await (await readPath("/api/runtime/today")).json();
+    assert.equal(failedSummary.status, "read_failed");
+    assert.equal(failedSummary.accounts.find(item => item.platform === "schwab").status, "read_failed");
+    assert.notEqual(failedSummary.accounts.find(item => item.platform === "longbridge").status, "read_failed");
+    failingKey = "account_options";
+    const failedDirectory = await readPath("/api/runtime/today");
+    assert.equal(failedDirectory.status, 503);
+    assert.equal((await failedDirectory.json()).status, "read_failed");
+    assert.equal((await readDaily()).status, 503);
+    failingKey = null;
+    const savedStore = localEnv.STRATEGY_SWITCH_CONFIG;
+    localEnv.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON = JSON.stringify({ longbridge: [paper], schwab: [schwab] });
+    delete localEnv.STRATEGY_SWITCH_CONFIG;
+    const noStoreConfig = await (await readPath("/api/config")).json();
+    assert.equal(noStoreConfig.runtimeDailyBindings.find(item => item.platform === "schwab").status, "read_failed");
+    const noStoreSummary = await (await readPath("/api/runtime/today")).json();
+    assert.equal(noStoreSummary.accounts.find(item => item.platform === "schwab").status, "read_failed");
+    localEnv.STRATEGY_SWITCH_CONFIG = savedStore;
+    delete localEnv.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON;
     for (const items of [[{ ...schwab, account_scope: undefined }], [{ ...schwab, account_scope: "LIVE" }], [schwab, { ...schwab, key: "other", target_name: "other", deployment_selector: "other" }]]) {
       saveOptions(items); assert.equal((await send(sourceBody)).status, 409); assert.equal((await readDaily()).status, 409);
     }

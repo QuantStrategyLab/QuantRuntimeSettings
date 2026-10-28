@@ -863,7 +863,7 @@ const RUNTIME_DAILY_STATUS_LABELS: Record<string, string> = {
 
 export const RUNTIME_DAILY_PLATFORM = RUNTIME_DAILY_TARGET.platform;
 
-export type RuntimeDailyBinding = "bound" | "not_applicable" | "unresolved";
+export type RuntimeDailyBinding = "bound" | "not_applicable" | "unresolved" | "read_failed";
 
 export type RuntimeDailyTargetDescriptor = {
   platform: string;
@@ -953,6 +953,8 @@ export function presentRuntimeDaily(
   if (!selection || typeof selection.accountKey !== "string" || !selection.accountKey) return empty;
   // Eligibility is the unique configured source binding, not a platform or lane guess.
   if (!runtimeDailySelectionEligible(selection)) {
+    if (selection.dailyBinding === "read_failed") return { ...empty, statusLabel: "读取失败",
+      statusDetails: ["周期记录绑定读取失败"], fillsLabel: "暂无数据" };
     const unresolved = selection.dailyBinding !== "not_applicable" || typeof selection.platform !== "string" || !selection.platform;
     return {
       ...empty,
@@ -1141,6 +1143,7 @@ export function overviewRuntimeHealth(
   // fail closed when dailyBinding itself is missing from the selection.
   const dailyTarget = selectionRuntimeDailyTarget(selection)
     || (typeof selection.platform === "string" ? runtimeDailyTarget(selection.platform) : null);
+  if (dailyTarget && selection.dailyBinding === "read_failed") return dailyIssue("周期记录绑定读取失败");
   if (dailyTarget && selection.dailyBinding !== "bound" && selection.dailyBinding !== "not_applicable") return dailyIssue("周期记录目标绑定未确认");
   // Each account owns its lifecycle cadence via the bound target. Do not require
   // another account's daily feed, and never infer a due time from freshness TTL.
