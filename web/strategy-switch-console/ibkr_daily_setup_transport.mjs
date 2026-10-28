@@ -72,7 +72,8 @@ async function latest() {
 }
 async function readVersion(id) {
   if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(id)) throw Error('version_invalid');
-  const [meta,withModules]=await Promise.all([request(`${scriptBase}/versions/${id}`),request(`${betaBase}/versions/${id}?include=modules`,{limit:moduleResponseLimit})]);
+  const meta=await request(`${scriptBase}/versions/${id}`);
+  const withModules=await request(`${betaBase}/versions/${id}?include=modules`,{limit:moduleResponseLimit});
   const modules=withModules?.modules;
   if (meta?.id!==id || withModules?.id!==id || !Array.isArray(modules) || modules.length!==1
       || modules[0]?.name!=='worker.js' || modules[0]?.content_type!=='application/javascript+module'
@@ -113,7 +114,9 @@ function noWriters() {
   }
 }
 async function configuration() {
-  const [options,bindings,registryRaw]=await Promise.all([kvRead('account_options'),kvRead('account_facts_bindings'),kvRead('runtime_daily_bindings')]);
+  const options=await kvRead('account_options');
+  const bindings=await kvRead('account_facts_bindings');
+  const registryRaw=await kvRead('runtime_daily_bindings');
   if (options===null || bindings===null) throw Error('binding_missing');
   return {options:JSON.parse(options),bindings:JSON.parse(bindings),registryRaw,
     registry:registryRaw===null?{schema_version:'qsl_runtime_daily_bindings.v1',bindings:[]}:JSON.parse(registryRaw)};
