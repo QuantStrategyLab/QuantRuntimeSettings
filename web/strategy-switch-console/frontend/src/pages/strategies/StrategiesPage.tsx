@@ -46,15 +46,11 @@ function HealthValue({ strategy }: { strategy: Strategy }) {
 function AccountExecution({ accounts }: { accounts: Strategy["configured_accounts"] }) {
   const t = useT();
   const names = useDisplayNames();
-  const known = accounts.filter(account => {
-    const value = account.execution_evidence?.value;
-    return Boolean(value) && value !== "unknown";
-  });
-  if (known.length === 0) return null;
+  if (accounts.length === 0) return null;
   return (
     <div className="strategy-execution">
       <div className="strategy-execution-title">{t("strategies.account_execution")}</div>
-      {known.map(account => {
+      {accounts.map(account => {
         return (
           <div className="strategy-execution-account" key={accountKey(account)}>
             <span>{names.platform(account.platform)} · {names.account(account.account_alias, account.platform)}</span>
@@ -70,10 +66,8 @@ function StrategyCard({ strategy, assignmentKnown = true }: { strategy: Strategy
   const t = useT();
   const names = useDisplayNames();
   const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.map(names.lane).join(" · ") : t("common.na");
-  const hasExecution = strategy.configured_accounts.some(account => {
-    const value = account.execution_evidence?.value;
-    return Boolean(value) && value !== "unknown";
-  });
+  const hasUnknownExecution = strategy.configured_accounts.some(account =>
+    !account.execution_evidence?.value || account.execution_evidence.value === "unknown");
   return (
     <article className="card strategy-card">
       <div className="strategy-card-head">
@@ -108,9 +102,9 @@ function StrategyCard({ strategy, assignmentKnown = true }: { strategy: Strategy
           </div>
         )}
       </dl>
-      {hasExecution && (
+      {strategy.configured_accounts.length > 0 && (
         <details className="strategy-details">
-          <summary>{t("strategies.details")}</summary>
+          <summary>{t("strategies.details")}{hasUnknownExecution ? ` · ${t("strategies.execution.unknown")}` : ""}</summary>
           <div className="strategy-details-body">
             <AccountExecution accounts={strategy.configured_accounts} />
           </div>

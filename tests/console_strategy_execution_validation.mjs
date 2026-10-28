@@ -111,12 +111,15 @@ try {
     for (const execution_mode of ["paper", "live", "dry_run"]) {
       const legacy = ui.render(language, card({ account_alias: account.key, platform: account.platform,
         execution_mode, dry_run_only: false, live_status: "configured_live", mode_source: "STRATEGY_PROFILE" }));
-      assert.ok(!legacy.includes('class="strategy-execution"'), "inferred fields without evidence cannot produce a mode block");
+      assert.ok(legacy.includes(labels.unknown), "legacy fields without evidence remain unknown");
       assert.ok(!legacy.includes("badge-warn"));
     }
     const unknown = ui.render(language, card({ account_alias: account.key, platform: account.platform }));
-    assert.ok(!unknown.includes('class="strategy-execution"'), "incomplete responses cannot produce an observed mode block");
+    assert.ok(unknown.includes(labels.unknown), "missing evidence is visible as unknown");
     assert.ok(!unknown.includes(labels.live));
+    const failed = ui.render(language, card({ account_alias: account.key, platform: account.platform,
+      execution_evidence: { value: "unknown", status: "read_failed", reason_codes: [] } }));
+    assert.ok(failed.includes(language === "zh" ? "配置读取失败" : "Configuration read failed"), "read failure remains distinct");
     const dry = ui.render(language, card(await summarize({ execution_mode: "live", dry_run_only: true })));
     assert.ok(dry.includes(labels.dry));
     assert.ok(!dry.includes("badge-warn"));
