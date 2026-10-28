@@ -6,7 +6,6 @@ export const zh: Record<string, string> = {
   "overview.runtime_disabled": "已停用",
   "overview.runtime_config_note": "自动运行显示的是配置状态，不代表今日运行结果。",
   "overview.mixed_currency_short": "多币种",
-  "overview.quick_links": "快捷入口",
 };
 export const en: Record<string, string> = {
   "overview.asset_summary": "Asset summary",
@@ -15,5 +14,4 @@ export const en: Record<string, string> = {
   "overview.runtime_disabled": "Stopped",
   "overview.runtime_config_note": "Automatic runs show configuration, not today's run result.",
   "overview.mixed_currency_short": "Multiple currencies",
-  "overview.quick_links": "Quick links",
 };
