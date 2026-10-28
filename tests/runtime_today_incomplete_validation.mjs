@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { runStatus } from '../web/strategy-switch-console/application/console_api/run_status.js';
 import { todaySummary } from '../web/strategy-switch-console/application/console_api/operations.js';
 const now=Date.parse('2026-10-16T18:00:00Z');
 const account={platform:'ibkr',key:'synthetic'};
@@ -23,4 +24,6 @@ for(const extra of [{},{read_error_count:2,read_error_codes:['coverage_unconfirm
  row=await check(extra,'unknown'); assert.deepEqual(row.read_error_codes,extra.read_error_count===0?[]:null);assert.ok(!JSON.stringify(row).includes('private-error-sentinel'));
 }
 for(const state of ['failed','blocked']) {row=await check({read_error_count:1,read_error_codes:['coverage_unconfirmed'],record:{...base.record,status:state}},state);}
+assert.equal(runStatus({status:'partial',activity:'read_incomplete',runs:[],read_error_count:2,
+ read_error_codes:['list_failed','unrecognized']}),'unknown','an unknown code makes mixed diagnostics unknown');
 console.log('runtime today incomplete: coverage, read failures, unknown and execution priority passed');

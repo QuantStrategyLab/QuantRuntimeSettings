@@ -13,9 +13,10 @@ export function runStatus(account) {
     const codes = account.read_error_codes;
     if (!Number.isSafeInteger(account.read_error_count) || account.read_error_count < 1
       || !Array.isArray(codes) || codes.length !== account.read_error_count) return "unknown";
-    if (codes.some(code => ["report_read_error", "read_failed", "list_failed", "source_read_error"].includes(code))) return "read_failed";
-    return codes.every(code => ["coverage_unconfirmed", "report_rejected", "read_truncated", "listing_truncated"].includes(code))
-      ? "incomplete" : "unknown";
+    const failed = ["report_read_error", "read_failed", "list_failed", "source_read_error"];
+    const partial = ["coverage_unconfirmed", "report_rejected", "read_truncated", "listing_truncated"];
+    if (!codes.every(code => failed.includes(code) || partial.includes(code))) return "unknown";
+    return codes.some(code => failed.includes(code)) ? "read_failed" : "incomplete";
   }
   if (["not_due", "market_closed", "outside_window", "within_grace"].includes(activity) && !runs.length) return "not_run";
   if (account.completeness === "complete" && ["no_submission", "no_signal", "no_rebalance", "filled"].includes(activity)
