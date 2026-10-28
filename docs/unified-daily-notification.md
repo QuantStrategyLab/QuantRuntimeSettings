@@ -18,6 +18,11 @@ on a later calendar day is expired, not relabelled as a new report. Only the
 Cloud Run invoker identity authenticates a request; Scheduler headers alone
 are not authentication.
 
+The approved slots are the 07:00 and 07:30 minutes. RFC3339 seconds and fractional
+seconds within those minutes are accepted and retained in the original scheduled
+timestamp; other minutes and future timestamps remain invalid. Rejected requests
+log a fixed reason code at error severity without recording header values.
+
 The runtime reads one explicitly bound producer object per target, without a
 bucket listing, GitHub token, broker call, AI task or console request. It reuses
 the existing aggregator, event validation, labels and compact renderer. A
