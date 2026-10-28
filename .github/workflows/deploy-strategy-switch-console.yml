@@ -18,6 +18,11 @@ on:
         required: true
         type: boolean
         default: false
+      diagnose_restore_target:
+        description: "Read fixed restore target response metadata during read-only preflight."
+        required: true
+        type: boolean
+        default: false
       skip_binance_receiver_checks:
         description: "Skip only Binance readiness GETs and receiver-credential POST; retain all other checks."
         required: true
@@ -325,6 +330,7 @@ jobs:
 
 
       - name: Diagnose fixed restore target response metadata
+        if: inputs.diagnose_restore_target
         run: |
           node --input-type=module <<'JS'
           const result = { status: null, content_type: null, content_encoding: null, declared_length: null,
