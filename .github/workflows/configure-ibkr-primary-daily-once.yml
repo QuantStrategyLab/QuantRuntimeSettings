@@ -1,0 +1,44 @@
+name: Configure IBKR primary daily once
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Read-only preflight or execute the reviewed one-time setup
+        required: true
+        type: choice
+        default: preflight
+        options:
+          - preflight
+          - execute
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
+      RUNTIME_SETTINGS_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
+      DAILY_SETUP_MODE: ${{ inputs.mode }}
+    steps:
+      - name: Require the first execution attempt
+        run: test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Configure the fixed primary target once
+        run: node web/strategy-switch-console/ibkr_daily_setup_transport.mjs
