@@ -212,17 +212,23 @@ export async function performanceResponse(request, env, deps) {
       const currentCurrencies = (fact.balances || []).map((b) => b.currency);
       if (!currentCurrencies.length && !failed.includes(option.key)) failed.push(option.key);
       let historicalCurrencies = [];
+      let firstHistory = null;
+      const firstCurrency = currentCurrencies[0];
       try {
-        const response = await deps.history(makeRequest("/api/account-facts/history", {
-          platform: option.platform, account_key: option.key, projection: "currencies",
-        }), env);
+        const params = firstCurrency
+          ? { platform: option.platform, account_key: option.key, currency: firstCurrency, include_currencies: "true" }
+          : { platform: option.platform, account_key: option.key, projection: "currencies" };
+        const response = await deps.history(makeRequest("/api/account-facts/history", params), env);
         if (!response.ok) throw Error("history_currencies_unavailable");
         const body = await response.json();
-        if (body.ok !== true || body.platform !== option.platform || body.account_key !== option.key
-            || body.projection !== "currencies" || !Array.isArray(body.currencies)
+        if (body.platform !== option.platform || body.account_key !== option.key
+            || (!firstCurrency && (body.ok !== true || body.projection !== "currencies"))
+            || (firstCurrency && (body.identity_mismatch || body.series?.currency !== firstCurrency))
+            || !Array.isArray(body.currencies)
             || body.currencies.some(currency => typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency))
             || new Set(body.currencies).size !== body.currencies.length) throw Error("history_currencies_unavailable");
         historicalCurrencies = body.currencies;
+        if (firstCurrency) firstHistory = body;
       } catch {
         if (!readFailures.includes(option.key)) readFailures.push(option.key);
         if (!failed.includes(option.key)) failed.push(option.key);
@@ -232,21 +238,22 @@ export async function performanceResponse(request, env, deps) {
       for (const currency of currencies) {
         const member = { id: `${option.platform}:${option.key}:${currency}`, currency, points: [] };
         accountHistories.push(member);
-        const response = await deps.history(
-          makeRequest("/api/account-facts/history", {
-            platform: option.platform,
-            account_key: option.key,
-            currency,
-          }),
-          env,
-        );
-        if (!response.ok) {
+        const response = currency === firstCurrency && firstHistory
+          ? null : await deps.history(
+            makeRequest("/api/account-facts/history", {
+              platform: option.platform,
+              account_key: option.key,
+              currency,
+            }),
+            env,
+          );
+        if (response && !response.ok) {
           if (!readFailures.includes(option.key)) readFailures.push(option.key);
           unreadableHistoryCurrencies.add(currency);
           if (!failed.includes(option.key)) failed.push(option.key);
           continue;
         }
-        const body = await response.json();
+        const body = firstHistory && currency === firstCurrency ? firstHistory : await response.json();
         truncated ||= body.series?.truncated === true;
         if (
           body.identity_mismatch ||

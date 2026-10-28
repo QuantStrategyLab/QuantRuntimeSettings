@@ -184,6 +184,12 @@ try {
   response = await worker.fetch(new Request(currenciesUrl, { headers: { Cookie: `qsl_switch_session=${cookie}` } }), env);
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).currencies, ["HKD", "USD"], "actual trusted historic currencies are returned");
+  const combinedUrl = `https://synthetic.example/api/account-facts/history?platform=longbridge&account_key=${first.option.key}&currency=USD&include_currencies=true`;
+  response = await worker.fetch(new Request(combinedUrl, { headers: { Cookie: `qsl_switch_session=${cookie}` } }), env);
+  const combined = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(combined.currencies, ["HKD", "USD"]);
+  assert.ok(combined.series.points.some(point => point.observation_date === old.observation_date));
   response = await worker.fetch(new Request(`https://synthetic.example/api/account-facts/history?platform=longbridge&account_key=${first.option.key}&currency=USD`,
     { headers: { Cookie: `qsl_switch_session=${cookie}` } }), env);
   assert.equal(response.status, 200);
