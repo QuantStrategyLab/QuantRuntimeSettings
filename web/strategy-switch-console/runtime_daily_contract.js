@@ -46,7 +46,7 @@ export function runtimeDailyTargetKey(service, strategy_profile, account_scope) 
 export function parseRuntimeDailyTargetKey(target_key, platform) {
   if (typeof target_key !== "string" || !target_key || typeof platform !== "string" || !platform) return null;
   const parts = target_key.split("|");
-  if (parts.length !== 3 || parts.some((part) => !part)) return null;
+  if ((parts.length !== 3 && !(platform === "ibkr" && parts.length === 4 && /^[a-f0-9]{32}$/.test(parts[3]))) || parts.some((part) => !part)) return null;
   const [service, strategy_profile, account_scope] = parts;
   return freezeTarget({ platform, service, strategy_profile, account_scope, target_key });
 }
@@ -174,7 +174,18 @@ function dailyCandidateWithoutTarget(accountOptions, platform, accountKey) {
 
 /** @returns {"bound" | "unresolved" | "not_applicable"} */
 export function runtimeDailySelectionBinding(accountOptions, platform, accountKey, trustedBindings = []) {
+  if (platform === "ibkr" && Array.isArray(trustedBindings)) {
+    if (trustedBindings.some(item => item?.platform === platform && item?.status === "read_failed")) return "read_failed";
+    const matches = trustedBindings.filter(item => item?.platform === platform && item?.account_key === accountKey);
+    if (!matches.length) return "not_applicable";
+    const target = matches.length === 1 && parseRuntimeDailyTargetKey(matches[0].target_key, platform);
+    const option = accountOptionForKey(accountOptions, platform, accountKey);
+    return target && matches[0].status === "bound" && option?.service_name === target.service && option?.account_scope === target.account_scope
+      ? "bound" : "unresolved";
+  }
   const target = resolveRuntimeDailyTarget({ platform, accountKey, accountOptions, trustedBindings });
+  if ((target || dailyCandidateWithoutTarget(accountOptions, platform, accountKey))
+    && Array.isArray(trustedBindings) && trustedBindings.some(item => item?.platform === platform && item?.status === "read_failed")) return "read_failed";
   if (!target) {
     return dailyCandidateWithoutTarget(accountOptions, platform, accountKey) ? "unresolved" : "not_applicable";
   }
