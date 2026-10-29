@@ -13,6 +13,12 @@ on:
         required: true
         type: boolean
         default: false
+      private_release_check:
+        description: "Read the release baseline or candidate without publishing deployment metadata."
+        required: true
+        type: choice
+        default: "off"
+        options: ["off", "baseline", "candidate"]
       read_only_preflight:
         description: "Read deployment/version metadata only. Do not deploy or synchronize anything."
         required: true
@@ -83,6 +89,8 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      PLATFORM_CONTROL_EXPECTED_VERSION: ${{ secrets.PLATFORM_CONTROL_EXPECTED_VERSION }}
+      PRIVATE_RELEASE_CHECK: ${{ inputs.private_release_check }}
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -122,6 +130,7 @@ jobs:
             for (const key of keys) if (Object.hasOwn(value, key)) fields[key] = shape(value[key]);
             return { type, fields, other_key_count: Math.min(Object.keys(value).length - Object.keys(fields).length, 11) };
           };
+          const privateCheck = process.env.PRIVATE_RELEASE_CHECK || 'off';
           let stage = 'configuration';
           let httpStatus = null;
           let checkpoint = 'configuration';
@@ -133,7 +142,7 @@ jobs:
             const worker = 'qsl-strategy-switch-console';
             const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${worker}`;
             async function read(endpoint) {
-              stage = endpoint;
+              stage = privateCheck !== 'off' && endpoint.startsWith('versions/') ? 'version' : endpoint;
               httpStatus = null;
               checkpoint = 'request';
               responseShape = {};
@@ -215,7 +224,35 @@ jobs:
             });
             checkpoint = 'version_duplicate';
             distinct(versions.map(item => item.id));
-            console.log(JSON.stringify({
+            if (privateCheck !== 'off') {
+              const expected = uuid(process.env.PLATFORM_CONTROL_EXPECTED_VERSION);
+              const active = deployments[0].versions;
+              if (active.length !== 1 || active[0].percentage !== 100) fail();
+              const activeVersion = active[0].version_id;
+              if (privateCheck === 'baseline') {
+                const matched = activeVersion === expected;
+                const current = await read(`versions/${activeVersion}`);
+                const markerReadable = typeof current?.metadata?.annotations?.['workers/message'] === 'string';
+                console.log(JSON.stringify({ ok: matched, read_only: true, matched, marker_readable: markerReadable, percentage: 100 }));
+                if (!matched) fail();
+              } else if (privateCheck === 'candidate') {
+                const current = await read(`versions/${activeVersion}`);
+                const baseline = await read(`versions/${expected}`);
+                if (current?.id !== activeVersion || baseline?.id !== expected) fail();
+                const marker = current?.metadata?.annotations?.['workers/message'] === 'Reviewed runtime control candidate; retained configuration';
+                const a = baseline.resources, b = current.resources;
+                if (!a || !b || !Array.isArray(a.bindings) || !Array.isArray(b.bindings) || !a.script || !b.script || !a.script_runtime || !b.script_runtime) fail();
+                const canonical = x => x === null || typeof x !== 'object' ? JSON.stringify(x) : Array.isArray(x)
+                  ? `[${x.map(canonical).join(',')}]` : `{${Object.keys(x).sort().map(k => `${JSON.stringify(k)}:${canonical(x[k])}`).join(',')}}`;
+                const comparable = x => ({ bindings: [...x.bindings].sort((m,n) => m.name.localeCompare(n.name)), script_runtime: x.script_runtime,
+                  handlers: x.script.handlers, named_handlers: x.script.named_handlers === undefined ? null : [...x.script.named_handlers].sort((m,n) => m.name.localeCompare(n.name)), placement_mode: x.script.placement_mode ?? null });
+                const bindingsEqual = canonical(comparable(a).bindings) === canonical(comparable(b).bindings);
+                const runtimeEqual = canonical(comparable(a)) === canonical(comparable(b));
+                const matched = marker && versions[0]?.id === activeVersion && activeVersion !== expected;
+                console.log(JSON.stringify({ ok: matched && runtimeEqual, read_only: true, matched, bindings_equal: bindingsEqual, runtime_equal: runtimeEqual, percentage: 100 }));
+                if (!matched || !runtimeEqual) fail();
+              } else fail();
+            } else console.log(JSON.stringify({
               ok: true, worker, read_only: true, active: deployments[0],
               recent_deployments: deployments, recent_versions: versions,
               active_versions_in_first_version_page: deployments[0].versions.every(active => versions.some(item => item.id === active.version_id)),
@@ -461,7 +498,7 @@ jobs:
 
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && !inputs.rollback_to_pre_release
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && !inputs.rollback_to_pre_release && inputs.private_release_check == 'off'
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 25
@@ -1451,16 +1488,19 @@ jobs:
               if (configAfter !== configBefore) fail('post_release_configuration_hash_mismatch');
               // Version metadata hides secret values. Hash all comparable bindings/runtime/
               // handlers/placement, never code etag or provider bookkeeping. No KV writes.
-              console.log(JSON.stringify({ status: integrated ? 'integrated_configuration_verified' : resume !== 'off' ? 'ibkr_candidate_configuration_verified' : 'pr764_configuration_verified', config_before_sha256: configBefore,
+              if (controlRuntimeCandidate) console.log(JSON.stringify({ status: 'integrated_configuration_verified', bindings_equal: true, runtime_equal: true, secret_values_read: false }));
+              else console.log(JSON.stringify({ status: integrated ? 'integrated_configuration_verified' : resume !== 'off' ? 'ibkr_candidate_configuration_verified' : 'pr764_configuration_verified', config_before_sha256: configBefore,
                 config_uploaded_sha256: configUploaded, config_after_sha256: configAfter, secret_values_read: false }));
             }
-            console.log(JSON.stringify({ status: 'frontend_release_verified', prior_version: prior, version_id: uploaded,
+            if (controlRuntimeCandidate) console.log(JSON.stringify({ status: 'frontend_release_verified', matched: true,
+              percentage: 100, bindings_equal: true, runtime_equal: true, force: false, provider_cas: false }));
+            else console.log(JSON.stringify({ status: 'frontend_release_verified', prior_version: prior, version_id: uploaded,
               deployment_id: deploymentId, percentage: 100, bindings_equal: true, runtime_equal: true,
               bundle_sha256: bundleSha256, force: false, provider_cas: false }));
             }
           } catch {
             console.error(JSON.stringify({ error: 'frontend_release_stopped', stage, checkpoint, http_status: httpStatus,
-              upload_attempted: uploadAttempted, deploy_attempted: deployAttempted, uploaded_version: uploaded,
+              upload_attempted: uploadAttempted, deploy_attempted: deployAttempted, uploaded_version: process.env.RELEASE_SOURCE_SHA === '958dd81136a890fd76ac06738eb15e63cfab3a78' ? (uploaded ? '[redacted]' : null) : uploaded,
               outcome: deployAttempted ? 'UNKNOWN_REQUIRES_READBACK' : uploadAttempted ? 'UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED' : 'NOT_ATTEMPTED', retry: false }));
             process.exitCode = 1;
           }
