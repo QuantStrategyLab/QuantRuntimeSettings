@@ -82,12 +82,14 @@ class RuntimeStopDispatchTests(unittest.TestCase):
     def test_schwab_preflight_compares_protected_service_before_write(self):
         request = {**self.request, "target_id": "schwab/synthetic-one",
                    "github": {"repository": "QuantStrategyLab/CharlesSchwabPlatform", "variable_scope": "repository"},
-                   "runtime_target": {**self.request["runtime_target"], "platform_id": "schwab"}}
+                   "runtime_target": {**self.request["runtime_target"], "platform_id": "schwab", "service_name": "charles-schwab-quant-service"}}
         workflow = "pilot-metadata-readback.yml"
         response = subprocess.CompletedProcess([], 0, json.dumps({"state": "active", "path": f".github/workflows/{workflow}"}), "")
-        with patch.object(settings, "read_stop_variables", return_value={"CLOUD_RUN_SERVICE": "synthetic-service"}),                 patch.object(settings.subprocess, "run", return_value=response):
+        with patch.object(settings, "read_stop_variables") as variables, patch.object(settings.subprocess, "run", return_value=response):
             self.assertEqual(settings.runtime_control_workflow_preflight(request), workflow)
-        with patch.object(settings, "read_stop_variables", return_value={"CLOUD_RUN_SERVICE": "synthetic-other"}),                 patch.object(settings.subprocess, "run") as api:
+            variables.assert_not_called()
+        request["runtime_target"] = {**request["runtime_target"], "service_name": "synthetic-other"}
+        with patch.object(settings.subprocess, "run") as api:
             with self.assertRaises(ValueError):
                 settings.runtime_control_workflow_preflight(request)
             api.assert_not_called()
