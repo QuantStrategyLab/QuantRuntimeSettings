@@ -79,10 +79,16 @@ export function matchExecutionDailyBinding(optionsRaw, bindingsRaw, profilesRaw,
     for (const strategy_profile of names) {
       const binding={account_scope:b.account_scope,account_selector:platform==='firstrade'?b.broker_account_id:b.account_selector,deployment_selector:b.deployment_selector,
         platform,service_name:b.service_name,source_binding_id:b.source_binding.id,strategy_profile,target_id:b.target_id};
-      if (Object.values(binding).some(v=>typeof v!=='string' || !token.test(v)) || !/^[a-f0-9]{64}$/.test(binding.source_binding_id)) continue;
-      if (counts) counts.format_pass++;
       const domain=platform==='longbridge'?'qsl.longbridge-daily-binding.v1':'qsl.firstrade-daily-binding.v1';
-      if (sha(JSON.stringify({binding,domain,nonce}))===expected) {matches.push({...binding,account_key:b.account_key});if(counts)counts.digest_matches++;}
+      const candidates=[binding];
+      // The admitted SG runtime uses the fixed broker selector and deployment scope.
+      if (platform==='longbridge' && b.account_scope==='sg' && (binding.account_selector!=='SG' || binding.deployment_selector!=='SG'))
+        candidates.push({...binding,account_selector:'SG',deployment_selector:'SG'});
+      for(const candidate of candidates) {
+        if (Object.values(candidate).some(v=>typeof v!=='string' || !token.test(v)) || !/^[a-f0-9]{64}$/.test(candidate.source_binding_id)) continue;
+        if (counts) counts.format_pass++;
+        if (sha(JSON.stringify({binding:candidate,domain,nonce}))===expected) {matches.push({...candidate,account_key:b.account_key});if(counts)counts.digest_matches++;}
+      }
     }
   }
   if (matches.length!==1) throw Error('binding_not_unique');

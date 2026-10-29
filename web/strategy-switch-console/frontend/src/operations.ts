@@ -163,7 +163,7 @@ export function accountSettingDraftBody(input: {
   if (Object.prototype.hasOwnProperty.call(input.overrides, "dca_mode")) overrides.dca_mode = input.overrides.dca_mode ?? null;
   if (Object.prototype.hasOwnProperty.call(input.overrides, "dca_base_investment_usd")) overrides.dca_base_investment_usd = input.overrides.dca_base_investment_usd ?? null;
   if (Object.prototype.hasOwnProperty.call(input.overrides, "income_layer_enabled")) overrides.income_layer_enabled = input.overrides.income_layer_enabled ?? null;
-  if (Object.prototype.hasOwnProperty.call(input.overrides, "option_overlay_enabled")) overrides.option_overlay_enabled = input.overrides.option_overlay_enabled ?? null;
+  if (input.overrides.option_overlay_enabled === null) overrides.option_overlay_enabled = null;
   if (Object.prototype.hasOwnProperty.call(input.overrides, "reserved_cash_floor")) overrides.reserved_cash_floor = input.overrides.reserved_cash_floor ?? null;
   if (Object.prototype.hasOwnProperty.call(input.overrides, "reserved_cash_ratio")) overrides.reserved_cash_ratio = input.overrides.reserved_cash_ratio ?? null;
   const body: Record<string, unknown> = {
@@ -204,7 +204,7 @@ export function buildSwitchInputs(platform: string, account: AccountOption, form
     platform_sync_workflow: "sync-cloud-run-env.yml",
     runtime_target_enabled_mode: form.runtimeMode,
     income_layer_mode: form.touched.income ? form.incomeMode : "current",
-    option_overlay_mode: form.touched.option ? form.optionMode : "current",
+    option_overlay_mode: "current",
   };
   for (const field of ["github_environment", "deployment_selector", "account_selector", "account_scope", "service_name"] as const) {
     const value = account[field]; if (typeof value === "string" && value) inputs[field] = value;
@@ -223,7 +223,6 @@ export function buildSwitchInputs(platform: string, account: AccountOption, form
       extra.INCOME_LAYER_ENABLED = "true"; extra.INCOME_LAYER_START_USD = start; extra.INCOME_LAYER_MAX_RATIO = ratio;
     }
   }
-  if (form.touched.option && config.option_overlay) inputs.option_overlay_mode = form.optionMode;
   if (config.margin_policy) inputs.cash_only_execution_mode = form.touched.cashOnly ? form.cashOnlyMode : "current";
   if (form.touched.reserve && config.reserved_cash) {
     inputs.reserved_cash_policy_mode = form.reserveMode;

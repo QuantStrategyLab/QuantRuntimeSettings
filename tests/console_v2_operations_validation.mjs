@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {__test as workerTest} from "../web/strategy-switch-console/worker.js";
 import {
   accountEnvironmentSourceDetail, accountRuntimeLinkDetail, accountSettingDraftBody, buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
   createHumanDecisionController, humanDecisionDigest, humanDecisionExpectation, matchingHumanDecisionReceipt, promotionDecisionReady, applicationRetryAllowed, buildConfirmationFingerprint, ownerDecisionBinding, recoveryBinding,
@@ -20,6 +21,11 @@ const platformSettings = { longbridge: config };
 // The helper imports the real platform registry, so this fixture exercises the actual account mapping.
 const form = defaultSwitchDraft(account, null, "longbridge");
 const inputs = buildSwitchInputs("longbridge", account, form);
+assert.equal(inputs.option_overlay_mode, "current", "legacy and retired workers both preserve the current option setting");
+assert.equal(workerTest.normalizeSwitchInputs(inputs).option_overlay_mode, "current", "actual legacy worker preserves option setting");
+const omittedOption = {...inputs}; delete omittedOption.option_overlay_mode;
+assert.ok(["enabled", "current"].includes(workerTest.normalizeSwitchInputs(omittedOption).option_overlay_mode),
+  "the legacy and retired workers use their respective known defaults");
 assert.equal(form.executionMode, "live", "execution_mode comes from account/config settings, not broker_environment=paper");
 assert.equal(inputs.execution_mode, "live");
 assert.equal(inputs.cash_only_execution_mode, "current", "untouched cash policy must preserve current instead of Worker default enabled");
@@ -285,7 +291,7 @@ const draftBody = accountSettingDraftBody({
   overrides: { income_layer_enabled: false, reserved_cash_floor: "0", option_overlay_enabled: false },
 });
 assert.equal(draftBody.overrides.income_layer_enabled, false);
-assert.equal(draftBody.overrides.option_overlay_enabled, false);
+assert.equal(Object.hasOwn(draftBody.overrides, "option_overlay_enabled"), false);
 assert.equal(draftBody.overrides.reserved_cash_floor, "0");
 const ratioDraft = accountSettingDraftBody({
   expectedDraftRevision: 4,
