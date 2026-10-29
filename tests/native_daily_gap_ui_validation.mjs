@@ -17,7 +17,7 @@ try {
     import { ReturnsCard } from './src/pages/performance/ReturnsCard';
     import { I18nProvider } from './src/i18n';
     export const render = language => renderToStaticMarkup(createElement(I18nProvider, { language },
-      createElement(ReturnsCard, { scope: 'all', range: 'ALL', epoch: 0 })));`,
+      createElement(ReturnsCard, { scope: 'all', range: 'ALL', epoch: 0, state: { phase: 'ready', data: globalThis.__gapReturns, reload() {} } })));`,
     resolveDir: root }, bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", define: { "import.meta.env": "{}" },
     plugins: [{ name: "controlled-read", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents:

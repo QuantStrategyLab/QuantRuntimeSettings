@@ -117,7 +117,6 @@ export function AccountDetail({
         <div className="accounts-detail-head">
           <h2 className="card-title">{names.account(account.account_alias, account.platform)}</h2>
           <EnvironmentBadge environment={environment} />
-          {!trustedEnvironment && !hasFactSignal && !evidenceKnown && environment && <span>{t("accounts.declaration.source")}</span>}
         </div>
         {declarationConflict && (
           <p className="accounts-inline-note error" role="alert">{t("accounts.declaration.conflict_notice")}</p>
@@ -140,7 +139,7 @@ export function AccountDetail({
           {account.platform !== "binance" && accountType && (
             <div className="accounts-summary-row">
               <span>{t("accounts.declaration.account_type")}</span>
-              <span>{t(`accounts.declaration.type.${accountType}`)}{!nativeType && <> · {t("accounts.declaration.source")}</>}</span>
+              <span>{t(`accounts.declaration.type.${accountType}`)}</span>
             </div>
           )}
         </div>
