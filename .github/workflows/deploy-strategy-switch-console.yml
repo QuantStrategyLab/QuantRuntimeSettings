@@ -516,15 +516,15 @@ jobs:
             [ "$RELEASE_SOURCE_SHA" = "aaa46a811a7cfa863f90261d516b197e5e554779" ] && [ "$frontend_mode" = true ] && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = true ] || exit 2 ;;
             *) exit 2 ;; esac
           case "$frontend_mode" in true|false) ;; *) exit 2 ;; esac
-          if [ "$RELEASE_SOURCE_SHA" = "83d00a9df302f66579f16063fe143663627b5b63" ]; then
+          if [ "$RELEASE_SOURCE_SHA" = "958dd81136a890fd76ac06738eb15e63cfab3a78" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
               && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
               && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = true ] && [ "${IBKR_CANDIDATE_RESUME:-off}" = off ] || exit 2
             [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 2
             git fetch --no-tags origin refs/heads/codex/website-platform-control-20261029
             [ "$(git rev-parse FETCH_HEAD)" = "$RELEASE_SOURCE_SHA" ] || exit 2
-            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^")" = "2b621363e0ea050dc29fb5b69b70d7be50439835" ] || exit 2
-            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "d286f07084afcbc2c3187a3f9f76a7b600961fe2" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^")" = "83d00a9df302f66579f16063fe143663627b5b63" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "12479c95b52ad4bdf2fa87d0a03db20ddcfd66ec" ] || exit 2
             [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" = "8fd428f48437676760a357bb874b553d802ef87d" ] || exit 2
             git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
             exit 0
@@ -773,7 +773,7 @@ jobs:
           cpu_candidate="974354b98ebe0cd55931baa03034d887d4fac560"
           status_candidate="68e3d4b69e706e2100f860c473ec657e9baf05ba"
           daily_candidate="4b6cbedc731d3352a9c9dbe4f57fc2b948207ef6"
-          control_runtime_candidate="83d00a9df302f66579f16063fe143663627b5b63"
+          control_runtime_candidate="958dd81136a890fd76ac06738eb15e63cfab3a78"
           if [ "$(git rev-parse HEAD)" = "$control_runtime_candidate" ]; then
             [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "8fd428f48437676760a357bb874b553d802ef87d" ] || exit 2
             [ -z "$(git diff --name-only "$control_runtime_candidate")" ] && [ -z "$(git ls-files --others --exclude-standard)" ] || exit 2
@@ -1147,7 +1147,7 @@ jobs:
             if (process.env.GITHUB_REF !== 'refs/heads/main' || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
             const pr764 = process.env.RELEASE_SOURCE_SHA === '20dad166be317dd0d57e492ed06e56dfb82b7aef';
             const ibkrDaily = process.env.RELEASE_SOURCE_SHA === 'aaa46a811a7cfa863f90261d516b197e5e554779';
-            const controlRuntimeCandidate = process.env.RELEASE_SOURCE_SHA === '83d00a9df302f66579f16063fe143663627b5b63';
+            const controlRuntimeCandidate = process.env.RELEASE_SOURCE_SHA === '958dd81136a890fd76ac06738eb15e63cfab3a78';
             const controlAdminCandidate = process.env.RELEASE_SOURCE_SHA === '5db5153ec7faf667f6ae633081081e8a2bdfabb6';
             const historyCandidate = process.env.RELEASE_SOURCE_SHA === '21829dda11bcafb1d84a6366ffd564bd3df9663f';
             const declarationCandidate = process.env.RELEASE_SOURCE_SHA === '411356d34dad4a33cbdc5bc6f028cccb72b143df';
