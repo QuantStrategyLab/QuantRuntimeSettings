@@ -76,7 +76,12 @@ def utc_now():
 
 def report_slot(headers, configuration, now):
     values = {key.lower(): value for key, value in headers.items()}
-    if values.get('x-cloudscheduler-jobname') != configuration.scheduler_job:
+    job = values.get('x-cloudscheduler-jobname')
+    if not job:
+        raise ValueError('digest_scheduler_job_missing')
+    if job == configuration.scheduler_job.rsplit('/', 1)[-1]:
+        raise ValueError('digest_scheduler_job_short_name')
+    if job != configuration.scheduler_job:
         raise ValueError('digest_scheduler_job_mismatch')
     stamp = datetime.fromisoformat(values['x-cloudscheduler-scheduletime'])
     if stamp.tzinfo is None:
@@ -178,7 +183,8 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
         report_date, day, scheduled_at, check = report_slot(headers, configuration, now())
     except (ValueError, KeyError, TypeError, AttributeError) as error:
         # Only fixed reasons leave this boundary, never header/exception values.
-        known = {'digest_scheduler_job_mismatch', 'digest_schedule_timezone_required',
+        known = {'digest_scheduler_job_missing', 'digest_scheduler_job_short_name',
+                 'digest_scheduler_job_mismatch', 'digest_schedule_timezone_required',
                  'digest_schedule_slot_invalid'}
         reason = str(error) if isinstance(error, ValueError) and str(error) in known else (
             'digest_schedule_header_missing' if isinstance(error, KeyError) else 'digest_schedule_header_invalid')

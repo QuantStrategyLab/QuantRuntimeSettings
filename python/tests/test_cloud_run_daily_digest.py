@@ -219,6 +219,9 @@ class CloudRunDigestTests(unittest.TestCase):
     def test_slot_errors_expose_only_fixed_reason_codes(self):
         private = 'private-header-value-not-for-logs'
         for headers, expected in (
+            ({'X-CloudScheduler-ScheduleTime': NOW.isoformat()}, 'digest_scheduler_job_missing'),
+            ({'X-CloudScheduler-JobName': JOB.rsplit('/', 1)[-1]},
+             'digest_scheduler_job_short_name'),
             ({'X-CloudScheduler-JobName': private}, 'digest_scheduler_job_mismatch'),
             ({'X-CloudScheduler-JobName': JOB}, 'digest_schedule_header_missing'),
             ({**HEADERS, 'X-CloudScheduler-ScheduleTime': private}, 'digest_schedule_header_invalid'),
