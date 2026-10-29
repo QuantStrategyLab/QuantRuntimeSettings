@@ -124,11 +124,11 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
   const sync = () => setTick(value => value + 1);
   const view = controller.view();
   const settings = view.settings;
+  const hasRetiredOptionDraft = Object.prototype.hasOwnProperty.call(settings?.draft?.overrides || {}, "option_overlay_enabled");
   const cashDirty = cashDraftDirty(view.draft);
   const incomeDirty = view.draft.incomeTouched === true;
-  const optionDirty = view.draft.optionTouched === true;
   const strategyDirty = view.draft.strategyTouched === true || view.draft.dcaTouched === true || view.draft.clearDca === true;
-  const draftDirty = cashDirty || incomeDirty || optionDirty || strategyDirty;
+  const draftDirty = cashDirty || incomeDirty || strategyDirty;
   const dirty = draftDirty;
   useEffect(() => { onDirty(dirty); }, [dirty, onDirty]);
   useEffect(() => {
@@ -172,7 +172,7 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
     })();
     return () => { cancelled = true; controller.abandon(op); };
   }, [row.platform, row.key, readAttempt, refreshToken, controller, onSettingsRead]);
-  const saveScoped = async (kind: "cash" | "income" | "option" | "strategy", ready: boolean) => {
+  const saveScoped = async (kind: "cash" | "income" | "strategy", ready: boolean) => {
     if (readState !== "ready" || view.saving || !ready || view.review.draft || settings?.operations?.save_draft !== true) return;
     if (kind === "strategy") {
       const ok = window.confirm(t("确认保存策略草案？仅保存草案，不会直接启用账户或改生产运行配置。"));
@@ -213,7 +213,6 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
   const selectMode = view.draft.cashMode || editor.mode;
   const cashBody = pendingDraftOverrides(view.draft, "cash");
   const incomeBody = pendingDraftOverrides(view.draft, "income");
-  const optionBody = pendingDraftOverrides(view.draft, "option");
   const strategyBody = pendingDraftOverrides(view.draft, "strategy");
   const cashSubmittable = Boolean(cashDirty && cashBody && Object.keys(cashBody).length);
   const incomeSubmittable = Boolean(incomeDirty && incomeBody && Object.keys(incomeBody).length);
@@ -238,15 +237,6 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
   };
   const currentProfile = observedProfile(settings) || "";
   const strategyChoice = strategyDirty ? (view.draft.clearStrategy ? currentProfile : view.draft.strategy) : (savedStrategy || currentProfile);
-  const savedBound = savedStrategy || currentProfile;
-  const localBound = strategyDirty ? (view.draft.clearStrategy ? observedProfile(settings) || "" : view.draft.strategy) : savedBound;
-  const strategyPending = strategyDirty && localBound !== savedBound;
-  const optionDefined = (profileId: string) => strategyOptions.some((item: { profile?: string; option_overlay_enabled?: boolean }) => item.profile === profileId && item.option_overlay_enabled === true);
-  const boundSupports = !strategyPending && settings?.operations?.save_option_draft === true && optionDefined(localBound);
-  const savedOption = settings?.draft?.overrides?.option_overlay_enabled === true ? "true" : settings?.draft?.overrides?.option_overlay_enabled === false ? "false" : "";
-  const effectiveOption = readBoolChoice(settings?.effective?.option_overlay_enabled);
-  const optionValue = optionDirty ? (view.draft.option === "clear" ? effectiveOption : view.draft.option) : (savedOption || effectiveOption);
-  const optionConcrete = optionDirty ? view.draft.option === "true" || view.draft.option === "false" : savedOption === "true" || savedOption === "false";
   const nextStrategy = strategyValue || currentProfile;
   const dcaChoice = strategyOptions.find((item: { profile?: string }) => item.profile === nextStrategy);
   const dcaSupported = dcaChoice?.dca_supported === true || (settings?.current_dca_supported === true && nextStrategy === currentProfile);
@@ -283,9 +273,7 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
     });
     sync();
   };
-  const strategyBlocked = strategyDirty && optionConcrete && !optionDefined(nextStrategy) && !(view.draft.optionTouched && view.draft.option === "clear");
-  const optionSubmittable = Boolean(optionDirty && optionBody && Object.keys(optionBody).length && (optionBody.option_overlay_enabled === null || boundSupports));
-  const strategySubmittable = Boolean(strategyDirty && strategyBody && Object.prototype.hasOwnProperty.call(strategyBody, "strategy_profile") && !strategyBlocked);
+  const strategySubmittable = Boolean(strategyDirty && strategyBody && Object.prototype.hasOwnProperty.call(strategyBody, "strategy_profile"));
   const savedCashEditor = reservedCashEditor(settings?.draft?.overrides, {});
   const effectiveMode = effectiveReservedMode(currentCash, currentRatio);
   const shownFloor = editor.mode === "inherit" ? (currentCash ?? "") : editor.floor;
@@ -323,9 +311,8 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
   const dca = dcaSettingsReadout(settings?.effective);
   const cashNotice = view.noticeGroup === "cash" && view.notice === "草案已保存";
   const incomeNotice = view.noticeGroup === "income" && view.notice === "草案已保存";
-  const optionNotice = view.noticeGroup === "option" && view.notice === "草案已保存";
   const strategyNotice = view.noticeGroup === "strategy" && view.notice === "草案已保存";
-  const otherNotice = view.notice && !cashNotice && !incomeNotice && !optionNotice && !strategyNotice && view.noticeGroup !== "risk" ? view.notice : "";
+  const otherNotice = view.notice && !cashNotice && !incomeNotice && !strategyNotice && view.noticeGroup !== "risk" ? view.notice : "";
   const reading = readState === "loading";
   const pendingProfile = typeof settings?.draft?.overrides?.strategy_profile === "string" ? settings.draft.overrides.strategy_profile.trim() : "";
   const effectiveProfile = observedProfile(settings) || "";
@@ -385,6 +372,7 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
     {readState === "refreshing" && <p className="workflow-note" role="status">{t("正在重新读取设置，显示上次读回值；草案会保留。")}</p>}
     {readState === "stale" && <div className="workflow-note" role="status"><p>{t(readError)} {t("显示上次成功读回的设置，当前状态未重新确认；未保存草案已保留。")}</p><button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button></div>}
     {reading ? null : readState === "failed" ? <p>{t(view.unavailable || "账户设置暂时读不到。")}<button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button></p> : <fieldset className="settings-fields">
+      {hasRetiredOptionDraft && <p className="section-note">{t("保存时会清除旧期权草稿，不会更改实盘配置。")}</p>}
       {draftSaveReason && <p className="section-note">{t(draftSaveReason)}{readState === "ready" && <button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button>}</p>}
       <section className="detail-group">
         <h3>{t("当前配置策略")}</h3>
@@ -420,7 +408,6 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
           {dcaMode === "smart" && <p className="section-note">{t("智能定投按既定规则调整本期金额。")}</p>}
           {dcaTouched && dcaAmount !== "" && !validDcaAmount(dcaAmount) && <p className="section-note">{t("定投金额需为正的有限数字，最多 32 个字符。")}</p>}
         </div>}
-        {strategyBlocked && <p className="section-note">{t("请先清除期权层草案，再保存这个策略草案。")}</p>}
         <div className="form-actions">
           <button type="button" className="button button-primary" disabled={!canSaveCash || !strategySubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("strategy", strategySubmittable)}>{t("保存策略草案")}</button>
           {strategyDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertStrategy(); sync(); }}>{t("取消")}</button>}
@@ -475,7 +462,6 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
         <h3>{t("附加功能")}</h3>
         <div className="setting-facts">
           <p><span>{t("收入层")}</span><strong>{layerText(settings?.effective?.income_layer_enabled)}</strong></p>
-          <p><span>{t("期权层")}</span><strong>{layerText(settings?.effective?.option_overlay_enabled)}</strong></p>
         </div>
         <label className="cash-floor-field">{t("收入层草案")}
           <select value={incomeValue} disabled={!canSaveCash} onChange={event => {
@@ -498,26 +484,6 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
         </div>
         {view.review.draft && incomeDirty && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或查看后再保存。")}</p>}
         {incomeNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
-        <label className="cash-floor-field">{t("期权层草案")}
-          <select value={optionValue} disabled={!canSaveCash} onChange={event => {
-            const next = event.target.value;
-            if ((next === "true" || next === "false") && !boundSupports) return;
-            if (!savedOption && next === effectiveOption) controller.edit({ option: "", optionTouched: false });
-            else if (next === savedOption) controller.edit({ option: savedOption, optionTouched: false });
-            else controller.edit({ option: next, optionTouched: true });
-            sync();
-          }}>
-            {!optionValue && <option value="" hidden disabled>{t("未读到配置")}</option>}
-            <option value="true" disabled={!boundSupports}>{t("开启")}</option>
-            <option value="false" disabled={!boundSupports}>{t("关闭")}</option>
-          </select>
-        </label>
-        {!boundSupports && <p className="section-note">{t(strategyPending ? "请先保存策略草案，再查看期权层支持。" : (settings?.operations?.save_option_draft_reason === "option_overlay_not_defined" || settings?.operations?.save_option_draft_reason === "admin_required" ? accountSettingsOperationReason(settings?.operations?.save_option_draft_reason) : "这项操作暂不可用。"))}</p>}
-        <div className="form-actions">
-          <button type="button" className="button button-primary" disabled={!canSaveCash || !optionSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("option", optionSubmittable)}>{t("保存期权层草案")}</button>
-          {optionDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertOption(); sync(); }}>{t("取消")}</button>}
-        </div>
-        {optionNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
         {otherNotice && <p role="status">{t(otherNotice)}</p>}
       </section>
     </fieldset>}

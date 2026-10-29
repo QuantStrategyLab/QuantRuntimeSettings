@@ -251,7 +251,6 @@ export function pendingDraftOverrides(draft: AccountSettingsDraftFields, scope: 
   const overrides: AccountSettingOverridePatch = {};
   const includeStrategy = scope === "all" || scope === "strategy";
   const includeIncome = scope === "all" || scope === "income";
-  const includeOption = scope === "all" || scope === "option";
   const includeCash = scope === "all" || scope === "cash";
   if (includeStrategy) {
     if (draft.clearDca) {
@@ -271,11 +270,6 @@ export function pendingDraftOverrides(draft: AccountSettingsDraftFields, scope: 
     if (draft.incomeTouched && draft.income === "true") overrides.income_layer_enabled = true;
     else if (draft.incomeTouched && draft.income === "false") overrides.income_layer_enabled = false;
     else if (draft.incomeTouched && draft.income === "clear") overrides.income_layer_enabled = null;
-  }
-  if (includeOption) {
-    if (draft.optionTouched && draft.option === "true") overrides.option_overlay_enabled = true;
-    else if (draft.optionTouched && draft.option === "false") overrides.option_overlay_enabled = false;
-    else if (draft.optionTouched && draft.option === "clear") overrides.option_overlay_enabled = null;
   }
   if (includeCash) {
     if (draft.cashMode === "inherit") {
@@ -483,9 +477,9 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
         if (view.settings.draft?.status === "identity_conflict" && !view.draft.acknowledge) return null;
         const scope = kind === "income" || kind === "cash" || kind === "option" || kind === "strategy" ? kind : "all";
         const overrides = pendingDraftOverrides(view.draft, scope);
-        if (overrides && kind === "strategy" && view.draft.optionTouched && view.draft.option === "clear") overrides.option_overlay_enabled = null;
         if (kind === "strategy" && !Object.prototype.hasOwnProperty.call(overrides || {}, "strategy_profile")) return null;
         if (!overrides || !Object.keys(overrides).length || !Number.isSafeInteger(view.settings.draft?.revision)) return null;
+        if (Object.prototype.hasOwnProperty.call(view.settings.draft?.overrides || {}, "option_overlay_enabled")) overrides.option_overlay_enabled = null;
         body = {
           platform: account.platform,
           key: account.key,
