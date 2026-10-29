@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace} from '../web/strategy-switch-console/ibkr_daily_setup_checks.mjs';
+import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace,selectInventoryMetadata} from '../web/strategy-switch-console/ibkr_daily_setup_checks.mjs';
 assert.equal(hasRelevantWriter([{id:1,path:'.github/workflows/publish-ibkr-primary-day-once.yml'}],'ibkr','2'),true);
 assert.equal(hasRelevantWriter([{id:1,path:'.github/workflows/publish-ibkr-primary-day-once.yml@refs/heads/main'}],'ibkr','2'),true);
 assert.equal(hasRelevantWriter([{id:2,path:'.github/workflows/configure-ibkr-primary-daily-once.yml'}],'qrs','2'),false);
@@ -18,4 +18,10 @@ const kv={name:'STRATEGY_SWITCH_CONFIG',type:'kv_namespace',namespace_id:'b'.rep
 assert.equal(matchesConfigNamespace({bindings:[kv]},'b'.repeat(32)),true);
 assert.equal(matchesConfigNamespace({bindings:[kv]},'c'.repeat(32)),false);
 assert.equal(matchesConfigNamespace({bindings:[kv,kv]},'b'.repeat(32)),false);
+const inventory={name:'CLOUD_RUN_SERVICE_TARGETS_JSON',updated_at:'2026-10-28T00:00:00Z'};
+const comparisonTime=Date.parse('2026-10-29T00:00:00Z');
+assert.equal(selectInventoryMetadata(inventory,[],comparisonTime),inventory);
+assert.equal(selectInventoryMetadata(null,[inventory],comparisonTime),inventory);
+assert.throws(()=>selectInventoryMetadata(null,[],comparisonTime),/source_changed/);
+assert.throws(()=>selectInventoryMetadata({...inventory,updated_at:'2026-10-30T00:00:00Z'},[inventory],comparisonTime),/source_changed/);
 console.log('IBKR daily setup guards: synthetic cases passed');
