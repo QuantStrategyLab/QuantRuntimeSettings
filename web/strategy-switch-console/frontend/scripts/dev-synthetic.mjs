@@ -11,11 +11,13 @@ if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new Error(
 const requests = [];
 let scenario = 'ready';
 const syntheticRisks = new Map();
+const syntheticDeclarations = new Map();
 const syntheticPendingRead = new Set();
 const syntheticSettings = key => {
   const identity = { platform:'longbridge', key, target_name:key, broker_environment:'paper', account_selector:key, deployment_selector:key, account_scope:key, service_name:'synthetic' };
   return { ok:true, adopted:false, platform:'longbridge', key, identity, draft:{status:'current',revision:2,identity,current_identity:identity,overrides:{}},
-    risk:syntheticRisks.get(key) || {revision:4,preference:'BALANCED_COMPOUNDING',scope_id:`longbridge--${key}`}, operations:{save_risk_preference:true}, no_order:true,execution_authority_granted:false };
+    declaration:syntheticDeclarations.get(key) || {status:"empty",revision:0,environment:null,account_type:null,source:"user_declared"},
+    risk:syntheticRisks.get(key) || {revision:4,preference:'BALANCED_COMPOUNDING',scope_id:`longbridge--${key}`}, operations:{save_risk_preference:true,save_declaration:true}, no_order:true,execution_authority_granted:false };
 };
 const account = { key: 'demo-paper', label: 'Synthetic paper account', target_name: 'demo-target', broker_environment: 'paper', supported_domains: ['us_equity'], default_strategy_profile: 'demo-profile-1' };
 const ticket = index => ({ ticket_id: `synthetic-proposal-${index}`, state: 'awaiting_human', strategy_profile: `demo-profile-${index}`, domain: 'us_equity', proposed_params: {}, shadow_passed: true, shadow_evidence_kind: 'synthetic', research_summary: { comparison: { status: 'comparable' }, limitations: ['Synthetic UI fixture; no investment evidence.'] }, live_authority_granted: false, no_order: true });
@@ -31,11 +33,16 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
       requests.push({ path: url.pathname, method: req.method, scenario });
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-store');
-      if (url.pathname === '/api/account-settings' && ['api-ready','risk-late','risk-readback-failed'].includes(scenario)) {
+      if (url.pathname === '/api/account-settings' && ['api-ready','risk-late','risk-readback-failed','declaration-demo'].includes(scenario)) {
         if (req.method === 'GET') { if (scenario === 'risk-readback-failed' && syntheticPendingRead.has(url.searchParams.get('key'))) { res.statusCode=503; res.end(JSON.stringify({error:'synthetic_unavailable'})); return; } res.end(JSON.stringify(syntheticSettings(url.searchParams.get('key')))); return; }
         if (req.method === 'POST') {
           let text=''; for await (const chunk of req) text+=chunk;
           const body=JSON.parse(text); const current=syntheticSettings(body.key);
+          if (body.declaration) {
+            if (body.expected_declaration_revision !== current.declaration.revision || JSON.stringify(body.identity) !== JSON.stringify(current.identity)) { res.statusCode=409; res.end(JSON.stringify({error:'synthetic_conflict'})); return; }
+            syntheticDeclarations.set(body.key,{status:'current',revision:current.declaration.revision+1,...body.declaration,source:'user_declared'});
+            res.end(JSON.stringify(syntheticSettings(body.key))); return;
+          }
           if (scenario === 'risk-late') { await new Promise(resolve => setTimeout(resolve, 8000)); res.statusCode=503; res.end(JSON.stringify({error:'synthetic_unavailable'})); return; }
           if (body.expected_risk_revision !== current.risk.revision || JSON.stringify(body.identity) !== JSON.stringify(current.identity)) { res.statusCode=409; res.end(JSON.stringify({error:'risk_profile_revision_conflict'})); return; }
           syntheticRisks.set(body.key,{...current.risk,revision:current.risk.revision+1,preference:body.risk_preference});
@@ -57,7 +64,7 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
       if (fail) { res.statusCode = 503; res.end(JSON.stringify({ error: 'synthetic_unavailable' })); return; }
       const data = {
         '/api/session': { authenticated: scenario !== 'anonymous', allowed: scenario !== 'anonymous', admin: scenario !== 'reader', login: 'synthetic-qa', synthetic: true },
-        '/api/config': scenario === 'no-accounts' ? { ...config, accountOptions: {} } : config,
+        '/api/config': scenario === 'declaration-demo' ? { ...config, accountOptions:{longbridge:[{key:'synthetic-alpha',label:'Synthetic alpha'}]}, currentStrategies:{} } : scenario === 'no-accounts' ? { ...config, accountOptions: {} } : config,
         '/api/runtime-target-lifecycle': { data_status: 'unavailable', targets: [] },
         '/api/control-plane': { data_status: 'ready', candidates: [] },
         '/api/ux1/draft': { revision: 0, draft: {} },
@@ -76,9 +83,10 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
           // aggregation_status "unverified" and totals stay unavailable.
           return { ok: true, no_order: true, execution_authority_granted: false,
             accounts: [{ platform: 'longbridge', account_key: 'synthetic-alpha', binding_status: 'bound', identity_status: 'partial_identity', identity_mismatch: false,
-              data_status: observed ? status : 'unavailable', broker_environment: 'paper', account_scope: 'PAPER',
+              data_status: observed ? status : 'unavailable', broker_environment: scenario === 'declaration-demo' ? null : 'paper', account_scope: scenario === 'declaration-demo' ? null : 'PAPER',
+              user_declaration: syntheticDeclarations.get('synthetic-alpha') || undefined,
               observation_date: observed ? at.slice(0, 10) : null, observed_started_at: observed ? at : null, observed_finished_at: observed ? at : null,
-              aggregation_status: 'unverified',
+              aggregation_status: scenario === 'declaration-demo' ? 'included' : 'unverified',
               balances: observed ? [{ currency: 'USD', net_assets: '1234.56', total_cash: '100.25' }, { currency: 'HKD', net_assets: '0', total_cash: '0' }] : [],
               cash: observed ? [{ currency: 'USD', available_cash: '100.25', frozen_cash: '0', settling_cash: '0' }] : [] }],
             totals: { status: 'unavailable', reason: 'physical_identity_unverified', by_currency: [] },

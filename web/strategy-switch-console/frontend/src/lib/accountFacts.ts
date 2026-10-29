@@ -70,19 +70,22 @@ export function isReadableFact(row: AccountFactsAccount | null | undefined): row
  * honestly incomplete.
  */
 export function isPaperFact(row: AccountFactsAccount): boolean {
-  return row.broker_environment === "paper" || row.account_scope === "paper";
+  return effectiveFactEnvironment(row) === "paper";
 }
 
 /** Explicit broker environment from trusted facts; never inferred from an alias. */
 export function factEnvironment(row: AccountFactsAccount | null | undefined): "paper" | "live" | null {
   if (!row) return null;
-  const broker = row.broker_environment === "paper" || row.broker_environment === "live" ? row.broker_environment : null;
-  const scope = row.account_scope === "paper" || row.account_scope === "live" ? row.account_scope : null;
-  return broker && scope && broker !== scope ? null : broker ?? scope;
+  const known = [row.broker_environment, row.account_scope, row.binding_environment].filter((value): value is "paper" | "live" => value === "paper" || value === "live");
+  return new Set(known).size === 1 ? known[0] : null;
 }
 
-function hasScopeSignal(row: AccountFactsAccount): boolean {
-  return typeof row.broker_environment === "string" || typeof row.account_scope === "string";
+export function effectiveFactEnvironment(row: AccountFactsAccount | null | undefined): "paper" | "live" | null {
+  if (!row) return null;
+  const trusted = factEnvironment(row);
+  if (trusted) return trusted;
+  if (["live", "paper"].includes(row.broker_environment ?? "") || ["live", "paper"].includes(row.account_scope ?? "") || ["live", "paper"].includes(row.binding_environment ?? "")) return null;
+  return userDeclarationOf(row)?.environment ?? null;
 }
 
 /** Matches the producer's accepted instant shapes: Z or numeric offset, compared as real time. */
@@ -241,7 +244,7 @@ export function platformCurrencyTotals(rows: AccountFactsAccount[], expected: nu
   const liveExpected = Math.max(0, expected - (unique.length - inScope.length));
   const readable = inScope.filter(isReadableFact);
   const eligible = readable.filter(row =>
-    row.aggregation_status === "included" && hasScopeSignal(row));
+    row.aggregation_status === "included" && effectiveFactEnvironment(row) === "live");
   const conflict = readable.some(row => row.aggregation_status === "conflict");
   if (!eligible.length) return [];
   const currencies = new Set<string>();
@@ -287,4 +290,31 @@ export function platformCurrencyTotals(rows: AccountFactsAccount[], expected: nu
       observationDate,
     };
   });
+}
+
+export type UserDeclaration = { environment: "live" | "paper" | null; accountType: "cash" | "margin" | null };
+
+/**
+ * Operator declaration from account facts. It is a display fallback only:
+ * broker_environment and account_scope stay authoritative, and nothing here
+ * is ever written back or used to change runtime behavior.
+ */
+export function userDeclarationOf(row: AccountFactsAccount | null | undefined): UserDeclaration | null {
+  const declaration = row?.user_declaration;
+  if (!declaration || declaration.source !== "user_declared") return null;
+  const environment = declaration.environment === "live" || declaration.environment === "paper" ? declaration.environment : null;
+  const accountType = declaration.account_type === "cash" || declaration.account_type === "margin" ? declaration.account_type : null;
+  return environment === null && accountType === null ? null : { environment, accountType };
+}
+
+/** Agreed declared environment across a display group; disagreement is a conflict, never a pick. */
+export function declaredEnvironmentOf(rows: AccountFactsAccount[]): { value: "live" | "paper" | null; conflict: boolean } {
+  const values = new Set<"live" | "paper">();
+  for (const row of rows) {
+    const environment = userDeclarationOf(row)?.environment;
+    if (environment) values.add(environment);
+  }
+  if (values.size > 1) return { value: null, conflict: true };
+  if (rows.some(row => !userDeclarationOf(row)?.environment)) return { value: null, conflict: false };
+  return { value: values.size === 1 ? [...values][0]! : null, conflict: false };
 }

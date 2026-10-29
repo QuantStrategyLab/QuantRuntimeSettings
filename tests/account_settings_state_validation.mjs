@@ -1,3 +1,4 @@
+import "./account_declaration_projection_validation.mjs";
 import assert from "node:assert/strict";
 import { createAccountSettingsController, pendingDraftOverrides, refreshAccountSettingsReadback } from "../web/strategy-switch-console/frontend/src/accountSettingsState.ts";
 
@@ -807,3 +808,28 @@ console.log("account settings unknown-save readback: PASS");
   assert.equal(remounted.startSave("cash"), null);
 }
 console.log("account settings remount/late-save ownership: PASS");
+
+// A declaration uses its own revision and cannot cross accounts or retry an unknown write.
+const declareController = createAccountSettingsController();
+const declarationSettings = (key, identity) => ({...settings(key, "BALANCED_COMPOUNDING", identity, "declaration"),
+  declaration:{status:"empty",revision:0,environment:null,account_type:null,source:"user_declared"},
+  operations:{save_draft:true,save_risk_preference:true,save_declaration:true}});
+const firstDeclarationRead = declareController.select({platform:"longbridge",key:"hk"});
+assert.equal(declareController.applyRead(firstDeclarationRead,declarationSettings("hk",identityA)),true);
+declareController.editDeclaration({environment:"live",accountType:"margin"});
+const declarationSave = declareController.startSave("declaration");
+assert.deepEqual(declarationSave.body.declaration,{environment:"live",account_type:"margin"});
+assert.equal(declareController.markSaving(declarationSave,"declaration"),true);
+assert.equal(declareController.fail(declarationSave,"",true),true);
+assert.equal(declareController.startSave("declaration"),null);
+const secondDeclarationRead = declareController.select({platform:"longbridge",key:"sg"});
+assert.equal(declareController.applyRead(secondDeclarationRead,declarationSettings("sg",identityB)),true);
+assert.equal(declareController.applySave(declarationSave,declarationSettings("hk",identityA),""),false);
+assert.equal(declareController.view().account.key,"sg");
+const returnRead = declareController.select({platform:"longbridge",key:"hk"});
+const savedDeclaration = declarationSettings("hk",identityA);
+savedDeclaration.declaration = {status:"current",revision:1,environment:"live",account_type:"margin",source:"user_declared"};
+assert.equal(declareController.applyRead(returnRead,savedDeclaration),true);
+assert.equal(declareController.view().review.declaration,false);
+assert.equal(declareController.view().declaration.environment,"live");
+console.log("account declaration unknown-save and account isolation: PASS");
