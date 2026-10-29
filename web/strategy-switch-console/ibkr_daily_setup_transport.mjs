@@ -263,7 +263,7 @@ async function runAdditionalMode() {
     }
     phase='execute';return await executeAdditionalDailySetup(io,{nonce,digests:evidence.digests});
   } catch (error) {
-    const allowed=new Set(['comparison_invalid','source_changed','deployment_invalid','kv_namespace_mismatch','module_mismatch','primary_binding_invalid','binding_not_unique','invalid_existing_setup','invalid_additional_binding','registration_collision','target_binding_invalid','invalid_bindings','state_changed','github_request_failed','cloudflare_request_failed']);
+    const allowed=new Set(['comparison_invalid','source_changed','deployment_invalid','kv_namespace_mismatch','module_mismatch','primary_binding_invalid','binding_not_unique','invalid_existing_setup','invalid_additional_binding','registration_collision','target_binding_invalid','invalid_bindings','state_changed','github_request_failed','cloudflare_request_failed','runs_incomplete','concurrent_writer','binding_missing','versions_invalid','secret_metadata_invalid','response_type','response_length','response_too_large','cloudflare_envelope']);
     return {status:'stopped',phase,reason:allowed.has(error?.message)?error.message:'unclassified',retry:false,business_writes:0};
   }
 }
