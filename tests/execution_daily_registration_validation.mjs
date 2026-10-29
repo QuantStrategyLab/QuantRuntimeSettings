@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {prepareExecutionDailyRegistration as prepare,firstExecutionAuthorization} from '../web/strategy-switch-console/prepare_execution_daily_registration.mjs';
+import {prepareExecutionDailyRegistration as prepare,firstExecutionAuthorization,secondExecutionAuthorization} from '../web/strategy-switch-console/prepare_execution_daily_registration.mjs';
 import {executeExecutionDailySetup} from '../web/strategy-switch-console/execute_ibkr_daily_setup.mjs';
 
 const old = Array.from({length:4}, (_, i) => ({account_key:`old-${i}`,target_id:`old-id-${i}`,
@@ -21,6 +21,10 @@ const original=structuredClone(input), result=prepare(input);
 assert.deepEqual(firstExecutionAuthorization(input.registry,old),{ibkr:old.map(x=>x.target_key),execution:[]});
 assert.throws(()=>firstExecutionAuthorization(input.registry,[...old.slice(0,3),{...old[3],source_binding_id:'f'.repeat(64)}]),/binding_not_unique/);
 assert.throws(()=>firstExecutionAuthorization({bindings:[...old,{platform:'longbridge'}]},old),/invalid_existing_setup/);
+const hk=prepare({...input,matches:[matches[1]],targetKeys:[targetKeys[1]],authorizedTargets:{ibkr:old.map(x=>x.target_key),execution:[]}}).registry;
+assert.deepEqual(secondExecutionAuthorization(hk,old,matches[1]),{ibkr:old.map(x=>x.target_key),execution:[targetKeys[1]]});
+assert.throws(()=>secondExecutionAuthorization(hk,old,{...matches[1],source_binding_id:'f'.repeat(64)}),/binding_not_unique/);
+assert.throws(()=>secondExecutionAuthorization({bindings:[...hk.bindings,{platform:'firstrade'}]},old,matches[1]),/invalid_existing_setup/);
 assert.deepEqual(input,original);
 assert.deepEqual(result.registry.bindings.slice(0,4),old);
 assert.deepEqual(result.authorization.ibkr,input.authorizedTargets.ibkr);

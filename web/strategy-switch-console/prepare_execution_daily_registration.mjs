@@ -14,6 +14,16 @@ export function firstExecutionAuthorization(registry, originals) {
   return {ibkr,execution:[]};
 }
 
+export function secondExecutionAuthorization(registry, originals, existing) {
+  const execution=registry?.bindings?.filter(row=>['longbridge','firstrade','binance'].includes(row.platform));
+  if (!Array.isArray(execution) || execution.length!==1 || existing?.platform!=='longbridge' || existing.account_scope!=='HK') throw Error('invalid_existing_setup');
+  const row=execution[0], expected=`${existing.service_name}|${existing.strategy_profile}|hk`;
+  if (row.platform!==existing.platform || row.account_key!==existing.account_key || row.target_id!==existing.target_id
+      || row.source_binding_id!==existing.source_binding_id || row.strategy_profile!==existing.strategy_profile || row.target_key!==expected) throw Error('binding_not_unique');
+  const previous=firstExecutionAuthorization({...registry,bindings:registry.bindings.filter(item=>item!==row)},originals);
+  return {...previous,execution:[row.target_key]};
+}
+
 // Pure plan only. The caller supplies independently matched sources and the
 // existing authorization groups from protected state; this function does no I/O.
 export function prepareExecutionDailyRegistration({registry, matches, targetKeys, authorizedTargets, activeVersion, resources, moduleBase64}) {

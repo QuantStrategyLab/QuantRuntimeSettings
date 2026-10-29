@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {executePrimaryDailySetup,executeAdditionalDailySetup,executeExecutionDailySetup} from './execute_ibkr_daily_setup.mjs';
 import {comparison,primaryBinding,matchAdditionalDailyBinding,matchExecutionDailyBinding} from './compare_ibkr_daily_binding.mjs';
 import {appendPrimaryDailyRegistration,prepareIbkrDailyVersion,prepareAdditionalDailySetup} from './prepare_ibkr_daily_version.mjs';
-import {prepareExecutionDailyRegistration,firstExecutionAuthorization} from './prepare_execution_daily_registration.mjs';
+import {prepareExecutionDailyRegistration,firstExecutionAuthorization,secondExecutionAuthorization} from './prepare_execution_daily_registration.mjs';
 import {DEFAULT_STRATEGY_PROFILES} from './strategy_profiles_asset.js';
 import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace,selectInventoryMetadata,writerRunsFromPages} from './ibkr_daily_setup_checks.mjs';
 
@@ -277,13 +277,23 @@ async function runFirstExecutionMode() {
     const evidence=additionalEvidence(nonce,runs); phase='source_metadata'; additionalSourceFresh(secretsMetadata(),evidence.sourceTime);
     phase='binding_read'; const state=await additionalState(nonce,evidence.digests);
     const digest=process.env.DAILY_EXECUTION_DIGEST;
-    if (process.env.DAILY_EXECUTION_PLATFORM!=='longbridge') throw Error('invalid_input');
+    const platform=process.env.DAILY_EXECUTION_PLATFORM;
+    if (!['longbridge','firstrade'].includes(platform)) throw Error('invalid_input');
     const profiles=state.profilesRaw===null?DEFAULT_STRATEGY_PROFILES:JSON.parse(state.profilesRaw);
-    const match=matchExecutionDailyBinding(state.options,state.bindings,profiles,'longbridge',nonce,digest);
-    if (match.account_scope!=='HK') throw Error('invalid_input');
+    const match=matchExecutionDailyBinding(state.options,state.bindings,profiles,platform,nonce,digest);
     const originals=[primaryBinding(state.options,state.bindings),...Object.values(state.matches)];
-    const authorizedTargets=firstExecutionAuthorization(state.registry,originals);
-    const targetKey=`${match.service_name}|${match.strategy_profile}|hk`;
+    const existingDigest=process.env.DAILY_EXISTING_EXECUTION_DIGEST;
+    let authorizedTargets;
+    if (existingDigest) {
+      const existing=matchExecutionDailyBinding(state.options,state.bindings,profiles,'longbridge',nonce,existingDigest);
+      authorizedTargets=secondExecutionAuthorization(state.registry,originals,existing);
+      if (platform==='longbridge' && match.account_scope!=='sg') throw Error('invalid_input');
+    } else {
+      if (platform!=='longbridge' || match.account_scope!=='HK') throw Error('invalid_input');
+      authorizedTargets=firstExecutionAuthorization(state.registry,originals);
+    }
+    const scope=platform==='longbridge' && match.account_scope==='HK'?'hk':match.account_scope;
+    const targetKey=`${match.service_name}|${match.strategy_profile}|${scope}`;
     state.planInput={registry:state.registry,matches:[match],targetKeys:[targetKey],authorizedTargets,
       activeVersion:state.activeVersion,resources:state.resources,moduleBase64:state.moduleBase64};
     state.sourceTime=evidence.sourceTime;
