@@ -9592,6 +9592,7 @@ function runtimeDailyReadStatus(stored, now) {
     read_error_codes: stored.read_errors.map(error => {
       if (["report_read_error", "coverage_unconfirmed", "report_rejected", "read_failed", "read_truncated", "list_failed"].includes(error)) return error;
       if (error === "listing truncated") return "listing_truncated";
+      if (error === "runtime_target_enabled_schedule_unverified") return "schedule_unverified";
       return "source_read_error";
     }),
     unmatched_count: stored.unmatched_reports.length,
