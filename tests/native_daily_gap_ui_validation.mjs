@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
 import { mixedReturns } from "./fixtures/console-gaps.ts";
+import { syntheticAccountReturns } from "../web/strategy-switch-console/frontend/scripts/per-account-returns-fixture.mjs";
 
 // Render the actual component and locale dictionaries; substitute only its I/O hook and chart sink.
 const root = new URL("../web/strategy-switch-console/frontend/", import.meta.url).pathname;
@@ -54,6 +55,30 @@ try {
     const continuous = render(language);
     assert.equal(globalThis.__gapCharts[0].mode, "cumulative", "ordinary partial responses preserve mode");
     assert.match(continuous, /perf-mode-toggle/);
+    globalThis.__gapReturns = { ...mixedReturns, status: "partial", points: [], per_currency: [],
+      per_account: structuredClone(syntheticAccountReturns) };
+    globalThis.__gapCharts = [];
+    const portfolio = render(language);
+    assert.equal(globalThis.__gapCharts.length,2,"each qualified account's daily data remains visible without computing a portfolio");
+    assert.ok(globalThis.__gapCharts.every(chart => chart.mode === "daily" && chart.series.length === 1));
+    assert.equal(globalThis.__gapCharts[0].series[0].points[1].breakBefore,true);
+    assert.equal(globalThis.__gapCharts[1].series[0].points[0].daily_return_percent,1);
+    assert.ok(portfolio.includes(language === "zh" ? "各账户日收益率" : "Daily returns by account"));
+    globalThis.__gapReturns.per_account[0].points = [
+      {date:"2026-10-19",value:10,daily_return_percent:0},
+      {date:"2026-10-20",value:10,daily_return_percent:null},
+      {date:"2026-10-21",value:10,daily_return_percent:-1},
+      {date:"2026-10-22",value:10,daily_return_percent:1},
+      {date:"2026-10-22",value:10,daily_return_percent:2},
+      {date:"2026-10-23",value:10,daily_return_percent:3},
+    ];
+    globalThis.__gapCharts = [];
+    render(language);
+    const safePoints = globalThis.__gapCharts[0].series[0].points;
+    assert.deepEqual(safePoints.map(point => point.daily_return_percent), [0,-1,3]);
+    assert.equal(safePoints[1].breakBefore,true);
+    assert.equal(safePoints[2].breakBefore,true);
+
   }
 
 } finally {
