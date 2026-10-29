@@ -46,6 +46,9 @@ export default function App() {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.search));
   const [directory, setDirectory] = useState<DirectoryConfig | null>(null);
   const [scopeOptions, setScopeOptions] = useState<ScopeOption[]>([]);
+  const [scopeStatus, setScopeStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [scopeEpoch, setScopeEpoch] = useState(0);
+  const [persistFailed, setPersistFailed] = useState(false);
   const [todoCount, setTodoCount] = useState<number | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [bootEpoch, setBootEpoch] = useState(0);
@@ -54,8 +57,9 @@ export default function App() {
 
   const setPrefs = useCallback((next: Preferences) => {
     setPrefsState(next);
-    savePreferences(next);
+    setPersistFailed(!savePreferences(next));
   }, []);
+  const retryScope = useCallback(() => setScopeEpoch(value => value + 1), []);
 
   const resolvedTheme = resolveTheme(prefs.theme, systemDark);
   useEffect(() => {
@@ -75,7 +79,7 @@ export default function App() {
     return () => mq.removeEventListener?.("change", update);
   }, []);
 
-  // Boot: session, then scope options + todo badge. Failures of the auxiliary reads never block the shell.
+  // Boot: session, then the todo badge. Auxiliary read failures never block the shell.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -89,21 +93,6 @@ export default function App() {
         }
         setSession(next);
         setBoot("ready");
-        try {
-          const accounts = await loadAccounts();
-          if (cancelled) return;
-          let config: DirectoryConfig | null = null;
-          try {
-            config = await getJson<DirectoryConfig>("/api/config");
-          } catch { /* The list remains usable when optional account metadata is unavailable. */ }
-          if (cancelled) return;
-          setDirectory(config);
-          setScopeOptions(accounts.accounts.map(account => ({ alias: account.account_alias, platform: account.platform,
-            paper: config?.accountOptions?.[account.platform]?.find(option => option.key === account.account_alias)?.broker_environment === "paper" })));
-          setUpdatedAt(new Date().toISOString());
-        } catch {
-          // Scope options stay empty; the scope selector still offers "all".
-        }
         try {
           const inbox = await loadInbox();
           if (cancelled) return;
@@ -121,6 +110,34 @@ export default function App() {
       cancelled = true;
     };
   }, [bootEpoch]);
+
+  // Scope options load on their own so a failure can be retried without re-reading the session or inbox.
+  useEffect(() => {
+    if (boot !== "ready") return;
+    let cancelled = false;
+    setScopeStatus("loading");
+    (async () => {
+      try {
+        const accounts = await loadAccounts();
+        if (cancelled) return;
+        let config: DirectoryConfig | null = null;
+        try {
+          config = await getJson<DirectoryConfig>("/api/config");
+        } catch { /* The list remains usable when optional account metadata is unavailable. */ }
+        if (cancelled) return;
+        setDirectory(config);
+        setScopeOptions(accounts.accounts.map(account => ({ alias: account.account_alias, platform: account.platform,
+          paper: config?.accountOptions?.[account.platform]?.find(option => option.key === account.account_alias)?.broker_environment === "paper" })));
+        setUpdatedAt(new Date().toISOString());
+        setScopeStatus("ready");
+      } catch {
+        if (!cancelled) setScopeStatus("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [boot, scopeEpoch]);
 
   useEffect(() => {
     const onInvalid = () => {
@@ -210,11 +227,13 @@ export default function App() {
     scope: route.scope,
     options: scopeOptions,
     setScope: (scope: string) => navigate({ scope }),
+    status: scopeStatus,
+    retry: retryScope,
   };
 
   return (
     <I18nProvider language={prefs.language}>
-      <PrefsContext.Provider value={{ prefs, setPrefs, resolvedTheme }}>
+      <PrefsContext.Provider value={{ prefs, setPrefs, resolvedTheme, persistFailed }}>
         <AccountDirectoryContext.Provider value={directory}>
         <ScopeContext.Provider value={scopeValue}>
           <NavigateContext.Provider value={navigate}>

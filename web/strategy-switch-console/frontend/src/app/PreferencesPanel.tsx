@@ -8,7 +8,7 @@ import type { DefaultRange, Language, ThemePreference, UpDownPreference } from "
 /** Preferences dialog: theme, language, up/down colors, hide amounts, default range. Stored locally only. */
 export function PreferencesPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
-  const { prefs, setPrefs } = usePrefs();
+  const { prefs, setPrefs, persistFailed } = usePrefs();
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -94,6 +94,7 @@ export function PreferencesPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <p className="card-note">{t("prefs.note")}</p>
+        {persistFailed && <p className="card-note" role="status">{t("prefs.save_error")}</p>}
         <div className="dialog-actions">
           <button type="button" className="button button-primary" onClick={onClose}>{t("common.close")}</button>
         </div>

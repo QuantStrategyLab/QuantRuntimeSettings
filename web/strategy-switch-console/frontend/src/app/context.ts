@@ -6,12 +6,14 @@ import { DEFAULT_PREFERENCES } from "../lib/prefs";
 
 export interface PrefsContextValue {
   prefs: Preferences;
+  persistFailed: boolean;
   resolvedTheme: "light" | "dark";
   setPrefs: (next: Preferences) => void;
 }
 
 export const PrefsContext = createContext<PrefsContextValue>({
   prefs: DEFAULT_PREFERENCES,
+  persistFailed: false,
   resolvedTheme: "light",
   setPrefs: () => {},
 });
@@ -30,12 +32,16 @@ export interface ScopeContextValue {
   scope: string;
   options: ScopeOption[];
   setScope: (scope: string) => void;
+  status: "loading" | "ready" | "error";
+  retry: () => void;
 }
 
 export const ScopeContext = createContext<ScopeContextValue>({
   scope: "all",
   options: [],
   setScope: () => {},
+  status: "ready",
+  retry: () => {},
 });
 
 export function useScope(): ScopeContextValue {

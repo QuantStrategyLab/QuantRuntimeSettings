@@ -8,9 +8,12 @@ import { useT } from "../i18n";
 export function ScopeSwitcher() {
   const t = useT();
   const names = useDisplayNames();
-  const { scope, options, setScope } = useScope();
+  const { scope, options, setScope, status, retry } = useScope();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const scopeError = t("shell.scope_error");
+  const scopeLoading = t("shell.scope_loading");
 
   useEffect(() => {
     if (!open) return;
@@ -57,10 +60,16 @@ export function ScopeSwitcher() {
         aria-label={t("shell.scope")}
         onClick={() => setOpen(value => !value)}
       >
-        {current} ▾
+        {status === "error" ? scopeError : current} ▾
       </button>
       {open && (
         <div className="scope-panel" role="listbox" aria-label={t("shell.scope")}>
+          {status !== "ready" && (
+            <div className="scope-error" role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px" }}>
+              <span style={{ flex: 1 }}>{status === "error" ? scopeError : scopeLoading}</span>
+              {status === "error" && <button type="button" className="button button-secondary button-sm" onClick={retry}>{t("common.retry")}</button>}
+            </div>
+          )}
           <button
             type="button"
             className={`scope-option${scope === "all" ? " active" : ""}`}
