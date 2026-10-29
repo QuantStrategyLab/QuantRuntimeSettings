@@ -1,3 +1,4 @@
+import "./console_history_only_return_validation.mjs";
 import assert from "node:assert/strict";
 import { normalizeExternalFlow, mergeExternalFlow, externalFlowEnabled } from "../web/strategy-switch-console/application/account_facts/external_flow.js";
 import { cashflowCurrencyResult, applyCashflowPerformance, intervalFlows } from "../web/strategy-switch-console/application/console_api/cashflow_performance.js";
