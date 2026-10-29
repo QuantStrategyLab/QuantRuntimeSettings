@@ -9,9 +9,26 @@ on:
         options:
           - list
           - match-additional-1
+          - match-daily-binding
           - apply-additional-1
           - apply
         default: list
+      comparison_platform:
+        description: Existing platform for the protected daily source comparison
+        type: choice
+        required: false
+        default: ibkr
+        options: [ibkr, longbridge, firstrade]
+      comparison_nonce:
+        description: Public random nonce for protected daily binding comparison
+        type: string
+        required: false
+        default: ""
+      comparison_digest:
+        description: Comparison digest from the existing protected source workflow
+        type: string
+        required: false
+        default: ""
       target_id:
         description: Existing IBKR account-facts target_id (required for apply)
         type: string
@@ -40,8 +57,11 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
-      GH_TOKEN: ${{ inputs.mode != 'match-additional-1' && secrets.RUNTIME_SETTINGS_GH_TOKEN || '' }}
+      GH_TOKEN: ${{ inputs.mode != 'match-additional-1' && inputs.mode != 'match-daily-binding' && secrets.RUNTIME_SETTINGS_GH_TOKEN || '' }}
       CONFIGURE_MODE: ${{ inputs.mode }}
+      DAILY_COMPARISON_PLATFORM: ${{ inputs.comparison_platform }}
+      DAILY_COMPARISON_NONCE: ${{ inputs.comparison_nonce }}
+      DAILY_COMPARISON_DIGEST: ${{ inputs.comparison_digest }}
       TARGET_ID: ${{ inputs.target_id }}
       OVERWRITE: ${{ inputs.overwrite }}
     steps:
@@ -85,6 +105,20 @@ jobs:
             > "$temp_dir/account-facts-bindings.json" 2>/dev/null; then
             echo "status=blocked reason=account_facts_bindings_read_failed"
             exit 1
+          fi
+          if [ "$CONFIGURE_MODE" = "match-daily-binding" ]; then
+            [[ "$DAILY_COMPARISON_NONCE" =~ ^[a-f0-9]{64}$ && "$DAILY_COMPARISON_DIGEST" =~ ^[a-f0-9]{64}$ ]] || exit 1
+            if ! npx --yes wrangler@4.106.0 kv key get strategy_profiles \
+              --namespace-id "$STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID" --remote > "$temp_dir/profiles.json" 2>/dev/null; then
+              echo "status=blocked reason=strategy_profiles_read_failed"
+              exit 1
+            fi
+            if [ -s "$temp_dir/profiles.json" ] && [ "$(cat "$temp_dir/profiles.json")" != "null" ]; then
+              node ./compare_ibkr_daily_binding.mjs "$temp_dir/account-options.json" "$temp_dir/account-facts-bindings.json" "$temp_dir/profiles.json"
+            else
+              node ./compare_ibkr_daily_binding.mjs "$temp_dir/account-options.json" "$temp_dir/account-facts-bindings.json"
+            fi
+            exit $?
           fi
           if [ "$CONFIGURE_MODE" = "list" ]; then
             node ./configure_ibkr_period_return.mjs list \
