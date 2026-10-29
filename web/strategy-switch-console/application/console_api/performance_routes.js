@@ -98,7 +98,8 @@ export async function performanceResponse(request, env, deps) {
       failed = [],
       excludedCommonAccounts = [],
       readFailures = factsUnreadable ? ["account_facts_unreadable"] : [],
-      unreadableHistoryCurrencies = new Set();
+      unreadableHistoryCurrencies = new Set(),
+      historyOnlyCandidates = new Set();
     let truncated = false;
     for (const option of matches) {
       if (option.platform === "binance") {
@@ -280,6 +281,9 @@ export async function performanceResponse(request, env, deps) {
         );
       }
       histories.push(...accountHistories);
+      if (!currentCurrencies.length && accountHistories.length > 0
+          && accountHistories.every(h => h.points.length > 0 && h.externalFlow)
+          && matches.filter(candidate => candidate.key === option.key).length === 1) historyOnlyCandidates.add(option.key);
       if (accountHistories.some((h) => !h.points.length) && !failed.includes(option.key)) failed.push(option.key);
     }
     if (endpoint === "holdings") {
@@ -351,7 +355,11 @@ export async function performanceResponse(request, env, deps) {
       month,
       failed: [...new Set(failed)],
     };
-    const blocks = applyNativeDailyReturns(applyCashflowPerformance(performanceBlocks(performanceInput), performanceInput, env), performanceInput);
+    // Missing current balances affect current-value coverage, but do not invalidate
+    // an independently qualified historical return chain and its real cash flows.
+    const cashflowInput = { ...performanceInput, failed: performanceInput.failed.filter(key =>
+      !historyOnlyCandidates.has(key) || readFailures.includes(key)) };
+    const blocks = applyNativeDailyReturns(applyCashflowPerformance(performanceBlocks(performanceInput), cashflowInput, env), performanceInput);
     const block = blocks[endpoint];
     if (endpoint === "calendar") {
       block.available_currencies = availableCurrencies;
