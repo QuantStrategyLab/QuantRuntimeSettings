@@ -75,6 +75,9 @@ try {
     github_environment: "longbridge-hk", service_name: "longbridge-quant-hk-service" };
   env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON = JSON.stringify({ longbridge: [hkAccount] });
   const beforeHk = calls.length;
+  const hkDenied = await request({ platform: "longbridge", target_name: "hk", confirm: "STOP_ONLY" }, { login: "synthetic-viewer" });
+  assert.equal(hkDenied.status, 403, "non-admin cannot reserve or dispatch the HK stop");
+  assert.equal(calls.length, beforeHk);
   const hkResponse = await request({ platform: "longbridge", target_name: "hk", confirm: "STOP_ONLY" });
   assert.equal(hkResponse.status, 503);
   assert.equal((await hkResponse.json()).error, "runtime_instances_not_bound");
