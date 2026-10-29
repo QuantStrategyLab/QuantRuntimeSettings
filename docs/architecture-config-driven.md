@@ -187,3 +187,17 @@
 - 平台和域的映射关系
 
 不需要再去读 index.html/worker.js 的 JavaScript 代码。
+
+### Retired production option overlay
+
+The production option overlay no longer has selectable profile defaults.
+Switch requests that omit its mode use `current` and do not write option
+variables. Explicit `enabled` requests are rejected with a migration message;
+`disabled` explicitly writes false switches and clears legacy option values.
+An existing nonempty option recipe, budget or enabled setting in a target must
+be migrated deliberately. These configuration checks do not inspect or resolve
+existing broker positions, orders, assignment or settlement obligations.
+
+The authoritative catalog is `platform-config.json`; regenerate derived console
+assets with `python python/scripts/build_platform_config.py`. Existing account
+settings and deployed targets are not changed by modifying the catalog.
