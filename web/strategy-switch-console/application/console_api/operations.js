@@ -84,25 +84,25 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
   if (!response.ok) throw Error("strategy_health_read_failed");
   const health = await response.json();
   const invalid = (health.errors || []).some(e => /invalid|unreadable|failed/.test(e));
-  const status = invalid ? "read_failed" : health.data_status === "ready" ? "ok"
+  const status = health.data_status === "partial" ? "partial" : invalid ? "read_failed" : health.data_status === "ready" ? "ok"
     : health.data_status === "stale" ? "stale" : "not_connected";
   const strategies = profiles.map(profile => {
       const observation = (health.strategies || []).find(s => s.profile === profile.profile);
-      const rowStatus = observation && status === "ok" && observation.freshness?.status === "stale"
-        ? "stale" : observation ? status : status === "read_failed" ? status : "not_connected";
+      const rowStatus = observation && ["ok", "partial"].includes(status) && observation.freshness?.status === "stale"
+        ? "stale" : observation ? status === "partial" ? "ok" : status : status === "read_failed" ? status : "not_connected";
       return { profile: profile.profile, domain: profile.domain,
         allowed_execution_modes: profile.allowed_execution_modes || [],
         configured_accounts: accounts.filter(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile === profile.profile)
           .map(a => ({ account_alias: a.key, platform: a.platform, account_ref: `${a.platform}:${a.key}`,
             ...configuredStrategyExecution(currentStrategies[a.platform][a.key], profile, a.platform),
             execution_evidence: currentStrategies[a.platform][a.key].execution_evidence })),
-        health_status: status === "ok" || status === "stale" ? observation?.status || null : null,
-        health_score: status === "ok" || status === "stale" ? observation?.score ?? null : null,
+        health_status: ["ok", "partial", "stale"].includes(status) ? observation?.status || null : null,
+        health_score: ["ok", "partial", "stale"].includes(status) ? observation?.score ?? null : null,
         as_of: observation?.as_of || null,
         freshness: observation?.freshness || null,
         status: rowStatus,
         unavailable_reason: rowStatus === "stale" ? "strategy_health_stale"
-          : observation && status !== "read_failed" ? null : invalid
+          : observation && status !== "read_failed" ? null : status === "read_failed"
           ? "stored_records_unreadable" : "strategy_health_not_connected" };
     });
   const assignmentFailures = accounts.flatMap(account => {
