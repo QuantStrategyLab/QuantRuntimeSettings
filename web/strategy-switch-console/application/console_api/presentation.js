@@ -69,7 +69,7 @@ export function decisionFields(entry, category, now = Date.now()) {
         affects_live: affects,
       });
   };
-  row(
+  if (data.mode !== "initial_enrollment") row(
     "strategy",
     data.current_strategy_profile,
     data.strategy_profile || data.proposed_strategy_profile,

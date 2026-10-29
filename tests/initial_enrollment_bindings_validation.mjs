@@ -16,3 +16,8 @@ assert.equal(await initialEnrollmentBindingsMatch(candidate,{...facts,observed_a
 assert.equal(await initialEnrollmentBindingsMatch(candidate,{...facts,surfaces:{...facts.surfaces,positions:{status:'unknown',items:[],scope:scope('positions')}}}),false);
 assert.equal(await initialEnrollmentBindingsMatch({...candidate,account_scope_sha256:'b'.repeat(64)},facts),false);
 console.log('initial_enrollment_bindings_validation: PASS');
+const { decisionFields } = await import('../web/strategy-switch-console/application/console_api/presentation.js');
+const initial = { recovery: { mode:'initial_enrollment', strategy_profile:'synthetic_strategy' }, freshness:{data_status:'ready'} };
+assert.deepEqual(decisionFields(initial,'reconciliation_recovery').diff,[]);
+const recovery = { recovery:{strategy_profile:'synthetic_strategy'}, freshness:{data_status:'ready'} };
+assert.equal(decisionFields(recovery,'reconciliation_recovery').diff[0].field,'strategy');
