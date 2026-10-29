@@ -1338,7 +1338,7 @@ export function strategyNote(profile: object | null | undefined, language: "zh" 
 }
 
 // Exact frozen research identities, not runtime observations. Sources are indexed in
-// docs/console_information_design.zh-CN.md; never derive these axes from ID suffixes.
+// docs/console-information-design.zh-CN.md; never derive these axes from ID suffixes.
 const FROZEN_RESEARCH_NAMES: Record<string, { zh: string; en: string; version: string; configHash: string; sourceRevision: string; runtimeRevision: string | null; noteZh: string; noteEn: string }> = {
   soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve: {
     zh: "SOXL/SOXX 核心复利（现金保留）", en: "SOXL/SOXX Core Compounding (Cash Reserve)", version: "V7",

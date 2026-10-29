@@ -1,10 +1,10 @@
 # QuantRuntimeSettings Architecture
 
-[Documentation index](README.md). This is the package architecture entry; repository governance is covered separately in [organization architecture](qsl_org_architecture.md). The [2026-06-29 design](architecture_config_driven_20260629.md) preserves the earlier rationale and migration plan.
+[Documentation index](README.md). This is the package architecture entry; repository governance is covered separately in [organization architecture](qsl-org-architecture.md). The [2026-06-29 design](architecture_config_driven_20260629.md) preserves the earlier rationale and migration plan.
 
 ## Overview
 
-QuantRuntimeSettings is a **config-driven** runtime settings package that serves as the central control plane for QuantStrategyLab deployments. It defines versioned strategy-to-platform assignments and hosts a Cloudflare Workers-based console. The console is evolving into the personal deployment's single human-facing global decision surface; see [Unified Control Console V1](qsl_unified_control_console_architecture_v1.zh-CN.md). It remains separate from broker credentials and execution.
+QuantRuntimeSettings is a **config-driven** runtime settings package that serves as the central control plane for QuantStrategyLab deployments. It defines versioned strategy-to-platform assignments and hosts a Cloudflare Workers-based console. The console is evolving into the personal deployment's single human-facing global decision surface; see [Unified Control Console V1](qsl-unified-control-console-architecture-v1.zh-CN.md). It remains separate from broker credentials and execution.
 
 The generated `RUNTIME_TARGET_JSON` payload is the canonical desired-state contract for one deployment target. `scheduler`, `market`, `market_calendar`, `market_timezone`, and plugin mount outputs are derived from `strategy_profile`, while `execution_mode` is validated against strategy-profile policy. It and the repository-level `CLOUD_RUN_SERVICE_TARGETS_JSON` inventory are validated, non-secret deployment metadata written as GitHub Variables so the console can reconcile desired state; neither may contain credentials or account secrets. Platform consumers must prefer those Variables and may read legacy Secrets only as temporary migration fallbacks.
 
@@ -166,4 +166,4 @@ Neither job depends on the other. This ensures that a change to Python scripts d
 - **Modify build logic**: Edit files in `python/scripts/`, run `python3 -m unittest discover -s python/tests`.
 - **Modify web UI**: Edit files in `web/strategy-switch-console/`, run `node tests/strategy_switch_worker_validation.mjs`.
 - **Update runner**: Run both Python and JS validation locally before committing.
-- **Org-level QSL governance**: See [QSL Org Architecture & Health Checks](qsl_org_architecture.md).
+- **Org-level QSL governance**: See [QSL Org Architecture & Health Checks](qsl-org-architecture.md).

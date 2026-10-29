@@ -422,7 +422,7 @@ Old metadata without an error time returns `at=null`; it does not invent a time.
 An unreadable directory returns HTTP 503 with `status=read_failed` and unknown
 metadata. Errors are fixed public codes; no keys, cursors, identities or raw
 provider exceptions are returned. The exact legacy receiver may read its existing
-KV mirror without scanning. See [directory details](../web/strategy-switch-console/KV_DIRECTORY.md).
+KV mirror without scanning. See [directory details](../web/strategy-switch-console/kv-directory.md).
 
 The small typed [gap fixtures](../tests/fixtures/console-gaps.ts) use synthetic
 identities, timestamps, values and digests in the existing response shapes.

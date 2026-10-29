@@ -46,9 +46,9 @@
 
 ## 5. 交叉引用
 
-- [资金风险信封 V1](qsl_capital_risk_envelope_v1.zh-CN.md)
-- [偏离触发 HITL V1](qsl_drift_triggered_research_hitl_v1.zh-CN.md)
-- [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)
+- [资金风险信封 V1](qsl-capital-risk-envelope-v1.zh-CN.md)
+- [偏离触发 HITL V1](qsl-drift-triggered-research-hitl-v1.zh-CN.md)
+- [多策略组合 A→B V1](qsl-multi-strategy-combo-ab-v1.zh-CN.md)
 
 <a id="six-track-audit-20261006"></a>
 
@@ -72,7 +72,7 @@
 
 | ID / 优先级 / 下一步类型 | 分层事实与剩余项 | 前置与完成证据 |
 | --- | --- | --- |
-| `UI-01` 高；已合并/自动部署，有限线上验收，未关闭 | [QRS #531](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/531) merge `da70d9e` 与复核tree一致；[main CI37452298421](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/37452298421)三job及[原自动部署37452298369](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/37452298369)成功。27项映射/4对标签与现有consumer统一展示已发布；既有线上会话核到资源文件名匹配、一个真实决策的身份默认折叠可展开、分轴及缺失字段Unknown | 详情见[有限验收记录](console_information_design.zh-CN.md)。JS直读被ERR_BLOCKED_BY_CLIENT后停止，未绕过；线上响应字节/hash、四标签全覆盖、中英切换、手机与真实V7记录未验。V2历史研究UI仍缺失，未新增。ID/冻结hash/权限不变，展示更新不代表实际策略采用 |
+| `UI-01` 高；已合并/自动部署，有限线上验收，未关闭 | [QRS #531](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/531) merge `da70d9e` 与复核tree一致；[main CI37452298421](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/37452298421)三job及[原自动部署37452298369](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/37452298369)成功。27项映射/4对标签与现有consumer统一展示已发布；既有线上会话核到资源文件名匹配、一个真实决策的身份默认折叠可展开、分轴及缺失字段Unknown | 详情见[有限验收记录](console-information-design.zh-CN.md)。JS直读被ERR_BLOCKED_BY_CLIENT后停止，未绕过；线上响应字节/hash、四标签全覆盖、中英切换、手机与真实V7记录未验。V2历史研究UI仍缺失，未新增。ID/冻结hash/权限不变，展示更新不代表实际策略采用 |
 | `UI-02` 高；展示核查可立即实施，真实账户能力等输入 | 设计/实现：QRS 与 LB registry 支持美股和港股；采用/业务：逐账户权限未核。香港实体不等于只能港股 | 可选项取平台×账户权限×策略域×标的×执行通道交集，记录来源/时间；实体、市场、币种、日历各自显示。真实账户权限、fractional/lot、paper/live差异有证据后才关闭 |
 | `UI-03` 中；等受限应用路径输入 | 实现：一般账户设置可保存 draft/risk，`apply_strategy/activation/adopted=false`；独立 profile-only 确认路径不等于本页面已消费。采用/业务：保存到实际应用未验 | 不把安全 false 当 UI bug。按现有授权接消费路径，分别验收草案、确认应用、runtime读回与业务周期；隔离测试不能触发实盘 |
 | `UI-04` 高；producer覆盖审计可立即实施 | 实现：最近90天日期控件；现有daily feed只绑定 LongBridge paper/Russell目标。采用/业务：不支持“全部账户90天已齐”的结论 | 逐目标列producer、账号绑定、市场时区/日历、保留、首末记录、缺口及原因。取得真实周期，区分no-order/dry-run/real；not_due与心跳不算。先补覆盖事实再决定最小consumer改动 |
@@ -132,7 +132,7 @@
 - **V7与研究分轨**：UESP `842ae78eb8f7c9eb1912e44b433cf7e59ba786d1`的[冻结P2](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/842ae78eb8f7c9eb1912e44b433cf7e59ba786d1/config/soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve.json)、[nonlive forward](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/842ae78eb8f7c9eb1912e44b433cf7e59ba786d1/docs/soxl_v7_nonlive_forward_observation.zh-CN.md)、[R6单源开发研究](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/842ae78eb8f7c9eb1912e44b433cf7e59ba786d1/docs/soxl_v7_r6_twelve_single_source.md)。R5双源blocked与联合账户NOT_ADMITTED不因R6计算完成改变
 - **QPK #647**：[live isolation合并](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/647)，main `28675796cabbe137a1fa3970b70d1aa98e952c88`；[supplied interval coverage](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/28675796cabbe137a1fa3970b70d1aa98e952c88/docs/interval_return_coverage.md)。代码/CI证明不包含AAB当前运行pin采用、native账户资金流或QRS收益consumer
 - **QSP #77/#78**：[半导体合同](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/ccd2db0514070d85fd0ed907816f78e9bf365abd/docs/semiconductor-regime-observer-research.zh-CN.md)、[利率合同](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/ccd2db0514070d85fd0ed907816f78e9bf365abd/docs/rates-context-observer-research.zh-CN.md)，当前main `ccd2db0514070d85fd0ed907816f78e9bf365abd`；纯研究合成验收，不是真实源/PIT或runtime采用
-- **风险状态与仓位**：[UES研究/合成stateful controls](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/c3e488ea5d13ee1be1ff2295774e328abdc6a05b/docs/strategy_risk_stateful_controls.md)、[QRS资金信封分期](qsl_capital_risk_envelope_v1.zh-CN.md)。后者W1部署字样是历史报告，本轮未独立读回；combined_scale sizing仍未闭合
+- **风险状态与仓位**：[UES研究/合成stateful controls](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/c3e488ea5d13ee1be1ff2295774e328abdc6a05b/docs/strategy_risk_stateful_controls.md)、[QRS资金信封分期](qsl-capital-risk-envelope-v1.zh-CN.md)。后者W1部署字样是历史报告，本轮未独立读回；combined_scale sizing仍未闭合
 - **AI设计与实现**：[QPK ADR0005](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/28675796cabbe137a1fa3970b70d1aa98e952c88/docs/adr/0005-research-control-plane.md)；AAB `16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c`的[README](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/README.md)、[bounded diagnosis](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/docs/bounded_research_diagnosis.md)
 - **AI两项新finding**：SOXL的[调用后保存顺序](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/scripts/run_new_research.py#L1489-L1524)、[run/attempt临时根](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/.github/workflows/strategy_optimization_watcher.yml#L1032-L1054)、[最终清理](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/.github/workflows/strategy_optimization_watcher.yml#L1167-L1179)、[gateway dedupe](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/service/ai_gateway_service.py#L1823-L1845)；LB的[patch复制与局部验证](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/scripts/run_monthly_codex_audit.py#L1541-L1655)。边界不扩大到CN/GlobalETF、其他已存在幂等链或全部source CI/merge控制
 - **通知合并**：[Binance345](https://github.com/QuantStrategyLab/BinancePlatform/pull/345)、[IBKR576](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/576)、[Firstrade361](https://github.com/QuantStrategyLab/FirstradePlatform/pull/361)、[Schwab468](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/468)。它们不证明统一bot、全路径dedup或实际Telegram送达
@@ -443,7 +443,7 @@ English: PR #544 and its exact CI/deploy completed while preserving the #543 fro
 | B3 统一净收益报告 | 同 QPK #667，UES 现有默认关闭消费者已交付 | 缺同路径 gross、完整累计 trial 或真实成本材料时继续不可计算，不补零 |
 | D1 逐目标版本账本 | 原五目标六字段覆盖见6.16，已知证据与明确 UNKNOWN 分列 | 原报告允许未核字段写 UNKNOWN；实际镜像/加载来源的后续证据任务仍开放，不能将全部来源绿灯改成原账本文档完成条件，也不能用 main SHA 填部署源 |
 | B1/B2 可靠对照 | [UES #594](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/594) 已记录首路径 **PATH_SELECTED：RS-04 SOXL/TQQQ research core**；[#593](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/593) 补齐实际末次 close fill 的显式费用测量 | 完整 scope/variant/参数、现金与费用会计、cap、PIT/许可、holdout、完整累计 trial、runner 与 owner 未冻结。新入口是 no_weight_feedback NAV overlay，不能冒称完整自融资净仓位模拟 |
-| C2 NONE→enable 路径设计 | 已有[设计提案](fresh_none_enable_design.zh-CN.md) | 设计交付、owner设计采纳、实现和真实启用分开；真实材料不否定已有文档，设计/CI 不授权启用 |
+| C2 NONE→enable 路径设计 | 已有[设计提案](fresh-none-enable-design.zh-CN.md) | 设计交付、owner设计采纳、实现和真实启用分开；真实材料不否定已有文档，设计/CI 不授权启用 |
 | E1 晋级标准拆分 | QPK #667 已交付[双门标准提案](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/promotion_dual_gate_proposal.zh-CN.md) | 原文档目标已交付，owner政策采用未证；真实候选运行正确性/统计优势另验，不能把真实晋级通过改成提案完成标准 |
 
 额外 B4 为[UES #588](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588) 的独立草案，后验更新尚未实现；不计为原十项中新增一个已完成项。B1/B2真实对照 → B4 DEVELOPMENT_ONLY → 实际候选E1是后续批准的研究安排；原 PDF 的E1标准文档只依赖B3，不等待B4。模型、holdout、PIT、许可、完整 journal 与 owner 的未知不由原公式或历史许可代填。本轮未运行真实研究、读取 holdout、改旧账本、提高预算或启用账户。

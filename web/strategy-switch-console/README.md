@@ -352,7 +352,7 @@ Deploy:
 wrangler deploy
 ```
 
-For a full fork checklist, see [docs/strategy_switch_fork_guide.md](../../docs/strategy_switch_fork_guide.md).
+For a full fork checklist, see [docs/strategy-switch-fork-guide.md](../../docs/strategy-switch-fork-guide.md).
 
 ## Token Scope
 

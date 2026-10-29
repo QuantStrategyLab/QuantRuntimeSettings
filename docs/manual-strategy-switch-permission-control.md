@@ -1,6 +1,6 @@
 # Manual strategy switch permission control
 
-[简体中文](manual_strategy_switch_permission_control.zh-CN.md)
+[简体中文](manual-strategy-switch-permission-control.zh-CN.md)
 
 Simplified permission model for a personal quant stack, with guardrails against
 mis-clicks and secret leakage.

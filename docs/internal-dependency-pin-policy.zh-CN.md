@@ -1,6 +1,6 @@
 # 内部依赖 pin 政策
 
-[English](internal_dependency_pin_policy.md)
+[English](internal-dependency-pin-policy.md)
 
 QuantStrategyLab 通过 git URL pin 在平台、策略与 pipeline 之间共享 Python 包。本文说明 pin 如何被追踪、何时使用 tag 与完整 commit SHA，以及如何安全升级依赖。
 
@@ -16,7 +16,7 @@ QuantStrategyLab 通过 git URL pin 在平台、策略与 pipeline 之间共享 
   `internal_dependency_matrix.json` 的变更才会以严格模式阻塞合并。这样一个无关的
   控制台或文档 PR 不会因为 checkout 时其他仓库恰好前进而变成不可复现的失败；台账
   本身仍必须在提交时与所有 consumer 一致。
-- 交叉说明见 [qsl_compat_upgrade.md](qsl_compat_upgrade.md) 与 QPK ADR 0003 Amendment 2026-09-06。
+- 交叉说明见 [qsl-compat-upgrade.md](qsl-compat-upgrade.md) 与 QPK ADR 0003 Amendment 2026-09-06。
 
 ```bash
 python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --strict --require-consumer-files

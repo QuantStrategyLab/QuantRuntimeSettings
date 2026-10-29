@@ -7,7 +7,7 @@
 | Document | Scope and reading order |
 | --- | --- |
 | [Package architecture](ARCHITECTURE.md) | Primary entry for the configuration package, generated targets, tooling, web application and runtime-authority boundary. Read against the revision you consume; this is not deployed-state evidence. |
-| [Organization architecture](qsl_org_architecture.md) | Complementary repository governance: compatibility bundles, tiers/rings, dependency checks and release boundaries. It does not replace the package architecture or certify runtime health. |
+| [Organization architecture](qsl-org-architecture.md) | Complementary repository governance: compatibility bundles, tiers/rings, dependency checks and release boundaries. It does not replace the package architecture or certify runtime health. |
 | [Configuration-driven design, 2026-06-29](architecture_config_driven_20260629.md) | Dated Chinese design rationale and migration phases. Its file lists, deployment examples and proposed phases describe that design baseline; use the package architecture and current tooling for present interfaces. English overview below. |
 
 ### English overview of the dated configuration design
@@ -20,7 +20,7 @@ The current package retains configuration and compatibility ownership. Broker cr
 
 - [English operator guide](../web/strategy-switch-console/README.md#reading-by-task) · [中文操作入口](../web/strategy-switch-console/README.zh-CN.md#按任务阅读): installation/configuration, interfaces and operations grouped without moving contract text.
 - [Console API](console-api.md): interface details.
-- [English fork guide](strategy_switch_fork_guide.md) · [中文 Fork 指南](strategy_switch_fork_guide.zh-CN.md): installation in a separately configured environment.
-- [English permission model](manual_strategy_switch_permission_control.md) · [中文权限说明](manual_strategy_switch_permission_control.zh-CN.md).
+- [English fork guide](strategy-switch-fork-guide.md) · [中文 Fork 指南](strategy-switch-fork-guide.zh-CN.md): installation in a separately configured environment.
+- [English permission model](manual-strategy-switch-permission-control.md) · [中文权限说明](manual-strategy-switch-permission-control.zh-CN.md).
 
 The existing complete documents retain their interfaces and risk controls. Index links and English summaries do not authorize deployment or change data/provider rights. See [LICENSE](../LICENSE).

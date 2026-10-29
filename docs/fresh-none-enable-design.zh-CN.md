@@ -26,11 +26,11 @@ schema 允许的标签，不证明平台验证器或授权已经就绪。
 这两个入口。保持其现有拒绝行为；绝不为绕过校验生成 legacy 基线、
 `ACTIVE_LKG`、`ROLLBACK_LKG` 或借用别的目标的授权。
 
-现有[签名控制面说明](promotion_activation_control_plane.zh-CN.md) 的新 target
+现有[签名控制面说明](promotion-activation-control-plane.zh-CN.md) 的新 target
 段落是后续平台授权对接的起点。其签名与消费证明的是批准的配置动作，
 不能在缺少平台侧校验、部署回执和目标证据时被解释为已经具备 live
 执行权限。本文要求这些缺口在启用前单独补齐，不更改现有工作流。
-[运行生命周期](runtime_target_lifecycle.md) 继续把目标配置、平台观察和
+[运行生命周期](runtime-target-lifecycle.md) 继续把目标配置、平台观察和
 `execution_evidence` 分开，continuity 不会自行打开 disabled 目标。
 
 ## 审查输入与身份绑定

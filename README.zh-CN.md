@@ -48,9 +48,9 @@ Set these non-secret repository variables before running the affected workflows.
 
 `default_execution_mode`、`live_configured`、策略生命周期标签、本仓切换 workflow 与 CI 绿灯都只是配置或历史元数据，不是运行、订单、资金或阶段升级授权。P1–P3 的 non-live 数据获取必须有独立、精确的契约，不能从 P0 隐含推导；P4–P6 仍未定义。详见[架构边界](docs/ARCHITECTURE.md#p0p6-runtime-authority-boundary)。
 
-已明确授权、已在运行的旧实盘基线不应因为新的候选正在 P1–P6 验证而被一并停掉。它使用独立、hash 冻结的 `live_continuity` 状态：只有 `ACTIVE_LKG` / `ROLLBACK_LKG` 可进行普通执行；暂停、对账和减风险状态默认拒绝普通下单，但继续保留监控和对账。该状态不会自行启用实盘、扩大风险或绕过 `RUNTIME_TARGET_ENABLED` 硬门。详见 [runtime target 生命周期](docs/runtime_target_lifecycle.md#live-champion-continuity)。
+已明确授权、已在运行的旧实盘基线不应因为新的候选正在 P1–P6 验证而被一并停掉。它使用独立、hash 冻结的 `live_continuity` 状态：只有 `ACTIVE_LKG` / `ROLLBACK_LKG` 可进行普通执行；暂停、对账和减风险状态默认拒绝普通下单，但继续保留监控和对账。该状态不会自行启用实盘、扩大风险或绕过 `RUNTIME_TARGET_ENABLED` 硬门。详见 [runtime target 生命周期](docs/runtime-target-lifecycle.md#live-champion-continuity)。
 
-AI 与监测系统只能创建不可变、无订单的 `qsl.research_task.v1` 离线研究请求。该请求绑定证据摘要和受限实验，但不会激活候选，也不会授予 P4–P6 权限。详见[研究任务契约](docs/qsl_research_task_v1.zh-CN.md)。
+AI 与监测系统只能创建不可变、无订单的 `qsl.research_task.v1` 离线研究请求。该请求绑定证据摘要和受限实验，但不会激活候选，也不会授予 P4–P6 权限。详见[研究任务契约](docs/qsl-research-task-v1.zh-CN.md)。
 
 ## 当前账户资产合计
 
@@ -127,18 +127,18 @@ confirm_apply=APPLY_AND_SYNC
 - LongBridge、IBKR、Schwab、Firstrade 的 `service_targets_mode=auto` 会检查目标仓库是否已有多服务清单，因此即使只做 preview 也需要 `RUNTIME_SETTINGS_GH_TOKEN`。
 - Binance 运行在 Oracle Cloud VPS 的 self-hosted runner。仓库变量会在外部调度器下一次触发 `main.yml` 时被读取；中控不会自动触发该运行 workflow，因为它可能直接执行实盘。切换到不同运行频率的策略时，还必须单独复核 VPS 外部调度器。
 - QMT 当前仅支持 dry-run，尚无实盘部署配置；可以生成目标并暂存仓库变量，但会拒绝 `trigger_platform_sync=true`。
-- 所有策略都必须有至少一条按策略域匹配的平台 `dry_run`（不下单）路径；健康报告会分别验证“已声明”和“默认可构建”的路径，缺少必需运行时制品的策略会被受控暂停而不会伪造输入。它不等同于 P4 paper 交易，详见[通用不下单演练覆盖 V1](docs/qsl_universal_dry_run_coverage_v1.zh-CN.md)。
-- 当前 `plugin_mode=none` 是安全默认值。`auto` 仅为兼容旧请求而保留，实际等同于 `none`；不得再按策略名称自动挂载 `latest_signal.json`。旧 `custom` mount 已禁用，不能借由手动表单绕过 P1/P2/P3 绑定。未来只有被冻结的 P2 候选明确引用、并可在 P3 复算的插件 artifact 才能接入运行时，详见[策略插件契约 V2](docs/qsl_strategy_plugin_contract_v2.zh-CN.md)。
+- 所有策略都必须有至少一条按策略域匹配的平台 `dry_run`（不下单）路径；健康报告会分别验证“已声明”和“默认可构建”的路径，缺少必需运行时制品的策略会被受控暂停而不会伪造输入。它不等同于 P4 paper 交易，详见[通用不下单演练覆盖 V1](docs/qsl-universal-dry-run-coverage-v1.zh-CN.md)。
+- 当前 `plugin_mode=none` 是安全默认值。`auto` 仅为兼容旧请求而保留，实际等同于 `none`；不得再按策略名称自动挂载 `latest_signal.json`。旧 `custom` mount 已禁用，不能借由手动表单绕过 P1/P2/P3 绑定。未来只有被冻结的 P2 候选明确引用、并可在 P3 复算的插件 artifact 才能接入运行时，详见[策略插件契约 V2](docs/qsl-strategy-plugin-contract-v2.zh-CN.md)。
 - workflow 绑定 GitHub Environment `runtime-strategy-switch`。个人系统默认不需要 required reviewers；建议把 `RUNTIME_SETTINGS_GH_TOKEN` 配成这个 Environment 的 secret，真实写入靠 preview、确认词和 token 最小权限控制。
-- 启用真实切换前请按 [手动策略切换权限控制方案](docs/manual_strategy_switch_permission_control.zh-CN.md) 完成最简 secret、token 权限和回滚准备。
+- 启用真实切换前请按 [手动策略切换权限控制方案](docs/manual-strategy-switch-permission-control.zh-CN.md) 完成最简 secret、token 权限和回滚准备。
 
 ## 延伸文档
 
-- [内部依赖 pin 政策](docs/internal_dependency_pin_policy.zh-CN.md)
-- [策略切换控制台 Fork 指南](docs/strategy_switch_fork_guide.zh-CN.md)
+- [内部依赖 pin 政策](docs/internal-dependency-pin-policy.zh-CN.md)
+- [策略切换控制台 Fork 指南](docs/strategy-switch-fork-guide.zh-CN.md)
 - [策略切换控制台 Worker](web/strategy-switch-console/README.zh-CN.md)
-- [策略切换登录权限后台方案](docs/strategy_switch_admin_backend.zh-CN.md)
-- [手动策略切换权限控制方案](docs/manual_strategy_switch_permission_control.zh-CN.md)
+- [策略切换登录权限后台方案](docs/strategy-switch-admin-backend.zh-CN.md)
+- [手动策略切换权限控制方案](docs/manual-strategy-switch-permission-control.zh-CN.md)
 
 ## 社区和安全
 

@@ -1,6 +1,6 @@
 # Fork Guide: Strategy Switch Console
 
-[简体中文](strategy_switch_fork_guide.zh-CN.md)
+[简体中文](strategy-switch-fork-guide.zh-CN.md)
 
 This guide explains how to fork this repository and deploy the same public-readonly, login-to-switch console for your own platform repositories.
 
