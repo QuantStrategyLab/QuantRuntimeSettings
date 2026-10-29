@@ -344,41 +344,21 @@ const layered = createAccountSettingsController();
 const layeredBase = settings("hk", "BALANCED_COMPOUNDING", identityA, "layered");
 layeredBase.operations.save_option_draft = true;
 layered.applyRead(layered.select({ platform: "longbridge", key: "hk" }), layeredBase);
-layered.edit({ strategy: "russell", strategyTouched: true, option: "false", optionTouched: true, income: "true", incomeTouched: true, cashMode: "floor", floor: "3", ratio: "0", percent: "0", floorTouched: true, ratioTouched: true });
+layered.edit({ strategy: "russell", strategyTouched: true, income: "true", incomeTouched: true, cashMode: "floor", floor: "3", ratio: "0", percent: "0", floorTouched: true, ratioTouched: true });
 const strategyOnly = layered.startSave("strategy");
 assert.equal(strategyOnly.body.overrides.strategy_profile, "russell");
 assert.equal(Object.hasOwn(strategyOnly.body.overrides, "option_overlay_enabled"), false);
 assert.equal(Object.hasOwn(strategyOnly.body.overrides, "income_layer_enabled"), false);
 assert.equal(Object.hasOwn(strategyOnly.body.overrides, "reserved_cash_floor"), false);
-const optionOnly = layered.startSave("option");
-assert.equal(optionOnly.body.overrides.option_overlay_enabled, false);
-assert.equal(Object.hasOwn(optionOnly.body.overrides, "strategy_profile"), false);
-assert.equal(Object.hasOwn(optionOnly.body.overrides, "reserved_cash_floor"), false);
+assert.equal(layered.startSave("option"), null, "retired option edits cannot be sent");
+layered.abandon(strategyOnly);
 const layeredSaved = settings("hk", "BALANCED_COMPOUNDING", identityA, "layered-saved");
-layeredSaved.operations.save_option_draft = true;
 layeredSaved.draft.revision = 3;
 layeredSaved.draft.overrides = { option_overlay_enabled: false };
-assert.equal(layered.applySave(optionOnly, layeredSaved, "saved"), true);
-assert.equal(layered.view().draft.strategy, "russell");
-assert.equal(layered.view().draft.strategyTouched, true);
-assert.equal(layered.view().draft.income, "true");
-assert.equal(layered.view().draft.floor, "3");
 assert.equal(layered.applyRefresh(layered.start("refresh"), layeredSaved), true);
 assert.equal(layered.view().draft.strategyTouched, true);
 assert.equal(layered.view().draft.incomeTouched, true);
 assert.equal(layered.view().draft.cashMode, "floor");
-layered.edit({ option: "clear", optionTouched: true });
-const strategyClearsOption = layered.startSave("strategy");
-assert.equal(strategyClearsOption.body.overrides.strategy_profile, "russell");
-assert.equal(strategyClearsOption.body.overrides.option_overlay_enabled, null);
-const optionClosed = createAccountSettingsController();
-const optionClosedBase = settings("hk", "BALANCED_COMPOUNDING", identityA, "option-closed");
-optionClosedBase.operations.save_option_draft = false;
-optionClosed.applyRead(optionClosed.select({ platform: "longbridge", key: "hk" }), optionClosedBase);
-optionClosed.edit({ option: "true", optionTouched: true });
-assert.equal(optionClosed.startSave("option"), null, "a new option value stays closed when the bound profile does not define one");
-optionClosed.edit({ option: "clear", optionTouched: true });
-assert.equal(optionClosed.startSave("option").body.overrides.option_overlay_enabled, null);
 
 const baseDcaDraft = {
   strategy: "ibit_smart_dca", floor: "", ratio: "", percent: "", income: "", option: "",
@@ -528,7 +508,7 @@ for (const kind of ["cash", "risk"]) {
   assert.equal(c.requestBody(newOp).key, "sg");
   assert.deepEqual(c.requestBody(newOp).identity, identityB);
 }
-const saveKinds = ["draft", "cash", "income", "option", "strategy", "risk"];
+const saveKinds = ["draft", "cash", "income", "strategy", "risk"];
 for (const firstKind of saveKinds) for (const nextKind of saveKinds) {
   const c = createAccountSettingsController();
   const payload = settings("hk", "BALANCED_COMPOUNDING", identityA, "all-kinds");
@@ -645,9 +625,9 @@ for (const field of Object.keys(identityA)) {
   assert.equal(value.c.applySave(value.op, value.ack, "草案已保存"), false, `identity field ${field} is bound`);
 }
 
-for (const field of ["income_layer_enabled", "option_overlay_enabled"]) {
-  const kind = field === "income_layer_enabled" ? "income" : "option";
-  const edit = field === "income_layer_enabled" ? { income: "false", incomeTouched: true } : { option: "false", optionTouched: true };
+for (const field of ["income_layer_enabled"]) {
+  const kind = "income";
+  const edit = { income: "false", incomeTouched: true };
   const good = acknowledgementCase(kind, null, edit);
   assert.equal(good.c.applySave(good.op, good.ack, "草案已保存"), true);
   const bad = acknowledgementCase(kind, null, edit); bad.ack.draft.overrides[field] = "false";
