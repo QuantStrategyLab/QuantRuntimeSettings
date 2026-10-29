@@ -4,10 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: list safe target catalog, or apply secrets for one target_id
+        description: list targets, check the fixed additional-1 binding, or apply one target
         type: choice
         options:
           - list
+          - match-additional-1
           - apply
         default: list
       target_id:
@@ -38,7 +39,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
-      GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+      GH_TOKEN: ${{ inputs.mode != 'match-additional-1' && secrets.RUNTIME_SETTINGS_GH_TOKEN || '' }}
       CONFIGURE_MODE: ${{ inputs.mode }}
       TARGET_ID: ${{ inputs.target_id }}
       OVERWRITE: ${{ inputs.overwrite }}
@@ -86,6 +87,11 @@ jobs:
           fi
           if [ "$CONFIGURE_MODE" = "list" ]; then
             node ./configure_ibkr_period_return.mjs list \
+              "$temp_dir/account-options.json" "$temp_dir/account-facts-bindings.json"
+            exit $?
+          fi
+          if [ "$CONFIGURE_MODE" = "match-additional-1" ]; then
+            node ./configure_ibkr_period_return.mjs match-additional-1 \
               "$temp_dir/account-options.json" "$temp_dir/account-facts-bindings.json"
             exit $?
           fi
