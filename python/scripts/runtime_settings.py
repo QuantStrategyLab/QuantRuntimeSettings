@@ -1058,60 +1058,17 @@ def option_bool_value(value: Any) -> bool | None:
 
 
 def validate_option_overlay_variables(extra_variables: dict[str, Any], errors: list[str]) -> None:
-    if not any(name in extra_variables for name in OPTION_OVERLAY_VARIABLES):
-        return
-
-    values = {
-        name: str(extra_variables.get(name) if extra_variables.get(name) is not None else "").strip()
-        for name in OPTION_OVERLAY_VARIABLES
-    }
-    for name in OPTION_OVERLAY_ENABLED_VARIABLES:
-        if values[name] and option_bool_value(values[name]) is None:
-            errors.append(f"extra_variables.{name} must be true or false")
-    for name in OPTION_OVERLAY_RECIPE_VARIABLES:
-        if values[name] and not re.fullmatch(r"[A-Za-z0-9._=-]{1,120}", values[name]):
-            errors.append(f"extra_variables.{name} must be a recipe slug")
-    for name in OPTION_OVERLAY_AMOUNT_VARIABLES:
-        if values[name] and not re.fullmatch(r"(?:\d+|\d*\.\d+)", values[name]):
-            errors.append(f"extra_variables.{name} must be a non-negative decimal")
-    for name in OPTION_OVERLAY_RATIO_VARIABLES:
-        if values[name]:
-            if not re.fullmatch(r"(?:\d+|\d*\.\d+)", values[name]):
-                errors.append(f"extra_variables.{name} must be a ratio between 0 and 1")
-                continue
-            numeric = float(values[name])
-            if numeric < 0 or numeric > 1:
-                errors.append(f"extra_variables.{name} must be a ratio between 0 and 1")
-
-    overlay_enabled = option_bool_value(values["OPTION_OVERLAY_ENABLED"]) if values["OPTION_OVERLAY_ENABLED"] else None
-    family_enabled: dict[str, bool | None] = {}
-    family_fields = {
-        "GROWTH": (
-            "OPTION_GROWTH_OVERLAY_ENABLED",
-            "OPTION_GROWTH_OVERLAY_RECIPE",
-            "OPTION_GROWTH_OVERLAY_START_USD",
-            "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO",
-        ),
-        "INCOME": (
-            "OPTION_INCOME_OVERLAY_ENABLED",
-            "OPTION_INCOME_OVERLAY_RECIPE",
-            "OPTION_INCOME_OVERLAY_START_USD",
-            "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO",
-        ),
-    }
-    for family, (enabled_name, recipe_name, start_name, ratio_name) in family_fields.items():
-        enabled = option_bool_value(values[enabled_name]) if values[enabled_name] else None
-        family_enabled[family] = enabled
-        family_payload = [values[recipe_name], values[start_name], values[ratio_name]]
-        if enabled is True and not all(family_payload):
-            errors.append(f"extra_variables.{enabled_name} requires recipe, start_usd, and ratio fields")
-        if enabled is False and any(family_payload):
-            errors.append(f"extra_variables.{enabled_name} is false but {family.lower()} overlay fields are still set")
-
-    if overlay_enabled is True and not any(value is True for value in family_enabled.values()):
-        errors.append("extra_variables.OPTION_OVERLAY_ENABLED is true but no option overlay family is enabled")
-    if overlay_enabled is False and any(value is True for value in family_enabled.values()):
-        errors.append("extra_variables.OPTION_OVERLAY_ENABLED is false but an option overlay family is enabled")
+    """Reject legacy option requests while allowing explicit disabled markers."""
+    for name in sorted(OPTION_OVERLAY_VARIABLES):
+        if name not in extra_variables:
+            continue
+        value = extra_variables[name]
+        text = str(value if value is not None else "").strip()
+        if not text:
+            continue
+        if name in OPTION_OVERLAY_ENABLED_VARIABLES and option_bool_value(value) is False:
+            continue
+        errors.append(f"extra_variables.{name}: option overlay retired; migrate existing settings explicitly")
 
 
 def validate_nonsecret_service_target_inventory(value: Any, *, path: str, errors: list[str]) -> None:

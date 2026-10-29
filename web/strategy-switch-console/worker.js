@@ -15221,7 +15221,10 @@ function normalizeSwitchInputs(raw) {
   if (String(raw.custom_plugin_mounts_json || "").trim()) {
     throw new Error("legacy custom plugin mounts are retired pending a P1/P2/P3-bound signal.v2 adapter");
   }
-  const optionOverlayMode = cleanChoice(raw.option_overlay_mode || "enabled", OPTION_OVERLAY_MODES, "option_overlay_mode");
+  const optionOverlayMode = cleanChoice(raw.option_overlay_mode || "current", OPTION_OVERLAY_MODES, "option_overlay_mode");
+  if (optionOverlayMode === "enabled") {
+    throw new Error("option overlay is retired; migrate existing option settings and obligations explicitly");
+  }
   const cashOnlyExecutionMode = cleanChoice(
     raw.cash_only_execution_mode || "enabled",
     CASH_ONLY_EXECUTION_MODES,

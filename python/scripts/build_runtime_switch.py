@@ -479,10 +479,7 @@ def _option_overlay_extra_variables(args: argparse.Namespace, strategy_profile: 
     if mode == "disabled":
         return _disabled_option_overlay_extra_variables()
 
-    defaults = _load_option_overlay_profile_defaults().get(strategy_profile)
-    if not defaults:
-        raise ValueError("option_overlay_mode enabled is only supported for strategies with option overlay defaults")
-    return dict(defaults)
+    raise ValueError("option overlay is retired; migrate existing option settings and obligations explicitly")
 
 
 def _dca_extra_variables(
