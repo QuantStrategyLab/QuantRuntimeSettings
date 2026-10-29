@@ -174,18 +174,30 @@ class RuntimeStopDispatchTests(unittest.TestCase):
         listing = {"total_count": 1, "artifacts": [{"name": "ibkr-runtime-switch-result-123-1", "id": 4, "size_in_bytes": 200}]}
         log = b"2026-01-01T00:00:01.1234567Z error: switch candidate changed service annotations or labels\n"
 
-        def check(run_data=run, receipt_data=receipt, job_data=jobs, log_data=log):
+        def check(run_data=run, receipt_data=receipt, job_data=jobs, log_data=log, version=b"gh version 2.103.2 (synthetic)\n"):
             buffer = io.BytesIO()
             with zipfile.ZipFile(buffer, "w") as archive:
                 archive.writestr("ibkr-runtime-switch-result.json", json.dumps(receipt_data))
             def response(value):
                 return subprocess.CompletedProcess([], 0, value if isinstance(value, bytes) else json.dumps(value).encode(), b"")
-            with patch.object(settings.subprocess, "run", side_effect=[response(meta), response(run_data), response(listing), response(buffer.getvalue()), response(job_data), response(log_data)]):
-                return settings.read_runtime_control_result(self.request, "enable", request_id, 123, "sync-cloud-run-env.yml")
+            with patch.object(settings.subprocess, "run", side_effect=[response(meta), response(run_data), response(listing), response(buffer.getvalue()), response(job_data), response(version), response(log_data)]) as api, contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as error:
+                result = settings.read_runtime_control_result(self.request, "enable", request_id, 123, "sync-cloud-run-env.yml")
+            self.assertEqual(output.getvalue() + error.getvalue(), "")
+            if len(api.call_args_list) == 7:
+                self.assertEqual("--allow-escape-sequences" in api.call_args_list[-1].args[0], b"2.103.2" in version)
+            return result
 
         self.assertEqual(check(), "rejected")
+        probe_head = {**run, "head_sha": "c0bd4c01b9db95d61785e9e20dceea8f750c72a2"}
+        probe_log = b"2026-01-01T00:00:01.1234567Z ValueError: traffic candidate has not passed its application startup probe\n"
+        self.assertEqual(check(run_data=probe_head, log_data=probe_log), "rejected")
+        self.assertEqual(check(run_data=probe_head, log_data=log), "unknown")
+        self.assertEqual(check(log_data=probe_log), "unknown")
+        self.assertEqual(check(version=b"gh version 2.93.0 (synthetic)\n"), "rejected")
         self.assertEqual(check(log_data=b"2026-01-01T00:00:01Z error: another failure\n"), "unknown")
         self.assertEqual(check(log_data=b""), "unknown")
+        self.assertEqual(check(log_data=b"\x1b[31mother line\x1b[0m\n" + log), "rejected")
+        self.assertEqual(check(log_data=log.replace(b"error:", b"\x1b[31merror:")), "unknown")
         self.assertEqual(check(log_data=log.replace(b"00:00:01", b"00:00:03")), "unknown")
         self.assertEqual(check(receipt_data={**receipt, "target_sha256": "0" * 64}), "unknown")
         self.assertEqual(check(receipt_data={**receipt, "request_id": "12345678-1234-4abc-8def-123456789abd"}), "unknown")
