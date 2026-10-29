@@ -221,9 +221,24 @@ class RuntimeStopDispatchTests(unittest.TestCase):
         args = argparse.Namespace(operation="enable", request_id="12345678-1234-4abc-8def-123456789abc", check_id="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", platform_run_id="321")
         with patch.object(settings, "load_stop_request", return_value=self.request),                 patch.object(settings, "runtime_control_workflow_preflight", return_value="sync-cloud-run-env.yml"),                 patch.object(settings, "read_runtime_control_result", return_value="applied") as read,                 patch.object(settings, "execute_stop") as write, patch.object(settings, "dispatch_runtime_control") as send:
             self.assertEqual(settings.command_runtime_control_readback(args), 0)
-            read.assert_called_once_with(self.request, "enable", args.request_id, 321, "sync-cloud-run-env.yml")
+            read.assert_called_once_with(self.request, "enable", args.request_id, 321, "sync-cloud-run-env.yml", {})
             write.assert_not_called()
             send.assert_not_called()
+
+    def test_readback_diagnostic_reports_only_fixed_stage_and_http_status(self):
+        diagnostic = {}
+        response = subprocess.CompletedProcess([], 1, b"", b"HTTP 403 synthetic-private-message")
+        with patch.object(settings.subprocess, "run", return_value=response):
+            self.assertEqual(settings.read_runtime_control_result(self.request, "enable", "12345678-1234-4abc-8def-123456789abc", 123, "sync-cloud-run-env.yml", diagnostic), "unknown")
+        self.assertEqual(diagnostic, {"stage": "workflow", "http_status": 403, "failure_kind": "command_failed"})
+
+    def test_readback_diagnostic_distinguishes_oversize_and_timeout(self):
+        for response, expected in [(subprocess.CompletedProcess([], 0, b"x" * 524289, b""), "response_too_large"),
+                                   (subprocess.TimeoutExpired(["gh"], 30), "timeout")]:
+            diagnostic = {}
+            with self.subTest(expected=expected), patch.object(settings.subprocess, "run", side_effect=response if isinstance(response, Exception) else None, return_value=response):
+                self.assertEqual(settings.read_runtime_control_result(self.request, "enable", "12345678-1234-4abc-8def-123456789abc", 123, "sync-cloud-run-env.yml", diagnostic), "unknown")
+            self.assertEqual(diagnostic, {"stage": "workflow", "failure_kind": expected})
 
     def hk_request(self):
         return {"target_id": "longbridge/hk", "github": {

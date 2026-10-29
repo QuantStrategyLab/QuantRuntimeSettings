@@ -1909,7 +1909,7 @@ def recover_runtime_control_run(request: dict[str, Any], request_id: str, workfl
 
 
 def read_runtime_control_result(request: dict[str, Any], operation: str, request_id: str,
-                                run_id: int, workflow: str) -> str:
+                                run_id: int, workflow: str, diagnostics: dict[str, Any] | None = None) -> str:
     """Read only this run and its uniquely named safe artifact, with no side effects."""
     _, identity, github = _stop_request_identity(request)
     if (type(run_id) is not int or run_id <= 0
@@ -1922,13 +1922,27 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
             response = subprocess.run(["gh", "api", "--method", "GET", f"{prefix}/{path}"],
                                       capture_output=True, timeout=30, check=False)
             if response.returncode or len(response.stdout) > (262144 if binary else 524288):
+                if diagnostics is not None:
+                    diagnostics["failure_kind"] = "command_failed" if response.returncode else "response_too_large"
+                    if response.returncode:
+                        match = re.search(rb"HTTP ([1-5][0-9]{2})", response.stderr or b"")
+                        if match:
+                            diagnostics["http_status"] = int(match.group(1))
                 raise ValueError("runtime_control_read_unavailable")
             return response.stdout if binary else json.loads(response.stdout)
+        except subprocess.TimeoutExpired:
+            if diagnostics is not None:
+                diagnostics["failure_kind"] = "timeout"
+            raise ValueError("runtime_control_read_unavailable") from None
         except (OSError, subprocess.SubprocessError, TypeError, UnicodeError, json.JSONDecodeError):
+            if diagnostics is not None:
+                diagnostics["failure_kind"] = "read_failed"
             raise ValueError("runtime_control_read_unavailable") from None
 
     try:
+        if diagnostics is not None: diagnostics["stage"] = "workflow"
         meta = get(f"actions/workflows/{workflow}")
+        if diagnostics is not None: diagnostics["stage"] = "run"
         run = get(f"actions/runs/{run_id}")
         title = ("Runtime switch " if identity["platform_id"] == "ibkr" else "Schwab runtime switch ") + request_id
         if (meta.get("path") != f".github/workflows/{workflow}" or run.get("workflow_id") != meta.get("id")
@@ -1936,6 +1950,7 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
                 or run.get("event") != "workflow_dispatch" or run.get("head_branch") != "main"
                 or run.get("display_title") != title or run.get("status") != "completed"):
             return "unknown"
+        if diagnostics is not None: diagnostics["stage"] = "artifacts"
         listing = get(f"actions/runs/{run_id}/artifacts?per_page=100")
         artifact_name = (f"ibkr-runtime-switch-result-{run_id}-1" if identity["platform_id"] == "ibkr"
                          else "schwab-runtime-switch-safe")
@@ -1945,18 +1960,21 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
         if (len(matches) != 1 or type(matches[0].get("id")) is not int
                 or type(matches[0].get("size_in_bytes")) is not int or matches[0]["size_in_bytes"] > 262144):
             return "unknown"
+        if diagnostics is not None: diagnostics["stage"] = "receipt"
         archive = get(f"actions/artifacts/{matches[0]['id']}/zip", binary=True)
         receipt = read_runtime_control_receipt_zip(archive, identity["platform_id"])
         result = validate_runtime_control_receipt(request, operation, request_id, run_id, receipt)
         # This reviewed version rejects this specific candidate before traffic
         # adoption. It may already have created a no-traffic revision, so this
         # says only that the request was not adopted, not that nothing was written.
+        if diagnostics is not None: diagnostics["stage"] = "receipt_match"
         if (result == "unknown" and identity["platform_id"] == "ibkr" and operation == "enable"
                 and run.get("head_sha") == "49af5187aabace9dec41059620ecc4f16aa76daf"
                 and run.get("conclusion") == "failure" and receipt.get("status") == "unknown"
                 and receipt.get("request_id") == request_id and str(receipt.get("run_id")) == str(run_id)
                 and str(receipt.get("attempt")) == "1" and receipt.get("operation") == operation
                 and receipt.get("target_sha256") == hashlib.sha256(identity["service_name"].encode("utf-8")).hexdigest()):
+            if diagnostics is not None: diagnostics["stage"] = "jobs"
             jobs = get(f"actions/runs/{run_id}/jobs?per_page=100")
             if not isinstance(jobs.get("jobs"), list) or jobs.get("total_count", 101) > 100:
                 return "unknown"
@@ -1978,7 +1996,14 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
             end = datetime.fromisoformat(traffic[0]["completed_at"].replace("Z", "+00:00"))
             if start.tzinfo is None or end.tzinfo is None or end < start:
                 return "unknown"
-            log = get(f"actions/jobs/{candidates[0]['id']}/logs", binary=True).decode("utf-8")
+            if diagnostics is not None: diagnostics["stage"] = "job_log"
+            raw_log = get(f"actions/jobs/{candidates[0]['id']}/logs", binary=True)
+            if diagnostics is not None: diagnostics["stage"] = "job_log_decode"
+            if raw_log.startswith(b"PK\x03\x04"):
+                if diagnostics is not None: diagnostics["failure_kind"] = "unexpected_zip"
+                return "unknown"
+            log = raw_log.decode("utf-8")
+            if diagnostics is not None: diagnostics["stage"] = "log_match"
             pattern = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z error: switch candidate changed service annotations or labels$")
             found = [match for line in log.splitlines() if (match := pattern.fullmatch(line))]
             if len(found) == 1:
@@ -2053,9 +2078,13 @@ def command_runtime_control_readback(args: argparse.Namespace) -> int:
             raise ValueError("runtime_control_request_invalid")
         request = load_stop_request()
         workflow = runtime_control_workflow_preflight(request)
-        summary["status"] = read_runtime_control_result(request, args.operation, args.request_id, int(args.platform_run_id), workflow)
+        diagnostics = {}
+        summary["status"] = read_runtime_control_result(request, args.operation, args.request_id, int(args.platform_run_id), workflow, diagnostics)
         if summary["status"] == "unknown":
             summary["reason"] = "platform_result_unavailable"
+            summary["readback_stage"] = diagnostics.get("stage")
+            summary["http_status"] = diagnostics.get("http_status")
+            summary["failure_kind"] = diagnostics.get("failure_kind")
     except (OSError, ValueError, TypeError, KeyError):
         summary["reason"] = "platform_result_unavailable"
     result_path = os.environ.get("RUNTIME_CONTROL_RESULT_PATH")

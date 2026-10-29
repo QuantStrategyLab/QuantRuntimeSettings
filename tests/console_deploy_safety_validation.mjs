@@ -730,6 +730,7 @@ await releaseCase({env:{ RELEASE_SOURCE_SHA:"46bde0621b77db35ae32bd4bcaa894aa148
 await releaseCase({env:{ RELEASE_SOURCE_SHA:"7137712b42f8dd3a60fd98c26c6d52f315e061e4", PLATFORM_CONTROL_EXPECTED_VERSION:newVersion }},false,1);
 await releaseCase({env:{ RELEASE_SOURCE_SHA:"c9fc4822953f514d015d1e5b4647120c5d264ea8", PLATFORM_CONTROL_EXPECTED_VERSION:newVersion }},false,1);
 await releaseCase({env:{ RELEASE_SOURCE_SHA:"0609cf7b8cbd950562034de1419e4d538d46590c", PLATFORM_CONTROL_EXPECTED_VERSION:newVersion }},false,1);
+await releaseCase({env:{ RELEASE_SOURCE_SHA:"3047658f60f65f976cdf82ae78033b85aaea93ac", PLATFORM_CONTROL_EXPECTED_VERSION:newVersion }},false,1);
 const echoedBundle=Buffer.concat([syntheticBundle,Buffer.alloc(600000,32)]);
 const echoedLimit=Math.ceil(echoedBundle.length/3)*4+524288;
 const echoedBody=JSON.stringify(wrap({id:newVersion,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:echoedBundle.toString("base64")}]}));
