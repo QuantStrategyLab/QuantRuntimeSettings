@@ -112,6 +112,19 @@ export async function accountFactsResponse(request, env, deps) {
     storedByAccount,
     now: Date.now(),
   });
+  let declarations = null;
+  try {
+    const result = await runtimeInstanceCommand(env, { action: "account_declarations_read", actor: session.login });
+    if (Array.isArray(result.declarations)) declarations = result.declarations;
+  } catch { /* Account facts remain available if declarations cannot be read. */ }
+  for (const account of model.accounts) {
+    const matching = declarations?.filter(item => item.platform === account.platform && item.key === account.account_key) || [];
+    if (matching.length === 1) {
+      const { binding_environment, environment, account_type, source, status } = matching[0];
+      if (binding_environment === "live" || binding_environment === "paper") account.binding_environment = binding_environment;
+      if (status === "current") account.user_declaration = { environment, account_type, source };
+    }
+  }
   for (const account of model.accounts) {
     if (account.platform !== "ibkr") continue;
     const binding = bindings?.bindings?.find(

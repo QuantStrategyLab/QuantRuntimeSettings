@@ -87,6 +87,7 @@ export default function AccountsPage({ account, tab }: { account: string | null;
             todayRun={todayRun}
             todayFailed={todayFailed}
             facts={facts}
+            onDeclarationSaved={factsState.reload}
             onBack={() => navigate({ account: null })}
           />
         )}
