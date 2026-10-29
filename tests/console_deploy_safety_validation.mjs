@@ -221,6 +221,7 @@ const integratedSource = "0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a";
 const cpuSource = "974354b98ebe0cd55931baa03034d887d4fac560";
 const statusSource = "68e3d4b69e706e2100f860c473ec657e9baf05ba";
 const dailySource = "4b6cbedc731d3352a9c9dbe4f57fc2b948207ef6";
+const settingsSource = "3782a3e87260f10d101cb5ca79b20e1da9ada078";
 const ibkrTree = "3ac93c0b2caf30a650ab46d4bf62220e45582a46";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
@@ -232,7 +233,7 @@ const selectShell = shellBody(selectionStep);
 const fakeGit = `git() {
   printf '%s\\n' "$*" >> "$TRACE"
   case "$*" in
-    'fetch --no-tags origin refs/heads/codex/website-native-daily-fixed-clock-20261029'|'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-history-cpu-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-incomplete-release-candidate-20261029') return 0 ;;
+    'fetch --no-tags origin refs/heads/codex/website-account-settings-reviewed-20261029'|'fetch --no-tags origin refs/heads/codex/website-native-daily-fixed-clock-20261029'|'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-history-cpu-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-incomplete-release-candidate-20261029') return 0 ;;
     'rev-parse FETCH_HEAD') printf '%s' "$FAKE_FETCH_HEAD" ;;
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
     'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
@@ -240,12 +241,12 @@ const fakeGit = `git() {
     'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${integratedSource} ${cpuSource}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${frontend} ${control}') return "$FAKE_FRONTEND_ANCESTRY_EXIT" ;;
-    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse ${cpuSource}^{tree}'|'rev-parse ${dailySource}^{tree}'|'rev-parse ${statusSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
-    'rev-parse ${ibkrSource}^'|'rev-parse ${integratedSource}^'|'rev-parse ${dailySource}^'|'rev-parse ${statusSource}^') printf '%s' "$FAKE_PARENT" ;;
+    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse ${cpuSource}^{tree}'|'rev-parse ${settingsSource}^{tree}'|'rev-parse ${dailySource}^{tree}'|'rev-parse ${statusSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${ibkrSource}^'|'rev-parse ${integratedSource}^'|'rev-parse ${settingsSource}^'|'rev-parse ${dailySource}^'|'rev-parse ${statusSource}^') printf '%s' "$FAKE_PARENT" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
-    'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}'|'rev-parse ${cpuSource}:${assetPath}'|'rev-parse ${dailySource}:${assetPath}'|'rev-parse ${statusSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
+    'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}'|'rev-parse ${cpuSource}:${assetPath}'|'rev-parse ${settingsSource}:${assetPath}'|'rev-parse ${dailySource}:${assetPath}'|'rev-parse ${statusSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
     'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
-    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}'|'-c advice.detachedHead=false checkout --detach ${cpuSource}'|'-c advice.detachedHead=false checkout --detach ${statusSource}'|'-c advice.detachedHead=false checkout --detach ${dailySource}') touch "$SELECTED" ;;
+    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}'|'-c advice.detachedHead=false checkout --detach ${cpuSource}'|'-c advice.detachedHead=false checkout --detach ${statusSource}'|'-c advice.detachedHead=false checkout --detach ${settingsSource}'|'-c advice.detachedHead=false checkout --detach ${dailySource}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -342,6 +343,15 @@ for(const delta of [{SYNC_SECRETS:"true"},{SYNC_STRATEGY_PROFILES:"true"},{RELEA
  {FAKE_TREE:"a".repeat(40)},{FAKE_PARENT:"a".repeat(40)},{FAKE_PR764_BLOB:"a".repeat(40)},{FAKE_FETCH_HEAD:"a".repeat(40)}])
  assert.equal(sourceCase({...dailyEnv,...delta},false).selected,false);
 
+const settingsEnv = {...dailyEnv, RELEASE_SOURCE_SHA:settingsSource, FAKE_FETCH_HEAD:settingsSource,
+ FAKE_TREE:"d20a164454349e82d0982f1be51cc96e40cf0a25", FAKE_PARENT:"b4567ec8b79aca13bf20652ae7c199abb4f04cd3",
+ FAKE_PR764_BLOB:"43c9a39b1b01386b3fa4bf88f9c283fbad4788c6", FAKE_SELECTED_HEAD:settingsSource};
+assert.equal(sourceCase(settingsEnv,true).selected,true);
+for(const delta of [{SYNC_SECRETS:"true"},{SYNC_STRATEGY_PROFILES:"true"},{RELEASE_FRONTEND_ASSETS:"false"},
+ {IBKR_CANDIDATE_RESUME:"verify"},{SKIP_BINANCE_RECEIVER_CHECKS:"false"},{GITHUB_REF:"refs/heads/other"},
+ {FAKE_TREE:"a".repeat(40)},{FAKE_PARENT:"a".repeat(40)},{FAKE_PR764_BLOB:"a".repeat(40)},{FAKE_FETCH_HEAD:"a".repeat(40)}])
+ assert.equal(sourceCase({...settingsEnv,...delta},false).selected,false);
+
 const ibkrEnv = { RELEASE_SOURCE_SHA: ibkrSource, RELEASE_FRONTEND_ASSETS: "true",
   FAKE_TREE: ibkrTree, FAKE_SELECTED_HEAD: ibkrSource, FAKE_PR764_BLOB: frontendBlob };
 assert.equal(sourceCase(ibkrEnv, true).selected, true);
@@ -395,7 +405,7 @@ const fakeOverlayGit = `git() {
     'show ${ibkrSource}:${assetPath}') cat "$FROZEN_MAP" ;;
     hash-object*) command git "$@" ;;
     'diff --name-only ${approved}') printf '%s' "$FAKE_DIFF" ;;
-    'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}'|'diff --name-only ${dailySource}'|'diff --name-only ${statusSource}') printf '%s' "$FAKE_DIFF" ;;
+    'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}'|'diff --name-only ${settingsSource}'|'diff --name-only ${dailySource}'|'diff --name-only ${statusSource}') printf '%s' "$FAKE_DIFF" ;;
     'ls-files --others --exclude-standard') printf '%s' "$FAKE_UNTRACKED" ;;
     *) return 91 ;;
   esac
@@ -460,6 +470,18 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
     writeFileSync(dest,"synthetic wrong asset");
     assert.notEqual(spawnSync("bash",["-c",fakeOverlayGit+overlayShell],{cwd:temp,env}).status,0);
   } finally {rmSync(temp,{recursive:true,force:true});}
+}
+{
+ const result=spawnSync("git",["show",`${settingsSource}:${assetPath}`],{cwd:new URL("..",import.meta.url)});
+ assert.equal(result.status,0);
+ const asset=result.stdout;
+ assert.equal(spawnSync("git",["hash-object","--stdin"],{input:asset,encoding:"utf8"}).stdout.trim(),"43c9a39b1b01386b3fa4bf88f9c283fbad4788c6");
+ const temp=mkdtempSync(join(tmpdir(),"console-settings-overlay-"));
+ try {const dest=join(temp,assetPath);mkdirSync(join(temp,"web/strategy-switch-console"),{recursive:true});writeFileSync(dest,asset);
+ const env={PATH:process.env.PATH,GITHUB_REF:"refs/heads/main",FAKE_HEAD:settingsSource,FAKE_DIFF:"",FAKE_UNTRACKED:""};
+ assert.equal(spawnSync("bash",["-c",fakeOverlayGit+overlayShell],{cwd:temp,env}).status,0);
+ writeFileSync(dest,"wrong");assert.notEqual(spawnSync("bash",["-c",fakeOverlayGit+overlayShell],{cwd:temp,env}).status,0);
+ } finally {rmSync(temp,{recursive:true,force:true});}
 }
 overlayCase();
 for (const delta of [{ GITHUB_REF: "refs/heads/unapproved" }, { FAKE_HEAD: frontend }, { FAKE_TREE: frontendTree },
@@ -608,8 +630,8 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
  releaseCases++;return {calls,stdout,stderr};
 }
 // Exact integrated candidate: explicit inheritance, verified module, one non-forced activation.
-async function integratedReleaseCase({ daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag } = {}, expected=true) {
- const calls=[], stdout=[], stderr=[], prior=daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
+async function integratedReleaseCase({ settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag } = {}, expected=true) {
+ const calls=[], stdout=[], stderr=[], prior=settings?"7ffe9227-686a-48ad-baa9-72665969d918":daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
  active ??= prior; latest ??= active;
  const responses=responseSequence(false,active);
  responses.splice(3,0,wrap({items:[{id:latest}]}));
@@ -623,7 +645,7 @@ async function integratedReleaseCase({ daily=false, statusCandidate=false, cpu=f
  else postResources.script_runtime.migration_tag=postTag;
  responses.push(wrap({id:newVersion,resources:postResources}));
  const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,
-  RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:daily?dailySource:statusCandidate?statusSource:cpu?cpuSource:integratedSource},exitCode:0};
+  RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:settings?settingsSource:daily?dailySource:statusCandidate?statusSource:cpu?cpuSource:integratedSource},exitCode:0};
  await runRelease(process,async(url,options)=>{calls.push({url,options}); const response=responses[calls.length-1];
   assert.ok(response,"no retry"); return response instanceof Response ? response : new Response(JSON.stringify(response),{headers:{"content-type":"application/json"}});},
   {log:x=>stdout.push(x),error:x=>stderr.push(x)},async path=>path.endsWith("v2_asset_map.js")?syntheticAssetMap:syntheticBundle,
@@ -648,6 +670,12 @@ await integratedReleaseCase({cpu:true,latest:priorVersion},false);
 await integratedReleaseCase({cpu:true,moduleContent:Buffer.from("wrong").toString("base64")},false);
 await integratedReleaseCase({cpu:true,uploadedTag:"wrong-tag"},false);
 await integratedReleaseCase({cpu:true,postTag:null},false);
+await integratedReleaseCase({settings:true});
+await integratedReleaseCase({settings:true,active:"14f0c9c2-09f9-40e9-bfbe-17165f499495"},false);
+await integratedReleaseCase({settings:true,latest:priorVersion},false);
+await integratedReleaseCase({settings:true,moduleContent:Buffer.from("wrong").toString("base64")},false);
+await integratedReleaseCase({settings:true,uploadedTag:"wrong-tag"},false);
+await integratedReleaseCase({settings:true,postTag:null},false);
 await integratedReleaseCase({daily:true});
 await integratedReleaseCase({daily:true,active:"175ba768-484a-4fe6-9cea-e5a101bc1618"},false);
 await integratedReleaseCase({daily:true,latest:priorVersion},false);
