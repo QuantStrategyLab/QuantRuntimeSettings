@@ -261,7 +261,31 @@ export function ownerDecisionBinding(candidate: Record<string, any>, decision: s
   return { candidate_id: candidate.candidate_id, candidate_evidence_sha256: evidence, decision };
 }
 
+/**
+ * First enrollment records the exact reviewed facts version. It carries no
+ * dual-review digest and its write body has no local material-expectation
+ * field, so it is kept separate from the legacy recovery confirmation body.
+ */
+export function initialEnrollmentBinding(entry: Record<string, any>, decision: "approve" | "reject" = "approve") {
+  const recovery = entry?.recovery || {};
+  if (decision !== "approve" && decision !== "reject" || recovery.mode !== "initial_enrollment") return null;
+  if (entry.freshness?.data_status !== "ready" || entry.confirmation || entry.rejection
+    || recovery.readiness !== "awaiting_human_confirmation"
+    || !Array.isArray(recovery.blocker_codes) || recovery.blocker_codes.length
+    || typeof recovery.recovery_id !== "string" || !recovery.recovery_id
+    || !/^[a-f0-9]{64}$/.test(String(recovery.candidate_sha256 || ""))
+    || !/^[a-f0-9]{64}$/.test(String(recovery.facts_sha256 || ""))) return null;
+  return {
+    mode: "initial_enrollment" as const,
+    decision,
+    recovery_id: recovery.recovery_id,
+    candidate_sha256: recovery.candidate_sha256,
+    facts_sha256: recovery.facts_sha256,
+  };
+}
+
 export function recoveryBinding(entry: Record<string, any>, decision: "approve" | "reject" = "approve") {
+  if (entry?.recovery?.mode === "initial_enrollment") return initialEnrollmentBinding(entry, decision);
   const recovery = entry.recovery || {};
   if (decision !== "approve" && decision !== "reject") return null;
   if (entry.freshness?.data_status !== "ready" || entry.confirmation || entry.rejection
@@ -741,8 +765,19 @@ export async function humanDecisionExpectation(kind: HumanDecisionKind, source: 
     } else if (kind === "recovery") {
       subject = body.recovery_id;
       if (!["approve", "reject"].includes(body.decision) || source.recovery?.recovery_id !== subject
-        || source.recovery.candidate_sha256 !== body.candidate_sha256 || source.recovery.dual_review?.evidence_binding_sha256 !== body.dual_review_binding_sha256) return null;
-      material = { recovery_id: subject, candidate_sha256: body.candidate_sha256, dual_review_binding_sha256: body.dual_review_binding_sha256 };
+        || source.recovery.candidate_sha256 !== body.candidate_sha256) return null;
+      if (body.mode === "initial_enrollment") {
+        if (source.recovery.mode !== "initial_enrollment"
+          || source.recovery.facts_sha256 !== body.facts_sha256
+          || typeof body.facts_sha256 !== "string" || !digestPattern.test(body.facts_sha256)) return null;
+        material = {
+          mode: "initial_enrollment", recovery_id: subject,
+          candidate_sha256: body.candidate_sha256, facts_sha256: body.facts_sha256,
+        };
+      } else {
+        if (source.recovery.dual_review?.evidence_binding_sha256 !== body.dual_review_binding_sha256) return null;
+        material = { recovery_id: subject, candidate_sha256: body.candidate_sha256, dual_review_binding_sha256: body.dual_review_binding_sha256 };
+      }
       target = { decision: body.decision };
     } else {
       subject = body.ticket_id;

@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import { webcrypto } from 'node:crypto';
+import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from '../web/strategy-switch-console/application/console_api/initial_enrollment.js';
+globalThis.crypto ||= webcrypto;
+const vector = {name:'測試😀', n:null, a:['é','ok']};
+assert.equal(await initialEnrollmentDigest(vector, true), '759090ff79b58590db1984f32ee5356cf57847347f5d977f1f6b9a7dd84b1e1b');
+assert.equal(await initialEnrollmentDigest(vector), '5dde900995d3c44a052455873889a22cba2a0e485be5db2a88ce6ddb163dd794');
+const names = ['positions','cash','open_orders','recent_executions','local_execution_ledger'];
+const scopeKinds={positions:'account_strategy_positions',cash:'returned_account_cash',open_orders:'all_client_open_orders',recent_executions:'broker_requested_window',local_execution_ledger:'bounded_live_claims_and_outcomes'};
+const scope=n=>({kind:scopeKinds[n],currency:null,window_start:null,window_end:null,limit_per_namespace:null,gateway_availability:null,truncated:null});
+const facts = {schema_version:'ibkr_initial_facts.v1',account_scope_sha256:'a'.repeat(64), observed_at:'2026-10-29T00:00:00Z', surfaces:Object.fromEntries(names.map(n => [n,{status:'unknown',items:null,scope:scope(n)}]))};
+const candidate = {schema_version:'broker_reconciliation_baseline_candidate.v3',mode:'initial_enrollment',platform_id:'ibkr',strategy_profile:'synthetic',baseline_id:'synthetic',baseline_target_sha256:'b'.repeat(64),source_evidence_sha256:['c'.repeat(64)],source_receipts_sha256:'d'.repeat(64),first_observed_at:'2026-10-29T00:00:00Z',last_observed_at:'2026-10-29T00:00:00Z',account_scope_sha256:facts.account_scope_sha256,coverage:Object.fromEntries(names.map(n => [n,'unknown'])),...Object.fromEntries(names.map(n => [`${n}_sha256`,null])),facts_sha256:await initialEnrollmentDigest(facts)};
+candidate.candidate_sha256 = await initialEnrollmentDigest(candidate,true);
+assert.equal(await initialEnrollmentBindingsMatch(candidate,facts),true);
+assert.equal(await initialEnrollmentBindingsMatch(candidate,{...facts,observed_at:'2026-10-29T00:00:01Z'}),false);
+assert.equal(await initialEnrollmentBindingsMatch(candidate,{...facts,surfaces:{...facts.surfaces,positions:{status:'unknown',items:[],scope:scope('positions')}}}),false);
+assert.equal(await initialEnrollmentBindingsMatch({...candidate,account_scope_sha256:'b'.repeat(64)},facts),false);
+console.log('initial_enrollment_bindings_validation: PASS');

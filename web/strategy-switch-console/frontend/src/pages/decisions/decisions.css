@@ -85,6 +85,53 @@
 .reconciliation-material dt { color: var(--muted); font-size: 12px; }
 .reconciliation-material dd { margin: 0; overflow-wrap: anywhere; }
 
+.initial-enrollment-facts {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.initial-enrollment-facts > .card-title { margin-bottom: 6px; }
+.initial-enrollment-surface {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.initial-enrollment-surface:first-child { margin-top: 10px; }
+.initial-enrollment-surface-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.initial-enrollment-scope-block { margin: 6px 0 10px; }
+.initial-enrollment-scope-title {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.initial-enrollment-scope,
+.initial-enrollment-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+.initial-enrollment-scope > div,
+.initial-enrollment-fields > div { min-width: 0; }
+.initial-enrollment-scope dt,
+.initial-enrollment-fields dt { color: var(--muted); font-size: 12px; }
+.initial-enrollment-scope dd,
+.initial-enrollment-fields dd { margin: 0; overflow-wrap: anywhere; }
+.initial-enrollment-items { display: flex; flex-direction: column; gap: 8px; }
+.initial-enrollment-item { border-top: 1px dashed var(--line); padding-top: 8px; }
+.initial-enrollment-item:first-child { border-top: 0; padding-top: 0; }
+.initial-enrollment-list { margin: 0; padding-left: 18px; }
+.initial-enrollment-blocked { font-weight: 600; }
+
 @media (max-width: 600px) {
   .decisions-filters { align-items: stretch; }
   .decisions-filters .tabs { width: 100%; }
@@ -93,4 +140,6 @@
   .decisions-filters .segment { flex: 1 1 auto; justify-content: center; }
   .decision-prompt { font-size: 14px; }
   .inbox-item { padding: 11px 12px; }
+  .initial-enrollment-scope,
+  .initial-enrollment-fields { grid-template-columns: 1fr; }
 }

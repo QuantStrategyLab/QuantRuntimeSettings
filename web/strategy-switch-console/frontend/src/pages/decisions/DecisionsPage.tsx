@@ -32,6 +32,7 @@ import { Timeline } from "../../components/Timeline";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { useToast } from "../../components/Toast";
 import { resolveAccountChoice } from "./helpers";
+import { InitialEnrollmentFacts } from "./InitialEnrollmentFacts";
 import { ReconciliationMaterials } from "./ReconciliationMaterials";
 import "./decisions.css";
 
@@ -76,6 +77,12 @@ function isExpired(item: InboxItem): boolean {
   if (item.status === "expired") return true;
   const expires = item.expires_at ? Date.parse(item.expires_at) : NaN;
   return Number.isFinite(expires) && expires < Date.now();
+}
+
+/** First enrollment shares the recovery transport but has different review copy. */
+function isInitialEnrollmentItem(item: InboxItem): boolean {
+  return item.category === "reconciliation_recovery"
+    && (Boolean(item.initial_enrollment) || item.presentation?.material_kind === "initial_enrollment");
 }
 
 /** Recovery first, then priority, then newest. */
@@ -377,6 +384,16 @@ export default function DecisionsPage() {
       notice("error", "decisions.intent_unavailable");
       return;
     }
+    if (body.mode === "initial_enrollment") {
+      const displayed = item.initial_enrollment;
+      if (!displayed
+        || displayed.candidate_sha256 !== body.candidate_sha256
+        || displayed.facts_sha256 !== body.facts_sha256) {
+        notice("info", "decisions.material_changed");
+        refresh();
+        return;
+      }
+    }
     if (!reviewedDecisionMatches(item.decision_binding, expected)) {
       notice("info", "decisions.material_changed");
       refresh();
@@ -389,7 +406,9 @@ export default function DecisionsPage() {
     const busyKey = `intent:${item.id}`;
     setBusy(current => ({ ...current, [busyKey]: true }));
     try {
-      const result = await postJson<Record<string, any>>(path, {
+      // Initial enrollment accepts only its exact server fields; the displayed
+      // candidate/facts binding above is the local stale-review gate.
+      const result = await postJson<Record<string, any>>(path, body.mode === "initial_enrollment" ? body : {
         ...body,
         expected_material_sha256: expected.material_sha256,
         ...(expected.review_sha256 ? { expected_review_sha256: expected.review_sha256 } : {}),
@@ -474,6 +493,7 @@ export default function DecisionsPage() {
   };
 
   function itemTitle(item: InboxItem, translate: ReturnType<typeof useT>): string {
+    if (isInitialEnrollmentItem(item)) return translate("decisions.initial_enrollment_title");
     const translated = translate(item.title_key);
     return translated === item.title_key ? item.short_id : translated;
   }
@@ -497,9 +517,20 @@ export default function DecisionsPage() {
     const busyIntent = Boolean(busy[`intent:${item.id}`]);
     const busyApply = Boolean(busy[`apply:${subjectIdOf(item)}`]);
     const anyBusy = busyIntent || busyApply;
+    const enrollment = item.initial_enrollment ?? null;
+    const initialEnrollmentMode = isInitialEnrollmentItem(item);
+    const enrollmentBlocked = initialEnrollmentMode && (!enrollment
+      || enrollment.readiness !== "awaiting_human_confirmation"
+      || !Array.isArray(enrollment.blocker_codes) || enrollment.blocker_codes.length > 0
+      || !(["positions", "cash", "open_orders", "recent_executions", "local_execution_ledger"] as const)
+        .every(name => enrollment.facts?.surfaces?.[name]?.status === "complete"
+          && Array.isArray(enrollment.facts?.surfaces?.[name]?.items)));
+    const strategyRow = item.diff.find(row => row.field === "strategy");
+    const reviewedStrategy = item.presentation?.strategy_profile
+      || (strategyRow && typeof strategyRow.after === "string" ? strategyRow.after : null);
 
     let actions: ReactNode = null;
-    if (pending && admin) {
+    if (pending && admin && !(initialEnrollmentMode && enrollmentBlocked)) {
       if (item.category === "credential_maintenance") {
         actions = (
           <button type="button" className="button button-secondary" onClick={() => navigate({ page: "health" })}>
@@ -617,7 +648,9 @@ export default function DecisionsPage() {
             {item.affects_live && <Badge tone="warn">{t("decisions.col.affects_live")}</Badge>}
           </div>
           <h2 className="card-title" style={{ margin: 0 }}>{itemTitle(item, t)}</h2>
-          <p className="decision-prompt">{t(`decisions.prompt.${item.category}`)}</p>
+          <p className="decision-prompt">
+            {t(initialEnrollmentMode ? "decisions.prompt.initial_enrollment" : `decisions.prompt.${item.category}`)}
+          </p>
           <div className="decision-meta">
             <span>{accountLabel(item)}</span>
             {item.platform && <span>{names.platform(item.platform)}</span>}
@@ -643,7 +676,17 @@ export default function DecisionsPage() {
             <DiffTable rows={diffRows} />
           </>
         )}
-        {item.category === "reconciliation_recovery" && (
+        {initialEnrollmentMode && (
+          <InitialEnrollmentFacts
+            account={item.account_alias ? names.account(item.account_alias, item.platform) : null}
+            strategy={reviewedStrategy ? names.strategy(reviewedStrategy) : null}
+            platform={item.platform ? names.platform(item.platform) : null}
+            facts={enrollment?.facts ?? null}
+            readiness={enrollment?.readiness ?? null}
+            blockerCodes={enrollment?.blocker_codes ?? null}
+          />
+        )}
+        {item.category === "reconciliation_recovery" && !initialEnrollmentMode && (
           <details className="decision-materials reconciliation-detail">
             <summary>{t("reconciliation.materials")}</summary>
             <ReconciliationMaterials
