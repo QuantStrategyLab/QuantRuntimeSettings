@@ -188,6 +188,11 @@ class RuntimeStopDispatchTests(unittest.TestCase):
             return result
 
         self.assertEqual(check(), "rejected")
+        probe_head = {**run, "head_sha": "c0bd4c01b9db95d61785e9e20dceea8f750c72a2"}
+        probe_log = b"2026-01-01T00:00:01.1234567Z ValueError: traffic candidate has not passed its application startup probe\n"
+        self.assertEqual(check(run_data=probe_head, log_data=probe_log), "rejected")
+        self.assertEqual(check(run_data=probe_head, log_data=log), "unknown")
+        self.assertEqual(check(log_data=probe_log), "unknown")
         self.assertEqual(check(version=b"gh version 2.93.0 (synthetic)\n"), "rejected")
         self.assertEqual(check(log_data=b"2026-01-01T00:00:01Z error: another failure\n"), "unknown")
         self.assertEqual(check(log_data=b""), "unknown")

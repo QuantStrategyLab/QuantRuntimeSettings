@@ -1994,8 +1994,12 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
         # adoption. It may already have created a no-traffic revision, so this
         # says only that the request was not adopted, not that nothing was written.
         if diagnostics is not None: diagnostics["stage"] = "receipt_match"
+        reviewed_failures = {
+            "49af5187aabace9dec41059620ecc4f16aa76daf": "error: switch candidate changed service annotations or labels",
+            "c0bd4c01b9db95d61785e9e20dceea8f750c72a2": "ValueError: traffic candidate has not passed its application startup probe",
+        }
         if (result == "unknown" and identity["platform_id"] == "ibkr" and operation == "enable"
-                and run.get("head_sha") == "49af5187aabace9dec41059620ecc4f16aa76daf"
+                and run.get("head_sha") in reviewed_failures
                 and run.get("conclusion") == "failure" and receipt.get("status") == "unknown"
                 and receipt.get("request_id") == request_id and str(receipt.get("run_id")) == str(run_id)
                 and str(receipt.get("attempt")) == "1" and receipt.get("operation") == operation
@@ -2030,7 +2034,7 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
                 return "unknown"
             log = raw_log.decode("utf-8")
             if diagnostics is not None: diagnostics["stage"] = "log_match"
-            pattern = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z error: switch candidate changed service annotations or labels$")
+            pattern = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z " + re.escape(reviewed_failures[run["head_sha"]]) + r"$")
             found = [match for line in log.splitlines() if (match := pattern.fullmatch(line))]
             if len(found) == 1:
                 when = datetime.fromisoformat(found[0].group(1) + "+00:00")
