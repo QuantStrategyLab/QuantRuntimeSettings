@@ -11,6 +11,24 @@ on:
         options:
           - preflight
           - execute
+          - multi-preflight
+          - multi-execute
+      comparison_nonce:
+        description: Nonce used by the existing protected source comparisons
+        required: false
+        type: string
+      comparison_run_1:
+        description: Completed additional slot 1 comparison run ID
+        required: false
+        type: string
+      comparison_run_2:
+        description: Completed additional slot 2 comparison run ID
+        required: false
+        type: string
+      comparison_run_3:
+        description: Completed additional slot 3 comparison run ID
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -33,6 +51,11 @@ jobs:
       RUNTIME_SETTINGS_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       GITHUB_TOKEN: ${{ github.token }}
       DAILY_SETUP_MODE: ${{ inputs.mode }}
+      DAILY_COMPARISON_NONCE: ${{ inputs.comparison_nonce }}
+      DAILY_COMPARISON_RUN_1: ${{ inputs.comparison_run_1 }}
+      DAILY_COMPARISON_RUN_2: ${{ inputs.comparison_run_2 }}
+      DAILY_COMPARISON_RUN_3: ${{ inputs.comparison_run_3 }}
+      PLATFORM_CONTROL_EXPECTED_VERSION: ${{ secrets.PLATFORM_CONTROL_EXPECTED_VERSION }}
     steps:
       - name: Require the first execution attempt
         run: test "$GITHUB_RUN_ATTEMPT" = 1

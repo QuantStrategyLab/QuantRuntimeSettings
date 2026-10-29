@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { comparison, matchAdditionalDailyBinding } from '../web/strategy-switch-console/compare_ibkr_daily_binding.mjs';
+import { comparison, matchAdditionalDailyBinding, matchExecutionDailyBinding } from '../web/strategy-switch-console/compare_ibkr_daily_binding.mjs';
 
 const option = {key:'synthetic-key',label:'Synthetic',target_name:'synthetic-target',service_name:'synthetic-service',deployment_selector:'synthetic-deployment',account_scope:'live',account_selector:'U1234567'};
 const binding = {platform:'ibkr',account_key:option.key,account_scope:option.account_scope,target_name:option.target_name,
@@ -27,3 +27,9 @@ assert.throws(()=>matchAdditionalDailyBinding(options,facts,profiles,'c'.repeat(
 assert.throws(()=>matchAdditionalDailyBinding(options,{...facts,bindings:[changed]},profiles,nonce,additional));
 assert.throws(()=>matchAdditionalDailyBinding({ibkr:[option,option]},facts,profiles,nonce,additional));
 assert.throws(()=>matchAdditionalDailyBinding(options,facts,[{profile:'other_strategy'}],nonce,additional));
+
+const lbOption={key:'fixture-key',target_name:'fixture-target',service_name:'fixture-service',deployment_selector:'fixture-deploy',account_scope:'HK',account_selector:'HK'};
+const lbFacts={schema_version:'qsl_account_facts_bindings.v1',bindings:[{platform:'longbridge',account_key:lbOption.key,target_name:lbOption.target_name,service_name:lbOption.service_name,deployment_selector:lbOption.deployment_selector,account_scope:lbOption.account_scope,account_selector:lbOption.account_selector,target_id:lbOption.target_name,source_binding:{kind:'deployment_scope_token_version',id:'e'.repeat(64)}}]};
+const lbDigest='48b2ad005eeda150239f62d33032b4f5075d005ce00518dfd41599ceed4336ab';
+assert.equal(matchExecutionDailyBinding({longbridge:[lbOption]},lbFacts,[{profile:'fixture_strategy'}],'longbridge',nonce,lbDigest).account_key,'fixture-key');
+assert.throws(()=>matchExecutionDailyBinding({longbridge:[{...lbOption,account_selector:'SG'}]},lbFacts,[{profile:'fixture_strategy'}],'longbridge',nonce,lbDigest));

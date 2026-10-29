@@ -1,8 +1,9 @@
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {executePrimaryDailySetup} from './execute_ibkr_daily_setup.mjs';
-import {comparison,primaryBinding} from './compare_ibkr_daily_binding.mjs';
-import {appendPrimaryDailyRegistration,prepareIbkrDailyVersion} from './prepare_ibkr_daily_version.mjs';
+import {executePrimaryDailySetup,executeAdditionalDailySetup} from './execute_ibkr_daily_setup.mjs';
+import {comparison,primaryBinding,matchAdditionalDailyBinding} from './compare_ibkr_daily_binding.mjs';
+import {appendPrimaryDailyRegistration,prepareIbkrDailyVersion,prepareAdditionalDailySetup} from './prepare_ibkr_daily_version.mjs';
+import {DEFAULT_STRATEGY_PROFILES} from './strategy_profiles_asset.js';
 import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace} from './ibkr_daily_setup_checks.mjs';
 
 const qrs='QuantStrategyLab/QuantRuntimeSettings', ibkr='QuantStrategyLab/InteractiveBrokersPlatform';
@@ -170,6 +171,99 @@ const io={
   async activate(version) { const x=await request(`${scriptBase}/deployments?force=false`,{method:'POST',body:JSON.stringify({strategy:'percentage',versions:[{version_id:version,percentage:100}],annotations:{'workers/message':'IBKR primary daily binding'}})}); if(!validUuid(x?.id))throw Error('deployment_id_invalid'); return x.id; },
   async verifyDeployment(version,id) { const d=await deployment(); if (!id || d.id!==id || d.version!==version || d.percentage!==100) throw Error('deployment_readback'); },
 };
+// Read comparison evidence from the original IBKR workflow, never its raw logs or bindings.
+function additionalEvidence(nonce, runs) {
+  if (!/^[a-f0-9]{64}$/.test(nonce ?? '') || !Array.isArray(runs) || runs.length!==3
+      || new Set(runs).size!==3 || runs.some(id=>!/^\d+$/.test(id ?? ''))) throw Error('comparison_invalid');
+  const main=JSON.parse(gh(['api',`repos/${ibkr}/commits/main`],{repo:ibkr}));
+  if (!/^[a-f0-9]{40}$/.test(main?.sha ?? '')) throw Error('comparison_invalid');
+  const slots=['additional-1','additional-2','additional-3'], out={}, times=[];
+  for (let i=0;i<slots.length;i++) {
+    const run=JSON.parse(gh(['api',`repos/${ibkr}/actions/runs/${runs[i]}`],{repo:ibkr}));
+    if (run.status!=='completed' || run.conclusion!=='success' || run.run_attempt!==1 || run.event!=='workflow_dispatch'
+      || run.head_branch!=='main' || run.head_sha!==main.sha || !String(run.path||'').startsWith('.github/workflows/primary-account-facts-readonly.yml')
+      || !Number.isFinite(Date.parse(run.created_at))) throw Error('comparison_invalid');
+    const log=gh(['run','view',runs[i],'-R',ibkr,'--log'],{repo:ibkr});
+    const matches=[...log.matchAll(/status=ok slot=(additional-[123]) comparison=([a-f0-9]{64})/g)];
+    const nonces=[...log.matchAll(/DAILY_COMPARISON_NONCE: ([a-f0-9]{64})/g)].map(x=>x[1]);
+    if (matches.length!==1 || matches[0][1]!==slots[i] || new Set(nonces).size!==1 || nonces[0]!==nonce) throw Error('comparison_invalid');
+    out[slots[i]]=matches[0][2]; times.push(Date.parse(run.created_at));
+  }
+  return {digests:out,sourceTime:Math.min(...times)};
+}
+function additionalSourceFresh(secrets, sourceTime) {
+  const names=['IBKR_ACCOUNT_FACTS_ADDITIONAL_TARGETS_JSON','IBKR_PERIOD_RETURN_ADDITIONAL_ACCOUNT_KEYS_JSON','IBKR_PERIOD_RETURN_ADDITIONAL1_ACCOUNT_KEY',
+    'IBKR_ACCOUNT_FACTS_ACCOUNT_SELECTOR_JSON','IBKR_ACCOUNT_FACTS_TARGET_ID','IBKR_ACCOUNT_FACTS_REPORT_PREFIX'];
+  for (const name of names) {
+    const rows=secrets.filter(x=>x.name===name);
+    if (rows.length>1 || (rows.length===1 && (!Number.isFinite(Date.parse(rows[0].updated_at)) || Date.parse(rows[0].updated_at)>sourceTime))) throw Error('source_changed');
+  }
+  if (![...names.slice(0,2),...names.slice(3)].every(name=>secrets.some(x=>x.name===name))) throw Error('source_changed');
+  const variables=JSON.parse(gh(['api',`repos/${ibkr}/actions/variables?per_page=100`],{repo:ibkr}));
+  if (!Array.isArray(variables.variables) || variables.total_count!==variables.variables.length || variables.variables.length>=100) throw Error('source_changed');
+  const v=variables.variables.filter(x=>x.name==='CLOUD_RUN_SERVICE_TARGETS_JSON');
+  const sec=secrets.filter(x=>x.name==='CLOUD_RUN_SERVICE_TARGETS_JSON');
+  const selected=v.length===1?v:sec;
+  if (selected.length!==1 || !Number.isFinite(Date.parse(selected[0].updated_at)) || Date.parse(selected[0].updated_at)>sourceTime) throw Error('source_changed');
+}
+async function additionalState(nonce,digests) {
+  noWriters();
+  const current=await deployment(), versions=await latest();
+  if (!validUuid(process.env.PLATFORM_CONTROL_EXPECTED_VERSION) || current.version!==process.env.PLATFORM_CONTROL_EXPECTED_VERSION
+      || current.percentage!==100) throw Error('deployment_invalid');
+  const config=await configuration(), profilesRaw=await kvRead('strategy_profiles');
+  const primary=primaryBinding(config.options,config.bindings), old=config.registry.bindings?.find(item=>item.account_key===primary.account_key);
+  const parsed=old?.target_key?.split('|');
+  if (config.registry.bindings?.filter(item=>item.account_key===primary.account_key).length!==1 || !old || old.account_key!==primary.account_key || old.target_id!==primary.target_id
+      || old.source_binding_id!==primary.source_binding_id || old.strategy_profile!==primary.strategy_profile
+      || !Array.isArray(parsed) || parsed.length!==4 || parsed[0]!==primary.service_name || parsed[1]!==primary.strategy_profile
+      || parsed[2]!==primary.account_scope || !/^[a-f0-9]{32}$/.test(parsed[3])) throw Error('primary_binding_invalid');
+  const profiles=profilesRaw===null?DEFAULT_STRATEGY_PROFILES:JSON.parse(profilesRaw);
+  const matches=Object.fromEntries(Object.entries(digests).map(([slot,digest])=>[slot,matchAdditionalDailyBinding(config.options,config.bindings,profiles,nonce,digest)]));
+  const version=await readVersion(current.version);
+  if (createHash('sha256').update(Buffer.from(version.moduleBase64,'base64')).digest('hex') !== '8084f5c66b637ac72285493f07ffa6348e8957d894bc47425928ad3cfaeda457') throw Error('module_mismatch');
+  if (!matchesConfigNamespace(version.resources,namespace)) throw Error('kv_namespace_mismatch');
+  moduleResponseLimit=versionResponseLimit(version.moduleBase64.length);
+  const secrets=secretsMetadata();
+  if (!['IBKR_RUNTIME_DAILY_SYNC_TOKEN','IBKR_RUNTIME_DAILY_TARGET_KEY'].every(name=>secrets.some(x=>x.name===name))) throw Error('secret_metadata_invalid');
+  const own=JSON.parse(gh(['api',`repos/${qrs}/actions/runs/${ownRun}`]));
+  if (!Number.isFinite(Date.parse(own.created_at))) throw Error('run_metadata_invalid');
+  return {...config,profilesRaw,matches,primaryAccountKey:primary.account_key,...version,activeVersion:current.version,deploymentId:current.id,latestVersion:versions[0],startedAt:own.created_at};
+}
+async function runAdditionalMode() {
+  let phase='comparison';
+  try {
+    const nonce=process.env.DAILY_COMPARISON_NONCE, runs=[1,2,3].map(i=>process.env[`DAILY_COMPARISON_RUN_${i}`]);
+    const evidence=additionalEvidence(nonce,runs);phase='source_metadata';additionalSourceFresh(secretsMetadata(),evidence.sourceTime);
+    phase='binding_read';const state=await additionalState(nonce,evidence.digests); state.nonce=nonce;state.digests=evidence.digests;state.sourceTime=evidence.sourceTime;
+    phase='setup_prepare';const sample=Object.fromEntries([1,2,3].map(i=>[`additional-${i}`,String(i).repeat(32)]));
+    prepareAdditionalDailySetup({registry:state.registry,matches:state.matches,suffixes:sample,activeVersion:state.activeVersion,resources:state.resources,moduleBase64:state.moduleBase64,primaryAccountKey:state.primaryAccountKey});
+    const unchangedAdditional=async (before,{uploaded,registry}={})=>{
+      noWriters(); const current=await deployment(),versions=await latest(),cfg=await configuration(),p=await kvRead('strategy_profiles');
+      if (current.id!==before.deploymentId || current.version!==before.activeVersion || current.percentage!==100
+        || versions[0] !== (uploaded ?? before.latestVersion) || (uploaded && versions[1]!==before.latestVersion)
+        || canonical(cfg.options)!==canonical(before.options) || canonical(cfg.bindings)!==canonical(before.bindings) || p!==before.profilesRaw
+        || (registry ? canonical(cfg.registry)!==canonical(registry) : cfg.registryRaw!==before.registryRaw)) throw Error('state_changed');
+      additionalSourceFresh(secretsMetadata(),before.sourceTime);
+    };
+    io.additionalPreflight=async()=>state;
+    io.additionalUnchanged=async(before,opts={})=>unchangedAdditional(before,opts);
+    io.additionalBeforeActivation=async(before,opts)=>unchangedAdditional(before,opts);
+    io.verifyAdditionalGithubSecretMetadata=async start=>{
+      const row=secretsMetadata().filter(x=>x.name==='IBKR_RUNTIME_DAILY_TARGET_KEY');
+      if (row.length!==1 || !Number.isFinite(Date.parse(row[0].updated_at)) || Date.parse(row[0].updated_at)<Date.parse(start)) throw Error('secret_readback');
+    };
+    if (process.env.DAILY_SETUP_MODE==='multi-preflight') {
+      phase='state_check';await unchangedAdditional(state);
+      return {status:'preflight_verified',unique_matches:3,business_writes:0};
+    }
+    phase='execute';return await executeAdditionalDailySetup(io,{nonce,digests:evidence.digests});
+  } catch (error) {
+    const allowed=new Set(['comparison_invalid','source_changed','deployment_invalid','kv_namespace_mismatch','module_mismatch','primary_binding_invalid','binding_not_unique','invalid_existing_setup','invalid_additional_binding','registration_collision','target_binding_invalid','invalid_bindings','state_changed','github_request_failed','cloudflare_request_failed']);
+    return {status:'stopped',phase,reason:allowed.has(error?.message)?error.message:'unclassified',retry:false,business_writes:0};
+  }
+}
+
 if (process.env.DAILY_SETUP_MODE==='preflight') {
   let healthBindingPresent=null, healthRouteReachable=null, healthVersion=null;
   try {
@@ -213,6 +307,10 @@ if (process.env.DAILY_SETUP_MODE==='preflight') {
     console.log(JSON.stringify({status:'preflight_blocked',stage:diagnosticStage,operation:diagnosticOperation,reason,http_status:diagnosticHttpStatus,writes:0,
       health_binding_present:healthBindingPresent,health_route_reachable:healthRouteReachable,health_version:healthVersion})); process.exitCode=1;
   }
+} else if (process.env.DAILY_SETUP_MODE==='multi-preflight' || process.env.DAILY_SETUP_MODE==='multi-execute') {
+  const result=await runAdditionalMode();
+  console.log(JSON.stringify(result));
+  if (!['preflight_verified','configured'].includes(result.status)) process.exitCode=1;
 } else if (process.env.DAILY_SETUP_MODE==='execute') {
   const result=await executePrimaryDailySetup(io);
   console.log(JSON.stringify(result));

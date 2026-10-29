@@ -59,6 +59,30 @@ export function matchAdditionalDailyBinding(optionsRaw, bindingsRaw, profilesRaw
   return matches[0];
 }
 
+// Other existing platforms share the same protected source identity fields.
+export function matchExecutionDailyBinding(optionsRaw, bindingsRaw, profilesRaw, platform, nonce, expected) {
+  if (!['longbridge','firstrade'].includes(platform) || !/^[a-f0-9]{64}$/.test(nonce) || !/^[a-f0-9]{64}$/.test(expected)) throw Error('invalid_input');
+  const options = normalizeAccountOptionsPayload(optionsRaw)[platform] || [];
+  const bindings = normalizeAccountFactsBindings(bindingsRaw).bindings.filter(b => b.platform === platform);
+  const profiles = profilesRaw === null ? DEFAULT_STRATEGY_PROFILES : profilesRaw;
+  if (!Array.isArray(profiles) || profiles.length > 100) throw Error('profiles_invalid');
+  const names = [...new Set(profiles.map(item => item?.profile || item?.strategy_profile).filter(name => typeof name === 'string' && token.test(name)))];
+  const matches=[];
+  for (const b of bindings) {
+    const opts=options.filter(o=>o.key===b.account_key && accountFactsOptionMatchesBinding(o,b));
+    if (opts.length!==1 || options.filter(o=>o.key===b.account_key).length!==1) continue;
+    for (const strategy_profile of names) {
+      const binding={account_scope:b.account_scope,account_selector:b.account_selector,deployment_selector:b.deployment_selector,
+        platform,service_name:b.service_name,source_binding_id:b.source_binding.id,strategy_profile,target_id:b.target_id};
+      if (Object.values(binding).some(v=>typeof v!=='string' || !token.test(v)) || !/^[a-f0-9]{64}$/.test(binding.source_binding_id)) continue;
+      const domain=platform==='longbridge'?'qsl.longbridge-daily-binding.v1':'qsl.firstrade-daily-binding.v1';
+      if (sha(JSON.stringify({binding,domain,nonce}))===expected) matches.push({...binding,account_key:b.account_key});
+    }
+  }
+  if (matches.length!==1) throw Error('binding_not_unique');
+  return matches[0];
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) try {
   const [optionsPath, bindingsPath, profilesPath] = process.argv.slice(2);
   const options = JSON.parse(readFileSync(optionsPath)), bindings = JSON.parse(readFileSync(bindingsPath));
