@@ -543,7 +543,7 @@ try {
   assert.equal(instancesAfter.body.revision, revision);
   assert.equal(instancesAfter.body.instances.length, initialized.body.instances.length);
   assert.equal(instancesAfter.body.instances.every((item) => item.kind !== "draft"), true);
-  const stop = await call({}, { endpoint: "/api/runtime-stop" });
+  const stop = await call({}, { cookie: adminCookie, endpoint: "/api/runtime-stop" });
   assert.equal(stop.status, 400);
   assert.match(stop.body.error, /STOP_ONLY/);
   const switched = await call({ platform: "ibkr" }, { endpoint: "/api/switch" });
