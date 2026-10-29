@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { comparison } from '../web/strategy-switch-console/compare_ibkr_daily_binding.mjs';
+import { comparison, matchAdditionalDailyBinding } from '../web/strategy-switch-console/compare_ibkr_daily_binding.mjs';
 
 const option = {key:'synthetic-key',label:'Synthetic',target_name:'synthetic-target',service_name:'synthetic-service',deployment_selector:'synthetic-deployment',account_scope:'live',account_selector:'U1234567'};
 const binding = {platform:'ibkr',account_key:option.key,account_scope:option.account_scope,target_name:option.target_name,
@@ -19,3 +19,11 @@ assert.throws(() => comparison({ibkr:[{...option,service_name:'different'}]},fac
 const changed = {...binding,source_binding:{...binding.source_binding,id:'c'.repeat(64)}};
 assert.notEqual(base,comparison(options,{...facts,bindings:[changed]},nonce,anchor));
 console.log(`synthetic_digest=${base}`);
+
+const additional = '21c50c1bcb601733050a0109ab79ad7b74525c10865dac00cd3ba98b5b842b40';
+const profiles=[{profile:'other_strategy'},{profile:'synthetic_strategy'}];
+assert.equal(matchAdditionalDailyBinding(options,facts,profiles,nonce,additional).strategy_profile,'synthetic_strategy');
+assert.throws(()=>matchAdditionalDailyBinding(options,facts,profiles,'c'.repeat(64),additional));
+assert.throws(()=>matchAdditionalDailyBinding(options,{...facts,bindings:[changed]},profiles,nonce,additional));
+assert.throws(()=>matchAdditionalDailyBinding({ibkr:[option,option]},facts,profiles,nonce,additional));
+assert.throws(()=>matchAdditionalDailyBinding(options,facts,[{profile:'other_strategy'}],nonce,additional));
