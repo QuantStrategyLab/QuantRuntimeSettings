@@ -7,9 +7,16 @@ const root = new URL('../', import.meta.url).pathname;
 const port = Number(process.env.QSL_SYNTHETIC_PORT || 4173);
 if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid synthetic dev port');
 // This dev-only server imports no Worker, private config, credentials or providers.
-// Every API path is handled locally; writes and unknown paths are rejected.
+// Every API path is handled locally; only the in-memory synthetic risk setting can be written.
 const requests = [];
 let scenario = 'ready';
+const syntheticRisks = new Map();
+const syntheticPendingRead = new Set();
+const syntheticSettings = key => {
+  const identity = { platform:'longbridge', key, target_name:key, broker_environment:'paper', account_selector:key, deployment_selector:key, account_scope:key, service_name:'synthetic' };
+  return { ok:true, adopted:false, platform:'longbridge', key, identity, draft:{status:'current',revision:2,identity,current_identity:identity,overrides:{}},
+    risk:syntheticRisks.get(key) || {revision:4,preference:'BALANCED_COMPOUNDING',scope_id:`longbridge--${key}`}, operations:{save_risk_preference:true}, no_order:true,execution_authority_granted:false };
+};
 const account = { key: 'demo-paper', label: 'Synthetic paper account', target_name: 'demo-target', broker_environment: 'paper', supported_domains: ['us_equity'], default_strategy_profile: 'demo-profile-1' };
 const ticket = index => ({ ticket_id: `synthetic-proposal-${index}`, state: 'awaiting_human', strategy_profile: `demo-profile-${index}`, domain: 'us_equity', proposed_params: {}, shadow_passed: true, shadow_evidence_kind: 'synthetic', research_summary: { comparison: { status: 'comparable' }, limitations: ['Synthetic UI fixture; no investment evidence.'] }, live_authority_granted: false, no_order: true });
 const config = { accountOptions: { longbridge: [account] }, platformMeta: { longbridge: { label: 'LongBridge', console_visible: true } }, currentStrategies: { longbridge: { 'demo-paper': { strategy_profile: 'demo-profile-1', runtime_target_enabled: false } } }, strategyProfiles: Array.from({ length: 12 }, (_, i) => ({ profile: `demo-profile-${i + 1}`, label_zh: `合成方案 ${i + 1}`, label_en: `Synthetic proposal ${i + 1}`, domain: 'us_equity' })) };
@@ -24,6 +31,18 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
       requests.push({ path: url.pathname, method: req.method, scenario });
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-store');
+      if (url.pathname === '/api/account-settings' && ['api-ready','risk-late','risk-readback-failed'].includes(scenario)) {
+        if (req.method === 'GET') { if (scenario === 'risk-readback-failed' && syntheticPendingRead.has(url.searchParams.get('key'))) { res.statusCode=503; res.end(JSON.stringify({error:'synthetic_unavailable'})); return; } res.end(JSON.stringify(syntheticSettings(url.searchParams.get('key')))); return; }
+        if (req.method === 'POST') {
+          let text=''; for await (const chunk of req) text+=chunk;
+          const body=JSON.parse(text); const current=syntheticSettings(body.key);
+          if (scenario === 'risk-late') { await new Promise(resolve => setTimeout(resolve, 8000)); res.statusCode=503; res.end(JSON.stringify({error:'synthetic_unavailable'})); return; }
+          if (body.expected_risk_revision !== current.risk.revision || JSON.stringify(body.identity) !== JSON.stringify(current.identity)) { res.statusCode=409; res.end(JSON.stringify({error:'risk_profile_revision_conflict'})); return; }
+          syntheticRisks.set(body.key,{...current.risk,revision:current.risk.revision+1,preference:body.risk_preference});
+          if (scenario === 'risk-readback-failed') syntheticPendingRead.add(body.key);
+          res.end(JSON.stringify(syntheticSettings(body.key))); return;
+        }
+      }
       const apiFixture = consoleApiFixture(url.pathname, url.searchParams, scenario, req.method);
       if (apiFixture !== undefined) { res.statusCode = apiFixture.status || 200; res.end(JSON.stringify(apiFixture.body)); return; }
       if (req.method !== 'GET') { res.statusCode = 405; res.end(JSON.stringify({ error: 'synthetic_audit_read_only' })); return; }

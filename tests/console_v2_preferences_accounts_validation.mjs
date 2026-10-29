@@ -13,8 +13,18 @@ for (const [languages, expected] of [[['zh-CN'],'zh'],[['en-SG'],'en'],[['fr','z
   assert.equal(loadPreferences().theme,'system');
 }
 const saved = {...loadPreferences(), language:'zh', theme:'light'};
-savePreferences(saved);
+assert.equal(savePreferences(saved), true);
 assert.deepEqual(loadPreferences(),saved);
+const storageSet = window.localStorage.setItem;
+window.localStorage.setItem = () => { throw new Error("storage unavailable"); };
+assert.equal(savePreferences({...saved, theme:'dark'}), false);
+assert.equal(loadPreferences().theme, 'light', 'failed storage must not claim persistence');
+window.localStorage.setItem = () => {};
+assert.equal(savePreferences({...saved, theme:'dark'}), false, 'silent non-persistence must be reported');
+window.localStorage.setItem = storageSet;
+assert.equal(savePreferences({...saved, theme:'dark'}), true);
+assert.equal(loadPreferences().theme, 'dark');
+assert.equal(savePreferences(saved), true);
 assert.equal(resolveTheme('system',true),'dark');assert.equal(resolveTheme('system',false),'light');
 assert.equal(resolveTheme('light',true),'light');assert.equal(resolveTheme('dark',false),'dark');
 window.localStorage.getItem = () => {throw Error('storage blocked');};
