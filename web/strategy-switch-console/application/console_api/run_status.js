@@ -14,7 +14,7 @@ export function runStatus(account) {
     if (!Number.isSafeInteger(account.read_error_count) || account.read_error_count < 1
       || !Array.isArray(codes) || codes.length !== account.read_error_count) return "unknown";
     const failed = ["report_read_error", "read_failed", "list_failed", "source_read_error"];
-    const partial = ["coverage_unconfirmed", "report_rejected", "read_truncated", "listing_truncated"];
+    const partial = ["coverage_unconfirmed", "report_rejected", "read_truncated", "listing_truncated", "schedule_unverified"];
     if (!codes.every(code => failed.includes(code) || partial.includes(code))) return "unknown";
     return codes.some(code => failed.includes(code)) ? "read_failed" : "incomplete";
   }

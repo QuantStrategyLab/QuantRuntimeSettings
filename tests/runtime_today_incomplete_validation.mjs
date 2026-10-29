@@ -19,7 +19,7 @@ async function check(extra,expected){
 let row=await check({read_error_count:1,read_error_codes:['coverage_unconfirmed']},'incomplete');
 assert.deepEqual(row.read_error_codes,['coverage_unconfirmed']);
 for(const code of ['report_read_error','read_failed','list_failed','source_read_error']) await check({read_error_count:1,read_error_codes:[code]},'read_failed');
-for(const code of ['read_truncated','listing_truncated','report_rejected']) await check({read_error_count:1,read_error_codes:[code]},'incomplete');
+for(const code of ['read_truncated','listing_truncated','report_rejected','schedule_unverified']) await check({read_error_count:1,read_error_codes:[code]},'incomplete');
 for(const extra of [{},{read_error_count:2,read_error_codes:['coverage_unconfirmed']},{read_error_count:1,read_error_codes:['private-error-sentinel']},{read_error_count:0,read_error_codes:[]}]) {
  row=await check(extra,'unknown'); assert.deepEqual(row.read_error_codes,extra.read_error_count===0?[]:null);assert.ok(!JSON.stringify(row).includes('private-error-sentinel'));
 }
