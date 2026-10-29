@@ -29,7 +29,7 @@ if(process.env.MOCK_FAIL==='preflight_403'&&path.includes('actions/runs?')){cons
 if(args[0]==='run'){let id=args[2];console.log(id==='40728959942'?'DAILY_COMPARISON_NONCE: '+ 'a'.repeat(64)+'\\nstatus=ok comparison='+ 'b'.repeat(64):'status=ok comparison='+ 'b'.repeat(64));process.exit(0);}
 if(path.includes('actions/secrets/public-key'))console.log('{}');
 else if(path.includes('actions/secrets?'))console.log(JSON.stringify({total_count:s.secrets.length,secrets:s.secrets}));
-else if(path.includes('actions/runs?'))console.log(JSON.stringify({total_count:0,workflow_runs:[]}));
+else if(path.includes('actions/runs?'))console.log(JSON.stringify(args.includes('--slurp')?[{total_count:0,workflow_runs:[]}]:{total_count:0,workflow_runs:[]}));
 else if(path.endsWith('/40728959942'))console.log(JSON.stringify({status:'completed',conclusion:'success',head_sha:'489f31f64de99cf589f1459ff256687c2fb8fe4f'}));
 else if(path.endsWith('/40728951358'))console.log(JSON.stringify({status:'completed',conclusion:'success',head_sha:'0e143781ebe15999d1dee24f8c9ce79a58fbec90',created_at:'2026-10-28T16:30:00Z'}));
 else if(path.endsWith('/123'))console.log(JSON.stringify({created_at:'2026-10-28T16:40:00Z'}));
