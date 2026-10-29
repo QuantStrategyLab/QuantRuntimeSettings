@@ -9,6 +9,7 @@ on:
         options:
           - list
           - match-additional-1
+          - apply-additional-1
           - apply
         default: list
       target_id:
@@ -60,7 +61,7 @@ jobs:
             echo "status=blocked reason=cloudflare_credentials_missing"
             exit 1
           fi
-          if [ "$CONFIGURE_MODE" = "apply" ] && [ -z "${GH_TOKEN:-}" ]; then
+          if { [ "$CONFIGURE_MODE" = "apply" ] || [ "$CONFIGURE_MODE" = "apply-additional-1" ]; } && [ -z "${GH_TOKEN:-}" ]; then
             echo "status=blocked reason=github_token_missing"
             exit 1
           fi
@@ -92,6 +93,11 @@ jobs:
           fi
           if [ "$CONFIGURE_MODE" = "match-additional-1" ]; then
             node ./configure_ibkr_period_return.mjs match-additional-1 \
+              "$temp_dir/account-options.json" "$temp_dir/account-facts-bindings.json"
+            exit $?
+          fi
+          if [ "$CONFIGURE_MODE" = "apply-additional-1" ]; then
+            node ./configure_ibkr_period_return.mjs apply-additional-1 \
               "$temp_dir/account-options.json" "$temp_dir/account-facts-bindings.json"
             exit $?
           fi
