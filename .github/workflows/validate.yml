@@ -150,6 +150,8 @@ jobs:
           node tests/ibkr_runtime_lifecycle_inspection_validation.mjs
           node tests/ibkr_primary_binding_backup_validation.mjs
           node tests/ibkr_daily_binding_comparison_validation.mjs
+          node tests/binance_daily_binding_validation.mjs
+          node tests/binance_daily_source_reader_validation.mjs
           node tests/ibkr_daily_setup_checks_validation.mjs
           node tests/ibkr_daily_version_prepare_validation.mjs
           node tests/ibkr_daily_setup_validation.mjs
