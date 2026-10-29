@@ -4116,3 +4116,102 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_account_domain_validity_and_isolation() -> None:
+    domain = {
+        'identity': {'environment': 'DEMO', 'platform_id': 'mt5', 'server': 'synthetic',
+                     'account_id_fingerprint': 'sha256:' + '1' * 64, 'lifecycle_id': 'synthetic-1'},
+        'policy': {'capital_kind': 'FTMO_SIMULATED', 'product': 'FTMO_CFD_2_STEP', 'phase': 'FREE_TRIAL',
+                   'account_type': 'STANDARD', 'style': 'INTRADAY', 'preference': 'CAPITAL_PRESERVATION',
+                   'currency': 'USD', 'source': 'synthetic', 'effective_at': '2026-10-29T00:00:00Z',
+                   'valid_until': '2026-11-12T00:00:00Z', 'version': 'v1'}}
+    for account_type in ('STANDARD', 'SWING'):
+        candidate = copy.deepcopy(domain)
+        candidate['policy']['account_type'] = account_type
+        errors = []
+        runtime_settings.validate_account_domain(candidate, errors)
+        assert errors == []
+    for section, key, value in (('identity', 'environment', 'LIVE'), ('policy', 'currency', ''),
+                                ('policy', 'phase', 'LIVE'), ('policy', 'valid_until', 'bad'),
+                                ('policy', 'preference', 'UNKNOWN'),
+                                ('policy', 'effective_at', '2026-10-29T01:00:00+01:00'),
+                                ('identity', 'account_id_fingerprint', 'sha256:bad')):
+        candidate = copy.deepcopy(domain)
+        candidate[section][key] = value
+        errors = []
+        runtime_settings.validate_account_domain(candidate, errors)
+        assert errors
+    errors = []
+    runtime_settings.validate_account_domain(None, errors)
+    assert errors
+
+
+def test_own_real_domain_requires_live_environment() -> None:
+    domain = {'identity': {'environment': 'LIVE', 'platform_id': 'ibkr', 'server': 'synthetic',
+              'account_id_fingerprint': 'sha256:' + '1' * 64, 'lifecycle_id': 'synthetic-1'},
+              'policy': {'capital_kind': 'OWN_REAL', 'product': 'BROKERAGE', 'phase': 'LIVE',
+              'account_type': 'CASH', 'style': 'INTRADAY', 'preference': 'CAPITAL_PRESERVATION',
+              'currency': 'USD', 'source': 'synthetic', 'effective_at': '2026-10-29T00:00:00Z',
+              'valid_until': '2026-11-12T00:00:00Z', 'version': 'v1'}}
+    errors = []
+    runtime_settings.validate_account_domain(domain, errors)
+    assert errors == []
+    domain['identity']['environment'] = 'DEMO'
+    errors = []
+    runtime_settings.validate_account_domain(domain, errors)
+    assert errors
+
+
+def test_account_domain_execution_modes_and_cli_rejection(tmp_path) -> None:
+    domain = {'identity': {'environment': 'LIVE', 'platform_id': 'ibkr', 'server': 'synthetic',
+              'account_id_fingerprint': 'sha256:' + '1' * 64, 'lifecycle_id': 'synthetic'},
+              'policy': {'capital_kind': 'OWN_REAL', 'product': 'BROKERAGE', 'phase': 'LIVE',
+              'account_type': 'CASH', 'style': 'INTRADAY', 'preference': 'CAPITAL_PRESERVATION',
+              'currency': 'USD', 'source': 'synthetic', 'effective_at': '2026-10-29T00:00:00Z',
+              'valid_until': '2026-11-12T00:00:00Z', 'version': 'v1'}}
+    template = json.loads((ROOT / 'examples/targets/ibkr/default.example.json').read_text())
+    for kind, mode, dry, conflict in (('OWN_REAL', 'paper', False, True), ('OWN_REAL', 'live', False, False),
+                                      ('FTMO_SIMULATED', 'live', False, True), ('FTMO_SIMULATED', 'paper', False, False),
+                                      ('OWN_REAL', 'dry_run', True, False), ('FTMO_SIMULATED', 'dry_run', True, False),
+                                      ('UNKNOWN', 'paper', False, True)):
+        target = copy.deepcopy(template)
+        candidate = copy.deepcopy(domain)
+        if kind == 'FTMO_SIMULATED':
+            candidate['identity']['environment'] = 'DEMO'
+            candidate['policy'].update(capital_kind=kind, product='FTMO_CFD_2_STEP', phase='FREE_TRIAL', account_type='STANDARD')
+        else:
+            candidate['policy']['capital_kind'] = kind
+        target['runtime_target'].update(account_domain=candidate, execution_mode=mode, dry_run_only=dry)
+        errors = []
+        runtime_settings.validate_runtime_target(target, errors)
+        assert any('execution_mode conflicts with account_domain' in x for x in errors) is conflict
+    target = copy.deepcopy(template)
+    target['runtime_target'].update(account_domain=domain, execution_mode='paper', dry_run_only=False)
+    path = tmp_path / 'contradiction.json'
+    path.write_text(json.dumps(target))
+    result = subprocess.run([sys.executable, str(MODULE_PATH), 'validate', str(path)], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert 'execution_mode conflicts with account_domain' in result.stdout + result.stderr
+
+
+def test_account_domain_execution_mode_schema_guard() -> None:
+    import pytest
+    jsonschema = pytest.importorskip('jsonschema')
+    schema = json.loads((ROOT / 'schemas/runtime-target.schema.json').read_text())['properties']['runtime_target']
+    validator = jsonschema.Draft202012Validator(schema)
+    for kind, mode, conflict in (('FTMO_SIMULATED', 'live', True), ('FTMO_SIMULATED', 'paper', False),
+                                 ('OWN_REAL', 'paper', True), ('OWN_REAL', 'live', False)):
+        target = {'account_domain': {'policy': {'capital_kind': kind}}, 'dry_run_only': False, 'execution_mode': mode}
+        errors = list(validator.iter_errors(target))
+        assert any(list(e.absolute_path) == ['execution_mode'] and e.validator == 'const' for e in errors) is conflict
+
+
+class AccountDomainContractTests(unittest.TestCase):
+    def test_domain_validity_and_isolation(self) -> None:
+        test_account_domain_validity_and_isolation()
+        test_own_real_domain_requires_live_environment()
+
+    def test_execution_modes_and_cli_rejection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            test_account_domain_execution_modes_and_cli_rejection(Path(directory))

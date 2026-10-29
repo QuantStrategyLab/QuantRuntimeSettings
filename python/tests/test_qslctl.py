@@ -586,3 +586,29 @@ class QslCtlTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_validate_account_domain_offline_cli() -> None:
+    import subprocess
+    domain = {'identity': {'environment': 'DEMO', 'platform_id': 'mt5', 'server': 'synthetic',
+              'account_id_fingerprint': 'sha256:' + '1' * 64, 'lifecycle_id': 'synthetic-1'},
+              'policy': {'capital_kind': 'FTMO_SIMULATED', 'product': 'FTMO_CFD_2_STEP', 'phase': 'FREE_TRIAL',
+              'account_type': 'STANDARD', 'style': 'INTRADAY', 'preference': 'CAPITAL_PRESERVATION',
+              'currency': 'USD', 'source': 'synthetic', 'effective_at': '2026-10-29T00:00:00Z',
+              'valid_until': '2026-11-12T00:00:00Z', 'version': 'v1'}}
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / 'domain.json'
+        for kind in ('STANDARD', 'SWING'):
+            domain['policy']['account_type'] = kind
+            path.write_text(json.dumps(domain))
+            result = subprocess.run([sys.executable, str(MODULE_PATH), 'validate-account-domain', str(path)], capture_output=True, text=True)
+            assert result.returncode == 0, result.stderr
+        domain['policy']['currency'] = ''
+        path.write_text(json.dumps(domain))
+        result = subprocess.run([sys.executable, str(MODULE_PATH), 'validate-account-domain', str(path)], capture_output=True, text=True)
+        assert result.returncode != 0
+
+
+class AccountDomainCliTests(unittest.TestCase):
+    def test_offline_domain_validation(self) -> None:
+        test_validate_account_domain_offline_cli()
