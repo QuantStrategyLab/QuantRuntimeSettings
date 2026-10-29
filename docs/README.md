@@ -8,7 +8,7 @@
 | --- | --- |
 | [Package architecture](ARCHITECTURE.md) | Primary entry for the configuration package, generated targets, tooling, web application and runtime-authority boundary. Read against the revision you consume; this is not deployed-state evidence. |
 | [Organization architecture](qsl-org-architecture.md) | Complementary repository governance: compatibility bundles, tiers/rings, dependency checks and release boundaries. It does not replace the package architecture or certify runtime health. |
-| [Configuration-driven design, 2026-06-29](architecture_config_driven_20260629.md) | Dated Chinese design rationale and migration phases. Its file lists, deployment examples and proposed phases describe that design baseline; use the package architecture and current tooling for present interfaces. English overview below. |
+| [Configuration-driven design, 2026-06-29](architecture-config-driven.md) | Dated Chinese design rationale and migration phases. Its file lists, deployment examples and proposed phases describe that design baseline; use the package architecture and current tooling for present interfaces. English overview below. |
 
 ### English overview of the dated configuration design
 
