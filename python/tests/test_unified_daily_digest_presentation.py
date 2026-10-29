@@ -140,7 +140,7 @@ class UnifiedPresentationTests(unittest.TestCase):
         self.assertIn("Synthetic alias / 半导体趋势收益", text)
         self.assertIn("6>5", text)
         self.assertIn("80≥60", text)
-        self.assertIn("E=2000", text)
+        self.assertIn("核对基准净值和资金进出", text)
         self.assertIn("成交：全窗口统计未知", text)
         self.assertNotIn("成交：0", text)
 
