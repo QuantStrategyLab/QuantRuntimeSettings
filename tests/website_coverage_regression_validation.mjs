@@ -138,8 +138,14 @@ const defaults = {
   benchmarks: async () => json({ points: [] }),
 };
 const read = async (endpoint, deps = {}, query = "") => {
-  const response = await performanceResponse(new Request(`https://synthetic.invalid/api/performance/${endpoint}${query}`), {}, { ...defaults, ...deps });
-  return { status: response.status, body: await response.json() };
+  const clock = Date.now;
+  Date.now = () => now;
+  try {
+    const response = await performanceResponse(new Request(`https://synthetic.invalid/api/performance/${endpoint}${query}`), {}, { ...defaults, ...deps });
+    return { status: response.status, body: await response.json() };
+  } finally {
+    Date.now = clock;
+  }
 };
 
 test("all facts-dependent endpoints return retryable 503 for unreadable source, without reading unrelated data", async () => {
