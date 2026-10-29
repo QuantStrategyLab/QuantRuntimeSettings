@@ -5,6 +5,11 @@ const IBKR_WRITERS = new Set(['.github/workflows/execution-report-heartbeat.yml'
   '.github/workflows/sync-cloud-run-env.yml','.github/workflows/sync-cloud-run-env-protected.yml',
   '.github/workflows/deploy-pilot-no-traffic.yml','.github/workflows/deploy-pilot-no-traffic-protected.yml']);
 
+export function writerRunsFromPages(pages) {
+  if (!Array.isArray(pages) || !pages.length || pages.some(page=>!Array.isArray(page?.workflow_runs))) throw Error('runs_incomplete');
+  return pages.flatMap(page=>page.workflow_runs);
+}
+
 export function hasRelevantWriter(runs, repo, ownRun) {
   const paths=repo==='qrs'?QRS_WRITERS:repo==='ibkr'?IBKR_WRITERS:null;
   if (!paths || !Array.isArray(runs) || runs.some(run=>typeof run?.path!=='string' || !run.id)) throw Error('invalid_runs');

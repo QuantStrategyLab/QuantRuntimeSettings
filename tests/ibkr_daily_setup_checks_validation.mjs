@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace,selectInventoryMetadata} from '../web/strategy-switch-console/ibkr_daily_setup_checks.mjs';
+import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace,selectInventoryMetadata,writerRunsFromPages} from '../web/strategy-switch-console/ibkr_daily_setup_checks.mjs';
 assert.equal(hasRelevantWriter([{id:1,path:'.github/workflows/publish-ibkr-primary-day-once.yml'}],'ibkr','2'),true);
 assert.equal(hasRelevantWriter([{id:1,path:'.github/workflows/publish-ibkr-primary-day-once.yml@refs/heads/main'}],'ibkr','2'),true);
 assert.equal(hasRelevantWriter([{id:2,path:'.github/workflows/configure-ibkr-primary-daily-once.yml'}],'qrs','2'),false);
+const pages=[{total_count:3,workflow_runs:[{id:1,path:'.github/workflows/other.yml'}]},{total_count:2,workflow_runs:[{id:3,path:'.github/workflows/publish-ibkr-primary-day-once.yml'}]}];
+assert.equal(hasRelevantWriter(writerRunsFromPages(pages),'ibkr','2'),true);
+assert.throws(()=>writerRunsFromPages([{workflow_runs:[]},{}]),/runs_incomplete/);
 assert.equal(hasRelevantWriter([{id:1,path:'.github/workflows/ci.yml'}],'ibkr','2'),false);
 assert.throws(()=>hasRelevantWriter([{id:1}],'ibkr','2'));
 const start='2026-10-28T12:00:00Z';
