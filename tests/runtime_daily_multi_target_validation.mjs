@@ -47,6 +47,14 @@ const accepted=await postIbkr(first.projection); assert.equal(accepted.status,20
 assert.equal(ack.observed_at,observed); assert.equal(ack.target_key,registry[0].target_key); assert.equal((await daily('account-0')).status,200);
 assert.equal((await postIbkr(first.projection)).status,200, 'identical observation is idempotent');
 assert.equal((await postIbkr(second.projection)).status,403, 'dedicated token cannot write another target');
+env.IBKR_RUNTIME_DAILY_TARGET_KEY=JSON.stringify([registry[0].target_key,registry[1].target_key]);
+assert.equal((await postIbkr(second.projection,'synthetic-ibkr-only',registry[1].source_binding_id)).status,200,'explicit second target accepted');
+assert.equal((await postIbkr(second.projection)).status,409,'target list does not relax source binding');
+for (const invalid of ['[]','[',JSON.stringify([registry[0].target_key,registry[0].target_key]),JSON.stringify([registry[0].target_key,'invalid'])]) {
+ env.IBKR_RUNTIME_DAILY_TARGET_KEY=invalid;
+ assert.equal((await postIbkr(first.projection)).status,403,'malformed allowlist denied');
+}
+env.IBKR_RUNTIME_DAILY_TARGET_KEY=registry[0].target_key;
 assert.equal((await postIbkr(first.projection,'synthetic-ibkr-only',registry[1].source_binding_id)).status,409, 'source must match registration');
 assert.notEqual((await postIbkr(first.projection,'synthetic-sync')).status,200, 'legacy token cannot write IBKR');
 delete env.IBKR_RUNTIME_DAILY_TARGET_KEY; assert.equal((await postIbkr(first.projection)).status,403, 'missing target denies');
