@@ -1,5 +1,6 @@
 /** Page-scoped copy fragment. Add keys here (both languages), never in the shared core files. */
 export const zh: Record<string, string> = {
+  "accounts.retired_option_draft": "保存时会清除旧期权草稿，不会更改实盘配置。",
   "accounts.execution.mode": "执行模式",
   "accounts.execution.reason.evidence_missing": "执行方式尚未确认。",
   "accounts.execution.broker_environment": "券商环境：{value}",
@@ -108,6 +109,7 @@ export const zh: Record<string, string> = {
 
 };
 export const en: Record<string, string> = {
+  "accounts.retired_option_draft": "Saving removes the old options draft without changing live configuration.",
   "accounts.execution.mode": "Execution mode",
   "accounts.execution.reason.evidence_missing": "Execution mode is not yet confirmed.",
   "accounts.execution.broker_environment": "Broker environment: {value}",
