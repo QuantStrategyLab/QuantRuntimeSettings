@@ -1917,9 +1917,15 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
         return "unknown"
     prefix = f"repos/{github['repository']}"
 
-    def get(path: str, binary: bool = False) -> Any:
+    def get(path: str, binary: bool = False, allow_log_colours: bool = False) -> Any:
         try:
-            response = subprocess.run(["gh", "api", "--method", "GET", f"{prefix}/{path}"],
+            command = ["gh", "api", "--method", "GET"]
+            if allow_log_colours:
+                version = subprocess.run(["gh", "--version"], capture_output=True, timeout=10, check=False)
+                match = re.match(rb"gh version (\d+)\.(\d+)\.(\d+)(?:\s|$)", version.stdout or b"")
+                if version.returncode == 0 and match and tuple(map(int, match.groups())) >= (2, 97, 0):
+                    command.append("--allow-escape-sequences")
+            response = subprocess.run([*command, f"{prefix}/{path}"],
                                       capture_output=True, timeout=30, check=False)
             if response.returncode or len(response.stdout) > (262144 if binary else 524288):
                 if diagnostics is not None:
@@ -2017,7 +2023,7 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
             if start.tzinfo is None or end.tzinfo is None or end < start:
                 return "unknown"
             if diagnostics is not None: diagnostics["stage"] = "job_log"
-            raw_log = get(f"actions/jobs/{candidates[0]['id']}/logs", binary=True)
+            raw_log = get(f"actions/jobs/{candidates[0]['id']}/logs", binary=True, allow_log_colours=True)
             if diagnostics is not None: diagnostics["stage"] = "job_log_decode"
             if raw_log.startswith(b"PK\x03\x04"):
                 if diagnostics is not None: diagnostics["failure_kind"] = "unexpected_zip"
