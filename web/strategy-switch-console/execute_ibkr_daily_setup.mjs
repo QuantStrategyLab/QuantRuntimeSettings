@@ -1,6 +1,6 @@
 import {randomBytes, createHash, timingSafeEqual} from 'node:crypto';
 import {primaryBinding, comparison} from './compare_ibkr_daily_binding.mjs';
-import {appendPrimaryDailyRegistration, prepareIbkrDailyVersion, validateIbkrDailyVersion} from './prepare_ibkr_daily_version.mjs';
+import {appendPrimaryDailyRegistration, prepareIbkrDailyVersion, validateIbkrDailyVersion, prepareAdditionalDailySetup, validateAdditionalDailyVersion} from './prepare_ibkr_daily_version.mjs';
 
 const ACTIVE = '2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee';
 const MODULE_SHA = 'd1e10f49c2a537733751ac8418384c1bffa52763cb959521f5c5bf7940e2149e';
@@ -56,3 +56,35 @@ async function execute(io, moduleSha, anchor) {
   }
 }
 export const __test = Object.freeze({execute});
+
+// Existing protected transport, scoped to the three reviewed additional slots.
+export async function executeAdditionalDailySetup(io, {nonce, digests}) {
+  let phase='preflight', attempted=false, uploaded=null;
+  const effects=[];
+  try {
+    const before=await io.additionalPreflight({nonce,digests});
+    const suffixes=Object.fromEntries(['additional-1','additional-2','additional-3'].map(slot=>[slot,randomBytes(16).toString('hex')]));
+    const plan=prepareAdditionalDailySetup({registry:before.registry,matches:before.matches,suffixes,
+      activeVersion:before.activeVersion,resources:before.resources,moduleBase64:before.moduleBase64,primaryAccountKey:before.primaryAccountKey});
+    await io.additionalUnchanged(before);
+    phase='version_upload';attempted=true;effects.push(phase);uploaded=await io.uploadVersion(plan.version);attempted=false;
+    const candidate=await io.readVersion(uploaded);
+    if (candidate.moduleBase64!==before.moduleBase64) throw Error('candidate_module');
+    validateAdditionalDailyVersion(before.resources,candidate.resources,false);
+    await io.additionalUnchanged(before,{uploaded});
+    phase='registry_write';attempted=true;effects.push(phase);await io.writeRegistry(plan.registry);attempted=false;
+    await io.verifyRegistry(plan.registry);
+    await io.additionalBeforeActivation(before,{uploaded,registry:plan.registry});
+    phase='activate';attempted=true;effects.push(phase);const deployment=await io.activate(uploaded);attempted=false;
+    await io.verifyDeployment(uploaded,deployment);
+    const active=await io.readVersion(uploaded);
+    if (active.moduleBase64!==before.moduleBase64) throw Error('active_module');
+    validateAdditionalDailyVersion(before.resources,active.resources,true);
+    phase='github_mapping';attempted=true;effects.push(phase);
+    await io.writeGithubSecret('IBKR_RUNTIME_DAILY_TARGET_KEY',JSON.stringify(plan.mapping));attempted=false;
+    await io.verifyAdditionalGithubSecretMetadata(before.startedAt);
+    return {status:'configured',bindings_equal:true,runtime_equal:true,additional_count:3,effects};
+  } catch {
+    return {status:'stopped',phase,outcome:attempted?'unknown_requires_readback':'not_attempted_or_check_failed',effects,retry:false};
+  }
+}
