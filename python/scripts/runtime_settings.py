@@ -1746,11 +1746,9 @@ def runtime_control_workflow_preflight(request: dict[str, Any]) -> str:
     workflows = {"ibkr": "sync-cloud-run-env.yml", "schwab": "pilot-metadata-readback.yml"}
     workflow = workflows.get(identity["platform_id"])
     if identity["platform_id"] == "schwab":
-        repository_scope = {"repository": github["repository"], "variable_scope": "repository"}
-        current = read_stop_variables(repository_scope)
-        if github["variable_scope"] == "environment":
-            current.update(read_stop_variables(github))
-        if current.get("CLOUD_RUN_SERVICE") != identity["service_name"]:
+        # The platform's existing adapter supports exactly this fixed service;
+        # CLOUD_RUN_SERVICE is a Secret there and cannot be read as a variable.
+        if identity["service_name"] != "charles-schwab-quant-service":
             raise ValueError("runtime_control_target_unsupported")
     if workflow is None:
         raise ValueError("runtime_control_target_unsupported")
