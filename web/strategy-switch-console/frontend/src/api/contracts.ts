@@ -65,8 +65,50 @@ export interface DecisionFields {
   affects_live: boolean;
   diff: DecisionDiff[];
 }
+export type InitialEnrollmentSurfaceName =
+  | "positions"
+  | "cash"
+  | "open_orders"
+  | "recent_executions"
+  | "local_execution_ledger";
+export type InitialEnrollmentSurfaceStatus = "complete" | "partial" | "unknown";
+/** Facts stay as returned strings, nulls and nested source objects; amounts are never parsed. */
+export type InitialEnrollmentFactValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly InitialEnrollmentFactValue[]
+  | { readonly [key: string]: InitialEnrollmentFactValue };
+export interface InitialEnrollmentScope {
+  kind: string | null;
+  currency: string | null;
+  window_start: string | null;
+  window_end: string | null;
+  limit_per_namespace: string | null;
+  gateway_availability: string | null;
+  truncated: string | null;
+}
+export interface InitialEnrollmentSurface {
+  status: InitialEnrollmentSurfaceStatus;
+  items: readonly InitialEnrollmentFactValue[] | null;
+  scope: InitialEnrollmentScope | null;
+}
+export interface InitialEnrollmentFactsData {
+  observed_at: string | null;
+  surfaces: Partial<Record<InitialEnrollmentSurfaceName, InitialEnrollmentSurface>> | null;
+}
+/** The inbox projection is display material only; confirmation uses a fresh server read. */
+export interface InitialEnrollmentProjection {
+  facts: InitialEnrollmentFactsData | null;
+  candidate_sha256: string;
+  facts_sha256: string;
+  readiness?: string | null;
+  blocker_codes?: string[] | null;
+}
 export interface InboxItem extends DecisionFields {
   presentation?: RecoveryMaterialPresentation;
+  initial_enrollment?: InitialEnrollmentProjection;
   id: string;
   short_id: string;
   application_status?: string | null;
@@ -99,7 +141,7 @@ export interface InboxResponse {
   execution_authority_granted: false;
 }
 export interface RecoveryMaterialPresentation {
-  material_kind: "historical_recovery_approval_material" | "recovery_approval_material";
+  material_kind: "historical_recovery_approval_material" | "recovery_approval_material" | "initial_enrollment";
   label: { zh: string; en: string };
   decision_status: "approved" | "rejected" | "undecided" | "unknown";
   decision_status_label: { zh: string; en: string };
