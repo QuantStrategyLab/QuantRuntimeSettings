@@ -20,6 +20,7 @@ const SETTINGS = [
 // Existing protected recovery receipt for the one additional-1 target.
 const ADDITIONAL1_TARGET_SHA256 = "4722a2e5633490db1d997b0d5f6707b51718f65a5a20dd116fc42ee92325cd31";
 const ADDITIONAL1_SOURCE_SHA256 = "a9d26b098b6c8a85f52a365c2474364d31e59052286ef541189f0c818b0ff1d2";
+const ADDITIONAL1_ACCOUNT_KEY_SHA256 = "f53e96a37b05c5d1f81462a946a421f097015f5da6d282aa12d068ca563c0907";
 const sha256 = (value) => createHash("sha256").update(value, "utf8").digest("hex");
 const TARGET_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const fail = (reason) => { throw new Error(reason); };
@@ -76,17 +77,46 @@ export function listIbkrPeriodReturnTargets(optionsRaw, bindingsRaw) {
 }
 
 /** Check one protected binding against its previously verified target and rotation. */
-export function matchAdditionalOnePeriodReturn(optionsRaw, bindingsRaw, targetHash = ADDITIONAL1_TARGET_SHA256,
-  sourceHash = ADDITIONAL1_SOURCE_SHA256) {
+function additionalOneBinding(optionsRaw, bindingsRaw, targetHash, sourceHash) {
   if (!/^[a-f0-9]{64}$/.test(targetHash) || !/^[a-f0-9]{64}$/.test(sourceHash)) fail("binding_anchor_invalid");
   const matches = matchedIbkrBindings(optionsRaw, bindingsRaw).filter((binding) => sha256(binding.target_id) === targetHash);
   if (matches.length !== 1) fail("target_match_invalid");
+  return matches[0];
+}
+
+export function matchAdditionalOnePeriodReturn(optionsRaw, bindingsRaw, targetHash = ADDITIONAL1_TARGET_SHA256,
+  sourceHash = ADDITIONAL1_SOURCE_SHA256) {
+  const binding = additionalOneBinding(optionsRaw, bindingsRaw, targetHash, sourceHash);
   return {
     target_unique: true,
-    source_matches_rotation: sha256(matches[0].source_binding.id) === sourceHash,
-    account_key_sha256: sha256(matches[0].account_key),
+    source_matches_rotation: sha256(binding.source_binding.id) === sourceHash,
+    account_key_sha256: sha256(binding.account_key),
     secret_writes: 0,
   };
+}
+
+export function applyAdditionalOnePeriodReturn(optionsRaw, bindingsRaw, {
+  env = process.env, command = protectedCommand, targetHash = ADDITIONAL1_TARGET_SHA256,
+  sourceHash = ADDITIONAL1_SOURCE_SHA256, accountKeyHash = ADDITIONAL1_ACCOUNT_KEY_SHA256,
+} = {}) {
+  if (!env.GH_TOKEN) fail("protected_configuration_unavailable");
+  const binding = additionalOneBinding(optionsRaw, bindingsRaw, targetHash, sourceHash);
+  if (sha256(binding.source_binding.id) !== sourceHash) fail("source_rotation_mismatch");
+  if (sha256(binding.account_key) !== accountKeyHash) fail("account_key_mismatch");
+  let metadata;
+  try { metadata = JSON.parse(command(["api", `repos/${IBKR_REPO}/actions/secrets?per_page=100`], undefined, env)); }
+  catch { fail("protected_configuration_metadata_unavailable"); }
+  if (!Array.isArray(metadata?.secrets) || metadata.total_count !== metadata.secrets.length
+      || metadata.secrets.some((item) => typeof item?.name !== "string")) fail("protected_configuration_metadata_invalid");
+  const name = "IBKR_PERIOD_RETURN_ADDITIONAL1_ACCOUNT_KEY";
+  if (metadata.secrets.some((item) => item.name === name)) fail("additional1_setting_already_present");
+  command(["secret", "set", name, "--repo", IBKR_REPO], binding.account_key, env);
+  try {
+    const readback = JSON.parse(command(["api", `repos/${IBKR_REPO}/actions/secrets?per_page=100`], undefined, env));
+    if (!Array.isArray(readback?.secrets) || readback.total_count !== readback.secrets.length
+        || readback.secrets.filter((item) => item?.name === name).length !== 1) fail("readback_mismatch");
+  } catch { fail("additional1_configuration_readback_failed_or_unknown"); }
+  return { secret_writes: 1, account_key_sha256: sha256(binding.account_key) };
 }
 
 export function applyIbkrPeriodReturnSettings(optionsRaw, bindingsRaw, targetId, {
@@ -148,7 +178,7 @@ export function applyIbkrPeriodReturnSettings(optionsRaw, bindingsRaw, targetId,
 }
 
 function main(argv) {
-  if (argv.length < 3 || !["list", "match-additional-1", "apply"].includes(argv[0])) {
+  if (argv.length < 3 || !["list", "match-additional-1", "apply-additional-1", "apply"].includes(argv[0])) {
     process.stdout.write("status=blocked reason=request_invalid\n");
     return 1;
   }
@@ -176,6 +206,12 @@ function main(argv) {
       const matched = matchAdditionalOnePeriodReturn(optionsRaw, bindingsRaw);
       process.stdout.write(`status=ok target_unique=true source_matches_rotation=${matched.source_matches_rotation}`
         + ` account_key_sha256=${matched.account_key_sha256} secret_writes=0\n`);
+      return 0;
+    }
+    if (mode === "apply-additional-1") {
+      if (argv.length !== 3) fail("request_invalid");
+      const applied = applyAdditionalOnePeriodReturn(optionsRaw, bindingsRaw);
+      process.stdout.write(`status=applied secret_writes=${applied.secret_writes} account_key_sha256=${applied.account_key_sha256}\n`);
       return 0;
     }
     const targetId = argv[3] || "";

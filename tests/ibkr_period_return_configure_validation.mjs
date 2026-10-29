@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   listIbkrPeriodReturnTargets,
   matchAdditionalOnePeriodReturn,
+  applyAdditionalOnePeriodReturn,
   applyIbkrPeriodReturnSettings,
 } from "../web/strategy-switch-console/configure_ibkr_period_return.mjs";
 
@@ -59,6 +60,32 @@ invalidOptions.ibkr[0].account_selector = "U999999";
 assert.throws(() => matchAdditionalOnePeriodReturn(invalidOptions, bindings, sha256("ibkr-u100001"), sha256(bindingId)), /option_binding_mismatch/);
 assert.ok(!JSON.stringify(matched).includes("U100001"));
 assert.ok(!JSON.stringify(matched).includes("synthetic-ibkr"));
+
+const singleWrites = [];
+const singleConfig = {
+  env: { GH_TOKEN: "synthetic-token" }, targetHash: sha256("ibkr-u100001"),
+  sourceHash: sha256(bindingId), accountKeyHash: sha256("synthetic-ibkr"),
+  command: (args, input) => {
+    if (args[0] === "secret") { singleWrites.push({ args, input }); return ""; }
+    return JSON.stringify({ total_count: singleWrites.length, secrets: singleWrites.map(() => ({ name: "IBKR_PERIOD_RETURN_ADDITIONAL1_ACCOUNT_KEY" })) });
+  },
+};
+assert.equal(applyAdditionalOnePeriodReturn(options, bindings, singleConfig).secret_writes, 1);
+assert.equal(singleWrites.length, 1);
+assert.deepEqual(singleWrites[0].args.slice(0, 3), ["secret", "set", "IBKR_PERIOD_RETURN_ADDITIONAL1_ACCOUNT_KEY"]);
+assert.equal(singleWrites[0].input, "synthetic-ibkr");
+assert.throws(() => applyAdditionalOnePeriodReturn(options, bindings, singleConfig), /additional1_setting_already_present/);
+assert.throws(() => applyAdditionalOnePeriodReturn(options, bindings, { ...singleConfig, sourceHash: "b".repeat(64) }), /source_rotation_mismatch/);
+assert.throws(() => applyAdditionalOnePeriodReturn(options, bindings, { ...singleConfig, accountKeyHash: "b".repeat(64) }), /account_key_mismatch/);
+assert.throws(() => applyAdditionalOnePeriodReturn(invalidOptions, bindings, singleConfig), /option_binding_mismatch/);
+assert.equal(singleWrites.length, 1);
+let attempted = 0;
+assert.throws(() => applyAdditionalOnePeriodReturn(options, bindings, { ...singleConfig, command: (args) => {
+  if (args[0] === "api") return JSON.stringify({ total_count: 0, secrets: [] });
+  attempted += 1;
+  throw new Error("protected_configuration_write_failed_or_unknown");
+} }), /protected_configuration_write_failed_or_unknown/);
+assert.equal(attempted, 1);
 
 const writes = [];
 const applied = applyIbkrPeriodReturnSettings(options, bindings, "ibkr-u100001", {
