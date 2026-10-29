@@ -175,15 +175,20 @@ const io={
 function additionalEvidence(nonce, runs) {
   if (!/^[a-f0-9]{64}$/.test(nonce ?? '') || !Array.isArray(runs) || runs.length!==3
       || new Set(runs).size!==3 || runs.some(id=>!/^\d+$/.test(id ?? ''))) throw Error('comparison_invalid');
-  const main=JSON.parse(gh(['api',`repos/${ibkr}/commits/main`],{repo:ibkr}));
-  if (!/^[a-f0-9]{40}$/.test(main?.sha ?? '')) throw Error('comparison_invalid');
   const slots=['additional-1','additional-2','additional-3'], out={}, times=[];
   for (let i=0;i<slots.length;i++) {
     const run=JSON.parse(gh(['api',`repos/${ibkr}/actions/runs/${runs[i]}`],{repo:ibkr}));
     if (run.status!=='completed' || run.conclusion!=='success' || run.run_attempt!==1 || run.event!=='workflow_dispatch'
-      || run.head_branch!=='main' || run.head_sha!==main.sha || !String(run.path||'').startsWith('.github/workflows/primary-account-facts-readonly.yml')
+      || run.head_branch!=='main' || !String(run.path||'').startsWith('.github/workflows/primary-account-facts-readonly.yml')
       || !Number.isFinite(Date.parse(run.created_at))) throw Error('comparison_invalid');
-    const log=gh(['run','view',runs[i],'-R',ibkr,'--log'],{repo:ibkr});
+    const jobs=JSON.parse(gh(['api',`repos/${ibkr}/actions/runs/${runs[i]}/jobs?per_page=100`],{repo:ibkr}));
+    const candidates=jobs?.jobs?.filter(job=>job.name==='compare-additional-website-binding / inspect');
+    if (!Array.isArray(jobs?.jobs) || jobs.total_count!==jobs.jobs.length || !Array.isArray(candidates) || candidates.length!==1
+        || candidates[0].conclusion!=='success' || !Number.isSafeInteger(candidates[0].id)) throw Error('comparison_invalid');
+    const version=gh(['--version'],{repo:ibkr}), match=/^gh version (\d+)\.(\d+)\.(\d+)(?:\s|$)/.exec(version);
+    const modern=match && (Number(match[1])>2 || (Number(match[1])===2 && Number(match[2])>=97));
+    const log=gh(['api','--method','GET',...(modern?['--allow-escape-sequences']:[]),
+      `repos/${ibkr}/actions/jobs/${candidates[0].id}/logs`],{repo:ibkr});
     const matches=[...log.matchAll(/status=ok slot=(additional-[123]) comparison=([a-f0-9]{64})/g)];
     const nonces=[...log.matchAll(/DAILY_COMPARISON_NONCE: ([a-f0-9]{64})/g)].map(x=>x[1]);
     if (matches.length!==1 || matches[0][1]!==slots[i] || new Set(nonces).size!==1 || nonces[0]!==nonce) throw Error('comparison_invalid');
