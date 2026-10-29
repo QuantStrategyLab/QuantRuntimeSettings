@@ -761,7 +761,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(json.loads(printed.call_args.args[0])["schema_version"], "platform_health_report.v1")
 
     def test_runtime_target_rejects_live_switch_for_non_runtime_profile(self):
-        _, target = self.load_target("examples/targets/qmt/cn_combo.example.json")
+        _, target = self.load_target("python/tests/fixtures/retired_cn_combo_target.json")
         target["runtime_target"]["execution_mode"] = "live"
         target["runtime_target"]["dry_run_only"] = False
 
@@ -3080,7 +3080,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         )
 
     def test_runtime_target_scheduler_rejects_extra_fields(self):
-        _, target = self.load_target("examples/targets/longbridge/hk_combo.example.json")
+        _, target = self.load_target("python/tests/fixtures/retired_hk_combo_target.json")
         target["runtime_target"]["scheduler"]["offset_minutes"] = 10
 
         self.assertIn(
@@ -3089,7 +3089,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         )
 
     def test_runtime_target_scheduler_requires_timezone(self):
-        _, target = self.load_target("examples/targets/longbridge/hk_combo.example.json")
+        _, target = self.load_target("python/tests/fixtures/retired_hk_combo_target.json")
         target["runtime_target"]["scheduler"].pop("timezone")
 
         self.assertIn(
