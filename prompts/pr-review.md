@@ -12,7 +12,7 @@ You are reviewing a pull request for a **production quantitative trading and dat
 ## What NOT to flag
 
 - Code style or formatting preferences
-- Variable/function naming suggestions  
+- Variable/function naming suggestions
 - Missing type annotations
 - Documentation quality
 - Minor refactoring opportunities
