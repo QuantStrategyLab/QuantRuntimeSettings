@@ -38,9 +38,16 @@ const savedFirst=store.get(firstKey), first=JSON.parse(savedFirst), second=JSON.
 save(firstKey,{...first,projection:{...first.projection,platform:'schwab'}});
 const wrongPlatform=await daily('account-0'); assert.equal(wrongPlatform.status,503); assert.equal((await wrongPlatform.json()).error,'runtime_daily_record_invalid'); store.set(firstKey,savedFirst);
 save(firstKey,{...first,projection:second.projection}); assert.equal((await daily('account-0')).status,503,'another account projection cannot be attributed to this account'); store.set(firstKey,savedFirst);
+// Existing auth probe stops at JSON parsing, before registry access or a write.
+let writes=0; const originalPut=kv.put; kv.put=async(...args)=>{writes++;return originalPut(...args);};
+const badJson=(token)=>worker.fetch(new Request('https://fixture.example/api/runtime-daily/sync',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:'{'}),env);
+const probe=await badJson('synthetic-sync');assert.equal(probe.status,400);assert.deepEqual(await probe.json(),{ok:false,error:'request body must be valid JSON'});assert.equal(writes,0);
+assert.notEqual((await badJson('wrong-token')).status,400);assert.equal(writes,0);
+kv.put=originalPut;
 const writesBefore=store.size;
 const attempted = await worker.fetch(new Request('https://fixture.example/api/runtime-daily/sync',{method:'POST',headers:{Authorization:'Bearer synthetic-sync','X-QSL-Source-Binding-ID':registry[0].source_binding_id,'Content-Type':'application/json'},body:JSON.stringify(first.projection)}),env); assert.notEqual(attempted.status,200,'existing sync token cannot publish an IBKR target'); assert.equal(store.size,writesBefore);
 env.IBKR_RUNTIME_DAILY_SYNC_TOKEN='synthetic-ibkr-only'; env.IBKR_RUNTIME_DAILY_TARGET_KEY=registry[0].target_key;
+const ibkrProbe=await badJson('synthetic-ibkr-only');assert.equal(ibkrProbe.status,400);assert.deepEqual(await ibkrProbe.json(),{ok:false,error:'request body must be valid JSON'});assert.equal(writes,0);
 const postIbkr = (projection, token='synthetic-ibkr-only', source=registry[0].source_binding_id) => worker.fetch(new Request('https://fixture.example/api/runtime-daily/sync',{method:'POST',headers:{Authorization:`Bearer ${token}`,'X-QSL-Source-Binding-ID':source,'Content-Type':'application/json'},body:JSON.stringify(projection)}),env);
 store.delete(firstKey);
 const accepted=await postIbkr(first.projection); assert.equal(accepted.status,200); const ack=await accepted.json();
