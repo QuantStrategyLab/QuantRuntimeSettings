@@ -16,11 +16,37 @@ on:
         description: "STOP_ONLY is required for writes. No activation, sync, cancellation or liquidation."
         required: false
         type: string
+      runtime_control_mode:
+        description: "Apply a control or read back its original platform run."
+        required: false
+        type: choice
+        default: "apply"
+        options: ["apply", "readback"]
+      runtime_control_check_id:
+        description: "Correlated readback UUID."
+        required: false
+        type: string
+      runtime_control_platform_run_id:
+        description: "Original platform run ID for readback only."
+        required: false
+        type: string
+      runtime_control_operation:
+        description: "Apply a correlated IBKR or Schwab enabled setting."
+        required: false
+        type: choice
+        default: "none"
+        options: ["none", "enable", "disable"]
+      runtime_control_request_id:
+        description: "Correlated lower-case UUID for the platform request."
+        required: false
+        type: string
       apply_hk_stop:
         description: "Save the LongBridge HK stop, read it back, then request one platform stop. Dispatch does not prove the platform applied it."
         required: false
         type: boolean
         default: false
+
+run-name: ${{ inputs.runtime_control_operation != 'none' && (inputs.runtime_control_mode == 'readback' && format('Runtime control readback {0}', inputs.runtime_control_check_id) || format('Runtime control {0}', inputs.runtime_control_request_id)) || 'Manual Runtime Stop' }}
 
 permissions:
   contents: read
@@ -45,6 +71,11 @@ jobs:
       APPLY_STOP: ${{ inputs.apply }}
       CONFIRM_STOP: ${{ inputs.confirm }}
       APPLY_HK_STOP: ${{ inputs.apply_hk_stop }}
+      RUNTIME_CONTROL_MODE: ${{ inputs.runtime_control_mode }}
+      RUNTIME_CONTROL_CHECK_ID: ${{ inputs.runtime_control_check_id }}
+      RUNTIME_CONTROL_PLATFORM_RUN_ID: ${{ inputs.runtime_control_platform_run_id }}
+      RUNTIME_CONTROL_OPERATION: ${{ inputs.runtime_control_operation }}
+      RUNTIME_CONTROL_REQUEST_ID: ${{ inputs.runtime_control_request_id }}
       RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON: ${{ vars.RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON }}
       RUNTIME_SETTINGS_LONGBRIDGE_REPO: ${{ vars.RUNTIME_SETTINGS_LONGBRIDGE_REPO }}
       RUNTIME_SETTINGS_IBKR_REPO: ${{ vars.RUNTIME_SETTINGS_IBKR_REPO }}
@@ -56,9 +87,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Save the stop setting or apply an already-saved HK stop
+        env:
+          RUNTIME_CONTROL_RESULT_PATH: ${{ runner.temp }}/runtime-control.safe.json
         shell: bash
         run: |
           set -euo pipefail
+          if [ "${RUNTIME_CONTROL_OPERATION:-none}" != "none" ]; then
+            [ "${GITHUB_RUN_ATTEMPT}" = "1" ] && [ "${APPLY_HK_STOP:-false}" = "false" ]
+            if [ "${RUNTIME_CONTROL_MODE}" = "readback" ]; then
+              [ "${APPLY_STOP}" = "false" ] && [ "${CONFIRM_STOP}" = "READ_ONLY" ]
+              python3 python/scripts/runtime_settings.py runtime-control-readback --operation "$RUNTIME_CONTROL_OPERATION" --request-id "$RUNTIME_CONTROL_REQUEST_ID" --check-id "$RUNTIME_CONTROL_CHECK_ID" --platform-run-id "$RUNTIME_CONTROL_PLATFORM_RUN_ID"
+            else
+              [ "${APPLY_STOP}" = "true" ] && [ "${CONFIRM_STOP}" = "CONTROL_ONLY" ]
+              python3 python/scripts/runtime_settings.py runtime-control --operation "$RUNTIME_CONTROL_OPERATION" --request-id "$RUNTIME_CONTROL_REQUEST_ID"
+            fi
+            exit $?
+          fi
           set --
           if [ "${APPLY_HK_STOP:-false}" = "true" ]; then
             set -- --apply-hk-stop
@@ -68,6 +112,14 @@ jobs:
           else
             python3 python/scripts/runtime_settings.py stop "$@"
           fi
+      - name: Publish correlated safe result
+        if: always() && inputs.runtime_control_operation != 'none'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-control-safe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runtime-control.safe.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Report the verification boundary
         run: |
           echo 'Ordinary requests save stop configuration only. An HK apply request saves the stop setting, checks the exact readback, then requests one platform stop. Dispatch is not application: use the platform run and fresh lifecycle readback. Cancellation, liquidation and completion of in-flight work are never implied.' >> "$GITHUB_STEP_SUMMARY"

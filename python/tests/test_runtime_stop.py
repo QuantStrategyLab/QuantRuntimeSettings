@@ -76,6 +76,16 @@ class RuntimeStopTests(unittest.TestCase):
                 self.assertEqual(json.loads(result[0].value), expected)
                 self.assertEqual(variables, before)
 
+    def test_enable_keeps_identity_and_continuity_unchanged(self):
+        variables = {"RUNTIME_TARGET_JSON": json.dumps(self.current), "RUNTIME_TARGET_ENABLED": "false"}
+        before = copy.deepcopy(variables)
+        result = runtime_settings.build_stop_assignments(self.request, variables, enabled=True)
+        self.assertEqual([(item.name, item.value) for item in result], [("RUNTIME_TARGET_ENABLED", "true")])
+        self.assertEqual(variables, before)
+        changed = {**self.current, "service_name": "synthetic-other"}
+        with self.assertRaises(ValueError):
+            runtime_settings.build_stop_assignments(self.request, {"RUNTIME_TARGET_JSON": json.dumps(changed)}, enabled=True)
+
     def test_missing_corrupt_ambiguous_or_mismatched_current_source_is_rejected(self):
         valid = {"service": self.identity["service_name"], "runtime_target": self.current}
         invalid_sources = [{}, {"RUNTIME_TARGET_JSON": "{"}, {"RUNTIME_TARGET_JSON": "null"},

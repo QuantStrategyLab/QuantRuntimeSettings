@@ -1,4 +1,5 @@
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
+import { readRuntimeControlReceipt } from "./application/console_api/runtime_control_receipts.js";
 import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
 import { sourceListFailure } from "./application/console_api/read_failures.js";
 import { strategyTargetExecution, accountExecutionEvidence } from "./application/console_api/strategy_execution.js";
@@ -480,6 +481,7 @@ const MARKET_BENCHMARK_DO_ACTIONS = new Set([
   "market_benchmark_put", "market_benchmark_read", "market_benchmark_revise",
 ]);
 const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
+const RUNTIME_CONTROL_DO_ACTIONS = new Set(["runtime_control_claim", "runtime_control_record", "runtime_control_read", "runtime_control_resolve", "runtime_control_capture", "runtime_control_begin_check", "runtime_control_record_check"]);
 const HK_STOP_TARGET_ID = "longbridge/hk";
 const HK_STOP_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio", "dca_mode", "dca_base_investment_usd"];
@@ -4048,6 +4050,107 @@ export class RuntimeInstances {
     return { ok: true, claimed: true, replayed: false, application: this.accountSettingsProfileApplicationFromRow(claimedRow), ...safeResult };
   }
 
+  runtimeControlCommand(command) {
+    const platform = command?.platform;
+    const key = command?.key;
+    if (!["ibkr", "schwab"].includes(platform) || typeof key !== "string" || !key) throw new HttpError("runtime_control_target_invalid", 400);
+    const found = this.existingAccountInstance(platform, key);
+    const identity = found.identity;
+    if (!accountSettingsIdentityIsComplete(identity)) throw new HttpError("runtime_control_identity_incomplete", 409);
+    const targetId = `${platform}/${identity.target_name}`;
+    const latest = () => {
+      const row = this.sql.exec("SELECT * FROM hk_stop_request WHERE target_id = ? ORDER BY requested_at DESC, rowid DESC LIMIT 1", targetId).toArray()[0];
+      return row ? { ...this.hkStopPublic(row), result_json: row.result_json || null } : null;
+    };
+    if (command.action === "runtime_control_read") return { ok: true, record: latest() };
+    const requestId = String(command.request_id || "");
+    if (!HK_STOP_REQUEST_ID.test(requestId)) throw new HttpError("runtime_control_request_invalid", 400);
+    const stored = this.hkStopStored(requestId);
+    if (command.action === "runtime_control_claim") {
+      if (!["enable", "disable"].includes(command.operation) || !Number.isSafeInteger(command.source_revision)
+          || found.state.revision !== command.source_revision
+          || canonicalResearchTaskJson(identity) !== canonicalResearchTaskJson(command.identity)) throw new HttpError("runtime_control_identity_conflict", 409);
+      if (stored) {
+        if (stored.target_id !== targetId || stored.action !== command.operation || stored.identity_json !== canonicalResearchTaskJson(identity)) throw new HttpError("runtime_control_identity_conflict", 409);
+        return { ok: true, state: "replay", record: stored };
+      }
+      const open = this.hkStopPublic(this.sql.exec(
+        "SELECT * FROM hk_stop_request WHERE target_id = ? AND phase IN ('reserved', 'unknown', 'accepted', 'partial') ORDER BY requested_at ASC LIMIT 1", targetId,
+      ).toArray()[0]);
+      if (open) return { ok: true, state: "blocked", record: open };
+      const now = new Date().toISOString();
+      this.sql.exec(`INSERT INTO hk_stop_request
+        (request_id, target_id, identity_json, source_revision, action, requested_at, phase, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?)`, requestId, targetId, canonicalResearchTaskJson(identity), command.source_revision, command.operation, now, now);
+      return { ok: true, state: "reserved", record: this.hkStopStored(requestId) };
+    }
+    if (!stored || stored.target_id !== targetId || stored.identity_json !== canonicalResearchTaskJson(identity)) throw new HttpError("runtime_control_identity_conflict", 409);
+    if (command.action === "runtime_control_record") {
+      if (!["accepted", "unknown", "rejected"].includes(command.phase)) throw new HttpError("runtime_control_result_invalid", 400);
+      if (command.run_id != null && !/^[1-9][0-9]*$/.test(String(command.run_id))) throw new HttpError("runtime_control_result_invalid", 400);
+      if (stored.workflow_run_id && command.run_id && String(stored.workflow_run_id) !== String(command.run_id)) throw new HttpError("runtime_control_result_invalid", 409);
+      if (stored.phase === "reserved") this.sql.exec(
+        "UPDATE hk_stop_request SET phase = ?, dispatch_result = ?, workflow_run_id = ?, updated_at = ? WHERE request_id = ? AND phase = 'reserved'",
+        command.phase, command.phase, command.run_id || null, new Date().toISOString(), requestId,
+      );
+      else if (stored.phase === "unknown" && !stored.workflow_run_id && command.run_id) this.sql.exec(
+        "UPDATE hk_stop_request SET workflow_run_id = ?, updated_at = ? WHERE request_id = ? AND phase = 'unknown' AND workflow_run_id IS NULL",
+        String(command.run_id), new Date().toISOString(), requestId,
+      );
+      return { ok: true, record: this.hkStopStored(requestId) };
+    }
+    if (command.action === "runtime_control_capture") {
+      if (!stored.workflow_run_id || String(stored.workflow_run_id) !== String(command.run_id)
+          || !/^[1-9][0-9]*$/.test(String(command.platform_run_id || ""))) throw new HttpError("runtime_control_result_invalid", 400);
+      let details = {};
+      try { details = JSON.parse(latest()?.result_json || "{}"); } catch { throw new HttpError("runtime_control_result_invalid", 409); }
+      if (details.platform_run_id && details.platform_run_id !== String(command.platform_run_id)) throw new HttpError("runtime_control_result_invalid", 409);
+      details.platform_run_id = String(command.platform_run_id);
+      if (["platform_result_unavailable", "platform_dispatch_unverified"].includes(command.reason)) details.reason = command.reason;
+      this.sql.exec("UPDATE hk_stop_request SET result_json = ?, updated_at = ? WHERE request_id = ?", JSON.stringify(details), new Date().toISOString(), requestId);
+      return { ok: true, record: latest() };
+    }
+    if (command.action === "runtime_control_begin_check") {
+      let details = {};
+      try { details = JSON.parse(latest()?.result_json || "{}"); } catch { throw new HttpError("runtime_control_result_invalid", 409); }
+      if (!["unknown", "accepted", "partial"].includes(stored.phase) || !details.platform_run_id) throw new HttpError("runtime_control_check_unavailable", 409);
+      if (details.check_id && !details.check_complete) return { ok: true, state: "replay", record: latest() };
+      if (!HK_STOP_REQUEST_ID.test(String(command.check_id || ""))) throw new HttpError("runtime_control_request_invalid", 400);
+      Object.assign(details, { check_id: command.check_id, check_run_id: null, check_complete: false, check_requested_at: new Date().toISOString() });
+      this.sql.exec("UPDATE hk_stop_request SET result_json = ?, updated_at = ? WHERE request_id = ?", JSON.stringify(details), new Date().toISOString(), requestId);
+      return { ok: true, state: "reserved", record: latest() };
+    }
+    if (command.action === "runtime_control_record_check") {
+      let details = {};
+      try { details = JSON.parse(latest()?.result_json || "{}"); } catch { throw new HttpError("runtime_control_result_invalid", 409); }
+      if (!details.check_id || details.check_id !== command.check_id) throw new HttpError("runtime_control_result_invalid", 409);
+      if (command.run_id != null && !/^[1-9][0-9]*$/.test(String(command.run_id))) throw new HttpError("runtime_control_result_invalid", 400);
+      if (details.check_run_id && command.run_id && details.check_run_id !== String(command.run_id)) throw new HttpError("runtime_control_result_invalid", 409);
+      if (command.run_id) details.check_run_id = String(command.run_id);
+      if (command.complete === true) details.check_complete = true;
+      if (command.reason === "readback_dispatch_rejected") details.reason = command.reason;
+      this.sql.exec("UPDATE hk_stop_request SET result_json = ?, updated_at = ? WHERE request_id = ?", JSON.stringify(details), new Date().toISOString(), requestId);
+      return { ok: true, record: latest() };
+    }
+    if (command.action === "runtime_control_resolve") {
+      if (!["applied", "partial", "protected", "rejected"].includes(command.phase) || !command.run_id
+          || String(stored.workflow_run_id) !== String(command.run_id)) throw new HttpError("runtime_control_result_invalid", 400);
+      if (command.check_id) {
+        let check = {};
+        try { check = JSON.parse(latest()?.result_json || "{}"); } catch { throw new HttpError("runtime_control_result_invalid", 409); }
+        if (check.check_id !== command.check_id || check.check_run_id !== String(command.check_run_id)) throw new HttpError("runtime_control_result_invalid", 409);
+      }
+      const reason = ["runtime_control_workflow_permission_denied", "runtime_control_workflow_unavailable", "runtime_control_target_unsupported", "stop_source_permission_denied", "stop_source_not_accessible", "platform_dispatch_rejected", "platform_result_unavailable", "platform_dispatch_unverified"].includes(command.reason) ? command.reason : null;
+      let details = {};
+      try { details = JSON.parse(latest()?.result_json || "{}"); } catch { throw new HttpError("runtime_control_result_invalid", 409); }
+      if (["accepted", "unknown", "partial"].includes(stored.phase)) this.sql.exec(
+        "UPDATE hk_stop_request SET phase = ?, result_json = ?, updated_at = ? WHERE request_id = ?", command.phase, JSON.stringify({ ...details, reason }), new Date().toISOString(), requestId,
+      );
+      return { ok: true, record: latest() };
+    }
+    throw new HttpError("runtime_control_action_invalid", 400);
+  }
+
   hkStopCommand(command) {
     if (command?.action === "hk_stop_read") return { ok: true, record: this.hkStopOpen() || this.hkStopLatest() };
     if (command?.action === "hk_stop_claim") return this.hkStopClaim(command);
@@ -4267,6 +4370,9 @@ export class RuntimeInstances {
       }
       if (MARKET_BENCHMARK_DO_ACTIONS.has(command?.action)) {
         return json(this.storage.transactionSync(() => this.marketBenchmarkCommand(command)));
+      }
+      if (RUNTIME_CONTROL_DO_ACTIONS.has(command?.action)) {
+        return json(this.storage.transactionSync(() => this.runtimeControlCommand(command)));
       }
       if (HK_STOP_DO_ACTIONS.has(command?.action)) {
         return json(this.storage.transactionSync(() => this.hkStopCommand(command)));
@@ -5384,6 +5490,8 @@ async function saveRiskProfileBindings(request, env) {
 async function consoleRunControls(_request, env, account, session) {
   return runControls(account, session, {
     dispatchAvailable: Boolean(env.RUNTIME_SETTINGS_DISPATCH_TOKEN),
+    platformControl: ["ibkr", "schwab"].includes(account.platform)
+      ? () => readPlatformRuntimeControl(env, account.platform, account.target_name) : null,
     stopReady: async () => {
       if (account.platform === "longbridge" && account.target_name === "hk") {
         if (account.key !== "hk") return false;
@@ -6774,12 +6882,155 @@ async function loadHkStopAccount(env) {
   return { revision: loaded.revision, identity };
 }
 
+async function runtimeControlSource(env, platform, targetName) {
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const source = await loadAccountOptionsConfig(env);
+  if (source.source !== "durable_object" || !Number.isSafeInteger(source.revision)) throw new HttpError("runtime_control_source_unavailable", 409);
+  const matches = (source.options?.[platform] || []).filter(item => item.target_name === targetName);
+  if (matches.length !== 1) throw new HttpError("runtime_control_identity_incomplete", 409);
+  const item = matches[0];
+  const identity = accountSettingsIdentity({ platform, key: item.key, config: item });
+  if (!accountSettingsIdentityIsComplete(identity)) throw new HttpError("runtime_control_identity_incomplete", 409);
+  return { item, identity, revision: source.revision };
+}
+
+function presentRuntimeControl(record) {
+  let reason = null;
+  try { reason = record?.result_json ? JSON.parse(record.result_json).reason || null : null; } catch { /* invalid persisted result stays unclassified */ }
+  return { ok: record?.phase !== "rejected", request_id: record?.request_id || null, action: record?.action || null,
+    phase: record?.phase || null, updated_at: record?.updated_at || null,
+    unavailable_reason: reason || (record?.phase === "unknown" ? "runtime_control_result_unavailable" : null),
+    platform_applied: record?.phase === "applied" };
+}
+
+async function readPlatformRuntimeControl(env, platform, targetName) {
+  const source = await runtimeControlSource(env, platform, targetName);
+  const args = { platform, key: source.item.key };
+  let { record } = await runtimeInstanceCommand(env, { action: "runtime_control_read", ...args });
+  if (record && ["reserved", "accepted", "unknown", "partial"].includes(record.phase)) {
+    const result = await readRuntimeControlReceipt({ repository: env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY,
+      token: env.RUNTIME_SETTINGS_DISPATCH_TOKEN, requestId: record.request_id, operation: record.action,
+      runId: record.workflow_run_id, requestedAt: record.requested_at });
+    if (result.run_id && !record.workflow_run_id) {
+      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_record", ...args,
+        request_id: record.request_id, phase: "unknown", run_id: result.run_id }));
+    }
+    if (result.platform_run_id && record.workflow_run_id) {
+      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_capture", ...args,
+        request_id: record.request_id, run_id: record.workflow_run_id, platform_run_id: result.platform_run_id, reason: result.reason }));
+    }
+    if (["applied", "partial", "protected", "rejected"].includes(result.status) && record.workflow_run_id) {
+      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_resolve", ...args,
+        request_id: record.request_id, phase: result.status, run_id: record.workflow_run_id, reason: result.reason }));
+    }
+  }
+  let details = {};
+  try { details = JSON.parse(record?.result_json || "{}"); } catch { /* retain unknown */ }
+  if (record && ["accepted", "unknown", "partial"].includes(record.phase) && details.check_id && !details.check_complete) {
+    const checked = await readRuntimeControlReceipt({ repository: env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY,
+      token: env.RUNTIME_SETTINGS_DISPATCH_TOKEN, requestId: record.request_id, operation: record.action,
+      checkId: details.check_id, runId: details.check_run_id, requestedAt: details.check_requested_at });
+    if (checked.run_id) {
+      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_record_check", ...args,
+        request_id: record.request_id, check_id: details.check_id, run_id: checked.run_id, complete: checked.complete === true }));
+    }
+    if (["applied", "partial", "protected", "rejected"].includes(checked.status) && checked.complete
+        && checked.platform_run_id === details.platform_run_id) {
+      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_resolve", ...args,
+        request_id: record.request_id, phase: checked.status, run_id: record.workflow_run_id,
+        check_id: details.check_id, check_run_id: checked.run_id, reason: checked.reason }));
+    }
+  }
+  return presentRuntimeControl(record);
+}
+
+function runtimeControlStopRequest(env, platform, targetName, source) {
+  const item = source.item;
+  const inputs = { ...item, platform, target_name: targetName };
+  const github = { repository: platformRepositories(env)[platform], variable_scope: resolvedVariableScope(item.variable_scope, inputs) };
+  if (github.variable_scope === "environment") github.environment = item.github_environment;
+  return { target_id: `${platform}/${targetName}`, github, runtime_target: {
+    platform_id: platform, deployment_selector: source.identity.deployment_selector,
+    account_selector: source.identity.account_selector.split(',').map(value => value.trim()).filter(Boolean),
+    account_scope: source.identity.account_scope, service_name: source.identity.service_name,
+  } };
+}
+
+async function dispatchPlatformControlReadback(env, raw) {
+  if (raw.confirm !== "READ_ONLY" || !["ibkr", "schwab"].includes(raw.platform)
+      || Object.keys(raw).some(key => !["platform", "target_name", "operation", "confirm"].includes(key))) throw new HttpError("runtime_control_request_invalid", 400);
+  const targetName = cleanSlug(raw.target_name, "target_name");
+  const source = await runtimeControlSource(env, raw.platform, targetName);
+  const args = { platform: raw.platform, key: source.item.key };
+  // Reconcile the original QRS run first. The platform run ID can only come
+  // from its validated safe artifact and never from the client.
+  await readPlatformRuntimeControl(env, raw.platform, targetName);
+  let { record } = await runtimeInstanceCommand(env, { action: "runtime_control_read", ...args });
+  if (!record || !["accepted", "unknown", "partial"].includes(record.phase)) return json(presentRuntimeControl(record));
+  const checkId = crypto.randomUUID();
+  const begun = await runtimeInstanceCommand(env, { action: "runtime_control_begin_check", ...args, request_id: record.request_id, check_id: checkId });
+  if (begun.state !== "reserved") return json(presentRuntimeControl(begun.record));
+  record = begun.record;
+  const details = JSON.parse(record.result_json || "{}");
+  let runId = null, rejected = false;
+  try {
+    const response = await fetchWithTimeout(`https://api.github.com/repos/${env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY}/actions/workflows/manual-runtime-stop.yml/dispatches`, {
+      method: "POST", headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN), body: JSON.stringify({ ref: "main", return_run_details: true,
+        inputs: { stop_request: JSON.stringify(runtimeControlStopRequest(env, raw.platform, targetName, source)), apply: "false", confirm: "READ_ONLY", apply_hk_stop: "false",
+          runtime_control_mode: "readback", runtime_control_operation: record.action, runtime_control_request_id: record.request_id,
+          runtime_control_check_id: checkId, runtime_control_platform_run_id: details.platform_run_id } }),
+    });
+    if (response.status === 200) {
+      const body = await response.json();
+      if (Number.isSafeInteger(body.workflow_run_id) && body.workflow_run_id > 0) runId = String(body.workflow_run_id);
+    } else if (response.status >= 400 && response.status < 500 && response.status !== 429) rejected = true;
+  } catch { /* Readback outcome may be unknown; next explicit refresh reads the same check. */ }
+  if (runId || rejected) ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_record_check", ...args,
+    request_id: record.request_id, check_id: checkId, run_id: runId, complete: rejected, reason: rejected ? "readback_dispatch_rejected" : null }));
+  return json(presentRuntimeControl(record));
+}
+
+async function dispatchPlatformRuntimeControl(env, raw) {
+  if (raw.confirm !== "CONTROL_ONLY" || !["ibkr", "schwab"].includes(raw.platform)
+      || !["enable", "disable"].includes(raw.operation)
+      || Object.keys(raw).some(key => !["platform", "target_name", "operation", "request_id", "confirm"].includes(key))) throw new HttpError("runtime_control_request_invalid", 400);
+  const targetName = cleanSlug(raw.target_name, "target_name");
+  const requestId = raw.request_id || crypto.randomUUID();
+  if (!HK_STOP_REQUEST_ID.test(requestId)) throw new HttpError("runtime_control_request_invalid", 400);
+  const source = await runtimeControlSource(env, raw.platform, targetName);
+  const args = { platform: raw.platform, key: source.item.key };
+  const claimed = await runtimeInstanceCommand(env, { action: "runtime_control_claim", ...args, identity: source.identity,
+    source_revision: source.revision, request_id: requestId, operation: raw.operation });
+  if (claimed.state !== "reserved") {
+    const body = presentRuntimeControl(claimed.record);
+    return json(claimed.state === "blocked" ? { ...body, ok: false, error: "runtime_control_pending" } : body, claimed.state === "blocked" ? 409 : 200);
+  }
+  const stopRequest = runtimeControlStopRequest(env, raw.platform, targetName, source);
+  let phase = "unknown", runId = null;
+  try {
+    const response = await fetchWithTimeout(`https://api.github.com/repos/${env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY}/actions/workflows/manual-runtime-stop.yml/dispatches`, {
+      method: "POST", headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN), body: JSON.stringify({ ref: "main", return_run_details: true,
+        inputs: { stop_request: JSON.stringify(stopRequest), apply: "true", confirm: "CONTROL_ONLY", apply_hk_stop: "false",
+          runtime_control_operation: raw.operation, runtime_control_request_id: requestId } }),
+    });
+    if (response.status === 200) {
+      const body = await response.json();
+      if (Number.isSafeInteger(body.workflow_run_id) && body.workflow_run_id > 0) { phase = "accepted"; runId = String(body.workflow_run_id); }
+    } else if (response.status >= 400 && response.status < 500 && response.status !== 429) phase = "rejected";
+  } catch { /* Outcome may already have occurred; never resend. */ }
+  try {
+    const recorded = await runtimeInstanceCommand(env, { action: "runtime_control_record", ...args, request_id: requestId, phase, run_id: runId });
+    return json(presentRuntimeControl(recorded.record), recorded.record?.phase === "rejected" ? 502 : 200);
+  } catch { return json({ ...presentRuntimeControl(claimed.record), phase: "unknown" }); }
+}
+
 async function readRuntimeStop(request, env, url) {
   requireSameOrigin(request);
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   const platform = url.searchParams.get("platform");
   const targetName = url.searchParams.get("target_name");
+  if (["ibkr", "schwab"].includes(platform) && targetName) return json(await readPlatformRuntimeControl(env, platform, targetName));
   if (platform !== "longbridge" || targetName !== "hk") {
     return json({
       ok: true, configured: false, platform_applied: false, request_succeeded: false,
@@ -6885,6 +7136,10 @@ async function dispatchRuntimeStop(request, env) {
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
   const raw = await request.json();
+  if (raw && !Array.isArray(raw) && typeof raw === "object" && ["ibkr", "schwab"].includes(raw.platform) && raw.operation === "inspect")
+    return await dispatchPlatformControlReadback(env, raw);
+  if (raw && !Array.isArray(raw) && typeof raw === "object" && ["ibkr", "schwab"].includes(raw.platform) && raw.operation)
+    return await dispatchPlatformRuntimeControl(env, raw);
   const hkStop = raw && !Array.isArray(raw) && raw.platform === "longbridge" && raw.target_name === "hk";
   const allowedKeys = hkStop ? ["platform", "target_name", "confirm", "request_id"] : ["platform", "target_name", "confirm"];
   if (!raw || Array.isArray(raw) || typeof raw !== "object"

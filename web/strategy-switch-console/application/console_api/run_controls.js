@@ -15,8 +15,26 @@ export async function runControls(account, session, deps) {
     return result;
   }
   if (deps.dispatchAvailable) {
-    try { actions.stop = await deps.stopReady() ? available() : blocked("stop_pending_or_identity_unavailable"); }
-    catch { actions.stop = blocked("stored_records_unreadable"); result.status = "partial"; }
+    if (["ibkr", "schwab"].includes(account.platform) && deps.platformControl) {
+      try {
+        const control = await deps.platformControl();
+        result.runtime_control = control;
+        if (["reserved", "accepted", "unknown", "partial"].includes(control.phase)) {
+          actions.enable = blocked("runtime_control_pending");
+          actions.stop = blocked("runtime_control_pending");
+        } else {
+          actions.enable = available();
+          actions.stop = available();
+        }
+      } catch {
+        actions.enable = blocked("runtime_readback_unavailable");
+        actions.stop = blocked("runtime_readback_unavailable");
+        result.status = "partial";
+      }
+    } else {
+      try { actions.stop = await deps.stopReady() ? available() : blocked("stop_pending_or_identity_unavailable"); }
+      catch { actions.stop = blocked("stored_records_unreadable"); result.status = "partial"; }
+    }
     if (account.platform === "binance") {
       try {
         const target = await deps.resumeTarget();
