@@ -54,7 +54,7 @@ export const healthStates: StrategySummary = {
 
 export const controlReasons = ["available", "admin_required", "strategy_application_not_connected", "dispatch_unavailable",
   "existing_recovery_not_available", "profile_draft_required", "stop_pending_or_identity_unavailable",
-  "stored_records_unreadable", "runtime_readback_unavailable", "runtime_instances_not_bound",
+  "stored_records_unreadable", "runtime_readback_unavailable", "runtime_control_pending", "runtime_instances_not_bound",
   "account_settings_identity_conflict", "profile_only_required", "profile_not_selectable",
   "runtime_target_not_disabled", "current_profile_conflict", "profile_application_pending"] as const satisfies readonly RunControlReason[];
 export const controls: RunControlAvailability = {
