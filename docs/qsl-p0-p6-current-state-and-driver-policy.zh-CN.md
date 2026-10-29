@@ -70,7 +70,7 @@ P0–P6 是每个研究候选从控制、输入、策略、证据到执行的**�
 - **组合研究线索复评**：`UsEquitySnapshotPipelines` 的 `portfolio-candidate-readiness` 只读下载已保留的 TQQQ v5 / SOXL v3 脱敏 P1/P3 terminal artifact。两个成分都 `P1 ACCEPTED`、P3 完整、且 P1 cutoff 完全相同，才产生 `AI_RESEARCH_PROPOSAL_READY`；P3 还必须逐个绑定各自当前 P1 manifest、cutoff（TQQQ 另绑定 health 摘要）。任何不满足项输出 `PARKED`；缺少 P1 terminal 则不伪造状态记录。就绪时它只创建或在摘要变化时更新一条去重的 GitHub Issue，作为后续 AI 研究 driver 的线索；工作流本身不调用模型、不建组合 P2、不选权重、不封存共同 P1 root、不跑组合 P3，也固定拒绝 P4/P5/P6、账户和订单权限。
 - **策略插件**：运行配置的旧 plugin mount 已退役；新插件只能是候选受约束、可复算信号。策略在冻结配置中决定如何消费，插件不能在运行中悄悄改参数、替换策略、改写仓位或绕过 P3。AI 黑盒结论仅可走人工通知/研究建议路径，不能作为插件或策略输入。`QuantStrategyPlugins` 已有 `qsl.strategy-plugin-signal.v2` envelope 和 QQQ close-only 观察生产器；UESP 的 TQQQ v6 会从同一已验证 P1 root 重算该信号，并在 v5 P3 完成时保留 35 天脱敏观察 artifact。它仍没有日更候选注册、策略调用或任何 P4–P6 资格。当前 TQQQ 日更链不挂载任何插件，也不执行任何组合策略；这里的 v6 仅是验证后记录，绝不构成策略消费。
 
-旧运行设置曾按策略名称自动挂载 `latest_signal.json`；该行为现已退役为安全的空操作，不能再把旧插件 artifact 推断为当前候选输入。[策略插件契约 V2](qsl_strategy_plugin_contract_v2.zh-CN.md) 只定义后续实施边界：它不是已接线的 plugin runtime，也不改变当前 TQQQ v5、P4、P5 或 P6 状态。
+旧运行设置曾按策略名称自动挂载 `latest_signal.json`；该行为现已退役为安全的空操作，不能再把旧插件 artifact 推断为当前候选输入。[策略插件契约 V2](qsl-strategy-plugin-contract-v2.zh-CN.md) 只定义后续实施边界：它不是已接线的 plugin runtime，也不改变当前 TQQQ v5、P4、P5 或 P6 状态。
 
 因此，组合与插件在全局规划中是 P2 策略产品层的并行分支，而不是 P4/P5/P6 的捷径。下一条组合/插件研究线应先建立一个独立候选和 synthetic P1/P3 契约；在此之前，`NO_DRIVER_PARKED` 仍适用于它的 paper、shadow 和 live 阶段。
 
@@ -91,7 +91,7 @@ P1 可验证输入 → research signal（可选）→ 单策略 P2 目标
 | --- | --- | --- | --- |
 | 单策略目标仓位 | 各研究策略能在冻结 P2 配置中计算目标权重；例如 TQQQ 的趋势/内部波动降风险属于策略本体。 | 不是账户级仓位管理，不能读取账户、下单或自行改变 P2 配置。 | 对该候选完成自己的 P1 输入绑定与 P3 重算，才可作为 P4/P5 的候选输入。 |
 | 组合风险预算 | `UsEquityStrategies` 已有纯计算的 `portfolio_risk_budget`；组合 P1 元数据、P2 描述符和 P3 脱敏索引契约已实现。`MarketSignalSources` 已有本地 create-only 共同 P1 root 封存/复核契约。 | 不读取行情/账户，不生成订单；也没有实际组合 P1 root、真实 P3 replay、paper、shadow 或 live。 | 在取得可许可、可复现的共同历史数据后，单独冻结组合候选，封存共同 P1 root 并独立走 P1–P3。 |
-| 账户级仓位/敞口上限 | P0 的 `risk_control` 可把不可变风险摘要绑定进许可链；P4/P5 风险控制契约可做离线校验。新增纯内存的 [确定性风险判定内核 V1](qsl_deterministic_risk_gate_kernel_v1.zh-CN.md)，可用注入式快照确定性检查总敞口、单标的/单策略、杠杆、日损失和 session 频率。 | 尚未读取真实账户，也未接入或实际执行任何上限；内核的 `ALLOW_NEW_RISK` 不是订单许可。 | 在独立执行风控网关中注入已对账快照并持久化最小化结果；其身份必须与 AI、网页和 GitHub Actions 隔离。 |
+| 账户级仓位/敞口上限 | P0 的 `risk_control` 可把不可变风险摘要绑定进许可链；P4/P5 风险控制契约可做离线校验。新增纯内存的 [确定性风险判定内核 V1](qsl-deterministic-risk-gate-kernel-v1.zh-CN.md)，可用注入式快照确定性检查总敞口、单标的/单策略、杠杆、日损失和 session 频率。 | 尚未读取真实账户，也未接入或实际执行任何上限；内核的 `ALLOW_NEW_RISK` 不是订单许可。 | 在独立执行风控网关中注入已对账快照并持久化最小化结果；其身份必须与 AI、网页和 GitHub Actions 隔离。 |
 | 熔断 | 已有 `RECONCILE_ONLY`（零新增风险）准入和 P4/P5 的 fail-closed 契约；确定性风险判定内核会在有效输入的任一健康/上限异常时返回 `NEW_RISK_PROHIBITED` 与 `OPEN` 建议。 | 没有已接券商的真实熔断器，不能声称会自动拦截、持久化状态或平仓；结构/摘要异常仍由未来网关 fail-closed。 | 网关接线后，先只实现“停止新增风险”；熔断复位不由 AI 自动完成，自动减仓/平仓必须是独立、预先编码且可回放的规则。 |
 | 风险偏好双口径 | Composer 相对无杠杆基准 MDD 天花板为 `CAPITAL_PRESERVATION` 1.00 / `BALANCED_COMPOUNDING` 1.25 / `GROWTH_COMPOUNDING` 1.50；晋级 `promotion_sizing` 仓位缩放为 0.50 / 0.75 / 1.00，且仅用于新晋级/材料变更。 | 不得把 1.50× 当成仓位×1.5；不得用晋级缩放重算旧 live。 | 控制台与 Composer/晋级文档保持双口径分列；仓位缩放仍须过 RiskEngine。 |
 | 凯利公式 | 当前主线没有启用凯利仓位公式，也没有把它作为组合或账户风险控制。 | 不允许用历史最佳收益、AI 判断或单策略胜率直接放大资金。 | 若研究引入，只能作为一个新的、保守的分数凯利研究候选：须使用 OOS 统计和不确定性折减，并受组合相关性、流动性、最大仓位、回撤与熔断硬上限约束；仍要走 P1–P3，不能绕过风险网关。 |
@@ -204,7 +204,7 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/consumer-repo
 - `2026-08-22`：`UsEquitySnapshotPipelines` 合入组合候选就绪度自动复评（PR #377），其 PR 与 main CI 均通过。它只汇总两个既有单策略的脱敏 P1/P3 terminal artifact；只有 P1 接受、P3 完整且共同 cutoff 一致时才创建一条摘要去重的 AI 研究线索 Issue。它不调用模型、不读取市场数据或云端原始输入、不创建组合候选/共同 P1 root/P3 证据，也不改变 P4–P6、账户、订单或资金权限。
 - `2026-08-19`：6 个 Quant GCP 项目各创建一把 `EC_SIGN_P256_SHA256` 的 software-protected 公共 P0 root，逐把重新读取 key version 与 PEM 后校验通过；没有授予 signer IAM、没有签发 active policy，也没有修改运行服务。详见下方部署记录。
 - `2026-08-21`：为避免借用研究或 IBKR root，创建独立 `<alpaca-shadow-project-id>`（展示名：`AlpacaShadowControl`）项目及同构 P-256 P0 root，公开 root record 已重新读取核验。仅 `alpaca-shadow-policy-issuer`（展示名：`AlpacaShadowPolicyIssuer`）对该 key 有 key-level `roles/cloudkms.signer`；risk-gate、ledger、scheduler 三个身份没有用户管理私钥、项目级角色、WIF 或运行绑定。迁移核验后，原为空的 `<retired-alpaca-project-id>` 项目已退役。没有 active policy、签名 receipt、工件存储、scheduler、broker、账户或交易能力。
-- `2026-08-12`：`docs/QUANT_ROADMAP.md` 被标记为历史指针，历史正文应从 Git history 读取。
+- `2026-08-12`：`docs/quant-roadmap.md` 被标记为历史指针，历史正文应从 Git history 读取。
 - 上述仓内记录只支撑文档、兼容性和协作边界；不支撑账户、密钥、私有位置或任何未重新读取的部署状态。
 
-相关仓内资料：[统一决策平台架构 V1](qsl_unified_control_console_architecture_v1.zh-CN.md)、[自治运行策略 V2](qsl_autonomous_operating_policy_v2.zh-CN.md)、[确定性执行网关 V1 设计](qsl_deterministic_execution_gateway_v1.zh-CN.md)、[GCP P0 控制根部署记录](qsl_gcp_p0_control_root_deployment_v1.zh-CN.md)、[组织架构与检查口径](qsl_org_architecture.md)、[内部依赖 pin 政策](internal_dependency_pin_policy.zh-CN.md)、[2026.08.0 compatibility bundle](../compat/bundles/2026.08.0.toml)。
+相关仓内资料：[统一决策平台架构 V1](qsl-unified-control-console-architecture-v1.zh-CN.md)、[自治运行策略 V2](qsl-autonomous-operating-policy-v2.zh-CN.md)、[确定性执行网关 V1 设计](qsl-deterministic-execution-gateway-v1.zh-CN.md)、[GCP P0 控制根部署记录](qsl-gcp-p0-control-root-deployment-v1.zh-CN.md)、[组织架构与检查口径](qsl-org-architecture.md)、[内部依赖 pin 政策](internal-dependency-pin-policy.zh-CN.md)、[2026.08.0 compatibility bundle](../compat/bundles/2026.08.0.toml)。

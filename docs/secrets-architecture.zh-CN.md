@@ -14,7 +14,7 @@
 | Cloudflare Worker secrets | `SESSION_SECRET`、OAuth、`STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`、各 sync token | 不要提交 `wrangler.toml` / `.dev.vars` |
 | 浏览器 | 脱敏后的账户目录与 `AccountStatus` | 任何 secret 明文 |
 
-账户「期望目录」属于 Desired 配置，经 Worker 读取后只把展示安全的字段交给前端；启用/健康仍以 Observed 证据为准（见 `docs/qsl_lifecycle_truth_v1.zh-CN.md` 与控制台分层实现）。
+账户「期望目录」属于 Desired 配置，经 Worker 读取后只把展示安全的字段交给前端；启用/健康仍以 Observed 证据为准（见 `docs/qsl-lifecycle-truth-v1.zh-CN.md` 与控制台分层实现）。
 
 ## 推荐命名
 

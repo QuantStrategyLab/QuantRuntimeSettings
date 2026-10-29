@@ -1,6 +1,6 @@
 # Strategy switch console architecture and security review
 
-[简体中文](strategy_switch_architecture_security_review.zh-CN.md)
+[简体中文](strategy-switch-architecture-security-review.zh-CN.md)
 
 Date: 2026-06-09
 

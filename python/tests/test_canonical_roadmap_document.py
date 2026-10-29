@@ -5,8 +5,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CANONICAL_ROADMAP = ROOT / "docs" / "QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md"
-HISTORICAL_POINTER = ROOT / "docs" / "QUANT_ROADMAP.md"
+CANONICAL_ROADMAP = ROOT / "docs" / "qsl-p0-p6-current-state-and-driver-policy.zh-CN.md"
+HISTORICAL_POINTER = ROOT / "docs" / "quant-roadmap.md"
 
 
 class CanonicalRoadmapDocumentTest(unittest.TestCase):
@@ -78,7 +78,7 @@ class CanonicalRoadmapDocumentTest(unittest.TestCase):
         text = HISTORICAL_POINTER.read_text(encoding="utf-8")
 
         self.assertIn("HISTORICAL_POINTER_ONLY", text)
-        self.assertIn("QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md", text)
+        self.assertIn("qsl-p0-p6-current-state-and-driver-policy.zh-CN.md", text)
         self.assertNotIn("/Users/", text)
         self.assertNotIn("/home/", text)
 

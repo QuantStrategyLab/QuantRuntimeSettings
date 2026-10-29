@@ -195,7 +195,7 @@ dependencies = [
         self.assertRegex(next(iter(uesp_strategy_refs.values())), r"^[0-9a-f]{40}$")
 
     def test_upgrade_document_distinguishes_target_candidate_and_observed_pins(self):
-        document = (ROOT / "docs" / "qsl_compat_upgrade.md").read_text(encoding="utf-8")
+        document = (ROOT / "docs" / "qsl-compat-upgrade.md").read_text(encoding="utf-8")
 
         self.assertIn("compat/bundles/<bundle>.toml", document)
         self.assertIn("internal_dependency_matrix.json", document)

@@ -1,6 +1,6 @@
 # Internal dependency pin policy
 
-[简体中文](internal_dependency_pin_policy.zh-CN.md)
+[简体中文](internal-dependency-pin-policy.zh-CN.md)
 
 QuantStrategyLab shares Python packages across platforms, strategies, and pipelines via git URL pins. This document explains how pins are tracked, when to use tags versus full commit SHAs, and how to bump dependencies safely.
 
@@ -16,7 +16,7 @@ QuantStrategyLab shares Python packages across platforms, strategies, and pipeli
   strict enforcement blocks only changes to `internal_dependency_matrix.json`. This prevents
   an unrelated console or documentation PR from failing non-hermetically merely because a
   separately checked-out consumer advanced; a ledger change must still match every consumer.
-- See also [qsl_compat_upgrade.md](qsl_compat_upgrade.md) and QPK ADR 0003 Amendment 2026-09-06.
+- See also [qsl-compat-upgrade.md](qsl-compat-upgrade.md) and QPK ADR 0003 Amendment 2026-09-06.
 
 ```bash
 python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --strict --require-consumer-files

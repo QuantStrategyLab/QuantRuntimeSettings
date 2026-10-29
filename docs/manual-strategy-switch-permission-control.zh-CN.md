@@ -1,6 +1,6 @@
 # 手动策略切换权限控制方案
 
-[English](manual_strategy_switch_permission_control.md)
+[English](manual-strategy-switch-permission-control.md)
 
 这是个人量化系统的简化权限方案，保留必要的防误触和防泄密边界。
 
@@ -45,7 +45,7 @@
 - `QuantStrategyLab/CharlesSchwabPlatform`
 - `QuantStrategyLab/FirstradePlatform`
 
-如果你 fork 到自己的组织，把这些替换成你的平台仓库，并在本仓 repository variables 里配置 `RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON` 或 `RUNTIME_SETTINGS_LONGBRIDGE_REPO`、`RUNTIME_SETTINGS_IBKR_REPO`、`RUNTIME_SETTINGS_SCHWAB_REPO`、`RUNTIME_SETTINGS_FIRSTRADE_REPO`。完整步骤见 [策略切换控制台 Fork 指南](strategy_switch_fork_guide.zh-CN.md)。
+如果你 fork 到自己的组织，把这些替换成你的平台仓库，并在本仓 repository variables 里配置 `RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON` 或 `RUNTIME_SETTINGS_LONGBRIDGE_REPO`、`RUNTIME_SETTINGS_IBKR_REPO`、`RUNTIME_SETTINGS_SCHWAB_REPO`、`RUNTIME_SETTINGS_FIRSTRADE_REPO`。完整步骤见 [策略切换控制台 Fork 指南](strategy-switch-fork-guide.zh-CN.md)。
 
 需要的能力只有：
 

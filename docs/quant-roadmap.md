@@ -8,4 +8,4 @@
 
 本文件不再代表 P0–P6 的 current state、acceptance、provider/runtime 状态或执行顺序。2026-07-09/10 的历史正文请从本文件的 Git history 读取；不要复制它建立新的路线图分叉。
 
-架构与有日期证据参考：[P0–P6 架构与运行边界](QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md)。所有 runtime/config 事实均须在操作前 fresh readback，且任何 paper、shadow、live 或 promotion 都必须满足当期可验证的预授权自治策略与证据门槛。
+架构与有日期证据参考：[P0–P6 架构与运行边界](qsl-p0-p6-current-state-and-driver-policy.zh-CN.md)。所有 runtime/config 事实均须在操作前 fresh readback，且任何 paper、shadow、live 或 promotion 都必须满足当期可验证的预授权自治策略与证据门槛。

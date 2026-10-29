@@ -1,6 +1,6 @@
 # 策略切换控制台架构与安全 Review
 
-[English](strategy_switch_architecture_security_review.md)
+[English](strategy-switch-architecture-security-review.md)
 
 日期：2026-06-09
 

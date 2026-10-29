@@ -41,7 +41,7 @@
 
 ## 2026-10-06 补充验收合同
 
-本节是待实施/待验收要求，不声称以下能力已经上线。`UI-01` 至 `UI-05`、`DATA-01` 与 `DATA-02` 的有日期验收记录见[历史审计记录](qsl_overnight_open_items.zh-CN.md#six-track-audit-20261006)。
+本节是待实施/待验收要求，不声称以下能力已经上线。`UI-01` 至 `UI-05`、`DATA-01` 与 `DATA-02` 的有日期验收记录见[历史审计记录](qsl-overnight-open-items.zh-CN.md#six-track-audit-20261006)。
 
 ### 策略名称与技术身份分开（UI-01）
 

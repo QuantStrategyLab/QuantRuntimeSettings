@@ -1,6 +1,6 @@
 # Fork 指南：策略切换控制台
 
-[English](strategy_switch_fork_guide.md)
+[English](strategy-switch-fork-guide.md)
 
 这份文档说明别人 fork 本仓库后，如何部署同样的“公开只读、登录后一键切换”策略控制台。
 

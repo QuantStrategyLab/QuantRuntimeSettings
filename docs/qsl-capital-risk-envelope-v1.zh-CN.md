@@ -17,7 +17,7 @@
 
 W1 当前只闭合禁买/禁新增风险；`combined_scale` 应用于平台目标仓位缩放仍 **PARK**。
 
-组合路径 A→B 见 [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)；QPK 合成证据见 `QuantPlatformKit/docs/synthetic-combo-evidence.zh-CN.md`（#578 已合）。
+组合路径 A→B 见 [多策略组合 A→B V1](qsl-multi-strategy-combo-ab-v1.zh-CN.md)；QPK 合成证据见 `QuantPlatformKit/docs/synthetic-combo-evidence.zh-CN.md`（#578 已合）。
 
 ## 1. 人机分工（产品原则）
 
@@ -102,7 +102,7 @@ W1 当前只闭合禁买/禁新增风险；`combined_scale` 应用于平台目�
 2. 多账户「组合视图」：用汇总权益落入同一张表，再按账户 mandate 分配；仍一账户一 active writer。
 3. 相关组（如 TQQQ+SOXL）：组合预算之和不得突破信封允许的总风险袖（correlation haircut）。
 4. 共账户多策略 allocator：本 V1 **不做**。
-5. 路径选择：**A 虚拟 combo 研究 → B 多账户汇总风险**（见 [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)）；暂不做 C 共账户 allocator。
+5. 路径选择：**A 虚拟 combo 研究 → B 多账户汇总风险**（见 [多策略组合 A→B V1](qsl-multi-strategy-combo-ab-v1.zh-CN.md)）；暂不做 C 共账户 allocator。
 
 ## 5. AI 自动化边界
 

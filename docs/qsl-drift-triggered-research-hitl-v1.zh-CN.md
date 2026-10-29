@@ -56,7 +56,7 @@ drift(REVIEW|CRITICAL)
 | 重度偏离 | 熔断、人工接管 | `CRITICAL`：同样仅禁新增风险；不自动缩仓、复位熔断或 live |
 | 禁止 | 每日/每周日历重构参数 | 任何 cron **不得** 独立触发 reopt |
 
-资金侧的「监测 → 降档 → 禁新风险」见 [资金风险信封 V1](qsl_capital_risk_envelope_v1.zh-CN.md)；组合证据预演见 [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)。研究晋级与资金信封 **分轨**：信封管账户层 `combined_scale`；本文管候选参数与晋级证据。
+资金侧的「监测 → 降档 → 禁新风险」见 [资金风险信封 V1](qsl-capital-risk-envelope-v1.zh-CN.md)；组合证据预演见 [多策略组合 A→B V1](qsl-multi-strategy-combo-ab-v1.zh-CN.md)。研究晋级与资金信封 **分轨**：信封管账户层 `combined_scale`；本文管候选参数与晋级证据。
 
 ## 2. Drift 分级与触发（与代码对齐）
 
@@ -91,7 +91,7 @@ drift(REVIEW|CRITICAL)
 
 ## 4. 人机分工（与自治策略一致）
 
-与 [自治运行策略 V2](qsl_autonomous_operating_policy_v2.zh-CN.md)、[研究任务契约 V1](qsl_research_task_v1.zh-CN.md) 一致：
+与 [自治运行策略 V2](qsl-autonomous-operating-policy-v2.zh-CN.md)、[研究任务契约 V1](qsl-research-task-v1.zh-CN.md) 一致：
 
 | 角色 | 可做 | 不可做 |
 | --- | --- | --- |
@@ -122,7 +122,7 @@ drift(REVIEW|CRITICAL)
 
 交接报告称 inject 已部署；这是历史运行报告，不是本轮独立核验。observe profile override 不改变交易 `RUNTIME_TARGET_JSON` 的 profile，也不证明交易 store → NEW_RISK 闭环。共享桶 GitHub vars 的历史配置、同步代码已合、Cloud Run 已应用和真实 `drift_score` 可用须分别说明；本轮后两者未核验。
 
-与 P0–P6 总表关系：日更 P1–P3、组合就绪度复评、AIAudit 诊断均为 **观察/记录** 轨，见 [P0–P6 当前状态](QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md) §当前实现登记。本文不扩大为「观察 → 自动调参/自动交易」。
+与 P0–P6 总表关系：日更 P1–P3、组合就绪度复评、AIAudit 诊断均为 **观察/记录** 轨，见 [P0–P6 当前状态](qsl-p0-p6-current-state-and-driver-policy.zh-CN.md) §当前实现登记。本文不扩大为「观察 → 自动调参/自动交易」。
 
 ## 6. 非目标
 
@@ -138,10 +138,10 @@ drift(REVIEW|CRITICAL)
 - QPK 生产 drift：`QuantPlatformKit/src/quant_platform_kit/strategy_lifecycle/production_drift_evaluator.py`
 - QPK drift 探针：`QuantPlatformKit/src/quant_platform_kit/strategy_lifecycle/production_drift_health_probe.py`
 - 晋级标准：[strategy-promotion-risk-standard.zh-CN.md](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/strategy-promotion-risk-standard.zh-CN.md)
-- 资金信封：[qsl_capital_risk_envelope_v1.zh-CN.md](qsl_capital_risk_envelope_v1.zh-CN.md)
-- 组合 A→B：[qsl_multi_strategy_combo_ab_v1.zh-CN.md](qsl_multi_strategy_combo_ab_v1.zh-CN.md)
-- 研究任务（只读队列）：[qsl_research_task_v1.zh-CN.md](qsl_research_task_v1.zh-CN.md)
-- 历史工程与验收边界：[qsl_overnight_open_items.zh-CN.md](qsl_overnight_open_items.zh-CN.md)
+- 资金信封：[qsl-capital-risk-envelope-v1.zh-CN.md](qsl-capital-risk-envelope-v1.zh-CN.md)
+- 组合 A→B：[qsl-multi-strategy-combo-ab-v1.zh-CN.md](qsl-multi-strategy-combo-ab-v1.zh-CN.md)
+- 研究任务（只读队列）：[qsl-research-task-v1.zh-CN.md](qsl-research-task-v1.zh-CN.md)
+- 历史工程与验收边界：[qsl-overnight-open-items.zh-CN.md](qsl-overnight-open-items.zh-CN.md)
 
 ## 8. 残留工程（读回与部署，非再造框架）
 

@@ -66,4 +66,4 @@ OPEN   + 任意新风险请求     -> NEW_RISK_PROHIBITED, next=OPEN
 2. 在独立 P4 paper gateway 中复用相同内核，但由只具 paper 权限的身份产生受限快照、幂等键和对账记录；该身份与 AI、网页、Actions 和策略研究隔离。
 3. 接线前要为每个策略或组合候选分别冻结 policy，建立 deterministic replay fixture，并先只允许“停止新增风险”。没有这些条件时，P4/P5 继续是 `PARKED`。
 
-该顺序沿用 [确定性执行网关 V1](qsl_deterministic_execution_gateway_v1.zh-CN.md) 的分层：策略/组合只能提出目标，风险内核只判定，未来执行服务才可能持有受限外部身份。任何一层都不能绕过风险内核直接写入券商。
+该顺序沿用 [确定性执行网关 V1](qsl-deterministic-execution-gateway-v1.zh-CN.md) 的分层：策略/组合只能提出目标，风险内核只判定，未来执行服务才可能持有受限外部身份。任何一层都不能绕过风险内核直接写入券商。

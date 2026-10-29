@@ -60,7 +60,7 @@ Only `regular.enabled` defaults to `true`; all extended sessions default to `fal
 
 `default_execution_mode`, `live_configured`, strategy lifecycle labels, this repository's switch workflow, and a green CI result are configuration or historical metadata—not authorization for runtime, orders, funds, or a stage change. P1–P3 non-live data acquisition needs its own precise contract; P0 does not grant it by implication. P4–P6 remain undefined. See [the architecture boundary](docs/ARCHITECTURE.md#p0p6-runtime-authority-boundary).
 
-AI and monitoring systems can create only an immutable, no-order `qsl.research_task.v1` request for offline research.  The request binds evidence digests and a bounded experiment, but it does not activate a candidate or grant P4–P6 authority.  See the [research task contract](docs/qsl_research_task_v1.zh-CN.md).
+AI and monitoring systems can create only an immutable, no-order `qsl.research_task.v1` request for offline research.  The request binds evidence digests and a bounded experiment, but it does not activate a candidate or grant P4–P6 authority.  See the [research task contract](docs/qsl-research-task-v1.zh-CN.md).
 
 ## Current account asset totals
 
@@ -88,7 +88,7 @@ This repository is the central manifest source for QSL compatibility checks.
 - `scripts/render_qsl_dependency_graph.py`: render dependency graph for review.
 - `compat/bundles/2026.08.0.toml`: current compatibility bundle baseline (CalVer).
 - `compat/repo-tiers.toml`: repo tier and upgrade ring policy notes.
-- [QSL compatibility docs](docs/qsl_compat_upgrade.md)
+- [QSL compatibility docs](docs/qsl-compat-upgrade.md)
 
 ## Quick start
 
@@ -136,18 +136,18 @@ Notes:
 - LongBridge, IBKR, Schwab, and Firstrade `service_targets_mode=auto` checks the target repository's multi-service inventory, so even preview mode requires `RUNTIME_SETTINGS_GH_TOKEN`.
 - Binance runs through an Oracle Cloud VPS self-hosted runner. Repository variable writes are consumed by the next externally scheduled `main.yml` dispatch; the central switch does not dispatch that runtime workflow because it may execute live trading. A strategy cadence change also requires a separate review of the external VPS scheduler.
 - QMT remains dry-run only and has no live deployment configuration. Its generated target can stage repository variables, but `trigger_platform_sync=true` is rejected.
-- Every strategy must retain a domain-matched, no-order `dry_run` route. The health report separately proves declared and default-buildable routes, parking profiles with missing required runtime artifacts instead of fabricating inputs; this is not P4 paper trading. See [Universal Dry-run Coverage V1](docs/qsl_universal_dry_run_coverage_v1.zh-CN.md).
-- `plugin_mode=none` is the safe default. `auto` remains only as a compatibility alias for `none`; strategy names must not auto-mount a `latest_signal.json` artifact. Legacy `custom` mounts are disabled and cannot bypass P1/P2/P3 binding through the manual form. A future runtime plugin must be referenced by the frozen P2 candidate and recomputable in P3; see the [Strategy Plugin Contract V2](docs/qsl_strategy_plugin_contract_v2.zh-CN.md).
+- Every strategy must retain a domain-matched, no-order `dry_run` route. The health report separately proves declared and default-buildable routes, parking profiles with missing required runtime artifacts instead of fabricating inputs; this is not P4 paper trading. See [Universal Dry-run Coverage V1](docs/qsl-universal-dry-run-coverage-v1.zh-CN.md).
+- `plugin_mode=none` is the safe default. `auto` remains only as a compatibility alias for `none`; strategy names must not auto-mount a `latest_signal.json` artifact. Legacy `custom` mounts are disabled and cannot bypass P1/P2/P3 binding through the manual form. A future runtime plugin must be referenced by the frozen P2 candidate and recomputable in P3; see the [Strategy Plugin Contract V2](docs/qsl-strategy-plugin-contract-v2.zh-CN.md).
 - The workflow is bound to the `runtime-strategy-switch` GitHub Environment. For a personal system, required reviewers are optional; prefer storing `RUNTIME_SETTINGS_GH_TOKEN` as an Environment secret and rely on preview, confirmation text, and a least-privilege token for day-to-day safety.
-- Follow the simplified permission-control plan before enabling real switches: [docs/manual_strategy_switch_permission_control.zh-CN.md](docs/manual_strategy_switch_permission_control.zh-CN.md).
+- Follow the simplified permission-control plan before enabling real switches: [docs/manual-strategy-switch-permission-control.zh-CN.md](docs/manual-strategy-switch-permission-control.zh-CN.md).
 
 ## Useful docs
 
-- [Internal dependency pin policy](docs/internal_dependency_pin_policy.md)
-- [Fork guide for the strategy switch console](docs/strategy_switch_fork_guide.md)
+- [Internal dependency pin policy](docs/internal-dependency-pin-policy.md)
+- [Fork guide for the strategy switch console](docs/strategy-switch-fork-guide.md)
 - [Strategy switch console Worker](web/strategy-switch-console/README.md)
-- [Strategy switch admin backend](docs/strategy_switch_admin_backend.md)
-- [Manual strategy switch permission-control plan](docs/manual_strategy_switch_permission_control.zh-CN.md)
+- [Strategy switch admin backend](docs/strategy-switch-admin-backend.md)
+- [Manual strategy switch permission-control plan](docs/manual-strategy-switch-permission-control.zh-CN.md)
 
 ## Community and security
 

@@ -2,7 +2,7 @@
 
 > 状态：`DESIGN_FROZEN_A_LIBRARY_READY_B_VIEW_READY`
 > 范围：虚拟 combo 研究与多账户汇总风险的路径选择；不授权 live、不下单、不写券商、不部署真账户。
-> 上游：已合资金信封栈见 [资金风险信封 V1](qsl_capital_risk_envelope_v1.zh-CN.md)。
+> 上游：已合资金信封栈见 [资金风险信封 V1](qsl-capital-risk-envelope-v1.zh-CN.md)。
 
 ## 1. 结论（一句话）
 

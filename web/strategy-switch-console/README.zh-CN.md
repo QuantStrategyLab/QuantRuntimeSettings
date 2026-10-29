@@ -26,7 +26,7 @@
 - 已登录且 GitHub 用户名在 allowlist：可以从账号下拉框选择目标，然后点击“一键切换”，由 Worker 服务端触发 GitHub Actions workflow。
 - GitHub token 只放在 Worker secret 中，不进入前端、不写入开源代码。
 
-控制台的目标架构见 [QSL 统一决策平台架构 V1](../../docs/qsl_unified_control_console_architecture_v1.zh-CN.md)：人将从这一处查看跨仓健康、候选和需要本人决定的 P6 项；网页不会持有券商凭证或直接下单。现有“策略切换”是历史部署配置工具，不能被视为 P0–P6 运行授权。
+控制台的目标架构见 [QSL 统一决策平台架构 V1](../../docs/qsl-unified-control-console-architecture-v1.zh-CN.md)：人将从这一处查看跨仓健康、候选和需要本人决定的 P6 项；网页不会持有券商凭证或直接下单。现有“策略切换”是历史部署配置工具，不能被视为 P0–P6 运行授权。
 
 ## 数据源与交易目标
 
@@ -550,7 +550,7 @@ GitHub Actions 自动部署需要在 `runtime-strategy-switch` environment 配�
 wrangler deploy
 ```
 
-完整 fork 清单见 [docs/strategy_switch_fork_guide.zh-CN.md](../../docs/strategy_switch_fork_guide.zh-CN.md)。
+完整 fork 清单见 [docs/strategy-switch-fork-guide.zh-CN.md](../../docs/strategy-switch-fork-guide.zh-CN.md)。
 
 ## Token 权限
 
