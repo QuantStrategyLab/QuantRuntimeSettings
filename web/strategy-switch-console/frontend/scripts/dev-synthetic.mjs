@@ -10,6 +10,7 @@ if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new Error(
 // Every API path is handled locally; only the in-memory synthetic risk setting can be written.
 const requests = [];
 let scenario = 'ready';
+const syntheticControls = new Map();
 const syntheticRisks = new Map();
 const syntheticDeclarations = new Map();
 const syntheticPendingRead = new Set();
@@ -33,6 +34,22 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
       requests.push({ path: url.pathname, method: req.method, scenario });
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-store');
+      if (scenario.startsWith('control-demo') && url.pathname === '/api/accounts/run-controls') {
+        const key = url.searchParams.get('account') || 'synthetic-alpha';
+        const syntheticControl = syntheticControls.get(key) || null;
+        const pending = syntheticControl && ['accepted', 'unknown', 'partial'].includes(syntheticControl.phase);
+        const actions = Object.fromEntries(['enable','stop','resume','approve_application'].map(name => [name, {
+          enabled: ['enable','stop'].includes(name) && !pending, reason: pending ? 'runtime_control_pending' : 'available', requires_confirmation: true }]));
+        res.end(JSON.stringify({status:'ok',account_alias:key,platform:'ibkr',as_of:new Date().toISOString(),actions,
+          runtime_control:syntheticControl,no_order:true,execution_authority_granted:false})); return;
+      }
+      if (scenario.startsWith('control-demo') && url.pathname === '/api/runtime-stop' && req.method === 'POST') {
+        let text=''; for await (const chunk of req) text+=chunk; const body=JSON.parse(text);
+        const key = body.target_name; let current = syntheticControls.get(key);
+        if (body.operation === 'inspect') { if (current) current = {...current,phase:'applied',platform_applied:true}; }
+        else current = {request_id:body.request_id,action:body.operation,phase:scenario === 'control-demo-reject' ? 'rejected' : 'unknown',unavailable_reason:scenario === 'control-demo-reject' ? 'runtime_control_workflow_permission_denied' : 'platform_result_unavailable',platform_applied:false};
+        syntheticControls.set(key,current); res.end(JSON.stringify({ok:true,...current})); return;
+      }
       if (url.pathname === '/api/account-settings' && ['api-ready','risk-late','risk-readback-failed','declaration-demo'].includes(scenario)) {
         if (req.method === 'GET') { if (scenario === 'risk-readback-failed' && syntheticPendingRead.has(url.searchParams.get('key'))) { res.statusCode=503; res.end(JSON.stringify({error:'synthetic_unavailable'})); return; } res.end(JSON.stringify(syntheticSettings(url.searchParams.get('key')))); return; }
         if (req.method === 'POST') {
@@ -50,8 +67,8 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
           res.end(JSON.stringify(syntheticSettings(body.key))); return;
         }
       }
-      const apiFixture = consoleApiFixture(url.pathname, url.searchParams, scenario, req.method);
-      if (apiFixture !== undefined) { res.statusCode = apiFixture.status || 200; res.end(JSON.stringify(apiFixture.body)); return; }
+      const apiFixture = consoleApiFixture(url.pathname, url.searchParams, scenario.startsWith('control-demo') ? 'api-ready' : scenario, req.method);
+      if (apiFixture !== undefined) { res.statusCode = apiFixture.status || 200; let fixture=apiFixture.body; if (scenario.startsWith('control-demo') && url.pathname === '/api/accounts' && fixture.accounts?.length) fixture={...fixture,accounts:[...fixture.accounts,{...fixture.accounts[0],account_alias:'synthetic-beta'}]}; const body=JSON.stringify(fixture); res.end(scenario.startsWith('control-demo') ? body.replaceAll('longbridge','ibkr') : body); return; }
       if (req.method !== 'GET') { res.statusCode = 405; res.end(JSON.stringify({ error: 'synthetic_audit_read_only' })); return; }
       const performance = performanceFixture(url.pathname, url.searchParams, scenario);
       if (performance !== undefined) {
@@ -64,7 +81,7 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
       if (fail) { res.statusCode = 503; res.end(JSON.stringify({ error: 'synthetic_unavailable' })); return; }
       const data = {
         '/api/session': { authenticated: scenario !== 'anonymous', allowed: scenario !== 'anonymous', admin: scenario !== 'reader', login: 'synthetic-qa', synthetic: true },
-        '/api/config': scenario === 'declaration-demo' ? { ...config, accountOptions:{longbridge:[{key:'synthetic-alpha',label:'Synthetic alpha'}]}, currentStrategies:{} } : scenario === 'no-accounts' ? { ...config, accountOptions: {} } : config,
+        '/api/config': scenario.startsWith('control-demo') ? { ...config, accountOptions:{ibkr:[{...account,key:'synthetic-alpha',target_name:'synthetic-alpha'},{...account,key:'synthetic-beta',target_name:'synthetic-beta'}]}, platformMeta:{ibkr:{label:'IBKR',console_visible:true}}, currentStrategies:{} } : scenario === 'declaration-demo' ? { ...config, accountOptions:{longbridge:[{key:'synthetic-alpha',label:'Synthetic alpha'}]}, currentStrategies:{} } : scenario === 'no-accounts' ? { ...config, accountOptions: {} } : config,
         '/api/runtime-target-lifecycle': { data_status: 'unavailable', targets: [] },
         '/api/control-plane': { data_status: 'ready', candidates: [] },
         '/api/ux1/draft': { revision: 0, draft: {} },
@@ -102,7 +119,7 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
         '/api/binance-private-scope': { data_status: 'unavailable', report: null },
       };
       if (!(url.pathname in data)) { res.statusCode = 503; res.end(JSON.stringify({ error: 'synthetic_endpoint_unavailable' })); return; }
-      res.end(JSON.stringify(data[url.pathname])); return;
+      res.end(scenario.startsWith('control-demo') ? JSON.stringify(data[url.pathname]).replaceAll('longbridge','ibkr') : JSON.stringify(data[url.pathname])); return;
     }
     next();
   });

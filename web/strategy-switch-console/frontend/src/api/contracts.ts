@@ -608,12 +608,15 @@ export interface RunControlAvailability extends ReadOnlyProjection {
     requires_confirmation: true;
   }>;
   resume_binding?: { runtime_target_sha256: string };
+  runtime_control?: { request_id: string | null; action: "enable" | "disable" | null;
+    phase: "reserved" | "accepted" | "unknown" | "partial" | "applied" | "protected" | "rejected" | null;
+    unavailable_reason: string | null; platform_applied: boolean };
 }
 
 export type StrategyHealthStatus = "healthy" | "watch" | "review" | "critical";
 export type RunControlReason = "available" | "admin_required" | "strategy_application_not_connected"
   | "dispatch_unavailable" | "existing_recovery_not_available" | "profile_draft_required"
-  | "stop_pending_or_identity_unavailable" | "stored_records_unreadable" | "runtime_readback_unavailable"
+  | "stop_pending_or_identity_unavailable" | "stored_records_unreadable" | "runtime_readback_unavailable" | "runtime_control_pending"
   | "runtime_instances_not_bound" | "account_settings_identity_conflict" | "profile_only_required"
   | "profile_not_selectable" | "runtime_target_not_disabled" | "current_profile_conflict" | "profile_application_pending";
 export type DirectoryError = "kv_directory_uninitialized" | "kv_directory_unavailable"
