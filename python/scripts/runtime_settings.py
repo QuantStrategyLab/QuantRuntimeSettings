@@ -5,14 +5,17 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import re
 import shlex
 import subprocess
 import sys
+import time
+import zipfile
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -1286,13 +1289,16 @@ def _stop_request_identity(request: dict[str, Any]) -> tuple[str, dict[str, Any]
     return target_id, identity, github
 
 
-def build_stop_assignments(request: dict[str, Any], current_variables: dict[str, str]) -> list[Assignment]:
-    """Plan only a disable change against authoritative, caller-read variables.
+def build_stop_assignments(request: dict[str, Any], current_variables: dict[str, str], *, enabled: bool = False) -> list[Assignment]:
+    """Plan one enabled setting against authoritative, caller-read variables.
 
     Authentication, source ownership and application belong to the caller.
-    This function does not prove that a running platform stopped.
+    This function does not prove that a running platform adopted the setting.
     """
     target_id, identity, github = _stop_request_identity(request)
+    if type(enabled) is not bool or (enabled and identity["platform_id"] not in {"ibkr", "schwab"}):
+        raise ValueError("runtime_control_target_unsupported")
+    enabled_value = "true" if enabled else "false"
     error = "stop requires an unambiguous current target with matching identity"
     errors: list[str] = []
     if not isinstance(current_variables, dict):
@@ -1337,10 +1343,10 @@ def build_stop_assignments(request: dict[str, Any], current_variables: dict[str,
                 and str(current_variables.get("RUNTIME_TARGET_ENABLED") or "").strip()):
             # LongBridge alone prefers this exact service's top-level override.
             # Writing only the inventory would leave an inherited true active.
-            name, value = "RUNTIME_TARGET_ENABLED", "false"
+            name, value = "RUNTIME_TARGET_ENABLED", enabled_value
         else:
             # The other per-service consumers prefer the inventory override.
-            entry["RUNTIME_TARGET_ENABLED"] = "false"
+            entry["RUNTIME_TARGET_ENABLED"] = enabled_value
             name, value = inventory_name, compact_json(inventory)
     else:
         if not matches(parse("RUNTIME_TARGET_JSON")):
@@ -1349,7 +1355,7 @@ def build_stop_assignments(request: dict[str, Any], current_variables: dict[str,
             services = str(current_variables.get(name) or "").replace(",", " ").split()
             if services and set(services) != {identity["service_name"]}:
                 raise ValueError(error)
-        name, value = "RUNTIME_TARGET_ENABLED", "false"
+        name, value = "RUNTIME_TARGET_ENABLED", enabled_value
     return [Assignment(target_id, github["repository"], github["variable_scope"], github.get("environment"), name, value)]
 
 
@@ -1615,8 +1621,8 @@ def apply_disabled_strategy_profile_change(
     return {"outcome": "variables_updated", "variables_updated": True, "runtime_applied": False}
 
 
-def execute_stop(request: dict[str, Any], *, apply: bool = False) -> dict[str, Any]:
-    """Save a stop under the single configuration writer; no platform sync.
+def execute_stop(request: dict[str, Any], *, apply: bool = False, enabled: bool = False) -> dict[str, Any]:
+    """Save the enabled setting under the single configuration writer; no platform sync.
 
     Workflow concurrency serializes known writers in this repository. It is not a
     complete cross-workflow or cross-repository lock. The pre-write comparison is
@@ -1633,7 +1639,7 @@ def execute_stop(request: dict[str, Any], *, apply: bool = False) -> dict[str, A
     before = read()
     effective = {**before[0], **before[1]}
     inventory = "CLOUD_RUN_SERVICE_TARGETS_JSON"
-    assignment = build_stop_assignments(request, effective)[0]
+    assignment = build_stop_assignments(request, effective, enabled=enabled)[0]
     owner = github
     if assignment.name == inventory and inventory not in before[1]:
         owner = repository_scope
@@ -1688,7 +1694,7 @@ def execute_stop(request: dict[str, Any], *, apply: bool = False) -> dict[str, A
         "preview": False,
         "resource_write_audit": build_resource_write_audit(
             resource_key=resource_key,
-            reason="runtime_stop",
+            reason="runtime_enable" if enabled else "runtime_stop",
             old_value=current_value,
             new_value=assignment.value,
             readback=readback,
@@ -1717,6 +1723,295 @@ def require_hk_stop_target(request: dict[str, Any]) -> None:
             or github != {"repository": "QuantStrategyLab/LongBridgePlatform",
                           "variable_scope": "environment", "environment": "longbridge-hk"}):
         raise ValueError("stop_platform_target_unsupported")
+
+
+def runtime_control_workflow_preflight(request: dict[str, Any]) -> str:
+    """Verify the fixed platform workflow is readable and active before any setting write."""
+    _, identity, github = _stop_request_identity(request)
+    workflows = {"ibkr": "sync-cloud-run-env.yml", "schwab": "pilot-metadata-readback.yml"}
+    workflow = workflows.get(identity["platform_id"])
+    if identity["platform_id"] == "schwab":
+        repository_scope = {"repository": github["repository"], "variable_scope": "repository"}
+        current = read_stop_variables(repository_scope)
+        if github["variable_scope"] == "environment":
+            current.update(read_stop_variables(github))
+        if current.get("CLOUD_RUN_SERVICE") != identity["service_name"]:
+            raise ValueError("runtime_control_target_unsupported")
+    if workflow is None:
+        raise ValueError("runtime_control_target_unsupported")
+    endpoint = f"repos/{github['repository']}/actions/workflows/{workflow}"
+    try:
+        result = subprocess.run(["gh", "api", "--method", "GET", endpoint], capture_output=True,
+                                text=True, timeout=30, check=False)
+        if result.returncode:
+            if "HTTP 403" in result.stderr or "HTTP 401" in result.stderr:
+                raise ValueError("runtime_control_workflow_permission_denied")
+            raise ValueError("runtime_control_workflow_unavailable")
+        document = json.loads(result.stdout)
+        if document.get("state") != "active" or document.get("path") != f".github/workflows/{workflow}":
+            raise ValueError("runtime_control_workflow_unavailable")
+    except (OSError, subprocess.SubprocessError, TypeError, AttributeError, json.JSONDecodeError):
+        raise ValueError("runtime_control_workflow_unavailable") from None
+    return workflow
+
+
+def dispatch_runtime_control(request: dict[str, Any], operation: str, request_id: str, workflow: str) -> dict[str, Any]:
+    """Send once; a missing run id is unknown and must never trigger a second dispatch."""
+    _, identity, github = _stop_request_identity(request)
+    if operation not in {"enable", "disable"} or not isinstance(request_id, str) or not re.fullmatch(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", request_id):
+        raise ValueError("runtime_control_request_invalid")
+    expected = {"ibkr": "sync-cloud-run-env.yml", "schwab": "pilot-metadata-readback.yml"}
+    if expected.get(identity["platform_id"]) != workflow:
+        raise ValueError("runtime_control_target_unsupported")
+    if identity["platform_id"] == "ibkr":
+        inputs = {"target": "configured", "configured_service": identity["service_name"],
+                  "runtime_switch_only": "true", "request_id": request_id,
+                  "deploy_image": "false", "sync_env": "true", "approve_traffic_shift": "true",
+                  "approve_scheduler_sync": "true"}
+    else:
+        inputs = {"resume_operation": operation, "request_id": request_id}
+    payload = {"ref": "main", "inputs": inputs, "return_run_details": True}
+    endpoint = f"repos/{github['repository']}/actions/workflows/{workflow}/dispatches"
+    try:
+        result = subprocess.run(["gh", "api", "--method", "POST", endpoint, "--input", "-"],
+                                input=json.dumps(payload), text=True, capture_output=True, timeout=45, check=False)
+        if result.returncode:
+            if re.search(r"HTTP (?:400|401|403|404|422)\b", result.stderr):
+                return {"status": "rejected", "run_id": None}
+            return {"status": "unknown", "run_id": None}
+        body = json.loads(result.stdout)
+        run_id = body.get("workflow_run_id")
+        if type(run_id) is int and run_id > 0:
+            return {"status": "accepted", "run_id": run_id}
+        return {"status": "unknown", "run_id": None}
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError):
+        return {"status": "unknown", "run_id": None}
+
+
+def validate_runtime_control_receipt(request: dict[str, Any], operation: str, request_id: str,
+                                     run_id: int, receipt: dict[str, Any]) -> str:
+    """Only a matching platform receipt can prove adoption of this request."""
+    _, identity, _ = _stop_request_identity(request)
+    if (not isinstance(receipt, dict) or receipt.get("request_id") != request_id
+            or str(receipt.get("run_id")) != str(run_id) or str(receipt.get("attempt")) != "1"
+            or receipt.get("operation") != operation or operation not in {"enable", "disable"}):
+        return "unknown"
+    if identity["platform_id"] == "ibkr":
+        if receipt.get("target_sha256") != hashlib.sha256(identity["service_name"].encode("utf-8")).hexdigest():
+            return "unknown"
+    elif identity["platform_id"] != "schwab":
+        return "unknown"
+    status = receipt.get("status")
+    if isinstance(status, str) and status in {"partial", "protected", "unknown"}:
+        return status
+    if status != "applied":
+        return "unknown"
+    if identity["platform_id"] == "ibkr":
+        if (receipt.get("target_sha256") != hashlib.sha256(identity["service_name"].encode("utf-8")).hexdigest()
+                or receipt.get("platform_applied") is not True
+                or receipt.get("enabled") is not (operation == "enable")
+                or not re.fullmatch(r"[0-9a-f]{64}", str(receipt.get("revision_sha256") or ""))):
+            return "unknown"
+        if operation == "enable" and receipt.get("continuity") != "ACTIVE_LKG":
+            return "protected" if receipt.get("continuity") in {"PAUSED", "RECONCILE_ONLY"} else "unknown"
+        if receipt.get("scheduler_state") != ("ENABLED" if operation == "enable" else "PAUSED"):
+            return "partial"
+    elif identity["platform_id"] == "schwab":
+        if (receipt.get("operator_state") != ("enabled" if operation == "enable" else "disabled")
+                or receipt.get("effective_state") != ("enabled" if operation == "enable" else "disabled")
+                or not re.fullmatch(r"[0-9a-f]{64}", str(receipt.get("serving_revision_sha256") or ""))):
+            return "unknown"
+        if operation == "enable" and receipt.get("continuity_state") != "ACTIVE_LKG":
+            return "protected" if receipt.get("continuity_state") in {"PAUSED", "RECONCILE_ONLY"} else "unknown"
+        if operation == "enable" and receipt.get("scheduler_state") != "enabled":
+            return "partial"
+    else:
+        return "unknown"
+    return "applied"
+
+
+def read_runtime_control_receipt_zip(archive: bytes, platform: str) -> dict[str, Any]:
+    """Read exactly one fixed, bounded public result from an Actions artifact."""
+    filenames = {"ibkr": "ibkr-runtime-switch-result.json", "schwab": "schwab-runtime-switch.safe.json"}
+    name = filenames.get(platform)
+    if not name or not isinstance(archive, bytes) or len(archive) > 262144:
+        raise ValueError("runtime_control_receipt_invalid")
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+            entries = zipped.infolist()
+            matches = [entry for entry in entries if entry.filename == name]
+            if len(entries) > 16 or len(matches) != 1 or matches[0].file_size > 65536 or matches[0].flag_bits & 1:
+                raise ValueError("runtime_control_receipt_invalid")
+            with zipped.open(matches[0]) as member:
+                content = member.read(65537)
+            if len(content) > 65536 or len(content) != matches[0].file_size:
+                raise ValueError("runtime_control_receipt_invalid")
+            value = json.loads(content)
+            if not isinstance(value, dict):
+                raise ValueError("runtime_control_receipt_invalid")
+            return value
+    except (zipfile.BadZipFile, OSError, UnicodeError, json.JSONDecodeError, RuntimeError, NotImplementedError):
+        raise ValueError("runtime_control_receipt_invalid") from None
+
+
+def recover_runtime_control_run(request: dict[str, Any], request_id: str, workflow: str, since: str) -> int | None:
+    """Recover a missing dispatch response by exact run title, never by time."""
+    _, identity, github = _stop_request_identity(request)
+    if (not isinstance(request_id, str) or not re.fullmatch(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", request_id)
+            or {"ibkr": "sync-cloud-run-env.yml", "schwab": "pilot-metadata-readback.yml"}.get(identity["platform_id"]) != workflow):
+        return None
+    title = ("Runtime switch " if identity["platform_id"] == "ibkr" else "Schwab runtime switch ") + request_id
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", since):
+        return None
+    endpoint = f"repos/{github['repository']}/actions/workflows/{workflow}/runs?event=workflow_dispatch&branch=main&per_page=100&created={quote('>=' + since, safe='')}"
+    try:
+        runs = []
+        page = 0
+        while True:
+            page += 1
+            response = subprocess.run(["gh", "api", "--method", "GET", f"{endpoint}&page={page}"], capture_output=True, timeout=30, check=False)
+            if response.returncode or len(response.stdout) > 524288:
+                return None
+            listing = json.loads(response.stdout)
+            total = listing.get("total_count")
+            current = listing.get("workflow_runs")
+            if type(total) is not int or not isinstance(current, list):
+                return None
+            runs.extend(current)
+            if len(runs) >= total:
+                break
+            if not current:
+                return None
+        if len(runs) != total:
+            return None
+        matches = [run for run in runs if run.get("display_title") == title
+                   and run.get("event") == "workflow_dispatch" and run.get("head_branch") == "main" and run.get("run_attempt") == 1]
+        if len(matches) != 1 or type(matches[0].get("id")) is not int or matches[0]["id"] <= 0:
+            return None
+        return matches[0]["id"]
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError, UnicodeError):
+        return None
+
+
+def read_runtime_control_result(request: dict[str, Any], operation: str, request_id: str,
+                                run_id: int, workflow: str) -> str:
+    """Read only this run and its uniquely named safe artifact, with no side effects."""
+    _, identity, github = _stop_request_identity(request)
+    if (type(run_id) is not int or run_id <= 0
+            or {"ibkr": "sync-cloud-run-env.yml", "schwab": "pilot-metadata-readback.yml"}.get(identity["platform_id"]) != workflow):
+        return "unknown"
+    prefix = f"repos/{github['repository']}"
+
+    def get(path: str, binary: bool = False) -> Any:
+        try:
+            response = subprocess.run(["gh", "api", "--method", "GET", f"{prefix}/{path}"],
+                                      capture_output=True, timeout=30, check=False)
+            if response.returncode or len(response.stdout) > (262144 if binary else 524288):
+                raise ValueError("runtime_control_read_unavailable")
+            return response.stdout if binary else json.loads(response.stdout)
+        except (OSError, subprocess.SubprocessError, TypeError, UnicodeError, json.JSONDecodeError):
+            raise ValueError("runtime_control_read_unavailable") from None
+
+    try:
+        meta = get(f"actions/workflows/{workflow}")
+        run = get(f"actions/runs/{run_id}")
+        title = ("Runtime switch " if identity["platform_id"] == "ibkr" else "Schwab runtime switch ") + request_id
+        if (meta.get("path") != f".github/workflows/{workflow}" or run.get("workflow_id") != meta.get("id")
+                or run.get("id") != run_id or run.get("run_attempt") != 1
+                or run.get("event") != "workflow_dispatch" or run.get("head_branch") != "main"
+                or run.get("display_title") != title or run.get("status") != "completed"):
+            return "unknown"
+        listing = get(f"actions/runs/{run_id}/artifacts?per_page=100")
+        artifact_name = (f"ibkr-runtime-switch-result-{run_id}-1" if identity["platform_id"] == "ibkr"
+                         else "schwab-runtime-switch-safe")
+        if not isinstance(listing.get("artifacts"), list) or listing.get("total_count", 101) > 100:
+            return "unknown"
+        matches = [item for item in listing["artifacts"] if item.get("name") == artifact_name and not item.get("expired")]
+        if (len(matches) != 1 or type(matches[0].get("id")) is not int
+                or type(matches[0].get("size_in_bytes")) is not int or matches[0]["size_in_bytes"] > 262144):
+            return "unknown"
+        archive = get(f"actions/artifacts/{matches[0]['id']}/zip", binary=True)
+        receipt = read_runtime_control_receipt_zip(archive, identity["platform_id"])
+        return validate_runtime_control_receipt(request, operation, request_id, run_id, receipt)
+    except (ValueError, TypeError, AttributeError, KeyError):
+        return "unknown"
+
+
+def command_runtime_control(args: argparse.Namespace) -> int:
+    """Run one already-authorized request through the existing protected writer."""
+    request_id = args.request_id
+    operation = args.operation
+    summary = {"request_id": request_id, "operation": operation, "status": "unknown", "platform_run_id": None,
+               "run_id": os.environ.get("GITHUB_RUN_ID"), "attempt": os.environ.get("GITHUB_RUN_ATTEMPT"), "reason": None}
+    stage = "request"
+    try:
+        if (operation not in {"enable", "disable"} or not isinstance(request_id, str) or not re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", request_id)):
+            raise ValueError("runtime_control_request_invalid")
+        request = load_stop_request()
+        stage = "workflow_preflight"
+        workflow = runtime_control_workflow_preflight(request)
+        stage = "configuration"
+        execute_stop(request, apply=True, enabled=operation == "enable")
+        stage = "platform_dispatch"
+        since = (datetime.now(timezone.utc) - timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        dispatched = dispatch_runtime_control(request, operation, request_id, workflow)
+        if dispatched["status"] == "rejected":
+            summary["status"] = "partial"
+            summary["reason"] = "platform_dispatch_rejected"
+        else:
+            run_id = dispatched["run_id"]
+            for attempt in range(10):
+                if run_id is None:
+                    run_id = recover_runtime_control_run(request, request_id, workflow, since)
+                if run_id is not None:
+                    summary["platform_run_id"] = run_id
+                    outcome = read_runtime_control_result(request, operation, request_id, run_id, workflow)
+                    if outcome != "unknown":
+                        summary["status"] = outcome
+                        break
+                if attempt < 9:
+                    time.sleep(10)
+            if summary["status"] == "unknown":
+                summary["reason"] = "platform_result_unavailable" if run_id else "platform_dispatch_unverified"
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        # Private inputs and provider errors never appear in the receipt or logs.
+        reason = str(error)
+        summary["reason"] = reason if reason in {"runtime_control_workflow_permission_denied", "runtime_control_workflow_unavailable", "runtime_control_target_unsupported", "stop_source_permission_denied", "stop_source_not_accessible"} else stage + "_unverified"
+        if stage in {"request", "workflow_preflight"}:
+            summary["status"] = "rejected"
+    result_path = os.environ.get("RUNTIME_CONTROL_RESULT_PATH")
+    if result_path:
+        with open(result_path, "w", encoding="utf-8") as output:
+            json.dump(summary, output)
+    return 0 if summary["status"] == "applied" else 1
+
+
+def command_runtime_control_readback(args: argparse.Namespace) -> int:
+    """Read the persisted original platform run without changing configuration or dispatching it."""
+    summary = {"request_id": args.request_id, "check_id": args.check_id, "operation": args.operation,
+               "status": "unknown", "platform_run_id": args.platform_run_id,
+               "run_id": os.environ.get("GITHUB_RUN_ID"), "attempt": os.environ.get("GITHUB_RUN_ATTEMPT"), "reason": None}
+    try:
+        for value in (args.request_id, args.check_id):
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", value):
+                raise ValueError("runtime_control_request_invalid")
+        if args.operation not in {"enable", "disable"} or not re.fullmatch(r"[1-9][0-9]*", args.platform_run_id):
+            raise ValueError("runtime_control_request_invalid")
+        request = load_stop_request()
+        workflow = runtime_control_workflow_preflight(request)
+        summary["status"] = read_runtime_control_result(request, args.operation, args.request_id, int(args.platform_run_id), workflow)
+        if summary["status"] == "unknown":
+            summary["reason"] = "platform_result_unavailable"
+    except (OSError, ValueError, TypeError, KeyError):
+        summary["reason"] = "platform_result_unavailable"
+    result_path = os.environ.get("RUNTIME_CONTROL_RESULT_PATH")
+    if result_path:
+        with open(result_path, "w", encoding="utf-8") as output:
+            json.dump(summary, output)
+    return 0 if summary["status"] == "applied" else 1
 
 
 def dispatch_hk_stop(request: dict[str, Any]) -> None:
@@ -2015,6 +2310,18 @@ def build_parser() -> argparse.ArgumentParser:
     stop.add_argument("--confirm", default="")
     stop.add_argument("--apply-hk-stop", action="store_true", help="apply an already-saved LongBridge HK stop; never writes configuration or enables a target")
     stop.set_defaults(func=command_stop)
+
+    runtime_control = subparsers.add_parser("runtime-control", help="apply one correlated platform enabled setting")
+    runtime_control.add_argument("--operation", choices=("enable", "disable"), required=True)
+    runtime_control.add_argument("--request-id", required=True)
+    runtime_control.set_defaults(func=command_runtime_control)
+
+    readback = subparsers.add_parser("runtime-control-readback", help="read an original platform run without writes")
+    readback.add_argument("--operation", choices=("enable", "disable"), required=True)
+    readback.add_argument("--request-id", required=True)
+    readback.add_argument("--check-id", required=True)
+    readback.add_argument("--platform-run-id", required=True)
+    readback.set_defaults(func=command_runtime_control_readback)
 
     repository = subparsers.add_parser("repository", help="print the configured platform repository")
     repository.add_argument("platform", choices=sorted(SUPPORTED_PLATFORMS))

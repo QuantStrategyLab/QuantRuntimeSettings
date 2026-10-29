@@ -1,5 +1,5 @@
 import { useDisplayNames } from "../../lib/useDisplayNames";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { RunControlAvailability } from "../../api/contracts";
 import { loadAccountSettings, loadRunControls } from "../../api/endpoints";
 import { postJson } from "../../api/client";
@@ -14,6 +14,14 @@ import { targetNameFor, type AccountRow, type ConsoleConfig } from "./helpers";
 type Confirm = (request: ConfirmRequest) => Promise<boolean>;
 type ActionName = "enable" | "stop" | "resume" | "approve_application";
 type Lock = "submitted" | "unknown";
+
+/** Platforms that own one outstanding runtime control per target. */
+const RUNTIME_CONTROL_PLATFORMS = new Set(["ibkr", "schwab"]);
+
+/** Non-terminal phases keep both enable and stop locked. */
+const CONTROL_LOCKED_PHASES = new Set(["reserved", "accepted", "unknown", "partial"]);
+/** Terminal phases are the only thing that may release the lock. */
+const CONTROL_TERMINAL_PHASES = new Set(["applied", "protected", "rejected"]);
 
 const ACTION_ORDER: { name: ActionName; titleKey: string; summaryKey: string }[] = [
   { name: "enable", titleKey: "controls.enable", summaryKey: "controls.enable_summary" },
@@ -46,20 +54,62 @@ export function ControlsTab({
   const [busy, setBusy] = useState<ActionName | null>(null);
   // Unknown or ambiguous outcomes lock the action until the availability is reloaded.
   const [locks, setLocks] = useState<Partial<Record<ActionName, Lock>>>({});
+  const targetKey = `${account.platform}:${account.account_alias}`;
+  const [pendingControl, setPendingControl] = useState<{ requestId: string; targetKey: string } | null>(null);
+  const [busyControl, setBusyControl] = useState<{ name: ActionName; targetKey: string } | null>(null);
+
+  useEffect(() => {
+    if (state.phase !== "ready" || !pendingControl || pendingControl.targetKey !== targetKey
+        || state.data.account_alias !== account.account_alias || state.data.platform !== account.platform) return;
+    const control = state.data.runtime_control;
+    if (!control || control.request_id !== pendingControl.requestId) return;
+    if (!CONTROL_TERMINAL_PHASES.has(control.phase || "")) return;
+    setPendingControl(null);
+  }, [state, pendingControl, targetKey]);
 
   if (state.phase === "loading") return <Skeleton height={200} />;
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
   const data: RunControlAvailability = state.data;
-
-  const reload = () => {
-    setLocks({});
-    state.reload();
-  };
+  if (data.account_alias !== account.account_alias || data.platform !== account.platform) return <Skeleton height={200} />;
+  const isRuntimeControlPlatform = RUNTIME_CONTROL_PLATFORMS.has(account.platform.toLowerCase());
 
   const reasonText = (reason: string): string => {
     const key = `reason.${reason}`;
     const translated = t(key);
     return translated === key ? reason : translated;
+  };
+
+  const control = data.runtime_control;
+  const controlLocked = Boolean(pendingControl?.targetKey === targetKey) || Boolean(control && CONTROL_LOCKED_PHASES.has(control.phase || ""));
+  const controlNote = control?.unavailable_reason
+    ? reasonText(control.unavailable_reason)
+    : control && (control.phase === "unknown" || control.phase === "partial")
+      ? t("controls.unknown_result")
+      : t("controls.submitted");
+
+  const inspectControl = async () => {
+    try {
+      await postJson("/api/runtime-stop", {
+        platform: account.platform,
+        target_name: targetNameFor(config, account.platform, account.account_alias),
+        operation: "inspect",
+        confirm: "READ_ONLY",
+      });
+    } catch {
+      // Inspect is advisory; the reload below still surfaces the server state.
+    } finally {
+      state.reload();
+    }
+  };
+
+  const reload = () => {
+    setLocks({});
+    if (!isRuntimeControlPlatform || !control || !CONTROL_LOCKED_PHASES.has(control.phase || "")) {
+      state.reload();
+      return;
+    }
+    // Explicit refresh asks the runtime to reconcile, then reloads run controls.
+    void inspectControl();
   };
 
   const finish = (name: ActionName, ok: boolean) => {
@@ -68,6 +118,10 @@ export function ControlsTab({
   };
 
   const submitStop = async () => {
+    if (isRuntimeControlPlatform) {
+      await submitControl("disable");
+      return;
+    }
     const accepted = await confirm({
       title: t("controls.stop_confirm_title"),
       target: names.account(account.account_alias, account.platform),
@@ -174,8 +228,57 @@ export function ControlsTab({
     }
   };
 
+  const submitControl = async (operation: "enable" | "disable") => {
+    const name: ActionName = operation === "enable" ? "enable" : "stop";
+    const accepted = await confirm(operation === "enable"
+      ? {
+          title: t("controls.confirm.enable_title"),
+          target: names.account(account.account_alias, account.platform),
+          summary: t("controls.enable_summary"),
+          consequence: t("controls.enable_control_note"),
+          tone: "normal",
+          confirmLabel: t("controls.enable"),
+        }
+      : {
+          title: t("controls.stop_confirm_title"),
+          target: names.account(account.account_alias, account.platform),
+          summary: t("controls.stop_summary"),
+          consequence: t("controls.stop_consequence"),
+          tone: "danger",
+          confirmLabel: t("controls.stop"),
+          typeToConfirm: {
+            label: t("controls.stop_type_alias", { alias: account.account_alias }),
+            expected: account.account_alias,
+            mismatch: t("controls.alias_mismatch"),
+          },
+        });
+    if (!accepted) return;
+    const requestId = crypto.randomUUID();
+    setPendingControl({ requestId, targetKey });
+    setBusyControl({ name, targetKey });
+    try {
+      await postJson("/api/runtime-stop", {
+        platform: account.platform,
+        target_name: targetNameFor(config, account.platform, account.account_alias),
+        operation,
+        request_id: requestId,
+        confirm: "CONTROL_ONLY",
+      });
+      toast({ kind: "success", text: t("controls.submitted") });
+    } catch {
+      toast({ kind: "error", text: t("controls.unknown_result") });
+    } finally {
+      setBusyControl(current => current?.targetKey === targetKey ? null : current);
+      state.reload();
+    }
+  };
+
   const submitEnable = async () => {
-    // No direct enable write exists; the console only points to the existing flow.
+    if (isRuntimeControlPlatform) {
+      await submitControl("enable");
+      return;
+    }
+    // No direct enable write exists for the other platforms; point to the existing flow.
     await confirm({
       title: t("controls.confirm.enable_title"),
       target: names.account(account.account_alias, account.platform),
@@ -195,16 +298,21 @@ export function ControlsTab({
 
   return (
     <div className="section-stack">
+      {isRuntimeControlPlatform && control?.phase === "rejected" && control.unavailable_reason && <p className="card-note">{reasonText(control.unavailable_reason)}</p>}
+      {isRuntimeControlPlatform && control?.phase === "protected" && <p className="card-note">{t("controls.protected")}</p>}
       <DangerZone>
         {ACTION_ORDER.map(({ name, titleKey, summaryKey }) => {
           const action = data.actions[name];
           const lock = locks[name];
-          const disabled = busy !== null || Boolean(lock) || !action.enabled;
+          const controlLock = controlLocked && (name === "enable" || name === "stop");
+          const disabled = busy !== null || busyControl?.targetKey === targetKey || Boolean(lock) || controlLock || !action.enabled;
           const note = lock
             ? t(lock === "submitted" ? "controls.submitted" : "controls.unknown_result")
-            : !action.enabled
-              ? reasonText(action.reason)
-              : null;
+            : controlLock
+              ? controlNote
+              : !action.enabled
+                ? reasonText(action.reason)
+                : null;
           return (
             <DangerRow
               key={name}
@@ -218,7 +326,7 @@ export function ControlsTab({
                   disabled={disabled}
                   onClick={() => void handlers[name]()}
                 >
-                  {busy === name ? t("controls.submitting") : t(titleKey)}
+                  {busy === name || (busyControl?.targetKey === targetKey && busyControl.name === name) ? t("controls.submitting") : t(titleKey)}
                 </button>
               }
             />
