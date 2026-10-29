@@ -2007,6 +2007,11 @@ const healthPayload = {
   policy: { mode: "read_only", notice: "健康不等于已批准 live。" },
   errors: ["safe_notice", "not safe error"],
 };
+const partialHealthPayload = { ...healthPayload, data_status: "partial", errors: ["crypto_read_failed"] };
+const partialHealth = __test.normalizeStrategyHealthSnapshot(partialHealthPayload);
+assert.equal(partialHealth.data_status, "partial");
+assert.equal(partialHealth.strategies.length, healthPayload.strategies.length);
+assert.equal(__test.normalizeStrategyHealthSnapshot({ ...partialHealthPayload, data_status: "unavailable" }).strategies.length, 0);
 const sessionCookie = await __test.makeSession("health-user", [], healthEnv);
 const healthCookieHeaders = { Cookie: `qsl_switch_session=${sessionCookie}` };
 
@@ -2074,6 +2079,18 @@ const staleHealthRead = await worker.fetch(
   healthEnv,
 );
 assert.equal((await staleHealthRead.json()).data_status, "stale");
+
+for (const [observed, expected] of [[healthNow, "partial"], ["2020-01-01T00:00:00.000Z", "stale"]]) {
+  const source = { ...partialHealthPayload, generated_at: observed, computed_at: observed };
+  const sent = await worker.fetch(new Request("https://switch.example/api/internal/sync-strategy-health", {
+    method: "POST", headers: { Authorization: `Bearer ${healthSyncValue}`, "Content-Type": "application/json" }, body: JSON.stringify(source),
+  }), healthEnv);
+  assert.equal(sent.status, 200);
+  const read = await worker.fetch(new Request("https://switch.example/api/strategy-health", { headers: healthCookieHeaders }), healthEnv);
+  const value = await read.json();
+  assert.equal(value.data_status, expected);
+  assert.equal(value.strategies.length, 1);
+}
 
 healthPayload.generated_at = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 healthPayload.computed_at = healthPayload.generated_at;
