@@ -77,7 +77,7 @@ export function matchExecutionDailyBinding(optionsRaw, bindingsRaw, profilesRaw,
       if (platform==='firstrade' && bindings.length===1) counts.selector_matches_broker=b.account_selector===b.broker_account_id;
     }
     for (const strategy_profile of names) {
-      const binding={account_scope:b.account_scope,account_selector:b.account_selector,deployment_selector:b.deployment_selector,
+      const binding={account_scope:b.account_scope,account_selector:platform==='firstrade'?b.broker_account_id:b.account_selector,deployment_selector:b.deployment_selector,
         platform,service_name:b.service_name,source_binding_id:b.source_binding.id,strategy_profile,target_id:b.target_id};
       if (Object.values(binding).some(v=>typeof v!=='string' || !token.test(v)) || !/^[a-f0-9]{64}$/.test(binding.source_binding_id)) continue;
       if (counts) counts.format_pass++;

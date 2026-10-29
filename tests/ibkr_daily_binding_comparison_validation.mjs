@@ -40,6 +40,10 @@ const ftOption={...lbOption,account_scope:'live',account_selector:'configured-se
 const ftFacts={...lbFacts,bindings:[{...lbFacts.bindings[0],platform:'firstrade',account_scope:'live',account_selector:'configured-selector',broker_account_id:'fixture-broker',source_binding:{kind:'deployment_runtime_account',id:'e'.repeat(64)}}]};
 const ftCounts={};assert.throws(()=>matchExecutionDailyBinding({firstrade:[ftOption]},ftFacts,[{profile:'fixture_strategy'}],'firstrade',nonce,'0'.repeat(64),ftCounts));
 assert.equal(ftCounts.selector_matches_broker,false);
+const ftBinding={account_scope:'live',account_selector:'fixture-broker',deployment_selector:'fixture-deploy',platform:'firstrade',service_name:'fixture-service',source_binding_id:'e'.repeat(64),strategy_profile:'fixture_strategy',target_id:'fixture-target'};
+const ftDigest=createHash('sha256').update(JSON.stringify({binding:ftBinding,domain:'qsl.firstrade-daily-binding.v1',nonce})).digest('hex');
+assert.equal(matchExecutionDailyBinding({firstrade:[ftOption]},ftFacts,[{profile:'fixture_strategy'}],'firstrade',nonce,ftDigest).account_key,'fixture-key');
+assert.throws(()=>matchExecutionDailyBinding({firstrade:[{...ftOption,account_selector:'other'}]},ftFacts,[{profile:'fixture_strategy'}],'firstrade',nonce,ftDigest));
 const fallbackBinding={account_scope:'HK',account_selector:'HK',deployment_selector:'fixture-deploy',platform:'longbridge',service_name:'fixture-service',source_binding_id:'e'.repeat(64),strategy_profile:'soxl_soxx_trend_income',target_id:'fixture-target'};
 const fallbackDigest=createHash('sha256').update(JSON.stringify({binding:fallbackBinding,domain:'qsl.longbridge-daily-binding.v1',nonce})).digest('hex');
 assert.equal(matchExecutionDailyBinding({longbridge:[lbOption]},lbFacts,[{profile:'unrelated'}],'longbridge',nonce,fallbackDigest).strategy_profile,'soxl_soxx_trend_income');
