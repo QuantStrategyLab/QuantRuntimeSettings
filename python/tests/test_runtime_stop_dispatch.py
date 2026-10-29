@@ -159,6 +159,42 @@ class RuntimeStopDispatchTests(unittest.TestCase):
             self.assertEqual(settings.read_runtime_control_result(self.request, "enable", request_id, 123, "sync-cloud-run-env.yml"), "unknown")
             self.assertEqual(api.call_count, 2)
 
+    def test_only_reviewed_pretraffic_failure_resolves_as_not_adopted(self):
+        request_id = "12345678-1234-4abc-8def-123456789abc"
+        receipt = {"request_id": request_id, "run_id": "123", "attempt": "1", "operation": "enable",
+                   "status": "unknown", "target_sha256": hashlib.sha256(self.request["runtime_target"]["service_name"].encode()).hexdigest()}
+        meta = {"path": ".github/workflows/sync-cloud-run-env.yml", "id": 10}
+        run = {"workflow_id": 10, "id": 123, "run_attempt": 1, "event": "workflow_dispatch", "head_branch": "main",
+               "display_title": "Runtime switch " + request_id, "status": "completed", "conclusion": "failure",
+               "head_sha": "49af5187aabace9dec41059620ecc4f16aa76daf"}
+        steps = [{"name": "Prepare env-only revision and runtime switch", "conclusion": "success"},
+                 {"name": "Reconcile Cloud Run traffic", "conclusion": "failure", "started_at": "2026-01-01T00:00:00Z", "completed_at": "2026-01-01T00:00:02Z"},
+                 {"name": "Reconcile existing runtime switch scheduler", "conclusion": "skipped"}]
+        jobs = {"total_count": 1, "jobs": [{"id": 8, "run_id": 123, "run_attempt": 1, "conclusion": "failure", "steps": steps}]}
+        listing = {"total_count": 1, "artifacts": [{"name": "ibkr-runtime-switch-result-123-1", "id": 4, "size_in_bytes": 200}]}
+        log = b"2026-01-01T00:00:01.1234567Z error: switch candidate changed service annotations or labels\n"
+
+        def check(run_data=run, receipt_data=receipt, job_data=jobs, log_data=log):
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as archive:
+                archive.writestr("ibkr-runtime-switch-result.json", json.dumps(receipt_data))
+            def response(value):
+                return subprocess.CompletedProcess([], 0, value if isinstance(value, bytes) else json.dumps(value).encode(), b"")
+            with patch.object(settings.subprocess, "run", side_effect=[response(meta), response(run_data), response(listing), response(buffer.getvalue()), response(job_data), response(log_data)]):
+                return settings.read_runtime_control_result(self.request, "enable", request_id, 123, "sync-cloud-run-env.yml")
+
+        self.assertEqual(check(), "rejected")
+        self.assertEqual(check(log_data=b"2026-01-01T00:00:01Z error: another failure\n"), "unknown")
+        self.assertEqual(check(log_data=b""), "unknown")
+        self.assertEqual(check(log_data=log.replace(b"00:00:01", b"00:00:03")), "unknown")
+        self.assertEqual(check(receipt_data={**receipt, "target_sha256": "0" * 64}), "unknown")
+        self.assertEqual(check(receipt_data={**receipt, "request_id": "12345678-1234-4abc-8def-123456789abd"}), "unknown")
+        self.assertEqual(check(receipt_data={**receipt, "attempt": "2"}), "unknown")
+        self.assertEqual(check(run_data={**run, "head_sha": "0" * 40}), "unknown")
+        self.assertEqual(check(job_data={"total_count": 1, "jobs": [{**jobs["jobs"][0], "run_id": 999}]}), "unknown")
+        self.assertEqual(check(job_data={"total_count": 1, "jobs": [{**jobs["jobs"][0], "run_attempt": 2}]}), "unknown")
+        self.assertEqual(check(job_data={"total_count": 1, "jobs": [{**jobs["jobs"][0], "steps": [*steps[:2], {**steps[2], "conclusion": "success"}]}]}), "unknown")
+
     def test_unknown_dispatch_recovers_only_unique_exact_request(self):
         request_id = "12345678-1234-4abc-8def-123456789abc"
         run = {"id": 123, "display_title": "Runtime switch " + request_id, "event": "workflow_dispatch", "head_branch": "main", "run_attempt": 1}
