@@ -1925,9 +1925,29 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
                 if diagnostics is not None:
                     diagnostics["failure_kind"] = "command_failed" if response.returncode else "response_too_large"
                     if response.returncode:
-                        match = re.search(rb"HTTP ([1-5][0-9]{2})", response.stderr or b"")
+                        stderr = (response.stderr or b"").lower()
+                        diagnostics["exit_code"] = response.returncode if -255 <= response.returncode <= 255 else None
+                        diagnostics["stderr_empty"] = not bool(stderr)
+                        categories = ((b"redirect", "redirect"), (b"no such host", "dns"),
+                                      (b"resolve host", "dns"), (b"tls", "tls"),
+                                      (b"certificate", "tls"), (b"unexpected eof", "eof"),
+                                      (b"unauthorized", "auth"), (b"not logged", "auth"),
+                                      (b"authentication", "auth"), (b"forbidden", "auth"),
+                                      (b"rate limit", "rate_limit"), (b"connection", "network"),
+                                      (b"network", "network"), (b"timeout", "timeout"),
+                                      (b"unknown flag", "cli"), (b"unknown command", "cli"),
+                                      (b"command not found", "cli"), (b"not found", "not_found"))
+                        diagnostics["error_category"] = next((name for marker, name in categories if marker in stderr), "other")
+                        match = re.search(rb"http ([1-5][0-9]{2})", stderr)
                         if match:
                             diagnostics["http_status"] = int(match.group(1))
+                        try:
+                            version = subprocess.run(["gh", "--version"], capture_output=True, timeout=10, check=False)
+                            match = re.match(rb"gh version (\d+\.\d+\.\d+)(?:\s|$)", version.stdout or b"")
+                            if version.returncode == 0 and match:
+                                diagnostics["gh_version"] = match.group(1).decode("ascii")
+                        except (OSError, subprocess.SubprocessError, TypeError):
+                            pass
                 raise ValueError("runtime_control_read_unavailable")
             return response.stdout if binary else json.loads(response.stdout)
         except subprocess.TimeoutExpired:
@@ -2085,6 +2105,10 @@ def command_runtime_control_readback(args: argparse.Namespace) -> int:
             summary["readback_stage"] = diagnostics.get("stage")
             summary["http_status"] = diagnostics.get("http_status")
             summary["failure_kind"] = diagnostics.get("failure_kind")
+            summary["error_category"] = diagnostics.get("error_category")
+            summary["gh_version"] = diagnostics.get("gh_version")
+            summary["exit_code"] = diagnostics.get("exit_code")
+            summary["stderr_empty"] = diagnostics.get("stderr_empty")
     except (OSError, ValueError, TypeError, KeyError):
         summary["reason"] = "platform_result_unavailable"
     result_path = os.environ.get("RUNTIME_CONTROL_RESULT_PATH")

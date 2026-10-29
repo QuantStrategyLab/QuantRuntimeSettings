@@ -230,7 +230,7 @@ class RuntimeStopDispatchTests(unittest.TestCase):
         response = subprocess.CompletedProcess([], 1, b"", b"HTTP 403 synthetic-private-message")
         with patch.object(settings.subprocess, "run", return_value=response):
             self.assertEqual(settings.read_runtime_control_result(self.request, "enable", "12345678-1234-4abc-8def-123456789abc", 123, "sync-cloud-run-env.yml", diagnostic), "unknown")
-        self.assertEqual(diagnostic, {"stage": "workflow", "http_status": 403, "failure_kind": "command_failed"})
+        self.assertEqual(diagnostic, {"stage": "workflow", "http_status": 403, "failure_kind": "command_failed", "error_category": "other", "exit_code": 1, "stderr_empty": False})
 
     def test_readback_diagnostic_distinguishes_oversize_and_timeout(self):
         for response, expected in [(subprocess.CompletedProcess([], 0, b"x" * 524289, b""), "response_too_large"),
@@ -239,6 +239,15 @@ class RuntimeStopDispatchTests(unittest.TestCase):
             with self.subTest(expected=expected), patch.object(settings.subprocess, "run", side_effect=response if isinstance(response, Exception) else None, return_value=response):
                 self.assertEqual(settings.read_runtime_control_result(self.request, "enable", "12345678-1234-4abc-8def-123456789abc", 123, "sync-cloud-run-env.yml", diagnostic), "unknown")
             self.assertEqual(diagnostic, {"stage": "workflow", "failure_kind": expected})
+
+    def test_readback_cli_errors_are_fixed_categories(self):
+        for message, category in [(b"unknown flag: synthetic", "cli"), (b"unknown command synthetic", "cli"),
+                                  (b"command not found", "cli"), (b"not found", "not_found")]:
+            diagnostic = {}
+            response = subprocess.CompletedProcess([], 1, b"", message)
+            with self.subTest(category=category), patch.object(settings.subprocess, "run", return_value=response):
+                self.assertEqual(settings.read_runtime_control_result(self.request, "enable", "12345678-1234-4abc-8def-123456789abc", 123, "sync-cloud-run-env.yml", diagnostic), "unknown")
+            self.assertEqual(diagnostic["error_category"], category)
 
     def hk_request(self):
         return {"target_id": "longbridge/hk", "github": {
