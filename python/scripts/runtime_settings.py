@@ -1922,13 +1922,21 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
             response = subprocess.run(["gh", "api", "--method", "GET", f"{prefix}/{path}"],
                                       capture_output=True, timeout=30, check=False)
             if response.returncode or len(response.stdout) > (262144 if binary else 524288):
-                if diagnostics is not None and response.returncode:
-                    match = re.search(rb"HTTP ([1-5][0-9]{2})", response.stderr or b"")
-                    if match:
-                        diagnostics["http_status"] = int(match.group(1))
+                if diagnostics is not None:
+                    diagnostics["failure_kind"] = "command_failed" if response.returncode else "response_too_large"
+                    if response.returncode:
+                        match = re.search(rb"HTTP ([1-5][0-9]{2})", response.stderr or b"")
+                        if match:
+                            diagnostics["http_status"] = int(match.group(1))
                 raise ValueError("runtime_control_read_unavailable")
             return response.stdout if binary else json.loads(response.stdout)
+        except subprocess.TimeoutExpired:
+            if diagnostics is not None:
+                diagnostics["failure_kind"] = "timeout"
+            raise ValueError("runtime_control_read_unavailable") from None
         except (OSError, subprocess.SubprocessError, TypeError, UnicodeError, json.JSONDecodeError):
+            if diagnostics is not None:
+                diagnostics["failure_kind"] = "read_failed"
             raise ValueError("runtime_control_read_unavailable") from None
 
     try:
@@ -1989,7 +1997,12 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
             if start.tzinfo is None or end.tzinfo is None or end < start:
                 return "unknown"
             if diagnostics is not None: diagnostics["stage"] = "job_log"
-            log = get(f"actions/jobs/{candidates[0]['id']}/logs", binary=True).decode("utf-8")
+            raw_log = get(f"actions/jobs/{candidates[0]['id']}/logs", binary=True)
+            if diagnostics is not None: diagnostics["stage"] = "job_log_decode"
+            if raw_log.startswith(b"PK\x03\x04"):
+                if diagnostics is not None: diagnostics["failure_kind"] = "unexpected_zip"
+                return "unknown"
+            log = raw_log.decode("utf-8")
             if diagnostics is not None: diagnostics["stage"] = "log_match"
             pattern = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z error: switch candidate changed service annotations or labels$")
             found = [match for line in log.splitlines() if (match := pattern.fullmatch(line))]
@@ -2071,6 +2084,7 @@ def command_runtime_control_readback(args: argparse.Namespace) -> int:
             summary["reason"] = "platform_result_unavailable"
             summary["readback_stage"] = diagnostics.get("stage")
             summary["http_status"] = diagnostics.get("http_status")
+            summary["failure_kind"] = diagnostics.get("failure_kind")
     except (OSError, ValueError, TypeError, KeyError):
         summary["reason"] = "platform_result_unavailable"
     result_path = os.environ.get("RUNTIME_CONTROL_RESULT_PATH")
