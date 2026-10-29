@@ -1,4 +1,7 @@
 import { matchBinanceDailyBinding } from './binance_daily_binding.mjs';
+import {readFileSync} from 'node:fs';
+import {pathToFileURL} from 'node:url';
+import {resolve} from 'node:path';
 
 const sourceUrl = 'https://api.github.com/repos/QuantStrategyLab/BinancePlatform/actions/variables/RUNTIME_TARGET_JSON';
 const maxBytes = 128 * 1024;
@@ -52,4 +55,15 @@ export async function matchBinanceDailyFromGitHub({options, wallet, nonce, expec
     const binding = await matchBinanceDailyBinding(options, wallet, runtimeTarget, nonce, expected);
     return {status:'matched', binding};
   } catch { return {status:'unavailable'}; }
+}
+
+if (process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href) {
+  try {
+    const options=JSON.parse(readFileSync(process.argv[2],'utf8'));
+    const wallet=JSON.parse(process.env.BINANCE_ACCOUNT_FACTS_BINDING_JSON || '');
+    const result=await matchBinanceDailyFromGitHub({options,wallet,nonce:process.env.DAILY_COMPARISON_NONCE,
+      expected:process.env.DAILY_COMPARISON_DIGEST,githubToken:process.env.RUNTIME_SETTINGS_GH_TOKEN});
+    if (result.status==='matched') console.log('status=ok unique_match=true business_writes=0');
+    else {console.log(`status=blocked reason=${result.status}`);process.exitCode=1;}
+  } catch {console.log('status=blocked reason=unavailable');process.exitCode=1;}
 }
