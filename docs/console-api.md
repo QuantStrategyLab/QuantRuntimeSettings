@@ -159,8 +159,8 @@ registration or bindings are `read_failed`. Stored records are checked against
 the registration and binding fingerprint, so a change cannot reattribute history.
 Registration alone does not grant access to a publisher. IBKR ingestion on the
 existing sync route additionally requires an independently configured
-`IBKR_RUNTIME_DAILY_SYNC_TOKEN` and a single authorized
-`IBKR_RUNTIME_DAILY_TARGET_KEY`. The source-binding header must match that
+`IBKR_RUNTIME_DAILY_SYNC_TOKEN` and an explicitly authorized
+`IBKR_RUNTIME_DAILY_TARGET_KEY`: either one target key or a JSON array of distinct target keys. The source-binding header must match that
 target's unique registered account-facts binding. The token must differ from
 the existing execution-evidence and account-facts tokens. Stored IBKR records
 carry the registration fingerprint; binding changes cannot reattribute them.
