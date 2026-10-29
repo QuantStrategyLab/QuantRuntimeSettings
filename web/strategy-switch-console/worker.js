@@ -466,7 +466,7 @@ const HUMAN_DECISION_DO_ACTIONS = new Set([
 ]);
 const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
   "risk_profile_read", "risk_profile_replace", "risk_profile_set",
-  "account_settings_read", "account_settings_save",
+  "account_settings_read", "account_settings_save", "account_declarations_read",
   "account_settings_profile_application_lookup", "account_settings_profile_application_approve",
   "account_settings_profile_application_claim",
 ]);
@@ -2353,6 +2353,11 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (platform, account_key)
     )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_declaration (
+      platform TEXT NOT NULL, account_key TEXT NOT NULL, revision INTEGER NOT NULL,
+      identity_json TEXT NOT NULL, declaration_json TEXT NOT NULL,
+      PRIMARY KEY (platform, account_key)
+    )`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_profile_application (
       request_key TEXT PRIMARY KEY,
       platform TEXT NOT NULL,
@@ -3539,6 +3544,14 @@ export class RuntimeInstances {
     if (command.action === "risk_profile_read") return this.readRiskProfileAuthority(command.legacy);
     if (command.action === "risk_profile_replace") return this.replaceRiskProfileAuthority(command);
     if (command.action === "risk_profile_set") return this.setRiskProfileAuthority(command);
+    if (command.action === "account_declarations_read") {
+      const state = this.read();
+      if (!state.initialized) throw new HttpError("runtime_instances_not_initialized", 409);
+      return { declarations: state.instances.filter(item => item.kind === "existing").map(item => ({
+        platform: item.platform, key: item.key, binding_environment: accountSettingsIdentity(item).broker_environment,
+        ...this.accountSettingDeclaration(item, accountSettingsIdentity(item)),
+      })) };
+    }
     if (command.action === "account_settings_read") return this.readAccountSettings(command);
     if (command.action === "account_settings_save") return this.saveAccountSettings(command);
     if (command.action === "account_settings_profile_application_lookup") return this.readAccountSettingsProfileApplication(command);
@@ -3673,6 +3686,27 @@ export class RuntimeInstances {
     };
   }
 
+  accountSettingDeclaration(item, identity) {
+    const row = this.sql.exec("SELECT revision, identity_json, declaration_json FROM account_setting_declaration WHERE platform = ? AND account_key = ?", item.platform, item.key).toArray()[0];
+    if (!row) return { status: "empty", revision: 0, environment: null, account_type: null, source: "user_declared" };
+    const matches = canonicalResearchTaskJson(JSON.parse(row.identity_json)) === canonicalResearchTaskJson(identity);
+    const value = JSON.parse(row.declaration_json);
+    return { status: matches ? "current" : "identity_conflict", revision: Number(row.revision),
+      environment: matches ? value.environment : null, account_type: matches ? value.account_type : null, source: "user_declared" };
+  }
+
+  saveAccountSettingDeclaration(item, identity, command) {
+    if (!command.identity || canonicalResearchTaskJson(command.identity) !== canonicalResearchTaskJson(identity)) throw new HttpError("account_settings_identity_conflict", 409);
+    const current = this.accountSettingDeclaration(item, identity);
+    if (!Number.isSafeInteger(command.expected_declaration_revision) || command.expected_declaration_revision !== current.revision) throw new HttpError("account_settings_declaration_revision_conflict", 409);
+    if (current.status === "identity_conflict") throw new HttpError("account_settings_identity_conflict", 409);
+    const value = command.declaration;
+    if (!value || Array.isArray(value) || typeof value !== "object" || Object.keys(value).some(k => !["environment", "account_type"].includes(k))
+      || ![null, "live", "paper"].includes(value.environment) || ![null, "cash", "margin"].includes(value.account_type)) throw new HttpError("invalid_account_settings_declaration", 400);
+    if (current.status === "current" && current.environment === value.environment && current.account_type === value.account_type) return;
+    this.sql.exec("INSERT INTO account_setting_declaration (platform, account_key, revision, identity_json, declaration_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT (platform, account_key) DO UPDATE SET revision = excluded.revision, identity_json = excluded.identity_json, declaration_json = excluded.declaration_json", item.platform, item.key, current.revision + 1, JSON.stringify(identity), JSON.stringify(value));
+  }
+
   readAccountSettings(command) {
     const { state, item, identity } = this.existingAccountInstance(command.platform, command.key);
     const risk = this.readRiskProfileAuthority(command.legacy);
@@ -3687,6 +3721,7 @@ export class RuntimeInstances {
       identity,
       config: item.config,
       draft: this.accountSettingDraftView(item, identity),
+      declaration: this.accountSettingDeclaration(item, identity),
       risk: {
         revision: risk.revision,
         scope_id: scopeId,
@@ -3742,7 +3777,9 @@ export class RuntimeInstances {
     const { item, identity } = this.existingAccountInstance(command.platform, command.key);
     const hasDraft = Object.prototype.hasOwnProperty.call(command, "overrides");
     const hasRisk = Object.prototype.hasOwnProperty.call(command, "risk_change");
-    if (!hasDraft && !hasRisk) throw new HttpError("account_settings_change_required", 400);
+    const hasDeclaration = Object.prototype.hasOwnProperty.call(command, "declaration");
+    if (!hasDraft && !hasRisk && !hasDeclaration) throw new HttpError("account_settings_change_required", 400);
+    if (hasDeclaration) this.saveAccountSettingDeclaration(item, identity, command);
     if (hasDraft) this.saveAccountSettingDraft(item, identity, command);
     if (hasRisk) {
       if (!command.identity || Array.isArray(command.identity) || typeof command.identity !== "object") {
@@ -5294,6 +5331,8 @@ function accountSettingsOperations(admin, optionSupported) {
     save_draft_reason: allowed ? "available" : "admin_required",
     save_risk_preference: allowed,
     save_risk_preference_reason: allowed ? "available" : "admin_required",
+    save_declaration: allowed,
+    save_declaration_reason: allowed ? "available" : "admin_required",
     save_option_draft: allowed && optionSupported === true,
     save_option_draft_reason: !allowed ? "admin_required" : optionSupported === true ? "available" : "option_overlay_not_defined",
     apply_strategy: false,
@@ -5314,6 +5353,7 @@ function accountSettingsPayload(observed, effective, admin, extras = {}) {
     identity: observed.identity,
     effective,
     draft: observed.draft,
+    declaration: observed.declaration,
     strategy_options: Array.isArray(extras.strategyOptions) ? extras.strategyOptions : [],
     current_option_supported: extras.currentOptionSupported === true,
     risk: {
@@ -5529,14 +5569,20 @@ async function saveAccountSettings(request, env) {
   }
   const wantsDraft = Object.prototype.hasOwnProperty.call(raw, "overrides");
   const wantsRisk = Object.prototype.hasOwnProperty.call(raw, "risk_preference");
-  if ((wantsDraft || wantsRisk) && (!raw.identity || Array.isArray(raw.identity) || typeof raw.identity !== "object")) {
+  const wantsDeclaration = Object.prototype.hasOwnProperty.call(raw, "declaration");
+  if ((wantsDraft || wantsRisk || wantsDeclaration) && (!raw.identity || Array.isArray(raw.identity) || typeof raw.identity !== "object")) {
     return json({ ok: false, error: "account_settings_identity_required" }, 400);
   }
-  if ((wantsDraft || wantsRisk) && canonicalResearchTaskJson(raw.identity) !== canonicalResearchTaskJson(observed.identity)) {
+  if ((wantsDraft || wantsRisk || wantsDeclaration) && canonicalResearchTaskJson(raw.identity) !== canonicalResearchTaskJson(observed.identity)) {
     return json({ ok: false, error: "account_settings_identity_conflict" }, 409);
   }
   const command = { action: "account_settings_save", actor: session.login, platform, key, legacy };
-  if (wantsDraft || wantsRisk) command.identity = raw.identity;
+  if (wantsDraft || wantsRisk || wantsDeclaration) command.identity = raw.identity;
+  if (wantsDeclaration) {
+    if (!Number.isSafeInteger(raw.expected_declaration_revision) || raw.expected_declaration_revision !== observed.declaration.revision) return json({ ok: false, error: "account_settings_declaration_revision_conflict" }, 409);
+    command.declaration = raw.declaration;
+    command.expected_declaration_revision = raw.expected_declaration_revision;
+  }
   if (wantsDraft) {
     if (!Number.isSafeInteger(raw.expected_draft_revision)) return json({ ok: false, error: "account_settings_draft_revision_required" }, 400);
     if (raw.expected_draft_revision !== observed.draft.revision) return json({ ok: false, error: "account_settings_draft_revision_conflict" }, 409);
@@ -5573,7 +5619,7 @@ async function saveAccountSettings(request, env) {
       command.binding = built[0];
     }
   }
-  if (!Object.prototype.hasOwnProperty.call(command, "overrides") && !Object.prototype.hasOwnProperty.call(command, "risk_change")) {
+  if (!Object.prototype.hasOwnProperty.call(command, "overrides") && !Object.prototype.hasOwnProperty.call(command, "risk_change") && !Object.prototype.hasOwnProperty.call(command, "declaration")) {
     return json({ ok: false, error: "account_settings_change_required" }, 400);
   }
   let saved;
@@ -5602,6 +5648,7 @@ async function saveAccountSettings(request, env) {
     };
     if (changes.some((kind) => kind === "cash_draft" || kind === "income_draft" || kind === "option_draft" || kind === "strategy_draft")) entry.draft_revision = saved.draft.revision;
     if (changes.includes("risk_saved") || changes.includes("risk_cleared")) entry.risk_revision = saved.risk.revision;
+    if (changes.includes("account_declaration_saved")) entry.declaration_revision = saved.declaration.revision;
     try {
       await appendAuditLog(env, entry);
       auditLogged = true;
@@ -5981,6 +6028,7 @@ function accountSettingsAuditChanges(before, after, requested) {
   const strategyDraftChanged = (asked("strategy_profile") && stored(left, "strategy_profile") !== stored(right, "strategy_profile"))
     || ((asked("dca_mode") || asked("dca_base_investment_usd")) && ["dca_mode", "dca_base_investment_usd"].some((name) => stored(left, name) !== stored(right, name)));
   if (strategyDraftChanged) changes.push("strategy_draft");
+  if (requested?.declaration && before?.declaration?.revision !== after?.declaration?.revision) changes.push("account_declaration_saved");
   const beforePreference = before?.risk?.preference || null;
   const afterPreference = after?.risk?.preference || null;
   if ((requested?.risk_change === "set" || requested?.risk_change === "clear") && beforePreference !== afterPreference) changes.push(afterPreference ? "risk_saved" : "risk_cleared");

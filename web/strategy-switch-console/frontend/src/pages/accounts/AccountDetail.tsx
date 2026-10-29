@@ -2,7 +2,7 @@ import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useEffect, useRef, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import { loadSettingsDiff } from "../../api/endpoints";
-import { factEnvironment, factForAccount } from "../../lib/accountFacts";
+import { factEnvironment, factForAccount, userDeclarationOf } from "../../lib/accountFacts";
 import { useNavigate } from "../../app/context";
 import { setNavigationGuard } from "../../app/router";
 import { useT, type Translate } from "../../i18n";
@@ -19,6 +19,8 @@ import { DiffSummary, StrategyTab } from "./StrategyTab";
 import { ControlsTab } from "./ControlsTab";
 import { HistoryTab } from "./HistoryTab";
 import { RiskPreference } from "./RiskPreference";
+import { AccountDeclaration } from "./AccountDeclaration";
+import { verifiedSchwabAccountTypeToken } from "../../presentation";
 
 type TodayRun = TodayRunSummary["accounts"][number];
 
@@ -37,6 +39,7 @@ export function AccountDetail({
   todayFailed,
   facts,
   onBack,
+  onDeclarationSaved,
 }: {
   account: AccountRow;
   tab: string | null;
@@ -45,6 +48,7 @@ export function AccountDetail({
   todayFailed: boolean;
   facts: AccountFactsView;
   onBack: () => void;
+  onDeclarationSaved: () => void;
 }) {
   const t = useT();
   const names = useDisplayNames(config);
@@ -76,8 +80,20 @@ export function AccountDetail({
   const selector = accountOption(config, account.platform, account.account_alias)?.account_selector?.trim();
   const fact = factForAccount(facts.rows, account.platform, account.account_alias);
   const evidenceEnvironment = config?.currentStrategies?.[account.platform]?.[account.account_alias]?.execution_evidence?.broker_environment;
-  const environment: AccountEnvironment | null = factEnvironment(fact)
-    ?? (evidenceEnvironment === "paper" || evidenceEnvironment === "live" ? evidenceEnvironment : null);
+  const factKnown = factEnvironment(fact);
+  const evidenceKnown = evidenceEnvironment === "paper" || evidenceEnvironment === "live" ? evidenceEnvironment : null;
+  const hasFactSignal = fact?.broker_environment === "live" || fact?.broker_environment === "paper" || fact?.account_scope === "live" || fact?.account_scope === "paper" || fact?.binding_environment === "live" || fact?.binding_environment === "paper";
+  const trustedEnvironment: AccountEnvironment | null = factKnown && evidenceKnown && factKnown !== evidenceKnown ? null
+    : factKnown ?? (!hasFactSignal ? evidenceKnown : null);
+  const declared = userDeclarationOf(fact);
+  const environment: AccountEnvironment | null = trustedEnvironment ?? (hasFactSignal || evidenceKnown ? null : declared?.environment ?? null);
+  const nativeTypeToken = verifiedSchwabAccountTypeToken(account.platform, fact?.data_status, fact?.broker_account_type)?.toLowerCase();
+  const nativeType = nativeTypeToken === "cash" || nativeTypeToken === "margin" ? nativeTypeToken : null;
+  const accountType = nativeType ?? declared?.accountType ?? null;
+  const declarationConflict = Boolean(
+    (trustedEnvironment && declared?.environment && trustedEnvironment !== declared.environment)
+    || (nativeType && declared?.accountType && nativeType !== declared.accountType),
+  );
 
   const runBadge = todayFailed ? (
     <StatusBadge status="read_failed" />
@@ -101,7 +117,11 @@ export function AccountDetail({
         <div className="accounts-detail-head">
           <h2 className="card-title">{names.account(account.account_alias, account.platform)}</h2>
           <EnvironmentBadge environment={environment} />
+          {!trustedEnvironment && !hasFactSignal && !evidenceKnown && environment && <span>{t("accounts.declaration.source")}</span>}
         </div>
+        {declarationConflict && (
+          <p className="accounts-inline-note error" role="alert">{t("accounts.declaration.conflict_notice")}</p>
+        )}
         <div className="accounts-summary-rows">
           <div className="accounts-summary-row">
             <span>{t("common.platform")}</span>
@@ -117,6 +137,12 @@ export function AccountDetail({
             <span>{t("accounts.run_state")}</span>
             <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{runBadge}</span>
           </div>
+          {account.platform !== "binance" && accountType && (
+            <div className="accounts-summary-row">
+              <span>{t("accounts.declaration.account_type")}</span>
+              <span>{t(`accounts.declaration.type.${accountType}`)}{!nativeType && <> · {t("accounts.declaration.source")}</>}</span>
+            </div>
+          )}
         </div>
         {account.platform === "binance"
           ? <BinanceWalletFacts platform={account.platform} accountKey={account.account_alias} view={facts.binance} />
@@ -150,6 +176,7 @@ export function AccountDetail({
           </section>
         )}
         {active === "overview" && <RiskPreference platform={account.platform} accountKey={account.account_alias} />}
+        {active === "overview" && <AccountDeclaration platform={account.platform} accountKey={account.account_alias} onSaved={onDeclarationSaved} />}
         {active === "strategy" && (
           <StrategyTab
             account={account}

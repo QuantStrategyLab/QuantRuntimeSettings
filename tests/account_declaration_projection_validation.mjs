@@ -1,0 +1,23 @@
+import { isAggregateAssetAccount } from "../web/strategy-switch-console/performance_math.js";
+import assert from 'node:assert/strict';
+import { effectiveFactEnvironment, platformCurrencyTotals, declaredEnvironmentOf } from '../web/strategy-switch-console/frontend/src/lib/accountFacts.ts';
+const base = { platform:'longbridge',account_key:'synthetic',binding_status:'bound',identity_status:'partial_identity',identity_mismatch:false,data_status:'fresh',broker_environment:null,account_scope:null,observation_date:'2026-10-28',aggregation_status:'included',balances:[{currency:'USD',net_assets:'10'}],cash:[] };
+const declared = (environment) => ({environment,account_type:null,source:'user_declared'});
+assert.equal(effectiveFactEnvironment({...base,user_declaration:declared('live')}),'live');
+assert.equal(platformCurrencyTotals([{...base,user_declaration:declared('live')}],1)[0].netAssets,'10');
+assert.equal(platformCurrencyTotals([{...base,user_declaration:declared('paper')}],1).length,0);
+assert.equal(platformCurrencyTotals([base],1).length,0);
+assert.equal(effectiveFactEnvironment({...base,broker_environment:'live',user_declaration:declared('paper')}),'live');
+assert.equal(effectiveFactEnvironment({...base,broker_environment:'paper',user_declaration:declared('live')}),'paper');
+assert.equal(effectiveFactEnvironment({...base,binding_environment:'paper',user_declaration:declared('live')}),'paper');
+assert.equal(effectiveFactEnvironment({...base,broker_environment:'live',binding_environment:'paper',user_declaration:declared('live')}),null);
+assert.equal(effectiveFactEnvironment({...base,broker_environment:'paper',account_scope:'live',user_declaration:declared('live')}),null);
+assert.equal(platformCurrencyTotals([{...base,aggregation_status:'conflict',user_declaration:declared('live')}],1).length,0);
+assert.equal(platformCurrencyTotals([{...base,aggregation_status:'unverified',user_declaration:declared('live')}],1).length,0);
+assert.equal(declaredEnvironmentOf([{...base,user_declaration:declared('live')},base]).value,null);
+assert.equal(isAggregateAssetAccount({facts:{user_declaration:declared('paper')}}),false);
+assert.equal(isAggregateAssetAccount({facts:{binding_environment:'paper',user_declaration:declared('live')}}),false);
+assert.equal(isAggregateAssetAccount({brokerEnvironment:'live',facts:{user_declaration:declared('paper')}}),true);
+assert.equal(isAggregateAssetAccount({facts:{user_declaration:declared('live')}}),true);
+assert.equal(isAggregateAssetAccount({facts:{user_declaration:declared(null)}}),true); // unknown keeps existing returns eligibility
+console.log('account declaration projection: PASS');

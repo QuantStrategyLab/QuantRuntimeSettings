@@ -1,6 +1,6 @@
 import { ExecutionEvidence } from "./ExecutionEvidence";
 import { accountKey, groupAccounts, type DirectoryConfig } from "../lib/accountDirectory";
-import { factForAccount } from "../lib/accountFacts";
+import { declaredEnvironmentOf, factForAccount } from "../lib/accountFacts";
 import { cardAccountKey, type BinanceFactsView } from "../lib/binanceWalletFacts";
 import { useDisplayNames } from "../lib/useDisplayNames";
 import { useT } from "../i18n";
@@ -79,14 +79,19 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
       const evidenceEnvironments = new Set(account.rows
         .map(row => evidenceEnvironment(config?.currentStrategies?.[row.platform]?.[row.account_alias]?.execution_evidence))
         .filter((value): value is AccountEnvironment => value !== null));
-      const environment = environmentOfFacts(
-        unique,
-        evidenceEnvironments.size === 1 ? [...evidenceEnvironments][0]! : null,
-      );
+      const factSignal = unique.some(fact => fact.broker_environment === "paper" || fact.broker_environment === "live" || fact.account_scope === "paper" || fact.account_scope === "live" || fact.binding_environment === "paper" || fact.binding_environment === "live");
+      const factsEnvironment = environmentOfFacts(unique);
+      const evidence = evidenceEnvironments.size === 1 ? [...evidenceEnvironments][0]! : null;
+      const trustedEnvironment = factsEnvironment && evidence && factsEnvironment !== evidence ? null
+        : factsEnvironment ?? (!factSignal && evidenceEnvironments.size === 1 ? evidence : null);
+      const trustedSignal = factSignal || evidenceEnvironments.size > 0;
+      const declared = declaredEnvironmentOf(unique);
+      const environment = trustedEnvironment ?? (trustedSignal ? null : declared.value);
+      const declarationConflict = Boolean((trustedEnvironment && declared.value && trustedEnvironment !== declared.value) || (declared.conflict && !trustedSignal));
       // The dedicated Binance report is one physical account; a card that
       // merges distinct keys stays unverified instead of borrowing one row.
       const binanceKey = group.platform === "binance" ? cardAccountKey(account.rows, group.platform) : null;
-      return { account, canonical, representative, environment, binanceKey };
+      return { account, canonical, representative, environment, declarationConflict, isDeclared: !trustedSignal && !!environment, binanceKey };
     });
     const sections = ENVIRONMENT_ORDER
       .map(environment => ({ environment, cards: cards.filter(card => sectionOf(card.environment) === environment) }))
@@ -106,11 +111,13 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
             : null}
         </div>
         {section.environment !== "live" && <p className="card-note account-environment-note">{t(`accounts.environment.${section.environment}_note`)}</p>}
-        <div className="account-grid">{section.cards.map(({ account, canonical, representative, environment, binanceKey }) => <article className="card account-group-card" key={account.identity}>
+        <div className="account-grid">{section.cards.map(({ account, canonical, representative, environment, declarationConflict, isDeclared, binanceKey }) => <article className="card account-group-card" key={account.identity}>
           <div className="account-card-head">
             <h3 className="account-broker-title">{names.account(account.rows[0].account_alias, group.platform)}</h3>
             <EnvironmentBadge environment={environment} />
+            {isDeclared && <span>{t("accounts.declaration.source")}</span>}
           </div>
+          {declarationConflict && <p className="accounts-inline-note error" role="alert">{t("accounts.declaration.conflict_notice")}</p>}
           {facts && <div className="account-card-facts">
             {group.platform === "binance"
               ? <BinanceWalletFacts platform={group.platform} accountKey={binanceKey} view={facts.binance} />

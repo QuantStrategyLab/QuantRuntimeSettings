@@ -712,6 +712,14 @@ export interface AccountFactsAccount {
   data_status: "fresh" | "stale" | "unavailable";
   broker_environment: string | null;
   account_scope: string | null;
+  broker_account_type?: { value: string; source_tag: string };
+  binding_environment?: "live" | "paper";
+  /** Operator declaration for display grouping only; never broker-reported. */
+  user_declaration?: {
+    environment: "live" | "paper" | null;
+    account_type: "cash" | "margin" | null;
+    source: "user_declared";
+  } | null;
   observation_date: string | null;
   observed_started_at: string | null;
   observed_finished_at: string | null;

@@ -121,6 +121,24 @@ function baseDeps(overrides = {}) {
   assert.ok(Array.isArray(body.accounts));
 }
 
+// Declarations are joined by the account key, without changing broker facts.
+{
+  const deps = baseDeps({
+    loadAccountOptionsConfig: async () => ({options:{longbridge:[{key:"synthetic-a"},{key:"synthetic-b"}]}}),
+    runtimeInstanceCommand: async (_env, command) => command.action === "account_declarations_read" ? {declarations:[
+      {platform:"longbridge",key:"synthetic-a",status:"current",environment:"live",account_type:"cash",source:"user_declared"},
+      {platform:"longbridge",key:"synthetic-b",status:"identity_conflict",environment:"paper",account_type:"margin",source:"user_declared"},
+    ]} : {},
+  });
+  const result = await accountFactsResponse(new Request("https://console.example/api/account-facts"), {ACCOUNT_FACTS_READ_MODEL_ENABLED:"true"}, deps);
+  const body = await result.json();
+  const a = body.accounts.find(row => row.account_key === "synthetic-a");
+  const b = body.accounts.find(row => row.account_key === "synthetic-b");
+  assert.deepEqual(a.user_declaration,{environment:"live",account_type:"cash",source:"user_declared"});
+  assert.equal(a.broker_environment,null);
+  assert.equal(b.user_declaration,undefined);
+}
+
 // The identity projection must never fall through to financial history.
 {
   const option = { key: "synthetic", account_scope: "live", target_name: "target",

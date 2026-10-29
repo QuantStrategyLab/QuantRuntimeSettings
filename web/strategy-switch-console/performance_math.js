@@ -142,7 +142,9 @@ export function alignReturns(primary, comparisons) {
 
 /** Match the overview cohort. Unspecified environments remain eligible. */
 export function isAggregateAssetAccount(account) {
-    return account.brokerEnvironment !== "paper"
-        && account.facts?.broker_environment !== "paper"
-        && account.facts?.account_scope !== "paper";
+    const trusted = [account.brokerEnvironment, account.facts?.broker_environment, account.facts?.account_scope, account.facts?.binding_environment];
+    if (trusted.includes("paper")) return false;
+    if (trusted.includes("live")) return true;
+    const declaration = account.facts?.user_declaration;
+    return declaration?.source !== "user_declared" || declaration.environment !== "paper";
 }
