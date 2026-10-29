@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | D0 | 本文 + 控制台三件套（偏好 / 资金档 / 状态灯）+ 晋级区布局 | **已合**（QRT #383、#384、#386） |
 | D1 | QPK 纯函数 `equity → envelope`（`capital_risk_envelope`）+ 单测 | **已合**（QPK #576） |
-| D2 | 注入对账权益到 `account_new_risk_gate`；超限只禁新风险 | **已合**（QPK #577）；见 [QPK account_new_risk_gate](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/account_new_risk_gate.zh-CN.md) |
+| D2 | 注入对账权益到 `account_new_risk_gate`；超限只禁新风险 | **已合**（QPK #577）；见 [QPK account_new_risk_gate](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/account-new-risk-gate.zh-CN.md) |
 | D3 | 多账户汇总视图共用信封（`evaluate_multi_account_envelope_view`） | **已合**（QPK #580）；只读，无 allocator/下单 |
 | W1 | 平台仓接线（portfolio → 快照投影 → 门评估） | **已合且已部署至 Cloud Run**：Schwab `25bb77a`、IBKR `3f1722e`、LB `e35dac7`；禁买/禁新增风险已接 |
 | W2 | 只读探针（控制台三件套 + QPK W2 CLI；真账户读回另验） | **库侧已合**（QPK #579）；本地直读凭据仍 PARK；优先用 Cloud Run 挂载只读验收 |
@@ -17,7 +17,7 @@
 
 W1 当前只闭合禁买/禁新增风险；`combined_scale` 应用于平台目标仓位缩放仍 **PARK**。
 
-组合路径 A→B 见 [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)；QPK 合成证据见 `QuantPlatformKit/docs/synthetic_combo_evidence.zh-CN.md`（#578 已合）。
+组合路径 A→B 见 [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)；QPK 合成证据见 `QuantPlatformKit/docs/synthetic-combo-evidence.zh-CN.md`（#578 已合）。
 
 ## 1. 人机分工（产品原则）
 
@@ -140,7 +140,7 @@ W1 当前只闭合禁买/禁新增风险；`combined_scale` 应用于平台目�
 
 `combined_scale` 的平台 sizing 接线仍 **未做**；只允许缩仓、不允许扩仓，缺失或无效输入不得放宽风险。
 
-QPK 注入契约与 D2 边界：[account_new_risk_gate.zh-CN.md](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/account_new_risk_gate.zh-CN.md)。
+QPK 注入契约与 D2 边界：[account-new-risk-gate.zh-CN.md](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/account-new-risk-gate.zh-CN.md)。
 
 ## 7. 非目标
 
