@@ -1,8 +1,9 @@
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {executePrimaryDailySetup,executeAdditionalDailySetup} from './execute_ibkr_daily_setup.mjs';
-import {comparison,primaryBinding,matchAdditionalDailyBinding} from './compare_ibkr_daily_binding.mjs';
+import {executePrimaryDailySetup,executeAdditionalDailySetup,executeExecutionDailySetup} from './execute_ibkr_daily_setup.mjs';
+import {comparison,primaryBinding,matchAdditionalDailyBinding,matchExecutionDailyBinding} from './compare_ibkr_daily_binding.mjs';
 import {appendPrimaryDailyRegistration,prepareIbkrDailyVersion,prepareAdditionalDailySetup} from './prepare_ibkr_daily_version.mjs';
+import {prepareExecutionDailyRegistration,firstExecutionAuthorization} from './prepare_execution_daily_registration.mjs';
 import {DEFAULT_STRATEGY_PROFILES} from './strategy_profiles_asset.js';
 import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace,selectInventoryMetadata} from './ibkr_daily_setup_checks.mjs';
 
@@ -268,6 +269,45 @@ async function runAdditionalMode() {
   }
 }
 
+// The previous successful three-slot setup established exactly these four IBKR
+// authorizations and an empty execution group. This first addition is HK only.
+async function runFirstExecutionMode() {
+  let phase='comparison';
+  try {
+    const nonce=process.env.DAILY_COMPARISON_NONCE, runs=[1,2,3].map(i=>process.env[`DAILY_COMPARISON_RUN_${i}`]);
+    const evidence=additionalEvidence(nonce,runs); phase='source_metadata'; additionalSourceFresh(secretsMetadata(),evidence.sourceTime);
+    phase='binding_read'; const state=await additionalState(nonce,evidence.digests);
+    const digest=process.env.DAILY_EXECUTION_DIGEST;
+    if (process.env.DAILY_EXECUTION_PLATFORM!=='longbridge') throw Error('invalid_input');
+    const profiles=state.profilesRaw===null?DEFAULT_STRATEGY_PROFILES:JSON.parse(state.profilesRaw);
+    const match=matchExecutionDailyBinding(state.options,state.bindings,profiles,'longbridge',nonce,digest);
+    if (match.account_scope!=='HK') throw Error('invalid_input');
+    const originals=[primaryBinding(state.options,state.bindings),...Object.values(state.matches)];
+    const authorizedTargets=firstExecutionAuthorization(state.registry,originals);
+    const targetKey=`${match.service_name}|${match.strategy_profile}|hk`;
+    state.planInput={registry:state.registry,matches:[match],targetKeys:[targetKey],authorizedTargets,
+      activeVersion:state.activeVersion,resources:state.resources,moduleBase64:state.moduleBase64};
+    state.sourceTime=evidence.sourceTime;
+    phase='setup_prepare'; prepareExecutionDailyRegistration(state.planInput);
+    io.executionUnchanged=async(before,{uploaded,registry}={})=>{
+      noWriters(); const current=await deployment(),versions=await latest(),cfg=await configuration(),p=await kvRead('strategy_profiles');
+      if (current.id!==before.deploymentId || current.version!==before.activeVersion || current.percentage!==100
+        || versions[0] !== (uploaded ?? before.latestVersion) || (uploaded && versions[1]!==before.latestVersion)
+        || canonical(cfg.options)!==canonical(before.options) || canonical(cfg.bindings)!==canonical(before.bindings) || p!==before.profilesRaw
+        || (registry ? canonical(cfg.registry)!==canonical(registry) : cfg.registryRaw!==before.registryRaw)) throw Error('state_changed');
+      additionalSourceFresh(secretsMetadata(),before.sourceTime);
+    };
+    if (process.env.DAILY_SETUP_MODE==='execution-preflight') {
+      phase='state_check'; await io.executionUnchanged(state);
+      return {status:'preflight_verified',unique_matches:1,business_writes:0};
+    }
+    phase='execute'; return await executeExecutionDailySetup(io,state);
+  } catch (error) {
+    const allowed=new Set(['comparison_invalid','source_changed','deployment_invalid','kv_namespace_mismatch','module_mismatch','primary_binding_invalid','binding_not_unique','invalid_existing_setup','invalid_input','invalid_registry','target_mismatch','registration_collision','target_binding_invalid','invalid_bindings','state_changed','github_request_failed','cloudflare_request_failed','runs_incomplete','concurrent_writer','binding_missing','versions_invalid','secret_metadata_invalid']);
+    return {status:'stopped',phase,reason:allowed.has(error?.message)?error.message:'unclassified',retry:false,business_writes:0};
+  }
+}
+
 if (process.env.DAILY_SETUP_MODE==='preflight') {
   let healthBindingPresent=null, healthRouteReachable=null, healthVersion=null;
   try {
@@ -313,6 +353,10 @@ if (process.env.DAILY_SETUP_MODE==='preflight') {
   }
 } else if (process.env.DAILY_SETUP_MODE==='multi-preflight' || process.env.DAILY_SETUP_MODE==='multi-execute') {
   const result=await runAdditionalMode();
+  console.log(JSON.stringify(result));
+  if (!['preflight_verified','configured'].includes(result.status)) process.exitCode=1;
+} else if (process.env.DAILY_SETUP_MODE==='execution-preflight' || process.env.DAILY_SETUP_MODE==='execution-execute') {
+  const result=await runFirstExecutionMode();
   console.log(JSON.stringify(result));
   if (!['preflight_verified','configured'].includes(result.status)) process.exitCode=1;
 } else if (process.env.DAILY_SETUP_MODE==='execute') {

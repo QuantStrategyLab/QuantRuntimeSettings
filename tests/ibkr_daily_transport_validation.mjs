@@ -16,7 +16,7 @@ const syntheticSecrets=['IBKR_ACCOUNT_FACTS_PROJECT_ID','IBKR_ACCOUNT_FACTS_REPO
   .map(name=>({name,updated_at:'2026-10-27T00:00:00Z'}));
 writeFileSync(loader,`
 import {readFile} from 'node:fs/promises';
-const mock='export const matchAdditionalDailyBinding=()=>({}); export const comparison=()=>"'+'b'.repeat(64)+'"; export const primaryBinding=()=>({account_key:"synthetic",target_id:"synthetic",source_binding_id:"'+'c'.repeat(64)+'",service_name:"service",account_scope:"live"});';
+const mock='export const matchAdditionalDailyBinding=()=>({}); export const matchExecutionDailyBinding=()=>({}); export const comparison=()=>"'+'b'.repeat(64)+'"; export const primaryBinding=()=>({account_key:"synthetic",target_id:"synthetic",source_binding_id:"'+'c'.repeat(64)+'",service_name:"service",account_scope:"live"});';
 export async function resolve(s,c,n){if(s.endsWith('/compare_ibkr_daily_binding.mjs')||s==='./compare_ibkr_daily_binding.mjs')return {url:'data:text/javascript,'+encodeURIComponent(mock),shortCircuit:true};return n(s,c);}
 export async function load(u,c,n){if(u.endsWith('/execute_ibkr_daily_setup.mjs')||u.endsWith('/ibkr_daily_setup_transport.mjs')){let src=await readFile(new URL(u),'utf8');src=src.replace('d1e10f49c2a537733751ac8418384c1bffa52763cb959521f5c5bf7940e2149e','${sha}');return {format:'module',source:src,shortCircuit:true};}return n(u,c);}
 `);
