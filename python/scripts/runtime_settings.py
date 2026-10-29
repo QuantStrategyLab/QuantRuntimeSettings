@@ -860,6 +860,8 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
         "global_etf_confidence_vol_gate": "global_etf_rotation",
     }.get(normalized_profile, normalized_profile)
     strategy = strategies.get(canonical_profile)
+    if not isinstance(strategy, dict) and canonical_profile != profile:
+        strategy = strategies.get(profile)
     if not isinstance(strategy, dict):
         return
 
