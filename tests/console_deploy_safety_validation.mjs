@@ -77,7 +77,7 @@ const rollback = workflow.match(/^  rollback:\n([\s\S]*)$/m)?.[1];
 assert.ok(preflight && deploy, "reader and deployment have separate jobs");
 function evaluate(gate, inputs = {}, token = "configured", event = "workflow_dispatch") {
   const expression = gate.replaceAll("github.event_name", JSON.stringify(event))
-    .replace(/inputs\.(\w+)/g, (_, key) => String(inputs[key] ?? false))
+    .replace(/inputs\.(\w+)/g, (_, key) => JSON.stringify(inputs[key] ?? (key === "private_release_check" ? "off" : false)))
     .replaceAll("env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN", JSON.stringify(token));
   assert.match(expression, /^[\w\s'"=!&|().-]+$/);
   return Function(`return (${expression})`)();
@@ -90,13 +90,17 @@ for (const event of ["push", "workflow_dispatch"]) {
   for (const read_only_preflight of [false, true]) {
     for (const check_explicit_version_inherit of [false, true]) {
     for (const rollback_to_pre_release of [false, true]) {
-    const inputs={read_only_preflight,check_explicit_version_inherit,rollback_to_pre_release};
+    const inputs={read_only_preflight,check_explicit_version_inherit,rollback_to_pre_release,private_release_check:'off'};
     assert.equal(evaluate(preflightGate, inputs, "", event), event === "workflow_dispatch" && (read_only_preflight || check_explicit_version_inherit));
     assert.equal(evaluate(deployGate, inputs, "", event), event === "workflow_dispatch" && !read_only_preflight && !check_explicit_version_inherit && !rollback_to_pre_release);
     assert.equal(evaluate(rollbackGate, inputs, "", event), event === "workflow_dispatch" && !read_only_preflight && !check_explicit_version_inherit && rollback_to_pre_release);
     }
     }
   }
+}
+assert.match(workflow, /private_release_check:\n[\s\S]*?default: "off"\n/);
+for (const private_release_check of ["baseline", "candidate"]) {
+  assert.equal(evaluate(deployGate, { private_release_check }), false, "private readback cannot deploy");
 }
 const binanceChecks = [
   "Wait for optional Binance account-facts readiness stability",
@@ -118,7 +122,7 @@ assert.match(deploy, /name: Build new console and embedded assets/);
 assert.match(deploy, /npx wrangler@4\.106\.0 deploy --config wrangler\.toml/);
 assert.match(preflight, /environment: runtime-strategy-switch/);
 assert.doesNotMatch(preflight, /secret put|sync-strategy-profiles|wrangler.*deploy|npm|npx|uses: actions\/checkout|SYNC_TOKEN|WRANGLER_CONFIG/);
-assert.deepEqual([...preflight.matchAll(/^      ([A-Z_]+):/gm)].map(match => match[1]), ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]);
+assert.deepEqual([...preflight.matchAll(/^      ([A-Z_]+):/gm)].map(match => match[1]), ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "PLATFORM_CONTROL_EXPECTED_VERSION", "PRIVATE_RELEASE_CHECK"]);
 
 // The schema diagnostic is read-only, fixed to the same historical version,
 // and is gated inside the existing preflight job. Its projection never emits values.
@@ -1175,6 +1179,18 @@ assert.deepEqual(JSON.parse(success.stdout[0]), {
   recent_versions: [{ id: versionId, created_on: timestamp }],
   active_versions_in_first_version_page: true, rollback_compatibility: "NOT_VERIFIED", next_pages_read: false,
 });
+const privateBaseline = await execute(normal, { PRIVATE_RELEASE_CHECK: "baseline", PLATFORM_CONTROL_EXPECTED_VERSION: versionId });
+assert.equal(privateBaseline.process.exitCode, 0);
+assert.deepEqual(JSON.parse(privateBaseline.stdout[0]), { ok: true, read_only: true, matched: true, percentage: 100 });
+assert.ok(!JSON.stringify(privateBaseline.stdout).includes(versionId));
+const older = "00000000-0000-4000-8000-000000000007";
+const resources = { bindings: [{ name: "SYNTHETIC", type: "secret_text" }], script_runtime: { compatibility_date: "2026-06-08" }, script: { handlers: [] } };
+const privateCandidate = await execute([...normal, { success: true, result: { id: versionId, resources } }, { success: true, result: { id: older, resources } }],
+  { PRIVATE_RELEASE_CHECK: "candidate", PLATFORM_CONTROL_EXPECTED_VERSION: older });
+assert.equal(privateCandidate.process.exitCode, 0);
+assert.deepEqual(JSON.parse(privateCandidate.stdout[0]), { ok: true, read_only: true, matched: true, bindings_equal: true, runtime_equal: true, percentage: 100 });
+assert.ok(!JSON.stringify(privateCandidate.stdout).includes(versionId));
+assert.ok(!JSON.stringify(privateCandidate.stdout).includes(older));
 async function failure(responses, envDelta, expectedCalls = 1) {
   const result = await execute(responses, envDelta);
   assert.equal(result.process.exitCode, 1);
