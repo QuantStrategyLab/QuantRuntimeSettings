@@ -140,8 +140,8 @@ export function RiskPreference({ platform, accountKey }: { platform: string; acc
   const unrecognized = view.preference !== "" && !(PREFERENCES as readonly string[]).includes(view.preference);
   const dirty = controller.riskDirty();
   const revisionReady = Boolean(settings?.identity && typeof settings.identity === "object" && Number.isSafeInteger(settings?.risk?.revision));
-  const editable = readState === "ready" && gateOpen && !view.saving;
-  const canSave = editable && revisionReady && dirty && !view.review.risk && verify !== "unverified" && verify !== "mismatch" && !unrecognized;
+  const editable = readState === "ready" && gateOpen && !view.saving && verify !== "unverified" && verify !== "mismatch";
+  const canSave = editable && revisionReady && dirty && !view.review.risk && !unrecognized;
   const outcome = verify === "conflict" ? { tone: "error" as const, text: t("risk.conflict") }
     : verify === "mismatch" ? { tone: "error" as const, text: t("risk.mismatch") }
       : verify === "unverified" ? { tone: "error" as const, text: t("risk.unverified") }
