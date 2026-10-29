@@ -75,7 +75,7 @@ type AccountSettingsSaveSnapshot = {
   body: Record<string, any>;
   draft: { status: string; revision: number; identity: unknown; current_identity: unknown; overrides: Record<string, unknown> };
   risk: { revision: number; scope_id: string; preference: string | null };
-  declaration: { revision: number; environment: string | null; account_type: string | null };
+  declaration: { present: boolean; status: string; revision: number; environment: string | null; account_type: string | null; source: string | null };
 };
 
 function record(value: unknown): value is Record<string, any> {
@@ -93,6 +93,12 @@ function sameSavedValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
 }
 
+function validDeclaration(value: unknown): value is Record<string, any> {
+  return record(value) && ["empty", "current", "identity_conflict"].includes(value.status)
+    && value.source === "user_declared" && Number.isSafeInteger(value.revision) && value.revision >= 0
+    && [null, "live", "paper"].includes(value.environment) && [null, "cash", "margin"].includes(value.account_type);
+}
+
 function matchesSaveAcknowledgement(snapshot: AccountSettingsSaveSnapshot, payload: Record<string, any>): boolean {
   const body = snapshot.body;
   if (!record(payload) || payload.ok !== true || payload.platform !== body.platform || payload.key !== body.key
@@ -106,6 +112,20 @@ function matchesSaveAcknowledgement(snapshot: AccountSettingsSaveSnapshot, paylo
     || !record(payload.risk) || !Number.isSafeInteger(payload.risk.revision) || payload.risk.revision < 0
     || typeof snapshot.risk.scope_id !== "string" || !snapshot.risk.scope_id || payload.risk.scope_id !== snapshot.risk.scope_id
     || ![null, "CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"].includes(payload.risk.preference)) return false;
+  const declaration = payload.declaration;
+  const submittedDeclaration = Object.prototype.hasOwnProperty.call(body, "declaration");
+  if (snapshot.declaration.present || submittedDeclaration) {
+    if (!validDeclaration(declaration)) return false;
+    if (submittedDeclaration) {
+      if (!record(body.declaration) || declaration.status !== "current"
+        || declaration.revision !== snapshot.declaration.revision + 1
+        || declaration.environment !== body.declaration.environment
+        || declaration.account_type !== body.declaration.account_type) return false;
+    } else if (declaration.revision < snapshot.declaration.revision
+      || (declaration.revision === snapshot.declaration.revision && !sameSavedValue(
+        {status:declaration.status,revision:declaration.revision,environment:declaration.environment,account_type:declaration.account_type,source:declaration.source},
+        {status:snapshot.declaration.status,revision:snapshot.declaration.revision,environment:snapshot.declaration.environment,account_type:snapshot.declaration.account_type,source:snapshot.declaration.source}))) return false;
+  }
   if (!Object.prototype.hasOwnProperty.call(body, "overrides")) {
     const draft = payload.draft;
     if (draft.revision < snapshot.draft.revision || (draft.revision === snapshot.draft.revision
@@ -345,6 +365,8 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
     applyRead(op: AccountSettingsOp, payload: Record<string, any>, options: { preserveNotice?: boolean; keepCash?: boolean; keepPreference?: boolean; keepIncome?: boolean; keepStrategy?: boolean; keepOption?: boolean; keepDeclaration?: boolean } = {}) {
       if (!current(op) || payload?.platform !== op.account.platform || payload?.key !== op.account.key) return false;
       const pending = unresolvedSaves.get(this.selectedId());
+      const hadDeclaration = record((view.settings || lastSettings)?.declaration) || pending?.declaration.present;
+      if ((hadDeclaration || Object.prototype.hasOwnProperty.call(payload, "declaration")) && !validDeclaration(payload.declaration)) return false;
       const resolved = pending && matchesSaveAcknowledgement(pending, payload);
       if (resolved) unresolvedSaves.delete(this.selectedId());
       const draft = payload.draft?.overrides || {};
@@ -483,6 +505,9 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
         draft: copyJson({ status: view.settings.draft.status, revision: view.settings.draft.revision, identity: view.settings.draft.identity, current_identity: view.settings.draft.current_identity, overrides: view.settings.draft.overrides || {} }),
         risk: copyJson({ revision: view.settings.risk.revision, scope_id: view.settings.risk.scope_id, preference: view.settings.risk.preference || null }),
         declaration: copyJson({
+          present: record(view.settings.declaration),
+          status: typeof view.settings.declaration?.status === "string" ? view.settings.declaration.status : "empty",
+          source: typeof view.settings.declaration?.source === "string" ? view.settings.declaration.source : null,
           revision: Number.isSafeInteger(view.settings.declaration?.revision) ? view.settings.declaration.revision : 0,
           environment: view.settings.declaration?.environment === "live" || view.settings.declaration?.environment === "paper" ? view.settings.declaration.environment : null,
           account_type: view.settings.declaration?.account_type === "cash" || view.settings.declaration?.account_type === "margin" ? view.settings.declaration.account_type : null,

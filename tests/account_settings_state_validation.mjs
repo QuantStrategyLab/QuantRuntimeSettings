@@ -833,3 +833,41 @@ assert.equal(declareController.applyRead(returnRead,savedDeclaration),true);
 assert.equal(declareController.view().review.declaration,false);
 assert.equal(declareController.view().declaration.environment,"live");
 console.log("account declaration unknown-save and account isolation: PASS");
+
+for (const [name, result] of [
+  ['old revision and values', {status:'empty',revision:0,environment:null,account_type:null,source:'user_declared'}],
+  ['wrong value', {status:'current',revision:1,environment:'paper',account_type:'margin',source:'user_declared'}],
+  ['wrong revision', {status:'current',revision:2,environment:'live',account_type:'margin',source:'user_declared'}],
+  ['wrong source', {status:'current',revision:1,environment:'live',account_type:'margin',source:'broker'}],
+  ['wrong status', {status:'identity_conflict',revision:1,environment:'live',account_type:'margin',source:'user_declared'}],
+]) {
+  const c = createAccountSettingsController();
+  const read = c.select({platform:'longbridge',key:'hk'});
+  c.applyRead(read,declarationSettings('hk',identityA));
+  c.editDeclaration({environment:'live',accountType:'margin'});
+  const save = c.startSave('declaration');
+  c.markSaving(save,'declaration'); c.fail(save,'',true);
+  const refreshOp = c.start('refresh');
+  const readback = declarationSettings('hk',identityA); readback.declaration = result;
+  c.applyRefresh(refreshOp,readback);
+  assert.equal(c.view().review.declaration,true,`${name} cannot acknowledge an unknown write`);
+  assert.equal(c.startSave('declaration'),null,`${name} cannot enable blind retry`);
+  const confirmed = declarationSettings('hk',identityA);
+  confirmed.declaration = {status:'current',revision:1,environment:'live',account_type:'margin',source:'user_declared'};
+  const confirmedOp = c.start('refresh'); c.applyRefresh(confirmedOp,confirmed);
+  assert.equal(c.view().review.declaration,false,`${name}: exact readback resolves`);
+}
+const nonSubmitted = createAccountSettingsController();
+const nonSubmittedRead = nonSubmitted.select({platform:'longbridge',key:'hk'});
+nonSubmitted.applyRead(nonSubmittedRead,declarationSettings('hk',identityA));
+nonSubmitted.edit({preference:'GROWTH_COMPOUNDING'});
+const riskWithDeclaration = nonSubmitted.startSave('risk');
+nonSubmitted.markSaving(riskWithDeclaration,'risk');
+const incompleteEnvelope = declarationSettings('hk',identityA);
+incompleteEnvelope.risk = {...incompleteEnvelope.risk,revision:5,preference:'GROWTH_COMPOUNDING'};
+delete incompleteEnvelope.declaration;
+assert.equal(nonSubmitted.applySave(riskWithDeclaration,incompleteEnvelope,''),false,'missing unsubmitted declaration cannot acknowledge or erase its baseline');
+const missingRefresh = nonSubmitted.start('refresh');
+assert.equal(nonSubmitted.applyRefresh(missingRefresh,incompleteEnvelope),false,'incomplete refresh cannot erase declaration');
+assert.equal(nonSubmitted.view().settings.declaration.revision,0);
+console.log('account declaration acknowledgement boundaries: PASS');
