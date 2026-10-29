@@ -6772,6 +6772,7 @@ async function dispatchRuntimeStop(request, env) {
   requireSameOrigin(request, { requireOrigin: true });
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
   const raw = await request.json();
   const hkStop = raw && !Array.isArray(raw) && raw.platform === "longbridge" && raw.target_name === "hk";
   const allowedKeys = hkStop ? ["platform", "target_name", "confirm", "request_id"] : ["platform", "target_name", "confirm"];
@@ -6861,6 +6862,7 @@ async function dispatchBinanceResume(request, env) {
   requireSameOrigin(request, { requireOrigin: true });
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
   const raw = await request.json();
   if (!raw || Array.isArray(raw) || typeof raw !== "object"
     || Object.keys(raw).some((key) => !["platform", "target_name", "runtime_target_sha256", "confirm"].includes(key))
