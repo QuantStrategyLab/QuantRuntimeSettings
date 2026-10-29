@@ -75,6 +75,8 @@ export const zh: Record<string, string> = {
   "controls.protected": "已有保护状态仍然生效。",
   "controls.approve_not_ready": "当前没有仅修改策略档案且可批准的草案；请刷新确认。",
   "controls.stop_consequence": "停止只阻止新的触发；不会撤单、平仓或清除在途请求。",
+  "controls.result.enable": "已启用",
+  "controls.result.disable": "已停用",
   "accounts.effect_unconfirmed": "暂时无法确认是否生效。",
 
   "accounts.declaration.title": "账户声明",
@@ -182,6 +184,8 @@ export const en: Record<string, string> = {
   "controls.protected": "The existing protection state remains active.",
   "controls.approve_not_ready": "There is no approvable draft that changes only the strategy profile. Refresh and check again.",
   "controls.stop_consequence": "Stopping only blocks new triggers; it does not cancel orders, close positions, or clear in-flight requests.",
+  "controls.result.enable": "Enabled",
+  "controls.result.disable": "Disabled",
   "accounts.effect_unconfirmed": "Unable to confirm whether the change took effect.",
 
   "accounts.declaration.title": "Account declaration",
