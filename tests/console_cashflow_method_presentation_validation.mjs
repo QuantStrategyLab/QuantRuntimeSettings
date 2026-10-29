@@ -30,7 +30,7 @@ try {
             h(SummaryCards, { scope: 'all', platform: undefined, state: globalThis.__dietzState })));
         export const returns = (language, data, scope = 'all') =>
           renderToStaticMarkup(h(I18nProvider, { language },
-            h(ReturnsCard, { scope, platform: undefined, range: 'ALL', epoch: 0 })));`,
+            h(ReturnsCard, { scope, platform: undefined, range: 'ALL', epoch: 0, state: globalThis.__dietzState })));`,
       resolveDir: root,
     },
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic",
