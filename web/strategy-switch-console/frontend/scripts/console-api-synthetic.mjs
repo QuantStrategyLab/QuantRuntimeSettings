@@ -197,6 +197,7 @@ export function consoleApiFixture(
                 pending_decision_count: 1,
                 last_change_at: at,
               },
+              ...(scenario === "risk-late" ? [{account_alias:"synthetic-beta", platform:"longbridge", pending_draft_count:0, pending_decision_count:0, last_change_at:at}] : []),
             ],
       },
     };

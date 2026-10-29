@@ -172,7 +172,7 @@ function effectiveText(settings: Record<string, any> | null, key: string): strin
   return field?.status === "known" && typeof field.value === "string" ? field.value : "";
 }
 
-function sameIdentity(left: unknown, right: unknown): boolean {
+export function sameIdentity(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 

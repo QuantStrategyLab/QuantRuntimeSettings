@@ -18,6 +18,7 @@ import { platformLabel, type AccountRow, type ConsoleConfig, type EditMap } from
 import { DiffSummary, StrategyTab } from "./StrategyTab";
 import { ControlsTab } from "./ControlsTab";
 import { HistoryTab } from "./HistoryTab";
+import { RiskPreference } from "./RiskPreference";
 
 type TodayRun = TodayRunSummary["accounts"][number];
 
@@ -148,6 +149,7 @@ export function AccountDetail({
             )}
           </section>
         )}
+        {active === "overview" && <RiskPreference platform={account.platform} accountKey={account.account_alias} />}
         {active === "strategy" && (
           <StrategyTab
             account={account}
