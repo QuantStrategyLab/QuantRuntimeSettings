@@ -507,7 +507,7 @@ assert.equal(quotaLists, 0, "date-only reads spend no list quota");
 assert.equal(dateOnlyBody.history, null, "omitted discovery is distinct from empty coverage");
 assert.deepEqual(dateOnlyBody.record, coverageRead.record, "source evidence is unchanged");
 assert.deepEqual(dateOnlyBody.read_error_codes, []);
-const diagnosticProjection = projection({ read_errors: ["coverage_unconfirmed", "private/path/fixture", "read_failed"] }, {
+const diagnosticProjection = projection({ read_errors: ["coverage_unconfirmed", "private/path/fixture", "read_failed", "runtime_target_enabled_schedule_unverified"] }, {
   business_date: coverageDayB, observed_at: `${coverageDayB}T20:00:00Z`, status: "read_incomplete", completeness: "incomplete",
 });
 const diagnosticStore = { ...quotaEnv.STRATEGY_SWITCH_CONFIG, async get(key) {
@@ -516,8 +516,8 @@ const diagnosticStore = { ...quotaEnv.STRATEGY_SWITCH_CONFIG, async get(key) {
 const diagnostic = await worker.fetch(new Request(`https://console.example/api/runtime-daily?date=${coverageDayB}&include_history=false`, { headers: sessionHeaders }), { ...env, STRATEGY_SWITCH_CONFIG: diagnosticStore });
 const diagnosticBody = await diagnostic.json();
 assert.equal(diagnostic.status, 200);
-assert.deepEqual(diagnosticBody.read_error_codes, ["coverage_unconfirmed", "source_read_error", "read_failed"]);
-assert.equal(diagnosticBody.read_error_count, 3);
+assert.deepEqual(diagnosticBody.read_error_codes, ["coverage_unconfirmed", "source_read_error", "read_failed", "schedule_unverified"]);
+assert.equal(diagnosticBody.read_error_count, 4);
 assert.equal(diagnosticBody.record.completeness, "incomplete");
 assert.ok(!JSON.stringify(diagnosticBody).includes("private/path/fixture"));
 for (const selection of ["include_history=maybe", "include_history=false&include_history=true"]) {
