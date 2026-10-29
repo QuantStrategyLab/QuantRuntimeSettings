@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -16,6 +17,10 @@ const SETTINGS = [
   "IBKR_PERIOD_RETURN_ACCOUNT_KEY",
   "IBKR_FLEX_EXPECTED_ACCOUNT_IDS_JSON",
 ];
+// Existing protected recovery receipt for the one additional-1 target.
+const ADDITIONAL1_TARGET_SHA256 = "4722a2e5633490db1d997b0d5f6707b51718f65a5a20dd116fc42ee92325cd31";
+const ADDITIONAL1_SOURCE_SHA256 = "a9d26b098b6c8a85f52a365c2474364d31e59052286ef541189f0c818b0ff1d2";
+const sha256 = (value) => createHash("sha256").update(value, "utf8").digest("hex");
 const TARGET_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const fail = (reason) => { throw new Error(reason); };
 
@@ -67,6 +72,20 @@ export function listIbkrPeriodReturnTargets(optionsRaw, bindingsRaw) {
     reason: "none",
     count: matched.length,
     catalog,
+  };
+}
+
+/** Check one protected binding against its previously verified target and rotation. */
+export function matchAdditionalOnePeriodReturn(optionsRaw, bindingsRaw, targetHash = ADDITIONAL1_TARGET_SHA256,
+  sourceHash = ADDITIONAL1_SOURCE_SHA256) {
+  if (!/^[a-f0-9]{64}$/.test(targetHash) || !/^[a-f0-9]{64}$/.test(sourceHash)) fail("binding_anchor_invalid");
+  const matches = matchedIbkrBindings(optionsRaw, bindingsRaw).filter((binding) => sha256(binding.target_id) === targetHash);
+  if (matches.length !== 1) fail("target_match_invalid");
+  return {
+    target_unique: true,
+    source_matches_rotation: sha256(matches[0].source_binding.id) === sourceHash,
+    account_key_sha256: sha256(matches[0].account_key),
+    secret_writes: 0,
   };
 }
 
@@ -129,7 +148,7 @@ export function applyIbkrPeriodReturnSettings(optionsRaw, bindingsRaw, targetId,
 }
 
 function main(argv) {
-  if (argv.length < 3 || !["list", "apply"].includes(argv[0])) {
+  if (argv.length < 3 || !["list", "match-additional-1", "apply"].includes(argv[0])) {
     process.stdout.write("status=blocked reason=request_invalid\n");
     return 1;
   }
@@ -150,6 +169,13 @@ function main(argv) {
       process.stdout.write(
         `status=ok reason=none count=${listed.count} catalog=${listed.catalog}\n`,
       );
+      return 0;
+    }
+    if (mode === "match-additional-1") {
+      if (argv.length !== 3) fail("request_invalid");
+      const matched = matchAdditionalOnePeriodReturn(optionsRaw, bindingsRaw);
+      process.stdout.write(`status=ok target_unique=true source_matches_rotation=${matched.source_matches_rotation}`
+        + ` account_key_sha256=${matched.account_key_sha256} secret_writes=0\n`);
       return 0;
     }
     const targetId = argv[3] || "";

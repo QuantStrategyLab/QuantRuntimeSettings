@@ -3,9 +3,11 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   listIbkrPeriodReturnTargets,
+  matchAdditionalOnePeriodReturn,
   applyIbkrPeriodReturnSettings,
 } from "../web/strategy-switch-console/configure_ibkr_period_return.mjs";
 
@@ -41,6 +43,22 @@ const listed = listIbkrPeriodReturnTargets(options, bindings);
 assert.equal(listed.count, 1);
 assert.equal(listed.catalog, "ibkr-u100001|live-u100001|synthetic-ibkr");
 assert.ok(!listed.catalog.includes("U100001"));
+
+const sha256 = (value) => createHash("sha256").update(value, "utf8").digest("hex");
+const matched = matchAdditionalOnePeriodReturn(options, bindings, sha256("ibkr-u100001"), sha256(bindingId));
+assert.deepEqual(matched, {
+  target_unique: true,
+  source_matches_rotation: true,
+  account_key_sha256: sha256("synthetic-ibkr"),
+  secret_writes: 0,
+});
+assert.equal(matchAdditionalOnePeriodReturn(options, bindings, sha256("ibkr-u100001"), "b".repeat(64)).source_matches_rotation, false);
+assert.throws(() => matchAdditionalOnePeriodReturn(options, bindings, "c".repeat(64), sha256(bindingId)), /target_match_invalid/);
+const invalidOptions = structuredClone(options);
+invalidOptions.ibkr[0].account_selector = "U999999";
+assert.throws(() => matchAdditionalOnePeriodReturn(invalidOptions, bindings, sha256("ibkr-u100001"), sha256(bindingId)), /option_binding_mismatch/);
+assert.ok(!JSON.stringify(matched).includes("U100001"));
+assert.ok(!JSON.stringify(matched).includes("synthetic-ibkr"));
 
 const writes = [];
 const applied = applyIbkrPeriodReturnSettings(options, bindings, "ibkr-u100001", {
@@ -80,12 +98,22 @@ const cli = spawnSync(process.execPath, [
 assert.equal(cli.status, 0);
 assert.match(cli.stdout, /^status=ok reason=none count=1 catalog=ibkr-u100001\|live-u100001\|synthetic-ibkr\n$/);
 
+const matchCli = spawnSync(process.execPath, [
+  join(root, "web/strategy-switch-console/configure_ibkr_period_return.mjs"),
+  "match-additional-1", optionsPath, bindingsPath,
+], { encoding: "utf8", env: { ...process.env, GH_TOKEN: "synthetic-secret" } });
+assert.equal(matchCli.status, 1); // Fixed production anchor cannot match the synthetic fixture.
+assert.equal(matchCli.stdout, "status=blocked reason=target_match_invalid\n");
+assert.ok(!matchCli.stdout.includes("synthetic-secret"));
+assert.ok(!matchCli.stdout.includes("U100001"));
+
 const workflow = readFileSync(
   join(root, ".github/workflows/configure-ibkr-period-return.yml"), "utf8",
 );
 assert.match(workflow, /Configure IBKR period-return secrets/);
 assert.match(workflow, /configure_ibkr_period_return\.mjs/);
-assert.match(workflow, /RUNTIME_SETTINGS_GH_TOKEN/);
+assert.match(workflow, /CONFIGURE_MODE.*match-additional-1/);
+assert.match(workflow, /inputs.mode != 'match-additional-1' && secrets.RUNTIME_SETTINGS_GH_TOKEN/);
 assert.ok(!workflow.includes("IBKR_FLEX_TOKEN"));
 assert.ok(!workflow.includes("IBKR_PERIOD_RETURN_PUBLISH_ENABLED"));
 
