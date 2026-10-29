@@ -854,10 +854,11 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
     if not isinstance(strategies, dict) or not isinstance(platforms, dict) or not isinstance(domains, dict):
         return
     profile = str(runtime_target.get("strategy_profile") or "").strip()
+    normalized_profile = profile.lower().replace("-", "_")
     canonical_profile = {
         "global_macro_etf_rotation": "global_etf_rotation",
         "global_etf_confidence_vol_gate": "global_etf_rotation",
-    }.get(profile, profile)
+    }.get(normalized_profile, normalized_profile)
     strategy = strategies.get(canonical_profile)
     if not isinstance(strategy, dict):
         return

@@ -15612,7 +15612,9 @@ function isFrozenStrategyProfile(strategy) {
     global_macro_etf_rotation: "global_etf_rotation",
     global_etf_confidence_vol_gate: "global_etf_rotation",
   };
-  const profile = aliases[strategy?.profile] || strategy?.profile;
+  // Normalize only the policy lookup; retain the original profile in payloads.
+  const lookup = String(strategy?.profile || "").trim().toLowerCase().replaceAll("-", "_");
+  const profile = aliases[lookup] || lookup;
   return strategy?.frozen === true || DEFAULT_STRATEGY_PROFILES.some((item) => item.profile === profile && item.frozen === true);
 }
 

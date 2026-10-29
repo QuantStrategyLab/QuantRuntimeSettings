@@ -61,3 +61,41 @@ assert.equal(writes, writesBeforeMalformed, 'malformed continuity cannot write')
 response = await worker.fetch(request({...payload, live_continuity_state:'ACTIVE_LKG'}), env);
 assert.equal(response.status, 409);
 console.log('Frozen selection HTTP handler validation passed.');
+
+// Stale KV can contain hyphenated catalog identifiers without a frozen flag.
+for (const [canonical, platform, alias] of [
+  ['global_etf_rotation', 'ibkr', 'global-etf-rotation'],
+  ['global_etf_rotation', 'ibkr', 'global-macro-etf-rotation'],
+  ['global_etf_rotation', 'ibkr', 'global-etf-confidence-vol-gate'],
+  ['hk_global_etf_tactical_rotation', 'longbridge', 'hk-global-etf-tactical-rotation'],
+  ['cn_industry_etf_rotation', 'qmt', 'cn-industry-etf-rotation'],
+]) {
+  const original = DEFAULT_STRATEGY_PROFILES.find(item => item.profile === canonical);
+  const staleProfile = {...original, profile:alias, frozen:false, lifecycle_stage:'runtime_enabled',
+    runtime_enabled:true, can_switch_live:true, allowed_execution_modes:['dry_run']};
+  const profiles = __test.normalizeStrategyProfilesPayload([staleProfile]);
+  assert.equal(profiles[0].profile, alias);
+  assert.equal(profiles[0].frozen, true, alias);
+  const syntheticAccount = {key:'synthetic', label:'Synthetic', target_name:'synthetic',
+    account_selector:'synthetic', deployment_selector:'synthetic', account_scope:'synthetic',
+    service_name:'synthetic-service', supported_domains:[original.domain], default_strategy_profile:'tqqq_growth_income'};
+  const data = new Map([['strategy_profiles', JSON.stringify([staleProfile])],
+    ['account_options', JSON.stringify({[platform]:[syntheticAccount]})]]);
+  let aliasWrites = 0;
+  const aliasEnv = {STRATEGY_SWITCH_SYNC_TOKEN:'synthetic', STRATEGY_SWITCH_CONFIG:{
+    get:async key => data.get(key) || null, put:async (key, value) => {aliasWrites++; data.set(key, value);},
+  }};
+  const aliasRequest = {platform, target_name:'synthetic', account_selector:'synthetic',
+    deployment_selector:'synthetic', account_scope:'synthetic', service_name:'synthetic-service',
+    strategy_profile:alias, execution_mode:'dry_run', variable_scope:'default', plugin_mode:'current',
+    option_overlay_mode:'current', cash_only_execution_mode:'current'};
+  const result = await worker.fetch(request(aliasRequest), aliasEnv);
+  assert.equal(result.status, 409, alias);
+  assert.equal(aliasWrites, 0, alias);
+}
+const unchanged = __test.normalizeStrategyProfilesPayload([
+  {profile:'tqqq-growth-income', domain:'us_equity', allowed_execution_modes:['dry_run']},
+  {profile:'synthetic-unknown', domain:'us_equity', allowed_execution_modes:['dry_run']},
+]);
+assert.deepEqual(unchanged.map(item => item.profile), ['tqqq-growth-income', 'synthetic-unknown']);
+assert(unchanged.every(item => item.frozen !== true));
