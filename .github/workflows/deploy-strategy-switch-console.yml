@@ -515,15 +515,15 @@ jobs:
             [ "$RELEASE_SOURCE_SHA" = "aaa46a811a7cfa863f90261d516b197e5e554779" ] && [ "$frontend_mode" = true ] && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = true ] || exit 2 ;;
             *) exit 2 ;; esac
           case "$frontend_mode" in true|false) ;; *) exit 2 ;; esac
-          if [ "$RELEASE_SOURCE_SHA" = "9ad9a396956ec7d84c9ccbb43044e80502f02e82" ]; then
+          if [ "$RELEASE_SOURCE_SHA" = "4b6cbedc731d3352a9c9dbe4f57fc2b948207ef6" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
               && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
               && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = true ] && [ "${IBKR_CANDIDATE_RESUME:-off}" = off ] || exit 2
             [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 2
-            git fetch --no-tags origin refs/heads/codex/website-native-daily-gap-candidate-20261029
+            git fetch --no-tags origin refs/heads/codex/website-native-daily-fixed-clock-20261029
             [ "$(git rev-parse FETCH_HEAD)" = "$RELEASE_SOURCE_SHA" ] || exit 2
-            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^")" = "68e3d4b69e706e2100f860c473ec657e9baf05ba" ] || exit 2
-            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "a266aa6cd4a75c401d8dbdfaa8da30ec679f4c97" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^")" = "9ad9a396956ec7d84c9ccbb43044e80502f02e82" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "5084d021cce381d06c2185b4b90998f69bbe049c" ] || exit 2
             [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" = "3dfc5242064c99205203b5efd1ff31cacb61f046" ] || exit 2
             git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
             exit 0
@@ -693,7 +693,7 @@ jobs:
           integrated="0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a"
           cpu_candidate="974354b98ebe0cd55931baa03034d887d4fac560"
           status_candidate="68e3d4b69e706e2100f860c473ec657e9baf05ba"
-          daily_candidate="9ad9a396956ec7d84c9ccbb43044e80502f02e82"
+          daily_candidate="4b6cbedc731d3352a9c9dbe4f57fc2b948207ef6"
           if [ "$(git rev-parse HEAD)" = "$daily_candidate" ]; then
             [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "3dfc5242064c99205203b5efd1ff31cacb61f046" ] || exit 2
             [ -z "$(git diff --name-only "$daily_candidate")" ] && [ -z "$(git ls-files --others --exclude-standard)" ] || exit 2
@@ -1032,7 +1032,7 @@ jobs:
             if (process.env.GITHUB_REF !== 'refs/heads/main' || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
             const pr764 = process.env.RELEASE_SOURCE_SHA === '20dad166be317dd0d57e492ed06e56dfb82b7aef';
             const ibkrDaily = process.env.RELEASE_SOURCE_SHA === 'aaa46a811a7cfa863f90261d516b197e5e554779';
-            const dailyCandidate = process.env.RELEASE_SOURCE_SHA === '9ad9a396956ec7d84c9ccbb43044e80502f02e82';
+            const dailyCandidate = process.env.RELEASE_SOURCE_SHA === '4b6cbedc731d3352a9c9dbe4f57fc2b948207ef6';
             const statusCandidate = process.env.RELEASE_SOURCE_SHA === '68e3d4b69e706e2100f860c473ec657e9baf05ba';
             const cpuCandidate = process.env.RELEASE_SOURCE_SHA === '974354b98ebe0cd55931baa03034d887d4fac560';
             const integrated = dailyCandidate || statusCandidate || cpuCandidate || process.env.RELEASE_SOURCE_SHA === '0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a';
@@ -1236,7 +1236,7 @@ jobs:
             // version; the older script-version API only supports latest.
             const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name, ...(betaRelease ? {version_id: prior} : {}) })),
               compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
-              annotations: { 'workers/message': dailyCandidate ? 'Reviewed daily candidate 9ad9a396; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a with fixed frontend 96363633; retained bindings' } };
+              annotations: { 'workers/message': dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a with fixed frontend 96363633; retained bindings' } };
             for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
             const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
             form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
@@ -1308,7 +1308,7 @@ jobs:
             } else {
             stage = 'activate'; deployAttempted = true;
             const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
-              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': dailyCandidate ? 'Reviewed daily candidate 9ad9a396; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a and frontend 96363633; retained configuration' } }));
+              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a and frontend 96363633; retained configuration' } }));
             if (!object(deployment) || !Object.hasOwn(deployment, 'id')) fail('missing_id');
             if (!isUuid(deployment.id)) fail('invalid_id');
             const deploymentId = deployment.id;
