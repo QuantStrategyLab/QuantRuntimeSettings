@@ -1997,6 +1997,7 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
         reviewed_failures = {
             "49af5187aabace9dec41059620ecc4f16aa76daf": "error: switch candidate changed service annotations or labels",
             "c0bd4c01b9db95d61785e9e20dceea8f750c72a2": "ValueError: traffic candidate has not passed its application startup probe",
+            "bf0077ea3a12ca78337c49cf61316467af5d1dea": "ValueError: traffic candidate has not passed its application startup probe",
         }
         if (result == "unknown" and identity["platform_id"] == "ibkr" and operation == "enable"
                 and run.get("head_sha") in reviewed_failures
