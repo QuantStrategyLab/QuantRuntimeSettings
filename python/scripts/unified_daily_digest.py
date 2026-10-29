@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from notification_mode import consolidation_enabled, routine_mode
 from display_names import display_name
-from daily_digest_notify import DailyDigestInput, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale, routine_decision_text
+from daily_digest_notify import DailyDigestInput, _presentation_needs_attention, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale, routine_decision_text
 
 
 def enabled() -> bool:
@@ -143,6 +143,28 @@ def _known_count(row, name):
     return type(value) is int and value >= 0 and getattr(row, name + "_count_status") == "known"
 
 
+def _evidence_attention_text(row, locale):
+    """Describe evidence axes without changing execution facts or delivery routing."""
+    zh = locale == "zh"
+    parts = []
+    persistence = row.evidence_persistence_status
+    if persistence not in {"", "persisted"}:
+        labels = {
+            "persistence_failed": ("证据留存失败", "Evidence persistence failed"),
+            "unknown": ("证据留存状态未知", "Evidence persistence status unknown"),
+        }
+        parts.append(labels.get(persistence, ("证据留存状态需核对", "Evidence persistence needs review"))[0 if zh else 1])
+    delivery = row.evidence_delivery_status
+    if delivery not in {"", "delivered_to_central", "delivered_idle"}:
+        labels = {
+            "delivery_failed": ("证据传递失败", "Evidence delivery failed"),
+            "pending_central": ("证据待中央汇总", "Evidence pending central aggregation"),
+            "unknown": ("证据传递状态未知", "Evidence delivery status unknown"),
+        }
+        parts.append(labels.get(delivery, ("证据传递状态需核对", "Evidence delivery needs review"))[0 if zh else 1])
+    return ("，" if zh else "; ").join(parts)
+
+
 def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     """One selected language and one message, including healthy zero-order runs."""
     if not payload.runs:
@@ -179,12 +201,16 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         lines.append(f"即时事件 {immediate} 项（仅记录）" if zh else f"Immediate events: {immediate} (record only)")
     attention_lines, healthy_lines, routine_lines, seen = [], [], [], set()
     for row, label in zip(payload.runs, _run_display_labels(payload.runs, locale)):
+        needs_attention = row.status == "alert" or _presentation_needs_attention(row)
+        evidence_detail = _evidence_attention_text(row, locale)
         decision = routine_decision_text(row, locale)
         if decision:
             routine_lines.extend(f"• {label}：{line}" if zh else f"• {label}: {line}"
                                  for line in decision.splitlines())
         if not is_blocked(row):
-            detail = ("需核对" if zh else "Needs review") if row.status == "alert" else ("已运行" if zh else "Observed run")
+            detail = ("需核对" if zh else "Needs review") if needs_attention else ("已运行" if zh else "Observed run")
+            if evidence_detail:
+                detail += ("，" if zh else "; ") + evidence_detail
             if counts_not_connected(row):
                 detail += "，统计未接入" if zh else "; counting not connected"
             elif not all(_known_count(row, name) for name in ("order", "fill")):
@@ -194,12 +220,14 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
                            f"; this run: {row.order_count} orders, {row.fill_count} fills")
             line = f"• {label}：{detail}" if zh else f"• {label}: {detail}"
             if line not in seen:
-                (attention_lines if row.status == "alert" else healthy_lines).append(line)
+                (attention_lines if needs_attention else healthy_lines).append(line)
                 seen.add(line)
             continue
         from notification_approved_gates import render_reasons
         detail = render_reasons(row.approved_gate_reasons, locale) or block_reason_text(row, locale)
         detail = detail or ("已拦截，具体原因未知" if zh else "Blocked; specific reason unknown")
+        if evidence_detail:
+            detail += ("，" if zh else "; ") + evidence_detail
         lines.append(f"• {label}：{detail}" if zh else f"• {label}: {detail}")
     # Risk and attention details precede repeated healthy context under the budget.
     lines.extend(attention_lines)

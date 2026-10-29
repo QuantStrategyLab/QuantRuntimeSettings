@@ -161,6 +161,41 @@ class UnifiedPresentationTests(unittest.TestCase):
                 for token in ("nan", "inf", "True", "False"):
                     self.assertNotIn(token, text)
 
+    def test_evidence_axis_failures_remain_visible_without_reclassifying_counts(self):
+        cases = (
+            ("evidence_persistence_status", "persistence_failed", "证据留存失败", "Evidence persistence failed"),
+            ("evidence_persistence_status", "unknown", "证据留存状态未知", "Evidence persistence status unknown"),
+            ("evidence_delivery_status", "delivery_failed", "证据传递失败", "Evidence delivery failed"),
+            ("evidence_delivery_status", "pending_central", "证据待中央汇总", "Evidence pending central aggregation"),
+            ("evidence_delivery_status", "unknown", "证据传递状态未知", "Evidence delivery status unknown"),
+        )
+        for field, value, chinese, english in cases:
+            for locale, expected in (("zh", chinese), ("en", english)):
+                with self.subTest(field=field, value=value, locale=locale):
+                    item = row(order_count=2, fill_count=1, **{field: value})
+                    before = deepcopy(asdict(item))
+                    text = render(payload(item, locale=locale))
+                    self.assertIn(expected, text)
+                    self.assertIn("需核对" if locale == "zh" else "Needs review", text)
+                    self.assertNotIn("：已运行" if locale == "zh" else ": Observed run", text)
+                    self.assertIn("本轮 2 单，成交 1" if locale == "zh" else "2 orders, 1 fills", text)
+                    self.assertEqual(asdict(item), before)
+
+    def test_risk_and_evidence_failures_are_both_visible(self):
+        item = row(rebalance_conclusion="blocked", evidence_delivery_status="delivery_failed",
+            block_reason={"reason_code": "consecutive_loss_limit_exceeded", "observed_value": 6, "limit": 5})
+        text = render(payload(item))
+        self.assertIn("连续亏损 6 次", text)
+        self.assertIn("证据传递失败", text)
+
+    def test_evidence_issue_keeps_priority_under_message_budget(self):
+        rows = tuple(row("synthetic-" + str(index)) for index in range(100))
+        issue = row("synthetic-issue", evidence_persistence_status="persistence_failed")
+        text = render(payload(*rows, issue), max_units=512)
+        self.assertIn("证据留存失败", text)
+        self.assertIn("已省略", text)
+        self.assertLessEqual(len(text.encode("utf-16-le")) // 2, 512)
+
     def test_aliases_are_single_line_and_long_context_keeps_message_budget(self):
         with self.display_names({"account_aliases": {"synthetic-a": "合成\n别名"}}):
             text = render(payload(row()))
