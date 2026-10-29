@@ -36,11 +36,14 @@ function safeGet(key: string): string | null {
   }
 }
 
-function safeSet(key: string, value: string): void {
+/** Returns true only when the value reads back, so a silent failure is never reported as saved. */
+function safeSet(key: string, value: string): boolean {
   try {
     window.localStorage.setItem(key, value);
+    return window.localStorage.getItem(key) === value;
   } catch {
     // Optional preference; storage may be unavailable.
+    return false;
   }
 }
 
@@ -77,12 +80,17 @@ export function loadPreferences(): Preferences {
   };
 }
 
-export function savePreferences(prefs: Preferences): void {
-  safeSet(KEYS.theme, prefs.theme);
-  safeSet(KEYS.language, prefs.language);
-  safeSet(KEYS.upDown, prefs.upDown);
-  safeSet(KEYS.hideAmounts, prefs.hideAmounts ? "1" : "0");
-  safeSet(KEYS.defaultRange, prefs.defaultRange);
+/** Writes every key (never short-circuits) and reports whether all of them persisted. */
+export function savePreferences(prefs: Preferences): boolean {
+  const results = [
+    safeSet(KEYS.theme, prefs.theme),
+    safeSet(KEYS.language, prefs.language),
+    safeSet(KEYS.upDown, prefs.upDown),
+    safeSet(KEYS.hideAmounts, prefs.hideAmounts ? "1" : "0"),
+    safeSet(KEYS.defaultRange, prefs.defaultRange),
+  ];
+  const saved = results.every(Boolean);
+  return saved;
 }
 
 export function resolveTheme(preference: ThemePreference, systemPrefersDark: boolean): "light" | "dark" {
