@@ -230,7 +230,7 @@ class RuntimeStopDispatchTests(unittest.TestCase):
         response = subprocess.CompletedProcess([], 1, b"", b"HTTP 403 synthetic-private-message")
         with patch.object(settings.subprocess, "run", return_value=response):
             self.assertEqual(settings.read_runtime_control_result(self.request, "enable", "12345678-1234-4abc-8def-123456789abc", 123, "sync-cloud-run-env.yml", diagnostic), "unknown")
-        self.assertEqual(diagnostic, {"stage": "workflow", "http_status": 403, "failure_kind": "command_failed"})
+        self.assertEqual(diagnostic, {"stage": "workflow", "http_status": 403, "failure_kind": "command_failed", "error_category": "other", "exit_code": 1, "stderr_empty": False})
 
     def test_readback_diagnostic_distinguishes_oversize_and_timeout(self):
         for response, expected in [(subprocess.CompletedProcess([], 0, b"x" * 524289, b""), "response_too_large"),
