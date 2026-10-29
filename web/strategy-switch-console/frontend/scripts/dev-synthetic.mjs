@@ -11,6 +11,7 @@ if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw new Error(
 const requests = [];
 let scenario = 'ready';
 const syntheticRisks = new Map();
+const syntheticPendingRead = new Set();
 const syntheticSettings = key => {
   const identity = { platform:'longbridge', key, target_name:key, broker_environment:'paper', account_selector:key, deployment_selector:key, account_scope:key, service_name:'synthetic' };
   return { ok:true, adopted:false, platform:'longbridge', key, identity, draft:{status:'current',revision:2,identity,current_identity:identity,overrides:{}},
@@ -30,14 +31,15 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
       requests.push({ path: url.pathname, method: req.method, scenario });
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-store');
-      if (url.pathname === '/api/account-settings' && ['api-ready','risk-late'].includes(scenario)) {
-        if (req.method === 'GET') { res.end(JSON.stringify(syntheticSettings(url.searchParams.get('key')))); return; }
+      if (url.pathname === '/api/account-settings' && ['api-ready','risk-late','risk-readback-failed'].includes(scenario)) {
+        if (req.method === 'GET') { if (scenario === 'risk-readback-failed' && syntheticPendingRead.has(url.searchParams.get('key'))) { res.statusCode=503; res.end(JSON.stringify({error:'synthetic_unavailable'})); return; } res.end(JSON.stringify(syntheticSettings(url.searchParams.get('key')))); return; }
         if (req.method === 'POST') {
           let text=''; for await (const chunk of req) text+=chunk;
           const body=JSON.parse(text); const current=syntheticSettings(body.key);
           if (scenario === 'risk-late') { await new Promise(resolve => setTimeout(resolve, 8000)); res.statusCode=503; res.end(JSON.stringify({error:'synthetic_unavailable'})); return; }
           if (body.expected_risk_revision !== current.risk.revision || JSON.stringify(body.identity) !== JSON.stringify(current.identity)) { res.statusCode=409; res.end(JSON.stringify({error:'risk_profile_revision_conflict'})); return; }
           syntheticRisks.set(body.key,{...current.risk,revision:current.risk.revision+1,preference:body.risk_preference});
+          if (scenario === 'risk-readback-failed') syntheticPendingRead.add(body.key);
           res.end(JSON.stringify(syntheticSettings(body.key))); return;
         }
       }
