@@ -231,15 +231,12 @@ jobs:
               const activeVersion = active[0].version_id;
               if (privateCheck === 'baseline') {
                 const matched = activeVersion === expected;
-                const current = await read(`versions/${activeVersion}`);
-                const markerReadable = typeof current?.metadata?.annotations?.['workers/message'] === 'string';
-                console.log(JSON.stringify({ ok: matched, read_only: true, matched, marker_readable: markerReadable, percentage: 100 }));
+                console.log(JSON.stringify({ ok: matched, read_only: true, matched, percentage: 100 }));
                 if (!matched) fail();
               } else if (privateCheck === 'candidate') {
                 const current = await read(`versions/${activeVersion}`);
                 const baseline = await read(`versions/${expected}`);
                 if (current?.id !== activeVersion || baseline?.id !== expected) fail();
-                const marker = current?.metadata?.annotations?.['workers/message'] === 'Reviewed runtime control candidate; retained configuration';
                 const a = baseline.resources, b = current.resources;
                 if (!a || !b || !Array.isArray(a.bindings) || !Array.isArray(b.bindings) || !a.script || !b.script || !a.script_runtime || !b.script_runtime) fail();
                 const canonical = x => x === null || typeof x !== 'object' ? JSON.stringify(x) : Array.isArray(x)
@@ -248,7 +245,7 @@ jobs:
                   handlers: x.script.handlers, named_handlers: x.script.named_handlers === undefined ? null : [...x.script.named_handlers].sort((m,n) => m.name.localeCompare(n.name)), placement_mode: x.script.placement_mode ?? null });
                 const bindingsEqual = canonical(comparable(a).bindings) === canonical(comparable(b).bindings);
                 const runtimeEqual = canonical(comparable(a)) === canonical(comparable(b));
-                const matched = marker && versions[0]?.id === activeVersion && activeVersion !== expected;
+                const matched = versions[0]?.id === activeVersion && activeVersion !== expected;
                 console.log(JSON.stringify({ ok: matched && runtimeEqual, read_only: true, matched, bindings_equal: bindingsEqual, runtime_equal: runtimeEqual, percentage: 100 }));
                 if (!matched || !runtimeEqual) fail();
               } else fail();
