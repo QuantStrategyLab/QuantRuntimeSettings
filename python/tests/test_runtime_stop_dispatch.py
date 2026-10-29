@@ -116,6 +116,8 @@ class RuntimeStopDispatchTests(unittest.TestCase):
         def check(item):
             return settings.validate_runtime_control_receipt(self.request, "enable", request_id, 123, item)
         self.assertEqual(check(receipt), "applied")
+        self.assertEqual(check({**receipt, "continuity": "ROLLBACK_LKG"}), "applied")
+        self.assertEqual(check({**receipt, "continuity": "ACTIVE_REDUCED"}), "unknown")
         for field, value in (("run_id", "124"), ("request_id", "other"), ("attempt", "2"),
                              ("target_sha256", "b" * 64), ("enabled", False), ("operation", "disable")):
             with self.subTest(field=field):

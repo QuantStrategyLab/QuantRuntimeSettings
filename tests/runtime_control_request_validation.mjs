@@ -6,7 +6,9 @@ const require = createRequire(new URL('../web/strategy-switch-console/package.js
 const { Miniflare } = require('miniflare');
 const account = { key: 'synthetic', label: 'Synthetic', target_name: 'synthetic', variable_scope: 'repository',
   deployment_selector: 'synthetic-deployment', account_scope: 'synthetic-scope', account_selector: 'synthetic-account',
-  service_name: 'synthetic-service', broker_environment: 'paper', supported_domains: ['us_equity'] };
+  service_name: 'synthetic-service', supported_domains: ['us_equity'] };
+const incomplete = { ...account, key: 'incomplete', target_name: 'incomplete', account_selector: 'other-account',
+  deployment_selector: 'other-deployment', account_scope: 'other-scope', service_name: '' };
 const mf = new Miniflare({ modules: true, modulesRules: [{ type: 'ESModule', include: ['**/*.js'] }],
   scriptPath: fileURLToPath(new URL('../web/strategy-switch-console/worker.js', import.meta.url)), compatibilityDate: '2026-06-08',
   bindings: { STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ ibkr: [account] }) },
@@ -19,12 +21,19 @@ try {
     const response = await stub.fetch('https://runtime-instances/', { method: 'POST', body: JSON.stringify(body) });
     return { status: response.status, body: await response.json() };
   }
-  const initialized = await call({ action: 'initialize', expected_revision: 0, actor: 'synthetic-admin', account_options: { ibkr: [account] } });
+  const initialized = await call({ action: 'initialize', expected_revision: 0, actor: 'synthetic-admin', account_options: { ibkr: [account, incomplete] } });
   assert.equal(initialized.status, 200);
   const revision = initialized.body.revision;
-  const identity = { platform: 'ibkr', key: 'synthetic', target_name: 'synthetic', broker_environment: 'paper',
+  const identity = { platform: 'ibkr', key: 'synthetic', target_name: 'synthetic', broker_environment: null,
     account_selector: 'synthetic-account', deployment_selector: 'synthetic-deployment', account_scope: 'synthetic-scope', service_name: 'synthetic-service' };
   const common = { platform: 'ibkr', key: 'synthetic', request_id: '12345678-1234-4abc-8def-123456789abc' };
+  const read = await call({ ...common, action: 'runtime_control_read' });
+  assert.equal(read.status, 200);
+  assert.equal((await call({ platform: 'ibkr', key: 'incomplete', action: 'runtime_control_read' })).status, 409);
+  for (const changed of [{ broker_environment: 'live' }, { service_name: '' }, { account_selector: 'other' }]) {
+    const mismatch = await call({ ...common, action: 'runtime_control_claim', operation: 'enable', source_revision: revision, identity: { ...identity, ...changed } });
+    assert.equal(mismatch.status, 409);
+  }
   const claim = await call({ ...common, action: 'runtime_control_claim', operation: 'enable', source_revision: revision, identity });
   assert.equal(claim.body.state, 'reserved');
   const replay = await call({ ...common, action: 'runtime_control_claim', operation: 'enable', source_revision: revision, identity });
@@ -42,6 +51,11 @@ try {
   const env = { STRATEGY_SWITCH_RUNTIME_INSTANCES: ns, SESSION_SECRET: 'synthetic-signing',
     ALLOWED_GITHUB_LOGINS: 'synthetic-admin,synthetic-viewer', STRATEGY_SWITCH_ADMIN_LOGINS: 'synthetic-admin',
     RUNTIME_SETTINGS_DISPATCH_TOKEN: 'synthetic-token' };
+  const cookie = `qsl_switch_session=${await __test.makeSession('synthetic-admin', [], env)}`;
+  const response = await worker.fetch(new Request('https://console.example/api/runtime-stop?platform=ibkr&target_name=synthetic', { headers: { Cookie: cookie } }), env);
+  assert.equal(response.status, 200);
+  const unavailable = await worker.fetch(new Request('https://console.example/api/runtime-stop?platform=ibkr&target_name=incomplete', { headers: { Cookie: cookie } }), env);
+  assert.equal(unavailable.status, 409);
   const previousFetch = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (url, init) => { requests.push({ url: String(url), body: JSON.parse(init.body) }); return Response.json({ workflow_run_id: 777 }); };

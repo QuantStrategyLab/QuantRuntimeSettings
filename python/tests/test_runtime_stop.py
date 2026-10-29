@@ -86,6 +86,33 @@ class RuntimeStopTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runtime_settings.build_stop_assignments(self.request, {"RUNTIME_TARGET_JSON": json.dumps(changed)}, enabled=True)
 
+    def test_ibkr_inventory_updates_the_effective_existing_switch_location(self):
+        base = {"service": self.identity["service_name"], "runtime_target": self.current}
+        cases = [
+            ({"env": {"RUNTIME_TARGET_ENABLED": "true"}}, {"env": {"RUNTIME_TARGET_ENABLED": "false"}}),
+            ({"env": {"runtime_target_enabled": True}}, {"env": {"runtime_target_enabled": False}}),
+            ({"RUNTIME_TARGET_ENABLED": "true", "env": {"RUNTIME_TARGET_ENABLED": "true"}},
+             {"RUNTIME_TARGET_ENABLED": "false", "env": {"RUNTIME_TARGET_ENABLED": "true"}}),
+            ({"RUNTIME_TARGET_ENABLED": "", "env": {"RUNTIME_TARGET_ENABLED": "true"}},
+             {"RUNTIME_TARGET_ENABLED": "", "env": {"RUNTIME_TARGET_ENABLED": "false"}}),
+        ]
+        for source, expected in cases:
+            with self.subTest(source=source):
+                inventory = {"targets": [{**base, **source}]}
+                result = self.build({"CLOUD_RUN_SERVICE_TARGETS_JSON": json.dumps(inventory)})
+                self.assertEqual(json.loads(result[0].value)["targets"][0], {**base, **expected})
+
+    def test_ibkr_same_nested_switch_does_not_write_inventory(self):
+        inventory = {"targets": [{"service": self.identity["service_name"], "runtime_target": self.current,
+                                  "env": {"RUNTIME_TARGET_ENABLED": "true"}}]}
+        before = {"CLOUD_RUN_SERVICE_TARGETS_JSON": json.dumps(inventory)}
+        with patch.object(runtime_settings, "read_stop_variables", return_value=before), \
+                patch.object(runtime_settings.subprocess, "run") as run:
+            result = runtime_settings.execute_stop(self.request, apply=True, enabled=True)
+        self.assertTrue(result["configured"])
+        self.assertEqual(result["resource_write_audit"]["readback"], "skipped_unchanged")
+        run.assert_not_called()
+
     def test_missing_corrupt_ambiguous_or_mismatched_current_source_is_rejected(self):
         valid = {"service": self.identity["service_name"], "runtime_target": self.current}
         invalid_sources = [{}, {"RUNTIME_TARGET_JSON": "{"}, {"RUNTIME_TARGET_JSON": "null"},
