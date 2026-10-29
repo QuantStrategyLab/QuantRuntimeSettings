@@ -3986,7 +3986,7 @@ export class RuntimeInstances {
     if (!["ibkr", "schwab"].includes(platform) || typeof key !== "string" || !key) throw new HttpError("runtime_control_target_invalid", 400);
     const found = this.existingAccountInstance(platform, key);
     const identity = found.identity;
-    if (!accountSettingsIdentityIsComplete(identity)) throw new HttpError("runtime_control_identity_incomplete", 409);
+    if (!runtimeControlIdentityIsComplete(identity)) throw new HttpError("runtime_control_identity_incomplete", 409);
     const targetId = `${platform}/${identity.target_name}`;
     const latest = () => {
       const row = this.sql.exec("SELECT * FROM hk_stop_request WHERE target_id = ? ORDER BY requested_at DESC, rowid DESC LIMIT 1", targetId).toArray()[0];
@@ -6779,7 +6779,7 @@ async function runtimeControlSource(env, platform, targetName) {
   if (matches.length !== 1) throw new HttpError("runtime_control_identity_incomplete", 409);
   const item = matches[0];
   const identity = accountSettingsIdentity({ platform, key: item.key, config: item });
-  if (!accountSettingsIdentityIsComplete(identity)) throw new HttpError("runtime_control_identity_incomplete", 409);
+  if (!runtimeControlIdentityIsComplete(identity)) throw new HttpError("runtime_control_identity_incomplete", 409);
   return { item, identity, revision: source.revision };
 }
 
@@ -16521,6 +16521,13 @@ function accountSettingsIdentityIsComplete(identity) {
     || (identity.broker_environment !== "paper" && identity.broker_environment !== "live")) return false;
   return ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name"]
     .every((field) => typeof identity[field] === "string" && identity[field].trim() !== "");
+}
+
+function runtimeControlIdentityIsComplete(identity) {
+  return Boolean(identity && SUPPORTED_PLATFORMS.includes(identity.platform)
+    && [null, "live", "paper"].includes(identity.broker_environment)
+    && ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name"]
+      .every((field) => typeof identity[field] === "string" && identity[field].trim() !== ""));
 }
 
 function accountSettingsProfileName(value) {
