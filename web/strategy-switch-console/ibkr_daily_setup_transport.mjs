@@ -179,7 +179,7 @@ function additionalEvidence(nonce, runs) {
   for (let i=0;i<slots.length;i++) {
     const run=JSON.parse(gh(['api',`repos/${ibkr}/actions/runs/${runs[i]}`],{repo:ibkr}));
     if (run.status!=='completed' || run.conclusion!=='success' || run.run_attempt!==1 || run.event!=='workflow_dispatch'
-      || run.head_branch!=='main' || !String(run.path||'').startsWith('.github/workflows/primary-account-facts-readonly.yml')
+      || run.head_branch!=='main' || String(run.path||'').split('@')[0]!=='.github/workflows/primary-account-facts-readonly.yml'
       || !Number.isFinite(Date.parse(run.created_at))) throw Error('comparison_invalid');
     const jobs=JSON.parse(gh(['api',`repos/${ibkr}/actions/runs/${runs[i]}/jobs?per_page=100`],{repo:ibkr}));
     const candidates=jobs?.jobs?.filter(job=>job.name==='compare-additional-website-binding / inspect');
