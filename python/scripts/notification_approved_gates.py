@@ -124,9 +124,7 @@ def render_reasons(reasons, locale):
         if reason["reason_code"] == CONSECUTIVE:
             parts.append(f"连亏熔断：连续亏损 {observed}>{limit}" if locale == "zh" else f"Consecutive-loss gate: consecutive losses {observed}>{limit}")
         else:
-            equity = str(reason["equity_usd"])
-            rule = f"E*(0.01+0.04*2000/(2000+E)), E={equity} USD"
-            parts.append(f"日亏损上限：日亏损 {observed}≥{limit} USD（{rule}）" if locale == "zh" else f"Daily-loss gate: daily loss {observed}>={limit} USD ({rule})")
+            parts.append(f"相对基准净值的下降达到配置上限：{observed}≥{limit} USD，请核对基准净值和资金进出" if locale == "zh" else f"Decline relative to baseline net value reached the configured limit: {observed}>={limit} USD; check the baseline and cash flows")
     if not parts:
         return ""
     parts.append("本轮未下单" if locale == "zh" else "No order this run")

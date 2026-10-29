@@ -40,9 +40,9 @@ class ApprovedGateTests(unittest.TestCase):
                     self.assertEqual(receipt["runs"][0]["source_run_id"], row["source_run_id"])
                     for reason in reasons:
                         if reason == DAILY:
-                            self.assertIn("日亏损上限" if locale == "zh" else "Daily-loss gate", text)
+                            self.assertIn("相对基准净值的下降达到配置上限" if locale == "zh" else "Decline relative to baseline net value reached the configured limit", text)
                             self.assertIn("80≥60" if locale == "zh" else "80>=60", text)
-                            self.assertIn("E=2000", text)
+                            self.assertIn("核对基准净值和资金进出" if locale == "zh" else "check the baseline and cash flows", text)
                         else:
                             self.assertIn("6>5", text)
                     self.assertIn("本轮未下单" if locale == "zh" else "No order this run", text)
