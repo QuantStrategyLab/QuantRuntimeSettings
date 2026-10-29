@@ -14,14 +14,20 @@ export function firstExecutionAuthorization(registry, originals) {
   return {ibkr,execution:[]};
 }
 
-export function secondExecutionAuthorization(registry, originals, existing) {
+export function existingExecutionAuthorization(registry, originals, existing) {
   const execution=registry?.bindings?.filter(row=>['longbridge','firstrade','binance'].includes(row.platform));
-  if (!Array.isArray(execution) || execution.length!==1 || existing?.platform!=='longbridge' || existing.account_scope!=='HK') throw Error('invalid_existing_setup');
-  const row=execution[0], expected=`${existing.service_name}|${existing.strategy_profile}|hk`;
-  if (row.platform!==existing.platform || row.account_key!==existing.account_key || row.target_id!==existing.target_id
-      || row.source_binding_id!==existing.source_binding_id || row.strategy_profile!==existing.strategy_profile || row.target_key!==expected) throw Error('binding_not_unique');
-  const previous=firstExecutionAuthorization({...registry,bindings:registry.bindings.filter(item=>item!==row)},originals);
-  return {...previous,execution:[row.target_key]};
+  if (!Array.isArray(execution) || !Array.isArray(existing) || execution.length!==existing.length) throw Error('invalid_existing_setup');
+  const keys=existing.map(source=>{
+    const scope=source.platform==='longbridge' && source.account_scope==='HK'?'hk':source.account_scope;
+    const expected=`${source.service_name}|${source.strategy_profile}|${scope}`;
+    const rows=execution.filter(row=>row.platform===source.platform && row.account_key===source.account_key && row.target_id===source.target_id
+      && row.source_binding_id===source.source_binding_id && row.strategy_profile===source.strategy_profile && row.target_key===expected);
+    if (rows.length!==1) throw Error('binding_not_unique');
+    return rows[0].target_key;
+  });
+  if (new Set(keys).size!==keys.length) throw Error('binding_not_unique');
+  const previous=firstExecutionAuthorization({...registry,bindings:registry.bindings.filter(item=>!execution.includes(item))},originals);
+  return {...previous,execution:keys};
 }
 
 // Pure plan only. The caller supplies independently matched sources and the

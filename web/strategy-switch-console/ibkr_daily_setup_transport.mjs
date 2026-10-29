@@ -3,7 +3,8 @@ import {createHash} from 'node:crypto';
 import {executePrimaryDailySetup,executeAdditionalDailySetup,executeExecutionDailySetup} from './execute_ibkr_daily_setup.mjs';
 import {comparison,primaryBinding,matchAdditionalDailyBinding,matchExecutionDailyBinding} from './compare_ibkr_daily_binding.mjs';
 import {appendPrimaryDailyRegistration,prepareIbkrDailyVersion,prepareAdditionalDailySetup} from './prepare_ibkr_daily_version.mjs';
-import {prepareExecutionDailyRegistration,firstExecutionAuthorization,secondExecutionAuthorization} from './prepare_execution_daily_registration.mjs';
+import {prepareExecutionDailyRegistration,existingExecutionAuthorization} from './prepare_execution_daily_registration.mjs';
+import {matchBinanceDailyFromGitHub} from './binance_daily_source_reader.mjs';
 import {DEFAULT_STRATEGY_PROFILES} from './strategy_profiles_asset.js';
 import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace,selectInventoryMetadata,writerRunsFromPages} from './ibkr_daily_setup_checks.mjs';
 
@@ -268,8 +269,7 @@ async function runAdditionalMode() {
   }
 }
 
-// The previous successful three-slot setup established exactly these four IBKR
-// authorizations and an empty execution group. This first addition is HK only.
+// Reconstruct explicitly evidenced authorizations before adding one matched target.
 async function runFirstExecutionMode() {
   let phase='comparison';
   try {
@@ -278,20 +278,22 @@ async function runFirstExecutionMode() {
     phase='binding_read'; const state=await additionalState(nonce,evidence.digests);
     const digest=process.env.DAILY_EXECUTION_DIGEST;
     const platform=process.env.DAILY_EXECUTION_PLATFORM;
-    if (!['longbridge','firstrade'].includes(platform)) throw Error('invalid_input');
+    if (!['longbridge','firstrade','binance'].includes(platform)) throw Error('invalid_input');
     const profiles=state.profilesRaw===null?DEFAULT_STRATEGY_PROFILES:JSON.parse(state.profilesRaw);
-    const match=matchExecutionDailyBinding(state.options,state.bindings,profiles,platform,nonce,digest);
     const originals=[primaryBinding(state.options,state.bindings),...Object.values(state.matches)];
-    const existingDigest=process.env.DAILY_EXISTING_EXECUTION_DIGEST;
-    let authorizedTargets;
-    if (existingDigest) {
-      const existing=matchExecutionDailyBinding(state.options,state.bindings,profiles,'longbridge',nonce,existingDigest);
-      authorizedTargets=secondExecutionAuthorization(state.registry,originals,existing);
-      if (platform==='longbridge' && match.account_scope!=='sg') throw Error('invalid_input');
-    } else {
-      if (platform!=='longbridge' || match.account_scope!=='HK') throw Error('invalid_input');
-      authorizedTargets=firstExecutionAuthorization(state.registry,originals);
-    }
+    const matchSource=async(p,d)=>{
+      if (p!=='binance') return matchExecutionDailyBinding(state.options,state.bindings,profiles,p,nonce,d);
+      const wallet=JSON.parse(process.env.BINANCE_ACCOUNT_FACTS_BINDING_JSON || '');
+      const result=await matchBinanceDailyFromGitHub({options:state.options,wallet,nonce,expected:d,githubToken:ghToken});
+      if(result.status!=='matched') throw Error('binance_source_unavailable');
+      return result.binding;
+    };
+    const match=await matchSource(platform,digest);
+    const sourceSpec=process.env.DAILY_EXISTING_EXECUTION_SOURCES || '';
+    const pairs=sourceSpec?sourceSpec.split(',').map(x=>x.split(':')):[];
+    if (pairs.length>4 || pairs.some(x=>x.length!==2 || !['longbridge','firstrade','binance'].includes(x[0]) || !/^[a-f0-9]{64}$/.test(x[1]))) throw Error('invalid_input');
+    const existing=[]; for(const [p,d] of pairs) existing.push(await matchSource(p,d));
+    const authorizedTargets=existingExecutionAuthorization(state.registry,originals,existing);
     const scope=platform==='longbridge' && match.account_scope==='HK'?'hk':match.account_scope;
     const targetKey=`${match.service_name}|${match.strategy_profile}|${scope}`;
     state.planInput={registry:state.registry,matches:[match],targetKeys:[targetKey],authorizedTargets,
@@ -312,7 +314,7 @@ async function runFirstExecutionMode() {
     }
     phase='execute'; return await executeExecutionDailySetup(io,state);
   } catch (error) {
-    const allowed=new Set(['comparison_invalid','source_changed','deployment_invalid','kv_namespace_mismatch','module_mismatch','primary_binding_invalid','binding_not_unique','invalid_existing_setup','invalid_input','invalid_registry','target_mismatch','registration_collision','target_binding_invalid','invalid_bindings','state_changed','github_request_failed','cloudflare_request_failed','runs_incomplete','concurrent_writer','binding_missing','versions_invalid','secret_metadata_invalid']);
+    const allowed=new Set(['comparison_invalid','source_changed','deployment_invalid','kv_namespace_mismatch','module_mismatch','primary_binding_invalid','binding_not_unique','binance_source_unavailable','invalid_existing_setup','invalid_input','invalid_registry','target_mismatch','registration_collision','target_binding_invalid','invalid_bindings','state_changed','github_request_failed','cloudflare_request_failed','runs_incomplete','concurrent_writer','binding_missing','versions_invalid','secret_metadata_invalid']);
     return {status:'stopped',phase,reason:allowed.has(error?.message)?error.message:'unclassified',retry:false,business_writes:0};
   }
 }
