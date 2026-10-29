@@ -33,3 +33,10 @@ export function matchesConfigNamespace(resources, namespace) {
   const matches=resources.bindings.filter(binding=>binding?.name==='STRATEGY_SWITCH_CONFIG');
   return matches.length===1 && matches[0].type==='kv_namespace' && matches[0].namespace_id===namespace;
 }
+
+export function selectInventoryMetadata(variable, secretRows, sourceTime) {
+  const rows=variable === null ? secretRows : [variable];
+  if (!Array.isArray(rows) || rows.length!==1 || rows[0]?.name!=='CLOUD_RUN_SERVICE_TARGETS_JSON'
+      || !Number.isFinite(Date.parse(rows[0].updated_at)) || Date.parse(rows[0].updated_at)>sourceTime) throw Error('source_changed');
+  return rows[0];
+}
