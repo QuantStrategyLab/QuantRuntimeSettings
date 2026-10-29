@@ -82,10 +82,11 @@ function sources(overrides = {}) {
   };
 }
 
-test("pending option layer has one editable label across draft states", () => {
-  assert.equal((accountsSource.match(/t\("期权层草案"\)/g) || []).length, 1);
-  assert.match(accountsSource, /<label className="cash-floor-field">\{t\("期权层草案"\)\}\s*<select value=\{optionValue\}/);
-  assert.match(accountsSource, /controller\.revertOption\(\)/);
+test("retired option controls are absent while income remains editable", () => {
+  assert.doesNotMatch(accountsSource, /t\("期权层草案"\)/);
+  assert.doesNotMatch(accountsSource, /saveScoped\("option"/);
+  assert.match(accountsSource, /saveScoped\("income"/);
+  assert.match(accountsSource, /保存时会清除旧期权草稿，不会更改实盘配置。/);
 });
 
 test("runtime mode normalization keeps paper identity while dispatch stays fail closed", () => {
