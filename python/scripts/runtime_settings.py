@@ -1346,7 +1346,22 @@ def build_stop_assignments(request: dict[str, Any], current_variables: dict[str,
             name, value = "RUNTIME_TARGET_ENABLED", enabled_value
         else:
             # The other per-service consumers prefer the inventory override.
-            entry["RUNTIME_TARGET_ENABLED"] = enabled_value
+            if identity["platform_id"] == "ibkr":
+                nested = entry.get("env") if isinstance(entry.get("env"), dict) else {}
+                # Match IBKR's upper-case then lower-case, top-level then env precedence.
+                candidates = [(container, key) for key in ("RUNTIME_TARGET_ENABLED", "runtime_target_enabled")
+                              for container in (entry, nested)]
+                location = next(((container, key) for container, key in candidates
+                                 if key in container and container[key] is not None
+                                 and (not isinstance(container[key], str) or container[key].strip())), None)
+                container, key = location if location is not None else (entry, "RUNTIME_TARGET_ENABLED")
+                current = container.get(key)
+                normalized = str(current).strip().lower()
+                same = normalized in ({"true", "1", "yes", "on"} if enabled else {"false", "0", "no", "off"})
+                if not same:
+                    container[key] = enabled if isinstance(current, bool) else enabled_value
+            else:
+                entry["RUNTIME_TARGET_ENABLED"] = enabled_value
             name, value = inventory_name, compact_json(inventory)
     else:
         if not matches(parse("RUNTIME_TARGET_JSON")):
@@ -1813,7 +1828,7 @@ def validate_runtime_control_receipt(request: dict[str, Any], operation: str, re
                 or receipt.get("enabled") is not (operation == "enable")
                 or not re.fullmatch(r"[0-9a-f]{64}", str(receipt.get("revision_sha256") or ""))):
             return "unknown"
-        if operation == "enable" and receipt.get("continuity") != "ACTIVE_LKG":
+        if operation == "enable" and receipt.get("continuity") not in {"ACTIVE_LKG", "ROLLBACK_LKG"}:
             return "protected" if receipt.get("continuity") in {"PAUSED", "RECONCILE_ONLY"} else "unknown"
         if receipt.get("scheduler_state") != ("ENABLED" if operation == "enable" else "PAUSED"):
             return "partial"
