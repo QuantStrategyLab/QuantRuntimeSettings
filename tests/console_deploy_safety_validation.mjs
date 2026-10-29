@@ -220,7 +220,7 @@ const ibkrSource = "aaa46a811a7cfa863f90261d516b197e5e554779";
 const integratedSource = "0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a";
 const cpuSource = "974354b98ebe0cd55931baa03034d887d4fac560";
 const statusSource = "68e3d4b69e706e2100f860c473ec657e9baf05ba";
-const dailySource = "9ad9a396956ec7d84c9ccbb43044e80502f02e82";
+const dailySource = "4b6cbedc731d3352a9c9dbe4f57fc2b948207ef6";
 const ibkrTree = "3ac93c0b2caf30a650ab46d4bf62220e45582a46";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
@@ -232,7 +232,7 @@ const selectShell = shellBody(selectionStep);
 const fakeGit = `git() {
   printf '%s\\n' "$*" >> "$TRACE"
   case "$*" in
-    'fetch --no-tags origin refs/heads/codex/website-native-daily-gap-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-history-cpu-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-incomplete-release-candidate-20261029') return 0 ;;
+    'fetch --no-tags origin refs/heads/codex/website-native-daily-fixed-clock-20261029'|'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-history-cpu-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-incomplete-release-candidate-20261029') return 0 ;;
     'rev-parse FETCH_HEAD') printf '%s' "$FAKE_FETCH_HEAD" ;;
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
     'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
@@ -334,7 +334,7 @@ for(const delta of [{SYNC_SECRETS:"true"},{SYNC_STRATEGY_PROFILES:"true"},{RELEA
  assert.equal(sourceCase({...statusEnv,...delta},false).selected,false);
 
 const dailyEnv = {...statusEnv, RELEASE_SOURCE_SHA:dailySource, FAKE_FETCH_HEAD:dailySource,
- FAKE_TREE:"a266aa6cd4a75c401d8dbdfaa8da30ec679f4c97", FAKE_PARENT:statusSource,
+ FAKE_TREE:"5084d021cce381d06c2185b4b90998f69bbe049c", FAKE_PARENT:"9ad9a396956ec7d84c9ccbb43044e80502f02e82",
  FAKE_PR764_BLOB:"3dfc5242064c99205203b5efd1ff31cacb61f046", FAKE_SELECTED_HEAD:dailySource};
 assert.equal(sourceCase(dailyEnv,true).selected,true);
 for(const delta of [{SYNC_SECRETS:"true"},{SYNC_STRATEGY_PROFILES:"true"},{RELEASE_FRONTEND_ASSETS:"false"},
