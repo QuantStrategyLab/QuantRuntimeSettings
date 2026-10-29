@@ -86,6 +86,11 @@ export function ControlsTab({
     : control && (control.phase === "unknown" || control.phase === "partial")
       ? t("controls.unknown_result")
       : t("controls.submitted");
+  // Success comes only from the server readback: applied phase, exact platform confirmation, known action.
+  const appliedResult = control?.phase === "applied" && control.platform_applied === true
+    && (control.action === "enable" || control.action === "disable")
+      ? t(control.action === "enable" ? "controls.result.enable" : "controls.result.disable")
+      : null;
 
   const inspectControl = async () => {
     try {
@@ -300,6 +305,7 @@ export function ControlsTab({
     <div className="section-stack">
       {isRuntimeControlPlatform && control?.phase === "rejected" && control.unavailable_reason && <p className="card-note">{reasonText(control.unavailable_reason)}</p>}
       {isRuntimeControlPlatform && control?.phase === "protected" && <p className="card-note">{t("controls.protected")}</p>}
+      {isRuntimeControlPlatform && appliedResult && <p className="card-note">{appliedResult}</p>}
       <DangerZone>
         {ACTION_ORDER.map(({ name, titleKey, summaryKey }) => {
           const action = data.actions[name];
