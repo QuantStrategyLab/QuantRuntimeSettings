@@ -1947,7 +1947,45 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
             return "unknown"
         archive = get(f"actions/artifacts/{matches[0]['id']}/zip", binary=True)
         receipt = read_runtime_control_receipt_zip(archive, identity["platform_id"])
-        return validate_runtime_control_receipt(request, operation, request_id, run_id, receipt)
+        result = validate_runtime_control_receipt(request, operation, request_id, run_id, receipt)
+        # This reviewed version rejects this specific candidate before traffic
+        # adoption. It may already have created a no-traffic revision, so this
+        # says only that the request was not adopted, not that nothing was written.
+        if (result == "unknown" and identity["platform_id"] == "ibkr" and operation == "enable"
+                and run.get("head_sha") == "49af5187aabace9dec41059620ecc4f16aa76daf"
+                and run.get("conclusion") == "failure" and receipt.get("status") == "unknown"
+                and receipt.get("request_id") == request_id and str(receipt.get("run_id")) == str(run_id)
+                and str(receipt.get("attempt")) == "1" and receipt.get("operation") == operation
+                and receipt.get("target_sha256") == hashlib.sha256(identity["service_name"].encode("utf-8")).hexdigest()):
+            jobs = get(f"actions/runs/{run_id}/jobs?per_page=100")
+            if not isinstance(jobs.get("jobs"), list) or jobs.get("total_count", 101) > 100:
+                return "unknown"
+            candidates = [job for job in jobs["jobs"] if job.get("conclusion") == "failure"
+                          and job.get("run_id") == run_id and job.get("run_attempt") == 1]
+            if len(candidates) != 1 or type(candidates[0].get("id")) is not int:
+                return "unknown"
+            steps = candidates[0].get("steps")
+            if not isinstance(steps, list):
+                return "unknown"
+            traffic = [step for step in steps if step.get("name") == "Reconcile Cloud Run traffic"]
+            scheduler = [step for step in steps if step.get("name") == "Reconcile existing runtime switch scheduler"]
+            prepare = [step for step in steps if step.get("name") == "Prepare env-only revision and runtime switch"]
+            if (len(traffic) != 1 or traffic[0].get("conclusion") != "failure"
+                    or len(scheduler) != 1 or scheduler[0].get("conclusion") != "skipped"
+                    or len(prepare) != 1 or prepare[0].get("conclusion") != "success"):
+                return "unknown"
+            start = datetime.fromisoformat(traffic[0]["started_at"].replace("Z", "+00:00"))
+            end = datetime.fromisoformat(traffic[0]["completed_at"].replace("Z", "+00:00"))
+            if start.tzinfo is None or end.tzinfo is None or end < start:
+                return "unknown"
+            log = get(f"actions/jobs/{candidates[0]['id']}/logs", binary=True).decode("utf-8")
+            pattern = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z error: switch candidate changed service annotations or labels$")
+            found = [match for line in log.splitlines() if (match := pattern.fullmatch(line))]
+            if len(found) == 1:
+                when = datetime.fromisoformat(found[0].group(1) + "+00:00")
+                if start.replace(microsecond=0) <= when <= end.replace(microsecond=0):
+                    return "rejected"
+        return result
     except (ValueError, TypeError, AttributeError, KeyError):
         return "unknown"
 
