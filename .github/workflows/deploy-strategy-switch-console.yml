@@ -515,6 +515,19 @@ jobs:
             [ "$RELEASE_SOURCE_SHA" = "aaa46a811a7cfa863f90261d516b197e5e554779" ] && [ "$frontend_mode" = true ] && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = true ] || exit 2 ;;
             *) exit 2 ;; esac
           case "$frontend_mode" in true|false) ;; *) exit 2 ;; esac
+          if [ "$RELEASE_SOURCE_SHA" = "411356d34dad4a33cbdc5bc6f028cccb72b143df" ]; then
+            [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
+              && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
+              && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = true ] && [ "${IBKR_CANDIDATE_RESUME:-off}" = off ] || exit 2
+            [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 2
+            git fetch --no-tags origin refs/heads/codex/website-account-declarations-reviewed-20261029
+            [ "$(git rev-parse FETCH_HEAD)" = "$RELEASE_SOURCE_SHA" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^")" = "d841fb2ccdd76da43e8a637d821b14a375cb8f79" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "3a6f25c65b116345a3953e6e95f59c87a07105ea" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" = "b6fbd2f8def693ccf48f09f56360180d16497268" ] || exit 2
+            git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
+            exit 0
+          fi
           if [ "$RELEASE_SOURCE_SHA" = "b051154dec10527c8bc4c965ff67a29f50104ccc" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
               && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
@@ -720,6 +733,12 @@ jobs:
           cpu_candidate="974354b98ebe0cd55931baa03034d887d4fac560"
           status_candidate="68e3d4b69e706e2100f860c473ec657e9baf05ba"
           daily_candidate="4b6cbedc731d3352a9c9dbe4f57fc2b948207ef6"
+          declaration_candidate="411356d34dad4a33cbdc5bc6f028cccb72b143df"
+          if [ "$(git rev-parse HEAD)" = "$declaration_candidate" ]; then
+            [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "b6fbd2f8def693ccf48f09f56360180d16497268" ] || exit 2
+            [ -z "$(git diff --name-only "$declaration_candidate")" ] && [ -z "$(git ls-files --others --exclude-standard)" ] || exit 2
+            exit 0
+          fi
           returns_candidate="b051154dec10527c8bc4c965ff67a29f50104ccc"
           if [ "$(git rev-parse HEAD)" = "$returns_candidate" ]; then
             [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "be38cd35f62a9314f269170e467325d5059a692d" ] || exit 2
@@ -1070,12 +1089,13 @@ jobs:
             if (process.env.GITHUB_REF !== 'refs/heads/main' || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
             const pr764 = process.env.RELEASE_SOURCE_SHA === '20dad166be317dd0d57e492ed06e56dfb82b7aef';
             const ibkrDaily = process.env.RELEASE_SOURCE_SHA === 'aaa46a811a7cfa863f90261d516b197e5e554779';
+            const declarationCandidate = process.env.RELEASE_SOURCE_SHA === '411356d34dad4a33cbdc5bc6f028cccb72b143df';
             const returnsCandidate = process.env.RELEASE_SOURCE_SHA === 'b051154dec10527c8bc4c965ff67a29f50104ccc';
             const settingsCandidate = process.env.RELEASE_SOURCE_SHA === '3782a3e87260f10d101cb5ca79b20e1da9ada078';
             const dailyCandidate = process.env.RELEASE_SOURCE_SHA === '4b6cbedc731d3352a9c9dbe4f57fc2b948207ef6';
             const statusCandidate = process.env.RELEASE_SOURCE_SHA === '68e3d4b69e706e2100f860c473ec657e9baf05ba';
             const cpuCandidate = process.env.RELEASE_SOURCE_SHA === '974354b98ebe0cd55931baa03034d887d4fac560';
-            const integrated = returnsCandidate || settingsCandidate || dailyCandidate || statusCandidate || cpuCandidate || process.env.RELEASE_SOURCE_SHA === '0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a';
+            const integrated = declarationCandidate || returnsCandidate || settingsCandidate || dailyCandidate || statusCandidate || cpuCandidate || process.env.RELEASE_SOURCE_SHA === '0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a';
             const betaRelease = ibkrDaily || integrated;
             const resume = process.env.IBKR_CANDIDATE_RESUME ?? 'off';
             if (!['off','verify','activate'].includes(resume) || (resume !== 'off' && !ibkrDaily)) fail('invalid_resume');
@@ -1248,7 +1268,7 @@ jobs:
             }
             stage = 'pre_release_active'; const { id: priorDeployment, version: prior } = await active();
             if (ibkrDaily && prior !== '06043e24-f8c9-4129-8c59-abb9957217bf') fail('ibkr_active_version_mismatch');
-            if (integrated && prior !== (returnsCandidate ? '1b41d7d3-a703-4ee6-8f37-c677af8518c1' : settingsCandidate ? '7ffe9227-686a-48ad-baa9-72665969d918' : dailyCandidate ? '14f0c9c2-09f9-40e9-bfbe-17165f499495' : statusCandidate ? '175ba768-484a-4fe6-9cea-e5a101bc1618' : cpuCandidate ? '90a0c8e9-b5ad-447a-998f-5d585ec28063' : '600ec84d-a804-4ede-8d1d-0a34819ce46a')) fail('integrated_active_version_mismatch');
+            if (integrated && prior !== (declarationCandidate ? '178d3ef5-e161-4b92-99fb-a455f53b57db' : returnsCandidate ? '1b41d7d3-a703-4ee6-8f37-c677af8518c1' : settingsCandidate ? '7ffe9227-686a-48ad-baa9-72665969d918' : dailyCandidate ? '14f0c9c2-09f9-40e9-bfbe-17165f499495' : statusCandidate ? '175ba768-484a-4fe6-9cea-e5a101bc1618' : cpuCandidate ? '90a0c8e9-b5ad-447a-998f-5d585ec28063' : '600ec84d-a804-4ede-8d1d-0a34819ce46a')) fail('integrated_active_version_mismatch');
             stage = 'pre_release_configuration'; const old = resources(await request(`/versions/${prior}`), prior);
             stage = 'bundle';
             const bundleDir = `${process.env.RUNNER_TEMP}/console-frontend-bundle`;
@@ -1276,7 +1296,7 @@ jobs:
             // version; the older script-version API only supports latest.
             const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name, ...(betaRelease ? {version_id: prior} : {}) })),
               compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
-              annotations: { 'workers/message': returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a with fixed frontend 96363633; retained bindings' } };
+              annotations: { 'workers/message': declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a with fixed frontend 96363633; retained bindings' } };
             for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
             const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
             form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
@@ -1348,7 +1368,7 @@ jobs:
             } else {
             stage = 'activate'; deployAttempted = true;
             const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
-              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a and frontend 96363633; retained configuration' } }));
+              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a and frontend 96363633; retained configuration' } }));
             if (!object(deployment) || !Object.hasOwn(deployment, 'id')) fail('missing_id');
             if (!isUuid(deployment.id)) fail('invalid_id');
             const deploymentId = deployment.id;
