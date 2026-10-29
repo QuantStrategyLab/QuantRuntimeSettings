@@ -91,7 +91,7 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
       // The dedicated Binance report is one physical account; a card that
       // merges distinct keys stays unverified instead of borrowing one row.
       const binanceKey = group.platform === "binance" ? cardAccountKey(account.rows, group.platform) : null;
-      return { account, canonical, representative, environment, declarationConflict, isDeclared: !trustedSignal && !!environment, binanceKey };
+      return { account, canonical, representative, environment, declarationConflict, binanceKey };
     });
     const sections = ENVIRONMENT_ORDER
       .map(environment => ({ environment, cards: cards.filter(card => sectionOf(card.environment) === environment) }))
@@ -111,11 +111,10 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
             : null}
         </div>
         {section.environment !== "live" && <p className="card-note account-environment-note">{t(`accounts.environment.${section.environment}_note`)}</p>}
-        <div className="account-grid">{section.cards.map(({ account, canonical, representative, environment, declarationConflict, isDeclared, binanceKey }) => <article className="card account-group-card" key={account.identity}>
+        <div className="account-grid">{section.cards.map(({ account, canonical, representative, environment, declarationConflict, binanceKey }) => <article className="card account-group-card" key={account.identity}>
           <div className="account-card-head">
             <h3 className="account-broker-title">{names.account(account.rows[0].account_alias, group.platform)}</h3>
             <EnvironmentBadge environment={environment} />
-            {isDeclared && <span>{t("accounts.declaration.source")}</span>}
           </div>
           {declarationConflict && <p className="accounts-inline-note error" role="alert">{t("accounts.declaration.conflict_notice")}</p>}
           {facts && <div className="account-card-facts">

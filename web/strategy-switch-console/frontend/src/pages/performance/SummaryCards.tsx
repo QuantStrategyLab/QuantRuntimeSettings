@@ -17,6 +17,14 @@ export interface SummaryCardsProps {
   platform: string | undefined;
   /** The page owns the single summary read; cards never fetch their own copy. */
   state: SummaryState;
+  chartAvailable: boolean;
+}
+
+function summaryIsBlank(data: SummaryResponse): boolean {
+  return data.twr_return_percent === null && data.amount === null && data.max_drawdown.percent === null
+    && (data.per_currency ?? []).every(currency => currency.max_drawdown.percent === null)
+    && data.excess_returns.every(item => item.percentage_points === null)
+    && data.best_day === null && data.worst_day === null;
 }
 
 /** The shared summary carries the state once; unavailable values themselves stay compact. */
@@ -161,7 +169,7 @@ function DayCard({ data, field, titleKey }: { data: SummaryResponse; field: "bes
   return <KpiCard title={title} value={value} sub={`${day.date}${kind}`} />;
 }
 
-export function SummaryCards({ scope, platform, state }: SummaryCardsProps) {
+export function SummaryCards({ scope, platform, state, chartAvailable }: SummaryCardsProps) {
   const t = useT();
   const { options } = useScope();
   const policy = benchmarkPolicy(scope, platform, options);
@@ -190,14 +198,18 @@ export function SummaryCards({ scope, platform, state }: SummaryCardsProps) {
           {data.as_of && <AsOfStamp value={data.as_of} />}
         </div>
       )}
-      <div className="perf-kpi-grid">
-        <TwrCard data={data} />
-        <AmountCard data={data} />
-        <DrawdownCard data={data} />
-        <ExcessCard data={data} policy={policy} />
-        <DayCard data={data} field="best_day" titleKey="perf.card.best_day" />
-        <DayCard data={data} field="worst_day" titleKey="perf.card.worst_day" />
-      </div>
+      {chartAvailable && summaryIsBlank(data) ? (
+        <p className="metric-note perf-summary-note">{t("perf.combined_metrics_unavailable")}</p>
+      ) : (
+        <div className="perf-kpi-grid">
+          <TwrCard data={data} />
+          <AmountCard data={data} />
+          <DrawdownCard data={data} />
+          <ExcessCard data={data} policy={policy} />
+          <DayCard data={data} field="best_day" titleKey="perf.card.best_day" />
+          <DayCard data={data} field="worst_day" titleKey="perf.card.worst_day" />
+        </div>
+      )}
     </div>
   );
 }

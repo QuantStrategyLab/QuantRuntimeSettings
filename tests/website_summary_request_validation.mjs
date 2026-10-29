@@ -32,6 +32,8 @@ try {
   const summaries = paths.filter(path => path.startsWith("/api/performance/summary?"));
   assert.equal(summaries.length, 1, `expected one current-range summary, got ${summaries.length}`);
   assert.ok(summaries[0].includes("range="));
+  const returns = paths.filter(path => path.startsWith("/api/performance/returns?"));
+  assert.equal(returns.length, 1, `expected one current-range returns request, got ${returns.length}`);
   console.log("website_summary_request_validation: PASS (one summary request for the rendered page; synthetic only)");
 } finally {
   globalThis.fetch = originalFetch;

@@ -4,10 +4,10 @@ import { useLanguage, useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { formatPercent } from "../../lib/format";
 import { RangeSelector } from "../../components/RangeSelector";
-import { loadPerformanceSummary } from "../../api/endpoints";
+import { loadPerformanceReturns, loadPerformanceSummary } from "../../api/endpoints";
 import type { Range } from "../../api/contracts";
 import { SummaryCards } from "./SummaryCards";
-import { ReturnsCard } from "./ReturnsCard";
+import { ReturnsCard, accountDailyPoints } from "./ReturnsCard";
 import { AssetsCard } from "./AssetsCard";
 import { CalendarCard } from "./CalendarCard";
 import { PerformanceTabs } from "./PerformanceTabs";
@@ -30,6 +30,9 @@ export default function PerformancePage() {
   // buttons; other ranges are read only after selection, never in parallel and
   // never cached.
   const summary = useApi(() => loadPerformanceSummary(scope, range, platform), [scope, platform, range, epoch]);
+  const returns = useApi(() => loadPerformanceReturns(scope, range, platform), [scope, platform, range, epoch]);
+  const chartAvailable = scope === "all" && returns.phase === "ready" && (returns.data.per_account ?? []).some(account =>
+    renderableStatus(account.status) && account.return_kind === "twr" && accountDailyPoints(account.points).length > 0);
   const currentReturn = summary.phase === "ready" && renderableStatus(summary.data.status) && summary.data.twr_return_percent !== null
     ? formatPercent(summary.data.twr_return_percent, language)
     : null;
@@ -48,8 +51,8 @@ export default function PerformancePage() {
         </div>
       </div>
       <p className="page-subtitle">{scopeLabel} · {t(`perf.range.${range}`)}</p>
-      <SummaryCards scope={scope} platform={platform} state={summary} />
-      <ReturnsCard scope={scope} platform={platform} range={range} epoch={epoch} />
+      <SummaryCards scope={scope} platform={platform} state={summary} chartAvailable={chartAvailable} />
+      <ReturnsCard scope={scope} platform={platform} state={returns} />
       <div className="perf-duo-grid">
         <AssetsCard scope={scope} platform={platform} range={range} epoch={epoch} />
         <CalendarCard scope={scope} platform={platform} range={range} epoch={epoch} />
