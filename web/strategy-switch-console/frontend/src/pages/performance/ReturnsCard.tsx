@@ -55,6 +55,14 @@ interface BenchmarkView {
   disabled: BenchmarkAvailability[];
 }
 
+interface AccountDailySeries {
+  key: string;
+  platform: string;
+  accountAlias: string;
+  currency: string | null;
+  points: Point[];
+}
+
 const NO_BENCHMARKS: BenchmarkView = { series: [], defaults: [], disabled: [] };
 
 /**
@@ -66,6 +74,40 @@ function isNativeDailyOnly(response: ReturnsResponse | null): boolean {
   const coverage = response.coverage;
   if (!coverage || typeof coverage !== "object" || Array.isArray(coverage)) return false;
   return (coverage as PerformanceCoverage).native_daily_only === true;
+}
+
+function dayTime(date: string): number | null {
+  if (typeof date !== "string" || date === "") return null;
+  const time = Date.parse(`${date}T00:00:00Z`);
+  return Number.isFinite(time) ? time : null;
+}
+
+/**
+ * Broker daily returns are already real percentages, so 0 and negative days are kept as-is.
+ * A missing or unusable day is dropped and the line breaks; the cumulative value is never
+ * compounded to fill it, and duplicate dates are left out rather than merged.
+ */
+function accountDailyPoints(points: Point[]): Point[] {
+  const kept: Point[] = [];
+  const counts = new Map<string, number>();
+  for (const point of points) counts.set(point.date, (counts.get(point.date) ?? 0) + 1);
+  let interrupted = false;
+  for (const point of points) {
+    const native = point.daily_return_percent;
+    if (dayTime(point.date) === null || counts.get(point.date) !== 1 || typeof native !== "number" || !Number.isFinite(native) || native < -100) {
+      // Dropping a day must not bridge it: the next kept point starts a new segment.
+      interrupted = true;
+      continue;
+    }
+    kept.push({
+      date: point.date,
+      value: point.value,
+      daily_return_percent: native,
+      breakBefore: point.breakBefore === true || interrupted,
+    });
+    interrupted = false;
+  }
+  return kept;
 }
 
 function chartLabelKey(view: ReturnView, nativeDailyOnly: boolean): string {
@@ -179,6 +221,26 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
   const effectiveMode: Mode = nativeDailyOnly ? "daily" : mode;
   const policy = benchmarkPolicy(scope, platform, options);
   const nativeAccounts = data?.per_account?.filter(account => renderableStatus(account.status) && account.return_kind === "twr" && account.points.length > 0) ?? [];
+
+  // All scope: every verified account keeps its own independent daily series. Nothing is
+  // merged across accounts or currencies, and no account is restated as a portfolio value.
+  const accountSeries: AccountDailySeries[] = [];
+  if (scope === "all" && data?.per_account) {
+    for (const account of data.per_account) {
+      if (!renderableStatus(account.status) || account.return_kind !== "twr") continue;
+      const points = accountDailyPoints(account.points);
+      if (points.length === 0) continue;
+      accountSeries.push({
+        key: `${account.platform}:${account.account_alias}`,
+        platform: account.platform,
+        accountAlias: account.account_alias,
+        currency: account.currency ?? null,
+        points,
+      });
+    }
+  }
+  const chartedAccounts = new Set(accountSeries.map(item => item.key));
+  const unchartedNativeAccounts = nativeAccounts.filter(account => !chartedAccounts.has(`${account.platform}:${account.account_alias}`));
 
   const multi = Boolean(data && scope === "all" && data.per_currency.length > 0
     && (renderableStatus(data.status) || data.unavailable_reason === "mixed_currency"));
@@ -351,7 +413,31 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
         </span>
       </div>
       {body}
-      {nativeAccounts.length > 0 ? <p className="card-note" data-native-return-accounts={nativeAccounts.length}>{t("perf.native_return_accounts", { accounts: nativeAccounts.map(account => `${names.platform(account.platform)} · ${names.account(account.account_alias, account.platform)}`).join("、") })}</p> : null}
+      {accountSeries.length > 0 && (
+        <section className="perf-account-daily" data-account-daily-count={accountSeries.length}>
+          <div className="perf-card-head">
+            <h3 className="card-title">{t("perf.per_account_daily_title")}</h3>
+          </div>
+          <p className="card-note">{t("perf.per_account_daily_note")}</p>
+          {accountSeries.map(account => {
+            const label = `${names.platform(account.platform)} · ${names.account(account.accountAlias, account.platform)}`;
+            return (
+              <div key={account.key} className="perf-account-daily-item" data-account={account.accountAlias}>
+                <p className="card-note">
+                  <span className="perf-kind">{label}</span>
+                  {account.currency && <span className="perf-currency"> · {account.currency}</span>}
+                </p>
+                <LineChart
+                  series={[{ id: "main", label, color: "var(--accent)", points: account.points, primary: true }]}
+                  mode="daily"
+                  ariaLabel={`${t("perf.per_account_daily_title")} · ${label}`}
+                />
+              </div>
+            );
+          })}
+        </section>
+      )}
+      {unchartedNativeAccounts.length > 0 ? <p className="card-note" data-native-return-accounts={unchartedNativeAccounts.length}>{t("perf.native_return_accounts", { accounts: unchartedNativeAccounts.map(account => `${names.platform(account.platform)} · ${names.account(account.account_alias, account.platform)}`).join("、") })}</p> : null}
       <MethodNote titleKey="perf.how_calculated" bodyKey={methodBodyKey} />
     </div>
   );
