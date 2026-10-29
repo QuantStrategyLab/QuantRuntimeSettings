@@ -42,7 +42,7 @@ export function runActivityState(account: SummaryAccount): RunActivityState {
     const count = account.read_error_count;
     if (typeof count !== "number" || !Number.isSafeInteger(count) || count <= 0) return "unknown";
     if (!Array.isArray(codes) || codes.length !== count) return "unknown";
-    const incompleteCodes = ["coverage_unconfirmed", "report_rejected", "read_truncated", "listing_truncated"];
+    const incompleteCodes = ["coverage_unconfirmed", "report_rejected", "read_truncated", "listing_truncated", "schedule_unverified"];
     const failedCodes = ["report_read_error", "read_failed", "list_failed", "source_read_error"];
     if (!codes.every(code => typeof code === "string"
       && (incompleteCodes.includes(code) || failedCodes.includes(code)))) return "unknown";
