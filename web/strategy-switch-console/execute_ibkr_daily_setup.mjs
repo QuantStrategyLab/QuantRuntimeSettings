@@ -1,6 +1,7 @@
 import {randomBytes, createHash, timingSafeEqual} from 'node:crypto';
 import {primaryBinding, comparison} from './compare_ibkr_daily_binding.mjs';
 import {appendPrimaryDailyRegistration, prepareIbkrDailyVersion, validateIbkrDailyVersion, prepareAdditionalDailySetup, validateAdditionalDailyVersion} from './prepare_ibkr_daily_version.mjs';
+import {prepareExecutionDailyRegistration} from './prepare_execution_daily_registration.mjs';
 
 const ACTIVE = '2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee';
 const MODULE_SHA = 'd1e10f49c2a537733751ac8418384c1bffa52763cb959521f5c5bf7940e2149e';
@@ -84,6 +85,31 @@ export async function executeAdditionalDailySetup(io, {nonce, digests}) {
     await io.writeGithubSecret('IBKR_RUNTIME_DAILY_TARGET_KEY',JSON.stringify(plan.mapping));attempted=false;
     await io.verifyAdditionalGithubSecretMetadata(before.startedAt);
     return {status:'configured',bindings_equal:true,runtime_equal:true,additional_count:3,effects};
+  } catch {
+    return {status:'stopped',phase,outcome:attempted?'unknown_requires_readback':'not_attempted_or_check_failed',effects,retry:false};
+  }
+}
+
+export async function executeExecutionDailySetup(io, before) {
+  let phase='preflight', attempted=false, uploaded=null;
+  const effects=[];
+  try {
+    const plan=prepareExecutionDailyRegistration(before.planInput);
+    await io.executionUnchanged(before);
+    phase='version_upload'; attempted=true; effects.push(phase); uploaded=await io.uploadVersion(plan.version); attempted=false;
+    const candidate=await io.readVersion(uploaded);
+    if (candidate.moduleBase64!==before.moduleBase64) throw Error('candidate_module');
+    validateAdditionalDailyVersion(before.resources,candidate.resources,false);
+    await io.executionUnchanged(before,{uploaded});
+    phase='registry_write'; attempted=true; effects.push(phase); await io.writeRegistry(plan.registry); attempted=false;
+    await io.verifyRegistry(plan.registry);
+    await io.executionUnchanged(before,{uploaded,registry:plan.registry});
+    phase='activate'; attempted=true; effects.push(phase); const deployment=await io.activate(uploaded); attempted=false;
+    await io.verifyDeployment(uploaded,deployment);
+    const active=await io.readVersion(uploaded);
+    if (active.moduleBase64!==before.moduleBase64) throw Error('active_module');
+    validateAdditionalDailyVersion(before.resources,active.resources,true);
+    return {status:'configured',bindings_equal:true,runtime_equal:true,additional_count:1,effects};
   } catch {
     return {status:'stopped',phase,outcome:attempted?'unknown_requires_readback':'not_attempted_or_check_failed',effects,retry:false};
   }
