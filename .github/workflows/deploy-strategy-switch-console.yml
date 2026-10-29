@@ -550,6 +550,19 @@ jobs:
             [ "$RELEASE_SOURCE_SHA" = "aaa46a811a7cfa863f90261d516b197e5e554779" ] && [ "$frontend_mode" = true ] && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = true ] || exit 2 ;;
             *) exit 2 ;; esac
           case "$frontend_mode" in true|false) ;; *) exit 2 ;; esac
+          if [ "$RELEASE_SOURCE_SHA" = "46bde0621b77db35ae32bd4bcaa894aa1480adc5" ]; then
+            [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
+              && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
+              && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = true ] && [ "${IBKR_CANDIDATE_RESUME:-off}" = off ] || exit 2
+            [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 2
+            git fetch --no-tags origin refs/heads/codex/website-control-applied-20261029
+            [ "$(git rev-parse FETCH_HEAD)" = "$RELEASE_SOURCE_SHA" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^")" = "ffd8e058ecd76f1b4e97fe57fe070319b1e0bbfc" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "045b60956a5cbdf4543b86bce40a7229a79bde2a" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" = "ac989ca3b8aea3053fc13ac0a8868c7dd74b2200" ] || exit 2
+            git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
+            exit 0
+          fi
           if [ "$RELEASE_SOURCE_SHA" = "ffd8e058ecd76f1b4e97fe57fe070319b1e0bbfc" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
               && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
@@ -820,6 +833,12 @@ jobs:
           cpu_candidate="974354b98ebe0cd55931baa03034d887d4fac560"
           status_candidate="68e3d4b69e706e2100f860c473ec657e9baf05ba"
           daily_candidate="4b6cbedc731d3352a9c9dbe4f57fc2b948207ef6"
+          control_result_candidate="46bde0621b77db35ae32bd4bcaa894aa1480adc5"
+          if [ "$(git rev-parse HEAD)" = "$control_result_candidate" ]; then
+            [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "ac989ca3b8aea3053fc13ac0a8868c7dd74b2200" ] || exit 2
+            [ -z "$(git diff --name-only "$control_result_candidate")" ] && [ -z "$(git ls-files --others --exclude-standard)" ] || exit 2
+            exit 0
+          fi
           control_repair_candidate="ffd8e058ecd76f1b4e97fe57fe070319b1e0bbfc"
           if [ "$(git rev-parse HEAD)" = "$control_repair_candidate" ]; then
             [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "8fd428f48437676760a357bb874b553d802ef87d" ] || exit 2
@@ -1200,7 +1219,7 @@ jobs:
             if (process.env.GITHUB_REF !== 'refs/heads/main' || !token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail();
             const pr764 = process.env.RELEASE_SOURCE_SHA === '20dad166be317dd0d57e492ed06e56dfb82b7aef';
             const ibkrDaily = process.env.RELEASE_SOURCE_SHA === 'aaa46a811a7cfa863f90261d516b197e5e554779';
-            const controlRuntimeCandidate = ['958dd81136a890fd76ac06738eb15e63cfab3a78', 'ffd8e058ecd76f1b4e97fe57fe070319b1e0bbfc'].includes(process.env.RELEASE_SOURCE_SHA);
+            const controlRuntimeCandidate = ['958dd81136a890fd76ac06738eb15e63cfab3a78', 'ffd8e058ecd76f1b4e97fe57fe070319b1e0bbfc', '46bde0621b77db35ae32bd4bcaa894aa1480adc5'].includes(process.env.RELEASE_SOURCE_SHA);
             const controlAdminCandidate = process.env.RELEASE_SOURCE_SHA === '5db5153ec7faf667f6ae633081081e8a2bdfabb6';
             const historyCandidate = process.env.RELEASE_SOURCE_SHA === '21829dda11bcafb1d84a6366ffd564bd3df9663f';
             const declarationCandidate = process.env.RELEASE_SOURCE_SHA === '411356d34dad4a33cbdc5bc6f028cccb72b143df';
@@ -1516,7 +1535,7 @@ jobs:
             }
           } catch {
             console.error(JSON.stringify({ error: 'frontend_release_stopped', stage, checkpoint, http_status: httpStatus,
-              upload_attempted: uploadAttempted, deploy_attempted: deployAttempted, uploaded_version: ['958dd81136a890fd76ac06738eb15e63cfab3a78', 'ffd8e058ecd76f1b4e97fe57fe070319b1e0bbfc'].includes(process.env.RELEASE_SOURCE_SHA) ? (uploaded ? '[redacted]' : null) : uploaded,
+              upload_attempted: uploadAttempted, deploy_attempted: deployAttempted, uploaded_version: ['958dd81136a890fd76ac06738eb15e63cfab3a78', 'ffd8e058ecd76f1b4e97fe57fe070319b1e0bbfc', '46bde0621b77db35ae32bd4bcaa894aa1480adc5'].includes(process.env.RELEASE_SOURCE_SHA) ? (uploaded ? '[redacted]' : null) : uploaded,
               outcome: deployAttempted ? 'UNKNOWN_REQUIRES_READBACK' : uploadAttempted ? 'UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED' : 'NOT_ATTEMPTED', retry: false }));
             process.exitCode = 1;
           }
