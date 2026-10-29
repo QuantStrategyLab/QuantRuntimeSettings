@@ -1934,7 +1934,9 @@ def read_runtime_control_result(request: dict[str, Any], operation: str, request
                                       (b"unauthorized", "auth"), (b"not logged", "auth"),
                                       (b"authentication", "auth"), (b"forbidden", "auth"),
                                       (b"rate limit", "rate_limit"), (b"connection", "network"),
-                                      (b"network", "network"), (b"timeout", "timeout"))
+                                      (b"network", "network"), (b"timeout", "timeout"),
+                                      (b"unknown flag", "cli"), (b"unknown command", "cli"),
+                                      (b"command not found", "cli"), (b"not found", "not_found"))
                         diagnostics["error_category"] = next((name for marker, name in categories if marker in stderr), "other")
                         match = re.search(rb"http ([1-5][0-9]{2})", stderr)
                         if match:

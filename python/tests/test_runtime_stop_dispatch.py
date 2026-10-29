@@ -240,6 +240,15 @@ class RuntimeStopDispatchTests(unittest.TestCase):
                 self.assertEqual(settings.read_runtime_control_result(self.request, "enable", "12345678-1234-4abc-8def-123456789abc", 123, "sync-cloud-run-env.yml", diagnostic), "unknown")
             self.assertEqual(diagnostic, {"stage": "workflow", "failure_kind": expected})
 
+    def test_readback_cli_errors_are_fixed_categories(self):
+        for message, category in [(b"unknown flag: synthetic", "cli"), (b"unknown command synthetic", "cli"),
+                                  (b"command not found", "cli"), (b"not found", "not_found")]:
+            diagnostic = {}
+            response = subprocess.CompletedProcess([], 1, b"", message)
+            with self.subTest(category=category), patch.object(settings.subprocess, "run", return_value=response):
+                self.assertEqual(settings.read_runtime_control_result(self.request, "enable", "12345678-1234-4abc-8def-123456789abc", 123, "sync-cloud-run-env.yml", diagnostic), "unknown")
+            self.assertEqual(diagnostic["error_category"], category)
+
     def hk_request(self):
         return {"target_id": "longbridge/hk", "github": {
             "repository": "QuantStrategyLab/LongBridgePlatform", "variable_scope": "environment", "environment": "longbridge-hk"},
