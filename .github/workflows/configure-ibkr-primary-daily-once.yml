@@ -19,9 +19,13 @@ on:
         description: Previously matched execution platform
         type: choice
         required: false
-        options: [longbridge, firstrade]
+        options: [longbridge, firstrade, binance]
       execution_digest:
         description: Nonce-bound existing source comparison digest
+        required: false
+        type: string
+      existing_execution_sources:
+        description: Comma-separated platform and digest pairs for existing execution authorizations
         required: false
         type: string
       comparison_nonce:
@@ -64,6 +68,8 @@ jobs:
       DAILY_SETUP_MODE: ${{ inputs.mode }}
       DAILY_EXECUTION_PLATFORM: ${{ inputs.execution_platform }}
       DAILY_EXECUTION_DIGEST: ${{ inputs.execution_digest }}
+      DAILY_EXISTING_EXECUTION_SOURCES: ${{ inputs.existing_execution_sources }}
+      BINANCE_ACCOUNT_FACTS_BINDING_JSON: ${{ secrets.BINANCE_ACCOUNT_FACTS_BINDING_JSON }}
       DAILY_COMPARISON_NONCE: ${{ inputs.comparison_nonce }}
       DAILY_COMPARISON_RUN_1: ${{ inputs.comparison_run_1 }}
       DAILY_COMPARISON_RUN_2: ${{ inputs.comparison_run_2 }}
