@@ -5,7 +5,7 @@ import {comparison,primaryBinding,matchAdditionalDailyBinding,matchExecutionDail
 import {appendPrimaryDailyRegistration,prepareIbkrDailyVersion,prepareAdditionalDailySetup} from './prepare_ibkr_daily_version.mjs';
 import {prepareExecutionDailyRegistration,firstExecutionAuthorization} from './prepare_execution_daily_registration.mjs';
 import {DEFAULT_STRATEGY_PROFILES} from './strategy_profiles_asset.js';
-import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace,selectInventoryMetadata} from './ibkr_daily_setup_checks.mjs';
+import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace,selectInventoryMetadata,writerRunsFromPages} from './ibkr_daily_setup_checks.mjs';
 
 const qrs='QuantStrategyLab/QuantRuntimeSettings', ibkr='QuantStrategyLab/InteractiveBrokersPlatform';
 const oldVersion='2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee';
@@ -110,9 +110,8 @@ function validateSourceSecrets(secrets,sourceTime) {
 }
 function noWriters() {
   for (const repo of [qrs,ibkr]) for (const status of ['queued','in_progress','waiting','pending','requested']) {
-    const x=JSON.parse(gh(['api',`repos/${repo}/actions/runs?status=${status}&per_page=100`],{repo}));
-    if (!Array.isArray(x.workflow_runs) || x.total_count!==x.workflow_runs.length || x.workflow_runs.length>=100) throw Error('runs_incomplete');
-    if (hasRelevantWriter(x.workflow_runs,repo===qrs?'qrs':'ibkr',ownRun)) throw Error('concurrent_writer');
+    const pages=JSON.parse(gh(['api',`repos/${repo}/actions/runs?status=${status}&per_page=100`,'--paginate','--slurp'],{repo}));
+    if (hasRelevantWriter(writerRunsFromPages(pages),repo===qrs?'qrs':'ibkr',ownRun)) throw Error('concurrent_writer');
   }
 }
 async function configuration() {
