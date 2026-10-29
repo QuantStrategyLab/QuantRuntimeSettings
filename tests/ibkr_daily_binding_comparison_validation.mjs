@@ -40,6 +40,13 @@ const ftOption={...lbOption,account_scope:'live',account_selector:'configured-se
 const ftFacts={...lbFacts,bindings:[{...lbFacts.bindings[0],platform:'firstrade',account_scope:'live',account_selector:'configured-selector',broker_account_id:'fixture-broker',source_binding:{kind:'deployment_runtime_account',id:'e'.repeat(64)}}]};
 const ftCounts={};assert.throws(()=>matchExecutionDailyBinding({firstrade:[ftOption]},ftFacts,[{profile:'fixture_strategy'}],'firstrade',nonce,'0'.repeat(64),ftCounts));
 assert.equal(ftCounts.selector_matches_broker,false);
+const sgOption={...lbOption,account_scope:'sg',account_selector:'sg',deployment_selector:'sg'};
+const sgFacts={...lbFacts,bindings:[{...lbFacts.bindings[0],account_scope:'sg',account_selector:'sg',deployment_selector:'sg'}]};
+const sgBinding={account_scope:'sg',account_selector:'SG',deployment_selector:'SG',platform:'longbridge',service_name:'fixture-service',source_binding_id:'e'.repeat(64),strategy_profile:'fixture_strategy',target_id:'fixture-target'};
+const sgDigest=createHash('sha256').update(JSON.stringify({binding:sgBinding,domain:'qsl.longbridge-daily-binding.v1',nonce})).digest('hex');
+assert.equal(matchExecutionDailyBinding({longbridge:[sgOption]},sgFacts,[{profile:'fixture_strategy'}],'longbridge',nonce,sgDigest).account_key,'fixture-key');
+assert.throws(()=>matchExecutionDailyBinding({longbridge:[lbOption]},lbFacts,[{profile:'fixture_strategy'}],'longbridge',nonce,sgDigest));
+assert.throws(()=>matchExecutionDailyBinding({longbridge:[sgOption]},{...sgFacts,bindings:[{...sgFacts.bindings[0],source_binding:{...sgFacts.bindings[0].source_binding,id:'f'.repeat(64)}}]},[{profile:'fixture_strategy'}],'longbridge',nonce,sgDigest));
 const ftBinding={account_scope:'live',account_selector:'fixture-broker',deployment_selector:'fixture-deploy',platform:'firstrade',service_name:'fixture-service',source_binding_id:'e'.repeat(64),strategy_profile:'fixture_strategy',target_id:'fixture-target'};
 const ftDigest=createHash('sha256').update(JSON.stringify({binding:ftBinding,domain:'qsl.firstrade-daily-binding.v1',nonce})).digest('hex');
 assert.equal(matchExecutionDailyBinding({firstrade:[ftOption]},ftFacts,[{profile:'fixture_strategy'}],'firstrade',nonce,ftDigest).account_key,'fixture-key');
