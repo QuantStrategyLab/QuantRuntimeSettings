@@ -178,6 +178,8 @@ jobs:
           node web/strategy-switch-console/frontend/node_modules/typescript/bin/tsc -p tests/tsconfig.console-gaps.json
           node --experimental-strip-types tests/console_gap_contract_validation.mjs
           node --experimental-strip-types tests/console_returns_adapter_validation.mjs
+          node --experimental-strip-types tests/native_daily_gap_ui_validation.mjs
+          node tests/native_daily_returns_validation.mjs
           node --experimental-strip-types tests/console_display_gaps_validation.mjs
           node --experimental-strip-types tests/console_cashflow_method_presentation_validation.mjs
           node --experimental-strip-types tests/console_runtime_daily_selection_validation.mjs

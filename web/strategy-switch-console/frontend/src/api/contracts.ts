@@ -241,6 +241,8 @@ export interface PerformanceCoverage {
   trading_dates?: string;
   truncated?: boolean;
   read_failures?: string[];
+  /** Single-account native daily returns: observed days only, gaps are never chained. */
+  native_daily_only?: boolean;
 }
 export interface AccountFreshness {
   platform: string | null;

@@ -6,7 +6,7 @@ import { useApi } from "../../lib/hooks";
 import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useScopeLabel } from "../../lib/useScopeLabel";
 import { loadPerformanceReturns } from "../../api/endpoints";
-import type { CashflowMethodMeta, Point, Range, ReturnsResponse } from "../../api/contracts";
+import type { CashflowMethodMeta, PerformanceCoverage, Point, Range, ReturnsResponse } from "../../api/contracts";
 import { AsOfStamp, EmptyState, ErrorState, MethodNote, Skeleton, StatusBadge } from "../../components/primitives";
 import { LineChart, type ChartSeries } from "../../charts/LineChart";
 import { renderableStatus } from "./shared";
@@ -57,6 +57,22 @@ interface BenchmarkView {
 
 const NO_BENCHMARKS: BenchmarkView = { series: [], defaults: [], disabled: [] };
 
+/**
+ * Single-account native returns arrive as real per-day percentages with `breakBefore` gaps.
+ * Only an explicit coverage flag pins the chart to daily mode; a plain `partial` status must not.
+ */
+function isNativeDailyOnly(response: ReturnsResponse | null): boolean {
+  if (!response) return false;
+  const coverage = response.coverage;
+  if (!coverage || typeof coverage !== "object" || Array.isArray(coverage)) return false;
+  return (coverage as PerformanceCoverage).native_daily_only === true;
+}
+
+function chartLabelKey(view: ReturnView, nativeDailyOnly: boolean): string {
+  if (nativeDailyOnly) return "perf.native_daily_title";
+  return view.returnKind === "unadjusted_asset_ratio" ? "perf.asset_change_title" : "perf.returns_title";
+}
+
 function kindLabel(returnKind: string, method?: CashflowMethodMeta | null): string {
   // The unadjusted ratio plots a percentage change that includes cash flows; it is not a balance.
   if (returnKind === "unadjusted_asset_ratio") return "perf.asset_change_tag";
@@ -89,6 +105,7 @@ function ReturnsChart({
   ariaLabel,
   benchmarks,
   disabled,
+  nativeDailyOnly,
 }: {
   view: ReturnView;
   seriesLabel: string;
@@ -96,6 +113,7 @@ function ReturnsChart({
   ariaLabel: string;
   benchmarks: BenchmarkView;
   disabled: BenchmarkAvailability[];
+  nativeDailyOnly: boolean;
 }) {
   const t = useT();
   const series: ChartSeries[] = [
@@ -111,6 +129,7 @@ function ReturnsChart({
     <div data-state={view.status} data-reason={view.unavailableReason ?? undefined}>
       <p className="card-note" style={{ marginTop: 0 }}>
         <span className="perf-kind">{t(kindLabel(view.returnKind, view.method))}</span>
+        {nativeDailyOnly && <span className="perf-kind" data-native-daily-tag="true"> · {t("perf.native_daily_tag")}</span>}
         {view.currency && <span className="perf-currency"> · {view.currency}</span>}
       </p>
       <LineChart
@@ -123,6 +142,9 @@ function ReturnsChart({
         alignStart={view.alignedStart}
         defaultVisible={benchmarks.series.length > 0 ? benchmarks.defaults : undefined}
       />
+      {nativeDailyOnly && (
+        <p className="card-note" data-native-daily-only="true">{t("perf.native_daily_note")}</p>
+      )}
       {disabled.length > 0 && (
         <details className="perf-benchmarks-off">
           <summary>{t("perf.benchmarks_unavailable", { count: disabled.length })}</summary>
@@ -152,6 +174,9 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
   const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
   const state = useApi(() => loadPerformanceReturns(scope, range, platform), [scope, platform, range, epoch]);
   const data = state.phase === "ready" ? state.data : null;
+  // Only an explicit coverage flag pins the chart to daily mode; `partial` alone must not.
+  const nativeDailyOnly = isNativeDailyOnly(data);
+  const effectiveMode: Mode = nativeDailyOnly ? "daily" : mode;
   const policy = benchmarkPolicy(scope, platform, options);
   const nativeAccounts = data?.per_account?.filter(account => renderableStatus(account.status) && account.return_kind === "twr" && account.points.length > 0) ?? [];
 
@@ -209,19 +234,18 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
           disabled,
         };
         view = entryView;
-        benchmarks = resolveBenchmarks(entryView, policy);
+        benchmarks = nativeDailyOnly ? NO_BENCHMARKS : resolveBenchmarks(entryView, policy);
         body = (
           <div>
             {switchControl}
             <ReturnsChart
               view={entryView}
               seriesLabel={`${scopeLabel} · ${entry.currency}`}
-              mode={mode}
-              ariaLabel={`${t(entry.return_kind === "unadjusted_asset_ratio"
-                ? "perf.asset_change_title"
-                : "perf.returns_title")} ${entry.currency}`}
+              mode={effectiveMode}
+              ariaLabel={`${t(chartLabelKey(entryView, nativeDailyOnly))} ${entry.currency}`}
               benchmarks={benchmarks}
               disabled={benchmarks.disabled}
+              nativeDailyOnly={nativeDailyOnly}
             />
           </div>
         );
@@ -264,17 +288,16 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
         disabled,
       };
       view = singleView;
-      benchmarks = returned.no_common_date ? NO_BENCHMARKS : resolveBenchmarks(singleView, policy);
+      benchmarks = nativeDailyOnly || returned.no_common_date ? NO_BENCHMARKS : resolveBenchmarks(singleView, policy);
       body = (
         <ReturnsChart
           view={singleView}
           seriesLabel={scopeLabel}
-          mode={mode}
-          ariaLabel={t(returned.return_kind === "unadjusted_asset_ratio"
-            ? "perf.asset_change_title"
-            : "perf.returns_title")}
+          mode={effectiveMode}
+          ariaLabel={t(chartLabelKey(singleView, nativeDailyOnly))}
           benchmarks={benchmarks}
           disabled={benchmarks.disabled}
+          nativeDailyOnly={nativeDailyOnly}
         />
       );
     }
@@ -283,11 +306,13 @@ export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps)
   const assetChange = view?.returnKind === "unadjusted_asset_ratio";
   const hasBenchmarks = benchmarks.series.length > 0;
   const title = !view ? t("perf.returns_title")
-    : assetChange ? t("perf.asset_change_title")
-      : hasBenchmarks ? t("perf.returns_title")
-        : t("perf.returns_title_plain");
-  const canToggleMode = Boolean(view && !assetChange && renderableStatus(view.status) && view.points.length > 0);
-  const methodBodyKey = view && assetChange ? "perf.method_body_asset_change"
+    : nativeDailyOnly ? t("perf.native_daily_title")
+      : assetChange ? t("perf.asset_change_title")
+        : hasBenchmarks ? t("perf.returns_title")
+          : t("perf.returns_title_plain");
+  const canToggleMode = Boolean(view && !nativeDailyOnly && !assetChange && renderableStatus(view.status) && view.points.length > 0);
+  const methodBodyKey = nativeDailyOnly ? "perf.method_body_native_daily"
+    : view && assetChange ? "perf.method_body_asset_change"
     : data && [data, ...data.per_currency].some(item => classifyCashflowMethod(item) === "unknown") ? "perf.method_body_unknown"
       : data && (isApproximateDietz(data) || data.per_currency.some(isApproximateDietz)) ? "perf.method_body_dietz"
         : "perf.method_body";
