@@ -33,3 +33,6 @@ const lbFacts={schema_version:'qsl_account_facts_bindings.v1',bindings:[{platfor
 const lbDigest='48b2ad005eeda150239f62d33032b4f5075d005ce00518dfd41599ceed4336ab';
 assert.equal(matchExecutionDailyBinding({longbridge:[lbOption]},lbFacts,[{profile:'fixture_strategy'}],'longbridge',nonce,lbDigest).account_key,'fixture-key');
 assert.throws(()=>matchExecutionDailyBinding({longbridge:[{...lbOption,account_selector:'SG'}]},lbFacts,[{profile:'fixture_strategy'}],'longbridge',nonce,lbDigest));
+const fallbackBinding={account_scope:'HK',account_selector:'HK',deployment_selector:'fixture-deploy',platform:'longbridge',service_name:'fixture-service',source_binding_id:'e'.repeat(64),strategy_profile:'soxl_soxx_trend_income',target_id:'fixture-target'};
+const fallbackDigest=createHash('sha256').update(JSON.stringify({binding:fallbackBinding,domain:'qsl.longbridge-daily-binding.v1',nonce})).digest('hex');
+assert.equal(matchExecutionDailyBinding({longbridge:[lbOption]},lbFacts,[{profile:'unrelated'}],'longbridge',nonce,fallbackDigest).strategy_profile,'soxl_soxx_trend_income');

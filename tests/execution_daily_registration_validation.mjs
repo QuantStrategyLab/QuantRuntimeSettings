@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import {prepareExecutionDailyRegistration as prepare} from '../web/strategy-switch-console/prepare_execution_daily_registration.mjs';
+import {prepareExecutionDailyRegistration as prepare,firstExecutionAuthorization} from '../web/strategy-switch-console/prepare_execution_daily_registration.mjs';
+import {executeExecutionDailySetup} from '../web/strategy-switch-console/execute_ibkr_daily_setup.mjs';
 
 const old = Array.from({length:4}, (_, i) => ({account_key:`old-${i}`,target_id:`old-id-${i}`,
   source_binding_id:String(i).repeat(64),strategy_profile:'old-profile',target_key:`old-service|old-profile|live|${String(i).repeat(32)}`}));
@@ -17,6 +18,9 @@ const input={registry:{schema_version:'qsl_runtime_daily_bindings.v1',bindings:o
     {name:'OTHER',type:'secret_text'}],script_runtime:{compatibility_date:'2026-01-01',usage_model:'bundled',compatibility_flags:['nodejs_compat'],limits:{cpu_ms:50}}},
   moduleBase64:'c3ludGhldGlj'};
 const original=structuredClone(input), result=prepare(input);
+assert.deepEqual(firstExecutionAuthorization(input.registry,old),{ibkr:old.map(x=>x.target_key),execution:[]});
+assert.throws(()=>firstExecutionAuthorization(input.registry,[...old.slice(0,3),{...old[3],source_binding_id:'f'.repeat(64)}]),/binding_not_unique/);
+assert.throws(()=>firstExecutionAuthorization({bindings:[...old,{platform:'longbridge'}]},old),/invalid_existing_setup/);
 assert.deepEqual(input,original);
 assert.deepEqual(result.registry.bindings.slice(0,4),old);
 assert.deepEqual(result.authorization.ibkr,input.authorizedTargets.ibkr);
@@ -41,5 +45,20 @@ for (const mutate of [x=>x.matches.pop(),x=>{x.matches[0].source_binding_id='bad
   x=>{x.authorizedTargets.execution=[targetKeys[0]];},x=>{x.resources.bindings.pop();x.resources.bindings.pop();},
   x=>{x.authorizedTargets=null;}]) {
   const bad=structuredClone(input);mutate(bad);assert.throws(()=>prepare(bad));
+}
+const single=structuredClone(input); single.matches=[matches[1]]; single.targetKeys=[targetKeys[1]];
+single.resources.script={handlers:[],named_handlers:[],placement_mode:null};
+const before={planInput:single,resources:single.resources,moduleBase64:single.moduleBase64};
+let effects=[], failure='';
+const effect=name=>{effects.push(name); if(failure===name)throw Error('synthetic');};
+const io={executionUnchanged:async()=>{},uploadVersion:async()=>{effect('upload');return 'candidate';},
+  readVersion:async()=>({moduleBase64:before.moduleBase64,resources:before.resources}),
+  writeRegistry:async()=>effect('registry'),verifyRegistry:async()=>{},activate:async()=>{effect('activate');return 'deployment';},
+  verifyDeployment:async()=>{}};
+let outcome=await executeExecutionDailySetup(io,before);
+assert.equal(outcome.status,'configured');assert.deepEqual(effects,['upload','registry','activate']);
+for(const name of ['upload','registry','activate']) {
+  effects=[];failure=name;outcome=await executeExecutionDailySetup(io,before);
+  assert.equal(outcome.outcome,'unknown_requires_readback');assert.equal(outcome.retry,false);assert.equal(effects.at(-1),name);
 }
 console.log('execution daily registration: matched-only authorization, conflicts and preservation passed');

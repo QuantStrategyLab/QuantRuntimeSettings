@@ -13,6 +13,17 @@ on:
           - execute
           - multi-preflight
           - multi-execute
+          - execution-preflight
+          - execution-execute
+      execution_platform:
+        description: Previously matched execution platform
+        type: choice
+        required: false
+        options: [longbridge, firstrade]
+      execution_digest:
+        description: Nonce-bound existing source comparison digest
+        required: false
+        type: string
       comparison_nonce:
         description: Nonce used by the existing protected source comparisons
         required: false
@@ -51,6 +62,8 @@ jobs:
       RUNTIME_SETTINGS_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       GITHUB_TOKEN: ${{ github.token }}
       DAILY_SETUP_MODE: ${{ inputs.mode }}
+      DAILY_EXECUTION_PLATFORM: ${{ inputs.execution_platform }}
+      DAILY_EXECUTION_DIGEST: ${{ inputs.execution_digest }}
       DAILY_COMPARISON_NONCE: ${{ inputs.comparison_nonce }}
       DAILY_COMPARISON_RUN_1: ${{ inputs.comparison_run_1 }}
       DAILY_COMPARISON_RUN_2: ${{ inputs.comparison_run_2 }}

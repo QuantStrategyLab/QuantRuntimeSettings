@@ -1,5 +1,19 @@
 import {parseRuntimeDailyTargetKey} from './runtime_daily_contract.js';
 
+// Reconstruct only the four targets confirmed by the immediately preceding
+// protected IBKR setup; unrelated registry entries never confer authorization.
+export function firstExecutionAuthorization(registry, originals) {
+  if (!Array.isArray(registry?.bindings) || !Array.isArray(originals) || originals.length!==4) throw Error('invalid_existing_setup');
+  const ibkr=originals.map(source=>{
+    const rows=registry.bindings.filter(row=>(row.platform??'ibkr')==='ibkr' && row.account_key===source.account_key
+      && row.target_id===source.target_id && row.source_binding_id===source.source_binding_id && row.strategy_profile===source.strategy_profile);
+    if (rows.length!==1) throw Error('binding_not_unique');
+    return rows[0].target_key;
+  });
+  if (new Set(ibkr).size!==4 || registry.bindings.some(row=>['longbridge','firstrade','binance'].includes(row.platform))) throw Error('invalid_existing_setup');
+  return {ibkr,execution:[]};
+}
+
 // Pure plan only. The caller supplies independently matched sources and the
 // existing authorization groups from protected state; this function does no I/O.
 export function prepareExecutionDailyRegistration({registry, matches, targetKeys, authorizedTargets, activeVersion, resources, moduleBase64}) {

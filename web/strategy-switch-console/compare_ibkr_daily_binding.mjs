@@ -66,7 +66,7 @@ export function matchExecutionDailyBinding(optionsRaw, bindingsRaw, profilesRaw,
   const bindings = normalizeAccountFactsBindings(bindingsRaw).bindings.filter(b => b.platform === platform);
   const profiles = profilesRaw === null ? DEFAULT_STRATEGY_PROFILES : profilesRaw;
   if (!Array.isArray(profiles) || profiles.length > 100) throw Error('profiles_invalid');
-  const names = [...new Set(profiles.map(item => item?.profile || item?.strategy_profile).filter(name => typeof name === 'string' && token.test(name)))];
+  const names = [...new Set([...profiles,...DEFAULT_STRATEGY_PROFILES].map(item => item?.profile || item?.strategy_profile).filter(name => typeof name === 'string' && token.test(name)))];
   const matches=[];
   for (const b of bindings) {
     const opts=options.filter(o=>o.key===b.account_key && accountFactsOptionMatchesBinding(o,b));
