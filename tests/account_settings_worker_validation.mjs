@@ -380,6 +380,18 @@ assert.equal(hkSettings.body.adopted, false);
 assert.equal(hkSettings.body.no_order, true);
 assert.equal(hkSettings.body.execution_authority_granted, false);
 assert.equal(hkSettings.body.risk.preference, "BALANCED_COMPOUNDING");
+assert.equal(hkSettings.body.declaration.status, "empty");
+const declared = await call("/api/account-settings", { method:"POST", body:{ platform:"longbridge", key:"hk", identity:hkSettings.body.identity, expected_declaration_revision:0, declaration:{environment:"live",account_type:"margin"} } });
+assert.equal(declared.status,200);
+assert.equal(declared.body.declaration.source,"user_declared");
+const declarationReadback = await call("/api/account-settings?platform=longbridge&key=hk");
+assert.deepEqual(declarationReadback.body.declaration,{status:"current",revision:1,environment:"live",account_type:"margin",source:"user_declared"});
+assert.equal(declarationReadback.body.effective.broker_environment.value,"paper");
+const staleDeclaration = await call("/api/account-settings", { method:"POST", body:{ platform:"longbridge",key:"hk",identity:hkSettings.body.identity,expected_declaration_revision:0,declaration:{environment:null,account_type:null} } });
+assert.equal(staleDeclaration.status,409);
+const sgDeclaration = await call("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(sgDeclaration.body.declaration.status,"empty");
+
 const beforeConfig = (await call("/api/admin/runtime-instances")).body.instances.find((item) => item.key === "hk").config;
 const workflowBefore = outbound;
 const firstDraft = await call("/api/account-settings", {
@@ -489,6 +501,10 @@ const identityChange = await call("/api/admin/runtime-instances", {
 assert.equal(identityChange.status, 200);
 const conflicted = await call("/api/account-settings?platform=longbridge&key=hk");
 assert.equal(conflicted.body.draft.status, "identity_conflict");
+assert.equal(conflicted.body.declaration.status, "identity_conflict");
+assert.equal(conflicted.body.declaration.environment, null);
+const conflictDeclaration = await call("/api/account-settings", { method:"POST", body:{ platform:"longbridge",key:"hk",identity:conflicted.body.identity,expected_declaration_revision:1,declaration:{environment:"live",account_type:"cash"} } });
+assert.equal(conflictDeclaration.status,409);
 assert.equal(conflicted.body.draft.overrides.strategy_profile, "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve");
 assert.equal(conflicted.body.identity.broker_environment, "live");
 const staleIdentity = await call("/api/account-settings", {
