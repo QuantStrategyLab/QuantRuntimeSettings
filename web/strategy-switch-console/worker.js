@@ -7512,7 +7512,7 @@ async function strategyHealthResponse(request, env) {
     : Number.isFinite(freshnessAt)
       ? Math.max(0, (now - freshnessAt) / 1000)
       : Number.POSITIVE_INFINITY;
-  if (snapshot.data_status === "ready" && ageSeconds > ttlSeconds) {
+  if (["ready", "partial"].includes(snapshot.data_status) && ageSeconds > ttlSeconds) {
     snapshot.data_status = "stale";
   }
   return json(snapshot);
@@ -13345,7 +13345,7 @@ function normalizeStrategyHealthSnapshot(payload, fieldName = "strategy health s
   if (payload.schema_version !== "strategy_health_dashboard.v1") {
     throw new Error(`${fieldName}.schema_version is unsupported`);
   }
-  const status = cleanChoice(payload.data_status || "unavailable", STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
+  const status = cleanChoice(payload.data_status || "unavailable", [...STRATEGY_HEALTH_DATA_STATUSES, "partial"], `${fieldName}.data_status`);
   const strategies = status === "unavailable"
     ? []
     : normalizeStrategyHealthStrategies(payload.strategies, fieldName);
