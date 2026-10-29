@@ -80,7 +80,7 @@ drift(REVIEW|CRITICAL)
 
 | 门 | 要求 | 引用 |
 | --- | --- | --- |
-| 编排器 | `BacktestOrchestrator` + `purged_walk_forward.v1` | [QPK 晋级标准](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/strategy_promotion_risk_standard.zh-CN.md) |
+| 编排器 | `BacktestOrchestrator` + `purged_walk_forward.v1` | [QPK 晋级标准](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/strategy-promotion-risk-standard.zh-CN.md) |
 | WFA | ≥3 个有序 folds，正数 purge/embargo | 同上 |
 | OOS | 锁定且独立 ≥12 日历月 | 同上、`evidence_package_template` |
 | 预算 | `max_search_iterations`、`max_param_keys`；`allow_live_enablement=False` | `ResearchPromotionBudget` |
@@ -137,7 +137,7 @@ drift(REVIEW|CRITICAL)
 - QPK 实现：`QuantPlatformKit/src/quant_platform_kit/strategy_lifecycle/research_promotion_cycle.py`
 - QPK 生产 drift：`QuantPlatformKit/src/quant_platform_kit/strategy_lifecycle/production_drift_evaluator.py`
 - QPK drift 探针：`QuantPlatformKit/src/quant_platform_kit/strategy_lifecycle/production_drift_health_probe.py`
-- 晋级标准：[strategy_promotion_risk_standard.zh-CN.md](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/strategy_promotion_risk_standard.zh-CN.md)
+- 晋级标准：[strategy-promotion-risk-standard.zh-CN.md](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/strategy-promotion-risk-standard.zh-CN.md)
 - 资金信封：[qsl_capital_risk_envelope_v1.zh-CN.md](qsl_capital_risk_envelope_v1.zh-CN.md)
 - 组合 A→B：[qsl_multi_strategy_combo_ab_v1.zh-CN.md](qsl_multi_strategy_combo_ab_v1.zh-CN.md)
 - 研究任务（只读队列）：[qsl_research_task_v1.zh-CN.md](qsl_research_task_v1.zh-CN.md)
