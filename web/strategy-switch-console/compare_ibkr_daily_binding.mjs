@@ -88,7 +88,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const options = JSON.parse(readFileSync(optionsPath)), bindings = JSON.parse(readFileSync(bindingsPath));
   if (process.env.DAILY_COMPARISON_DIGEST) {
     const profiles = profilesPath ? JSON.parse(readFileSync(profilesPath)) : null;
-    matchAdditionalDailyBinding(options, bindings, profiles, process.env.DAILY_COMPARISON_NONCE || '', process.env.DAILY_COMPARISON_DIGEST);
+    const platform=process.env.DAILY_COMPARISON_PLATFORM || 'ibkr';
+    if (platform === 'ibkr') matchAdditionalDailyBinding(options, bindings, profiles, process.env.DAILY_COMPARISON_NONCE || '', process.env.DAILY_COMPARISON_DIGEST);
+    else matchExecutionDailyBinding(options, bindings, profiles, platform, process.env.DAILY_COMPARISON_NONCE || '', process.env.DAILY_COMPARISON_DIGEST);
     process.stdout.write('status=ok unique_match=true business_writes=0\n');
   } else {
     const result = comparison(options, bindings, process.env.DAILY_COMPARISON_NONCE || '');

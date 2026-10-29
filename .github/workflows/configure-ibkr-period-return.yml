@@ -13,6 +13,12 @@ on:
           - apply-additional-1
           - apply
         default: list
+      comparison_platform:
+        description: Existing platform for the protected daily source comparison
+        type: choice
+        required: false
+        default: ibkr
+        options: [ibkr, longbridge, firstrade]
       comparison_nonce:
         description: Public random nonce for protected daily binding comparison
         type: string
@@ -53,6 +59,7 @@ jobs:
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       GH_TOKEN: ${{ inputs.mode != 'match-additional-1' && inputs.mode != 'match-daily-binding' && secrets.RUNTIME_SETTINGS_GH_TOKEN || '' }}
       CONFIGURE_MODE: ${{ inputs.mode }}
+      DAILY_COMPARISON_PLATFORM: ${{ inputs.comparison_platform }}
       DAILY_COMPARISON_NONCE: ${{ inputs.comparison_nonce }}
       DAILY_COMPARISON_DIGEST: ${{ inputs.comparison_digest }}
       TARGET_ID: ${{ inputs.target_id }}
