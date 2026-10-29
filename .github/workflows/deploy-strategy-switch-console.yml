@@ -19,6 +19,11 @@ on:
         type: choice
         default: "off"
         options: ["off", "baseline", "candidate"]
+      external_flow_enable:
+        description: "Enable the existing external-flow contract while retaining all other settings."
+        required: true
+        type: boolean
+        default: false
       read_only_preflight:
         description: "Read deployment/version metadata only. Do not deploy or synchronize anything."
         required: true
@@ -91,6 +96,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       PLATFORM_CONTROL_EXPECTED_VERSION: ${{ secrets.PLATFORM_CONTROL_EXPECTED_VERSION }}
       PRIVATE_RELEASE_CHECK: ${{ inputs.private_release_check }}
+      EXTERNAL_FLOW_ENABLE: ${{ inputs.external_flow_enable }}
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -224,6 +230,8 @@ jobs:
             });
             checkpoint = 'version_duplicate';
             distinct(versions.map(item => item.id));
+            const flowMode = process.env.EXTERNAL_FLOW_ENABLE === 'true';
+            if (flowMode && !['baseline', 'candidate'].includes(privateCheck)) fail();
             if (privateCheck !== 'off') {
               const expected = uuid(process.env.PLATFORM_CONTROL_EXPECTED_VERSION);
               const active = deployments[0].versions;
@@ -231,7 +239,14 @@ jobs:
               const activeVersion = active[0].version_id;
               if (privateCheck === 'baseline') {
                 const matched = activeVersion === expected;
-                console.log(JSON.stringify({ ok: matched, read_only: true, matched, percentage: 100 }));
+                if (flowMode) {
+                  const baseline = await read(`versions/${activeVersion}`);
+                  const bindings = baseline?.resources?.bindings;
+                  if (baseline?.id !== activeVersion || !Array.isArray(bindings)) fail();
+                  const flag = bindings.filter(binding => binding.name === 'CONSOLE_EXTERNAL_FLOW_ENABLED');
+                  if (flag.length > 1 || (flag.length === 1 && (flag[0].type !== 'plain_text' || flag[0].text !== 'false'))) fail();
+                }
+                console.log(JSON.stringify({ ok: matched, read_only: true, matched, percentage: 100, ...(flowMode ? { external_flow_was_disabled: true } : {}) }));
                 if (!matched) fail();
               } else if (privateCheck === 'candidate') {
                 const current = await read(`versions/${activeVersion}`);
@@ -243,10 +258,19 @@ jobs:
                   ? `[${x.map(canonical).join(',')}]` : `{${Object.keys(x).sort().map(k => `${JSON.stringify(k)}:${canonical(x[k])}`).join(',')}}`;
                 const comparable = x => ({ bindings: [...x.bindings].sort((m,n) => m.name.localeCompare(n.name)), script_runtime: x.script_runtime,
                   handlers: x.script.handlers, named_handlers: x.script.named_handlers === undefined ? null : [...x.script.named_handlers].sort((m,n) => m.name.localeCompare(n.name)), placement_mode: x.script.placement_mode ?? null });
-                const bindingsEqual = canonical(comparable(a).bindings) === canonical(comparable(b).bindings);
-                const runtimeEqual = canonical(comparable(a)) === canonical(comparable(b));
+                const before = comparable(a), after = comparable(b);
+                if (flowMode) {
+                  const oldFlag = before.bindings.filter(binding => binding.name === 'CONSOLE_EXTERNAL_FLOW_ENABLED');
+                  const newFlag = after.bindings.filter(binding => binding.name === 'CONSOLE_EXTERNAL_FLOW_ENABLED');
+                  if (oldFlag.length > 1 || (oldFlag.length === 1 && (oldFlag[0].type !== 'plain_text' || oldFlag[0].text !== 'false'))
+                      || newFlag.length !== 1 || newFlag[0].type !== 'plain_text' || newFlag[0].text !== 'true') fail();
+                  before.bindings = before.bindings.filter(binding => binding.name !== 'CONSOLE_EXTERNAL_FLOW_ENABLED');
+                  after.bindings = after.bindings.filter(binding => binding.name !== 'CONSOLE_EXTERNAL_FLOW_ENABLED');
+                }
+                const bindingsEqual = canonical(before.bindings) === canonical(after.bindings);
+                const runtimeEqual = canonical(before) === canonical(after);
                 const matched = versions[0]?.id === activeVersion && activeVersion !== expected;
-                console.log(JSON.stringify({ ok: matched && runtimeEqual, read_only: true, matched, bindings_equal: bindingsEqual, runtime_equal: runtimeEqual, percentage: 100 }));
+                console.log(JSON.stringify({ ok: matched && runtimeEqual, read_only: true, matched, bindings_equal: bindingsEqual, runtime_equal: runtimeEqual, percentage: 100, ...(flowMode ? { external_flow_enabled: true } : {}) }));
                 if (!matched || !runtimeEqual) fail();
               } else fail();
             } else console.log(JSON.stringify({
@@ -543,9 +567,14 @@ jobs:
           SYNC_STRATEGY_PROFILES: ${{ inputs.sync_strategy_profiles }}
           SKIP_BINANCE_RECEIVER_CHECKS: ${{ inputs.skip_binance_receiver_checks }}
           IBKR_CANDIDATE_RESUME: ${{ inputs.ibkr_candidate_resume }}
+          EXTERNAL_FLOW_ENABLE: ${{ inputs.external_flow_enable }}
         run: |
           set -euo pipefail
           frontend_mode="${RELEASE_FRONTEND_ASSETS:-false}"
+          case "${EXTERNAL_FLOW_ENABLE:-false}" in
+            true) [ "$RELEASE_SOURCE_SHA" = "1174db8e143f2a3689ca8e86cd547dc08461ff29" ] && [ "$frontend_mode" = true ] && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = true ] && [ "${IBKR_CANDIDATE_RESUME:-off}" = off ] || exit 2 ;;
+            false) ;; *) exit 2 ;;
+          esac
           case "${IBKR_CANDIDATE_RESUME:-off}" in off) ;; verify|activate)
             [ "$RELEASE_SOURCE_SHA" = "aaa46a811a7cfa863f90261d516b197e5e554779" ] && [ "$frontend_mode" = true ] && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = true ] || exit 2 ;;
             *) exit 2 ;; esac
@@ -1297,6 +1326,7 @@ jobs:
         env:
           RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
           IBKR_CANDIDATE_RESUME: ${{ inputs.ibkr_candidate_resume }}
+          EXTERNAL_FLOW_ENABLE: ${{ inputs.external_flow_enable }}
         run: |
           node --input-type=module <<'JS'
           import { readFile, readdir } from 'node:fs/promises';
@@ -1325,6 +1355,8 @@ jobs:
             const cpuCandidate = process.env.RELEASE_SOURCE_SHA === '974354b98ebe0cd55931baa03034d887d4fac560';
             const integrated = controlRuntimeCandidate || controlAdminCandidate || historyCandidate || declarationCandidate || returnsCandidate || settingsCandidate || dailyCandidate || statusCandidate || cpuCandidate || process.env.RELEASE_SOURCE_SHA === '0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a';
             const betaRelease = ibkrDaily || integrated;
+            const flowMode = process.env.EXTERNAL_FLOW_ENABLE === 'true';
+            if (flowMode && process.env.RELEASE_SOURCE_SHA !== '1174db8e143f2a3689ca8e86cd547dc08461ff29') fail('external_flow_source_invalid');
             const resume = process.env.IBKR_CANDIDATE_RESUME ?? 'off';
             if (!['off','verify','activate'].includes(resume) || (resume !== 'off' && !ibkrDaily)) fail('invalid_resume');
             const base = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
@@ -1499,6 +1531,10 @@ jobs:
             if (controlRuntimeCandidate && (!isUuid(process.env.PLATFORM_CONTROL_EXPECTED_VERSION) || prior !== process.env.PLATFORM_CONTROL_EXPECTED_VERSION)) fail('integrated_active_version_mismatch');
             if (integrated && !controlRuntimeCandidate && prior !== (controlAdminCandidate ? '0f65941f-b744-4795-af56-57156674a9d6' : historyCandidate ? 'f2cc875c-0e4b-43c3-9cbd-aaa04feec274' : declarationCandidate ? '178d3ef5-e161-4b92-99fb-a455f53b57db' : returnsCandidate ? '1b41d7d3-a703-4ee6-8f37-c677af8518c1' : settingsCandidate ? '7ffe9227-686a-48ad-baa9-72665969d918' : dailyCandidate ? '14f0c9c2-09f9-40e9-bfbe-17165f499495' : statusCandidate ? '175ba768-484a-4fe6-9cea-e5a101bc1618' : cpuCandidate ? '90a0c8e9-b5ad-447a-998f-5d585ec28063' : '600ec84d-a804-4ede-8d1d-0a34819ce46a')) fail('integrated_active_version_mismatch');
             stage = 'pre_release_configuration'; const old = resources(await request(`/versions/${prior}`), prior);
+            if (flowMode) {
+              const flag = old.bindings.filter(binding => binding.name === 'CONSOLE_EXTERNAL_FLOW_ENABLED');
+              if (flag.length > 1 || (flag.length === 1 && (flag[0].type !== 'plain_text' || flag[0].text !== 'false'))) fail('external_flow_baseline_invalid');
+            }
             stage = 'bundle';
             const bundleDir = `${process.env.RUNNER_TEMP}/console-frontend-bundle`;
             // Wrangler 4.106.0 inlines the embedded frontend into one module. Reject
@@ -1526,6 +1562,10 @@ jobs:
             const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name, ...(betaRelease ? {version_id: prior} : {}) })),
               compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
               annotations: { 'workers/message': controlRuntimeCandidate ? 'Reviewed runtime control candidate; retained configuration' : controlAdminCandidate ? 'Reviewed runtime control admin candidate 5db5153e; retained configuration' : historyCandidate ? 'Reviewed history return candidate 21829dda; retained configuration' : declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a with fixed frontend 96363633; retained bindings' } };
+            if (flowMode) {
+              metadata.bindings = metadata.bindings.filter(binding => binding.name !== 'CONSOLE_EXTERNAL_FLOW_ENABLED');
+              metadata.bindings.push({ name: 'CONSOLE_EXTERNAL_FLOW_ENABLED', type: 'plain_text', text: 'true' });
+            }
             for (const key of ['compatibility_flags', 'limits']) if (old.script_runtime[key] !== undefined) metadata[key] = old.script_runtime[key];
             const form = new FormData(); form.set('metadata', JSON.stringify(metadata));
             form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
@@ -1567,12 +1607,17 @@ jobs:
               named_handlers: value.script.named_handlers === undefined ? null : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name)),
               placement_mode: value.script.placement_mode ?? null });
             const configHash = value => createHash('sha256').update(canonical(comparable(value))).digest('hex');
-            const configBefore = configHash(old), configUploaded = configHash(next);
+            const desired = structuredClone(old);
+            if (flowMode) {
+              desired.bindings = desired.bindings.filter(binding => binding.name !== 'CONSOLE_EXTERNAL_FLOW_ENABLED');
+              desired.bindings.push({ name: 'CONSOLE_EXTERNAL_FLOW_ENABLED', type: 'plain_text', text: 'true' });
+            }
+            const configBefore = configHash(desired), configUploaded = configHash(next);
             if (resume !== 'off' || integrated) {
               const oldTag = old.script_runtime.migration_tag, newTag = next.script_runtime.migration_tag;
               if (typeof oldTag !== 'string' || !oldTag || (newTag !== undefined && newTag !== oldTag)) fail('migration_tag_mismatch');
               const normalized = structuredClone(next); normalized.script_runtime.migration_tag = oldTag;
-              if (configHash(normalized) !== configBefore || next.script.etag === old.script.etag) fail('configuration_hash_mismatch');
+              if (configHash(normalized) !== configBefore || (!flowMode && next.script.etag === old.script.etag)) fail('configuration_hash_mismatch');
             } else if (configUploaded !== configBefore || next.script.etag === old.script.etag) fail('configuration_hash_mismatch');
             if (pr764 || betaRelease) {
               // Refuse concurrent uploads even when visible metadata is unchanged.
@@ -1623,7 +1668,7 @@ jobs:
                 config_uploaded_sha256: configUploaded, config_after_sha256: configAfter, secret_values_read: false }));
             }
             if (controlRuntimeCandidate) console.log(JSON.stringify({ status: 'frontend_release_verified', matched: true,
-              percentage: 100, bindings_equal: true, runtime_equal: true, force: false, provider_cas: false }));
+              percentage: 100, bindings_equal: true, runtime_equal: true, force: false, provider_cas: false, ...(flowMode ? { external_flow_enabled: true } : {}) }));
             else console.log(JSON.stringify({ status: 'frontend_release_verified', prior_version: prior, version_id: uploaded,
               deployment_id: deploymentId, percentage: 100, bindings_equal: true, runtime_equal: true,
               bundle_sha256: bundleSha256, force: false, provider_cas: false }));
@@ -1889,7 +1934,7 @@ jobs:
           done
 
   rollback:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && inputs.rollback_to_pre_release && inputs.private_release_check == 'off'
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && inputs.rollback_to_pre_release && !inputs.external_flow_enable && inputs.private_release_check == 'off'
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 5
