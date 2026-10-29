@@ -87,7 +87,7 @@ assert.doesNotThrow(() => __test.assertAccountDraftPatch(draftProfiles, draftObs
 assert.throws(() => __test.assertAccountDraftPatch(draftProfiles, draftObserved, { strategy_profile: "missing" }, ""), /account_settings_strategy_rejected/);
 assert.throws(() => __test.assertAccountDraftPatch(__test.normalizeStrategyProfilesPayload([{ profile: "hk_paper", label: "HK", domain: "hk_equity", allowed_execution_modes: ["paper", "live"], option_overlay_enabled: true }]), draftObserved, { strategy_profile: "hk_paper" }, ""), /account_settings_strategy_rejected/);
 assert.throws(() => __test.assertAccountDraftPatch(draftProfiles, draftObserved, { option_overlay_enabled: true }, ""), /account_settings_option_rejected/);
-assert.doesNotThrow(() => __test.assertAccountDraftPatch(draftProfiles, { ...draftObserved, draft: { overrides: { strategy_profile: "supported" } } }, { option_overlay_enabled: false }, ""));
+assert.throws(() => __test.assertAccountDraftPatch(draftProfiles, { ...draftObserved, draft: { overrides: { strategy_profile: "supported" } } }, { option_overlay_enabled: false }, ""), /account_settings_option_rejected/);
 assert.throws(() => __test.assertAccountDraftPatch(draftProfiles, { ...draftObserved, draft: { overrides: { strategy_profile: "supported", option_overlay_enabled: false } } }, { strategy_profile: "plain" }, ""), /account_settings_option_strategy_conflict/);
 assert.doesNotThrow(() => __test.assertAccountDraftPatch(draftProfiles, { ...draftObserved, draft: { overrides: { option_overlay_enabled: false } } }, { strategy_profile: "plain", option_overlay_enabled: null }, ""));
 const cryptoProfiles = __test.normalizeStrategyProfilesPayload([
@@ -114,7 +114,7 @@ const conflictObserved = {
   draft: { status: "identity_conflict", overrides: { strategy_profile: "with_options", option_overlay_enabled: false } },
 };
 assert.throws(() => __test.assertAccountDraftPatch(conflictProfiles, conflictObserved, { option_overlay_enabled: true }, "plain", { acknowledgeIdentityConflict: true }), /account_settings_option_rejected/);
-assert.doesNotThrow(() => __test.assertAccountDraftPatch(conflictProfiles, conflictObserved, { strategy_profile: "with_options", option_overlay_enabled: true }, "plain", { acknowledgeIdentityConflict: true }));
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(conflictProfiles, conflictObserved, { strategy_profile: "with_options", option_overlay_enabled: null }, "plain", { acknowledgeIdentityConflict: true }));
 
 const dcaProfileA = "nasdaq_sp500_smart_dca";
 const dcaProfileB = "ibit_smart_dca";
@@ -1114,9 +1114,10 @@ const supportingStrategy = await call("/api/account-settings", {
   },
 });
 assert.equal(supportingStrategy.status, 200);
-assert.equal(supportingStrategy.body.operations.save_option_draft, true);
-assert.equal(supportingStrategy.body.operations.save_option_draft_reason, "available");
+assert.equal(supportingStrategy.body.operations.save_option_draft, false);
+assert.equal(supportingStrategy.body.operations.save_option_draft_reason, "option_overlay_not_defined");
 assert.equal(supportingStrategy.body.adopted, false);
+const auditBeforeRejectedFalse = await accountAudit();
 const optionDraft = await call("/api/account-settings", {
   method: "POST",
   body: {
@@ -1126,26 +1127,14 @@ const optionDraft = await call("/api/account-settings", {
     overrides: { option_overlay_enabled: false },
   },
 });
-assert.equal(optionDraft.status, 200);
-assert.equal(optionDraft.body.adopted, false);
-assert.equal(optionDraft.body.draft.overrides.option_overlay_enabled, false);
-assert.equal(optionDraft.body.draft.overrides.strategy_profile, "russell_top50_leader_rotation");
-assert.equal(optionDraft.body.effective.option_overlay_enabled.status, "unknown");
-assert.equal(optionDraft.body.audit_logged, true);
-assert.deepEqual((await accountAudit())[0].changes, ["option_draft"]);
-const blockedSwitch = await call("/api/account-settings", {
-  method: "POST",
-  body: {
-    platform: "longbridge", key: "sg",
-    expected_draft_revision: optionDraft.body.draft.revision,
-    identity: optionDraft.body.identity,
-    overrides: { strategy_profile: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve" },
-  },
-});
-assert.equal(blockedSwitch.status, 400);
+assert.equal(optionDraft.status, 400);
+assert.equal(optionDraft.body.error, "account_settings_option_rejected");
+assert.deepEqual(await accountAudit(), auditBeforeRejectedFalse);
 const stillCombined = await call("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(stillCombined.body.draft.revision, supportingStrategy.body.draft.revision);
+assert.deepEqual(stillCombined.body.draft.overrides, supportingStrategy.body.draft.overrides);
 assert.equal(stillCombined.body.draft.overrides.strategy_profile, "russell_top50_leader_rotation");
-assert.equal(stillCombined.body.draft.overrides.option_overlay_enabled, false);
+assert.equal(Object.hasOwn(stillCombined.body.draft.overrides, "option_overlay_enabled"), false);
 const incomeKeepsOption = await call("/api/account-settings", {
   method: "POST",
   body: {
@@ -1157,7 +1146,7 @@ const incomeKeepsOption = await call("/api/account-settings", {
 });
 assert.equal(incomeKeepsOption.status, 200);
 assert.equal(incomeKeepsOption.body.draft.overrides.income_layer_enabled, true);
-assert.equal(incomeKeepsOption.body.draft.overrides.option_overlay_enabled, false);
+assert.equal(Object.hasOwn(incomeKeepsOption.body.draft.overrides, "option_overlay_enabled"), false);
 assert.equal(incomeKeepsOption.body.draft.overrides.strategy_profile, "russell_top50_leader_rotation");
 assert.deepEqual((await accountAudit())[0].changes, ["income_draft"]);
 const explicitClear = await call("/api/account-settings", {
@@ -1177,7 +1166,7 @@ const staleOption = await call("/api/account-settings", {
   method: "POST",
   body: {
     platform: "longbridge", key: "sg",
-    expected_draft_revision: optionDraft.body.draft.revision,
+    expected_draft_revision: supportingStrategy.body.draft.revision,
     identity: explicitClear.body.identity,
     overrides: { option_overlay_enabled: null },
   },
@@ -1207,7 +1196,9 @@ const supportedBeforeConflict = await call("/api/account-settings", {
   },
 });
 assert.equal(supportedBeforeConflict.status, 200);
-assert.equal(supportedBeforeConflict.body.operations.save_option_draft, true);
+assert.equal(supportedBeforeConflict.body.operations.save_option_draft, false);
+assert.equal(supportedBeforeConflict.body.operations.save_option_draft_reason, "option_overlay_not_defined");
+const auditBeforeRejectedTrue = await accountAudit();
 const optionBeforeConflict = await call("/api/account-settings", {
   method: "POST",
   body: {
@@ -1217,10 +1208,14 @@ const optionBeforeConflict = await call("/api/account-settings", {
     overrides: { option_overlay_enabled: true },
   },
 });
-assert.equal(optionBeforeConflict.status, 200);
-assert.equal(optionBeforeConflict.body.draft.overrides.option_overlay_enabled, true);
+assert.equal(optionBeforeConflict.status, 400);
+assert.equal(optionBeforeConflict.body.error, "account_settings_option_rejected");
+assert.deepEqual(await accountAudit(), auditBeforeRejectedTrue);
+const unchangedBeforeConflict = await call("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(unchangedBeforeConflict.body.draft.revision, supportedBeforeConflict.body.draft.revision);
+assert.deepEqual(unchangedBeforeConflict.body.draft.overrides, supportedBeforeConflict.body.draft.overrides);
 const instancesBeforeConflict = await call("/api/admin/runtime-instances");
-const flippedEnvironment = optionBeforeConflict.body.identity.broker_environment === "live" ? "paper" : "live";
+const flippedEnvironment = supportedBeforeConflict.body.identity.broker_environment === "live" ? "paper" : "live";
 const identityFlip = await call("/api/admin/runtime-instances", {
   method: "POST",
   body: {
@@ -1253,7 +1248,7 @@ const afterOptionReject = await call("/api/account-settings?platform=longbridge&
 assert.equal(afterOptionReject.body.draft.revision, conflictedSettings.body.draft.revision);
 assert.equal(afterOptionReject.body.draft.status, "identity_conflict");
 assert.equal(afterOptionReject.body.draft.overrides.strategy_profile, "russell_top50_leader_rotation");
-assert.equal(afterOptionReject.body.draft.overrides.option_overlay_enabled, true);
+assert.equal(Object.hasOwn(afterOptionReject.body.draft.overrides, "option_overlay_enabled"), false);
 
 await mf.dispose();
 
