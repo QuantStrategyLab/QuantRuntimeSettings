@@ -770,9 +770,30 @@ def _cmd_generate_matrix(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def _cmd_validate_account_domain(args: argparse.Namespace) -> int:
+    from python.scripts.runtime_settings import validate_account_domain
+    try:
+        domain = json.loads(args.path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"invalid account domain input: {type(exc).__name__}", file=sys.stderr)
+        return 1
+    errors: list[str] = []
+    validate_account_domain(domain, errors)
+    if errors:
+        for error in errors:
+            print(error, file=sys.stderr)
+        return 1
+    print("account domain structurally valid; runtime authorization and freshness not checked")
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="QSL internal version control plane CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    domain = subparsers.add_parser("validate-account-domain", help="Validate an offline account-domain JSON object.")
+    domain.add_argument("path", type=Path)
+    domain.set_defaults(func=_cmd_validate_account_domain)
 
     check = subparsers.add_parser("check", help="Check one repository against its declared QSL bundle.")
     check.add_argument("--repo-root", type=Path, default=Path("."))
