@@ -1,6 +1,6 @@
 # QuantRuntimeSettings Architecture
 
-[Documentation index](README.md). This is the package architecture entry; repository governance is covered separately in [organization architecture](qsl-org-architecture.md). The [2026-06-29 design](architecture_config_driven_20260629.md) preserves the earlier rationale and migration plan.
+[Documentation index](README.md). This is the package architecture entry; repository governance is covered separately in [organization architecture](qsl-org-architecture.md). The [2026-06-29 design](architecture-config-driven.md) preserves the earlier rationale and migration plan.
 
 ## Overview
 
