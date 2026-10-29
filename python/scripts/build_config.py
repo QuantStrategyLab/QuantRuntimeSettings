@@ -32,6 +32,7 @@ CRITICAL_STRATEGY_PROFILE_FIELDS = {
     "profile",
     "domain",
     "runtime_enabled",
+    "frozen",
     "lifecycle_stage",
     "can_switch_live",
     "allowed_execution_modes",
@@ -232,6 +233,8 @@ def validate(config: dict) -> list[str]:
                     f"must match market_timezone {market_timezone!r}"
                 )
     for sid, sdata in config.get("strategies", {}).items():
+        if "frozen" in sdata and not isinstance(sdata["frozen"], bool):
+            errors.append(f"strategy {sid}: frozen must be boolean")
         validate_live_continuity_policy(sid, sdata, platforms, errors)
         if "domain" not in sdata:
             errors.append(f"strategy {sid}: missing domain")
@@ -457,6 +460,7 @@ def build_strategy_platform_dry_run_coverage(config: dict | None = None) -> dict
     declared_uncovered_profiles: list[str] = []
     uncovered_profiles: list[str] = []
     artifact_blocked_profiles: list[str] = []
+    frozen_profiles: list[str] = []
     declared_route_count = 0
     buildable_route_count = 0
 
@@ -518,11 +522,16 @@ def build_strategy_platform_dry_run_coverage(config: dict | None = None) -> dict
                 ]
                 artifact_blocked_profiles.append(str(profile))
 
+        if strategy.get("frozen") is True:
+            frozen_profiles.append(str(profile))
+            buildable_platforms = []
+            required_artifact_reason = "frozen_for_new_selection"
+
         declared_route_count += len(declared_platforms)
         buildable_route_count += len(buildable_platforms)
         if not declared_platforms:
             declared_uncovered_profiles.append(str(profile))
-        if not buildable_platforms:
+        if not buildable_platforms and strategy.get("frozen") is not True:
             uncovered_profiles.append(str(profile))
         rows.append(
             {
@@ -540,7 +549,7 @@ def build_strategy_platform_dry_run_coverage(config: dict | None = None) -> dict
         "schema_version": "strategy_platform_dry_run_coverage.v1",
         "summary": {
             "strategy_count": len(rows),
-            "covered_strategy_count": len(rows) - len(uncovered_profiles),
+            "covered_strategy_count": len(rows) - len(uncovered_profiles) - len(frozen_profiles),
             "uncovered_strategy_count": len(uncovered_profiles),
             "declared_covered_strategy_count": len(rows) - len(declared_uncovered_profiles),
             "declared_uncovered_strategy_count": len(declared_uncovered_profiles),
@@ -550,6 +559,7 @@ def build_strategy_platform_dry_run_coverage(config: dict | None = None) -> dict
         },
         "declared_uncovered_profiles": declared_uncovered_profiles,
         "uncovered_profiles": uncovered_profiles,
+        "frozen_profiles": frozen_profiles,
         "artifact_blocked_profiles": artifact_blocked_profiles,
         "profiles": rows,
         "boundary": (
@@ -1142,6 +1152,8 @@ def strategy_to_json_compat(strategies: dict) -> list[dict]:
             "domain": s["domain"],
             "runtime_enabled": s.get("runtime_enabled", False),
         }
+        if "frozen" in s:
+            entry["frozen"] = s["frozen"]
         entry.update(_strategy_profile_gate_fields(s))
         candidate_identity = s.get("research_candidate_identity")
         if isinstance(candidate_identity, dict):

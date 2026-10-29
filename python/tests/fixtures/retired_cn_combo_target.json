@@ -1,7 +1,6 @@
 {
-  "$schema": "../../../schemas/runtime-target.schema.json",
   "target_id": "qmt/cn_combo",
-  "description": "QMT dry-run target for cn_equity_combo (30/50/20 ETF/stock/dividend with dynamic regime adjustment).",
+  "description": "Synthetic retired profile fixture for validation tests; not a selectable target.",
   "github": {
     "repository": "QuantStrategyLab/QmtPlatform",
     "variable_scope": "repository"
@@ -11,7 +10,9 @@
     "strategy_profile": "cn_equity_combo",
     "dry_run_only": true,
     "deployment_selector": "qmt",
-    "account_selector": ["qmt"],
+    "account_selector": [
+      "qmt"
+    ],
     "account_scope": "CN",
     "service_name": "qmt-quant-service",
     "execution_mode": "dry_run",

@@ -201,3 +201,16 @@ existing broker positions, orders, assignment or settlement obligations.
 The authoritative catalog is `platform-config.json`; regenerate derived console
 assets with `python python/scripts/build_platform_config.py`. Existing account
 settings and deployed targets are not changed by modifying the catalog.
+
+### Frozen strategy selection
+
+The optional boolean `frozen` in `platform-config.json` excludes a strategy
+from new account drafts, runtime-instance choices, and switch requests in all
+execution modes. The bundled catalog supplies this restriction even when a
+stored catalog predates the field. Catalog lifecycle stages and historical
+records retain their existing meanings. Existing account and runtime facts
+remain readable; stop controls and the separately verified disabled-target
+migration path remain available. Eligible legacy continuity is restricted to
+reconciliation or risk reduction, with its existing baseline checks. A target
+fingerprint confirms matching fields; it does not independently prove a past
+authorization or account state.

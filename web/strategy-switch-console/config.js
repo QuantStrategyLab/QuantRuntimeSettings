@@ -162,7 +162,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
   "data_status": "catalog_only",
   "source": {
     "path": "platform-config.json",
-    "content_sha256": "sha256:1ccfb5ea87171a1bf2c6b1c233690ca4c09fb4a010be08233872685b60d5166c",
+    "content_sha256": "sha256:aff12367a16bbe7ed8b53fb12481ab3abbfa14a7fb048ff51215f75867719dab",
     "catalog_as_of": "2026-08-19"
   },
   "policy": {
@@ -282,6 +282,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "us_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -312,6 +313,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "us_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -371,6 +373,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "hk_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -385,6 +388,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "hk_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -400,6 +404,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "hk_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -414,6 +419,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -429,6 +435,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "live_candidate",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -444,6 +451,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -458,6 +466,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -472,6 +481,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -486,6 +496,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -500,6 +511,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -514,6 +526,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -528,6 +541,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"

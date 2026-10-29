@@ -1906,14 +1906,14 @@ const longbridgeHk = __test.assertConfiguredAccount(
   },
   accountOptions,
 );
-__test.assertStrategyAllowedForAccount(
+assert.throws(() => __test.assertStrategyAllowedForAccount(
   {
     platform: "longbridge",
     strategy_profile: "hk_low_vol_dividend_quality_snapshot",
   },
   longbridgeHk,
   strategyProfiles,
-);
+), /frozen for new selection/);
 
 const ibkrAccount = __test.assertConfiguredAccount(
   {
@@ -1935,14 +1935,14 @@ __test.assertStrategyAllowedForAccount(
   ibkrAccount,
   strategyProfiles,
 );
-__test.assertStrategyAllowedForAccount(
+assert.throws(() => __test.assertStrategyAllowedForAccount(
   {
     platform: "ibkr",
     strategy_profile: "hk_low_vol_dividend_quality_snapshot",
   },
   ibkrAccount,
   strategyProfiles,
-);
+), /frozen for new selection/);
 
 const schwabAccount = __test.assertConfiguredAccount(
   {
