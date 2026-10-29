@@ -5659,7 +5659,7 @@ function accountDraftStrategyChoices(platform, accountOption, profiles) {
   const choices = [];
   for (const profile of profiles) {
     if (!profile || typeof profile.profile !== "string" || !profile.profile) continue;
-    if (profile.domain_explicit !== true || profile.lifecycle_stage === "frozen" || profile.frozen === true) continue;
+    if (profile.domain_explicit !== true || profile.lifecycle_stage === "frozen" || isFrozenStrategyProfile(profile)) continue;
     if (!profile.domain || !domains.includes(profile.domain)) continue;
     const modes = Array.isArray(profile.allowed_execution_modes) ? profile.allowed_execution_modes : [];
     if (!modes.some((mode) => mode === "paper" || mode === "live")) continue;
@@ -6263,7 +6263,7 @@ async function buildAdminState(session, env) {
   let runtimeInstanceStrategies = [];
   if (runtimeInstances) {
     try {
-      runtimeInstanceStrategies = (await loadStrategyProfilesConfig(env)).filter((item) => (item.allowed_execution_modes || []).includes("dry_run")).map((item) => ({ profile: item.profile, label: item.label, domain: item.domain }));
+      runtimeInstanceStrategies = (await loadStrategyProfilesConfig(env)).filter((item) => !isFrozenStrategyProfile(item) && (item.allowed_execution_modes || []).includes("dry_run")).map((item) => ({ profile: item.profile, label: item.label, domain: item.domain }));
     } catch {
       // Catalog failure affects draft authoring, never existing instance
       // readback, retirement requests, or `/api/admin/config` readback.
@@ -7372,7 +7372,15 @@ async function syncAccountDefaultResponse(request, env) {
   } catch {
     return json({ ok: false, error: "request body must be valid JSON" }, 400);
   }
-  const inputs = normalizeSwitchInputs(rawInput);
+  let inputs;
+  try {
+    inputs = normalizeSwitchInputs(rawInput);
+  } catch (error) {
+    if (isFrozenStrategyProfile({ profile: rawInput?.strategy_profile })) {
+      throw new HttpError("frozen strategy requires valid continuity input", 409);
+    }
+    throw error;
+  }
   const accountConfig = await loadAccountOptionsConfig(env);
   const strategyProfiles = await loadStrategyProfilesConfig(env);
   const strategy = strategyProfiles.find((item) => item.profile === inputs.strategy_profile);
@@ -7382,6 +7390,7 @@ async function syncAccountDefaultResponse(request, env) {
   let accountOption = configuredAccountForInputs(inputs, accountOptions);
   let registeredLegacyContinuityAccount = false;
   if (!accountOption) {
+    if (isFrozenStrategyProfile(strategy)) throw new HttpError(`strategy ${inputs.strategy_profile} is frozen for new selection`, 409);
     if (hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instance_registration_requires_management", 409);
     const registration = registerLegacyContinuityAccount(env, accountOptions, inputs, strategy);
     accountOptions = registration.options;
@@ -7406,6 +7415,9 @@ async function syncAccountDefaultResponse(request, env) {
     }
   }
   if (!accountOption) throw new Error("switch inputs do not match configured account options");
+  if (isFrozenStrategyProfile(strategy) && accountOption.default_strategy_profile !== inputs.strategy_profile) {
+    throw new HttpError(`strategy ${inputs.strategy_profile} requires an existing matching account default`, 409);
+  }
   assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles);
   const result = await syncDefaultStrategyForAccount(env, accountOptions, inputs, {
     login: "github-actions",
@@ -15436,6 +15448,12 @@ function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles
     throw new Error(`${inputs.platform} does not support ${executionMode} control execution`);
   }
   const allowedModes = strategy.allowed_execution_modes || [];
+  if (isFrozenStrategyProfile(strategy) && !(
+    ["RECONCILE_ONLY", "RISK_REDUCTION_ONLY"].includes(inputs.live_continuity_state)
+    && isEligibleLegacyContinuityInput(inputs, strategy)
+  )) {
+    throw new HttpError(`strategy ${inputs.strategy_profile} is frozen for new selection`, 409);
+  }
   if (executionMode === "live") {
     if (isEligibleLegacyContinuityInput(inputs, strategy)) {
       assertDcaPlatform(inputs.platform, inputs.strategy_profile);
@@ -15589,6 +15607,15 @@ function parseStrategyProfiles(raw, fieldName = "strategy profiles") {
   return normalizeStrategyProfilesPayload(payload, fieldName);
 }
 
+function isFrozenStrategyProfile(strategy) {
+  const aliases = {
+    global_macro_etf_rotation: "global_etf_rotation",
+    global_etf_confidence_vol_gate: "global_etf_rotation",
+  };
+  const profile = aliases[strategy?.profile] || strategy?.profile;
+  return strategy?.frozen === true || DEFAULT_STRATEGY_PROFILES.some((item) => item.profile === profile && item.frozen === true);
+}
+
 function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profiles") {
   if (!Array.isArray(payload) || payload.length > 100) {
     throw new Error(`${fieldName} must be an array with at most 100 items`);
@@ -15624,7 +15651,7 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
     const rawDomain = typeof item.domain === "string" ? item.domain.trim() : "";
     entry.domain = cleanStrategyDomain(rawDomain || "us_equity", `${fieldName}[${index}].domain`);
     Object.defineProperty(entry, "domain_explicit", { value: rawDomain !== "", enumerable: false });
-    if (item.frozen === true) entry.frozen = true;
+    if (isFrozenStrategyProfile(item)) entry.frozen = true;
     const sourceLifecycleStage = item.lifecycle_stage || item.lifecycleStage;
     const canSwitchLive = cleanOptionalBoolean(item.can_switch_live);
     if (canSwitchLive !== null) entry.can_switch_live = canSwitchLive;

@@ -269,6 +269,8 @@ def build_strategy_profile_entries(config: dict) -> list[dict]:
             "option_overlay_enabled": feat.get("option_overlay", False),
             "combo_enabled": feat.get("combo", False),
         }
+        if "frozen" in sdata:
+            entry["frozen"] = sdata["frozen"]
         entry.update(_strategy_profile_gate_fields(sdata))
         candidate_identity = sdata.get("research_candidate_identity")
         if isinstance(candidate_identity, dict):
@@ -373,10 +375,12 @@ def build_runtime_catalog_projection(config: dict) -> dict[str, object]:
                 "domain",
                 "lifecycle_stage",
                 "runtime_enabled",
+                "frozen",
                 "can_switch_live",
                 "allowed_execution_modes",
                 "blocked_live_reason",
             )
+            if field in profile
         }
         for profile in profiles
     ]

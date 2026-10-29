@@ -697,6 +697,7 @@
       }
     },
     "global_etf_rotation": {
+      "frozen": true,
       "label": "全球ETF轮动",
       "label_en": "Global ETF Rotation",
       "domain": "us_equity",
@@ -784,6 +785,7 @@
       }
     },
     "tecl_xlk_trend_income": {
+      "frozen": true,
       "label": "TECL/XLK趋势收益",
       "label_en": "TECL/XLK Trend Income",
       "domain": "us_equity",
@@ -873,6 +875,7 @@
       }
     },
     "hk_global_etf_tactical_rotation": {
+      "frozen": true,
       "label": "港股ETF战术轮动",
       "label_en": "HK ETF Tactical Rotation",
       "domain": "hk_equity",
@@ -891,6 +894,7 @@
       }
     },
     "hk_low_vol_dividend_quality_snapshot": {
+      "frozen": true,
       "label": "港股红利质量",
       "label_en": "HK Dividend Quality",
       "domain": "hk_equity",
@@ -919,6 +923,7 @@
       }
     },
     "hk_equity_combo": {
+      "frozen": true,
       "label": "港股恒生组合",
       "label_en": "HK Core Combo",
       "domain": "hk_equity",
@@ -938,6 +943,7 @@
       }
     },
     "cn_industry_etf_rotation": {
+      "frozen": true,
       "label": "A股行业ETF轮动",
       "label_en": "CN Industry ETF Rotation",
       "domain": "cn_equity",
@@ -957,6 +963,7 @@
       }
     },
     "cn_industry_etf_rotation_aggressive": {
+      "frozen": true,
       "label": "A股ETF轮动",
       "label_en": "CN ETF Rotation",
       "domain": "cn_equity",
@@ -976,6 +983,7 @@
       }
     },
     "cn_index_etf_tactical_rotation": {
+      "frozen": true,
       "label": "A股宽基ETF战术轮动",
       "label_en": "CN Index ETF Tactical Rotation",
       "domain": "cn_equity",
@@ -994,6 +1002,7 @@
       }
     },
     "cn_chinext_tactical_rotation": {
+      "frozen": true,
       "label": "创业板战术轮动",
       "label_en": "CN ChiNext Tactical Rotation",
       "domain": "cn_equity",
@@ -1012,6 +1021,7 @@
       }
     },
     "cn_chinext_growth_momentum_quality": {
+      "frozen": true,
       "label": "创业板成长动量质量",
       "label_en": "CN ChiNext Growth Momentum Quality",
       "domain": "cn_equity",
@@ -1030,6 +1040,7 @@
       }
     },
     "cn_dividend_quality_snapshot": {
+      "frozen": true,
       "label": "A股红利质量",
       "label_en": "CN Dividend Quality",
       "domain": "cn_equity",
@@ -1049,6 +1060,7 @@
       }
     },
     "cn_chinext_growth_momentum_quality_snapshot": {
+      "frozen": true,
       "label": "创业板成长质量快照",
       "label_en": "CN ChiNext Growth Quality Snapshot",
       "domain": "cn_equity",
@@ -1068,6 +1080,7 @@
       }
     },
     "cn_star_growth_momentum_quality": {
+      "frozen": true,
       "label": "科创板成长动量质量",
       "label_en": "CN STAR Growth Momentum Quality",
       "domain": "cn_equity",
@@ -1086,6 +1099,7 @@
       }
     },
     "cn_equity_combo": {
+      "frozen": true,
       "label": "A股进取组合",
       "label_en": "CN Alpha Combo",
       "domain": "cn_equity",

@@ -854,7 +854,11 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
     if not isinstance(strategies, dict) or not isinstance(platforms, dict) or not isinstance(domains, dict):
         return
     profile = str(runtime_target.get("strategy_profile") or "").strip()
-    strategy = strategies.get(profile)
+    canonical_profile = {
+        "global_macro_etf_rotation": "global_etf_rotation",
+        "global_etf_confidence_vol_gate": "global_etf_rotation",
+    }.get(profile, profile)
+    strategy = strategies.get(canonical_profile)
     if not isinstance(strategy, dict):
         return
 
@@ -907,6 +911,18 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
             f"platform {platform_id} does not support {execution_mode} control execution"
         )
     continuity_target = is_live_continuity_target(runtime_target)
+    if strategy.get("frozen") is True:
+        continuity = runtime_target.get("live_continuity")
+        continuity_errors: list[str] = []
+        validate_live_continuity(runtime_target, continuity_errors)
+        allowed_continuity = (
+            execution_mode == "live"
+            and isinstance(continuity, dict)
+            and continuity.get("state") in {"RECONCILE_ONLY", "RISK_REDUCTION_ONLY"}
+            and not continuity_errors
+        )
+        if not allowed_continuity:
+            errors.append(f"runtime_target.strategy_profile {profile} is frozen for new selection")
     allowed_modes = normalize_allowed_execution_modes(strategy.get("allowed_execution_modes"))
     if allowed_modes and execution_mode not in allowed_modes and not continuity_target:
         errors.append(f"runtime_target.strategy_profile {profile} does not allow {execution_mode} execution")
@@ -1194,8 +1210,12 @@ def validate_target(target: dict[str, Any], path: Path | None = None) -> list[st
     return errors
 
 
-def build_assignments(target: dict[str, Any]) -> list[Assignment]:
+def build_assignments(target: dict[str, Any], *, _existing_disabled: bool = False) -> list[Assignment]:
     errors = validate_target(target)
+    if _existing_disabled:
+        profile = str(target.get("runtime_target", {}).get("strategy_profile") or "").strip()
+        errors = [error for error in errors if error !=
+                  f"runtime_target.strategy_profile {profile} is frozen for new selection"]
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -1474,6 +1494,10 @@ def _disabled_profile_target_pair(
         except ValueError:
             raise ValueError("invalid_target_identity") from None
         errors = validate_target(target)
+        if target is old_target:
+            old_profile = str(runtime_target.get("strategy_profile") or "").strip()
+            errors = [error for error in errors if error !=
+                      f"runtime_target.strategy_profile {old_profile} is frozen for new selection"]
         if errors:
             raise ValueError("invalid_target")
         if "enabled" in runtime_target:
@@ -1498,7 +1522,7 @@ def _disabled_profile_target_pair(
     if old_profile == new_profile:
         raise ValueError("profile_change_required")
 
-    old_assignment_list = build_assignments(old_target)
+    old_assignment_list = build_assignments(old_target, _existing_disabled=True)
     new_assignment_list = build_assignments(new_target)
     old_assignments = {assignment.name: assignment for assignment in old_assignment_list}
     new_assignments = {assignment.name: assignment for assignment in new_assignment_list}
@@ -1522,7 +1546,7 @@ def _disabled_profile_target_pair(
 
 
 def _disabled_profile_expected_variables(
-    snapshot: dict[str, dict[str, str]], target: dict[str, Any],
+    snapshot: dict[str, dict[str, str]], target: dict[str, Any], *, existing_disabled: bool = False,
 ) -> dict[str, dict[str, str]]:
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("repository"), dict) \
             or not isinstance(snapshot.get("target"), dict):
@@ -1535,7 +1559,7 @@ def _disabled_profile_expected_variables(
     if enabled != "false":
         raise ValueError("target_not_disabled")
 
-    assignments = {assignment.name: assignment for assignment in build_assignments(target)}
+    assignments = {assignment.name: assignment for assignment in build_assignments(target, _existing_disabled=existing_disabled)}
     current_scope = repository if target["github"]["variable_scope"] == "repository" else scoped
     observed_json = current_scope.get("RUNTIME_TARGET_JSON")
     observed_profile = current_scope.get("STRATEGY_PROFILE")
@@ -1594,8 +1618,8 @@ def apply_disabled_strategy_profile_change(
     else:
         if current_new == old_snapshot:
             return {"outcome": "variables_updated", "variables_updated": False, "runtime_applied": False}
-    expected_old = _disabled_profile_expected_variables(old_snapshot, old_target)
-    old_assignments = {item.name: item for item in build_assignments(old_target)}
+    expected_old = _disabled_profile_expected_variables(old_snapshot, old_target, existing_disabled=True)
+    old_assignments = {item.name: item for item in build_assignments(old_target, _existing_disabled=True)}
     new_assignments = {item.name: item for item in build_assignments(new_target)}
     writes = [new_assignments[name] for name in ("RUNTIME_TARGET_JSON", "STRATEGY_PROFILE")]
     expected_new = {"repository": dict(expected_old["repository"]), "target": dict(expected_old["target"])}

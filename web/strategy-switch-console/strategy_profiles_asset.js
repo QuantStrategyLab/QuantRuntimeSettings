@@ -159,6 +159,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": true,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -223,6 +224,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -322,6 +324,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -343,6 +346,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -365,6 +369,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": true,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -387,6 +392,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -409,6 +415,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "live_candidate",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -431,6 +438,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -452,6 +460,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -473,6 +482,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -494,6 +504,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -515,6 +526,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -536,6 +548,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -557,6 +570,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": true,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
