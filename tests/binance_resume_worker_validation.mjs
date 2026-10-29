@@ -16,13 +16,15 @@ const variables = { RUNTIME_TARGET_JSON: JSON.stringify(target), RUNTIME_TARGET_
   BINANCE_RECOVERY_CONTROL_ENABLED: "true", BINANCE_DRY_RUN: "false", STRATEGY_PROFILE: target.strategy_profile };
 const digest = createHash("sha256").update(variables.RUNTIME_TARGET_JSON).digest("hex");
 const body = { platform: "binance", target_name: account.target_name, runtime_target_sha256: digest, confirm: "RESUME_EXISTING" };
-const env = { SESSION_SECRET: "synthetic-only-signing", ALLOWED_GITHUB_LOGINS: "synthetic-operator",
+const env = { SESSION_SECRET: "synthetic-only-signing", ALLOWED_GITHUB_LOGINS: "synthetic-operator,synthetic-viewer", STRATEGY_SWITCH_ADMIN_LOGINS: "synthetic-operator",
   RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-only", STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [account] }) };
 const originalFetch = globalThis.fetch;
 const dispatches = [];
 let source = variables;
 let dispatchFailure = false;
+let fetchCount = 0;
 globalThis.fetch = async (url, init) => {
+  fetchCount += 1;
   if (String(url).includes("/variables?")) return Response.json({ total_count: Object.keys(source).length,
     variables: Object.entries(source).map(([name, value]) => ({ name, value })) });
   assert.equal(String(url), "https://api.github.com/repos/QuantStrategyLab/QuantRuntimeSettings/actions/workflows/manual-binance-resume.yml/dispatches");
@@ -30,15 +32,19 @@ globalThis.fetch = async (url, init) => {
   if (dispatchFailure) throw new Error("synthetic-private-provider-error");
   return new Response(null, { status: 204 });
 };
-async function request(input = body, { authenticated = true, origin = "https://console.example" } = {}) {
+async function request(input = body, { authenticated = true, origin = "https://console.example", login = "synthetic-operator" } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (origin) headers.Origin = origin;
-  if (authenticated) headers.Cookie = `qsl_switch_session=${await __test.makeSession("synthetic-operator", [], env)}`;
+  if (authenticated) headers.Cookie = `qsl_switch_session=${await __test.makeSession(login, [], env)}`;
   return worker.fetch(new Request("https://console.example/api/runtime-resume", {
     method: "POST", headers, body: JSON.stringify(input),
   }), env);
 }
 try {
+  const denied = await request(body, { login: "synthetic-viewer" });
+  assert.equal(denied.status, 403, "allowed non-admin cannot submit a run control");
+  assert.equal(dispatches.length, 0, "non-admin causes no workflow dispatch");
+  assert.equal(fetchCount, 0, "non-admin cannot read protected runtime variables");
   let result = await request();
   assert.equal(result.status, 200);
   assert.deepEqual(await result.json(), { ok: true, configured: false, platform_applied: false,

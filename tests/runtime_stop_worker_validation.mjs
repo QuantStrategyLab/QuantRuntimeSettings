@@ -12,7 +12,7 @@ const account = {
   supported_domains: ["us_equity"], default_strategy_profile: "retired-synthetic-profile",
 };
 const env = {
-  SESSION_SECRET: "synthetic-only-signing-key", ALLOWED_GITHUB_LOGINS: "synthetic-operator",
+  SESSION_SECRET: "synthetic-only-signing-key", ALLOWED_GITHUB_LOGINS: "synthetic-operator,synthetic-viewer", STRATEGY_SWITCH_ADMIN_LOGINS: "synthetic-operator",
   RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-only-dispatch-value",
   STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ ibkr: [account] }),
 };
@@ -24,16 +24,19 @@ globalThis.fetch = async (url, init) => {
   return new Response(null, { status: 204 });
 };
 const body = { platform: "ibkr", target_name: "synthetic-one", confirm: "STOP_ONLY" };
-async function request(input = body, { authenticated = true, origin = "https://console.example" } = {}) {
+async function request(input = body, { authenticated = true, origin = "https://console.example", login = "synthetic-operator" } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (origin) headers.Origin = origin;
-  if (authenticated) headers.Cookie = `qsl_switch_session=${await __test.makeSession("synthetic-operator", [], env)}`;
+  if (authenticated) headers.Cookie = `qsl_switch_session=${await __test.makeSession(login, [], env)}`;
   return worker.fetch(new Request("https://console.example/api/runtime-stop", {
     method: "POST", headers, body: JSON.stringify(input),
   }), env);
 }
 
 try {
+  const denied = await request(body, { login: "synthetic-viewer" });
+  assert.equal(denied.status, 403, "allowed non-admin cannot submit a run control");
+  assert.equal(calls.length, 0, "non-admin causes no workflow dispatch");
   const response = await request();
   assert.equal(response.status, 200);
   const result = await response.json();
