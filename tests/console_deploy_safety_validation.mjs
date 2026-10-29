@@ -725,6 +725,7 @@ for(const opts of [{wrongModule:true},{tag:"wrong"},{migrations:{new_tag:"x"}},{
 await releaseCase({pr764:true},true,13);
 await releaseCase({ibkrDaily:true},true,12);
 await releaseCase({env:{ RELEASE_SOURCE_SHA:"958dd81136a890fd76ac06738eb15e63cfab3a78", PLATFORM_CONTROL_EXPECTED_VERSION:newVersion }},false,1);
+await releaseCase({env:{ RELEASE_SOURCE_SHA:"ffd8e058ecd76f1b4e97fe57fe070319b1e0bbfc", PLATFORM_CONTROL_EXPECTED_VERSION:newVersion }},false,1);
 const echoedBundle=Buffer.concat([syntheticBundle,Buffer.alloc(600000,32)]);
 const echoedLimit=Math.ceil(echoedBundle.length/3)*4+524288;
 const echoedBody=JSON.stringify(wrap({id:newVersion,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:echoedBundle.toString("base64")}]}));
