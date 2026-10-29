@@ -9512,12 +9512,18 @@ async function syncRuntimeDailyResponse(request, env) {
   let target, binding, projection;
   try {
     if (isIbkr) {
-      const allowed = String(env.IBKR_RUNTIME_DAILY_TARGET_KEY || "");
-      if (!allowed || raw?.platform !== "ibkr" || raw?.records?.length !== 1 || raw.records[0]?.target_key !== allowed) {
+      const configured = String(env.IBKR_RUNTIME_DAILY_TARGET_KEY || "");
+      let allowed;
+      try { allowed = configured.startsWith("[") ? JSON.parse(configured) : [configured]; }
+      catch { throw new HttpError("runtime_daily_target_unauthorized", 403); }
+      if (!Array.isArray(allowed) || !allowed.length || allowed.length > 64
+          || new Set(allowed).size !== allowed.length
+          || allowed.some(key => typeof key !== "string" || !parseRuntimeDailyTargetKey(key, "ibkr") || key.split("|").length !== 4)
+          || raw?.platform !== "ibkr" || raw?.records?.length !== 1 || !allowed.includes(raw.records[0]?.target_key)) {
         throw new HttpError("runtime_daily_target_unauthorized", 403);
       }
       const options = (await loadAccountOptionsConfig(env)).options;
-      const matches = (await runtimeDailyRegisteredBindings(env, options)).filter(item => item.target_key === allowed);
+      const matches = (await runtimeDailyRegisteredBindings(env, options)).filter(item => item.target_key === raw.records[0].target_key);
       if (matches.length !== 1 || matches[0].status !== "bound") return runtimeDailyUnattributedResponse();
       target = matches[0].target;
       binding = { accountKey: matches[0].account_key, fingerprint: matches[0].fingerprint,
