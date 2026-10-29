@@ -1756,7 +1756,7 @@ jobs:
           done
 
   rollback:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && inputs.rollback_to_pre_release
+    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && inputs.rollback_to_pre_release && inputs.private_release_check == 'off'
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 5

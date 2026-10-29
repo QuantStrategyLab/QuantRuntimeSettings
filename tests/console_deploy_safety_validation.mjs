@@ -101,6 +101,7 @@ for (const event of ["push", "workflow_dispatch"]) {
 assert.match(workflow, /private_release_check:\n[\s\S]*?default: "off"\n/);
 for (const private_release_check of ["baseline", "candidate"]) {
   assert.equal(evaluate(deployGate, { private_release_check }), false, "private readback cannot deploy");
+  assert.equal(evaluate(rollbackGate, { private_release_check, rollback_to_pre_release: true }), false, "private readback cannot roll back");
 }
 const binanceChecks = [
   "Wait for optional Binance account-facts readiness stability",
