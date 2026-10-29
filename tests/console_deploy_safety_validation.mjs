@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const workflow = readFileSync(new URL("../.github/workflows/deploy-strategy-switch-console.yml", import.meta.url), "utf8");
 const triggers = workflow.slice(workflow.indexOf("\non:\n"), workflow.indexOf("\npermissions:"));
 assert.deepEqual([...triggers.matchAll(/^  (\w+):/gm)].map(match => match[1]), ["workflow_dispatch"], "merges must not deploy");
-for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_preflight", "check_explicit_version_inherit", "skip_binance_receiver_checks", "release_frontend_assets", "rollback_to_pre_release"]) {
+for (const input of ["sync_secrets", "sync_strategy_profiles", "read_only_preflight", "check_explicit_version_inherit", "skip_binance_receiver_checks", "release_frontend_assets", "rollback_to_pre_release", "external_flow_enable"]) {
   const block = triggers.match(new RegExp(`      ${input}:\\n([\\s\\S]*?)(?=\\n      \\w+:|$)`))?.[1];
   assert.ok(block, input);
   assert.match(block, /type: boolean/);
@@ -123,7 +123,7 @@ assert.match(deploy, /name: Build new console and embedded assets/);
 assert.match(deploy, /npx wrangler@4\.106\.0 deploy --config wrangler\.toml/);
 assert.match(preflight, /environment: runtime-strategy-switch/);
 assert.doesNotMatch(preflight, /secret put|sync-strategy-profiles|wrangler.*deploy|npm|npx|uses: actions\/checkout|SYNC_TOKEN|WRANGLER_CONFIG/);
-assert.deepEqual([...preflight.matchAll(/^      ([A-Z_]+):/gm)].map(match => match[1]), ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "PLATFORM_CONTROL_EXPECTED_VERSION", "PRIVATE_RELEASE_CHECK"]);
+assert.deepEqual([...preflight.matchAll(/^      ([A-Z_]+):/gm)].map(match => match[1]), ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "PLATFORM_CONTROL_EXPECTED_VERSION", "PRIVATE_RELEASE_CHECK", "EXTERNAL_FLOW_ENABLE"]);
 
 // The schema diagnostic is read-only, fixed to the same historical version,
 // and is gated inside the existing preflight job. Its projection never emits values.
@@ -635,22 +635,28 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
  releaseCases++;return {calls,stdout,stderr};
 }
 // Exact integrated candidate: explicit inheritance, verified module, one non-forced activation.
-async function integratedReleaseCase({ settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag } = {}, expected=true) {
+async function integratedReleaseCase({ settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false } = {}, expected=true) {
  const calls=[], stdout=[], stderr=[], prior=settings?"7ffe9227-686a-48ad-baa9-72665969d918":daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
  active ??= prior; latest ??= active;
  const responses=responseSequence(false,active);
  responses.splice(3,0,wrap({items:[{id:latest}]}));
  responses.splice(6,0,wrap({id:newVersion,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:moduleContent}]}));
  responses.splice(8,0,wrap({items:[{id:newVersion},{id:latest}]}));
+ if (flow) {
+  if (oldFlag) responses[1].result.resources.bindings.push(oldFlag);
+  for (const i of [7, 10]) responses[i].result.resources.bindings.push({name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"true"});
+  if (drift) responses[7].result.resources.bindings[0].namespace_id="e".repeat(32);
+ }
  const uploadedResources=responses[7].result.resources;
  if (uploadedTag === undefined) delete uploadedResources.script_runtime.migration_tag;
  else uploadedResources.script_runtime.migration_tag=uploadedTag;
  const postResources=resource("new-code");
+ if (flow) postResources.bindings.push({name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"true"});
  if (postTag === null) delete postResources.script_runtime.migration_tag;
  else postResources.script_runtime.migration_tag=postTag;
  responses.push(wrap({id:newVersion,resources:postResources}));
  const process={env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,
-  RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:settings?settingsSource:daily?dailySource:statusCandidate?statusSource:cpu?cpuSource:integratedSource},exitCode:0};
+  RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:flow?"1174db8e143f2a3689ca8e86cd547dc08461ff29":settings?settingsSource:daily?dailySource:statusCandidate?statusSource:cpu?cpuSource:integratedSource,...(flow?{EXTERNAL_FLOW_ENABLE:"true",PLATFORM_CONTROL_EXPECTED_VERSION:prior}:{})},exitCode:0};
  await runRelease(process,async(url,options)=>{calls.push({url,options}); const response=responses[calls.length-1];
   assert.ok(response,"no retry"); return response instanceof Response ? response : new Response(JSON.stringify(response),{headers:{"content-type":"application/json"}});},
   {log:x=>stdout.push(x),error:x=>stderr.push(x)},async path=>path.endsWith("v2_asset_map.js")?syntheticAssetMap:syntheticBundle,
@@ -658,12 +664,16 @@ async function integratedReleaseCase({ settings=false, daily=false, statusCandid
  assert.equal(process.exitCode===0,expected,stderr.join("\n"));
  const posts=calls.filter(x=>x.options.method==="POST");
  if(expected){assert.equal(posts.length,2);assert.ok(posts[0].url.endsWith("/versions?deploy=false"));
-  const upload=JSON.parse(posts[0].options.body);assert.deepEqual(upload.bindings,remoteBindings.map(b=>({type:"inherit",name:b.name,version_id:prior})));
-  assert.ok(posts[1].url.endsWith("/deployments?force=false"));assert.equal(JSON.parse(stdout.at(-1)).version_id,newVersion);
+  const upload=JSON.parse(posts[0].options.body);assert.deepEqual(upload.bindings,[...remoteBindings.map(b=>({type:"inherit",name:b.name,version_id:prior})),...(flow?[{name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"true"}]:[])]);
+  assert.ok(posts[1].url.endsWith("/deployments?force=false"));if (flow) assert.equal(JSON.parse(stdout.at(-1)).external_flow_enabled,true); else assert.equal(JSON.parse(stdout.at(-1)).version_id,newVersion);
  } else {if (postTag !== null) assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,0); else { assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,1); assert.equal(JSON.parse(stderr.at(-1)).outcome,"UNKNOWN_REQUIRES_READBACK"); } assert.equal(JSON.parse(stderr.at(-1)).retry,false);}
  assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));
 }
 await integratedReleaseCase();
+await integratedReleaseCase({flow:true});
+await integratedReleaseCase({flow:true,oldFlag:{name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"false"}});
+await integratedReleaseCase({flow:true,oldFlag:{name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"true"}},false);
+await integratedReleaseCase({flow:true,drift:true},false);
 await integratedReleaseCase({active:priorVersion},false);
 await integratedReleaseCase({latest:priorVersion},false);
 await integratedReleaseCase({moduleContent:Buffer.from("wrong").toString("base64")},false);
@@ -1194,6 +1204,19 @@ assert.deepEqual(JSON.parse(privateBaseline.stdout[0]), { ok: true, read_only: t
 assert.ok(!JSON.stringify(privateBaseline.stdout).includes(versionId));
 const older = "00000000-0000-4000-8000-000000000007";
 const resources = { bindings: [{ name: "SYNTHETIC", type: "secret_text" }], script_runtime: { compatibility_date: "2026-06-08" }, script: { handlers: [] } };
+const flowFlag = {name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"true"};
+const flowBaseline = await execute([...normal,{success:true,result:{id:versionId,resources}}], {PRIVATE_RELEASE_CHECK:"baseline",PLATFORM_CONTROL_EXPECTED_VERSION:versionId,EXTERNAL_FLOW_ENABLE:"true"});
+assert.equal(flowBaseline.process.exitCode,0);
+const flowCandidate = await execute([...normal,{success:true,result:{id:versionId,resources:{...resources,bindings:[...resources.bindings,flowFlag]}}},{success:true,result:{id:older,resources}}], {PRIVATE_RELEASE_CHECK:"candidate",PLATFORM_CONTROL_EXPECTED_VERSION:older,EXTERNAL_FLOW_ENABLE:"true"});
+assert.equal(flowCandidate.process.exitCode,0);
+assert.equal(JSON.parse(flowCandidate.stdout[0]).external_flow_enabled,true);
+for (const flag of [{name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"true"},{name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"secret_text"}]) {
+ const rejected = await execute([...normal,{success:true,result:{id:versionId,resources:{...resources,bindings:[flag]}}}], {PRIVATE_RELEASE_CHECK:"baseline",PLATFORM_CONTROL_EXPECTED_VERSION:versionId,EXTERNAL_FLOW_ENABLE:"true"});
+ assert.equal(rejected.process.exitCode,1);
+}
+const drifted = await execute([...normal,{success:true,result:{id:versionId,resources:{...resources,bindings:[...resources.bindings,flowFlag],script_runtime:{compatibility_date:"2020-01-01"}}}},{success:true,result:{id:older,resources}}], {PRIVATE_RELEASE_CHECK:"candidate",PLATFORM_CONTROL_EXPECTED_VERSION:older,EXTERNAL_FLOW_ENABLE:"true"});
+assert.equal(drifted.process.exitCode,1);
+assert.equal(evaluate(rollbackGate,{rollback_to_pre_release:true,external_flow_enable:true}),false);
 const privateCandidate = await execute([...normal, { success: true, result: { id: versionId, resources } }, { success: true, result: { id: older, resources } }],
   { PRIVATE_RELEASE_CHECK: "candidate", PLATFORM_CONTROL_EXPECTED_VERSION: older });
 assert.equal(privateCandidate.process.exitCode, 0);
