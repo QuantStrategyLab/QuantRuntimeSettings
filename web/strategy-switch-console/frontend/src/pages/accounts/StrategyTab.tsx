@@ -117,6 +117,7 @@ export function StrategyTab({
   if (diffState.phase === "error") return <ErrorState onRetry={diffState.reload} />;
   const diff = diffState.data;
   const rows = diff.rows;
+  const hasRetiredOptionDraft = rows.some(row => row.field === "option_overlay_enabled" && row.overridden);
   const identityConflict = diff.identity_status === "identity_conflict";
   const options = profileOptions(config, language);
   const dirty = Object.keys(edits).length > 0;
@@ -320,7 +321,7 @@ export function StrategyTab({
           <option value="smart">{t("accounts.dca_mode.smart")}</option>
         </select>
       );
-    } else if (row.field === "income_layer_enabled" || row.field === "option_overlay_enabled") {
+    } else if (row.field === "income_layer_enabled") {
       control = (
         <select {...accessibility} className="input" value={text} onChange={event => setEdit(row.field, event.target.value === "true")}>
           {!text && <option value="" disabled>{t("common.na")}</option>}
@@ -390,6 +391,7 @@ export function StrategyTab({
           </>
         )}
       </div>
+      {hasRetiredOptionDraft && <p className="accounts-inline-note">{t("accounts.retired_option_draft")}</p>}
       {identityConflict && (
         <p className="accounts-inline-note error" role="alert">
           {t("accounts.identity_conflict")}{" "}

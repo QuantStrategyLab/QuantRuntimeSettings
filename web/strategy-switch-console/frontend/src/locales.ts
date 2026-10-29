@@ -220,6 +220,7 @@ export const EN_COPY = {
   "偏好保存不代表运行端已应用。": "Saving a preference does not verify its application in runtime.",
   "收入层草案": "Income layer draft",
   "期权层草案": "Options layer draft",
+  "保存时会清除旧期权草稿，不会更改实盘配置。": "Saving removes the old options draft without changing live configuration.",
   "请先保存策略草案，再查看期权层支持。": "Save the strategy draft first, then check options-layer support.",
   "该账户尚未接入此日报来源": "This account is not connected to this daily record source",
   "未取得该日记录；不能据此判断是否运行。": "That day's record was not received; this does not show whether the account ran.",
