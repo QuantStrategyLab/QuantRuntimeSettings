@@ -9,6 +9,7 @@ import type { DirectoryConfig } from "../lib/accountDirectory";
 import { AppShell } from "./AppShell";
 import { ToastProvider } from "../components/Toast";
 import { Skeleton } from "../components/primitives";
+import { PageLoadBoundary } from "../components/PageLoadBoundary";
 
 const OverviewPage = lazy(() => import("../pages/overview/OverviewPage"));
 const PerformancePage = lazy(() => import("../pages/performance/PerformancePage"));
@@ -246,14 +247,16 @@ export default function App() {
                 updatedAt={updatedAt}
                 onLogout={() => void logout()}
               >
-                <Suspense fallback={<Skeleton height={240} />}>
-                  {route.page === "overview" && <OverviewPage />}
-                  {route.page === "performance" && <PerformancePage />}
-                  {route.page === "decisions" && <DecisionsPage />}
-                  {route.page === "accounts" && <AccountsPage account={route.account} tab={route.tab} />}
-                  {route.page === "strategies" && <StrategiesPage />}
-                  {route.page === "health" && <HealthPage />}
-                </Suspense>
+                <PageLoadBoundary key={route.page}>
+                  <Suspense fallback={<Skeleton height={240} />}>
+                    {route.page === "overview" && <OverviewPage />}
+                    {route.page === "performance" && <PerformancePage />}
+                    {route.page === "decisions" && <DecisionsPage />}
+                    {route.page === "accounts" && <AccountsPage account={route.account} tab={route.tab} />}
+                    {route.page === "strategies" && <StrategiesPage />}
+                    {route.page === "health" && <HealthPage />}
+                  </Suspense>
+                </PageLoadBoundary>
               </AppShell>
             </ToastProvider>
           </NavigateContext.Provider>
