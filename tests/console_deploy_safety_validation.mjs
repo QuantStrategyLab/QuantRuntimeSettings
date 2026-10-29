@@ -221,6 +221,7 @@ for (const source of [approved, frontend]) {
   assert.equal(ancestry.status, 0, `fixed release source must be adopted in this checkout: ${source}`);
 }
 const assetPath = "web/strategy-switch-console/v2_asset_map.js";
+const runtimeDailySource = "74c2ce1255797983570aab733314ec74ca2aa4d2";
 const ibkrSource = "aaa46a811a7cfa863f90261d516b197e5e554779";
 const integratedSource = "0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a";
 const cpuSource = "974354b98ebe0cd55931baa03034d887d4fac560";
@@ -238,7 +239,7 @@ const selectShell = shellBody(selectionStep);
 const fakeGit = `git() {
   printf '%s\\n' "$*" >> "$TRACE"
   case "$*" in
-    'fetch --no-tags origin refs/heads/codex/website-account-settings-reviewed-20261029'|'fetch --no-tags origin refs/heads/codex/website-native-daily-fixed-clock-20261029'|'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-history-cpu-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-incomplete-release-candidate-20261029') return 0 ;;
+    'fetch --no-tags origin refs/heads/fix/qrs-runtime-daily-serving-20261030'|'fetch --no-tags origin refs/heads/codex/website-account-settings-reviewed-20261029'|'fetch --no-tags origin refs/heads/codex/website-native-daily-fixed-clock-20261029'|'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-history-cpu-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-incomplete-release-candidate-20261029') return 0 ;;
     'rev-parse FETCH_HEAD') printf '%s' "$FAKE_FETCH_HEAD" ;;
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
     'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
@@ -246,12 +247,12 @@ const fakeGit = `git() {
     'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${integratedSource} ${cpuSource}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${frontend} ${control}') return "$FAKE_FRONTEND_ANCESTRY_EXIT" ;;
-    'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse ${cpuSource}^{tree}'|'rev-parse ${settingsSource}^{tree}'|'rev-parse ${dailySource}^{tree}'|'rev-parse ${statusSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
-    'rev-parse ${ibkrSource}^'|'rev-parse ${integratedSource}^'|'rev-parse ${settingsSource}^'|'rev-parse ${dailySource}^'|'rev-parse ${statusSource}^') printf '%s' "$FAKE_PARENT" ;;
+    'rev-parse ${runtimeDailySource}^{tree}'|'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse ${cpuSource}^{tree}'|'rev-parse ${settingsSource}^{tree}'|'rev-parse ${dailySource}^{tree}'|'rev-parse ${statusSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${runtimeDailySource}^'|'rev-parse ${ibkrSource}^'|'rev-parse ${integratedSource}^'|'rev-parse ${settingsSource}^'|'rev-parse ${dailySource}^'|'rev-parse ${statusSource}^') printf '%s' "$FAKE_PARENT" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
-    'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}'|'rev-parse ${cpuSource}:${assetPath}'|'rev-parse ${settingsSource}:${assetPath}'|'rev-parse ${dailySource}:${assetPath}'|'rev-parse ${statusSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
+    'rev-parse ${runtimeDailySource}:${assetPath}'|'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}'|'rev-parse ${cpuSource}:${assetPath}'|'rev-parse ${settingsSource}:${assetPath}'|'rev-parse ${dailySource}:${assetPath}'|'rev-parse ${statusSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
     'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
-    '-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}'|'-c advice.detachedHead=false checkout --detach ${cpuSource}'|'-c advice.detachedHead=false checkout --detach ${statusSource}'|'-c advice.detachedHead=false checkout --detach ${settingsSource}'|'-c advice.detachedHead=false checkout --detach ${dailySource}') touch "$SELECTED" ;;
+    '-c advice.detachedHead=false checkout --detach ${runtimeDailySource}'|'-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}'|'-c advice.detachedHead=false checkout --detach ${cpuSource}'|'-c advice.detachedHead=false checkout --detach ${statusSource}'|'-c advice.detachedHead=false checkout --detach ${settingsSource}'|'-c advice.detachedHead=false checkout --detach ${dailySource}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -356,6 +357,16 @@ for(const delta of [{SYNC_SECRETS:"true"},{SYNC_STRATEGY_PROFILES:"true"},{RELEA
  {IBKR_CANDIDATE_RESUME:"verify"},{SKIP_BINANCE_RECEIVER_CHECKS:"false"},{GITHUB_REF:"refs/heads/other"},
  {FAKE_TREE:"a".repeat(40)},{FAKE_PARENT:"a".repeat(40)},{FAKE_PR764_BLOB:"a".repeat(40)},{FAKE_FETCH_HEAD:"a".repeat(40)}])
  assert.equal(sourceCase({...settingsEnv,...delta},false).selected,false);
+
+const runtimeDailyEnv = { RELEASE_SOURCE_SHA:runtimeDailySource, RELEASE_FRONTEND_ASSETS:"true",
+ FAKE_FETCH_HEAD:runtimeDailySource, FAKE_SELECTED_HEAD:runtimeDailySource,
+ FAKE_TREE:"81e8f59a416c9723ee6bda2c757a0ea5716a855c", FAKE_PARENT:"9f291efe0379e5d7f04c51fa4ba8a119ee31f609",
+ FAKE_PR764_BLOB:"6335674ebfcfbdc5f549ffd84ee5d85392adb302" };
+assert.equal(sourceCase(runtimeDailyEnv,true).selected,true);
+for (const delta of [{SYNC_SECRETS:"true"},{SYNC_STRATEGY_PROFILES:"true"},{RELEASE_FRONTEND_ASSETS:"false"},
+ {SKIP_BINANCE_RECEIVER_CHECKS:"false"},{IBKR_CANDIDATE_RESUME:"verify"},{FAKE_TREE:"a".repeat(40)},
+ {FAKE_PARENT:"a".repeat(40)},{FAKE_PR764_BLOB:"a".repeat(40)},{FAKE_FETCH_HEAD:"a".repeat(40)}])
+ assert.equal(sourceCase({...runtimeDailyEnv,...delta},false).selected,false);
 
 const ibkrEnv = { RELEASE_SOURCE_SHA: ibkrSource, RELEASE_FRONTEND_ASSETS: "true",
   FAKE_TREE: ibkrTree, FAKE_SELECTED_HEAD: ibkrSource, FAKE_PR764_BLOB: frontendBlob };
