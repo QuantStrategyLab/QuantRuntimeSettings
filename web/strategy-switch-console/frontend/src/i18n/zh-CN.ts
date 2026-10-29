@@ -46,6 +46,7 @@ export const zhCN = {
   "common.details": "详情",
   "common.synthetic_badge": "合成演示",
   "common.paper_badge": "模拟",
+  "common.page_load_failed": "此页面无法加载",
   "common.read_failed_banner": "部分数据读取失败，请稍后重试；读取失败不代表没有内容。",
   "common.unsaved_guard_title": "放弃未保存的修改？",
   "common.unsaved_guard_body": "当前有未保存的修改，离开后将丢失。",
