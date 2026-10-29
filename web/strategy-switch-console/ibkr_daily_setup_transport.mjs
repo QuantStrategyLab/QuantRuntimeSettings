@@ -4,7 +4,7 @@ import {executePrimaryDailySetup,executeAdditionalDailySetup} from './execute_ib
 import {comparison,primaryBinding,matchAdditionalDailyBinding} from './compare_ibkr_daily_binding.mjs';
 import {appendPrimaryDailyRegistration,prepareIbkrDailyVersion,prepareAdditionalDailySetup} from './prepare_ibkr_daily_version.mjs';
 import {DEFAULT_STRATEGY_PROFILES} from './strategy_profiles_asset.js';
-import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace} from './ibkr_daily_setup_checks.mjs';
+import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace,selectInventoryMetadata} from './ibkr_daily_setup_checks.mjs';
 
 const qrs='QuantStrategyLab/QuantRuntimeSettings', ibkr='QuantStrategyLab/InteractiveBrokersPlatform';
 const oldVersion='2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee';
@@ -204,12 +204,11 @@ function additionalSourceFresh(secrets, sourceTime) {
     if (rows.length>1 || (rows.length===1 && (!Number.isFinite(Date.parse(rows[0].updated_at)) || Date.parse(rows[0].updated_at)>sourceTime))) throw Error('source_changed');
   }
   if (![...names.slice(0,2),...names.slice(3)].every(name=>secrets.some(x=>x.name===name))) throw Error('source_changed');
-  const variables=JSON.parse(gh(['api',`repos/${ibkr}/actions/variables?per_page=100`],{repo:ibkr}));
-  if (!Array.isArray(variables.variables) || variables.total_count!==variables.variables.length || variables.variables.length>=100) throw Error('source_changed');
-  const v=variables.variables.filter(x=>x.name==='CLOUD_RUN_SERVICE_TARGETS_JSON');
+  let variable;
+  try { variable=JSON.parse(gh(['api',`repos/${ibkr}/actions/variables/CLOUD_RUN_SERVICE_TARGETS_JSON`],{repo:ibkr})); }
+  catch (error) { if (diagnosticHttpStatus!==404) throw error; variable=null; }
   const sec=secrets.filter(x=>x.name==='CLOUD_RUN_SERVICE_TARGETS_JSON');
-  const selected=v.length===1?v:sec;
-  if (selected.length!==1 || !Number.isFinite(Date.parse(selected[0].updated_at)) || Date.parse(selected[0].updated_at)>sourceTime) throw Error('source_changed');
+  selectInventoryMetadata(variable,sec,sourceTime);
 }
 async function additionalState(nonce,digests) {
   noWriters();
