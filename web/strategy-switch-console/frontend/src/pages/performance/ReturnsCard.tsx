@@ -2,11 +2,10 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { useScope } from "../../app/context";
 import { useT } from "../../i18n";
-import { useApi } from "../../lib/hooks";
+import type { AsyncState } from "../../lib/hooks";
 import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useScopeLabel } from "../../lib/useScopeLabel";
-import { loadPerformanceReturns } from "../../api/endpoints";
-import type { CashflowMethodMeta, PerformanceCoverage, Point, Range, ReturnsResponse } from "../../api/contracts";
+import type { CashflowMethodMeta, PerformanceCoverage, Point, ReturnsResponse } from "../../api/contracts";
 import { AsOfStamp, EmptyState, ErrorState, MethodNote, Skeleton, StatusBadge } from "../../components/primitives";
 import { LineChart, type ChartSeries } from "../../charts/LineChart";
 import { renderableStatus } from "./shared";
@@ -20,8 +19,7 @@ import {
 export interface ReturnsCardProps {
   scope: string;
   platform: string | undefined;
-  range: Range;
-  epoch: number;
+  state: AsyncState<ReturnsResponse> & { reload: () => void };
 }
 
 type Mode = "cumulative" | "daily";
@@ -87,7 +85,7 @@ function dayTime(date: string): number | null {
  * A missing or unusable day is dropped and the line breaks; the cumulative value is never
  * compounded to fill it, and duplicate dates are left out rather than merged.
  */
-function accountDailyPoints(points: Point[]): Point[] {
+export function accountDailyPoints(points: Point[]): Point[] {
   const kept: Point[] = [];
   const counts = new Map<string, number>();
   for (const point of points) counts.set(point.date, (counts.get(point.date) ?? 0) + 1);
@@ -207,14 +205,13 @@ function ReturnsChart({
   );
 }
 
-export function ReturnsCard({ scope, platform, range, epoch }: ReturnsCardProps) {
+export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
   const t = useT();
   const { options } = useScope();
   const scopeLabel = useScopeLabel(scope);
   const names = useDisplayNames();
   const [mode, setMode] = useState<Mode>("cumulative");
   const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
-  const state = useApi(() => loadPerformanceReturns(scope, range, platform), [scope, platform, range, epoch]);
   const data = state.phase === "ready" ? state.data : null;
   // Only an explicit coverage flag pins the chart to daily mode; `partial` alone must not.
   const nativeDailyOnly = isNativeDailyOnly(data);

@@ -26,7 +26,7 @@ try {
     export const totals = (language, totals) => render(language, CurrencyTotals, { totals });
     export const holdings = (language, data, hideAmounts=false) => render(language, PrefsContext.Provider, {value:{prefs:{...DEFAULT_PREFERENCES,language,hideAmounts},resolvedTheme:'light',setPrefs(){}},children:h(HoldingsTab,{state:{phase:'ready',data,reload(){}}})});
     export const ranking = (language, data) => render(language, RankingTab, {state:{phase:'ready',data,reload(){}}});
-    export const returns = language => render(language, ReturnsCard, {scope:'all',range:'YTD',epoch:0});
+    export const returns = language => render(language, ReturnsCard, {scope:'all',range:'YTD',epoch:0,state:globalThis.__mobileState});
     export const catalog = language => render(language, CatalogTab, {refreshEpoch:0});
     export const health = (language, credential) => render(language, StatStrip, {summary:{phase:"ready",data:{status:"ok",accounts:[],counts:{configured:0,observed:0},date:"2026-10-27"},reload(){}},credential:{phase:"ready",data:credential,reload(){}}});
     export const calendar = language => render(language, CalendarCard, {scope:'all',range:'YTD',epoch:0});
