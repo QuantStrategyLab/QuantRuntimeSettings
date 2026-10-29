@@ -147,20 +147,25 @@ Multiple matching bindings return `partial/runtime_daily_binding_conflict` for
 the account; no target is selected and its run state stays unknown. A missing
 binding remains `not_connected/runtime_daily_not_connected`.
 
-IBKR's local multi-target read contract requires the protected
+The account-bound multi-target read contract uses the protected
 `runtime_daily_bindings` registry (`qsl_runtime_daily_bindings.v1`): each entry
-contains `account_key`, `target_id`, `source_binding_id`, `strategy_profile`
-and a stable `target_key` in `service|strategy_profile|scope|opaque` form,
-where `opaque` is 32 lowercase hexadecimal characters and contains no account
-identifier. Each entry must uniquely match the existing protected account-facts
-binding and account option. Missing registration is `not_connected`; collisions
+contains `account_key`, `target_id`, `source_binding_id`, `strategy_profile`,
+`target_key`, and optionally `platform` (omitted for existing IBKR entries).
+IBKR target keys use `service|strategy_profile|scope|opaque`, with a random
+32-character lowercase hexadecimal suffix. Entries must uniquely match their
+existing protected account option and source binding. Binance uses its existing
+wallet binding; the protected registration must be established only after its
+runtime target and wallet identity are independently matched. Missing registration is `not_connected`; collisions
 or mismatches are `partial/runtime_daily_binding_conflict`, and unreadable
 registration or bindings are `read_failed`. Stored records are checked against
 the registration and binding fingerprint, so a change cannot reattribute history.
 Registration alone does not grant access to a publisher. IBKR ingestion on the
 existing sync route additionally requires an independently configured
 `IBKR_RUNTIME_DAILY_SYNC_TOKEN` and an explicitly authorized
-`IBKR_RUNTIME_DAILY_TARGET_KEY`: either one target key or a JSON array of distinct target keys. The source-binding header must match that
+`IBKR_RUNTIME_DAILY_TARGET_KEY`: either one target key, a JSON array of IBKR
+target keys, or an object with distinct `ibkr` and `execution` arrays for the
+two existing token identities. Registration alone cannot grant access. The
+source-binding header must match that
 target's unique registered account-facts binding. The token must differ from
 the existing execution-evidence and account-facts tokens. Stored IBKR records
 carry the registration fingerprint; binding changes cannot reattribute them.
