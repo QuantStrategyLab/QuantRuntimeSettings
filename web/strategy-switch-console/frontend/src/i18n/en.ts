@@ -48,6 +48,7 @@ export const en: Record<CoreMessageKey, string> = {
   "common.details": "Details",
   "common.synthetic_badge": "Synthetic demo",
   "common.paper_badge": "Paper",
+  "common.page_load_failed": "This page could not be loaded",
   "common.read_failed_banner": "Some data failed to load. A failed read does not mean there is nothing to show; please retry.",
   "common.unsaved_guard_title": "Discard unsaved changes?",
   "common.unsaved_guard_body": "You have unsaved changes that will be lost if you leave.",
