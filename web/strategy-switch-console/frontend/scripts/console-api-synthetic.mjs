@@ -1,3 +1,4 @@
+import { syntheticAccountReturns } from "./per-account-returns-fixture.mjs";
 // Fictional local-only API examples. No Worker, credentials or provider access.
 import { performanceBlocks } from "../../application/console_api/performance.js";
 import {
@@ -49,6 +50,9 @@ export function consoleApiFixture(
             unavailable_reason: "stored_records_unreadable",
           },
     };
+  if (scenario === "performance-account-daily" && path === "/api/performance/returns") {
+    return { body: { status: "partial", unavailable_reason: "snapshot_history_missing", scope: "all", range: "ALL", return_kind: "twr", currency: null, points: [], per_currency: [], per_account: syntheticAccountReturns, coverage: {}, benchmarks: [], benchmark_availability: [] } };
+  }
   const empty = scenario === "api-empty",
     date = new Date(now - (scenario === "api-stale" ? 10 : 0) * 86400000)
       .toISOString()
