@@ -1,3 +1,4 @@
+import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { readRuntimeControlReceipt } from "./application/console_api/runtime_control_receipts.js";
 import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
@@ -7474,6 +7475,11 @@ function promotionMaterialReviewBinding(row) {
 }
 
 async function recoveryDecisionMaterialKey(recovery) {
+  if (recovery.mode === "initial_enrollment") return calculateOwnerDecisionSha256({
+    mode: recovery.mode, recovery_id: recovery.recovery_id,
+    candidate_sha256: recovery.candidate?.candidate_sha256 || recovery.candidate_sha256,
+    facts_sha256: recovery.candidate?.facts_sha256 || recovery.facts_sha256,
+  });
   return calculateOwnerDecisionSha256({
     recovery_id: recovery.recovery_id,
     candidate_sha256: recovery.candidate_sha256,
@@ -7565,6 +7571,8 @@ async function publishHumanOwnerMaterials(env, snapshot, sourceId) {
 }
 
 function recoveryMaterialEligible(recovery, sourceFreshness, evidenceFreshness) {
+  if (recovery.mode === "initial_enrollment") return sourceFreshness?.data_status === "ready" && evidenceFreshness?.data_status === "ready"
+    && Object.values(recovery.candidate.coverage).every(status => status === "complete");
   return sourceFreshness?.data_status === "ready"
     && evidenceFreshness?.data_status === "ready"
     && recovery.readiness === "awaiting_human_confirmation"
@@ -7592,7 +7600,8 @@ async function publishHumanRecoveryMaterials(env, source) {
     const recovery = list[0];
     const evidenceFreshness = reconciliationRecoveryEvidenceFreshness(recovery, sourceFreshness, ttlSeconds, now);
     const materialKey = await recoveryDecisionMaterialKey(recovery);
-    const legacyRead = await readLegacyConfig(env, reconciliationRecoveryConfirmationCurrentKey(subjectId));
+    const legacyRead = recovery.mode === "initial_enrollment" ? { unreadable: false, blocked: false, value: null }
+      : await readLegacyConfig(env, reconciliationRecoveryConfirmationCurrentKey(subjectId));
     if (legacyRead.unreadable) throw new HttpError("human_decision_legacy_unreadable", 503);
     let legacy = null;
     if (legacyRead.blocked) legacy = { blocked: true };
@@ -7726,6 +7735,13 @@ async function humanDecisionReceipt(record, expected) {
         || payload.candidate_evidence_sha256 !== record.material_key || payload.decision !== record.action
         || payload.decided_by !== record.actor || payload.decided_at !== record.decided_at
         || payload.decision_sha256 !== await calculateOwnerDecisionSha256(payload)) invalid();
+    } else if (payload.mode === "initial_enrollment") {
+      const approval = record.action === "approve";
+      if (payload.schema_version !== (approval ? "qsl_initial_enrollment_confirmation.v1" : "qsl_initial_enrollment_rejection.v1")
+        || payload.recovery_id !== record.subject_id || (approval ? payload.confirmed_by : payload.decided_by) !== record.actor
+        || (approval ? payload.confirmed_at : payload.decided_at) !== record.decided_at || (!approval && payload.decision !== "reject")
+        || (approval && payload.confirmation_sha256 !== await calculateReconciliationRecoveryConfirmationSha256(payload))
+        || await recoveryDecisionMaterialKey(payload) !== record.material_key) invalid();
     } else {
       const approval = record.action === "approve";
       if (payload.schema_version !== (approval ? "qsl_reconciliation_recovery_confirmation.v1" : "qsl_reconciliation_recovery_rejection.v1")
@@ -8148,11 +8164,26 @@ async function recordOwnerDecisionResponse(request, env) {
   });
 }
 
-// These recovery snapshots deliberately contain only opaque target IDs,
-// strategy labels, timestamps, digest bindings and stable reason codes.  The
-// five broker-state digests, raw receipts and account details stay inside the
-// platform's private runtime.  This keeps the console useful for a low
-// frequency operator without turning it into a broker control plane.
+// Recovery snapshots contain digest-bound review metadata. Initial enrollment
+// additionally carries bounded broker facts for the authenticated review;
+// raw receipts remain in the platform's protected source, and confirmation
+// records intent without granting execution authority.
+async function initialEnrollmentAccountOption(env, item) {
+  if (!await initialEnrollmentBindingsMatch(item.candidate, item.facts)
+      || item.candidate.platform_id.toLowerCase() !== "ibkr"
+      || item.facts.observed_at !== item.candidate.first_observed_at
+      || item.facts.observed_at !== item.candidate.last_observed_at) throw new HttpError("initial_enrollment_invalid", 409);
+  const config = await loadAccountOptionsConfig(env);
+  const configured = await loadAccountFactsBindings(env, { propagateReadErrors: true });
+  const bindings = (configured?.bindings || []).filter(binding => binding.platform === "ibkr" && binding.target_id === item.target_id);
+  const options = (config.options?.ibkr || []).filter(option => bindings.length === 1 && option.key === bindings[0].account_key);
+  if (options.length !== 1 || bindings.length !== 1 || !accountFactsOptionMatchesBinding(options[0], bindings[0])
+      || await initialEnrollmentDigest({ account_ids: [bindings[0].account_selector] }, true) !== item.candidate.account_scope_sha256) {
+    throw new HttpError("initial_enrollment_identity_mismatch", 409);
+  }
+  return options[0];
+}
+
 async function syncReconciliationRecoverySourceResponse(request, env) {
   requireDedicatedReconciliationRecoverySyncToken(request, env);
   if (!hasConfigStore(env)) {
@@ -8167,6 +8198,7 @@ async function syncReconciliationRecoverySourceResponse(request, env) {
   let source;
   try {
     source = normalizeReconciliationRecoverySourceSnapshot(raw, "reconciliation recovery source snapshot");
+    for (const recovery of source.recoveries) if (recovery.mode === "initial_enrollment") await initialEnrollmentAccountOption(env, recovery);
   } catch (error) {
     return json({ ok: false, error: error.message || "invalid reconciliation recovery payload" }, 400);
   }
@@ -8451,6 +8483,9 @@ async function reconciliationRecoveryControllerReadResponse(request, env, url) {
   if (!entry?.confirmation) {
     return json({ ok: false, error: "reconciliation recovery has no current confirmation" }, 404);
   }
+  if (recovery.mode === "initial_enrollment") return json({ ok: true, schema_version: "qsl_initial_enrollment_controller_read.v1",
+    recovery: { mode: recovery.mode, recovery_id: recovery.recovery_id, candidate_sha256: recovery.candidate_sha256, facts_sha256: recovery.facts_sha256 },
+    confirmation: entry.confirmation, policy: { no_order: true, execution_authority_granted: false, controller_must_reverify: true } });
   return json({
     ok: true,
     schema_version: RECONCILIATION_RECOVERY_CONTROLLER_READ_SCHEMA_VERSION,
@@ -8476,14 +8511,18 @@ async function reconciliationRecoveryControllerReadResponse(request, env, url) {
 }
 
 function currentReconciliationRecoveryRequest(dashboard, recoveryId) {
-  if (dashboard?.data_status !== "ready") {
+  const entry = dashboard?.recoveries?.find((item) => item.recovery?.recovery_id === recoveryId);
+  if (entry?.recovery?.mode !== "initial_enrollment" && dashboard?.data_status !== "ready") {
     throw new HttpError("current reconciliation recovery evidence is not ready", 409);
   }
-  const entry = dashboard.recoveries.find((item) => item.recovery?.recovery_id === recoveryId);
   if (!entry || entry.freshness?.data_status !== "ready") {
     throw new HttpError("reconciliation recovery request is not fresh", 409);
   }
   const recovery = entry.recovery;
+  if (recovery.mode === "initial_enrollment") {
+    if (recovery.readiness !== "awaiting_human_confirmation" || recovery.blocker_codes.length) throw new HttpError("initial_enrollment_incomplete", 409);
+    return recovery;
+  }
   if (
     recovery.readiness !== "awaiting_human_confirmation" ||
     recovery.reconciliation_state !== "RECONCILE_ONLY" ||
@@ -8497,6 +8536,14 @@ function currentReconciliationRecoveryRequest(dashboard, recoveryId) {
 }
 
 function normalizeReconciliationRecoveryConfirmationRequest(payload) {
+  if (payload?.mode === "initial_enrollment") {
+    const value = assertRequiredAndOptionalFields(payload, ["mode", "recovery_id", "candidate_sha256", "facts_sha256"], ["decision", "request_id"], "initial enrollment confirmation request");
+    const decision = value.decision ?? "approve";
+    if (!["approve", "reject"].includes(decision)) throw new Error("initial enrollment decision unsupported");
+    return { mode: "initial_enrollment", recovery_id: normalizeControlPlaneIdentifier(value.recovery_id, "recovery_id", false),
+      candidate_sha256: normalizeResearchTaskDigest(value.candidate_sha256, "candidate_sha256"),
+      facts_sha256: normalizeResearchTaskDigest(value.facts_sha256, "facts_sha256"), decision, request_id: value.request_id };
+  }
   const value = assertRequiredAndOptionalFields(payload, [
     "recovery_id", "candidate_sha256", "dual_review_binding_sha256",
   ], ["decision", "request_id"], "reconciliation recovery confirmation request");
@@ -8620,6 +8667,31 @@ async function readReconciliationRecoveryConfirmation(env, recoveryId) {
   return { confirmation: null, rejection: null, error: null };
 }
 
+async function recordInitialEnrollmentDecision(env, session, requested, recovery) {
+  if (recovery.mode !== "initial_enrollment" || requested.candidate_sha256 !== recovery.candidate_sha256
+      || requested.facts_sha256 !== recovery.facts_sha256) return json({ ok: false, error: "initial_enrollment_changed" }, 409);
+  const decidedAt = humanDecisionTimestamp();
+  const materialKey = await recoveryDecisionMaterialKey(recovery);
+  const base = { mode: "initial_enrollment", recovery_id: recovery.recovery_id,
+    candidate_sha256: recovery.candidate_sha256, facts_sha256: recovery.facts_sha256,
+    no_order: true, execution_authority_granted: false };
+  const payload = requested.decision === "approve"
+    ? { schema_version: "qsl_initial_enrollment_confirmation.v1", ...base, confirmed_at: decidedAt, confirmed_by: session.login }
+    : { schema_version: "qsl_initial_enrollment_rejection.v1", ...base, decision: "reject", decided_at: decidedAt, decided_by: session.login };
+  if (requested.decision === "approve") payload.confirmation_sha256 = await calculateReconciliationRecoveryConfirmationSha256(payload);
+  const target = { decision: requested.decision };
+  try {
+    const requestKey = await humanDecisionRequestKey({ requestId: requested.request_id, kind: "recovery", actor: session.login,
+      subjectId: recovery.recovery_id, materialKey, action: requested.decision, target });
+    const recorded = await runtimeInstanceCommand(env, { action: "recovery_decide", actor: session.login,
+      subject_id: recovery.recovery_id, material_key: materialKey, action_name: requested.decision,
+      request_key: requestKey, target_json: canonicalResearchTaskJson(target), decided_at: decidedAt, now_ms: Date.now(), payload });
+    const decisionReceipt = await humanDecisionReceipt(recorded.record, { kind: "recovery", subject_id: recovery.recovery_id, material_sha256: materialKey });
+    return json({ ok: true, confirmation: recorded.record?.action === "approve" ? recorded.record.payload : null,
+      rejection: recorded.record?.action === "reject" ? recorded.record.payload : null, decision_receipt: decisionReceipt, replayed: recorded.replayed === true });
+  } catch (error) { return json({ ok: false, error: error.message || "initial_enrollment_unavailable" }, error.status || 503); }
+}
+
 async function recordReconciliationRecoveryConfirmationResponse(request, env) {
   requireSameOrigin(request, { requireOrigin: true });
   const session = await readSession(request, env);
@@ -8647,7 +8719,8 @@ async function recordReconciliationRecoveryConfirmationResponse(request, env) {
   } catch (error) {
     return json({ ok: false, error: error.message || "reconciliation recovery confirmation is unavailable" }, error.status || 409);
   }
-  if (
+  if (requested.mode === "initial_enrollment") return recordInitialEnrollmentDecision(env, session, requested, recovery);
+  if (recovery.mode === "initial_enrollment" ||
     requested.candidate_sha256 !== recovery.candidate_sha256 ||
     requested.dual_review_binding_sha256 !== recovery.dual_review.evidence_binding_sha256
   ) {
@@ -8772,6 +8845,25 @@ async function aggregateReconciliationRecoverySources(env) {
       }
       const result = await readReconciliationRecoveryConfirmation(env, recovery.recovery_id);
       if (result.error) errors.push(result.error);
+      if (recovery.mode === "initial_enrollment") {
+        const option = await initialEnrollmentAccountOption(env, recovery);
+        const incomplete = Object.entries(recovery.candidate.coverage).filter(([, status]) => status !== "complete").map(([name]) => `initial_enrollment_${name}_incomplete`);
+        const view = { ...recovery, platform: "ibkr", strategy_profile: recovery.candidate.strategy_profile,
+          target_name: option.target_name, account_key: option.key, candidate_sha256: recovery.candidate.candidate_sha256,
+          facts_sha256: recovery.candidate.facts_sha256, first_observed_at: recovery.candidate.first_observed_at,
+          last_observed_at: recovery.candidate.last_observed_at,
+          readiness: incomplete.length ? "blocked" : "awaiting_human_confirmation", blocker_codes: incomplete };
+        const matches = decision => decision?.mode === "initial_enrollment"
+          && decision.candidate_sha256 === view.candidate_sha256 && decision.facts_sha256 === view.facts_sha256;
+        const confirmation = matches(result.confirmation) ? result.confirmation : null;
+        const rejection = matches(result.rejection) ? result.rejection : null;
+        const presentation = recoveryMaterialPresentation({ source, recovery: view, confirmation, rejection, decisionError: result.error });
+        presentation.label = { zh: "首次登记确认", en: "Initial enrollment" };
+        presentation.material_kind = "initial_enrollment";
+        recoveries.push({ source_id: source.source_id, freshness, recovery: view, confirmation, rejection, presentation,
+          decision_binding: { kind: "recovery", subject_id: view.recovery_id, material_sha256: await recoveryDecisionMaterialKey(recovery) } });
+        continue;
+      }
       const confirmation = result.confirmation
         && result.confirmation.candidate_sha256 === recovery.candidate_sha256
         && result.confirmation.dual_review_binding_sha256 === recovery.dual_review.evidence_binding_sha256
@@ -8841,7 +8933,9 @@ async function readReconciliationRecoverySources(env) {
     try {
       const stored = await readConfigJson(env, key);
       if (!stored) throw new Error("indexed_record_unavailable");
-      sources.push(normalizeReconciliationRecoverySourceSnapshot(stored, key));
+      const source = normalizeReconciliationRecoverySourceSnapshot(stored, key);
+      for (const recovery of source.recoveries) if (recovery.mode === "initial_enrollment") await initialEnrollmentAccountOption(env, recovery);
+      sources.push(source);
     } catch {
       sources.push(emptyReconciliationRecoverySourceSnapshot("reconciliation_recovery_source_invalid"));
     }
@@ -10952,7 +11046,7 @@ function nextControlPlaneResearchScheduleAfter(freshnessAt) {
 // reconciliation candidate as current.  The private controller independently
 // verifies raw receipts, but the human console also fails closed here.
 function reconciliationRecoveryEvidenceFreshness(recovery, sourceFreshness, ttlSeconds, now) {
-  const observedAt = Date.parse(recovery.last_observed_at);
+  const observedAt = Date.parse(recovery.mode === "initial_enrollment" ? recovery.candidate.last_observed_at : recovery.last_observed_at);
   const futureBeyondClockSkew = Number.isFinite(observedAt) && observedAt > now + 5 * 60 * 1000;
   const evidenceAgeSeconds = futureBeyondClockSkew
     ? Number.POSITIVE_INFINITY
@@ -14253,6 +14347,11 @@ function normalizeReconciliationRecoverySourceSnapshot(payload, fieldName = "rec
 }
 
 function normalizeReconciliationRecoveryRequest(value, fieldName) {
+  if (value?.mode === "initial_enrollment") {
+    const item = assertExactFields(value, ["mode", "recovery_id", "target_id", "candidate", "facts"], fieldName);
+    return { mode: "initial_enrollment", recovery_id: normalizeControlPlaneIdentifier(item.recovery_id, `${fieldName}.recovery_id`, false),
+      target_id: normalizeControlPlaneIdentifier(item.target_id, `${fieldName}.target_id`, false), candidate: item.candidate, facts: item.facts };
+  }
   const item = assertExactFields(value, [
     "recovery_id", "platform", "strategy_profile", "environment", "reconciliation_state", "readiness",
     "candidate_sha256", "evidence_sample_count", "first_observed_at", "last_observed_at", "dual_review", "blocker_codes",

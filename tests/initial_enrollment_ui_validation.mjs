@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { build } from '../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js';
+import { initialEnrollmentDigest } from '../web/strategy-switch-console/application/console_api/initial_enrollment.js';
+const root=new URL('../web/strategy-switch-console/frontend/',import.meta.url).pathname;
+const dir=await mkdtemp(join(tmpdir(),'initial-ui-'));
+try {
+ const outfile=join(dir,'render.cjs');
+ await build({stdin:{resolveDir:root,contents:`import {createElement as h} from 'react';
+  import {renderToStaticMarkup} from 'react-dom/server'; import {I18nProvider} from './src/i18n';
+  import DecisionsPage from './src/pages/decisions/DecisionsPage';
+  export {initialEnrollmentBinding,humanDecisionExpectation,reviewedDecisionMatches} from './src/operations';
+  export function render(item) {globalThis.__initialItem=item; globalThis.__initialUseApi=0;
+    return renderToStaticMarkup(h(I18nProvider,{language:'zh'},h(DecisionsPage)));}`},bundle:true,platform:'node',format:'cjs',outfile,jsx:'automatic',loader:{'.css':'empty'},define:{'import.meta.env':'{}'},plugins:[{name:'mock',setup(b){
+   b.onLoad({filter:/\/lib\/hooks\.ts$/},()=>({contents:`export function useApi() {const n=globalThis.__initialUseApi++; return {phase:'ready',data:n===0?{status:'ok',items:[globalThis.__initialItem],sources:[]}:n===1?{admin:true}:{},reload(){}};} export const createRequestGate=()=>({start:()=>1,current:()=>true,invalidate(){}});`,loader:'js'}));
+   b.onLoad({filter:/\/pages\/decisions\/DecisionsPage\.tsx$/},async({path})=>({contents:(await readFile(path,'utf8')).replace('useState<string | null>(null);\n  const [busy','useState<string | null>(globalThis.__initialItem.id);\n  const [busy'),loader:'tsx'}));
+ }}]});
+ const ui=createRequire(import.meta.url)(outfile);
+ const names=['positions','cash','open_orders','recent_executions','local_execution_ledger'];
+ const kinds=['account_strategy_positions','returned_account_cash','all_client_open_orders','broker_requested_window','bounded_live_claims_and_outcomes'];
+ const facts={observed_at:'2026-10-29T00:00:00Z',surfaces:Object.fromEntries(names.map((n,i)=>[n,{status:'complete',items:[],scope:{kind:kinds[i],currency:null,window_start:null,window_end:null,limit_per_namespace:null,gateway_availability:null,truncated:null}}]))};
+ const candidate='a'.repeat(64), factsSha='b'.repeat(64), recovery_id='synthetic';
+ const material={mode:'initial_enrollment',recovery_id,candidate_sha256:candidate,facts_sha256:factsSha};
+ const material_sha256=await initialEnrollmentDigest(material);
+ const entry={freshness:{data_status:'ready'},recovery:{...material,readiness:'awaiting_human_confirmation',blocker_codes:[]},decision_binding:{kind:'recovery',subject_id:recovery_id,material_sha256}};
+ const body=ui.initialEnrollmentBinding(entry,'approve');
+ assert.deepEqual(body,{...material,decision:'approve'});
+ const expectation=await ui.humanDecisionExpectation('recovery',entry,body);
+ assert.equal(ui.reviewedDecisionMatches(entry.decision_binding,expectation),true);
+ assert.equal(ui.reviewedDecisionMatches({...entry.decision_binding,material_sha256:'c'.repeat(64)},expectation),false);
+ assert.equal(ui.initialEnrollmentBinding({...entry,recovery:{...entry.recovery,readiness:'blocked',blocker_codes:['initial_enrollment_cash_incomplete']}},'approve'),null);
+ const item={id:'reconciliation_recovery:synthetic',short_id:'IN-TEST',category:'reconciliation_recovery',priority:'high',created_at:null,expires_at:null,evidence_freshness:{status:'ready',as_of:null},status:'pending',affects_live:false,diff:[],account_alias:'synthetic',platform:'ibkr',decision_binding:entry.decision_binding,presentation:{material_kind:'initial_enrollment',strategy_profile:'synthetic'},initial_enrollment:{facts,candidate_sha256:candidate,facts_sha256:factsSha,readiness:'awaiting_human_confirmation',blocker_codes:[]}};
+ const ready=ui.render(item); assert.match(ready,/initial-enrollment-facts/); assert.match(ready,/inbox-actions/);
+ const blocked=ui.render({...item,initial_enrollment:{...item.initial_enrollment,readiness:'blocked',blocker_codes:['initial_enrollment_cash_incomplete'],facts:{...facts,surfaces:{...facts.surfaces,cash:{...facts.surfaces.cash,status:'unknown',items:null}}}}});
+ assert.match(blocked,/initial-enrollment-facts/); assert.doesNotMatch(blocked,/class="inbox-actions"/); assert.match(blocked,/未知/);
+ const missing=ui.render({...item,initial_enrollment:{...item.initial_enrollment,facts:null}});
+ assert.doesNotMatch(missing,/class="inbox-actions"/);
+ assert.doesNotMatch(blocked,/data-unknown="true"/);
+ console.log('initial_enrollment_ui_validation: PASS');
+} finally {await rm(dir,{recursive:true,force:true});}

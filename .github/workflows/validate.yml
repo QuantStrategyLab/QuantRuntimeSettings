@@ -160,6 +160,9 @@ jobs:
           node --experimental-strip-types tests/account_diagnosis_targets_validation.mjs
           node --experimental-default-type=module tests/research_promotion_application_worker_validation.mjs
           node tests/human_decisions_worker_validation.mjs
+          node tests/initial_enrollment_bindings_validation.mjs
+          node tests/initial_enrollment_worker_validation.mjs
+          node tests/initial_enrollment_ui_validation.mjs
           node --experimental-strip-types tests/decision_review_material_pure_validation.mjs
           node tests/console_api_contract_validation.mjs
           node tests/console_binance_current_holdings_validation.mjs

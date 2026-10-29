@@ -121,7 +121,7 @@ export function decisionFields(entry, category, now = Date.now()) {
     },
     status: decided ? "decided" : expired ? "expired" : "pending",
     affects_live:
-      category === "reconciliation_recovery" ||
+      (category === "reconciliation_recovery" && data.mode !== "initial_enrollment") ||
       (category === "owner_decision" &&
         data.recommendation?.code === "owner_live_decision") ||
       (category === "strategy_promotion" &&
@@ -171,6 +171,9 @@ export function canonicalItem(entry, category) {
     platform: scalar(data.platform || data.confirmation_target_platform),
     decision_binding: entry.decision_binding || null,
     ...(category === "reconciliation_recovery" && entry.presentation ? { presentation: entry.presentation } : {}),
+    ...(category === "reconciliation_recovery" && data.mode === "initial_enrollment" ? {
+      initial_enrollment: { facts: data.facts, candidate_sha256: data.candidate_sha256, facts_sha256: data.facts_sha256, readiness: data.readiness, blocker_codes: data.blocker_codes },
+    } : {}),
   };
 }
 export async function actorAlias(actor) {
