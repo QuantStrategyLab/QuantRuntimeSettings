@@ -103,6 +103,7 @@ export function applyNativeDailyReturns(blocks, input) {
     cashflows: "complete", native_return_source: "ChangeInNAV.twr", period_from: daily[0].date,
     period_to: daily.at(-1).date, range_complete: !gaps && !incompleteRange,
     requested_period_from: input.range === "ALL" ? daily[0].date : expectedStart, trading_dates: "broker_reported_daily_returns",
+    ...(gaps ? { native_daily_only: true } : {}),
     native_amount_source: amount === null ? null : "ChangeInNAV", native_amount_method: amount === null ? null : "ibkr_nav_reconciliation" };
   // Native daily returns already have a starting capital boundary. Rebasing the
   // first close to zero would silently remove the first day's actual return.
@@ -110,7 +111,9 @@ export function applyNativeDailyReturns(blocks, input) {
   Object.assign(blocks.returns, { status, unavailable_reason: reason, currency, value_kind: "pnl",
     return_kind: "twr", cashflow_method: undefined, approximate: undefined,
     as_of: daily.at(-1).date, coverage, aligned_start: daily[0].date, no_common_date: false,
-    points: gaps ? [] : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 })),
+    points: gaps ? daily.map((row, i) => ({ date: row.date, value: row.value * 100,
+      daily_return_percent: row.value * 100, breakBefore: i > 0 && hasGap(daily[i - 1], row) }))
+      : index.map((row, i) => ({ date: row.date, value: (row.value - 1) * 100, daily_return_percent: daily[i].value * 100 })),
     ...comparisons, per_currency: [] });
   let peak = 1, peakDate = daily[0].date, worst = 0, lossPeakDate = peakDate, troughDate = peakDate;
   for (const point of index) {

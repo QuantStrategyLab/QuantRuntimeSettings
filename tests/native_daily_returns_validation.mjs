@@ -28,7 +28,35 @@ for(const patch of [{accounts:[...input.accounts,...input.accounts]},
 }
 const missing={...input,accounts:[{...input.accounts[0],return:{daily:[row('2026-10-20','0.1'),row('2026-10-23','0.1')]}}]};
 const gap=applyNativeDailyReturns(performanceBlocks(missing),missing);
-assert.equal(gap.summary.twr_return_percent,null);assert.deepEqual(gap.returns.points,[]);
+assert.equal(gap.summary.twr_return_percent,null);
+assert.equal(gap.summary.max_drawdown.percent,null);
+assert.equal(gap.returns.coverage.native_daily_only,true);
+assert.deepEqual(gap.returns.points.map(p=>({date:p.date,value:p.value,daily_return_percent:p.daily_return_percent,breakBefore:p.breakBefore})),[
+ {date:'2026-10-20',value:10,daily_return_percent:10,breakBefore:false},
+ {date:'2026-10-23',value:10,daily_return_percent:10,breakBefore:true},
+]);
+assert.deepEqual(gap.returns.benchmarks,[]);
+const portfolioInput={...missing,accounts:[missing.accounts[0],{platform:'ibkr',account_key:'other-synthetic',return:{daily:[row('2026-10-22','0.01'),row('2026-10-23','0.02')]}}]};
+const portfolio=applyNativeDailyReturns(performanceBlocks(portfolioInput),portfolioInput);
+const gapAccount=portfolio.returns.per_account.find(account=>account.account_alias==='synthetic-account');
+assert.equal(gapAccount.coverage.native_daily_only,true);
+assert.equal(gapAccount.points[1].breakBefore,true);
+assert.equal(portfolio.summary.twr_return_percent,null,'native account returns are not averaged into a portfolio');
+
+// A missing weekday separates real observations; no 10/26 point is invented.
+const observedDays=['2026-10-01','2026-10-02','2026-10-05','2026-10-06','2026-10-07','2026-10-08','2026-10-09','2026-10-12','2026-10-13','2026-10-14','2026-10-15','2026-10-16','2026-10-19','2026-10-20','2026-10-21','2026-10-22','2026-10-23','2026-10-27'];
+for (const range of ['ALL','YTD']) {
+ const x={...input,range,today:'2026-10-28',accounts:[{...input.accounts[0],return:{daily:observedDays.map(day=>row(day,'0.001'))}}]};
+ const r=applyNativeDailyReturns(performanceBlocks(x),x);
+ assert.equal(r.summary.twr_return_percent,null);
+ assert.equal(r.summary.max_drawdown.percent,null);
+ assert.equal(r.returns.coverage.native_daily_only,true);
+ assert.deepEqual(r.returns.points.map(point=>point.date),observedDays);
+ assert.equal(r.returns.points.at(-1).breakBefore,true);
+ assert.equal(r.returns.points.at(-1).daily_return_percent,0.1);
+ assert.deepEqual(r.returns.benchmarks,[]);
+}
+
 const initialLoss={...input,accounts:[{...input.accounts[0],return:{daily:[row('2026-10-22','-0.1'),row('2026-10-23','0')]}}]};
 assert.ok(Math.abs(applyNativeDailyReturns(performanceBlocks(initialLoss),initialLoss).summary.max_drawdown.percent-10)<1e-10,'opening capital participates without a fabricated date');
 // Calendar uses the same linked interval return as the displayed approximation.
@@ -229,7 +257,10 @@ assert.ok(incompleteYtd.summary.excess_returns.every(item=>item.percentage_point
 const missingNativeDay=calculateBenchmarks({accounts:[{...input.accounts[0],return:{daily:
   nativeDates.filter(date=>date!=='2026-10-09').map(date=>row(date,'0.001'))}}]});
 assert.equal(missingNativeDay.summary.twr_return_percent,null);
-assert.deepEqual(missingNativeDay.returns.points,[]);
+assert.equal(missingNativeDay.returns.coverage.native_daily_only,true);
+assert.equal(missingNativeDay.returns.points.length,nativeDates.length-1);
+assert.equal(missingNativeDay.returns.points.find(point=>point.date==='2026-10-12').breakBefore,true);
+assert.equal(missingNativeDay.returns.points.some(point=>point.date==='2026-10-09'),false);
 assert.deepEqual(missingNativeDay.returns.benchmarks,[],'benchmark prices cannot fill a missing native return');
 assert.deepEqual(missingNativeDay.summary.excess_returns,[]);
 assert.ok(missingNativeDay.returns.benchmark_availability.every(item=>item.unavailable_reason==='snapshot_history_missing'));
