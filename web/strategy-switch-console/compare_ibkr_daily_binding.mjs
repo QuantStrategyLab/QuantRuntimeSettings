@@ -60,29 +60,36 @@ export function matchAdditionalDailyBinding(optionsRaw, bindingsRaw, profilesRaw
 }
 
 // Other existing platforms share the same protected source identity fields.
-export function matchExecutionDailyBinding(optionsRaw, bindingsRaw, profilesRaw, platform, nonce, expected) {
+export function matchExecutionDailyBinding(optionsRaw, bindingsRaw, profilesRaw, platform, nonce, expected, counts = null) {
   if (!['longbridge','firstrade'].includes(platform) || !/^[a-f0-9]{64}$/.test(nonce) || !/^[a-f0-9]{64}$/.test(expected)) throw Error('invalid_input');
   const options = normalizeAccountOptionsPayload(optionsRaw)[platform] || [];
   const bindings = normalizeAccountFactsBindings(bindingsRaw).bindings.filter(b => b.platform === platform);
   const profiles = profilesRaw === null ? DEFAULT_STRATEGY_PROFILES : profilesRaw;
   if (!Array.isArray(profiles) || profiles.length > 100) throw Error('profiles_invalid');
   const names = [...new Set([...profiles,...DEFAULT_STRATEGY_PROFILES].map(item => item?.profile || item?.strategy_profile).filter(name => typeof name === 'string' && token.test(name)))];
+  if (counts) Object.assign(counts,{bindings:bindings.length,option_matches:0,format_pass:0,profiles:names.length,digest_matches:0});
   const matches=[];
   for (const b of bindings) {
     const opts=options.filter(o=>o.key===b.account_key && accountFactsOptionMatchesBinding(o,b));
     if (opts.length!==1 || options.filter(o=>o.key===b.account_key).length!==1) continue;
+    if (counts) {
+      counts.option_matches++;
+      if (platform==='firstrade' && bindings.length===1) counts.selector_matches_broker=b.account_selector===b.broker_account_id;
+    }
     for (const strategy_profile of names) {
-      const binding={account_scope:b.account_scope,account_selector:b.account_selector,deployment_selector:b.deployment_selector,
+      const binding={account_scope:b.account_scope,account_selector:platform==='firstrade'?b.broker_account_id:b.account_selector,deployment_selector:b.deployment_selector,
         platform,service_name:b.service_name,source_binding_id:b.source_binding.id,strategy_profile,target_id:b.target_id};
       if (Object.values(binding).some(v=>typeof v!=='string' || !token.test(v)) || !/^[a-f0-9]{64}$/.test(binding.source_binding_id)) continue;
+      if (counts) counts.format_pass++;
       const domain=platform==='longbridge'?'qsl.longbridge-daily-binding.v1':'qsl.firstrade-daily-binding.v1';
-      if (sha(JSON.stringify({binding,domain,nonce}))===expected) matches.push({...binding,account_key:b.account_key});
+      if (sha(JSON.stringify({binding,domain,nonce}))===expected) {matches.push({...binding,account_key:b.account_key});if(counts)counts.digest_matches++;}
     }
   }
   if (matches.length!==1) throw Error('binding_not_unique');
   return matches[0];
 }
 
+const safeCounts={};
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) try {
   const [optionsPath, bindingsPath, profilesPath] = process.argv.slice(2);
   const options = JSON.parse(readFileSync(optionsPath)), bindings = JSON.parse(readFileSync(bindingsPath));
@@ -90,10 +97,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const profiles = profilesPath ? JSON.parse(readFileSync(profilesPath)) : null;
     const platform=process.env.DAILY_COMPARISON_PLATFORM || 'ibkr';
     if (platform === 'ibkr') matchAdditionalDailyBinding(options, bindings, profiles, process.env.DAILY_COMPARISON_NONCE || '', process.env.DAILY_COMPARISON_DIGEST);
-    else matchExecutionDailyBinding(options, bindings, profiles, platform, process.env.DAILY_COMPARISON_NONCE || '', process.env.DAILY_COMPARISON_DIGEST);
+    else matchExecutionDailyBinding(options, bindings, profiles, platform, process.env.DAILY_COMPARISON_NONCE || '', process.env.DAILY_COMPARISON_DIGEST, safeCounts);
     process.stdout.write('status=ok unique_match=true business_writes=0\n');
   } else {
     const result = comparison(options, bindings, process.env.DAILY_COMPARISON_NONCE || '');
     process.stdout.write(`status=ok comparison=${result}\n`);
   }
-} catch { process.stdout.write('status=blocked reason=comparison_unavailable\n'); process.exitCode = 1; }
+} catch {
+  if (['bindings','option_matches','format_pass','profiles','digest_matches'].every(key=>Number.isSafeInteger(safeCounts[key]))) process.stdout.write(`safe_counts=${JSON.stringify(safeCounts)}\n`);
+  process.stdout.write('status=blocked reason=comparison_unavailable\n'); process.exitCode = 1;
+}
