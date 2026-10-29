@@ -463,11 +463,50 @@ def validate_github(target: dict[str, Any], errors: list[str]) -> None:
         errors.append("github.environment must be omitted for repository variable scope")
 
 
+
+def validate_account_domain(domain: Any, errors: list[str]) -> None:
+    identity_fields = {"environment", "platform_id", "server", "account_id_fingerprint", "lifecycle_id"}
+    policy_fields = {"capital_kind", "product", "phase", "account_type", "style", "preference", "currency", "source", "effective_at", "valid_until", "version"}
+    if not isinstance(domain, dict) or set(domain) != {"identity", "policy"}:
+        errors.append("runtime_target.account_domain must contain identity and policy")
+        return
+    identity, policy = domain["identity"], domain["policy"]
+    if not isinstance(identity, dict) or set(identity) != identity_fields or not all(isinstance(v, str) and v.strip() for v in identity.values()):
+        errors.append("runtime_target.account_domain.identity is invalid")
+        return
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", identity["account_id_fingerprint"]):
+        errors.append("runtime_target.account_domain.identity fingerprint is invalid")
+    if not isinstance(policy, dict) or set(policy) != policy_fields or not all(isinstance(v, str) and v.strip() for v in policy.values()):
+        errors.append("runtime_target.account_domain.policy is invalid")
+        return
+    ftmo = (policy["capital_kind"], policy["product"], policy["phase"], identity["environment"]) == ("FTMO_SIMULATED", "FTMO_CFD_2_STEP", "FREE_TRIAL", "DEMO") and policy["account_type"] in {"STANDARD", "SWING"}
+    own = (policy["capital_kind"], policy["product"], policy["phase"], identity["environment"]) == ("OWN_REAL", "BROKERAGE", "LIVE", "LIVE") and policy["account_type"] in {"CASH", "MARGIN"}
+    if not (ftmo or own):
+        errors.append("runtime_target.account_domain policy combination is invalid")
+    if policy["preference"] not in {"CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"}:
+        errors.append("runtime_target.account_domain preference is invalid")
+    if not re.fullmatch(r"[A-Z]{3}", policy["currency"]):
+        errors.append("runtime_target.account_domain currency is invalid")
+    try:
+        effective = datetime.fromisoformat(policy["effective_at"].replace("Z", "+00:00"))
+        expiry = datetime.fromisoformat(policy["valid_until"].replace("Z", "+00:00"))
+        if effective.utcoffset() != timedelta(0) or expiry.utcoffset() != timedelta(0) or expiry <= effective:
+            raise ValueError
+    except ValueError:
+        errors.append("runtime_target.account_domain policy validity interval is invalid")
+
 def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
     runtime_target = target.get("runtime_target")
     if not isinstance(runtime_target, dict):
         errors.append("runtime_target must be an object")
         return
+
+    if "account_domain" in runtime_target:
+        validate_account_domain(runtime_target["account_domain"], errors)
+        domain = runtime_target["account_domain"]
+        if isinstance(domain, dict) and isinstance(domain.get("identity"), dict):
+            if domain["identity"].get("platform_id") != runtime_target.get("platform_id"):
+                errors.append("runtime_target.account_domain platform_id must match runtime_target.platform_id")
 
     for field in RUNTIME_REQUIRED_FIELDS:
         if field not in runtime_target:
@@ -491,6 +530,13 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
         errors.append("runtime_target.account_selector must only contain non-empty strings")
 
     execution_mode = runtime_target.get("execution_mode")
+    domain = runtime_target.get("account_domain")
+    if isinstance(domain, dict) and isinstance(domain.get("policy"), dict):
+        kind = domain["policy"].get("capital_kind")
+        if runtime_target.get("dry_run_only") is False:
+            required_mode = {"FTMO_SIMULATED": "paper", "OWN_REAL": "live"}.get(kind)
+            if required_mode is None or execution_mode != required_mode:
+                errors.append("runtime_target.execution_mode conflicts with account_domain capital_kind")
     if execution_mode not in {"live", "paper", "dry_run"}:
         errors.append("runtime_target.execution_mode must be live, paper, or dry_run")
     else:

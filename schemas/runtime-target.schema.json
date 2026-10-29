@@ -47,12 +47,62 @@
         "execution_mode"
       ],
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"required": ["account_domain", "dry_run_only"], "properties": {
+            "dry_run_only": {"const": false},
+            "account_domain": {"required": ["policy"], "properties": {"policy": {"required": ["capital_kind"], "properties": {"capital_kind": {"const": "FTMO_SIMULATED"}}}}}
+          }},
+          "then": {"properties": {"execution_mode": {"const": "paper"}}}
+        },
+        {
+          "if": {"required": ["account_domain", "dry_run_only"], "properties": {
+            "dry_run_only": {"const": false},
+            "account_domain": {"required": ["policy"], "properties": {"policy": {"required": ["capital_kind"], "properties": {"capital_kind": {"const": "OWN_REAL"}}}}}
+          }},
+          "then": {"properties": {"execution_mode": {"const": "live"}}}
+        }
+      ],
       "dependentRequired": {
         "market": ["market_calendar", "market_timezone"],
         "market_calendar": ["market", "market_timezone"],
         "market_timezone": ["market", "market_calendar"]
       },
       "properties": {
+        "account_domain": {
+          "type": "object", "additionalProperties": false,
+          "required": ["identity", "policy"],
+          "properties": {
+            "identity": {
+              "type": "object", "additionalProperties": false,
+              "required": ["environment", "platform_id", "server", "account_id_fingerprint", "lifecycle_id"],
+              "properties": {
+                "environment": {"type": "string", "minLength": 1},
+                "platform_id": {"type": "string", "minLength": 1},
+                "server": {"type": "string", "minLength": 1},
+                "account_id_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                "lifecycle_id": {"type": "string", "minLength": 1}
+              }
+            },
+            "policy": {
+              "type": "object", "additionalProperties": false,
+              "required": ["capital_kind", "product", "phase", "account_type", "style", "preference", "currency", "source", "effective_at", "valid_until", "version"],
+              "properties": {
+                "capital_kind": {"enum": ["OWN_REAL", "FTMO_SIMULATED"]},
+                "product": {"enum": ["BROKERAGE", "FTMO_CFD_2_STEP"]},
+                "phase": {"enum": ["LIVE", "FREE_TRIAL"]},
+                "account_type": {"enum": ["CASH", "MARGIN", "STANDARD", "SWING"]},
+                "style": {"type": "string", "minLength": 1},
+                "preference": {"enum": ["CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"]},
+                "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+                "source": {"type": "string", "minLength": 1},
+                "effective_at": {"type": "string", "format": "date-time"},
+                "valid_until": {"type": "string", "format": "date-time"},
+                "version": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        },
         "platform_id": {
           "type": "string"
         },

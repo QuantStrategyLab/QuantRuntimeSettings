@@ -97,6 +97,10 @@ python3 python/scripts/runtime_settings.py validate
 python3 -m unittest discover -s python/tests -v
 ```
 
+## Account domain validation
+
+Runtime targets may include an optional `account_domain` identity and policy. Its platform must match the target, policy timestamps must be UTC, and non-dry-run execution mode must match the capital kind. Existing targets without a domain remain valid. `python3 python/scripts/qslctl.py validate-account-domain PATH` validates a standalone domain offline; structural validation does not establish account identity, policy freshness, or trading authority. Consumers must adopt a compatible QuantPlatformKit revision before relying on this field.
+
 ## Manual Strategy Switch
 
 `.github/workflows/manual-strategy-switch.yml` provides a central manual switch entrypoint. It builds a transient runtime target from workflow inputs, validates it with `python/scripts/runtime_settings.py`, and writes GitHub variables into the target platform repository. It supports `longbridge`, `ibkr`, `schwab`, `firstrade`, `qmt`, and `binance`.
