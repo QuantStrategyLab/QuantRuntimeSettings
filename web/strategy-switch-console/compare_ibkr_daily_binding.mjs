@@ -72,7 +72,10 @@ export function matchExecutionDailyBinding(optionsRaw, bindingsRaw, profilesRaw,
   for (const b of bindings) {
     const opts=options.filter(o=>o.key===b.account_key && accountFactsOptionMatchesBinding(o,b));
     if (opts.length!==1 || options.filter(o=>o.key===b.account_key).length!==1) continue;
-    if (counts) counts.option_matches++;
+    if (counts) {
+      counts.option_matches++;
+      if (platform==='firstrade' && bindings.length===1) counts.selector_matches_broker=b.account_selector===b.broker_account_id;
+    }
     for (const strategy_profile of names) {
       const binding={account_scope:b.account_scope,account_selector:b.account_selector,deployment_selector:b.deployment_selector,
         platform,service_name:b.service_name,source_binding_id:b.source_binding.id,strategy_profile,target_id:b.target_id};
@@ -101,6 +104,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     process.stdout.write(`status=ok comparison=${result}\n`);
   }
 } catch {
-  if (Object.keys(safeCounts).length===5) process.stdout.write(`safe_counts=${JSON.stringify(safeCounts)}\n`);
+  if (['bindings','option_matches','format_pass','profiles','digest_matches'].every(key=>Number.isSafeInteger(safeCounts[key]))) process.stdout.write(`safe_counts=${JSON.stringify(safeCounts)}\n`);
   process.stdout.write('status=blocked reason=comparison_unavailable\n'); process.exitCode = 1;
 }
