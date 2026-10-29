@@ -16,7 +16,9 @@ const secondBinding={...binding,account_key:secondOption.key,target_name:secondO
 const env = {SESSION_SECRET:'synthetic-session',ALLOWED_GITHUB_LOGINS:'admin,reader',STRATEGY_SWITCH_ADMIN_LOGINS:'admin',RECONCILIATION_RECOVERY_SYNC_TOKEN:'synthetic-sync',RECONCILIATION_RECOVERY_CONTROLLER_TOKEN:'synthetic-controller',STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON:JSON.stringify({ibkr:[option,secondOption]})};
 const admin = `qsl_switch_session=${await __test.makeSession('admin', [], env)}`;
 const reader = `qsl_switch_session=${await __test.makeSession('reader', [], env)}`;
-const mf = new Miniflare({cf:false,modules:true,modulesRules:[{type:'ESModule',include:['**/*.js']}],scriptPath:fileURLToPath(new URL('../web/strategy-switch-console/worker.js',import.meta.url)),compatibilityDate:'2026-06-08',bindings:env,durableObjects:{STRATEGY_SWITCH_RUNTIME_INSTANCES:{className:'RuntimeInstances',useSQLite:true}},durableObjectsPersist:await mkdtemp(join(tmpdir(),'initial-do-')),kvPersist:await mkdtemp(join(tmpdir(),'initial-kv-')),kvNamespaces:['STRATEGY_SWITCH_CONFIG'],outboundService:()=>new Response('offline',{status:503})});
+const mf = new Miniflare({
+  cf: false,
+  modules:true,modulesRules:[{type:'ESModule',include:['**/*.js']}],scriptPath:fileURLToPath(new URL('../web/strategy-switch-console/worker.js',import.meta.url)),compatibilityDate:'2026-06-08',bindings:env,durableObjects:{STRATEGY_SWITCH_RUNTIME_INSTANCES:{className:'RuntimeInstances',useSQLite:true}},durableObjectsPersist:await mkdtemp(join(tmpdir(),'initial-do-')),kvPersist:await mkdtemp(join(tmpdir(),'initial-kv-')),kvNamespaces:['STRATEGY_SWITCH_CONFIG'],outboundService:()=>new Response('offline',{status:503})});
 async function call(path, {method='GET',body,cookie=admin,token}={}) {
   const r=await mf.dispatchFetch(`https://switch.example${path}`,{method,headers:{...(cookie?{Cookie:cookie}:{}),...(token?{Authorization:`Bearer ${token}`}:{Origin:'https://switch.example'}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
   return {status:r.status,body:await r.json()};
