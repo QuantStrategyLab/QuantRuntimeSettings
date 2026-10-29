@@ -424,7 +424,9 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
 }
 // Exact new asset and mismatch are both checked before publishing.
 {
-  const asset=readFileSync(new URL(`../${assetPath}`,import.meta.url));
+  const fixedAsset = spawnSync("git", ["show", `${statusSource}:${assetPath}`], { cwd: new URL("..", import.meta.url) });
+  assert.equal(fixedAsset.status, 0, "the status candidate asset fixture must be available");
+  const asset = fixedAsset.stdout;
   assert.equal(spawnSync("git",["hash-object","--stdin"],{input:asset,encoding:"utf8"}).stdout.trim(),"a7906c69fd5ffaf6ff0f7812ba60614a4018b2d4");
   const temp=mkdtempSync(join(tmpdir(),"console-status-overlay-"));
   try {
