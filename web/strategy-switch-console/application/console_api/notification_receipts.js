@@ -43,7 +43,7 @@ function receiptReadCoverage(listing, runs, items, failures) {
     read_reason_codes: status === "no_data" ? ["no_completed_workflow_runs"] : reasons };
 }
 
-async function bytes(response, limit) {
+export async function boundedReceiptBytes(response, limit) {
   if (Number(response.headers.get("content-length")) > limit) throw Error("receipt_too_large");
   const reader = response.body?.getReader();
   if (!reader) throw Error("receipt_body_missing");
@@ -63,7 +63,8 @@ async function bytes(response, limit) {
 }
 
 /** Only the exact public JSON member is read; never extract private previews/files. */
-export async function publicReceiptFromZip(archive) {
+export async function publicReceiptFromZip(archive, member = "receipt-public.json") {
+  if (!["receipt-public.json", "runtime-control.safe.json"].includes(member)) throw Error("invalid_receipt_archive");
   if (archive.length > MAX_ARCHIVE) throw Error("receipt_too_large");
   const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
   let end = archive.length - 22;
@@ -78,7 +79,7 @@ export async function publicReceiptFromZip(archive) {
     const next = offset + 46 + nameSize + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true);
     if (next > end) throw Error("invalid_receipt_archive");
     const name = new TextDecoder().decode(archive.subarray(offset + 46, offset + 46 + nameSize));
-    if (name === "receipt-public.json") {
+    if (name === member) {
       if (receipt || view.getUint16(offset + 8, true) & 1) throw Error("invalid_receipt_archive");
       const method = view.getUint16(offset + 10, true);
       const compressed = view.getUint32(offset + 20, true), size = view.getUint32(offset + 24, true);
@@ -88,7 +89,7 @@ export async function publicReceiptFromZip(archive) {
       if (start + compressed > offset) throw Error("invalid_receipt_archive");
       const content = archive.subarray(start, start + compressed);
       const decoded = method === 0 ? content : method === 8
-        ? await bytes(new Response(new Blob([content]).stream().pipeThrough(new DecompressionStream("deflate-raw"))), MAX_JSON)
+        ? await boundedReceiptBytes(new Response(new Blob([content]).stream().pipeThrough(new DecompressionStream("deflate-raw"))), MAX_JSON)
         : null;
       if (!decoded || decoded.length !== size) throw Error("invalid_receipt_archive");
       receipt = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(decoded));
@@ -148,10 +149,10 @@ export function createNotificationLogReader(fetchImpl = (...args) => fetch(...ar
           // through the explicit HTTP check without forwarding any credential.
           const download = await request(location.href, { method: "GET", redirect: "manual", signal: controller.signal }, "artifact_download");
           if (!download.ok) throw httpFailure(download, "artifact_download");
-          return bytes(download, MAX_ARCHIVE);
+          return boundedReceiptBytes(download, MAX_ARCHIVE);
         }
         if (!response.ok) throw httpFailure(response, stage);
-        const body = await bytes(response, archive ? MAX_ARCHIVE : 524288);
+        const body = await boundedReceiptBytes(response, archive ? MAX_ARCHIVE : 524288);
         return archive ? body : JSON.parse(new TextDecoder().decode(body));
       };
       try {

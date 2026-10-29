@@ -204,6 +204,8 @@ jobs:
           node --experimental-strip-types tests/workflow_clarity_validation.mjs
           node --experimental-strip-types tests/runtime_stop_worker_validation.mjs
           node tests/runtime_stop_requests_worker_validation.mjs
+          node tests/runtime_control_request_validation.mjs
+          node tests/runtime_control_receipt_validation.mjs
           node --experimental-default-type=module tests/binance_resume_worker_validation.mjs
           node --experimental-default-type=module tests/ux1_research_worker_validation.mjs
           node --experimental-default-type=module tests/ux1_async_worker_validation.mjs
