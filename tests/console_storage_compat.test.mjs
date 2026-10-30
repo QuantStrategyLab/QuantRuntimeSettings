@@ -66,7 +66,9 @@ test('verified production Worker and complete candidate preserve SQLite upgrade 
     await stop();
     // Bundles live under RUNNER_TEMP, outside the checkout. As in the existing
     // candidate runtime tests, make their directory workerd's module root.
-    mf = new Miniflare({ cf: false, rootPath: dirname(scriptPath), modulesRoot: dirname(scriptPath),
+    mf = new Miniflare({
+      cf: false,
+      rootPath: dirname(scriptPath), modulesRoot: dirname(scriptPath),
       modules: true, scriptPath, compatibilityDate: '2026-06-08',
       bindings: { ...bindings, ...(native ? { ACCOUNT_DIAGNOSIS_NATIVE_BINDING_JSON: JSON.stringify(nativeBinding) } : {}) },
       ...(transport ? { serviceBindings: { ACCOUNT_DIAGNOSIS_NATIVE_TRANSPORT: async request => {
