@@ -267,3 +267,50 @@ assert.ok(missingNativeDay.returns.benchmark_availability.every(item=>item.unava
 const staleBenchmarks=calculateBenchmarks({today:'2026-10-27'}).returns.benchmark_availability;
 assert.ok(staleBenchmarks.every(item=>item.status==='stale'&&item.as_of==='2026-10-23'));
 console.log('native_daily_returns_benchmarks: PASS (native dates, prior close, first day, independent series, missing boundaries/prices, explicit breaks and gaps)');
+
+// Historical weekdays after the last reported native day are not the current
+// pending session. Complete earlier rows cannot hide a missing trailing day.
+const trailingCase = (today, dates) => {
+  const changed = {...input, today, range:'ALL', histories:[], accounts:[{...input.accounts[0],
+    return:{daily:dates.map(date => row(date,'0.01'))}}]};
+  return applyNativeDailyReturns(performanceBlocks(changed), changed);
+};
+for (const dates of [['2026-10-21'], ['2026-10-20','2026-10-21']]) {
+  const result = trailingCase('2026-10-23', dates);
+  assert.equal(result.calendar.cells.find(cell => cell.date === '2026-10-22').unavailable_reason, 'snapshot_missing');
+  assert.equal(result.summary.status, 'partial');
+  assert.equal(result.summary.unavailable_reason, 'snapshot_history_missing');
+  assert.equal(result.returns.coverage.range_complete, false);
+  assert.ok(Math.abs(result.summary.twr_return_percent - ((1.01 ** dates.length - 1) * 100)) < 1e-10);
+  assert.equal(result.summary.metric_reasons.twr, null);
+  assert.equal(result.summary.max_drawdown.percent, 0);
+  assert.equal(result.summary.amount, null);
+}
+for (const [today, dates] of [
+  ['2026-10-26', ['2026-10-23']], // Monday: Friday is the last historical weekday.
+  ['2026-10-24', ['2026-10-23']], // Saturday after a reported Friday.
+  ['2026-10-23', ['2026-10-22']], // Current Friday is pending.
+]) {
+  const result = trailingCase(today, dates);
+  assert.equal(result.summary.status, 'ok');
+  assert.equal(result.returns.coverage.range_complete, true);
+  assert.ok(Math.abs(result.summary.twr_return_percent - 1) < 1e-10);
+}
+const trailingStale = trailingCase('2026-10-30', ['2026-10-21']);
+assert.equal(trailingStale.summary.status, 'stale');
+assert.equal(trailingStale.summary.unavailable_reason, 'snapshot_history_missing');
+assert.equal(trailingStale.returns.coverage.range_complete, false);
+assert.ok(Math.abs(trailingStale.summary.twr_return_percent - 1) < 1e-10);
+assert.equal(trailingStale.summary.metric_reasons.twr, null);
+assert.equal(trailingStale.summary.max_drawdown.percent, 0);
+const trailingMoneyInput = {...moneyInput, today:'2026-10-23', range:'ALL', histories:[],
+  accounts:[{...input.accounts[0], return:{daily:[moneyRow('2026-10-21','0.1','5')]}}]};
+const trailingMoney = applyNativeDailyReturns(performanceBlocks(trailingMoneyInput), trailingMoneyInput);
+assert.equal(trailingMoney.summary.amount, 5, 'known observed NAV amount remains available');
+assert.equal(trailingMoney.summary.coverage.period_from, '2026-10-21');
+assert.equal(trailingMoney.summary.coverage.period_to, '2026-10-21');
+assert.equal(trailingMoney.summary.best_day.date, '2026-10-21');
+const internalGap = trailingCase('2026-10-23', ['2026-10-19','2026-10-21']);
+assert.equal(internalGap.summary.twr_return_percent, null);
+assert.equal(internalGap.summary.max_drawdown.percent, null);
+console.log('native_daily_returns_trailing_weekday: PASS');

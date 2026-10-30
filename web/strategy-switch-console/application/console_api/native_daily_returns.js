@@ -93,15 +93,19 @@ export function applyNativeDailyReturns(blocks, input) {
   }
   const incompleteRange = input.range !== "ALL" && daily[0].date > expectedStart;
   const gaps = daily.slice(1).some((row, i) => hasGap(daily[i], row));
+  // Today may still be pending, but prior unreported weekdays are missing.
+  const trailingGap = hasGap(daily.at(-1), { date: input.today });
+  const incomplete = gaps || incompleteRange;
   let growth = 1;
   const index = daily.map(row => { growth *= 1 + row.value; return { date: row.date, value: growth }; });
   const stale = dateMs(input.today) - dateMs(daily.at(-1).date) > 3 * 86400000;
-  const status = gaps || incompleteRange ? "partial" : stale ? "stale" : "ok";
-  const reason = gaps || incompleteRange ? "snapshot_history_missing" : null;
-  const amount = gaps || incompleteRange ? null : navAmountSum(daily);
+  const status = incomplete ? "partial" : stale ? "stale" : trailingGap ? "partial" : "ok";
+  const metricReason = incomplete ? "snapshot_history_missing" : null;
+  const reason = incomplete || trailingGap ? "snapshot_history_missing" : null;
+  const amount = incomplete ? null : navAmountSum(daily);
   const coverage = { ...blocks.returns.coverage, account_aliases: [account.account_key], currencies: [currency],
     cashflows: "complete", native_return_source: "ChangeInNAV.twr", period_from: daily[0].date,
-    period_to: daily.at(-1).date, range_complete: !gaps && !incompleteRange,
+    period_to: daily.at(-1).date, range_complete: !incomplete && !trailingGap,
     requested_period_from: input.range === "ALL" ? daily[0].date : expectedStart, trading_dates: "broker_reported_daily_returns",
     ...(gaps ? { native_daily_only: true } : {}),
     native_amount_source: amount === null ? null : "ChangeInNAV", native_amount_method: amount === null ? null : "ibkr_nav_reconciliation" };
@@ -122,15 +126,15 @@ export function applyNativeDailyReturns(blocks, input) {
     if (point.value > peak) { peak = point.value; peakDate = point.date; }
   }
   Object.assign(blocks.summary, { status, unavailable_reason: reason, currency, value_kind: "pnl",
-    as_of: daily.at(-1).date, coverage, twr_return_percent: gaps || incompleteRange ? null : (growth - 1) * 100,
+    as_of: daily.at(-1).date, coverage, twr_return_percent: incomplete ? null : (growth - 1) * 100,
     amount, simple_weighted_return_percent: null, best_day: null, worst_day: null,
-    max_drawdown: gaps || incompleteRange ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
+    max_drawdown: incomplete ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }
       : { percent: worst, peak_date: lossPeakDate, trough_date: troughDate, unavailable_reason: null },
-    metric_reasons: { ...blocks.summary.metric_reasons, twr: reason },
+    metric_reasons: { ...blocks.summary.metric_reasons, twr: metricReason },
     excess_returns: comparisons.benchmarks.map(comparison => ({ benchmark: comparison.id,
       start: daily[0].date, end: comparison.points.at(-1).date,
-      percentage_points: gaps || incompleteRange ? null : (growth - 1) * 100 - comparison.points.at(-1).value,
-      unavailable_reason: reason })) });
+      percentage_points: incomplete ? null : (growth - 1) * 100 - comparison.points.at(-1).value,
+      unavailable_reason: metricReason })) });
   const currencySummary = blocks.summary.per_currency.find(item => item.currency === currency) || {
     currency, total: null, account_count: 0, expected_account_count: 1, as_of: null,
     stale: null, status: "no_data", unavailable_reason: "no_snapshot" };
@@ -173,7 +177,7 @@ export function applyNativeDailyReturns(blocks, input) {
     as_of: daily.at(-1).date, value_kind: "pnl", coverage });
   const ranked = [...daily].sort((a, b) => b.value - a.value).map(row => ({ date: row.date, return_percent: row.value * 100,
       amount: navAmountSum([row]), value_kind: "pnl", status: "ok", unavailable_reason: null }));
-  blocks.summary.best_day = gaps || incompleteRange ? null : ranked[0] || null;
-  blocks.summary.worst_day = gaps || incompleteRange ? null : ranked.at(-1) || null;
+  blocks.summary.best_day = incomplete ? null : ranked[0] || null;
+  blocks.summary.worst_day = incomplete ? null : ranked.at(-1) || null;
   return blocks;
 }
