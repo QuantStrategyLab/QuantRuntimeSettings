@@ -98,10 +98,44 @@ jobs:
       - name: Install local Worker test runtime
         working-directory: web/strategy-switch-console
         run: npm ci
+      - name: Select QRS 946 evidence scope
+        id: qrs946_scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          needed=true
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && [[ "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
+            && [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] \
+            && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+            && git merge-base --is-ancestor "$BASE_SHA" "$GITHUB_SHA"; then
+            if git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
+              ':(glob)scripts/console_946*' scripts/console_active_module_probe.mjs \
+              ':(glob)tests/console_946*' tests/console_active_module_probe.test.mjs \
+              .github/workflows/validate.yml .github/workflows/deploy-strategy-switch-console.yml \
+              web/strategy-switch-console/package.json web/strategy-switch-console/package-lock.json \
+              web/strategy-switch-console/frontend/package.json web/strategy-switch-console/frontend/package-lock.json; then
+              needed=false
+            fi
+          fi
+          printf 'needed=%s\n' "$needed" >> "$GITHUB_OUTPUT"
+      - name: Build synthetic QRS 946 bundle evidence
+        if: steps.qrs946_scope.outputs.needed == 'true'
+        run: bash scripts/console_946_bundle_evidence.sh
+      - name: Preserve synthetic QRS 946 bundle evidence
+        if: steps.qrs946_scope.outputs.needed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qrs946-synthetic-bundle-evidence
+          path: ${{ runner.temp }}/qrs946-bundle-evidence/
+          if-no-files-found: error
+          retention-days: 3
       - name: Validate strategy switch web assets
         env:
           CLOUDFLARE_CF_FETCH_ENABLED: "false"
           npm_config_update_notifier: "false"
+          QRS946_EVIDENCE_NEEDED: ${{ steps.qrs946_scope.outputs.needed }}
         run: |
           set -euo pipefail
           node tests/display_names_validation.mjs
@@ -109,6 +143,10 @@ jobs:
           node tests/console_deploy_safety_validation.mjs
           node --test tests/console_active_module_probe.test.mjs
           npm ci --prefix web/strategy-switch-console/frontend
+          node --test tests/console_946_patch_unit.test.mjs
+          if [[ "$QRS946_EVIDENCE_NEEDED" == true ]]; then
+            node tests/console_946_candidate_validation.mjs
+          fi
           node --test tests/website_execution_evidence_release_validation.mjs
           node tests/website_release_combination_validation.mjs
           npm run build --prefix web/strategy-switch-console/frontend
