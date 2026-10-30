@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import re
+from datetime import date, datetime, time
 from notification_mode import consolidation_enabled, routine_mode
+from notification_snapshot.unified_contract import SGT, sgt_business_window
 from display_names import display_name
 from daily_digest_notify import DailyDigestInput, _presentation_needs_attention, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale, routine_decision_text, routine_observation_text
 
@@ -13,6 +15,14 @@ def enabled() -> bool:
 
 def _units(text: str) -> int:
     return len(text.encode("utf-16-le")) // 2
+
+
+def _window_text(business_day: str, locale: str) -> str:
+    window = sgt_business_window(datetime.combine(date.fromisoformat(business_day), time(6), SGT))
+    interval = f"{window.start:%Y-%m-%d %H:%M} – {window.end:%Y-%m-%d %H:%M} (UTC+8)"
+    if locale == "bilingual":
+        return f"统计区间 / Reporting window: {interval}"
+    return f"统计区间：{interval}" if locale == "zh" else f"Reporting window: {interval}"
 
 
 def render(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
@@ -64,7 +74,7 @@ def render(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
         return ""
     header = f"每日交易摘要 / Daily trading digest · {payload.business_day}"
     rows = (["需关注 / Diagnostics"] + problems if problems else []) + (["交易 / Trading"] + trades if trades else [])
-    lines = [header]
+    lines = [header, _window_text(payload.business_day, "bilingual")]
     for i, row in enumerate(rows):
         suffix = f"\n其余 {len(rows) - i} 项已省略 / {len(rows) - i} more items omitted"
         if _units("\n".join(lines + [row]) + suffix) > max_units:
@@ -175,6 +185,7 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     coverage = payload.evidence_coverage
     complete = bool(coverage and coverage.is_complete_for_verified_idle and not summary.get("counts_scope_unknown", summary.get("counts_unknown")))
     lines = [f"每日交易摘要 · {payload.business_day}" if zh else f"Daily trading digest · {payload.business_day}"]
+    lines.append(_window_text(payload.business_day, locale))
     lines.append(("窗口内运行次数未知" if zh else "Run count in window unknown") if summary.get("run_count_unknown") else
                  f"已收录运行 {len(payload.runs)} 次" if zh else f"Observed runs in window: {len(payload.runs)}")
     counts = []
@@ -188,7 +199,8 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         lines.append(("本轮 0 单" if len(payload.runs) == 1 else "窗口内各轮均为 0 单") if zh else
                      ("0 orders this run" if len(payload.runs) == 1 else "0 orders in every observed run"))
     for platform, source in summary.get("source_inventory", {}).items():
-        label = display_name("platforms", platform, "zh" if zh else "en")
+        fallback = ("管理站" if zh else "Management console") if platform == "qrs" else ""
+        label = display_name("platforms", platform, locale, fallback=fallback)
         expected, covered, runs = source["expected_targets"], source["covered_targets"], source["runs"]
         if not expected:
             lines.append(f"{label}：未接入，运行状态未知" if zh else f"{label}: not connected; run state unknown")
