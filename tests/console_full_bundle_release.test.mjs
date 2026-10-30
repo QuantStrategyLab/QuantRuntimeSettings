@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {execute,diagnose} from '../scripts/console_full_bundle_release.mjs';
+import {execute,diagnose,describeNamedHandlers} from '../scripts/console_full_bundle_release.mjs';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const old=Buffer.from('old fixture'),candidate=Buffer.from('new fixture');
 const policy={before:hash(old),candidate:hash(candidate)};
@@ -118,4 +118,42 @@ test('diagnosis identifies runtime differences and does not access mutation meth
  const r=await diagnose({...f,policy,expected,candidate});
  assert.equal(r.ok,true);assert.equal(r.configuration_equal,false);assert.equal(r.fields.limits.equal,false);assert.equal(r.fields.limits.active_shape,'object');
  assert.equal(r.fields.usage_model.equal,true);assert.doesNotMatch(JSON.stringify(r),/PRIVATE_VALUE|cpu_ms/);
+});
+test('named handler detail distinguishes order and fixed public additions without disclosing unknown names',()=>{
+ const before=[{name:'RuntimeInstances',handlers:['fetch','UNKNOWN_PRIVATE_SENTINEL']},{name:'__test',handlers:['fetch']}];
+ const order=[{name:'RuntimeInstances',handlers:['UNKNOWN_PRIVATE_SENTINEL','fetch']},{name:'__test',handlers:['fetch']}];
+ const a=describeNamedHandlers(before,order).exports.RuntimeInstances;
+ assert.equal(a.ordered_equal,false);assert.equal(a.multiset_equal,true);assert.equal(a.unknown_handlers_added,0);assert.equal(a.unknown_handlers_removed,0);
+ const added=structuredClone(before);added[0].handlers.push('researchNativeDailyReturns');added[1].handlers.push('effectiveAccountSettings','dispatchAccountDiagnosis');
+ const b=describeNamedHandlers(before,added);
+ assert.equal(b.exports.RuntimeInstances.handlers.researchNativeDailyReturns.active_count,0);
+ assert.equal(b.exports.RuntimeInstances.handlers.researchNativeDailyReturns.staged_count,1);
+ assert.equal(b.exports.__test.handlers.effectiveAccountSettings.staged_count,1);assert.equal(b.exports.__test.handlers.dispatchAccountDiagnosis.staged_count,1);
+ assert.equal(b.exports.RuntimeInstances.unknown_handlers_added,0);assert.doesNotMatch(JSON.stringify(b),/UNKNOWN_PRIVATE_SENTINEL/);
+});
+test('named handler detail flags unknown changes, duplicates, unexpected keys, and malformed input',()=>{
+ const before=[{name:'RuntimeInstances',handlers:['fetch','SECRET_ONE']},{name:'UNKNOWN_EXPORT_SECRET',handlers:['SENSITIVE_A']}];
+ const after=[{name:'RuntimeInstances',handlers:['fetch','SECRET_TWO'],PRIVATE_KEY:'PRIVATE_VALUE'},{name:'UNKNOWN_EXPORT_SECRET',handlers:['SENSITIVE_B']}];
+ const r=describeNamedHandlers(before,after);assert.equal(r.exports.RuntimeInstances.unknown_handlers_added,1);assert.equal(r.exports.RuntimeInstances.unknown_handlers_removed,1);
+ assert.equal(r.exports.RuntimeInstances.staged_unknown_keys,true);assert.equal(r.exports.RuntimeInstances.other_fields_equal,false);assert.equal(r.unknown_matched_entries_changed,1);
+ assert.doesNotMatch(JSON.stringify(r),/SECRET_ONE|SECRET_TWO|UNKNOWN_EXPORT_SECRET|SENSITIVE_|PRIVATE_/);
+ const duplicate=describeNamedHandlers([{name:'__test',handlers:['fetch','fetch']},{name:'__test',handlers:[]}],[]);
+ assert.equal(duplicate.active_duplicate_names,true);assert.equal(duplicate.exports.__test.active_duplicate,true);
+ const repeated=describeNamedHandlers([{name:'__test',handlers:['fetch','fetch']}],[{name:'__test',handlers:['fetch']}]);
+ assert.equal(repeated.exports.__test.active_duplicate_handlers,true);assert.equal(repeated.exports.__test.multiset_equal,false);
+ const unknown=describeNamedHandlers([{name:'REMOVED_PRIVATE',handlers:[]}],[{name:'ADDED_PRIVATE',handlers:[]}]);
+ assert.equal(unknown.unknown_names_removed,1);assert.equal(unknown.unknown_names_added,1);assert.doesNotMatch(JSON.stringify(unknown),/REMOVED_PRIVATE|ADDED_PRIVATE/);
+ const optional=describeNamedHandlers([{name:'RuntimeInstances'}],[{name:'RuntimeInstances',handlers:[]}]).exports.RuntimeInstances;
+ assert.equal(optional.active_handlers_shape,'missing');assert.equal(optional.staged_handlers_shape,'array');
+ assert.equal(optional.ordered_equal,false);assert.equal(optional.multiset_equal,null);assert.equal(optional.active_handler_count,null);
+ assert.equal(optional.handlers.fetch.active_count,null);assert.equal(optional.unknown_handlers_added,null);
+ for(const invalid of [[{name:'RuntimeInstances',handlers:['fetch',null]}],[{name:42,handlers:[]}],[{name:'RuntimeInstances',handlers:'bad'}],[{name:'RuntimeInstances',handlers:null}],Array(129).fill({name:'x',handlers:[]})])
+  assert.throws(()=>describeNamedHandlers(invalid,[]),/invalid_named_handlers/);
+});
+test('read-only diagnosis attaches named handler detail to verified staged version',async()=>{
+ const f=diagnosticFixture(),original=f.api.scriptVersion;
+ f.api.scriptVersion=async id=>{const out=await original(id);out.resources.script.named_handlers=[{name:'RuntimeInstances',handlers:id===f.staged?['fetch','researchNativeDailyReturns']:['fetch']}];return out;};
+ const r=await diagnose({...f,policy,expected,candidate});assert.equal(r.ok,true);assert.equal(r.configuration_equal,false);
+ assert.equal(r.named_handler_details.exports.RuntimeInstances.handlers.researchNativeDailyReturns.staged_count,1);
+ assert.equal(r.fields.named_handlers.core_equal,false);assert.ok(!f.calls.includes('upload'));assert.ok(!f.calls.includes('activate'));
 });
