@@ -212,6 +212,15 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
             routine_lines.append(f"• {label}：{observations}" if zh else f"• {label}: {observations}")
         if not is_blocked(row):
             detail = ("需核对" if zh else "Needs review") if needs_attention else ("已运行" if zh else "Observed run")
+            if row.execution_status == "order_submitted":
+                submitted = "订单已提交" if zh else "Orders submitted"
+                if not _known_count(row, "fill"):
+                    submitted += "，成交待确认" if zh else "; fill confirmation pending"
+                detail = detail + ("，" if zh else "; ") + submitted if needs_attention else submitted
+            elif (not needs_attention and row.execution_status in {"no_action", "no_op", "ok_no_order"}
+                  and _known_count(row, "order") and _known_count(row, "fill")
+                  and row.order_count == row.fill_count == 0):
+                detail += "，无交易" if zh else "; no trades"
             if evidence_detail:
                 detail += ("，" if zh else "; ") + evidence_detail
             if counts_not_connected(row):

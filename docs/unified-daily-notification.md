@@ -18,6 +18,11 @@ A broker acknowledgement means submitted, not filled. Missing fill evidence
 stays unknown in the report. Urgent items listed in a digest are a daily record,
 not a claim that their instant notification was delivered.
 
+A normal acknowledgement is displayed as an order submission with fill
+confirmation pending when fill evidence is absent. A verified zero-order,
+zero-fill run can say no trades; an unknown count cannot. Independent evidence
+persistence or delivery issues remain visible alongside the submission status.
+
 The production compact template, with `QRS_UNIFIED_NOTIFICATION_ENABLED=true`,
 uses one selected language: report business day, observed
 run count, independently verified order/fill totals, source coverage, attention

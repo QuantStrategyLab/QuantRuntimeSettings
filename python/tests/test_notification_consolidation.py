@@ -342,6 +342,25 @@ class ConsolidationCandidateTests(unittest.TestCase):
         self.assertEqual(receipt["notification_summary"]["immediate_events"], 1)
         self.assertIn("紧急事项 1 项（日报留档）", text)
 
+    def test_acknowledged_order_text_keeps_fill_uncertainty_and_independent_issues(self):
+        a = candidate(order_count=1, fill_count=None, execution_status="order_submitted")
+        _, zh, _, _ = build([a])
+        self.assertIn("订单已提交，成交待确认", zh)
+        self.assertIn("成交：全窗口统计未知", zh)
+        self.assertNotIn("已成交", zh)
+        _, english, _, _ = build([a], locale="en")
+        self.assertIn("Orders submitted; fill confirmation pending", english)
+        self.assertNotRegex(english, r"[\u4e00-\u9fff]")
+        _, issue, _, _ = build([dict(a, evidence_persistence_status="persistence_failed")])
+        self.assertIn("需核对，订单已提交，成交待确认", issue)
+        self.assertIn("证据留存失败", issue)
+
+    def test_verified_idle_text_does_not_apply_to_unknown_counts(self):
+        _, known, _, _ = build([candidate(execution_status="no_action")])
+        self.assertIn("已运行，无交易", known)
+        _, unknown, _, _ = build([candidate(execution_status="no_action", fill_count=None)])
+        self.assertNotIn("无交易", unknown)
+
     def test_observations_from_candidate_archive_and_heartbeat_count_once(self):
         counts = {"watch": 2, "opportunity_watch": 1, "taco_rebound": 0}
         a = candidate(routine_observation_counts=counts)
