@@ -313,6 +313,12 @@ out an intervening change. The existing **Deploy Strategy Switch Console**
 workflow also runs this probe for the plain `read_only_preflight` mode with the
 other release, rollback and special-check inputs disabled and `source_sha` empty.
 
+For the fixed backend repair, read-only preflight reports `patch_ready` when the
+active module is the verified original 54e build, or `already_applied` when it
+exactly matches the verified patched candidate. Both cases run the same isolated
+candidate regression. Any other module bytes fail the preflight; the release
+mode still accepts only the original 54e module.
+
 The manual workflow also has a default-off `backend_only_release` mode for the
 fixed reviewed history and native-return repair. It requires the active module
 to match the fixed 54e build byte for byte and applies only the three reviewed

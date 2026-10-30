@@ -4,6 +4,7 @@ import {createRequire} from 'node:module';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {verify946OnFixed54e} from '../scripts/console_946_54e_patch.mjs';
+import {classify946Readonly} from '../scripts/console_946_readonly_state.mjs';
 import {testCandidate946} from '../scripts/console_946_runtime_test.mjs';
 const frontend=createRequire(new URL('../web/strategy-switch-console/frontend/package.json',import.meta.url));
 const worker=createRequire(new URL('../web/strategy-switch-console/package.json',import.meta.url));
@@ -11,6 +12,11 @@ const ts=frontend('typescript'),trace=worker('@jridgewell/trace-mapping');
 const reference=await readFile(join(process.env.RUNNER_TEMP,'qrs54e-baseline/worker.js'));
 const candidate=await verify946OnFixed54e(ts,trace,reference);
 assert.ok(!candidate.equals(reference),'the fixed candidate contains the reviewed changes');
+assert.deepEqual(classify946Readonly(reference,reference,candidate),{patch_ready:true,already_applied:false});
+assert.deepEqual(classify946Readonly(candidate,reference,candidate),{patch_ready:false,already_applied:true});
+await assert.rejects(verify946OnFixed54e(ts,trace,candidate),/active_54e_bytes_mismatch/,
+  'the release verifier must continue to reject an already-patched active module');
+assert.throws(()=>classify946Readonly(Buffer.concat([candidate,Buffer.from('\n')]),reference,candidate),/active_54e_bytes_mismatch/);
 // Any trailing byte difference is rejected, even when AST statements match.
 const tail=Buffer.from('\n//# sourceMappingURL=synthetic-test-only.map\n');
 await assert.rejects(verify946OnFixed54e(ts,trace,Buffer.concat([reference,tail])),/active_54e_bytes_mismatch/);
