@@ -563,7 +563,7 @@ export interface TodayRunSummary extends ReadOnlyProjection {
     stale?: boolean;
     completeness: "complete" | "incomplete" | null;
     run_count: number | null;
-    runs: { id: string; started_at: string | null; finished_at: string | null;
+    runs: { id: string | null; started_at: string | null; finished_at: string | null;
       activity: string; execution_lane: string; errors_present: boolean | null }[];
   }[];
 }
