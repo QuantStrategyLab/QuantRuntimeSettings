@@ -552,3 +552,15 @@ Read-only preflight checks the active identity, predecessor bytes and resource
 identity; full binding and runtime configuration validation occurs in the release
 core before any upload. Successful activation reports the verified version and
 deployment IDs. A failed or ambiguous activation requires fresh readback.
+
+The manual `diagnose` action reads the latest staged version without writing.
+It requires the expected active deployment, version and predecessor module, as
+well as the selected fixed staged module and both resource identities. It reports
+only field shapes and equality for bindings, runtime settings, handlers, placement
+and migration tag, then rechecks the active deployment and latest version. Raw
+equality and the existing core's comparison are reported separately where their
+ordering or null treatment differ; no resource values are printed. The staged
+UUID is reported only after identity and bundle checks succeed. A successful
+read with differences reports `configuration_equal: false` and requires review;
+it does not indicate release readiness. A failed identity or read check fails
+the diagnostic job.

@@ -19,9 +19,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Read-only preflight or release
+        description: Read-only preflight, staged diagnosis, or release
         type: choice
-        options: [preflight, release]
+        options: [preflight, diagnose, release]
         default: preflight
         required: true
       target:

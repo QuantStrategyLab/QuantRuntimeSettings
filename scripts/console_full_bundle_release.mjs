@@ -25,6 +25,62 @@ function verifyModule(v, id, hash) {
   const bytes=Buffer.from(m.content_base64,'base64');
   if (!bytes.length || bytes.length>10*1024*1024 || bytes.toString('base64')!==m.content_base64 || sha(bytes)!==hash) throw Error('active_module_mismatch');
 }
+const plainObject = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+const canonical = x => JSON.stringify(x,(_k,v)=>plainObject(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
+const shape = x => x === undefined ? 'missing' : x === null ? 'null' : Array.isArray(x) ? 'array' : typeof x;
+function latest(result) {
+  const items=result?.items;
+  if(!Array.isArray(items)||!items.length||items.length>10||items.some(x=>!uuid(x?.id))||new Set(items.map(x=>x.id)).size!==items.length)throw Error('invalid_versions');
+  return items[0].id;
+}
+function resourceParts(value,id) {
+  const r=value?.resources;
+  if(value?.id!==id||!plainObject(r)||!plainObject(r.script_runtime)||!plainObject(r.script)||!Array.isArray(r.bindings)||
+     r.bindings.some(b=>!plainObject(b)||typeof b.name!=='string')||new Set(r.bindings.map(b=>b.name)).size!==r.bindings.length)
+    throw Error('invalid_resources');
+  return r;
+}
+// Diagnostic output contains only fixed field names, primitive shapes and equality.
+// No upload or activation method is referenced on this path.
+export async function diagnose({api,policy,expected,candidate}) {
+  if (!policy || !/^[a-f0-9]{64}$/.test(policy.before) || !/^[a-f0-9]{64}$/.test(policy.candidate) ||
+      !uuid(expected?.version) || !uuid(expected?.deployment) || !Buffer.isBuffer(candidate) || !candidate.length ||
+      candidate.length>10*1024*1024 || sha(candidate)!==policy.candidate)
+    return {ok:false,read_only:true,reason:'input_or_candidate_invalid'};
+  try {
+    verifyActive(await api.deployments(),expected);
+    verifyModule(await api.betaVersion(expected.version),expected.version,policy.before);
+    const staged=latest(await api.versions());
+    if(staged===expected.version)throw Error('latest_is_active');
+    verifyModule(await api.betaVersion(staged),staged,policy.candidate);
+    const before=resourceParts(await api.scriptVersion(expected.version),expected.version);
+    const after=resourceParts(await api.scriptVersion(staged),staged);
+    const fields={};
+    const compare=(name,a,b,coreA=a,coreB=b)=>{fields[name]={active_shape:shape(a),staged_shape:shape(b),equal:canonical(a)===canonical(b),core_equal:canonical(coreA)===canonical(coreB)};};
+    const sortedBindings=x=>[...x].sort((a,b)=>a.name.localeCompare(b.name));
+    compare('bindings',before.bindings,after.bindings,sortedBindings(before.bindings),sortedBindings(after.bindings));
+    const aBindings=sortedBindings(before.bindings),bBindings=sortedBindings(after.bindings);
+    const same=x=>canonical(x(aBindings))===canonical(x(bBindings));
+    const namesEqual=same(bs=>bs.map(b=>b.name));
+    const bindingDetails={names_equal:namesEqual};
+    for(const key of ['type','namespace_id','class_name','script_name','environment','text','json'])
+      bindingDetails[key+'_equal']=namesEqual&&same(bs=>bs.map(b=>[Object.hasOwn(b,key),b[key]]));
+    bindingDetails.property_keys_equal=namesEqual&&same(bs=>bs.map(b=>Object.keys(b).sort()));
+    bindingDetails.secret_shape_equal=namesEqual&&same(bs=>bs.filter(b=>b.type==='secret_text').map(b=>Object.keys(b).sort()));
+    for(const k of ['compatibility_date','compatibility_flags','usage_model','limits','exports','migration_tag'])
+      compare(k,before.script_runtime[k],after.script_runtime[k]);
+    compare('handlers',before.script.handlers,after.script.handlers);
+    const named=x=>Array.isArray(x)?[...x].sort((a,b)=>String(a?.name).localeCompare(String(b?.name))):x===undefined?null:x;
+    compare('named_handlers',before.script.named_handlers,after.script.named_handlers,named(before.script.named_handlers),named(after.script.named_handlers));
+    compare('placement_mode',before.script.placement_mode,after.script.placement_mode,before.script.placement_mode??null,after.script.placement_mode??null);
+    verifyActive(await api.deployments(),expected);
+    if(latest(await api.versions())!==staged)throw Error('latest_drift');
+    const equal=Object.values(fields).every(x=>x.equal);
+    return {ok:true,read_only:true,configuration_equal:equal,reason:equal?'configuration_equal':'configuration_mismatch',staged_version_id:staged,active_rechecked:true,fields,binding_details:bindingDetails};
+  } catch {
+    return {ok:false,read_only:true,reason:'diagnostic_verification_failed'};
+  }
+}
 // Injected policy and core enable synthetic offline tests. The CLI uses POLICY only.
 export async function execute({api,core=runBackendRelease,policy,expected,candidate,release=false}) {
   if (!policy || !/^[a-f0-9]{64}$/.test(policy.before) || !/^[a-f0-9]{64}$/.test(policy.candidate) ||
@@ -58,9 +114,13 @@ export async function execute({api,core=runBackendRelease,policy,expected,candid
 }
 async function main(){
   const [mode,action,version,deployment,path,...extra]=process.argv.slice(2);
-  if (!Object.hasOwn(POLICY,mode) || !['preflight','release'].includes(action) || extra.length || !path) throw Error('invalid_arguments');
+  if (!Object.hasOwn(POLICY,mode) || !['preflight','diagnose','release'].includes(action) || extra.length || !path) throw Error('invalid_arguments');
   const candidate=await readFile(path);
-  const result=await execute({api:createFixedApi(),policy:POLICY[mode],expected:{version,deployment},candidate,release:action==='release'});
+  const api=createFixedApi();
+  const args={policy:POLICY[mode],expected:{version,deployment},candidate};
+  const result=action==='diagnose'
+    ?await diagnose({...args,api:{deployments:api.deployments,versions:api.versions,betaVersion:api.betaVersion,scriptVersion:api.scriptVersion}})
+    :await execute({...args,api,release:action==='release'});
   console.log(JSON.stringify(result));if(!result.ok)process.exitCode=1;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){try{await main()}catch{console.error(JSON.stringify({ok:false,reason:'configuration_or_input_invalid',upload_attempted:false,deploy_attempted:false}));process.exitCode=1;}}
