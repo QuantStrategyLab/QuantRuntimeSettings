@@ -526,7 +526,7 @@ A separate fixed-source diagnostic rebuilds public commit `54e146fcef01fecc6c7ec
 ### Fixed complete-bundle release
 
 The separate manual `Console fixed complete-bundle release` workflow defaults to
-read-only preflight. It bundles the pinned frontend and compatible main recovery
+read-only preflight. It bundles the pinned new candidate and compatible #965 recovery
 snapshots twice each, checks their complete bundle identities, and runs the SQLite
 upgrade and recovery regression using the fixed old production candidate. The
 operator supplies freshly observed active deployment and version UUIDs. Preflight
@@ -537,9 +537,9 @@ through the existing #946 release core. The core inherits each binding from the
 explicit active version, preserves runtime configuration, requires unchanged
 migration and export reconciliation, checks the staged bytes and configuration,
 and checks active state before and after activation. The frontend candidate
-requires the fixed old production module as predecessor; compatible recovery
-requires the fixed frontend candidate. The older production module is not a safe
-rollback after the candidate has written native-task state. An ambiguous result
+requires the verified #965 module as predecessor; compatible recovery
+requires the fixed new candidate and restores the complete #965 bundle. The older
+production module is not a safe rollback after the candidate has written native-task state. An ambiguous result
 requires read-only investigation; do not retry automatically. Cloudflare does
 not provide compare-and-swap for this sequence, so concurrent external changes
 can still race the checks. No secret values, profiles or schedules are written.
@@ -549,8 +549,11 @@ check without provider credentials. A manual run uses the existing deployment
 environment and shared deployment concurrency group, and requires its checked-out
 control revision to match current main before building and around provider access.
 Read-only preflight checks the active identity, predecessor bytes and resource
-identity; full binding and runtime configuration validation occurs in the release
-core before any upload. Successful activation reports the verified version and
+identity, and reports a sanitized configuration summary with binding type counts,
+selected runtime shapes and known public export counts. Unknown names and binding
+values are never printed. An unavailable summary does not establish configuration
+validity; full binding and runtime validation occurs in the release core before
+any upload. Successful activation reports the verified version and
 deployment IDs. A failed or ambiguous activation requires fresh readback.
 
 The manual `diagnose` action reads the latest staged version without writing.
@@ -574,16 +577,7 @@ The two SHA-256 fingerprints cover only the canonical export names and handler
 lists, preserving omitted lists and handler order, with entries sorted by name.
 Other provider fields are excluded from the fingerprints.
 
-The manual `resume` action is limited to the fixed frontend candidate already
-staged during the stopped release. It does not upload a version. It requires the
-fixed active deployment and version, staged version, both complete module hashes,
-and exact reviewed named-handler fingerprints. A second check requires unchanged
-`RuntimeInstances` handlers and precisely the two reviewed `__test` additions,
-with all prior handlers retaining their order. It repeats the staged, active,
-configuration and lineage checks before one non-force activation, then verifies
-active identity, module bytes, configuration and migration tag twice. The
-existing release core's migration and export-reconciliation checks remain in
-force. An ambiguous result requires readback and is never retried automatically;
-concurrent external changes remain possible because the provider offers no CAS.
-The CI also tests the exact candidate's named export surface offline; that check
-must pass before using this exception.
+The previous one-time staged `resume` is not available in this workflow. Its
+fixed historical verifier remains unchanged and cannot be used for this candidate.
+The new candidate's named export surface and persisted SQLite recovery are tested
+against its exact complete bundle before any manual action.

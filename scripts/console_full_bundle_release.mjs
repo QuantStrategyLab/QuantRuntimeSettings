@@ -9,8 +9,8 @@ export {describeNamedHandlers} from './console_named_handler_metadata.mjs';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const uuid = s => typeof s === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(s);
 export const POLICY = Object.freeze({
-  frontend: Object.freeze({before:'7b64da8edd2627175019e5c529f9eec048732ffb7acec502cdf4122fc0dbb06a', candidate:'afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d'}),
-  recovery: Object.freeze({before:'afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d', candidate:'61ba684d100a090bd54a50f56c45b420a969fba67b7289b1396321e5410c8162'}),
+  frontend: Object.freeze({before:'afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d', candidate:'f8a9b2598fcac89b5c7dc4d9bd8b6417a75126744c5e53c30f7d35bf8555fd15'}),
+  recovery: Object.freeze({before:'f8a9b2598fcac89b5c7dc4d9bd8b6417a75126744c5e53c30f7d35bf8555fd15', candidate:'afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d'}),
 });
 function verifyActive(result, expected) {
   const d=result?.deployments?.[0];
@@ -41,6 +41,33 @@ function resourceParts(value,id) {
      r.bindings.some(b=>!plainObject(b)||typeof b.name!=='string')||new Set(r.bindings.map(b=>b.name)).size!==r.bindings.length)
     throw Error('invalid_resources');
   return r;
+}
+// A read-only summary never returns binding names, values or resource IDs.
+// Unknown provider strings are counted, not emitted.
+function summarizeActiveConfiguration(value, id) {
+  try {
+    const r = resourceParts(value, id), runtime = r.script_runtime, script = r.script;
+    const types = ['plain_text','json','secret_text','kv_namespace','durable_object_namespace'];
+    const counts = Object.fromEntries(types.map(type => [type, r.bindings.filter(b => b.type === type).length]));
+    counts.other = r.bindings.filter(b => !types.includes(b.type)).length;
+    const publicNames = ['RuntimeInstances','__test','default'];
+    const publicHandlers = ['fetch','scheduled','researchNativeDailyReturns','effectiveAccountSettings','dispatchAccountDiagnosis'];
+    const names = x => ({ shape: shape(x), count: Array.isArray(x) ? x.length : plainObject(x) ? Object.keys(x).length : null,
+      known: Object.fromEntries(publicNames.map(name => [name, Array.isArray(x) ? x.filter(item => (typeof item === 'string' ? item : item?.name) === name).length : plainObject(x) ? Number(Object.hasOwn(x,name)) : null])) });
+    const named = names(script.named_handlers);
+    named.handlers = Object.fromEntries(publicHandlers.map(name => [name, Array.isArray(script.named_handlers)
+      ? script.named_handlers.reduce((n,item) => n + (Array.isArray(item?.handlers) ? item.handlers.filter(h => h === name).length : 0), 0) : null]));
+    const flags = runtime.compatibility_flags;
+    const cpu = runtime.limits?.cpu_ms;
+    return { available: true, binding_count: r.bindings.length, binding_types: counts,
+      compatibility_date: typeof runtime.compatibility_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(runtime.compatibility_date) ? runtime.compatibility_date : null,
+      compatibility_flags: { shape: shape(flags), count: Array.isArray(flags) ? flags.length : null,
+        nodejs_compat: Array.isArray(flags) ? flags.includes('nodejs_compat') : null },
+      usage_model: ['standard','bundled','unbound'].includes(runtime.usage_model) ? runtime.usage_model : null,
+      limits: { shape: shape(runtime.limits), cpu_ms: Number.isSafeInteger(cpu) && cpu >= 0 && cpu <= 300000 ? cpu : null },
+      migration_tag: { shape: shape(runtime.migration_tag), present: typeof runtime.migration_tag === 'string' && runtime.migration_tag.length > 0 },
+      exports: names(runtime.exports), named_handlers: named, handlers_shape: shape(script.handlers), placement_mode_shape: shape(script.placement_mode) };
+  } catch { return { available: false }; }
 }
 // Diagnostic output contains only fixed field names, primitive shapes and equality.
 // No upload or activation method is referenced on this path.
@@ -93,9 +120,11 @@ export async function execute({api,core=runBackendRelease,policy,expected,candid
   try {
     verifyActive(await api.deployments(),expected);
     verifyModule(await api.betaVersion(expected.version),expected.version,policy.before);
-    if ((await api.scriptVersion(expected.version))?.id!==expected.version) throw Error('active_configuration_invalid');
+    const activeConfiguration = await api.scriptVersion(expected.version);
+    if (activeConfiguration?.id!==expected.version) throw Error('active_configuration_invalid');
+    const configurationSummary = release ? undefined : summarizeActiveConfiguration(activeConfiguration, expected.version);
     verifyActive(await api.deployments(),expected);
-    if (!release) return {ok:true,preflight:true,active_identity_verified:true,active_module_verified:true,candidate_sha256:policy.candidate,upload_attempted:false,deploy_attempted:false};
+    if (!release) return {ok:true,preflight:true,active_identity_verified:true,active_module_verified:true,candidate_sha256:policy.candidate,configuration_summary:configurationSummary,upload_attempted:false,deploy_attempted:false};
     // Bind the core's own first baseline read to the operator's observation. The
     // core then checks drift itself immediately before upload and activation.
     let first=true,versionId=null,deploymentId=null;

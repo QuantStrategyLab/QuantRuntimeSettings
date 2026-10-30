@@ -53,14 +53,14 @@ async function storedRow(root, requestId) {
   return result[0];
 }
 
-test('production to candidate to compatible main recovery preserves SQLite protocol boundaries', async () => {
+test('production to candidate to compatible #965 recovery preserves SQLite protocol boundaries', async () => {
   assert.ok(process.env.QRS_OLD_WORKER_BUNDLE && process.env.QRS_NEW_WORKER_BUNDLE && process.env.QRS_RECOVERY_WORKER_BUNDLE, 'all three complete Worker bundle paths are required');
   const oldPath = resolve(process.env.QRS_OLD_WORKER_BUNDLE), newPath = resolve(process.env.QRS_NEW_WORKER_BUNDLE);
   const recoveryPath = resolve(process.env.QRS_RECOVERY_WORKER_BUNDLE);
   const [oldBytes, newBytes, recoveryBytes] = await Promise.all([readFile(oldPath), readFile(newPath), readFile(recoveryPath)]);
   assert.equal(sha(oldBytes), oldDigest, 'old Worker must be the fixed, previously verified production candidate');
-  assert.equal(sha(newBytes), 'afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d', 'candidate must be the fixed complete #965 bundle');
-  assert.equal(sha(recoveryBytes), RECOVERY_SNAPSHOT.bundleSha256, 'recovery bundle must match the independently observed complete main module');
+  assert.equal(sha(newBytes), 'f8a9b2598fcac89b5c7dc4d9bd8b6417a75126744c5e53c30f7d35bf8555fd15', 'candidate must be the fixed complete new bundle');
+  assert.equal(sha(recoveryBytes), RECOVERY_SNAPSHOT.bundleSha256, 'recovery bundle must match the independently observed complete #965 module');
   assert.notEqual(sha(recoveryBytes), oldDigest, 'recovery is not the incompatible production rollback');
   assert.notEqual(sha(recoveryBytes), sha(newBytes), 'recovery must be a distinct complete bundle');
   console.log(JSON.stringify({ old_worker_sha256: sha(oldBytes), candidate_worker_sha256: sha(newBytes), recovery_worker_sha256: sha(recoveryBytes) }));
@@ -199,8 +199,32 @@ test('production to candidate to compatible main recovery preserves SQLite proto
       await stop();
       assert.deepEqual((await storedRow(persist, newId)).row, beforeRecovery.row, 'native row remains unchanged after restart and callbacks');
     }
+    // Also start a new native task on the actual #965 predecessor, then
+    // upgrade to the new bundle and recover to the same #965 bundle.
+    await rm(persist, { recursive: true, force: true });
+    await start(recoveryPath, { native: true, transport: true });
+    response = await mf.dispatchFetch('https://console.example/api/internal/sync-runtime-target-lifecycle-source', {
+      method: 'POST', headers: { Authorization: 'Bearer synthetic-lifecycle-token', 'Content-Type': 'application/json' }, body: JSON.stringify(source) });
+    assert.equal(response.status, 200);
+    response = await createHttp();
+    const predecessorTask = await response.json();
+    assert.equal(response.status, 202);
+    const predecessorId = predecessorTask.request_id;
+    assert.ok(predecessorId && predecessorId !== newId);
+    await stop();
+    const predecessorRow = await storedRow(persist, predecessorId);
+    await start(newPath);
+    assert.equal((await read(predecessorId)).body.task.backend_kind, 'native');
+    assert.equal((await read(predecessorId)).body.task.status, 'queued');
+    await stop();
+    assert.deepEqual((await storedRow(persist, predecessorId)).row, predecessorRow.row);
+    await start(recoveryPath);
+    assert.equal((await read(predecessorId)).body.task.backend_kind, 'native');
+    assert.equal((await read(predecessorId)).body.task.status, 'queued');
+    await stop();
+    assert.deepEqual((await storedRow(persist, predecessorId)).row, predecessorRow.row);
     assert.equal(outbound, 0, 'no unexpected external dispatch');
-    assert.equal(nativeCalls, 1, 'only the synthetic native transport was called');
-    console.log(JSON.stringify({ upgrade: 'pass', compatible_main_recovery: 'pass', production_rollback: 'not_tested_here' }));
+    assert.equal(nativeCalls, 2, 'only the synthetic native transports were called');
+    console.log(JSON.stringify({ upgrade: 'pass', compatible_965_recovery: 'pass', production_rollback: 'not_tested_here' }));
   } finally { await stop(); await rm(persist, { recursive: true, force: true }); }
 });

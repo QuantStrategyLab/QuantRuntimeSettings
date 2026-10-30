@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {execute,diagnose,describeNamedHandlers} from '../scripts/console_full_bundle_release.mjs';
+import {execute,diagnose,describeNamedHandlers,POLICY} from '../scripts/console_full_bundle_release.mjs';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const old=Buffer.from('old fixture'),candidate=Buffer.from('new fixture');
 const policy={before:hash(old),candidate:hash(candidate)};
@@ -13,9 +13,42 @@ function fixture(){
  async scriptVersion(id){calls.push('script');return {id};},async upload(){calls.push('upload')},async activate(){calls.push('activate')}};
  return {api,calls};
 }
+test('fixed policies bind candidate and compatible recovery in both directions', async()=>{
+ const { SNAPSHOT, RECOVERY_SNAPSHOT } = await import('../scripts/console_frontend_candidate_preflight.mjs');
+ assert.equal(POLICY.frontend.before, RECOVERY_SNAPSHOT.bundleSha256);
+ assert.equal(POLICY.frontend.candidate, SNAPSHOT.bundleSha256);
+ assert.equal(POLICY.recovery.before, SNAPSHOT.bundleSha256);
+ assert.equal(POLICY.recovery.candidate, RECOVERY_SNAPSHOT.bundleSha256);
+});
 test('preflight only reads the exact active identity and bytes',async()=>{
  const f=fixture(); const result=await execute({...f,policy,expected,candidate});
  assert.equal(result.ok,true);assert.equal(result.preflight,true);assert.deepEqual(f.calls,['deployments','beta','script','deployments']);
+});
+test('preflight returns only bounded non-secret configuration metadata with no writes',async()=>{
+ const f=fixture();
+ f.api.scriptVersion=async id=>{ f.calls.push('script'); return {id,resources:{bindings:[
+  {name:'PRIVATE_BINDING_SENTINEL',type:'plain_text',text:'PRIVATE_TEXT_SENTINEL'},
+  {name:'PRIVATE_JSON_SENTINEL',type:'json',json:{value:'PRIVATE_JSON_VALUE_SENTINEL'}},
+  {name:'PRIVATE_SECRET_SENTINEL',type:'secret_text'},
+  {name:'PRIVATE_KV_SENTINEL',type:'kv_namespace',namespace_id:'PRIVATE_NAMESPACE_SENTINEL'}],
+  script_runtime:{compatibility_date:'2026-06-08',compatibility_flags:['nodejs_compat','PRIVATE_FLAG_SENTINEL'],usage_model:'standard',limits:{cpu_ms:50,other:'PRIVATE_LIMIT_SENTINEL'},migration_tag:'PRIVATE_TAG_SENTINEL',exports:{RuntimeInstances:{},PRIVATE_EXPORT_SENTINEL:{}}},
+  script:{handlers:['fetch','PRIVATE_HANDLER_SENTINEL'],named_handlers:[{name:'RuntimeInstances',handlers:['fetch','PRIVATE_METHOD_SENTINEL']},{name:'PRIVATE_NAMED_SENTINEL',handlers:[]}],placement_mode:'PRIVATE_PLACEMENT_SENTINEL'}}}; };
+ const r=await execute({...f,policy,expected,candidate});
+ assert.equal(r.ok,true);assert.equal(r.upload_attempted,false);assert.equal(r.deploy_attempted,false);
+ assert.deepEqual(f.calls,['deployments','beta','script','deployments']);
+ const summary=r.configuration_summary;
+ assert.equal(summary.available,true);assert.equal(summary.binding_count,4);assert.equal(summary.binding_types.secret_text,1);
+ assert.equal(summary.compatibility_date,'2026-06-08');assert.equal(summary.compatibility_flags.nodejs_compat,true);
+ assert.equal(summary.compatibility_flags.count,2);assert.equal(summary.limits.cpu_ms,50);
+ assert.deepEqual(summary.migration_tag,{shape:'string',present:true});
+ assert.equal(summary.exports.count,2);assert.equal(summary.exports.known.RuntimeInstances,1);
+ assert.equal(summary.named_handlers.count,2);assert.equal(summary.named_handlers.handlers.fetch,1);
+ assert.doesNotMatch(JSON.stringify(r),/PRIVATE_|SENTINEL/);
+});
+test('preflight does not misrepresent unavailable resource shape as a valid summary',async()=>{
+ const f=fixture();const r=await execute({...f,policy,expected,candidate});
+ assert.equal(r.ok,true);assert.deepEqual(r.configuration_summary,{available:false});
+ assert.ok(!f.calls.includes('upload'));assert.ok(!f.calls.includes('activate'));
 });
 test('candidate substitution and active drift stop before any write',async()=>{
  for(const mutation of ['candidate','active','bytes','secondActive']){
@@ -70,6 +103,9 @@ test('workflow keeps PR validation offline and shares the manual deployment lock
  const yaml=await readFile(new URL('../.github/workflows/console-full-bundle-release.yml',import.meta.url),'utf8');
  const [validation,release]=yaml.split('\n  release:\n');
  assert.match(validation,/pull_request:/);assert.match(validation,/github\.event_name == 'pull_request'/);
+ assert.match(validation,/options: \[preflight, diagnose, release\]/);
+ assert.match(validation,/case \"\$RELEASE_ACTION\" in preflight\|diagnose\|release/);
+ assert.match(release,/case \"\$RELEASE_ACTION\" in preflight\|diagnose\|release/);
  assert.match(validation,/github\.event_name == 'workflow_dispatch' && 'strategy-switch-console-deploy'/);
  assert.doesNotMatch(validation,/secrets\.CLOUDFLARE/);
  assert.match(release,/if: github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'/);
