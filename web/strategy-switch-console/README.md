@@ -521,3 +521,69 @@ The same Miniflare regression runs against the synthetic and active-derived cand
 The original metadata preflight and the fixed module GET steps retain their existing identities. Build and synthetic-test steps do not receive Cloudflare credentials. CI builds the historical synthetic evidence only when the verifier, its workflows/tests, or their locked dependencies change; unrelated changes do not acquire this historical-build requirement. CI artifacts contain only fixed repository-source synthetic bundles, never an active or active-derived module.
 
 A separate fixed-source diagnostic rebuilds public commit `54e146fcef01fecc6c7ec2d4cfd858b9946679eb` with its tracked frontend assets, example build configuration and Wrangler 4.106.0. It compares that full bundle with the version-scoped active module in memory and reports only fixed booleans, including three complete old-function matches and two known public asset IDs. It does not execute the active module or relax the #946 verifier. Asset-ID or individual-function matches do not prove the active source. A full-byte mismatch, including a source-map trailer difference, does not distinguish a source change from a build/configuration difference. No historical private runtime configuration is reconstructed.
+
+
+### Fixed complete-bundle release
+
+The separate manual `Console fixed complete-bundle release` workflow defaults to
+read-only preflight. It bundles the pinned frontend and compatible main recovery
+snapshots twice each, checks their complete bundle identities, and runs the SQLite
+upgrade and recovery regression using the fixed old production candidate. The
+operator supplies freshly observed active deployment and version UUIDs. Preflight
+requires a single 100% active version and the expected predecessor module hash.
+
+The explicit `release` action stages only the selected fixed complete bundle
+through the existing #946 release core. The core inherits each binding from the
+explicit active version, preserves runtime configuration, requires unchanged
+migration and export reconciliation, checks the staged bytes and configuration,
+and checks active state before and after activation. The frontend candidate
+requires the fixed old production module as predecessor; compatible recovery
+requires the fixed frontend candidate. The older production module is not a safe
+rollback after the candidate has written native-task state. An ambiguous result
+requires read-only investigation; do not retry automatically. Cloudflare does
+not provide compare-and-swap for this sequence, so concurrent external changes
+can still race the checks. No secret values, profiles or schedules are written.
+
+Pull requests touching this adapter run the complete builds and SQLite recovery
+check without provider credentials. A manual run uses the existing deployment
+environment and shared deployment concurrency group, and requires its checked-out
+control revision to match current main before building and around provider access.
+Read-only preflight checks the active identity, predecessor bytes and resource
+identity; full binding and runtime configuration validation occurs in the release
+core before any upload. Successful activation reports the verified version and
+deployment IDs. A failed or ambiguous activation requires fresh readback.
+
+The manual `diagnose` action reads the latest staged version without writing.
+It requires the expected active deployment, version and predecessor module, as
+well as the selected fixed staged module and both resource identities. It reports
+only field shapes and equality for bindings, runtime settings, handlers, placement
+and migration tag, then rechecks the active deployment and latest version. Raw
+equality and the existing core's comparison are reported separately where their
+ordering or null treatment differ; no resource values are printed. The staged
+UUID is reported only after identity and bundle checks succeed. A successful
+read with differences reports `configuration_equal: false` and requires review;
+it does not indicate release readiness. A failed identity or read check fails
+the diagnostic job.
+
+Named-handler details are bounded and include counts, duplicate indicators,
+ordered and multiset comparisons, and membership counts for a fixed set of
+public exports and handler names. Unknown additions, removals and matched-entry
+changes appear only as aggregate counts; unrecognized names, values and keys
+are never printed. Malformed or over-limit named-handler entries fail the read.
+The two SHA-256 fingerprints cover only the canonical export names and handler
+lists, preserving omitted lists and handler order, with entries sorted by name.
+Other provider fields are excluded from the fingerprints.
+
+The manual `resume` action is limited to the fixed frontend candidate already
+staged during the stopped release. It does not upload a version. It requires the
+fixed active deployment and version, staged version, both complete module hashes,
+and exact reviewed named-handler fingerprints. A second check requires unchanged
+`RuntimeInstances` handlers and precisely the two reviewed `__test` additions,
+with all prior handlers retaining their order. It repeats the staged, active,
+configuration and lineage checks before one non-force activation, then verifies
+active identity, module bytes, configuration and migration tag twice. The
+existing release core's migration and export-reconciliation checks remain in
+force. An ambiguous result requires readback and is never retried automatically;
+concurrent external changes remain possible because the provider offers no CAS.
+The CI also tests the exact candidate's named export surface offline; that check
+must pass before using this exception.
