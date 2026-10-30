@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { readFile, mkdtemp, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 // Provider credentials must not be present when test runtime modules load.
@@ -64,7 +64,10 @@ test('verified production Worker and complete candidate preserve SQLite upgrade 
   async function stop() { if (mf) { await mf.dispose(); mf = undefined; } }
   async function start(scriptPath, { native = false, transport = false } = {}) {
     await stop();
-    mf = new Miniflare({ cf: false, modules: true, scriptPath, compatibilityDate: '2026-06-08',
+    // Bundles live under RUNNER_TEMP, outside the checkout. As in the existing
+    // candidate runtime tests, make their directory workerd's module root.
+    mf = new Miniflare({ cf: false, rootPath: dirname(scriptPath), modulesRoot: dirname(scriptPath),
+      modules: true, scriptPath, compatibilityDate: '2026-06-08',
       bindings: { ...bindings, ...(native ? { ACCOUNT_DIAGNOSIS_NATIVE_BINDING_JSON: JSON.stringify(nativeBinding) } : {}) },
       ...(transport ? { serviceBindings: { ACCOUNT_DIAGNOSIS_NATIVE_TRANSPORT: async request => {
         nativeCalls++;

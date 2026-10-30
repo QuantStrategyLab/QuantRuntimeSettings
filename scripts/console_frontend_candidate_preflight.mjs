@@ -31,7 +31,7 @@ async function main() {
   const [asset, firstBundle, secondBundle] = await Promise.all([readFile(assetPath, 'utf8'), readFile(firstPath), readFile(secondPath)]);
   const entries = async path => (await readdir(new URL('.', pathToFileURL(path)), {withFileTypes:true})).map(e => ({name:e.name, isFile:e.isFile()}));
   const [firstEntries, secondEntries] = await Promise.all([entries(firstPath), entries(secondPath)]);
-  console.log(JSON.stringify(verifyEvidence({commit, tree, assetBlob, asset, firstBundle, secondBundle, firstEntries, secondEntries}))); 
+  console.log(JSON.stringify(verifyEvidence({commit, tree, assetBlob, asset, firstBundle, secondBundle, firstEntries, secondEntries})));
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try { await main(); } catch (error) { console.error(JSON.stringify({ok:false, reason: ['invalid_arguments','snapshot_identity_mismatch','asset_build_id_mismatch','bundle_reproducibility_mismatch','bundle_build_id_mismatch','bundle_output_unexpected'].includes(error.message) ? error.message : 'evidence_read_failed', production_read:false, release_approved:false})); process.exitCode=1; }
