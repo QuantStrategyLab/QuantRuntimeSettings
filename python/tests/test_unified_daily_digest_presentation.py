@@ -34,6 +34,39 @@ class UnifiedPresentationTests(unittest.TestCase):
     def display_names(self, value):
         return patch.dict(os.environ, {"QSL_DISPLAY_NAMES_JSON": json.dumps(value, ensure_ascii=False)})
 
+    def test_window_crosses_calendar_boundaries_in_both_languages(self):
+        for day, following in (("2026-10-31", "2026-11-01"), ("2026-12-31", "2027-01-01")):
+            for locale, heading in (("zh", "统计区间"), ("en", "Reporting window")):
+                with self.subTest(day=day, locale=locale):
+                    text = render(replace(payload(row(), locale=locale), business_day=day))
+                    self.assertIn(heading, text)
+                    self.assertIn(f"{day} 06:00 – {following} 06:00 (UTC+8)", text)
+
+    def test_management_station_name_preserves_not_connected_unknown(self):
+        inventory = {"qrs": {"expected_targets": 0, "covered_targets": 0, "runs": None}}
+        for locale, expected in (("zh", "管理站：未接入，运行状态未知"),
+                                 ("en", "Management console: not connected; run state unknown")):
+            with self.subTest(locale=locale):
+                value = replace(payload(row(), locale=locale), notification_summary={
+                    "counts_scope_unknown": True, "source_inventory": inventory})
+                text = render(value)
+                self.assertIn(expected, text)
+                self.assertIn("全窗口统计未知" if locale == "zh" else "whole-window count unknown", text)
+
+    def test_legacy_bilingual_render_also_shows_window(self):
+        with patch.dict(os.environ, {"QRS_UNIFIED_NOTIFICATION_ENABLED": "false"}):
+            text = render(replace(payload(row(order_count=1)), business_day="2026-12-31"))
+        self.assertIn("统计区间", text)
+        self.assertIn("Reporting window", text)
+        self.assertIn("2026-12-31 06:00 – 2027-01-01 06:00 (UTC+8)", text)
+
+    def test_legacy_window_fits_the_minimum_message_budget(self):
+        with patch.dict(os.environ, {"QRS_UNIFIED_NOTIFICATION_ENABLED": "false"}):
+            text = render(payload(row(order_count=1), row("synthetic-b", order_count=1)), max_units=256)
+        self.assertLessEqual(len(text.encode("utf-16-le")) // 2, 256)
+        self.assertEqual(text.count("2026-10-19 06:00"), 1)
+        self.assertIn("其余", text)
+
     def test_same_platform_accounts_and_strategies_are_distinguishable_without_mutation(self):
         rows = (row(), row("synthetic-b", strategy_profile="tqqq_growth_income"))
         before = deepcopy([asdict(item) for item in rows])

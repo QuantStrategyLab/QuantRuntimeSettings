@@ -4,6 +4,11 @@ The daily digest reads producer evidence and never infers execution counts
 from a signal such as `no_action`, workflow success, or a missing report.
 Both `v1` and `sections_v2` support `zh-CN` (`zh`) and `en`.
 
+The unified trading digest displays its existing business window from 06:00
+UTC+8 on the business day through 06:00 UTC+8 the next day. The start is
+inclusive and the end is exclusive. The management console's source coverage
+uses a localized display name; an unconnected source remains explicitly unknown.
+
 Schwab may supply an optional `block_reason` object with `reason_code`,
 `observed_value`, `limit` and `order_submitted_this_run`. A validated
 `consecutive_loss_limit_exceeded` observation renders the supplied numbers in
