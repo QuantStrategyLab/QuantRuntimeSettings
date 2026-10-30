@@ -328,6 +328,46 @@ activation. Secret values cannot be read back. These observations do not form an
 atomic compare-and-swap; a failed or uncertain write requires read-only review
 rather than automatic retry or rollback.
 
+### Offline full-candidate qualification
+
+The separate **Verify draft frontend candidate offline** workflow checks one
+fixed draft snapshot before a complete frontend and Worker release. Its source
+commit, tree, generated asset blob and build ID are pinned in the validation
+scripts. It regenerates the frontend assets without accepting a changed tracked
+file, builds the complete Worker twice with Wrangler 4.106.0, and compares the
+module bytes, embedded build ID and output-file set. The reported bundle digest
+belongs to that snapshot only. A changed or final merged candidate needs its own
+reviewed pins and matching evidence.
+
+The same workflow reconstructs the previously verified serving-module fixture
+from fixed public source and the existing reviewed backend and selector
+transformations. It checks the exact module digest before running both versions
+against one disposable workerd SQLite directory. The storage regression checks
+the old schema, retained records, the native diagnosis column after upgrade,
+repeated startup, missing native configuration, and the behavior of a rollback
+while a valid native diagnosis task is pending. It compares the actual persisted
+row after valid legacy claim/result requests; missing display metadata alone is
+not evidence that rollback writes are unsafe. An observed incompatible write
+fails qualification rather than being converted into a passing rollback result.
+
+This workflow has no cloud credentials, production reads, upload or activation
+step. Its output explicitly retains `production_read=false` and
+`release_approved=false`. Successful source CI, reproducible assets and isolated
+storage behavior are separate from phone acceptance, current production binding
+inheritance, version-external routes or schedules, and release readiness. Native
+diagnosis bindings or automatic execution must not be enabled merely to make a
+frontend release pass.
+
+The fixed #946/#955/#956 and selector-release validators keep their original
+byte scopes. A different serving version can correctly fail an older validator.
+A complete candidate requires its own source and module checks, explicit
+inheritance from the then-active version, configuration readback, compatible
+storage and a verified recovery target. Do not use the empty-source generic
+deployment branch or widen a historical byte check to substitute for those
+checks.
+
+### Manual deployment configuration
+
 Copy the example config:
 
 ```bash
@@ -521,3 +561,4 @@ The same Miniflare regression runs against the synthetic and active-derived cand
 The original metadata preflight and the fixed module GET steps retain their existing identities. Build and synthetic-test steps do not receive Cloudflare credentials. CI builds the historical synthetic evidence only when the verifier, its workflows/tests, or their locked dependencies change; unrelated changes do not acquire this historical-build requirement. CI artifacts contain only fixed repository-source synthetic bundles, never an active or active-derived module.
 
 A separate fixed-source diagnostic rebuilds public commit `54e146fcef01fecc6c7ec2d4cfd858b9946679eb` with its tracked frontend assets, example build configuration and Wrangler 4.106.0. It compares that full bundle with the version-scoped active module in memory and reports only fixed booleans, including three complete old-function matches and two known public asset IDs. It does not execute the active module or relax the #946 verifier. Asset-ID or individual-function matches do not prove the active source. A full-byte mismatch, including a source-map trailer difference, does not distinguish a source change from a build/configuration difference. No historical private runtime configuration is reconstructed.
+
