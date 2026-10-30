@@ -146,6 +146,7 @@ jobs:
           node --test tests/console_active_module_probe.test.mjs
           npm ci --prefix web/strategy-switch-console/frontend
           node --test tests/console_946_patch_unit.test.mjs tests/console_54e_baseline_report.test.mjs tests/console_946_54e_patch.test.mjs tests/console_946_54e_pipeline_unit.test.mjs tests/console_946_backend_release.test.mjs tests/console_946_backend_workflow.test.mjs
+          node --test tests/console_946_readonly_state.test.mjs tests/console_946_readonly_flow.test.mjs
           if [[ "$QRS946_EVIDENCE_NEEDED" == true ]]; then
             node tests/console_946_candidate_validation.mjs
             node tests/console_54e_baseline_real_ast.test.mjs

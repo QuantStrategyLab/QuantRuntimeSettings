@@ -1,8 +1,11 @@
 // Fixed read-only #946 verifier. Never write the active module or the final
 // candidate. The isolated runtime receives only a 0600 test-instrumented copy.
 import {createRequire} from 'node:module';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import {createReadOnlyRequest,probe} from './console_active_module_probe.mjs';
 import {verify946OnFixed54e} from './console_946_54e_patch.mjs';
+import {classify946Readonly} from './console_946_readonly_state.mjs';
 
 const allowedReasons=new Set([
   'configuration_invalid','active_schema_invalid','active_not_single','active_module_schema',
@@ -14,10 +17,10 @@ const allowedReasons=new Set([
   'active_target_offset_mismatch','empty_patch_region','nonunique_patch_region','overlapping_regions',
   'missing_reviewed_change','synthetic_diff_not_exact','reverse_mismatch','candidate_layout_mismatch',
   'candidate_target_mismatch','candidate_target_offset_mismatch',
-  'active_54e_bytes_mismatch','active_54e_statements_mismatch','historical_build_id_mismatch','helper_shape_invalid','helper_declaration_mismatch','fixed_builds_missing',
+  'readonly_baseline_invalid','active_54e_bytes_mismatch','active_54e_statements_mismatch','historical_build_id_mismatch','helper_shape_invalid','helper_declaration_mismatch','fixed_builds_missing',
 ]);
 const allowedTypes=new Set(['FunctionDeclaration','VariableStatement','ExpressionStatement','ImportDeclaration','ExportDeclaration','other','missing']);
-let stage='prepare',getVerified=false;
+let stage='prepare',getVerified=false,classification=null;
 try {
   const req=createRequire(new URL('../web/strategy-switch-console/package.json',import.meta.url));
   const frontendReq=createRequire(new URL('../web/strategy-switch-console/frontend/package.json',import.meta.url));
@@ -27,7 +30,11 @@ try {
   await probe(request,async active=>{
     getVerified=true;
     stage='patch';
-    const candidate=await verify946OnFixed54e(ts,trace,active);
+    // Construct the only allowed patched bytes from the same-job fixed build.
+    // The release verifier remains strict and is never called with patched live bytes.
+    const reference=await readFile(join(process.env.RUNNER_TEMP,'qrs54e-baseline/worker.js'));
+    const candidate=await verify946OnFixed54e(ts,trace,reference);
+    classification=classify946Readonly(active,reference,candidate);
     // The request closure already holds the token. Remove it from the process
     // environment before starting workerd so child processes do not inherit it.
     delete process.env.CLOUDFLARE_API_TOKEN;
@@ -37,7 +44,7 @@ try {
     await testCandidate946(candidate);
     stage='readback';
   });
-  console.log(JSON.stringify({ok:true,read_only:true,get_verified:true,active_observations_match:true,patch_ready:true,
+  console.log(JSON.stringify({ok:true,read_only:true,get_verified:true,active_observations_match:true,...classification,
     candidate_runtime_passed:true,instrumentation:'fixed_test_copy_only',upload_attempted:false}));
 } catch(error) {
   const reason=stage==='runtime' ? 'runtime_regression_failed'
@@ -45,7 +52,7 @@ try {
   const count=Number.isSafeInteger(error?.mismatch_count) && error.mismatch_count>=0 && error.mismatch_count<=1000000 ? error.mismatch_count : null;
   const types=Array.isArray(error?.statement_types)
     ? [...new Set(error.statement_types.filter(x=>allowedTypes.has(x)))].slice(0,8) : [];
-  console.error(JSON.stringify({ok:false,read_only:true,get_verified:getVerified,patch_ready:false,stage,reason,
+  console.error(JSON.stringify({ok:false,read_only:true,get_verified:getVerified,patch_ready:false,already_applied:null,stage,reason,
     mismatch_count:count,statement_types:types,upload_attempted:false}));
   process.exitCode=1;
 }
