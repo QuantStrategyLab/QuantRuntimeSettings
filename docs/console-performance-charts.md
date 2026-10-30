@@ -106,18 +106,28 @@ curves and return statistics retain their date and cohort requirements.
 
 A failed account-facts read returns HTTP 503 for dependent performance endpoints,
 with `stored_records_unreadable`; it cannot become a successful empty result.
-Explicitly disabled facts remain a separate not-connected condition. Current
-balance health and historical-curve health remain independent: a history failure
-does not erase a valid current balance, and an unreadable curve is not a confirmed
-empty history.
+Explicitly disabled facts remain a separate not-connected condition. History
+GET requests also return HTTP 503 with `account_facts_history_unavailable`
+when configuration, bindings or stored history cannot be read. This applies to
+the single-currency and currency-discovery read shapes; a successful read of an
+empty history remains a separate HTTP 200 result. Current balance health and
+historical-curve health remain independent: a history failure does not erase a
+valid current balance, and an unreadable curve is not a confirmed empty history.
+Corrupt stored payloads retain the existing `account_facts_stored_invalid`
+HTTP 409 response, distinct from unavailable reads.
 
 Combination return statistics require every selected account's applicable
 history. Missing or unreadable members do not produce a subset TWR, drawdown,
 best/worst day or calendar labelled as the full portfolio. Explicit history
-breaks and partial endpoints cannot establish a daily return. For multiple
-accounts, optional `per_account` on summary, returns and calendar exposes
-independently qualified native results; it does not average them into a portfolio
-return. The UI directs the user to the existing single-account scope.
+breaks and partial endpoints cannot establish a daily return. Native daily-return
+coverage includes missing historical weekdays after the latest report, using
+the existing weekday approximation without an exchange holiday calendar. Today's
+unreported session remains pending and weekends are outside the expected stock
+calendar. A trailing gap changes coverage and the gap reason; the observed
+period's values and any stale status remain visible. For multiple accounts,
+optional `per_account` on summary, returns and calendar exposes independently
+qualified native results; it does not average them into a portfolio return.
+The UI directs the user to the existing single-account scope.
 
 Strategy summaries retain per-strategy source time and freshness. Configuration
 read failures remain distinct from an unassigned account and grant no execution

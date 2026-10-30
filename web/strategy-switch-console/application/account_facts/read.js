@@ -206,8 +206,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   try {
     accountConfig = await loadAccountOptionsConfig(env);
   } catch {
-    if (requireCurrencies) return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
-    accountConfig = { options: {} };
+    return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
   }
   const options = Array.isArray(accountConfig?.options?.[platform]) ? accountConfig.options[platform] : [];
   const matches = options.filter((item) => item?.key === accountKey);
@@ -216,8 +215,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   try {
     bindings = await loadAccountFactsBindings(env);
   } catch {
-    if (requireCurrencies) return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
-    bindings = null;
+    return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
   }
   const binding = bindings?.bindings?.find(
     (item) => item.platform === platform && item.account_key === accountKey,
@@ -281,7 +279,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
         ...(binding.history_source_binding_ids
           ? { history_source_binding_ids: binding.history_source_binding_ids } : {}),
       });
-      if (requireCurrencies && (!listed || listed.ok !== true || !Array.isArray(listed.days))) {
+      if (!listed || listed.ok !== true || !Array.isArray(listed.days)) {
         return json({ ok: false, error: "account_facts_history_unavailable" }, 503);
       }
       days = Array.isArray(listed?.days) ? listed.days : [];

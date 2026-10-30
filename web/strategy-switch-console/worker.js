@@ -11833,7 +11833,7 @@ async function accountFactsHistoryResponse(request, env, url) {
     hasConfigStore,
     hasRuntimeInstanceStore,
     loadAccountOptionsConfig,
-    loadAccountFactsBindings,
+    loadAccountFactsBindings: (env) => loadAccountFactsBindings(env, { propagateReadErrors: true }),
     runtimeInstanceCommand,
     accountFactsErrorResponse,
     sha256Hex,
