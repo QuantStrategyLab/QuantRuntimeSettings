@@ -573,3 +573,17 @@ are never printed. Malformed or over-limit named-handler entries fail the read.
 The two SHA-256 fingerprints cover only the canonical export names and handler
 lists, preserving omitted lists and handler order, with entries sorted by name.
 Other provider fields are excluded from the fingerprints.
+
+The manual `resume` action is limited to the fixed frontend candidate already
+staged during the stopped release. It does not upload a version. It requires the
+fixed active deployment and version, staged version, both complete module hashes,
+and exact reviewed named-handler fingerprints. A second check requires unchanged
+`RuntimeInstances` handlers and precisely the two reviewed `__test` additions,
+with all prior handlers retaining their order. It repeats the staged, active,
+configuration and lineage checks before one non-force activation, then verifies
+active identity, module bytes, configuration and migration tag twice. The
+existing release core's migration and export-reconciliation checks remain in
+force. An ambiguous result requires readback and is never retried automatically;
+concurrent external changes remain possible because the provider offers no CAS.
+The CI also tests the exact candidate's named export surface offline; that check
+must pass before using this exception.

@@ -170,13 +170,17 @@ export async function execute({api,core=runBackendRelease,policy,expected,candid
 }
 async function main(){
   const [mode,action,version,deployment,path,...extra]=process.argv.slice(2);
-  if (!Object.hasOwn(POLICY,mode) || !['preflight','diagnose','release'].includes(action) || extra.length || !path) throw Error('invalid_arguments');
+  if (!Object.hasOwn(POLICY,mode) || !['preflight','diagnose','release','resume'].includes(action) || (action==='resume'&&mode!=='frontend') || extra.length || !path) throw Error('invalid_arguments');
   const candidate=await readFile(path);
   const api=createFixedApi();
   const args={policy:POLICY[mode],expected:{version,deployment},candidate};
-  const result=action==='diagnose'
-    ?await diagnose({...args,api:{deployments:api.deployments,versions:api.versions,betaVersion:api.betaVersion,scriptVersion:api.scriptVersion}})
-    :await execute({...args,api,release:action==='release'});
+  let result;
+  if(action==='diagnose')result=await diagnose({...args,api:{deployments:api.deployments,versions:api.versions,betaVersion:api.betaVersion,scriptVersion:api.scriptVersion}});
+  else if(action==='resume'){
+    const {resumeExisting}=await import('./console_existing_candidate_resume.mjs');
+    result=await resumeExisting({deployments:api.deployments,versions:api.versions,betaVersion:api.betaVersion,
+      scriptVersion:api.scriptVersion,activate:api.activate},candidate,{version,deployment});
+  }else result=await execute({...args,api,release:action==='release'});
   console.log(JSON.stringify(result));if(!result.ok)process.exitCode=1;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){try{await main()}catch{console.error(JSON.stringify({ok:false,reason:'configuration_or_input_invalid',upload_attempted:false,deploy_attempted:false}));process.exitCode=1;}}

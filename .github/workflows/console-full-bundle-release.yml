@@ -4,6 +4,7 @@ on:
     paths:
       - '.github/workflows/console-full-bundle-release.yml'
       - 'scripts/console_full_bundle_release.mjs'
+      - 'scripts/console_existing_candidate_resume.mjs'
       - 'scripts/console_frontend_candidate_build.sh'
       - 'scripts/console_frontend_candidate_preflight.mjs'
       - 'scripts/console_storage_compat_old_build.mjs'
@@ -11,6 +12,8 @@ on:
       - 'scripts/console_54e_baseline_build.sh'
       - 'scripts/console_958_freeze_candidate.mjs'
       - 'tests/console_full_bundle_release.test.mjs'
+      - 'tests/console_existing_candidate_resume.test.mjs'
+      - 'tests/console_named_export_surface.test.mjs'
       - 'tests/console_frontend_candidate_preflight.test.mjs'
       - 'tests/console_recovery_compat.test.mjs'
       - 'tests/console_946_backend_release.test.mjs'
@@ -19,9 +22,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Read-only preflight, staged diagnosis, or release
+        description: Read-only preflight, staged diagnosis, release, or fixed staged resume
         type: choice
-        options: [preflight, diagnose, release]
+        options: [preflight, diagnose, release, resume]
         default: preflight
         required: true
       target:
@@ -79,7 +82,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test release adapter
-        run: node --test tests/console_full_bundle_release.test.mjs tests/console_frontend_candidate_preflight.test.mjs tests/console_946_backend_release.test.mjs
+        run: node --test tests/console_full_bundle_release.test.mjs tests/console_existing_candidate_resume.test.mjs tests/console_frontend_candidate_preflight.test.mjs tests/console_946_backend_release.test.mjs
       - name: Build and verify fixed complete bundles
         run: |
           set -euo pipefail
@@ -112,6 +115,10 @@ jobs:
           QRS_NEW_WORKER_BUNDLE: ${{ runner.temp }}/console-frontend-candidate/worker.js
           QRS_RECOVERY_WORKER_BUNDLE: ${{ runner.temp }}/console-recovery-candidate/worker.js
         run: node --test tests/console_recovery_compat.test.mjs
+      - name: Verify candidate named export access in workerd
+        env:
+          QRS_NEW_WORKER_BUNDLE: ${{ runner.temp }}/console-frontend-candidate/worker.js
+        run: node --test tests/console_named_export_surface.test.mjs
       - name: Preserve verified public bundles for the manual job
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
