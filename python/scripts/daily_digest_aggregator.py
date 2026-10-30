@@ -60,6 +60,7 @@ _OBSERVATION_FIELDS = (
     "execution_mode",
     "routine_decision",
     "routine_decisions",
+    "routine_observation_counts",
 )
 
 

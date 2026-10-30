@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from notification_mode import consolidation_enabled, routine_mode
 from display_names import display_name
-from daily_digest_notify import DailyDigestInput, _presentation_needs_attention, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale, routine_decision_text
+from daily_digest_notify import DailyDigestInput, _presentation_needs_attention, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale, routine_decision_text, routine_observation_text
 
 
 def enabled() -> bool:
@@ -198,7 +198,7 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         lines.append(f"{label}：运行 {runs} 次，覆盖 {state}" if zh else f"{label}: {runs} runs, coverage {state}")
     immediate = summary.get("immediate_events", 0)
     if immediate:
-        lines.append(f"即时事件 {immediate} 项（仅记录）" if zh else f"Immediate events: {immediate} (record only)")
+        lines.append(f"紧急事项 {immediate} 项（日报留档）" if zh else f"Urgent items: {immediate} (daily record)")
     attention_lines, healthy_lines, routine_lines, seen = [], [], [], set()
     for row, label in zip(payload.runs, _run_display_labels(payload.runs, locale)):
         needs_attention = row.status == "alert" or _presentation_needs_attention(row)
@@ -207,8 +207,20 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         if decision:
             routine_lines.extend(f"• {label}：{line}" if zh else f"• {label}: {line}"
                                  for line in decision.splitlines())
+        observations = routine_observation_text(row, locale)
+        if observations:
+            routine_lines.append(f"• {label}：{observations}" if zh else f"• {label}: {observations}")
         if not is_blocked(row):
             detail = ("需核对" if zh else "Needs review") if needs_attention else ("已运行" if zh else "Observed run")
+            if row.execution_status == "order_submitted":
+                submitted = "订单已提交" if zh else "Orders submitted"
+                if not _known_count(row, "fill"):
+                    submitted += "，成交待确认" if zh else "; fill confirmation pending"
+                detail = detail + ("，" if zh else "; ") + submitted if needs_attention else submitted
+            elif (not needs_attention and row.execution_status in {"no_action", "no_op", "ok_no_order"}
+                  and _known_count(row, "order") and _known_count(row, "fill")
+                  and row.order_count == row.fill_count == 0):
+                detail += "，无交易" if zh else "; no trades"
             if evidence_detail:
                 detail += ("，" if zh else "; ") + evidence_detail
             if counts_not_connected(row):
