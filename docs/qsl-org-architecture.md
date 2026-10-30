@@ -94,6 +94,19 @@ No new checker is required for this scope. The prepared workspace must contain t
 
 ## Runtime and recovery boundaries
 
+- Strategy selection is scoped by platform and account domain: the US equity
+  catalog includes the IBIT exchange-traded product, while BTC strategies are
+  in the crypto domain. FTMO Free Trial tooling must remain a separate
+  evaluation boundary and must not share a real account or execution state;
+  this rule does not prove runtime isolation has been established.
+  Discoverable profiles, validation-only or dry-run selection, and live
+  admission are separate decisions; none by itself proves a deployed runtime,
+  an executed cycle or permission to trade. Existing frozen and approved
+  continuity policies remain in force. The platform's stock DCA settings
+  capability does not define the crypto BTC strategy's cadence or amount.
+  Account drafts expose a dry-run-only profile only when the account explicitly
+  defaults to `dry_run` and the platform supports that mode. Other account modes
+  do not inherit this validation-only selection.
 - QuantPlatformKit owns shared risk/contracts and infrastructure ports; strategy and pipeline repositories own business/research logic; broker and cloud differences remain in platform adapters. QuantRuntimeSettings owns configuration and compatibility, not market signals or broker truth.
 - Saved configuration, applied runtime/scheduler state, last complete business cycle and actual fills are different facts. Unknown or stale readback stays unknown; CI or an enabled flag cannot stand in for any of them.
 - Verify the configured deployment target: GCP Scheduler/Cloud Run and self-hosted Oracle adapters are distinct. A developer machine is not a production prerequisite. Keep private infrastructure identifiers in deployment configuration, not shared core or this document.

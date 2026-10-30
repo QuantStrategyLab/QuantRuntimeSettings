@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import worker, { __test } from '../web/strategy-switch-console/worker.js';
 import { DEFAULT_STRATEGY_PROFILES } from '../web/strategy-switch-console/strategy_profiles_asset.js';
+import { PLATFORM_CONFIG } from '../web/strategy-switch-console/config.js';
 
 const frozen = DEFAULT_STRATEGY_PROFILES.filter(p => p.frozen === true);
 assert.equal(frozen.length, 14);
@@ -99,3 +100,90 @@ const unchanged = __test.normalizeStrategyProfilesPayload([
 ]);
 assert.deepEqual(unchanged.map(item => item.profile), ['tqqq-growth-income', 'synthetic-unknown']);
 assert(unchanged.every(item => item.frozen !== true));
+
+// Domain and mode checks use the real bundled declarations and Worker policy.
+// Selectability is not evidence of deployment or execution authority.
+const scopedProfiles = __test.normalizeStrategyProfilesPayload(DEFAULT_STRATEGY_PROFILES);
+const cryptoProfiles = ['crypto_btc_dca', 'crypto_trend_rotation'];
+const cryptoAccount = {key:'synthetic-crypto', supported_domains:['crypto']};
+const usAccount = {key:'synthetic-us', supported_domains:['us_equity']};
+const cryptoChoices = __test.accountDraftStrategyChoices('binance', cryptoAccount, scopedProfiles);
+const usChoices = __test.accountDraftStrategyChoices('ibkr', usAccount, scopedProfiles);
+for (const profile of cryptoProfiles) {
+  assert(!usChoices.some(item => item.profile === profile), profile);
+  assert.doesNotThrow(() => __test.assertStrategyAllowedForAccount(
+    {platform:'binance', strategy_profile:profile, execution_mode:'dry_run'}, cryptoAccount, scopedProfiles));
+  assert.throws(() => __test.assertStrategyAllowedForAccount(
+    {platform:'ibkr', strategy_profile:profile, execution_mode:'dry_run'}, usAccount, scopedProfiles), /domain/);
+  assert.throws(() => __test.assertStrategyAllowedForAccount(
+    {platform:'binance', strategy_profile:profile, execution_mode:'dry_run'},
+    {key:'restricted', supported_domains:['us_equity']}, scopedProfiles), /domain/);
+  assert.throws(() => __test.assertStrategyAllowedForAccount(
+    {platform:'binance', strategy_profile:profile, execution_mode:'live'}, cryptoAccount, scopedProfiles), /not live-enabled/);
+  const paperOnly = __test.normalizeStrategyProfilesPayload([
+    {...DEFAULT_STRATEGY_PROFILES.find(item => item.profile === profile), allowed_execution_modes:['paper']},
+  ]);
+  assert.throws(() => __test.assertStrategyAllowedForAccount(
+    {platform:'binance', strategy_profile:profile, execution_mode:'dry_run'}, cryptoAccount, paperOnly), /does not allow/);
+  const frozenProfile = __test.normalizeStrategyProfilesPayload([
+    {...DEFAULT_STRATEGY_PROFILES.find(item => item.profile === profile), frozen:true},
+  ]);
+  assert.throws(() => __test.assertStrategyAllowedForAccount(
+    {platform:'binance', strategy_profile:profile, execution_mode:'dry_run'}, cryptoAccount, frozenProfile), /frozen/);
+}
+// Dry-run-only profiles are offered only to explicitly dry-run accounts.
+assert(cryptoChoices.some(item => item.profile === 'crypto_btc_dca'));
+assert(!cryptoChoices.some(item => item.profile === 'crypto_trend_rotation'));
+assert(cryptoChoices.some(item => item.profile === 'crypto_live_pool_rotation'));
+const dryAccount = {...cryptoAccount, default_execution_mode:'dry_run'};
+const dryChoices = __test.accountDraftStrategyChoices('binance', dryAccount, scopedProfiles);
+assert(dryChoices.some(item => item.profile === 'crypto_trend_rotation'));
+for (const default_execution_mode of ['live', 'paper']) {
+  assert(!__test.accountDraftStrategyChoices(
+    'binance', {...cryptoAccount, default_execution_mode}, scopedProfiles,
+  ).some(item => item.profile === 'crypto_trend_rotation'));
+}
+const draft = {platform:'binance', config:dryAccount};
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(
+  scopedProfiles, draft, {strategy_profile:'crypto_trend_rotation'}, ''));
+assert.throws(() => __test.assertAccountDraftPatch(
+  scopedProfiles, {platform:'binance', config:cryptoAccount},
+  {strategy_profile:'crypto_trend_rotation'}, ''), /account_settings_strategy_rejected/);
+assert(!__test.accountDraftStrategyChoices('ibkr',
+  {...usAccount, default_execution_mode:'dry_run'}, scopedProfiles,
+).some(item => item.profile === 'crypto_trend_rotation'));
+const frozenTrend = __test.normalizeStrategyProfilesPayload([
+  {...DEFAULT_STRATEGY_PROFILES.find(item => item.profile === 'crypto_trend_rotation'), frozen:true},
+]);
+assert.equal(__test.accountDraftStrategyChoices('binance', dryAccount, frozenTrend).length, 0);
+assert.throws(() => __test.assertAccountDraftPatch(
+  frozenTrend, draft, {strategy_profile:'crypto_trend_rotation'}, ''), /account_settings_strategy_rejected/);
+const originalModes = PLATFORM_CONFIG.binance.supported_execution_modes;
+try {
+  PLATFORM_CONFIG.binance.supported_execution_modes = ['live'];
+  assert(!__test.accountDraftStrategyChoices('binance', dryAccount, scopedProfiles)
+    .some(item => item.profile === 'crypto_trend_rotation'));
+  assert.throws(() => __test.assertAccountDraftPatch(
+    scopedProfiles, draft, {strategy_profile:'crypto_trend_rotation'}, ''), /account_settings_strategy_rejected/);
+} finally {
+  PLATFORM_CONFIG.binance.supported_execution_modes = originalModes;
+}
+for (const profile of core) {
+  assert(usChoices.some(item => item.profile === profile), profile);
+  assert(!cryptoChoices.some(item => item.profile === profile), profile);
+  assert.throws(() => __test.assertStrategyAllowedForAccount(
+    {platform:'binance', strategy_profile:profile, execution_mode:'dry_run'}, cryptoAccount, scopedProfiles), /domain/);
+}
+assert.equal(cryptoChoices.find(item => item.profile === 'crypto_btc_dca').dca_supported, false);
+// Existing continuity predicate remains separate from new live selection; these
+// synthetic values prove no approved baseline or authority.
+const continuityInput = {
+  platform:'binance', execution_mode:'live', live_continuity_state:'RECONCILE_ONLY',
+  live_continuity_baseline_id:'synthetic', live_continuity_captured_at:'2026-01-01',
+  plugin_mode:'current', option_overlay_mode:'current',
+};
+assert.doesNotThrow(() => __test.assertStrategyAllowedForAccount(
+  {...continuityInput, strategy_profile:'crypto_live_pool_rotation'}, cryptoAccount, scopedProfiles));
+assert.throws(() => __test.assertStrategyAllowedForAccount(
+  {...continuityInput, strategy_profile:'crypto_btc_dca'}, cryptoAccount, scopedProfiles), /not live-enabled/);
+console.log('US and crypto scoped selection validation passed.');

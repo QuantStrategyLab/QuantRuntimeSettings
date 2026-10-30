@@ -5657,12 +5657,15 @@ function accountDraftStrategyChoices(platform, accountOption, profiles) {
     return [];
   }
   const choices = [];
+  const allowsDryRunOnly = accountOption?.default_execution_mode === "dry_run"
+    && supportedExecutionModesForPlatform(platform).includes("dry_run");
   for (const profile of profiles) {
     if (!profile || typeof profile.profile !== "string" || !profile.profile) continue;
     if (profile.domain_explicit !== true || profile.lifecycle_stage === "frozen" || isFrozenStrategyProfile(profile)) continue;
     if (!profile.domain || !domains.includes(profile.domain)) continue;
     const modes = Array.isArray(profile.allowed_execution_modes) ? profile.allowed_execution_modes : [];
-    if (!modes.some((mode) => mode === "paper" || mode === "live")) continue;
+    if (!modes.some((mode) => mode === "paper" || mode === "live"
+      || (allowsDryRunOnly && mode === "dry_run"))) continue;
     try {
       assertDcaPlatform(platform, profile.profile);
     } catch {
