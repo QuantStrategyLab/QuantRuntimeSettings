@@ -152,4 +152,3 @@ try {
   assert.equal((await requestHistory(legacyUrl)).status,200,'a successful missing binding read keeps its legacy empty state');
 } finally {globalThis.fetch=originalFetch;}
 console.log('account facts history Worker wiring: synthetic KV/DO failures and empty states passed');
-
