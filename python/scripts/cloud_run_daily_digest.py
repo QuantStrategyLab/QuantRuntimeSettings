@@ -81,9 +81,9 @@ def report_slot(headers, configuration, now):
     job = values.get('x-cloudscheduler-jobname')
     if not job:
         raise ValueError('digest_scheduler_job_missing')
-    if job == configuration.scheduler_job.rsplit('/', 1)[-1]:
-        raise ValueError('digest_scheduler_job_short_name')
-    if job != configuration.scheduler_job:
+    # Cloud Run authenticates the invoker. Scheduler's job header may use the
+    # configured resource's exact short name; unrelated full names still fail.
+    if job not in {configuration.scheduler_job, configuration.scheduler_job.rsplit('/', 1)[-1]}:
         raise ValueError('digest_scheduler_job_mismatch')
     stamp = datetime.fromisoformat(values['x-cloudscheduler-scheduletime'])
     if stamp.tzinfo is None:

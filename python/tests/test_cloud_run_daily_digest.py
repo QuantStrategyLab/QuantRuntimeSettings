@@ -222,6 +222,36 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertEqual(repeated['delivery'], 'duplicate')
         self.assertEqual(len(self.sent), 1)
 
+    def test_exact_short_job_name_shares_full_name_reservation(self):
+        headers = {**HEADERS, 'X-CloudScheduler-JobName': JOB.rsplit('/', 1)[-1]}
+        status, result = self.run_request(headers=headers, configuration=self.enable())
+        self.assertEqual((status, result['delivery']), (200, 'accepted'))
+        _, repeated = self.run_request(configuration=self.enable())
+        self.assertEqual(repeated['delivery'], 'duplicate')
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(list(self.store.records), ['synthetic/2026-10-16.json'])
+
+    def test_short_job_receipt_slot_remains_read_only(self):
+        self.run_request(configuration=self.enable())
+        self.now = NOW + timedelta(minutes=30, seconds=5)
+        headers = {'X-CloudScheduler-JobName': JOB.rsplit('/', 1)[-1],
+                   'X-CloudScheduler-ScheduleTime': self.now.isoformat()}
+        self.store.candidate = lambda *args: self.fail('receipt slot read financial inputs')
+        self.store.reserve = lambda *args: self.fail('receipt slot reserved a new send')
+        status, result = self.run_request(headers=headers, configuration=self.enable())
+        self.assertEqual((status, result['delivery']), (200, 'confirmed'))
+        self.assertEqual(len(self.sent), 1)
+
+    def test_other_full_names_and_near_short_names_remain_rejected(self):
+        for job in ('projects/other/locations/synthetic/jobs/daily-digest',
+                    'projects/synthetic/locations/other/jobs/daily-digest',
+                    'daily-digest-other', ' daily-digest', 'daily-digest ', 'jobs/daily-digest'):
+            with self.subTest(job=job):
+                headers = {**HEADERS, 'X-CloudScheduler-JobName': job}
+                status, result = self.run_request(headers=headers, configuration=self.enable())
+                self.assertEqual((status, result['reason_code']), (400, 'digest_scheduler_job_mismatch'))
+        self.assertFalse(self.sent or self.store.records)
+
     def test_fractional_receipt_slot_remains_read_only(self):
         self.run_request(configuration=self.enable())
         self.now = NOW + timedelta(minutes=30, seconds=5)
@@ -246,8 +276,6 @@ class CloudRunDigestTests(unittest.TestCase):
         private = 'private-header-value-not-for-logs'
         for headers, expected in (
             ({'X-CloudScheduler-ScheduleTime': NOW.isoformat()}, 'digest_scheduler_job_missing'),
-            ({'X-CloudScheduler-JobName': JOB.rsplit('/', 1)[-1]},
-             'digest_scheduler_job_short_name'),
             ({'X-CloudScheduler-JobName': private}, 'digest_scheduler_job_mismatch'),
             ({'X-CloudScheduler-JobName': JOB}, 'digest_schedule_header_missing'),
             ({**HEADERS, 'X-CloudScheduler-ScheduleTime': private}, 'digest_schedule_header_invalid'),
