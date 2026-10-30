@@ -353,7 +353,10 @@ fails qualification rather than being converted into a passing rollback result.
 The matrix retains that old-production recovery test unchanged and separately
 tests an undeployed complete main recovery snapshot. The latter is pinned to
 `acf56083568b795f3a86ef40588fcc726333a88b`, including its tree, asset blob and
-build ID. It has the pre-draft frontend and the current native-task protocol
+build ID. Its complete module digest, independently observed before the recovery
+test's final qualification, is pinned as
+`61ba684d100a090bd54a50f56c45b420a969fba67b7289b1396321e5410c8162`.
+It has the pre-draft frontend and the current native-task protocol
 guards. It is not the historical serving module. Both builds must reproduce
 before their recorded digests enter the three-version SQLite test: old serving
 fixture, draft candidate, then compatible main recovery candidate. The test

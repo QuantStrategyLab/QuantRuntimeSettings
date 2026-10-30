@@ -26,16 +26,14 @@ test('rejects unexpected or missing bundle output, including directories',()=>{
   }
 });
 
-test('recovery evidence is pinned to complete main and cannot substitute for the frontend candidate',()=>{
+test('recovery evidence rejects snapshot substitution and bytes outside the independently pinned complete bundle',()=>{
   const recoveryBundle = Buffer.from(`var V2_BUILD_ID = "${RECOVERY_SNAPSHOT.buildId}";\n`);
   const recovery = {...good(), commit:RECOVERY_SNAPSHOT.commit, tree:RECOVERY_SNAPSHOT.tree,
     assetBlob:RECOVERY_SNAPSHOT.assetBlob, asset:`export const V2_BUILD_ID = "${RECOVERY_SNAPSHOT.buildId}";\n`,
     firstBundle:recoveryBundle, secondBundle:recoveryBundle};
-  const out=verifyRecoveryEvidence(recovery);
-  assert.equal(out.snapshot_commit,RECOVERY_SNAPSHOT.commit);
-  assert.equal(out.bundle_reproduced,true);
-  assert.equal(out.production_read,false);
-  assert.equal(out.release_approved,false);
+  // A matching build marker and repeatable bytes do not prove this is the
+  // complete independently observed module. The actual build is checked in CI.
+  assert.throws(()=>verifyRecoveryEvidence(recovery),/recovery_bundle_identity_mismatch/);
   assert.throws(()=>verifyEvidence(recovery),/snapshot_identity_mismatch/);
   assert.throws(()=>verifyRecoveryEvidence(good()),/snapshot_identity_mismatch/);
   for(const key of ['commit','tree','assetBlob'])

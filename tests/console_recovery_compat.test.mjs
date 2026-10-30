@@ -8,6 +8,7 @@ import { readFile, mkdtemp, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { RECOVERY_SNAPSHOT } from '../scripts/console_frontend_candidate_preflight.mjs';
 
 // Provider credentials must not be present when test runtime modules load.
 delete process.env.CLOUDFLARE_API_TOKEN;
@@ -54,13 +55,12 @@ async function storedRow(root, requestId) {
 
 test('production to candidate to compatible main recovery preserves SQLite protocol boundaries', async () => {
   assert.ok(process.env.QRS_OLD_WORKER_BUNDLE && process.env.QRS_NEW_WORKER_BUNDLE && process.env.QRS_RECOVERY_WORKER_BUNDLE, 'all three complete Worker bundle paths are required');
-  assert.match(process.env.QRS_RECOVERY_WORKER_SHA256 || '', /^[0-9a-f]{64}$/, 'recovery bundle must have a separately verified SHA-256');
   const oldPath = resolve(process.env.QRS_OLD_WORKER_BUNDLE), newPath = resolve(process.env.QRS_NEW_WORKER_BUNDLE);
   const recoveryPath = resolve(process.env.QRS_RECOVERY_WORKER_BUNDLE);
   const [oldBytes, newBytes, recoveryBytes] = await Promise.all([readFile(oldPath), readFile(newPath), readFile(recoveryPath)]);
   assert.equal(sha(oldBytes), oldDigest, 'old Worker must be the fixed, previously verified production candidate');
   assert.equal(sha(newBytes), 'afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d', 'candidate must be the fixed complete #965 bundle');
-  assert.equal(sha(recoveryBytes), process.env.QRS_RECOVERY_WORKER_SHA256, 'recovery bundle must match separately verified main build');
+  assert.equal(sha(recoveryBytes), RECOVERY_SNAPSHOT.bundleSha256, 'recovery bundle must match the independently observed complete main module');
   assert.notEqual(sha(recoveryBytes), oldDigest, 'recovery is not the incompatible production rollback');
   assert.notEqual(sha(recoveryBytes), sha(newBytes), 'recovery must be a distinct complete bundle');
   console.log(JSON.stringify({ old_worker_sha256: sha(oldBytes), candidate_worker_sha256: sha(newBytes), recovery_worker_sha256: sha(recoveryBytes) }));

@@ -86,8 +86,4 @@ jobs:
           QRS_OLD_WORKER_BUNDLE: ${{ runner.temp }}/qrs-storage-compat/old-worker.js
           QRS_NEW_WORKER_BUNDLE: ${{ runner.temp }}/console-frontend-candidate/worker.js
           QRS_RECOVERY_WORKER_BUNDLE: ${{ runner.temp }}/console-recovery-candidate/worker.js
-        run: |
-          set -euo pipefail
-          QRS_RECOVERY_WORKER_SHA256="$(jq -er '.bundle_sha256' "$RUNNER_TEMP/console-recovery-candidate-evidence.json")"
-          export QRS_RECOVERY_WORKER_SHA256
-          node --test tests/console_recovery_compat.test.mjs
+        run: node --test tests/console_recovery_compat.test.mjs

@@ -16,9 +16,15 @@ export const RECOVERY_SNAPSHOT = Object.freeze({
   tree: 'c6e6ef4fec8df52480592591c84e5e7def8ff03e',
   assetBlob: 'ac2278a21a5a1580d11587e4025a30c6a9363984',
   buildId: '967e99835ed0874c008ae65ebadd7bb2c1b59e806ccdf962149c0061f5bb6f1f',
+  // Independently observed in Node 22 run 41054733871, job 124059290421.
+  bundleSha256: '61ba684d100a090bd54a50f56c45b420a969fba67b7289b1396321e5410c8162',
 });
 export const verifyEvidence = evidence => verifySnapshot(SNAPSHOT, evidence);
-export const verifyRecoveryEvidence = evidence => verifySnapshot(RECOVERY_SNAPSHOT, evidence);
+export function verifyRecoveryEvidence(evidence) {
+  const result = verifySnapshot(RECOVERY_SNAPSHOT, evidence);
+  if (result.bundle_sha256 !== RECOVERY_SNAPSHOT.bundleSha256) throw Error('recovery_bundle_identity_mismatch');
+  return result;
+}
 function verifySnapshot(snapshot, {commit, tree, assetBlob, asset, firstBundle, secondBundle, firstEntries, secondEntries}) {
   if (commit !== snapshot.commit || tree !== snapshot.tree || assetBlob !== snapshot.assetBlob) throw Error('snapshot_identity_mismatch');
   const ids = [...asset.matchAll(/^export const V2_BUILD_ID = "([a-f0-9]{64})";$/gm)].map(m => m[1]);
@@ -46,5 +52,5 @@ async function main() {
   console.log(JSON.stringify(verifier({commit, tree, assetBlob, asset, firstBundle, secondBundle, firstEntries, secondEntries})));
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try { await main(); } catch (error) { console.error(JSON.stringify({ok:false, reason: ['invalid_arguments','snapshot_identity_mismatch','asset_build_id_mismatch','bundle_reproducibility_mismatch','bundle_build_id_mismatch','bundle_output_unexpected'].includes(error.message) ? error.message : 'evidence_read_failed', production_read:false, release_approved:false})); process.exitCode=1; }
+  try { await main(); } catch (error) { console.error(JSON.stringify({ok:false, reason: ['invalid_arguments','snapshot_identity_mismatch','asset_build_id_mismatch','bundle_reproducibility_mismatch','bundle_build_id_mismatch','bundle_output_unexpected','recovery_bundle_identity_mismatch'].includes(error.message) ? error.message : 'evidence_read_failed', production_read:false, release_approved:false})); process.exitCode=1; }
 }
