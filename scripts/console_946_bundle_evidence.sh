@@ -40,7 +40,7 @@ CONFIG
 done
 
 set +e
-git diff --no-index --no-ext-diff --text -- "$evidence/old/worker.js" "$evidence/new/worker.js" > "$evidence/bundle.patch"
+git diff --no-index --no-ext-diff --no-color --text -- "$evidence/old/worker.js" "$evidence/new/worker.js" > "$evidence/bundle.patch"
 diff_status=$?
 set -e
 [[ "$diff_status" == 1 ]]
@@ -48,22 +48,71 @@ set -e
 QRS946_EVIDENCE_DIR="$evidence" node --input-type=module <<'JS'
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import {createRequire} from 'node:module';
+const require = createRequire(`${process.cwd()}/web/strategy-switch-console/package.json`);
+const {TraceMap, decodedMappings} = require('@jridgewell/trace-mapping');
 const root = process.env.QRS946_EVIDENCE_DIR;
 const targets = ['application/account_facts/read.js', 'application/console_api/native_daily_returns.js', 'worker.js'];
 const result = {};
 for (const side of ['old', 'new']) {
   const bundle = await readFile(`${root}/${side}/worker.js`);
-  const map = JSON.parse(await readFile(`${root}/${side}/worker.js.map`, 'utf8'));
-  if (!Array.isArray(map.sources) || typeof map.mappings !== 'string') throw Error('invalid_source_map');
+  const mapBytes = await readFile(`${root}/${side}/worker.js.map`);
+  if (bundle.length > 10 * 1024 * 1024 || mapBytes.length > 32 * 1024 * 1024) throw Error('synthetic_output_too_large');
+  const map = JSON.parse(mapBytes.toString('utf8'));
+  if (map.version !== 3 || !Array.isArray(map.sources) || map.sources.length > 10000 || typeof map.mappings !== 'string') throw Error('invalid_source_map');
+  const lines = bundle.toString('utf8').split('\n');
+  const mappings = decodedMappings(new TraceMap(map));
+  if (mappings.length > 1000000 || lines.length > 1000000) throw Error('synthetic_output_too_many_lines');
+  const module_spans = Object.fromEntries(targets.map(target => {
+    const indexes = new Set(map.sources.map((source, i) => typeof source === 'string' && source.replaceAll('\\', '/').endsWith(target) ? i : -1).filter(i => i >= 0));
+    let first = null, last = null, segments = 0;
+    for (let line = 0; line < mappings.length; line++) {
+      for (const segment of mappings[line]) if (segment.length >= 4 && indexes.has(segment[1])) {
+        if (first === null) first = line + 1;
+        last = line + 1;
+        segments++;
+      }
+    }
+    return [target, {source_matches:indexes.size, first_mapped_line:first, last_mapped_line:last, mapped_segments:segments}];
+  }));
+  const names = ['accountFactsHistoryResponse', 'applyNativeDailyReturns', 'loadAccountFactsBindings', 'hasGap', 'navAmountSum', 'nativeBenchmarks', 'performanceBlocks', 'dateMs', 'sliceRange', 'rangeStart'];
+  const declarations = Object.fromEntries(names.map(name => [name, []]));
+  const declarationsPattern = /^\s*(?:async\s+)?function\s+(accountFactsHistoryResponse(?:Impl)?|applyNativeDailyReturns|loadAccountFactsBindings|hasGap|navAmountSum|nativeBenchmarks|performanceBlocks|dateMs|sliceRange|rangeStart)(\d*)\s*\(/;
+  for (let i = 0; i < lines.length; i++) {
+    const match = declarationsPattern.exec(lines[i]);
+    if (match) {
+      const key = match[1].replace(/Impl$/, '');
+      if (declarations[key].length >= 32) throw Error('too_many_target_declarations');
+      declarations[key].push({name:match[1] + match[2], line:i + 1});
+    }
+  }
   result[side] = {
     bundle_bytes: bundle.length,
     bundle_sha256: createHash('sha256').update(bundle).digest('hex'),
     source_map_version: map.version,
     source_count: map.sources.length,
     mappings_present: map.mappings.length > 0,
+    module_spans,
+    target_function_declarations: declarations,
     target_sources_present: Object.fromEntries(targets.map(target => [target,
       map.sources.some(source => typeof source === 'string' && source.replaceAll('\\', '/').endsWith(target))])),
   };
 }
-console.log(JSON.stringify({kind:'qrs946_synthetic_bundle_evidence', synthetic_assets:true, production_reads:false, builds:result}));
+const summary = JSON.stringify({kind:'qrs946_synthetic_bundle_evidence', synthetic_assets:true, production_reads:false, builds:result});
+if (Buffer.byteLength(summary) > 16384) throw Error('summary_too_large');
+console.log(summary);
 JS
+
+# The fixed-commit diff is public source plus the synthetic fixture. Stop GitHub
+# workflow-command processing while printing it, and refuse oversized output.
+patch_size=$(wc -c < "$evidence/bundle.patch")
+if (( patch_size > 65536 )); then
+  printf '{"kind":"qrs946_synthetic_diff","status":"too_large","bytes":%s}\n' "$patch_size" >&2
+  exit 1
+fi
+printf '{"kind":"qrs946_synthetic_diff","status":"begin","bytes":%s}\n' "$patch_size"
+command_token=$(node -e 'process.stdout.write(require("node:crypto").randomUUID())')
+printf '::stop-commands::%s\n' "$command_token"
+cat "$evidence/bundle.patch"
+printf '\n::%s::\n' "$command_token"
+printf '%s\n' '{"kind":"qrs946_synthetic_diff","status":"end"}'
