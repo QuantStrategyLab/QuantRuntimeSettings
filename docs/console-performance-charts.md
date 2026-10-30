@@ -222,6 +222,11 @@ broker transaction identifiers, not report order or a fabricated timestamp.
 Overlapping reports may repeat the same unchanged event; conflicting facts are
 rejected. Reported-empty is not proof of zero external flows.
 
+Exact-time windows for the same currency must not overlap, including when their
+timestamps use different fractional-second precision. Previously stored invalid
+overlaps remain explicit errors on read; they are not deleted, changed, or
+backfilled automatically. This restriction does not change date-only reports.
+
 The existing SQLite account/source context is reused, with direct readback after
 write. Session-protected history GET returns the original date precision and
 decimal strings. Date-only records cannot satisfy the exact-time coverage used

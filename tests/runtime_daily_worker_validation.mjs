@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import worker, { __test } from "./helpers/directory_worker.mjs";
+import { validate } from "./console_api_contract_validation.mjs";
 
 const token = ["runtime", "daily", "sync"].join("-");
 const sessionSecret = ["session", "secret"].join("-");
@@ -196,6 +197,42 @@ assert.equal((await post(withAccountKey, { Authorization: `Bearer ${token}` })).
 const orderedDate = "2020-01-10";
 const orderedKey = "runtime_daily:" + account.service_name + "|russell_top50_leader_rotation|paper:" + orderedDate;
 const auth = { Authorization: "Bearer " + token };
+// An incomplete LongBridge source can report an unverified schedule and a
+// run without an ID. Preserve both facts all the way to the public contract.
+const incompleteContract = projection({ completeness: "incomplete", read_errors: ["runtime_target_enabled_schedule_unverified"] },
+  { status: "read_incomplete", kind: "incomplete", completeness: "incomplete", activity: "unknown" });
+incompleteContract.records[0].runs[0].run_id = null;
+const incompleteKey = `runtime_daily:${incompleteContract.records[0].target_key}:${today}`;
+store.delete(incompleteKey);
+assert.equal((await post(incompleteContract, auth)).status, 200);
+const incompleteDaily = await (await get(today, sessionHeaders)).json();
+assert.deepEqual(incompleteDaily.read_error_codes, ["schedule_unverified"]);
+assert.equal(incompleteDaily.record.runs[0].run_id, null);
+const todayResponse = await worker.fetch(new Request("https://switch.example/api/runtime/today", { headers: sessionHeaders }), env);
+assert.equal(todayResponse.status, 200);
+const todayBody = await todayResponse.json();
+const todayAccount = todayBody.accounts.find(item => item.account_alias === account.key);
+assert.deepEqual(todayAccount.read_error_codes, ["schedule_unverified"]);
+assert.equal(todayAccount.runs[0].id, null);
+assert.equal(todayAccount.status, "partial");
+assert.equal(todayAccount.run_status, "incomplete");
+for (const body of [incompleteDaily, todayBody]) {
+  assert.equal(JSON.stringify(body).includes("runtime_target_enabled_schedule_unverified"), false);
+  assert.equal(JSON.stringify(body).includes("gs://private-bucket"), false);
+}
+// Validate each discrepancy independently, then the complete real response.
+const schemaChecks = [];
+for (const [name, adjust] of [
+  ["schedule_unverified", row => { row.runs = []; }],
+  ["null run id", row => { row.read_error_codes = []; row.read_error_count = 0; }],
+  ["original response", () => {}],
+]) {
+  const candidate = structuredClone(todayBody);
+  adjust(candidate.accounts.find(item => item.account_alias === account.key));
+  try { validate("today_runs", candidate); } catch (error) { schemaChecks.push(new Error(`${name}: ${error.message}`)); }
+}
+assert.equal(schemaChecks.length, 0, schemaChecks.map(error => error.message).join("\n"));
+store.delete(incompleteKey);
 store.delete(orderedKey);
 const firstObservation = projection({}, { business_date: orderedDate, observed_at: "2020-01-10T21:00:00Z" });
 const writesBeforeFirstObservation = puts.length;

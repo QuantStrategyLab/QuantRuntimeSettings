@@ -2481,7 +2481,7 @@
                   "type": "object",
                   "properties": {
                     "id": {
-                      "type": "string"
+                      "type": ["string", "null"]
                     },
                     "started_at": {
                       "type": [
@@ -2545,7 +2545,7 @@
               "read_error_codes": {
                 "type": ["array", "null"],
                 "items": {
-                  "enum": ["coverage_unconfirmed", "report_read_error", "report_rejected", "read_failed", "read_truncated", "list_failed", "listing_truncated", "source_read_error"]
+                  "enum": ["coverage_unconfirmed", "report_read_error", "report_rejected", "read_failed", "read_truncated", "list_failed", "listing_truncated", "schedule_unverified", "source_read_error"]
                 }
               },
               "run_status_reason": {
