@@ -74,10 +74,14 @@ export function normalizeExternalFlow(raw, { now = Date.now(), maxWindows = 31, 
       coverage: w.coverage, source: w.source, ...(dated ? { time_precision: "date" } : {}),
       records: [...refs.values()].sort((a, b) => a.source_ref.localeCompare(b.source_ref)) };
   }).sort((a, b) => windowKey(a).localeCompare(windowKey(b)));
-  for (let i = 1; i < windows.length; i++) {
-    const a = windows[i], b = windows[i - 1];
-    if (!a.time_precision && !b.time_precision && a.currency === b.currency && instant(a.period_start) < instant(b.period_end)
-        && instant(b.period_start) < instant(a.period_end)) throw flowError("external_flow_overlap", 409);
+  // Timestamp spellings with and without fractions do not sort by instant.
+  // Keep the existing serialized order, but compare exact-time windows by time.
+  const preciseWindows = windows.filter(w => !w.time_precision).sort((a, b) =>
+    a.currency.localeCompare(b.currency) || instant(a.period_start) - instant(b.period_start));
+  for (let i = 1; i < preciseWindows.length; i++) {
+    const a = preciseWindows[i], b = preciseWindows[i - 1];
+    if (a.currency === b.currency && instant(a.period_start) < instant(b.period_end))
+      throw flowError("external_flow_overlap", 409);
   }
   return { schema_version: raw.schema_version, windows };
 }

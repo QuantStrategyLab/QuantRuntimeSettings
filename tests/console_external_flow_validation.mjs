@@ -1,6 +1,6 @@
 import "./console_history_only_return_validation.mjs";
 import assert from "node:assert/strict";
-import { normalizeExternalFlow, mergeExternalFlow, externalFlowEnabled } from "../web/strategy-switch-console/application/account_facts/external_flow.js";
+import { normalizeExternalFlow, mergeExternalFlow, externalFlowEnabled, readExternalFlow } from "../web/strategy-switch-console/application/account_facts/external_flow.js";
 import { cashflowCurrencyResult, applyCashflowPerformance, intervalFlows } from "../web/strategy-switch-console/application/console_api/cashflow_performance.js";
 import { performanceBlocks } from "../web/strategy-switch-console/application/console_api/performance.js";
 
@@ -32,6 +32,48 @@ for (const invalid of [
 ]) assert.throws(() => normalizeExternalFlow(invalid));
 assert.throws(() => mergeExternalFlow(flow, mutate(w => { w.records[0].amount = "101"; })), /conflict/);
 assert.throws(() => normalizeExternalFlow(payload([window, { ...window, period_start: "2026-01-01T13:00:00Z" }])), /overlap/);
+// Equal instants can use zero to three fractional digits. Ordering those strings
+// lexically does not necessarily order the actual start instants.
+const preciseWindow = (a, b, currency = "USD") => ({ currency, date: "2026-01-02",
+  period_start: `2026-01-02T12:00:00${a}Z`, period_end: `2026-01-02T12:00:00${b}Z`,
+  source: "schwab_transactions", coverage: "complete", records: [] });
+const permutations = ([a, b, c]) => [[a, b, c], [a, c, b], [b, a, c], [b, c, a], [c, a, b], [c, b, a]];
+const overlapError = error => error.code === "external_flow_overlap" && error.status === 409;
+for (const zero of ["", ".0", ".00", ".000"]) {
+  for (const tenth of [".1", ".10", ".100"]) {
+    const outer = preciseWindow(zero, ".200");
+    const inner = preciseWindow(tenth, ".150");
+    const later = preciseWindow(".300", ".400");
+    for (const rows of permutations([outer, inner, later])) {
+      assert.throws(() => normalizeExternalFlow(payload(rows)), overlapError);
+    }
+    assert.throws(() => mergeExternalFlow(normalizeExternalFlow(payload([outer, later])), payload(inner)), overlapError);
+  }
+}
+const adjacent = [preciseWindow("", ".100"), preciseWindow(".1", ".200"),
+  preciseWindow(".10", ".150", "EUR")];
+const adjacentResult = normalizeExternalFlow(payload(adjacent));
+assert.equal(adjacentResult.windows.length, 3, "touching windows and separate currencies are valid");
+assert.deepEqual(adjacentResult.windows, [...adjacent].sort((a, b) =>
+  `${a.currency}:instant:${a.period_start}:${a.period_end}`.localeCompare(`${b.currency}:instant:${b.period_start}:${b.period_end}`)),
+"public normalization order remains unchanged");
+const dated = { currency: "USD", date: "2026-01-02", period_start: "2026-01-01", period_end: "2026-01-02",
+  source: "ibkr_flex", coverage: "reported", time_precision: "date", records: [] };
+const datedOverlap = { ...dated, period_start: "2026-01-02" };
+const mixed = mergeExternalFlow(adjacentResult, { schema_version: "external_flow.v2", windows: [dated, datedOverlap] });
+assert.equal(mixed.windows.length, 5, "date-only overlapping reports and mixed precision remain accepted");
+const context = { platform: "synthetic", account_key: "synthetic", target_id: "t", source_binding_id: "s",
+  account_scope: "live", account_selector: "selector" };
+const invalidStored = payload([preciseWindow("", ".200"), preciseWindow(".100", ".150"), preciseWindow(".300", ".400")]);
+let reads = 0;
+const sql = { exec(query) {
+  assert.ok(query.startsWith("SELECT"), "invalid stored facts must not be mutated");
+  reads++;
+  return { toArray: () => [{ context_json: JSON.stringify(["t", "s", "live", "selector", null, null]),
+    payload_json: JSON.stringify(invalidStored) }] };
+} };
+assert.throws(() => readExternalFlow(sql, context), overlapError);
+assert.equal(reads, 1);
 const incomplete = normalizeExternalFlow(mutate(w => { w.coverage = "incomplete"; w.records = []; }));
 assert.deepEqual(mergeExternalFlow(incomplete, flow), flow);
 assert.equal(intervalFlows(incomplete, "USD", start, end), null);

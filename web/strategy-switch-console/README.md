@@ -438,6 +438,11 @@ The page keeps daily data, loading and errors separate by platform/account/date;
 today's health reads remain independent of a selected historical day, and stale
 requests cannot update a different selection.
 
+The `/api/runtime/today` contract includes `schedule_unverified` among safe
+read-error codes and permits a null run `id` when the source did not supply one.
+Consumers that validate or generate types from the schema should accept both;
+neither value means the read was complete or creates a run identity.
+
 LongBridge's exact seven-field evidence and unmatched-report protocol remain
 unchanged. Schwab uses nine evidence fields, adding `receipt_state` and
 `receipt_id`, and reason-only unmatched records. Missing/invalid receipts are not
