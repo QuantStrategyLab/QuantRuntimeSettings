@@ -300,6 +300,17 @@ Store the client ID and client secret in Worker secrets.
 
 ## Deploy With Wrangler
 
+The manual **Diagnose Active Console Module** workflow performs a read-only
+inspection of the single 100%-active Worker version. Supply the full reviewed
+main commit SHA; the workflow checks the checkout and current remote main before
+and after inspection. It reports bounded module shape and diagnostic code-pattern
+booleans without logging the module, version
+IDs, configuration, or credentials. The patterns are hints only: they do not
+prove that a backend-only patch is safe, nor do they authorize or perform a
+release. If traffic is split, the module shape is unsupported, or its two
+observations of the active deployment differ, the workflow fails closed. Matching observations do not rule
+out an intervening change.
+
 Copy the example config:
 
 ```bash

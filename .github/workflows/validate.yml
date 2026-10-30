@@ -107,6 +107,7 @@ jobs:
           node tests/display_names_validation.mjs
           node tests/console_v2_assets_validation.mjs
           node tests/console_deploy_safety_validation.mjs
+          node --test tests/console_active_module_probe.test.mjs
           npm ci --prefix web/strategy-switch-console/frontend
           node --test tests/website_execution_evidence_release_validation.mjs
           node tests/website_release_combination_validation.mjs
