@@ -313,6 +313,15 @@ out an intervening change. The existing **Deploy Strategy Switch Console**
 workflow also runs this probe for the plain `read_only_preflight` mode with the
 other release, rollback and special-check inputs disabled and `source_sha` empty.
 
+The manual workflow also has a default-off `backend_only_release` mode for the
+fixed reviewed history and native-return repair. It requires the active module
+to match the fixed 54e build byte for byte and applies only the three reviewed
+functions. It explicitly inherits bindings from the active version, verifies the
+candidate and readable version configuration, and rechecks observations around
+activation. Secret values cannot be read back. These observations do not form an
+atomic compare-and-swap; a failed or uncertain write requires read-only review
+rather than automatic retry or rollback.
+
 Copy the example config:
 
 ```bash
