@@ -34,6 +34,13 @@ SDK intake outcomes are passed explicitly to the aggregator. Production does
 not depend on the legacy Actions `DIGEST_CANDIDATES_STORE_STATUS` variable;
 read failures and invalid inputs still mark source coverage incomplete.
 
+The compact report also retains each run's evidence-persistence and
+evidence-delivery state. Failed, unknown or pending evidence appears as an
+attention item before routine healthy context, including when an independent
+risk block is present. These display details do not rewrite execution status,
+known order/fill counts, routing, receipt keys or send reservations. An observed
+run alone is not proof that its evidence was stored or delivered successfully.
+
 Upstream reads share at most 120 seconds and stop no later than 07:20. Check the
 07:30 deadline again after reads and rendering. A late invocation sends only
 the existing late notice. It must not send a normal stale report or backfill
