@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {execute} from '../scripts/console_full_bundle_release.mjs';
+import {execute,diagnose} from '../scripts/console_full_bundle_release.mjs';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const old=Buffer.from('old fixture'),candidate=Buffer.from('new fixture');
 const policy={before:hash(old),candidate:hash(candidate)};
@@ -78,4 +78,44 @@ test('workflow keeps PR validation offline and shares the manual deployment lock
  assert.match(release,/secrets\.CLOUDFLARE_ACCOUNT_ID \|\| vars\.CLOUDFLARE_ACCOUNT_ID/);
  assert.equal((yaml.match(/git ls-remote origin refs\/heads\/main/g)||[]).length,3);
  assert.match(release,/Guard control revision before provider access[\s\S]*Read active state and optionally release[\s\S]*Guard control revision after provider access\n        if: always\(\)/);
+});
+function diagnosticFixture({difference=false,wrongModule=false,wrongResource=false,drift=false}={}){
+ const f=fixture(), staged='cccccccc-cccc-4ccc-8ccc-cccccccccccc';let reads=0;
+ const base={bindings:[{name:'SECRET_SENTINEL',type:'secret_text'},{name:'PRIVATE_CONFIG',type:'plain_text',text:'PRIVATE_VALUE_SENTINEL'}],
+  script_runtime:{compatibility_date:'2026-06-08',compatibility_flags:[],usage_model:'standard',limits:{cpu_ms:50},exports:{},migration_tag:'v1'},
+  script:{handlers:['fetch'],named_handlers:[],placement_mode:null}};
+ const baseDeploy=f.api.deployments;
+ f.api.deployments=async()=>{reads++;return drift&&reads===2?{deployments:[]}:baseDeploy();};
+ f.api.versions=async()=>({items:[{id:staged},{id:expected.version}]});
+ f.api.betaVersion=async id=>({id,modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:(id===staged?(wrongModule?old:candidate):old).toString('base64')}]});
+ f.api.scriptVersion=async id=>{const resources=structuredClone(base);if(id===staged&&difference)resources.bindings[1].text='OTHER_PRIVATE_VALUE';return {id:id===staged&&wrongResource?expected.version:id,resources};};
+ f.api.upload=async()=>{f.calls.push('upload');throw Error('must not write');};
+ f.api.activate=async()=>{f.calls.push('activate');throw Error('must not write');};
+ return {...f,staged};
+}
+test('diagnosis only reads and reports fixed equality and shapes, never metadata values',async()=>{
+ for(const difference of [false,true]){
+  const f=diagnosticFixture({difference});const r=await diagnose({...f,policy,expected,candidate});
+  assert.equal(r.ok,true);assert.equal(r.read_only,true);assert.equal(r.configuration_equal,!difference);assert.equal(r.staged_version_id,f.staged);assert.equal(r.active_rechecked,true);
+  assert.equal(r.fields.bindings.equal,!difference);assert.equal(r.binding_details.text_equal,!difference);
+  assert.equal(r.binding_details.names_equal,true);assert.equal(r.fields.migration_tag.equal,true);
+  assert.doesNotMatch(JSON.stringify(r),/PRIVATE_VALUE|SECRET_SENTINEL|PRIVATE_CONFIG/);
+  assert.ok(!f.calls.includes('upload'));assert.ok(!f.calls.includes('activate'));
+ }
+});
+test('diagnosis rejects mismatched staged bytes, resource identity or active drift without exposing staged ID',async()=>{
+ for(const change of [{wrongModule:true},{wrongResource:true},{drift:true}]){
+  const f=diagnosticFixture(change),r=await diagnose({...f,policy,expected,candidate});
+  assert.equal(r.ok,false);assert.equal(r.reason,'diagnostic_verification_failed');assert.ok(!Object.hasOwn(r,'staged_version_id'));
+  assert.ok(!f.calls.includes('upload'));assert.ok(!f.calls.includes('activate'));
+ }
+});
+test('diagnosis identifies runtime differences and does not access mutation methods',async()=>{
+ const f=diagnosticFixture(),original=f.api.scriptVersion;
+ f.api.scriptVersion=async id=>{const out=await original(id);if(id===f.staged)out.resources.script_runtime.limits.cpu_ms=99;return out;};
+ Object.defineProperty(f.api,'upload',{get(){throw Error('write access');}});
+ Object.defineProperty(f.api,'activate',{get(){throw Error('write access');}});
+ const r=await diagnose({...f,policy,expected,candidate});
+ assert.equal(r.ok,true);assert.equal(r.configuration_equal,false);assert.equal(r.fields.limits.equal,false);assert.equal(r.fields.limits.active_shape,'object');
+ assert.equal(r.fields.usage_model.equal,true);assert.doesNotMatch(JSON.stringify(r),/PRIVATE_VALUE|cpu_ms/);
 });
