@@ -1,0 +1,170 @@
+name: Console fixed complete-bundle release
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/console-full-bundle-release.yml'
+      - 'scripts/console_full_bundle_release.mjs'
+      - 'scripts/console_frontend_candidate_build.sh'
+      - 'scripts/console_frontend_candidate_preflight.mjs'
+      - 'scripts/console_storage_compat_old_build.mjs'
+      - 'scripts/console_946*'
+      - 'scripts/console_54e_baseline_build.sh'
+      - 'scripts/console_958_freeze_candidate.mjs'
+      - 'tests/console_full_bundle_release.test.mjs'
+      - 'tests/console_frontend_candidate_preflight.test.mjs'
+      - 'tests/console_recovery_compat.test.mjs'
+      - 'tests/console_946_backend_release.test.mjs'
+      - 'tests/helpers/directory_worker.mjs'
+      - 'web/strategy-switch-console/**'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Read-only preflight or release
+        type: choice
+        options: [preflight, release]
+        default: preflight
+        required: true
+      target:
+        description: Fixed frontend candidate or compatible recovery
+        type: choice
+        options: [frontend, recovery]
+        default: frontend
+        required: true
+      active_version:
+        description: Freshly observed active Worker version UUID
+        type: string
+        required: true
+      active_deployment:
+        description: Freshly observed active deployment UUID
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && 'strategy-switch-console-deploy' || format('console-full-bundle-pr-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out release adapter
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Guard manual control revision before builds
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+      - name: Check out fixed frontend snapshot
+        uses: actions/checkout@v4
+        with:
+          ref: 9e508c71ba46a9670cda32288f0b62f1781d5c54
+          path: candidate-snapshot
+          persist-credentials: false
+      - name: Check out fixed recovery snapshot
+        uses: actions/checkout@v4
+        with:
+          ref: acf56083568b795f3a86ef40588fcc726333a88b
+          path: recovery-snapshot
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test release adapter
+        run: node --test tests/console_full_bundle_release.test.mjs tests/console_frontend_candidate_preflight.test.mjs tests/console_946_backend_release.test.mjs
+      - name: Build and verify fixed complete bundles
+        run: |
+          set -euo pipefail
+          bash scripts/console_frontend_candidate_build.sh "$GITHUB_WORKSPACE/candidate-snapshot"
+          bash scripts/console_frontend_candidate_build.sh "$GITHUB_WORKSPACE/recovery-snapshot" recovery-main
+      - name: Install offline compatibility test dependencies
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: 'false'
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          set -euo pipefail
+          npm ci --prefix web/strategy-switch-console
+          npm ci --prefix web/strategy-switch-console/frontend
+      - name: Build fixed old production candidate
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: 'false'
+          WRANGLER_SEND_METRICS: 'false'
+          QRS946_QUIET: 'true'
+        run: |
+          set -euo pipefail
+          for sha in 54e146fcef01fecc6c7ec2d4cfd858b9946679eb 5b526d911ad7eb6344e4be69d740884742681c24 9a1744b62d6d547f2d6856dad139c267076e439a; do
+            git cat-file -e "${sha}^{commit}" || git fetch --no-tags origin "$sha"
+          done
+          bash scripts/console_946_bundle_evidence.sh
+          bash scripts/console_54e_baseline_build.sh
+          node scripts/console_storage_compat_old_build.mjs
+      - name: Verify compatible SQLite recovery
+        env:
+          QRS_OLD_WORKER_BUNDLE: ${{ runner.temp }}/qrs-storage-compat/old-worker.js
+          QRS_NEW_WORKER_BUNDLE: ${{ runner.temp }}/console-frontend-candidate/worker.js
+          QRS_RECOVERY_WORKER_BUNDLE: ${{ runner.temp }}/console-recovery-candidate/worker.js
+        run: node --test tests/console_recovery_compat.test.mjs
+      - name: Preserve verified public bundles for the manual job
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-fixed-complete-bundles
+          path: |
+            ${{ runner.temp }}/console-frontend-candidate/worker.js
+            ${{ runner.temp }}/console-recovery-candidate/worker.js
+          if-no-files-found: error
+          retention-days: 1
+  release:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: runtime-strategy-switch
+    steps:
+      - name: Check out release adapter
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Download verified public bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: console-fixed-complete-bundles
+          path: ${{ runner.temp }}/console-fixed-bundles
+      - name: Guard control revision before provider access
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+      - name: Read active state and optionally release fixed complete bundle
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          RELEASE_ACTION: ${{ inputs.action }}
+          RELEASE_TARGET: ${{ inputs.target }}
+          ACTIVE_VERSION: ${{ inputs.active_version }}
+          ACTIVE_DEPLOYMENT: ${{ inputs.active_deployment }}
+        run: |
+          set -euo pipefail
+          case "$RELEASE_TARGET" in
+            frontend) candidate="$RUNNER_TEMP/console-fixed-bundles/console-frontend-candidate/worker.js" ;;
+            recovery) candidate="$RUNNER_TEMP/console-fixed-bundles/console-recovery-candidate/worker.js" ;;
+            *) exit 1 ;;
+          esac
+          node scripts/console_full_bundle_release.mjs "$RELEASE_TARGET" "$RELEASE_ACTION" "$ACTIVE_VERSION" "$ACTIVE_DEPLOYMENT" "$candidate"
+      - name: Guard control revision after provider access
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]

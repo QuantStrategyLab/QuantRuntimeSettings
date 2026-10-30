@@ -521,3 +521,34 @@ The same Miniflare regression runs against the synthetic and active-derived cand
 The original metadata preflight and the fixed module GET steps retain their existing identities. Build and synthetic-test steps do not receive Cloudflare credentials. CI builds the historical synthetic evidence only when the verifier, its workflows/tests, or their locked dependencies change; unrelated changes do not acquire this historical-build requirement. CI artifacts contain only fixed repository-source synthetic bundles, never an active or active-derived module.
 
 A separate fixed-source diagnostic rebuilds public commit `54e146fcef01fecc6c7ec2d4cfd858b9946679eb` with its tracked frontend assets, example build configuration and Wrangler 4.106.0. It compares that full bundle with the version-scoped active module in memory and reports only fixed booleans, including three complete old-function matches and two known public asset IDs. It does not execute the active module or relax the #946 verifier. Asset-ID or individual-function matches do not prove the active source. A full-byte mismatch, including a source-map trailer difference, does not distinguish a source change from a build/configuration difference. No historical private runtime configuration is reconstructed.
+
+
+### Fixed complete-bundle release
+
+The separate manual `Console fixed complete-bundle release` workflow defaults to
+read-only preflight. It bundles the pinned frontend and compatible main recovery
+snapshots twice each, checks their complete bundle identities, and runs the SQLite
+upgrade and recovery regression using the fixed old production candidate. The
+operator supplies freshly observed active deployment and version UUIDs. Preflight
+requires a single 100% active version and the expected predecessor module hash.
+
+The explicit `release` action stages only the selected fixed complete bundle
+through the existing #946 release core. The core inherits each binding from the
+explicit active version, preserves runtime configuration, requires unchanged
+migration and export reconciliation, checks the staged bytes and configuration,
+and checks active state before and after activation. The frontend candidate
+requires the fixed old production module as predecessor; compatible recovery
+requires the fixed frontend candidate. The older production module is not a safe
+rollback after the candidate has written native-task state. An ambiguous result
+requires read-only investigation; do not retry automatically. Cloudflare does
+not provide compare-and-swap for this sequence, so concurrent external changes
+can still race the checks. No secret values, profiles or schedules are written.
+
+Pull requests touching this adapter run the complete builds and SQLite recovery
+check without provider credentials. A manual run uses the existing deployment
+environment and shared deployment concurrency group, and requires its checked-out
+control revision to match current main before building and around provider access.
+Read-only preflight checks the active identity, predecessor bytes and resource
+identity; full binding and runtime configuration validation occurs in the release
+core before any upload. Successful activation reports the verified version and
+deployment IDs. A failed or ambiguous activation requires fresh readback.
