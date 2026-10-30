@@ -1,0 +1,96 @@
+name: Release 958 fixed selector compatibility
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Read-only verification or fixed candidate release"
+        required: true
+        type: choice
+        default: read_only
+        options: [read_only, release]
+permissions:
+  contents: read
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify exact diagnostic source and current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main && "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          git merge-base --is-ancestor 4999e1d9eedfc9c8f9aea7db0f6d58defa536489 "$GITHUB_SHA"
+          [[ "$(git hash-object scripts/console_active_module_probe.mjs)" == 8d8fd143062b4768af76951f7d8ba41dd219c166 ]]
+          [[ "$(git hash-object scripts/console_946_backend_release.mjs)" == 9c7747cf043eb1fb007d51a745432afc47a231ca ]]
+          [[ "$(git hash-object scripts/console_946_54e_patch.mjs)" == b838dba7ceacb4cbd319a37f8b9038fd63452ae6 ]]
+          [[ "$(git hash-object scripts/console_946_patch.mjs)" == 7d0073ca748e6daf81a09067ec6d726bddb2f921 ]]
+          [[ "$(git hash-object scripts/console_946_runtime_test.mjs)" == 090b91793fbd365d9e240bee2559d8b95187825d ]]
+          [[ "$(git hash-object tests/console_946_backend_release.test.mjs)" == b9f87f3e8350a8def7efb11ed20ef5b82aba9925 ]]
+          [[ "$(git hash-object scripts/console_958_publish.mjs)" == 314c0a816b58bbe585d44fd4a366fd6c38fc6816 ]]
+          [[ "$(git hash-object tests/console_958_publish.test.mjs)" == b27fdc24f40d58fd514187a64bbc37f8966de263 ]]
+          [[ "$(git hash-object scripts/console_54e_baseline_build.sh)" == 64bd7e5472fe989287504636927b11c6815151e5 ]]
+          [[ "$(git hash-object web/strategy-switch-console/strategy_profiles_asset.js)" == 390c7be888059e95793f066ebf4a38ca7234b8f4 ]]
+          [[ "$(git hash-object web/strategy-switch-console/package.json)" == f2fa9ce1dbf70e2dd38b1d8001c6da360a2e382e ]]
+          [[ "$(git hash-object web/strategy-switch-console/frontend/package.json)" == 8e78984705ca005d2d7e1392670ba8210deb8208 ]]
+          [[ "$(git hash-object web/strategy-switch-console/package-lock.json)" == b86fa425b9ceae406200615c608a183f53b3331c ]]
+          [[ "$(git hash-object web/strategy-switch-console/frontend/package-lock.json)" == 6974b71eba1eef0bee0039f074b6331be8f93f46 ]]
+          [[ "$(git hash-object scripts/console_958_candidate.mjs)" == f072eaa26ac4981351fbf123ee7bbfddea25b033 ]]
+          [[ "$(git hash-object scripts/console_958_candidate_runtime.mjs)" == 30be2af53c9375e7b7ae823c1f9e3f4af52eafe4 ]]
+          [[ "$(git hash-object scripts/console_958_business_probe.mjs)" == aed5c78d15ba356b531919bf39d3019b5b0838c5 ]]
+          [[ "$(git hash-object tests/console_958_candidate.test.mjs)" == 3e8f05a13f5ea06f51a4de23fa0144943678f43c ]]
+          [[ "$(git hash-object scripts/console_958_freeze_candidate.mjs)" == d292c97266efe127d40fcf661f5b7cc6bd44cb3d ]]
+          [[ "$(git hash-object scripts/console_958_freeze_runtime.mjs)" == 1179b6f100e8acdef475d70952ae7f1a55fce4bf ]]
+          [[ "$(git hash-object scripts/console_958_freeze_probe.mjs)" == abba2fdeb0adced4bf0b5e838a62e98e71d244e9 ]]
+          [[ "$(git hash-object tests/console_958_freeze_candidate.test.mjs)" == ee7b7a321b4dccca32abe2d4e1a09ba29dfa9ad6 ]]
+      - name: Refuse release without verified candidate hash
+        if: inputs.mode == 'release'
+        run: |
+          set -euo pipefail
+          if grep -q '^const FINAL_CANDIDATE_SHA256=null;$' scripts/console_958_publish.mjs; then
+            printf '%s\n' '{"ok":false,"reason":"candidate_sha_unavailable","upload_attempted":false,"deploy_attempted":false}'
+            exit 2
+          fi
+      - name: Build fixed offline baseline and run synthetic tests
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: 'false'
+          npm_config_update_notifier: 'false'
+        run: |
+          set -euo pipefail
+          npm ci --prefix web/strategy-switch-console
+          npm ci --prefix web/strategy-switch-console/frontend
+          bash scripts/console_54e_baseline_build.sh
+          node --test tests/console_958_candidate.test.mjs tests/console_958_freeze_candidate.test.mjs tests/console_946_backend_release.test.mjs tests/console_958_publish.test.mjs
+      - name: Read fixed module and run isolated synthetic business checks
+        if: inputs.mode == 'read_only'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          node scripts/console_958_freeze_probe.mjs
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+      - name: Release fixed candidate with inherited configuration
+        if: inputs.mode == 'release'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          node scripts/console_958_publish.mjs
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
