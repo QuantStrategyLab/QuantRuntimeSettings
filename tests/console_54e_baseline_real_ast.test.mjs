@@ -11,11 +11,13 @@ const [old,historical]=await Promise.all([
 ]);
 const same=summarize54e(ts,old,historical,historical);
 assert.equal(same.full_historical_bundle_equal,true);
+assert.equal(same.whole_statement_sequence_equal,true);
 assert.equal(same.asset_id_matches_54e,true);
 assert.equal(same.asset_id_matches_3ed,false);
 const tail=Buffer.concat([historical,Buffer.from('\n//# sourceMappingURL=synthetic-test-only.map\n')]);
 const withDifferentTail=summarize54e(ts,old,historical,tail);
 assert.equal(withDifferentTail.full_historical_bundle_equal,false,'trailing sourcemap text participates in exact bytes');
+assert.equal(withDifferentTail.whole_statement_sequence_equal,true,'trailing sourcemap comment is excluded only from the diagnostic AST sequence');
 assert.deepEqual(withDifferentTail.old_target_functions_match,same.old_target_functions_match);
 console.log(JSON.stringify({ok:true,public_54e_build:true,real_typescript:true,source_map_tail_compared:true,
   old_target_functions_match:same.old_target_functions_match}));

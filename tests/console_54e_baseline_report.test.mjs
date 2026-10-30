@@ -18,7 +18,7 @@ const source=['var V2_BUILD_ID = "'+id+'";','function applyNativeDailyReturns() 
 const old=Buffer.from(source),historical=Buffer.from(source);
 test('full equality and known old functions are reported without code or identifiers',()=>{
   const x=compare54eStatements(ts,old,historical,Buffer.from(source));
-  assert.equal(x.full_historical_bundle_equal,true);assert.equal(x.asset_id_matches_54e,true);
+  assert.equal(x.full_historical_bundle_equal,true);assert.equal(x.whole_statement_sequence_equal,true);assert.equal(x.asset_id_matches_54e,true);
   assert.ok(Object.values(x.old_target_functions_match).every(Boolean));
   assert.doesNotMatch(JSON.stringify(x),new RegExp(id));
 });
@@ -26,12 +26,15 @@ test('a different trailing sourceMappingURL prevents full-byte equality',()=>{
   const active=Buffer.from(source+'\n//# sourceMappingURL=PRIVATE_SENTINEL\n');
   const x=compare54eStatements(ts,old,historical,active);
   assert.equal(x.full_historical_bundle_equal,false);
+  assert.equal(x.whole_statement_sequence_equal,true);
   assert.ok(Object.values(x.old_target_functions_match).every(Boolean));
   assert.doesNotMatch(JSON.stringify(x),/PRIVATE_SENTINEL/);
 });
 test('changed or duplicate function cannot match the old complete AST node',()=>{
   const changed=source.replace('function accountFactsHistoryResponse() {}','function accountFactsHistoryResponse() { return 1; }');
-  assert.equal(compare54eStatements(ts,old,historical,Buffer.from(changed)).old_target_functions_match.accountFactsHistoryResponse,false);
+  const changedReport=compare54eStatements(ts,old,historical,Buffer.from(changed));
+  assert.equal(changedReport.old_target_functions_match.accountFactsHistoryResponse,false);
+  assert.equal(changedReport.whole_statement_sequence_equal,false);
   const duplicate=source+'\nfunction accountFactsHistoryResponse() {}';
   assert.equal(compare54eStatements(ts,old,historical,Buffer.from(duplicate)).old_target_functions_match.accountFactsHistoryResponse,false);
 });
@@ -39,6 +42,7 @@ test('unknown active build ID and unapproved old bundle fail closed',()=>{
   const active=Buffer.from(source.replace(id,'PRIVATE_SENTINEL'));
   const x=compare54eStatements(ts,old,historical,active);
   assert.equal(x.asset_id_matches_54e,false);assert.equal(x.asset_id_matches_3ed,false);
+  assert.equal(x.whole_statement_sequence_equal,false,'asset declarations are compared too');
   assert.doesNotMatch(JSON.stringify(x),/PRIVATE_SENTINEL/);
   assert.throws(()=>summarize54e(ts,old,historical,active),/unapproved_old_bundle/);
 });

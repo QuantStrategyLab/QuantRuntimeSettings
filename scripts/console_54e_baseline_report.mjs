@@ -18,8 +18,9 @@ function inspect(ts,bytes){
   if(!Buffer.from(text,'utf8').equals(bytes))throw Error('invalid_module');
   const file=ts.createSourceFile('worker.js',text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
   if(file.parseDiagnostics.length)throw Error('invalid_module');
-  const targets=new Map(),ids=[];
+  const targets=new Map(),ids=[],statements=[];
   for(const stmt of file.statements){
+    statements.push(text.slice(stmt.getStart(file),stmt.end));
     if(ts.isFunctionDeclaration(stmt)&&stmt.name&&names.includes(stmt.name.text)){
       const list=targets.get(stmt.name.text)||[];
       list.push(text.slice(stmt.getStart(file),stmt.end));targets.set(stmt.name.text,list);
@@ -30,7 +31,7 @@ function inspect(ts,bytes){
       }
     }
   }
-  return {targets,id:ids.length===1?ids[0]:null};
+  return {targets,id:ids.length===1?ids[0]:null,statements};
 }
 // The caller must establish the fixed old and historical build provenance;
 // matching build IDs or functions alone is not a release authorization.
@@ -45,6 +46,8 @@ export function compare54eStatements(ts,oldBytes,historicalBytes,activeBytes){
     asset_id_matches_54e:active.id===referenceIds.candidate_54e,
     asset_id_matches_3ed:active.id===referenceIds.candidate_3ed,
     full_historical_bundle_equal:historicalBytes.equals(activeBytes),
+    whole_statement_sequence_equal:historic.statements.length===active.statements.length
+      && historic.statements.every((statement,i)=>statement===active.statements[i]),
     old_target_functions_match:targetMatches,
   };
 }
