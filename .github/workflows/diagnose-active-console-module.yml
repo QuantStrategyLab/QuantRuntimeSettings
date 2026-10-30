@@ -1,0 +1,55 @@
+name: Diagnose Active Console Module
+
+# Read-only: use the active deployment as the version source. This never
+# uploads, deploys, changes configuration or prints the module or its ID.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full main commit SHA reviewed for this diagnostic
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diagnose-active-console-module
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 5
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+    steps:
+      - name: Require default branch
+        run: test "$GITHUB_REF" = refs/heads/main
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify reviewed main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_SHA" == "$EXPECTED_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$EXPECTED_SHA" ]]
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Inspect active module without writing
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/console_active_module_probe.mjs
+      - name: Confirm main has not moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$EXPECTED_SHA" ]]
