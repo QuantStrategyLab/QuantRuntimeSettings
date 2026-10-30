@@ -194,6 +194,26 @@ class UnifiedPresentationTests(unittest.TestCase):
                 for token in ("nan", "inf", "True", "False"):
                     self.assertNotIn(token, text)
 
+    def test_partially_known_run_counts_remain_visible_under_unknown_totals(self):
+        cases = (
+            (row(order_count=2, fill_count=None, fill_count_status="unknown", execution_status="order_submitted"),
+             "本轮订单 2，成交 未知", "this run: orders 2, fills unknown"),
+            (row(order_count=None, order_count_status="unknown", fill_count=3),
+             "本轮订单 未知，成交 3", "this run: orders unknown, fills 3"),
+        )
+        for item, zh_detail, en_detail in cases:
+            for locale, detail in (("zh", zh_detail), ("en", en_detail)):
+                for reason in ("", "schwab_fills_not_connected"):
+                    with self.subTest(locale=locale, orders=item.order_count, reason=reason):
+                        value = replace(payload(replace(item, reason_code=reason), locale=locale),
+                            notification_summary={"counts_scope_unknown": True})
+                        text = render(value)
+                        self.assertIn(detail, text)
+                        self.assertIn("全窗口统计未知" if locale == "zh" else "whole-window count unknown", text)
+                        self.assertNotIn("无交易" if locale == "zh" else "no trades", text)
+                        if item.execution_status == "order_submitted":
+                            self.assertIn("成交待确认" if locale == "zh" else "fill confirmation pending", text)
+
     def test_evidence_axis_failures_remain_visible_without_reclassifying_counts(self):
         cases = (
             ("evidence_persistence_status", "persistence_failed", "证据留存失败", "Evidence persistence failed"),
