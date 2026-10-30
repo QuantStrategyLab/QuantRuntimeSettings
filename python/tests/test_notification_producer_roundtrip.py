@@ -106,7 +106,7 @@ class ProducerRoundtripTests(unittest.TestCase):
         self.assertEqual(receipt["total_fills"], 0)
         self.assertNotIn("全窗口统计未知", text)
 
-    def test_real_zero_order_run_is_known_and_real_order_stays_immediate(self):
+    def test_historical_producer_orders_remain_routine_daily_records(self):
         zero, sends = self.produce([("zero-run", [])])
         _, summary, text, receipt = self.roundtrip(zero)
         self.assertEqual(sends, [])
@@ -117,11 +117,13 @@ class ProducerRoundtripTests(unittest.TestCase):
         orders = [{"status": "filled", "broker_order_id": "synthetic-order"}]
         real, sends = self.produce([("order-run", orders), ("order-run", orders)])
         runs, summary, text, receipt = self.roundtrip(real)
+        # This frozen historical producer still sends immediately; intake does
+        # not treat that legacy side effect as an urgent-event classification.
         self.assertEqual(sends, ["order-run"])
         self.assertEqual(len(runs), 1)
         self.assertEqual(runs[0]["order_count"], 1)
         self.assertEqual(summary["event_count"], 1)
-        self.assertEqual(summary["immediate_events"], 1)
+        self.assertEqual(summary["immediate_events"], 0)
         self.assertIn("订单：1", text)
         # Producer has no fill-count source; a filled order ACK is not a count.
         self.assertIsNone(receipt["total_fills"])
