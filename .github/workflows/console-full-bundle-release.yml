@@ -23,9 +23,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Read-only preflight, staged diagnosis, release, or fixed staged resume
+        description: Read-only preflight, staged diagnosis, or release
         type: choice
-        options: [preflight, diagnose, release, resume]
+        options: [preflight, diagnose, release]
         default: preflight
         required: true
       target:
@@ -60,20 +60,23 @@ jobs:
           fetch-depth: 0
       - name: Guard manual control revision before builds
         if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_ACTION: ${{ inputs.action }}
         run: |
           set -euo pipefail
+          case "$RELEASE_ACTION" in preflight|diagnose|release) ;; *) exit 1 ;; esac
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
       - name: Check out fixed frontend snapshot
         uses: actions/checkout@v4
         with:
-          ref: 9e508c71ba46a9670cda32288f0b62f1781d5c54
+          ref: 41f520594869ff47a4f781b0d929fc6b178eca23
           path: candidate-snapshot
           persist-credentials: false
       - name: Check out fixed recovery snapshot
         uses: actions/checkout@v4
         with:
-          ref: acf56083568b795f3a86ef40588fcc726333a88b
+          ref: 9e508c71ba46a9670cda32288f0b62f1781d5c54
           path: recovery-snapshot
           persist-credentials: false
       - uses: actions/setup-node@v6
@@ -164,6 +167,7 @@ jobs:
           ACTIVE_DEPLOYMENT: ${{ inputs.active_deployment }}
         run: |
           set -euo pipefail
+          case "$RELEASE_ACTION" in preflight|diagnose|release) ;; *) exit 1 ;; esac
           case "$RELEASE_TARGET" in
             frontend) candidate="$RUNNER_TEMP/console-fixed-bundles/console-frontend-candidate/worker.js" ;;
             recovery) candidate="$RUNNER_TEMP/console-fixed-bundles/console-recovery-candidate/worker.js" ;;

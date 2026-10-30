@@ -4,20 +4,21 @@ import {readFile,readdir} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 
 export const SNAPSHOT = Object.freeze({
+  commit: '41f520594869ff47a4f781b0d929fc6b178eca23',
+  tree: '23f3774b3e244761d587224aad87e7ee82d76386',
+  assetBlob: '64244efac3c08e58f68fb6f1b71cca6e8c048af3',
+  buildId: 'cf98320626f10c39cc2e3895be060ec7f00d2b52ed11911e1b1410bc0277d698',
+  bundleSha256: 'f8a9b2598fcac89b5c7dc4d9bd8b6417a75126744c5e53c30f7d35bf8555fd15',
+});
+// The complete #965 bundle was verified as the active module and retains
+// native-task protocol guards; it is the recovery target for this candidate.
+export const RECOVERY_SNAPSHOT = Object.freeze({
   commit: '9e508c71ba46a9670cda32288f0b62f1781d5c54',
   tree: 'ea2f7d8c6166136e19096968f44acaabfaa5c533',
   assetBlob: 'b7ba0b6b81a02452ba130f8e40712ef412d0595c',
   buildId: '07f15f86fb22185aa8eaff7d4e918504071d69e056598c85bd6acc002ac605ef',
-});
-// This full main build is an undeployed recovery candidate, not the previously
-// serving production module. Its backend retains native-task protocol guards.
-export const RECOVERY_SNAPSHOT = Object.freeze({
-  commit: 'acf56083568b795f3a86ef40588fcc726333a88b',
-  tree: 'c6e6ef4fec8df52480592591c84e5e7def8ff03e',
-  assetBlob: 'ac2278a21a5a1580d11587e4025a30c6a9363984',
-  buildId: '967e99835ed0874c008ae65ebadd7bb2c1b59e806ccdf962149c0061f5bb6f1f',
-  // Independently observed in Node 22 run 41054733871, job 124059290421.
-  bundleSha256: '61ba684d100a090bd54a50f56c45b420a969fba67b7289b1396321e5410c8162',
+  // Active module verified by read-only preflight run 41113341052.
+  bundleSha256: 'afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d',
 });
 export const verifyEvidence = evidence => verifySnapshot(SNAPSHOT, evidence);
 export function verifyRecoveryEvidence(evidence) {

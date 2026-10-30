@@ -16,7 +16,7 @@ const methods = ['effectiveAccountSettings', 'dispatchAccountDiagnosis'];
 
 test('pinned candidate has no RPC or HTTP surface for the two test helpers', async () => {
   assert.ok(path, 'QRS_NEW_WORKER_BUNDLE is required');
-  assert.equal(digest(await readFile(path)), 'afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d', 'candidate bundle must be exact');
+  assert.equal(digest(await readFile(path)), 'f8a9b2598fcac89b5c7dc4d9bd8b6417a75126744c5e53c30f7d35bf8555fd15', 'candidate bundle must be exact');
   const root = dirname(path);
   const target = { name: 'candidate', modules: true, scriptPath: path, modulesRoot: root, rootPath: root,
     compatibilityDate: '2026-06-08', bindings: { SESSION_SECRET: 'synthetic-only-session-key' },
