@@ -242,6 +242,13 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
             else:
                 detail += (f"，本轮 {row.order_count} 单，成交 {row.fill_count}" if zh else
                            f"; this run: {row.order_count} orders, {row.fill_count} fills")
+            if (not all(_known_count(row, name) for name in ("order", "fill"))
+                    and any(_known_count(row, name) for name in ("order", "fill"))):
+                unknown = "未知" if zh else "unknown"
+                orders = row.order_count if _known_count(row, "order") else unknown
+                fills = row.fill_count if _known_count(row, "fill") else unknown
+                detail += (f"，本轮订单 {orders}，成交 {fills}" if zh else
+                           f"; this run: orders {orders}, fills {fills}")
             line = f"• {label}：{detail}" if zh else f"• {label}: {detail}"
             if line not in seen:
                 (attention_lines if needs_attention else healthy_lines).append(line)
