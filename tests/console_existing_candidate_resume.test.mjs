@@ -69,24 +69,44 @@ test('resume never retries an ambiguous activation or a failed postcondition',as
   assert.equal(r.outcome,'ACTIVATION_REQUIRES_READBACK',option);assert.equal(r.retry,false);assert.equal(f.activations.length,1,option);
  }
 });
+test('actual resume CLI exits cleanly without provider access for an unapproved candidate',async()=>{
+ const {mkdtemp,writeFile,access,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');
+ const {join}=await import('node:path');const {spawnSync}=await import('node:child_process');
+ const temp=await mkdtemp(join(tmpdir(),'qrs-resume-cli-'));
+ try{
+  const candidate=join(temp,'candidate.js'),preload=join(temp,'deny.cjs'),sentinel=join(temp,'network-access');
+  await writeFile(candidate,'synthetic candidate');
+  await writeFile(preload,"globalThis.fetch=async()=>{require('node:fs').writeFileSync(process.env.QRS_NETWORK_SENTINEL,'attempted');throw Error('network denied');};\n");
+  const entry=new URL('../scripts/console_full_bundle_release.mjs',import.meta.url);
+  const result=spawnSync(process.execPath,[entry.pathname,'frontend','resume','3f87638d-482a-46c5-a859-279fa6ee7e6c','50aade1f-2a51-42ef-86b2-464d1b665c30',candidate],
+   {encoding:'utf8',timeout:15000,env:{...process.env,CLOUDFLARE_API_TOKEN:'synthetic-cli-token',CLOUDFLARE_ACCOUNT_ID:'f'.repeat(32),NODE_OPTIONS:`--require=${preload}`,QRS_NETWORK_SENTINEL:sentinel}});
+  assert.ifError(result.error);
+  assert.equal(result.status,1,`unexpected CLI status ${result.status}; ${result.stderr}`);
+  assert.ok(result.stdout.trim(),`missing CLI output: ${result.stderr}`);
+  const output=JSON.parse(result.stdout.trim());assert.equal(output.ok,false);assert.equal(output.outcome,'NOT_ATTEMPTED');
+  assert.equal(output.upload_attempted,false);assert.equal(output.activation_attempted,false);assert.equal(output.retry,false);
+  assert.doesNotMatch(result.stdout+result.stderr,/unsettled top-level await|synthetic-cli-token/);
+  await assert.rejects(()=>access(sentinel),{code:'ENOENT'});
+ }finally{await rm(temp,{recursive:true,force:true});}
+});
 
 async function resumeFixture(option=''){
  // A transient in-memory copy substitutes synthetic pins solely for offline
  // tests. Production's fixed exported function accepts no policy override.
  const {readFile}=await import('node:fs/promises');const {createHash}=await import('node:crypto');
- const {describeNamedHandlers}=await import('../scripts/console_full_bundle_release.mjs');
+ const {describeNamedHandlers}=await import('../scripts/console_named_handler_metadata.mjs');
  const sha=b=>createHash('sha256').update(b).digest('hex'),old=Buffer.from('synthetic previous module'),next=Buffer.from('synthetic complete module');
  const oldNames=Array.from({length:97},(_,i)=>`method_${i}`);
  const activeNames=[{name:'RuntimeInstances',handlers:['fetch']},{name:'__test',handlers:oldNames}];
  const stagedNames=[{name:'RuntimeInstances',handlers:['fetch']},{name:'__test',handlers:[...oldNames,'effectiveAccountSettings','dispatchAccountDiagnosis']}];
  const fp=describeNamedHandlers(activeNames,stagedNames);
- const file=new URL('../scripts/console_existing_candidate_resume.mjs',import.meta.url),importUrl=new URL('../scripts/console_full_bundle_release.mjs',import.meta.url).href;
+ const file=new URL('../scripts/console_existing_candidate_resume.mjs',import.meta.url),importUrl=new URL('../scripts/console_named_handler_metadata.mjs',import.meta.url).href;
  let source=await readFile(file,'utf8');
  for(const [from,to] of [['7b64da8edd2627175019e5c529f9eec048732ffb7acec502cdf4122fc0dbb06a',sha(old)],
   ['afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d',sha(next)],
   ['f4c4460ae7772fc6dcffdd6a72258d1c6a84648176713173f89e4610014109f4',fp.active_sha256],
   ['e8c0303c3ee8f8fdbb1b4bbed9b41dbff901244c3718a0bb82950c25d8dc5df0',fp.staged_sha256]])source=source.replace(from,to);
- source=source.replace("'./console_full_bundle_release.mjs'",JSON.stringify(importUrl));
+ source=source.replace("'./console_named_handler_metadata.mjs'",JSON.stringify(importUrl));
  const {resumeExisting}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
  const active='3f87638d-482a-46c5-a859-279fa6ee7e6c',deployment='50aade1f-2a51-42ef-86b2-464d1b665c30',staged='0f361edb-737b-4f27-9159-a275270fd5b5',newDeployment='11111111-1111-4111-8111-111111111111';
  let activated=false,reads=0,versionReads=0;const activations=[],calls=[];
