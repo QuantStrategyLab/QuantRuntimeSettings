@@ -26,6 +26,17 @@ LEGACY_PRESENTATION_HASHES = {
     "immediate/en/sections_v2/blocked": "0c9a77a1c0fd36bc4b863e613d659e54702c68838ec3ff7901eaadeda34409d3",
 }
 
+# The legacy bilingual daily digest now includes its reporting window. Keep
+# the historical delivery and receipt checks, updating only rendered bytes.
+for _locale in ("zh", "en"):
+    for _layout in ("v1", "sections_v2"):
+        for _scenario, _digest in {
+            "orders": "3a9c65f38b1d95b1a11a391136b297909137668657486e235bb9915b84779615",
+            "blocked": "926f12e5febb7a49eb513f8ad797b00571518689601c43bdbac7b401e8b30a35",
+            "unknown": "b284c7ac837cbe07cee3ca08cccb515d7e6f51a6883e67d7409f997ba53c4dd1",
+        }.items():
+            LEGACY_PRESENTATION_HASHES[f"daily_digest/{_locale}/{_layout}/{_scenario}"] = _digest
+
 
 def record_main_behavior(flag=None):
     records = {}
