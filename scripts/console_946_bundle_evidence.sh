@@ -103,6 +103,13 @@ if (Buffer.byteLength(summary) > 16384) throw Error('summary_too_large');
 console.log(summary);
 JS
 
+# Production read-only verification consumes only these fixed synthetic files;
+# do not print source text or upload any artifact in that execution.
+if [[ "${QRS946_QUIET:-false}" == true ]]; then
+  printf '%s\n' '{"kind":"qrs946_synthetic_diff","status":"suppressed"}'
+  exit 0
+fi
+
 # The fixed-commit diff is public source plus the synthetic fixture. Stop GitHub
 # workflow-command processing while printing it, and refuse oversized output.
 patch_size=$(wc -c < "$evidence/bundle.patch")

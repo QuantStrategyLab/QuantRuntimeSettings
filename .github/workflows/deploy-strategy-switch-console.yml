@@ -100,10 +100,12 @@ jobs:
           inputs.ibkr_candidate_resume == 'off' && inputs.source_sha == '' }}
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - name: Checkout reviewed preflight source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -120,6 +122,35 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
           node scripts/console_active_module_probe.mjs
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+
+      - name: Build and validate fixed synthetic candidate baseline
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+          QRS946_QUIET: "true"
+          npm_config_update_notifier: "false"
+        run: |
+          set -euo pipefail
+          npm ci --prefix web/strategy-switch-console
+          npm ci --prefix web/strategy-switch-console/frontend
+          bash scripts/console_946_bundle_evidence.sh
+          node --test tests/console_946_patch_unit.test.mjs
+          node tests/console_946_candidate_validation.mjs
+      - name: Verify active backend candidate without upload
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          node scripts/console_946_active_dry_run.mjs
           [[ "$GITHUB_REF" == refs/heads/main ]]
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]

@@ -55,15 +55,17 @@ export function inspectModule(result, expected) {
   return { single_javascript_module: true, module_size_within_limit: true, markers, markers_unique };
 }
 
-export async function probe(request) {
+export async function probe(request, onModule) {
   const before = current(await request('/deployments?page=1&per_page=10', false));
-  const report = inspectModule(await request(`/versions/${before.version}?include=modules`, true), before.version);
+  const module = await request(`/versions/${before.version}?include=modules`, true);
+  const report = inspectModule(module, before.version);
+  if (onModule) await onModule(Buffer.from(module.modules[0].content_base64, 'base64'));
   const after = current(await request('/deployments?page=1&per_page=10', false));
   if (before.id !== after.id || before.version !== after.version) fail('observation_changed');
   return { ok: true, read_only: true, active_observations_match: true, ...report };
 }
 
-async function main() {
+export function createReadOnlyRequest() {
   const token = process.env.CLOUDFLARE_API_TOKEN, account = process.env.CLOUDFLARE_ACCOUNT_ID;
   if (!token || !/^[0-9a-f]{32}$/i.test(account ?? '')) fail('configuration_invalid');
   const scripts = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console`;
@@ -96,7 +98,11 @@ async function main() {
     if (body?.success !== true || (body.errors != null && (!Array.isArray(body.errors) || body.errors.length))) fail('envelope_invalid');
     return body.result;
   }
-  console.log(JSON.stringify(await probe(request)));
+  return request;
+}
+
+async function main() {
+  console.log(JSON.stringify(await probe(createReadOnlyRequest())));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

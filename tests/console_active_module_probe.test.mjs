@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectModule, probe } from '../scripts/console_active_module_probe.mjs';
+import { createReadOnlyRequest, inspectModule, probe } from '../scripts/console_active_module_probe.mjs';
 
 const version = '01234567-89ab-cdef-0123-456789abcdef';
 const deployment = '11234567-89ab-cdef-0123-456789abcdef';
@@ -58,4 +58,48 @@ test('stops on split traffic or deployment drift', async () => {
     ? (++count === 1 ? active() : { deployments: [{...active().deployments[0], id: version}] })
     : moduleVersion()), {message: 'observation_changed'});
   await assert.rejects(probe(async () => ({deployments: [{...active().deployments[0], versions: [{version_id: version, percentage: 50}]}]})));
+});
+test('fixed in-memory verification runs between the two active observations', async () => {
+  const calls=[];
+  await probe(async (path,beta)=>{
+    calls.push(path.startsWith('/deployments')?'active':beta?'module':'unexpected');
+    return path.startsWith('/deployments') ? active() : moduleVersion('synthetic-body');
+  }, async bytes=>{
+    calls.push('verify');
+    assert.ok(Buffer.isBuffer(bytes));
+    assert.equal(bytes.toString(),'synthetic-body');
+  });
+  assert.deepEqual(calls,['active','module','verify','active']);
+});
+test('a candidate validation failure stops before reporting a second observation', async () => {
+  const paths=[];
+  await assert.rejects(probe(async (path)=>{
+    paths.push(path);
+    return path.startsWith('/deployments') ? active() : moduleVersion('synthetic-body');
+  }, async ()=>{throw Error('synthetic_verification_failure');}), /synthetic_verification_failure/);
+  assert.equal(paths.length,2);
+});
+
+test('the fixed provider transport uses only the approved Worker GET endpoints', async () => {
+  const originalFetch=globalThis.fetch;
+  const token=process.env.CLOUDFLARE_API_TOKEN,account=process.env.CLOUDFLARE_ACCOUNT_ID;
+  const calls=[];
+  process.env.CLOUDFLARE_API_TOKEN='synthetic-only';
+  process.env.CLOUDFLARE_ACCOUNT_ID='a'.repeat(32);
+  globalThis.fetch=async (url,options)=>{
+    calls.push({url,method:options.method});
+    const result=url.includes('/deployments?') ? active() : moduleVersion();
+    return Response.json({success:true,result,errors:[]});
+  };
+  try {
+    await probe(createReadOnlyRequest());
+    assert.equal(calls.length,3);
+    assert.ok(calls.every(call=>call.method==='GET'));
+    assert.ok(calls.every(call=>call.url.startsWith('https://api.cloudflare.com/client/v4/accounts/'+ 'a'.repeat(32) +'/workers/')));
+    assert.ok(calls[1].url.endsWith('/versions/'+version+'?include=modules'));
+  } finally {
+    globalThis.fetch=originalFetch;
+    if(token===undefined)delete process.env.CLOUDFLARE_API_TOKEN;else process.env.CLOUDFLARE_API_TOKEN=token;
+    if(account===undefined)delete process.env.CLOUDFLARE_ACCOUNT_ID;else process.env.CLOUDFLARE_ACCOUNT_ID=account;
+  }
 });
