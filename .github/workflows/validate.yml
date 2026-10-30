@@ -111,8 +111,8 @@ jobs:
             && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
             && git merge-base --is-ancestor "$BASE_SHA" "$GITHUB_SHA"; then
             if git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
-              ':(glob)scripts/console_946*' scripts/console_active_module_probe.mjs \
-              ':(glob)tests/console_946*' tests/console_active_module_probe.test.mjs \
+              ':(glob)scripts/console_946*' ':(glob)scripts/console_54e*' scripts/console_active_module_probe.mjs \
+              ':(glob)tests/console_946*' ':(glob)tests/console_54e*' tests/console_active_module_probe.test.mjs \
               .github/workflows/validate.yml .github/workflows/deploy-strategy-switch-console.yml \
               web/strategy-switch-console/package.json web/strategy-switch-console/package-lock.json \
               web/strategy-switch-console/frontend/package.json web/strategy-switch-console/frontend/package-lock.json; then
@@ -122,7 +122,9 @@ jobs:
           printf 'needed=%s\n' "$needed" >> "$GITHUB_OUTPUT"
       - name: Build synthetic QRS 946 bundle evidence
         if: steps.qrs946_scope.outputs.needed == 'true'
-        run: bash scripts/console_946_bundle_evidence.sh
+        run: |
+          bash scripts/console_946_bundle_evidence.sh
+          bash scripts/console_54e_baseline_build.sh
       - name: Preserve synthetic QRS 946 bundle evidence
         if: steps.qrs946_scope.outputs.needed == 'true'
         uses: actions/upload-artifact@v4
@@ -143,9 +145,10 @@ jobs:
           node tests/console_deploy_safety_validation.mjs
           node --test tests/console_active_module_probe.test.mjs
           npm ci --prefix web/strategy-switch-console/frontend
-          node --test tests/console_946_patch_unit.test.mjs
+          node --test tests/console_946_patch_unit.test.mjs tests/console_54e_baseline_report.test.mjs
           if [[ "$QRS946_EVIDENCE_NEEDED" == true ]]; then
             node tests/console_946_candidate_validation.mjs
+            node tests/console_54e_baseline_real_ast.test.mjs
           fi
           node --test tests/website_execution_evidence_release_validation.mjs
           node tests/website_release_combination_validation.mjs
