@@ -157,3 +157,17 @@ test('read-only diagnosis attaches named handler detail to verified staged versi
  assert.equal(r.named_handler_details.exports.RuntimeInstances.handlers.researchNativeDailyReturns.staged_count,1);
  assert.equal(r.fields.named_handlers.core_equal,false);assert.ok(!f.calls.includes('upload'));assert.ok(!f.calls.includes('activate'));
 });
+test('named handler fingerprints preserve omitted fields and method order, while ignoring entry order and other metadata',()=>{
+ const base=[{name:'RuntimeInstances',handlers:['fetch','SECRET_METHOD']},{name:'__test',handlers:['fetch']}];
+ const ordered=describeNamedHandlers(base,[...base].reverse());
+ assert.match(ordered.active_sha256,/^[a-f0-9]{64}$/);assert.equal(ordered.active_sha256,ordered.staged_sha256);
+ const withOther=structuredClone(base);withOther[0].private_metadata='PRIVATE_SENTINEL';
+ assert.equal(describeNamedHandlers(base,withOther).active_sha256,describeNamedHandlers(base,withOther).staged_sha256);
+ const missing=describeNamedHandlers([{name:'RuntimeInstances'}],[{name:'RuntimeInstances',handlers:[]}]);
+ assert.notEqual(missing.active_sha256,missing.staged_sha256);
+ for(const handlers of [['fetch','another'],['SECRET_METHOD','fetch'],['fetch']]){
+  const changed=describeNamedHandlers(base,[{name:'RuntimeInstances',handlers},{name:'__test',handlers:['fetch']}]);
+  assert.notEqual(changed.active_sha256,changed.staged_sha256);
+  assert.doesNotMatch(JSON.stringify(changed),/SECRET_METHOD|PRIVATE_SENTINEL/);
+ }
+});

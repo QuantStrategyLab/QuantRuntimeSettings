@@ -60,10 +60,13 @@ function inspectNamed(x) {
 // Only fixed public names and aggregate counts leave this function.
 export function describeNamedHandlers(active,staged) {
   const a=inspectNamed(active),b=inspectNamed(staged),names=x=>x.map(v=>v.name);
+  const lexical=(left,right)=>left<right?-1:left>right?1:0;
+  const fingerprint=x=>sha(Buffer.from(canonical(x.map(v=>({name:v.name,...(Object.hasOwn(v,'handlers')?{handlers:v.handlers}:{})}))
+    .sort((left,right)=>lexical(left.name,right.name)||lexical(canonical(left),canonical(right)))), 'utf8'));
   const duplicates=x=>new Set(x).size!==x.length;
   const unknownNames=x=>names(x).filter(n=>!publicExports.includes(n));
   const unknownDelta=delta(unknownNames(a),unknownNames(b));
-  const out={active_count:a.length,staged_count:b.length,active_duplicate_names:duplicates(names(a)),staged_duplicate_names:duplicates(names(b)),
+  const out={active_sha256:fingerprint(a),staged_sha256:fingerprint(b),active_count:a.length,staged_count:b.length,active_duplicate_names:duplicates(names(a)),staged_duplicate_names:duplicates(names(b)),
     unknown_names_added:unknownDelta.added,unknown_names_removed:unknownDelta.removed,exports:{}};
   const unknownMatched=new Set(unknownNames(a).filter(n=>unknownNames(b).includes(n)));
   let changed=0,complete=true;

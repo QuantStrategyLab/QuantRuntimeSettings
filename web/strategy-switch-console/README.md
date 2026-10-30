@@ -570,3 +570,6 @@ ordered and multiset comparisons, and membership counts for a fixed set of
 public exports and handler names. Unknown additions, removals and matched-entry
 changes appear only as aggregate counts; unrecognized names, values and keys
 are never printed. Malformed or over-limit named-handler entries fail the read.
+The two SHA-256 fingerprints cover only the canonical export names and handler
+lists, preserving omitted lists and handler order, with entries sorted by name.
+Other provider fields are excluded from the fingerprints.
