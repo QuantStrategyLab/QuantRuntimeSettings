@@ -62,7 +62,11 @@ The 07:00 slot sends the report. The 07:30 slot only checks the persisted receip
 and emits a fixed error status when it cannot confirm on-time acceptance; it
 never reads financial inputs, reserves a send or produces a second report.
 
-The entry point validates the configured Scheduler job name and the original
+The entry point requires the full Scheduler resource name in configuration and
+accepts either that exact name or its exact final job-name component in the
+request header. Another full resource name is rejected even if its final
+component matches. Cloud Run invoker authentication remains required.
+The entry point also validates the original
 `X-CloudScheduler-ScheduleTime`. It freezes the report date, previous business
 day and completed 06:00 SGT window. Retries retain that original slot. A retry
 on a later calendar day is expired, not relabelled as a new report. Only the
