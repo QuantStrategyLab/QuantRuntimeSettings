@@ -2,7 +2,10 @@
 
 The daily digest reads producer evidence and never infers execution counts
 from a signal such as `no_action`, workflow success, or a missing report.
-Both `v1` and `sections_v2` support `zh-CN` (`zh`) and `en`.
+Production Cloud Run rendering selects one normalized `zh` or `en` locale.
+The legacy preview layouts `v1` and `sections_v2` also support `zh-CN` (`zh`)
+and `en`; their bilingual compatibility text is separate from that production
+language selection.
 
 The unified trading digest displays its existing business window from 06:00
 UTC+8 on the business day through 06:00 UTC+8 the next day. The start is
@@ -12,8 +15,10 @@ uses a localized display name; an unconnected source remains explicitly unknown.
 Schwab may supply an optional `block_reason` object with `reason_code`,
 `observed_value`, `limit` and `order_submitted_this_run`. A validated
 `consecutive_loss_limit_exceeded` observation renders the supplied numbers in
-Chinese and English on one line. Explicit `false` adds `本轮未下单 / No orders
-submitted this run`; absent or unknown submission evidence makes no such claim.
+the selected production language. The legacy renderer combines Chinese and
+English on one line. Explicit `false` adds the localized equivalent of
+`本轮未下单 / No orders submitted this run`; absent or unknown submission
+evidence makes no such claim.
 This run observation never supplies whole-day order/fill counts. Absent,
 malformed or unknown reason fields retain the existing blocked/not-connected
 wording. The optional contract is in `qsl-digest-candidates.v1.schema.json`;
@@ -42,26 +47,38 @@ path may render an incomplete report with `EVIDENCE_UNREADABLE`.
 
 ## Current-day gaps and legacy rows
 
-An older row is superseded only when the same platform/target has a current-day
-producer row. If target identity is absent, an exact opaque account identity
-can match instead. Anonymous rows never prove another account is current.
+In the legacy aggregator/preview path, an older row is superseded only when the
+same platform/target has a current-day producer row. If target identity is
+absent, an exact opaque account identity can match instead. Anonymous rows
+never prove another account is current.
 Rows with `legacy: true`, `source_legacy: true`, or `source_kind: "legacy"`
 are omitted, including their counts. A candidate envelope can set `legacy: true`;
 the merger preserves that flag on its rows. Legacy-only input does not prove
 an idle day. None of this depends on whether a legacy injected source exists.
 
-Superseded/legacy counts are retained in the receipt, never in the message.
-The gap section says `以下账户今天的数据缺失或过期` /
+The legacy aggregator/preview receipt retains suppressed row counts, which do not
+appear in the message. Cloud Run rejects rows marked `legacy: true` and excludes
+stale input before aggregation; its GCS delivery record does not retain these counts.
+The legacy gap section says `以下账户今天的数据缺失或过期` /
 `These accounts have missing or stale data today`, with a reason per target.
 It is absent when only superseded rows were removed.
 
 An intake can identify a target from its stale row. To detect a target with no
-row at all, supply `notifications.quant_sentinel.daily_digest.aggregator.expected_targets`
-in the existing platform configuration. Default: `[]` (no additional expected
-targets). Each entry needs `platform_id`, `strategy_profile`, and `target_id`
-or `opaque_account_uid`; `strategy_label` and `account_hint` are optional.
-Use the existing private configuration path (`QSL_PLATFORM_CONFIG` or
-`--platform-config`) for private identities; never commit them. For example:
+row at all in the legacy CLI/aggregator, supply
+`notifications.quant_sentinel.daily_digest.aggregator.expected_targets` in the
+existing platform configuration. Its `[]` default is a compatibility default
+for that path, not a production Cloud Run setting. Each legacy entry needs
+`platform_id`, `strategy_profile`, and `target_id` or `opaque_account_uid`;
+`strategy_label` and `account_hint` are optional. Use the existing private
+configuration path (`QSL_PLATFORM_CONFIG` or `--platform-config`) for private
+identities; never commit them.
+
+Production Cloud Run requires a nonempty protected
+`DIGEST_EXPECTED_TARGETS_JSON` list of approved target bindings; each row also
+requires its existing `candidate_slot`. See the [required protected
+configuration](unified-daily-notification.md#cloud-run-delivery) for the
+production contract. The following synthetic example is only for legacy/offline
+use and is not a complete production binding:
 
 ```json
 {"expected_targets": [{"platform_id": "demo", "strategy_profile": "demo_strategy", "target_id": "demo/synthetic-target"}]}
@@ -71,87 +88,58 @@ An expectation does not assert that a strategy ran, fabricate a run, or enable
 a strategy. It makes absent current-day evidence visible. Configure only
 targets expected for that digest; periodic strategies retain their run-day policy.
 
-## Resend guard
+## Production delivery and duplicate protection
 
-The existing candidate store is read-only and the maintenance reminder store
-does not reserve general digests. The guard therefore uses **read-only GitHub
-Actions history and the existing public receipt artifact**, with the workflow's
-own `GITHUB_TOKEN`. Only the digest job adds `actions: read`; its existing
-`contents: read` and `id-token: write` grants remain unchanged. No new store,
-secret, resource, cross-repository token grant, or write permission is added.
+The production delivery contract assigns Cloud Run as the sole daily-report
+sender. Its Scheduler contract specifies 07:00 and 07:30 Asia/Singapore. For
+valid, same-day slots at or after cutover, when delivery is enabled, the 07:00
+slot may send after a successful reservation. The 07:30 slot only checks the
+persisted receipt for on-time acceptance; it does not read candidate data,
+reserve a send or send a replacement. Inspect the `delivery` field: HTTP 200
+alone does not confirm acceptance.
 
-1. The guard runs before candidate intake or notification work. The sender
-   checks again before route resolution, maintenance reservation, or delivery.
-   Existing workflow concurrency serializes scheduled and manual runs.
-2. It lists this workflow's runs across branches, including failed/cancelled
-   runs and a rerun's prior attempt, and reads `receipt-public.json` from the
-   existing artifact. It also accepts the pre-projection `receipt.json` archive
-   after validating its known receipt schema and delivery fields. Only delivery
-   marker fields are retained; account data and private diagnostics are discarded.
-   Overall workflow success alone never proves delivery. This path never calls
-   the console or Cloudflare KV, including KV `list()`.
-3. A receipt with the same business day, `status=delivered`, `delivered=true`,
-   `dry_run=false`, and no test flag skips the send with exit success. Receipts
-   written before test flags existed count as normal deliveries.
-4. API/auth failures, expired or unreadable markers, incomplete pagination,
-   another active sender, and uncertain delivery all stop an unforced send.
-   A missing marker is safe only for an older day or when job history proves
-   the send step did not run. A send failure is not automatically retried.
-5. The existing public receipt, artifact, step summary and error log expose
-   `blocked_resend_guard` and a fixed reason without private exception text.
-   `HISTORY_UNAVAILABLE` also includes an allowlisted `history_error`, the number
-   of attempted history reads, an **URGENT** annotation/summary, and an unforced
-   `workflow_dispatch` command pinned to the blocked business day. Transient
-   transport, server, incomplete-scan and concurrent-run errors retry history
-   reads with bounded exponential delays. Invalid/expired/missing markers and
-   auth failures stop immediately. No retry sends a message or writes state.
-   The next normal digest that can safely send includes a bilingual notice of
-   unresolved guard failures seen in recent history. A successful normal
-   delivery clears that notice for later runs. No new alert channel is added.
+The original scheduled slot determines the SGT report date and the completed
+06:00 SGT window; the business day is that report date minus one calendar day.
+A later-calendar-day invocation expires instead of being relabelled. Upstream
+reads stop no later than 07:20; after that, a normal report may still show
+unavailable coverage. If the 07:00 processing time is at or beyond the 30-second
+margin before the 07:30 deadline, including on the post-render check, it uses
+the existing late notice instead of a normal report, subject to reservation.
+See [Unified daily notification](unified-daily-notification.md) for the complete
+delivery and cutoff contract.
 
-`workflow_dispatch.force_resend` defaults to **false**. An ordinary manual run
-obeys the same guard. With `force_resend=true`, a deliberate test send bypasses
-history and starts with `【测试】` / `[TEST]`. A schedule cannot force a resend.
-Test deliveries do not consume a normal day's delivery. `dry_run=true`
-(the manual default) stays offline for the guard and never sends; a preview
-does not create a successful-delivery marker. Keep real delivery checks for
-the next scheduled run.
+Production reserves `<recipient_scope>/<SGT-report-date>.json` in the private
+GCS delivery prefix before calling Telegram. A generation-zero precondition
+creates the `sending` record; after acceptance, a generation-checked write
+records `accepted`. An existing accepted record is a duplicate. An existing
+`sending`, unknown or unreadable record, or an uncertain send or receipt write,
+is not permission to send again. Do not automatically clear or expire a
+reservation; investigate uncertain delivery and preserve its evidence.
+Language and message content do not create a separate daily reservation.
+Telegram acceptance does not prove that a person read the report.
 
-The workflow explicitly enables the guard. Direct CLI use enables it by
-default only in GitHub Actions. Runtime settings for other installations:
+## Manual previews and historical receipts
 
-| Environment setting | Default |
-| --- | --- |
-| `DIGEST_RESEND_GUARD` | `true` in Actions; `false` for local CLI |
-| `DIGEST_FORCE_RESEND` | `false`; honored only for `workflow_dispatch` |
-| `DIGEST_GUARD_TOKEN` | Workflow passes `github.token`; otherwise `GITHUB_TOKEN` |
-| `DIGEST_GUARD_WORKFLOW` | Filename from `GITHUB_WORKFLOW_REF` |
-| `DIGEST_GUARD_ARTIFACT` | `daily-digest-receipt` |
-| `DIGEST_GUARD_SEND_STEP` | `Aggregate, render, and send daily digest` |
-| `DIGEST_GUARD_MAX_PAGES` | `10` pages of 100 entries; incomplete scans block |
-| `DIGEST_GUARD_LOOKBACK_DAYS` | `7` days before the requested business day, for recovery notices |
-| `DIGEST_GUARD_LEGACY_RECEIPT` | `receipt.json`; configurable legacy basename, `none` disables legacy compatibility |
-| `DIGEST_GUARD_READ_ATTEMPTS` | `3`; range `1..5`, transient history reads only |
-| `DIGEST_GUARD_RETRY_DELAY_SECONDS` | `2`; range `0..60`, exponential delay capped at 60 seconds |
+The retained `Daily Digest Preview` GitHub Actions workflow has no schedule and
+admits the digest job only through `workflow_dispatch` with `dry_run=true`.
+Its optional independent maintenance read check also does not send a message.
+A preview does not reserve or deliver a production report. The former scheduled
+Actions sender and `force_resend` workflow input are retired; do not use an old
+retry command, re-enable the Actions sender, or treat a preview as a replacement
+for the Cloud Run report.
 
-Repository, API URL, event, run ID and attempt come from standard `GITHUB_*`
-context. All requests are GETs. Artifact redirects strip authorization before
-following another host, archives are size-limited and never extracted. The
-workflow exposes the legacy filename and read retry settings through optional
-repository/environment variables of the same names; no variable change is
-needed to use the safe defaults.
-Future business-day sends are rejected by history detection; older overrides
-scan from that older business day. Preserve receipts for any day that may be
-resent. Removing/expiring evidence can block sending; it is not permission to
-assume no prior delivery. Restore readable evidence, then dispatch with the
-original business day and `force_resend=false`. Do not rerun the send after an
-uncertain delivery; investigate that receipt first.
+The legacy CLI/history guard and its public Actions receipt artifacts remain
+available for historical interpretation. Their GitHub history checks and old
+force-resend settings describe the retired Actions-era path; they are not the
+production GCS reservation and do not authorize a second sender. An old receipt
+or a successful workflow alone does not establish the current report's delivery.
+Inspect the Cloud Run delivery state and operational status when acceptance is
+missing or uncertain; the 07:30 check does not retry or backfill delivery.
 
-The US-session business day is the New York date, independently of the SGT
-report date. For example, `2026-10-15T23:59Z` is October 15 in New York and
-October 16 in Singapore. A manual recovery must keep `business_day=2026-10-15`.
-GitHub schedules can be delayed; run creation and job startup timestamps show
-which delay is visible, but do not establish the scheduler's internal cause.
+Legacy CLI/preview date resolution can use the New York calendar date when
+consolidation is disabled; consolidation mode instead derives the completed
+SGT 06:00 window, and an explicit business day takes precedence. These preview
+rules do not replace Cloud Run's scheduled report-date rule.
 
 ## Offline verification
 
@@ -169,5 +157,5 @@ python3 python/scripts/daily_digest_aggregator.py \
   --write-text preview.txt
 ```
 
-Repeat with `--locale en`. Supply the current New York business day in the
+Repeat with `--locale en`. Supply the business day appropriate to the synthetic
 fixture and command. Never use production candidate artifacts as local fixtures.
