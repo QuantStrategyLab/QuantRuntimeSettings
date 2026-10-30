@@ -122,7 +122,6 @@ try {
       reserved_cash_floor: "10",
       reserved_cash_ratio: "0.15",
       income_layer_enabled: false,
-      option_overlay_enabled: false,
     },
   };
   const saved = await call("/api/account-settings/draft", {
@@ -134,6 +133,23 @@ try {
   assert.equal(saved.body.adopted, false);
   assert.equal(saved.body.draft.revision, 1);
   assert.deepEqual(saved.body.draft.overrides, request.overrides);
+  for (const optionEnabled of [true, false]) {
+    const retiredOption = await call("/api/account-settings/draft", {
+      method: "POST",
+      body: {
+        ...request,
+        expected_draft_revision: saved.body.draft.revision,
+        overrides: { ...request.overrides, option_overlay_enabled: optionEnabled },
+      },
+    });
+    assert.equal(retiredOption.status, 400);
+    assert.equal(retiredOption.body.error, "account_settings_option_rejected");
+    const unchanged = await call(
+      "/api/account-settings?platform=longbridge&key=synthetic-alpha",
+    );
+    assert.equal(unchanged.body.draft.revision, saved.body.draft.revision);
+    assert.deepEqual(unchanged.body.draft.overrides, saved.body.draft.overrides);
+  }
   const stale = await call("/api/account-settings/draft", {
     method: "POST",
     body: request,
@@ -217,7 +233,7 @@ try {
   const accounts = await call("/api/accounts");
   assert.equal(accounts.status, 200);
   validate("accounts", accounts.body);
-  assert.equal(accounts.body.accounts[0].pending_draft_count, 4);
+  assert.equal(accounts.body.accounts[0].pending_draft_count, 3);
   const combined = await call("/api/accounts?include=decisions-inbox", { cookie: reader });
   assert.equal(combined.status, 200);
   assert.deepEqual(combined.body.accounts, accounts.body, "combined accounts retain the existing body");

@@ -283,7 +283,7 @@
         "margin_policy": true,
         "reserved_cash": true,
         "income_layer": true,
-        "option_overlay": true,
+        "option_overlay": false,
         "dca": true
       },
       "default_account": {
@@ -329,7 +329,7 @@
         "margin_policy": true,
         "reserved_cash": true,
         "income_layer": true,
-        "option_overlay": true,
+        "option_overlay": false,
         "dca": true
       },
       "default_account": {
@@ -374,7 +374,7 @@
         "margin_policy": true,
         "reserved_cash": true,
         "income_layer": true,
-        "option_overlay": true,
+        "option_overlay": false,
         "dca": true
       },
       "default_account": {
@@ -418,7 +418,7 @@
         "margin_policy": true,
         "reserved_cash": true,
         "income_layer": true,
-        "option_overlay": true,
+        "option_overlay": false,
         "dca": true
       },
       "default_account": {
@@ -556,7 +556,7 @@
       },
       "features": {
         "income_layer": true,
-        "option_overlay": true,
+        "option_overlay": false,
         "dca": false,
         "combo": false
       },
@@ -570,15 +570,6 @@
           "SPYI": 0.08,
           "QQQI": 0.02
         }
-      },
-      "option_overlay_defaults": {
-        "live_gate": "promotion_required",
-        "live_status": "research_only",
-        "growth_enabled": true,
-        "growth_recipe": "tqqq_leaps_growth_v1",
-        "growth_start_usd": "250000",
-        "nav_budget_ratio": 0.03,
-        "income_enabled": false
       }
     },
     "soxl_soxx_trend_income": {
@@ -604,7 +595,7 @@
       },
       "features": {
         "income_layer": true,
-        "option_overlay": true,
+        "option_overlay": false,
         "dca": false,
         "combo": false
       },
@@ -618,15 +609,6 @@
           "SPYI": 0.04,
           "QQQI": 0.01
         }
-      },
-      "option_overlay_defaults": {
-        "live_gate": "promotion_required",
-        "live_status": "research_only",
-        "growth_enabled": false,
-        "income_enabled": true,
-        "income_recipe": "soxx_put_credit_spread_income_v1",
-        "income_start_usd": "150000",
-        "nav_risk_ratio": 0.01
       }
     },
     "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve": {
@@ -715,6 +697,7 @@
       }
     },
     "global_etf_rotation": {
+      "frozen": true,
       "label": "全球ETF轮动",
       "label_en": "Global ETF Rotation",
       "domain": "us_equity",
@@ -741,7 +724,7 @@
       },
       "features": {
         "income_layer": true,
-        "option_overlay": true,
+        "option_overlay": false,
         "dca": false,
         "combo": false
       },
@@ -754,15 +737,6 @@
           "SGOV": 0.3,
           "SPYI": 0.05
         }
-      },
-      "option_overlay_defaults": {
-        "live_gate": "promotion_required",
-        "live_status": "research_only",
-        "growth_enabled": true,
-        "growth_recipe": "spy_leaps_growth_v1",
-        "growth_start_usd": "500000",
-        "nav_budget_ratio": 0.015,
-        "income_enabled": false
       }
     },
     "russell_top50_leader_rotation": {
@@ -796,7 +770,7 @@
       },
       "features": {
         "income_layer": true,
-        "option_overlay": true,
+        "option_overlay": false,
         "dca": false,
         "combo": false
       },
@@ -808,18 +782,10 @@
           "DGRO": 0.3,
           "SGOV": 0.25
         }
-      },
-      "option_overlay_defaults": {
-        "live_gate": "promotion_required",
-        "live_status": "research_only",
-        "growth_enabled": true,
-        "growth_recipe": "spy_leaps_growth_v1",
-        "growth_start_usd": "300000",
-        "nav_budget_ratio": 0.015,
-        "income_enabled": false
       }
     },
     "tecl_xlk_trend_income": {
+      "frozen": true,
       "label": "TECL/XLK趋势收益",
       "label_en": "TECL/XLK Trend Income",
       "domain": "us_equity",
@@ -851,7 +817,7 @@
       "blocked_live_reason": "shadow_candidate_requires_evidence_package",
       "features": {
         "income_layer": true,
-        "option_overlay": true,
+        "option_overlay": false,
         "dca": false,
         "combo": true,
         "combo_mode": "dynamic"
@@ -866,15 +832,6 @@
           "SPYI": 0.15,
           "QQQI": 0.15
         }
-      },
-      "option_overlay_defaults": {
-        "live_gate": "promotion_required",
-        "live_status": "research_only",
-        "growth_enabled": true,
-        "growth_recipe": "spy_leaps_growth_v1",
-        "growth_start_usd": "300000",
-        "nav_budget_ratio": 0.015,
-        "income_enabled": false
       }
     },
     "us_equity_combo_core": {
@@ -918,6 +875,7 @@
       }
     },
     "hk_global_etf_tactical_rotation": {
+      "frozen": true,
       "label": "港股ETF战术轮动",
       "label_en": "HK ETF Tactical Rotation",
       "domain": "hk_equity",
@@ -936,6 +894,7 @@
       }
     },
     "hk_low_vol_dividend_quality_snapshot": {
+      "frozen": true,
       "label": "港股红利质量",
       "label_en": "HK Dividend Quality",
       "domain": "hk_equity",
@@ -964,6 +923,7 @@
       }
     },
     "hk_equity_combo": {
+      "frozen": true,
       "label": "港股恒生组合",
       "label_en": "HK Core Combo",
       "domain": "hk_equity",
@@ -983,6 +943,7 @@
       }
     },
     "cn_industry_etf_rotation": {
+      "frozen": true,
       "label": "A股行业ETF轮动",
       "label_en": "CN Industry ETF Rotation",
       "domain": "cn_equity",
@@ -1002,6 +963,7 @@
       }
     },
     "cn_industry_etf_rotation_aggressive": {
+      "frozen": true,
       "label": "A股ETF轮动",
       "label_en": "CN ETF Rotation",
       "domain": "cn_equity",
@@ -1021,6 +983,7 @@
       }
     },
     "cn_index_etf_tactical_rotation": {
+      "frozen": true,
       "label": "A股宽基ETF战术轮动",
       "label_en": "CN Index ETF Tactical Rotation",
       "domain": "cn_equity",
@@ -1039,6 +1002,7 @@
       }
     },
     "cn_chinext_tactical_rotation": {
+      "frozen": true,
       "label": "创业板战术轮动",
       "label_en": "CN ChiNext Tactical Rotation",
       "domain": "cn_equity",
@@ -1057,6 +1021,7 @@
       }
     },
     "cn_chinext_growth_momentum_quality": {
+      "frozen": true,
       "label": "创业板成长动量质量",
       "label_en": "CN ChiNext Growth Momentum Quality",
       "domain": "cn_equity",
@@ -1075,6 +1040,7 @@
       }
     },
     "cn_dividend_quality_snapshot": {
+      "frozen": true,
       "label": "A股红利质量",
       "label_en": "CN Dividend Quality",
       "domain": "cn_equity",
@@ -1094,6 +1060,7 @@
       }
     },
     "cn_chinext_growth_momentum_quality_snapshot": {
+      "frozen": true,
       "label": "创业板成长质量快照",
       "label_en": "CN ChiNext Growth Quality Snapshot",
       "domain": "cn_equity",
@@ -1113,6 +1080,7 @@
       }
     },
     "cn_star_growth_momentum_quality": {
+      "frozen": true,
       "label": "科创板成长动量质量",
       "label_en": "CN STAR Growth Momentum Quality",
       "domain": "cn_equity",
@@ -1131,6 +1099,7 @@
       }
     },
     "cn_equity_combo": {
+      "frozen": true,
       "label": "A股进取组合",
       "label_en": "CN Alpha Combo",
       "domain": "cn_equity",

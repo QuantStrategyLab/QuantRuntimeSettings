@@ -8,7 +8,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "domain": "us_equity",
     "runtime_enabled": true,
     "income_layer_enabled": true,
-    "option_overlay_enabled": true,
+    "option_overlay_enabled": false,
     "combo_enabled": false,
     "lifecycle_stage": "runtime_enabled",
     "can_switch_live": true,
@@ -32,13 +32,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
       "SGOV": 0.4,
       "SPYI": 0.08,
       "QQQI": 0.02
-    },
-    "option_overlay_live_gate": "promotion_required",
-    "option_overlay_live_status": "research_only",
-    "option_growth_overlay_enabled": true,
-    "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
-    "option_growth_overlay_start_usd": "250000",
-    "option_growth_overlay_nav_budget_ratio": "0.03"
+    }
   },
   {
     "profile": "soxl_soxx_trend_income",
@@ -48,7 +42,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "domain": "us_equity",
     "runtime_enabled": true,
     "income_layer_enabled": true,
-    "option_overlay_enabled": true,
+    "option_overlay_enabled": false,
     "combo_enabled": false,
     "lifecycle_stage": "runtime_enabled",
     "can_switch_live": true,
@@ -74,13 +68,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
       "SGOV": 0.7,
       "SPYI": 0.04,
       "QQQI": 0.01
-    },
-    "option_overlay_live_gate": "promotion_required",
-    "option_overlay_live_status": "research_only",
-    "option_income_overlay_enabled": true,
-    "option_income_overlay_recipe": "soxx_put_credit_spread_income_v1",
-    "option_income_overlay_start_usd": "150000",
-    "option_income_overlay_nav_risk_ratio": "0.01"
+    }
   },
   {
     "profile": "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
@@ -169,8 +157,9 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "domain": "us_equity",
     "runtime_enabled": false,
     "income_layer_enabled": true,
-    "option_overlay_enabled": true,
+    "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -190,13 +179,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
       "DGRO": 0.25,
       "SGOV": 0.3,
       "SPYI": 0.05
-    },
-    "option_overlay_live_gate": "promotion_required",
-    "option_overlay_live_status": "research_only",
-    "option_growth_overlay_enabled": true,
-    "option_growth_overlay_recipe": "spy_leaps_growth_v1",
-    "option_growth_overlay_start_usd": "500000",
-    "option_growth_overlay_nav_budget_ratio": "0.015"
+    }
   },
   {
     "profile": "russell_top50_leader_rotation",
@@ -206,7 +189,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "domain": "us_equity",
     "runtime_enabled": true,
     "income_layer_enabled": true,
-    "option_overlay_enabled": true,
+    "option_overlay_enabled": false,
     "combo_enabled": false,
     "lifecycle_stage": "runtime_enabled",
     "can_switch_live": true,
@@ -229,13 +212,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
       "SCHD": 0.45,
       "DGRO": 0.3,
       "SGOV": 0.25
-    },
-    "option_overlay_live_gate": "promotion_required",
-    "option_overlay_live_status": "research_only",
-    "option_growth_overlay_enabled": true,
-    "option_growth_overlay_recipe": "spy_leaps_growth_v1",
-    "option_growth_overlay_start_usd": "300000",
-    "option_growth_overlay_nav_budget_ratio": "0.015"
+    }
   },
   {
     "profile": "tecl_xlk_trend_income",
@@ -247,6 +224,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -266,7 +244,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "domain": "us_equity",
     "runtime_enabled": false,
     "income_layer_enabled": true,
-    "option_overlay_enabled": true,
+    "option_overlay_enabled": false,
     "combo_enabled": true,
     "lifecycle_stage": "shadow_active",
     "can_switch_live": false,
@@ -288,13 +266,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
       "SGOV": 0.2,
       "SPYI": 0.15,
       "QQQI": 0.15
-    },
-    "option_overlay_live_gate": "promotion_required",
-    "option_overlay_live_status": "research_only",
-    "option_growth_overlay_enabled": true,
-    "option_growth_overlay_recipe": "spy_leaps_growth_v1",
-    "option_growth_overlay_start_usd": "300000",
-    "option_growth_overlay_nav_budget_ratio": "0.015"
+    }
   },
   {
     "profile": "us_equity_combo_core",
@@ -352,6 +324,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -373,6 +346,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -395,6 +369,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": true,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -417,6 +392,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -439,6 +415,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "live_candidate",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -461,6 +438,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -482,6 +460,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -503,6 +482,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -524,6 +504,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -545,6 +526,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -566,6 +548,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": false,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [
@@ -587,6 +570,7 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "income_layer_enabled": false,
     "option_overlay_enabled": false,
     "combo_enabled": true,
+    "frozen": true,
     "lifecycle_stage": "research_active",
     "can_switch_live": false,
     "allowed_execution_modes": [

@@ -44,7 +44,7 @@ export const PLATFORM_CONFIG = {
     "margin_policy": true,
     "reserved_cash": true,
     "income_layer": true,
-    "option_overlay": true,
+    "option_overlay": false,
     "dca": true,
     "supported_execution_modes": [
       "live",
@@ -63,7 +63,7 @@ export const PLATFORM_CONFIG = {
     "margin_policy": true,
     "reserved_cash": true,
     "income_layer": true,
-    "option_overlay": true,
+    "option_overlay": false,
     "dca": true,
     "supported_execution_modes": [
       "live",
@@ -81,7 +81,7 @@ export const PLATFORM_CONFIG = {
     "margin_policy": true,
     "reserved_cash": true,
     "income_layer": true,
-    "option_overlay": true,
+    "option_overlay": false,
     "dca": true,
     "supported_execution_modes": [
       "live",
@@ -99,7 +99,7 @@ export const PLATFORM_CONFIG = {
     "margin_policy": true,
     "reserved_cash": true,
     "income_layer": true,
-    "option_overlay": true,
+    "option_overlay": false,
     "dca": true,
     "supported_execution_modes": [
       "live",
@@ -162,7 +162,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
   "data_status": "catalog_only",
   "source": {
     "path": "platform-config.json",
-    "content_sha256": "sha256:79118d4fa0768ef8e20867df69c7a793eedb467ccf684bab7fe5160561cdaafa",
+    "content_sha256": "sha256:aff12367a16bbe7ed8b53fb12481ab3abbfa14a7fb048ff51215f75867719dab",
     "catalog_as_of": "2026-08-19"
   },
   "policy": {
@@ -282,6 +282,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "us_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -312,6 +313,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "us_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -371,6 +373,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "hk_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -385,6 +388,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "hk_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -400,6 +404,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "hk_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -414,6 +419,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -429,6 +435,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "live_candidate",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -444,6 +451,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -458,6 +466,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -472,6 +481,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -486,6 +496,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -500,6 +511,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -514,6 +526,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -528,6 +541,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "domain": "cn_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
+      "frozen": true,
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -772,73 +786,7 @@ export const FALLBACK_INCOME_LAYER_DEFAULTS = {
   }
 };
 
-export const FALLBACK_OPTION_OVERLAY_DEFAULTS = {
-  "tqqq_growth_income": {
-    "liveGate": "promotion_required",
-    "liveStatus": "research_only",
-    "families": [
-      {
-        "family": "growth",
-        "recipe": "tqqq_leaps_growth_v1",
-        "startUsd": "250000",
-        "ratio": "0.03",
-        "ratioKind": "budget"
-      }
-    ]
-  },
-  "soxl_soxx_trend_income": {
-    "liveGate": "promotion_required",
-    "liveStatus": "research_only",
-    "families": [
-      {
-        "family": "income",
-        "recipe": "soxx_put_credit_spread_income_v1",
-        "startUsd": "150000",
-        "ratio": "0.01",
-        "ratioKind": "risk"
-      }
-    ]
-  },
-  "global_etf_rotation": {
-    "liveGate": "promotion_required",
-    "liveStatus": "research_only",
-    "families": [
-      {
-        "family": "growth",
-        "recipe": "spy_leaps_growth_v1",
-        "startUsd": "500000",
-        "ratio": "0.015",
-        "ratioKind": "budget"
-      }
-    ]
-  },
-  "russell_top50_leader_rotation": {
-    "liveGate": "promotion_required",
-    "liveStatus": "research_only",
-    "families": [
-      {
-        "family": "growth",
-        "recipe": "spy_leaps_growth_v1",
-        "startUsd": "300000",
-        "ratio": "0.015",
-        "ratioKind": "budget"
-      }
-    ]
-  },
-  "us_equity_combo": {
-    "liveGate": "promotion_required",
-    "liveStatus": "research_only",
-    "families": [
-      {
-        "family": "growth",
-        "recipe": "spy_leaps_growth_v1",
-        "startUsd": "300000",
-        "ratio": "0.015",
-        "ratioKind": "budget"
-      }
-    ]
-  }
-};
+export const FALLBACK_OPTION_OVERLAY_DEFAULTS = {};
 
 export const DCA_PROFILE_DEFAULTS = {
   "nasdaq_sp500_smart_dca": {
@@ -854,13 +802,13 @@ export const DCA_PROFILE_DEFAULTS = {
 export const STRATEGY_FEATURES = {
   "tqqq_growth_income": {
     "income_layer": true,
-    "option_overlay": true,
+    "option_overlay": false,
     "dca": false,
     "combo": false
   },
   "soxl_soxx_trend_income": {
     "income_layer": true,
-    "option_overlay": true,
+    "option_overlay": false,
     "dca": false,
     "combo": false
   },
@@ -884,13 +832,13 @@ export const STRATEGY_FEATURES = {
   },
   "global_etf_rotation": {
     "income_layer": true,
-    "option_overlay": true,
+    "option_overlay": false,
     "dca": false,
     "combo": false
   },
   "russell_top50_leader_rotation": {
     "income_layer": true,
-    "option_overlay": true,
+    "option_overlay": false,
     "dca": false,
     "combo": false
   },
@@ -902,7 +850,7 @@ export const STRATEGY_FEATURES = {
   },
   "us_equity_combo": {
     "income_layer": true,
-    "option_overlay": true,
+    "option_overlay": false,
     "dca": false,
     "combo": true
   },

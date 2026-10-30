@@ -854,7 +854,14 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
     if not isinstance(strategies, dict) or not isinstance(platforms, dict) or not isinstance(domains, dict):
         return
     profile = str(runtime_target.get("strategy_profile") or "").strip()
-    strategy = strategies.get(profile)
+    normalized_profile = profile.lower().replace("-", "_")
+    canonical_profile = {
+        "global_macro_etf_rotation": "global_etf_rotation",
+        "global_etf_confidence_vol_gate": "global_etf_rotation",
+    }.get(normalized_profile, normalized_profile)
+    strategy = strategies.get(canonical_profile)
+    if not isinstance(strategy, dict) and canonical_profile != profile:
+        strategy = strategies.get(profile)
     if not isinstance(strategy, dict):
         return
 
@@ -907,6 +914,18 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
             f"platform {platform_id} does not support {execution_mode} control execution"
         )
     continuity_target = is_live_continuity_target(runtime_target)
+    if strategy.get("frozen") is True:
+        continuity = runtime_target.get("live_continuity")
+        continuity_errors: list[str] = []
+        validate_live_continuity(runtime_target, continuity_errors)
+        allowed_continuity = (
+            execution_mode == "live"
+            and isinstance(continuity, dict)
+            and continuity.get("state") in {"RECONCILE_ONLY", "RISK_REDUCTION_ONLY"}
+            and not continuity_errors
+        )
+        if not allowed_continuity:
+            errors.append(f"runtime_target.strategy_profile {profile} is frozen for new selection")
     allowed_modes = normalize_allowed_execution_modes(strategy.get("allowed_execution_modes"))
     if allowed_modes and execution_mode not in allowed_modes and not continuity_target:
         errors.append(f"runtime_target.strategy_profile {profile} does not allow {execution_mode} execution")
@@ -1058,60 +1077,17 @@ def option_bool_value(value: Any) -> bool | None:
 
 
 def validate_option_overlay_variables(extra_variables: dict[str, Any], errors: list[str]) -> None:
-    if not any(name in extra_variables for name in OPTION_OVERLAY_VARIABLES):
-        return
-
-    values = {
-        name: str(extra_variables.get(name) if extra_variables.get(name) is not None else "").strip()
-        for name in OPTION_OVERLAY_VARIABLES
-    }
-    for name in OPTION_OVERLAY_ENABLED_VARIABLES:
-        if values[name] and option_bool_value(values[name]) is None:
-            errors.append(f"extra_variables.{name} must be true or false")
-    for name in OPTION_OVERLAY_RECIPE_VARIABLES:
-        if values[name] and not re.fullmatch(r"[A-Za-z0-9._=-]{1,120}", values[name]):
-            errors.append(f"extra_variables.{name} must be a recipe slug")
-    for name in OPTION_OVERLAY_AMOUNT_VARIABLES:
-        if values[name] and not re.fullmatch(r"(?:\d+|\d*\.\d+)", values[name]):
-            errors.append(f"extra_variables.{name} must be a non-negative decimal")
-    for name in OPTION_OVERLAY_RATIO_VARIABLES:
-        if values[name]:
-            if not re.fullmatch(r"(?:\d+|\d*\.\d+)", values[name]):
-                errors.append(f"extra_variables.{name} must be a ratio between 0 and 1")
-                continue
-            numeric = float(values[name])
-            if numeric < 0 or numeric > 1:
-                errors.append(f"extra_variables.{name} must be a ratio between 0 and 1")
-
-    overlay_enabled = option_bool_value(values["OPTION_OVERLAY_ENABLED"]) if values["OPTION_OVERLAY_ENABLED"] else None
-    family_enabled: dict[str, bool | None] = {}
-    family_fields = {
-        "GROWTH": (
-            "OPTION_GROWTH_OVERLAY_ENABLED",
-            "OPTION_GROWTH_OVERLAY_RECIPE",
-            "OPTION_GROWTH_OVERLAY_START_USD",
-            "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO",
-        ),
-        "INCOME": (
-            "OPTION_INCOME_OVERLAY_ENABLED",
-            "OPTION_INCOME_OVERLAY_RECIPE",
-            "OPTION_INCOME_OVERLAY_START_USD",
-            "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO",
-        ),
-    }
-    for family, (enabled_name, recipe_name, start_name, ratio_name) in family_fields.items():
-        enabled = option_bool_value(values[enabled_name]) if values[enabled_name] else None
-        family_enabled[family] = enabled
-        family_payload = [values[recipe_name], values[start_name], values[ratio_name]]
-        if enabled is True and not all(family_payload):
-            errors.append(f"extra_variables.{enabled_name} requires recipe, start_usd, and ratio fields")
-        if enabled is False and any(family_payload):
-            errors.append(f"extra_variables.{enabled_name} is false but {family.lower()} overlay fields are still set")
-
-    if overlay_enabled is True and not any(value is True for value in family_enabled.values()):
-        errors.append("extra_variables.OPTION_OVERLAY_ENABLED is true but no option overlay family is enabled")
-    if overlay_enabled is False and any(value is True for value in family_enabled.values()):
-        errors.append("extra_variables.OPTION_OVERLAY_ENABLED is false but an option overlay family is enabled")
+    """Reject legacy option requests while allowing explicit disabled markers."""
+    for name in sorted(OPTION_OVERLAY_VARIABLES):
+        if name not in extra_variables:
+            continue
+        value = extra_variables[name]
+        text = str(value if value is not None else "").strip()
+        if not text:
+            continue
+        if name in OPTION_OVERLAY_ENABLED_VARIABLES and option_bool_value(value) is False:
+            continue
+        errors.append(f"extra_variables.{name}: option overlay retired; migrate existing settings explicitly")
 
 
 def validate_nonsecret_service_target_inventory(value: Any, *, path: str, errors: list[str]) -> None:
@@ -1237,8 +1213,12 @@ def validate_target(target: dict[str, Any], path: Path | None = None) -> list[st
     return errors
 
 
-def build_assignments(target: dict[str, Any]) -> list[Assignment]:
+def build_assignments(target: dict[str, Any], *, _existing_disabled: bool = False) -> list[Assignment]:
     errors = validate_target(target)
+    if _existing_disabled:
+        profile = str(target.get("runtime_target", {}).get("strategy_profile") or "").strip()
+        errors = [error for error in errors if error !=
+                  f"runtime_target.strategy_profile {profile} is frozen for new selection"]
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -1517,6 +1497,10 @@ def _disabled_profile_target_pair(
         except ValueError:
             raise ValueError("invalid_target_identity") from None
         errors = validate_target(target)
+        if target is old_target:
+            old_profile = str(runtime_target.get("strategy_profile") or "").strip()
+            errors = [error for error in errors if error !=
+                      f"runtime_target.strategy_profile {old_profile} is frozen for new selection"]
         if errors:
             raise ValueError("invalid_target")
         if "enabled" in runtime_target:
@@ -1541,7 +1525,7 @@ def _disabled_profile_target_pair(
     if old_profile == new_profile:
         raise ValueError("profile_change_required")
 
-    old_assignment_list = build_assignments(old_target)
+    old_assignment_list = build_assignments(old_target, _existing_disabled=True)
     new_assignment_list = build_assignments(new_target)
     old_assignments = {assignment.name: assignment for assignment in old_assignment_list}
     new_assignments = {assignment.name: assignment for assignment in new_assignment_list}
@@ -1565,7 +1549,7 @@ def _disabled_profile_target_pair(
 
 
 def _disabled_profile_expected_variables(
-    snapshot: dict[str, dict[str, str]], target: dict[str, Any],
+    snapshot: dict[str, dict[str, str]], target: dict[str, Any], *, existing_disabled: bool = False,
 ) -> dict[str, dict[str, str]]:
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("repository"), dict) \
             or not isinstance(snapshot.get("target"), dict):
@@ -1578,7 +1562,7 @@ def _disabled_profile_expected_variables(
     if enabled != "false":
         raise ValueError("target_not_disabled")
 
-    assignments = {assignment.name: assignment for assignment in build_assignments(target)}
+    assignments = {assignment.name: assignment for assignment in build_assignments(target, _existing_disabled=existing_disabled)}
     current_scope = repository if target["github"]["variable_scope"] == "repository" else scoped
     observed_json = current_scope.get("RUNTIME_TARGET_JSON")
     observed_profile = current_scope.get("STRATEGY_PROFILE")
@@ -1637,8 +1621,8 @@ def apply_disabled_strategy_profile_change(
     else:
         if current_new == old_snapshot:
             return {"outcome": "variables_updated", "variables_updated": False, "runtime_applied": False}
-    expected_old = _disabled_profile_expected_variables(old_snapshot, old_target)
-    old_assignments = {item.name: item for item in build_assignments(old_target)}
+    expected_old = _disabled_profile_expected_variables(old_snapshot, old_target, existing_disabled=True)
+    old_assignments = {item.name: item for item in build_assignments(old_target, _existing_disabled=True)}
     new_assignments = {item.name: item for item in build_assignments(new_target)}
     writes = [new_assignments[name] for name in ("RUNTIME_TARGET_JSON", "STRATEGY_PROFILE")]
     expected_new = {"repository": dict(expected_old["repository"]), "target": dict(expected_old["target"])}

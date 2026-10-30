@@ -847,13 +847,21 @@ const normalizedReservedCashInputs = __test.normalizeSwitchInputs({
   min_reserved_cash_usd: "150",
   income_layer_start_usd: "250000",
   income_layer_max_ratio: "0.55",
-  option_overlay_mode: "enabled",
+  option_overlay_mode: "current",
 });
 assert.equal(normalizedReservedCashInputs.reserved_cash_ratio, "0.03");
 assert.equal(normalizedReservedCashInputs.min_reserved_cash_usd, "150");
 assert.equal(normalizedReservedCashInputs.income_layer_start_usd, "250000");
 assert.equal(normalizedReservedCashInputs.income_layer_max_ratio, "0.55");
-assert.equal(normalizedReservedCashInputs.option_overlay_mode, "enabled");
+assert.equal(normalizedReservedCashInputs.option_overlay_mode, "current");
+const defaultOptionInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr", target_name: "ibkr-primary", strategy_profile: "tqqq_growth_income",
+});
+assert.equal(defaultOptionInputs.option_overlay_mode, "current");
+assert.throws(() => __test.normalizeSwitchInputs({
+  platform: "ibkr", target_name: "ibkr-primary", strategy_profile: "tqqq_growth_income",
+  option_overlay_mode: "enabled",
+}), /option overlay is retired/);
 const normalizedCashOnlyInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
   target_name: "ibkr-primary",
@@ -1898,14 +1906,14 @@ const longbridgeHk = __test.assertConfiguredAccount(
   },
   accountOptions,
 );
-__test.assertStrategyAllowedForAccount(
+assert.throws(() => __test.assertStrategyAllowedForAccount(
   {
     platform: "longbridge",
     strategy_profile: "hk_low_vol_dividend_quality_snapshot",
   },
   longbridgeHk,
   strategyProfiles,
-);
+), /frozen for new selection/);
 
 const ibkrAccount = __test.assertConfiguredAccount(
   {
@@ -1927,14 +1935,14 @@ __test.assertStrategyAllowedForAccount(
   ibkrAccount,
   strategyProfiles,
 );
-__test.assertStrategyAllowedForAccount(
+assert.throws(() => __test.assertStrategyAllowedForAccount(
   {
     platform: "ibkr",
     strategy_profile: "hk_low_vol_dividend_quality_snapshot",
   },
   ibkrAccount,
   strategyProfiles,
-);
+), /frozen for new selection/);
 
 const schwabAccount = __test.assertConfiguredAccount(
   {

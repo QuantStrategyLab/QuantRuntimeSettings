@@ -10,7 +10,7 @@ export type ConsoleConfig = import("../../lib/accountDirectory").DirectoryConfig
 
 export type EditMap = Partial<Record<DraftField, Scalar | null>>;
 
-export const SECTION_ORDER: SettingsSection[] = ["strategy", "dca", "cash_reserve", "income_layer", "options_layer"];
+export const SECTION_ORDER: SettingsSection[] = ["strategy", "dca", "cash_reserve", "income_layer"];
 
 export function platformLabel(config: ConsoleConfig | null, platform: string): string {
   return config?.platformMeta?.[platform]?.label || platform;
@@ -73,6 +73,10 @@ function overrideValue(value: Scalar): string | boolean | null {
 export function buildOverrides(rows: SettingsDiffRow[], edits: EditMap): Partial<Record<DraftField, string | boolean | null>> {
   const overrides: Partial<Record<DraftField, string | boolean | null>> = {};
   for (const row of rows) {
+    if (row.field === "option_overlay_enabled") {
+      if (row.overridden) overrides.option_overlay_enabled = null;
+      continue;
+    }
     if (Object.prototype.hasOwnProperty.call(edits, row.field)) {
       overrides[row.field] = overrideValue(edits[row.field] as Scalar);
     } else if (row.overridden) {

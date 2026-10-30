@@ -65,6 +65,10 @@ class RuntimeSettingsTest(unittest.TestCase):
     def setUp(self):
         def synthetic_live_switch_config():
             config = build_config.load_config()
+            # These tests exercise unrelated target, scheduler and artifact paths
+            # with synthetic selectable profiles; freeze behavior has its own tests.
+            for strategy in config["strategies"].values():
+                strategy.pop("frozen", None)
             for profile in self.NOT_EVIDENCED_PROFILES:
                 config["strategies"][profile].update(
                     {
@@ -689,9 +693,9 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertIn("automation_registry", report)
         self.assertIn("automation_lane_counts", report["summary"])
         self.assertEqual(report["summary"]["dry_run_uncovered_strategy_count"], 0)
-        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 27)
+        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 13)
         self.assertGreater(report["summary"]["dry_run_route_count"], 0)
-        self.assertEqual(
+        self.assertGreater(
             report["summary"]["declared_dry_run_route_count"],
             report["summary"]["buildable_dry_run_route_count"],
         )
@@ -707,6 +711,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
     def test_strategy_platform_dry_run_coverage_fails_closed_when_domain_route_is_removed(self):
         config = build_config.load_config()
         config["platforms"]["qmt"]["supported_domains"] = []
+        config["strategies"]["cn_industry_etf_rotation"]["frozen"] = False
 
         coverage = build_config.build_strategy_platform_dry_run_coverage(config)
         report = build_config.build_platform_health_report(config, [])
@@ -726,11 +731,11 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         )
 
         self.assertEqual(route["declared_dry_run_platforms"], ["ibkr", "longbridge"])
-        self.assertEqual(route["buildable_dry_run_platforms"], ["ibkr", "longbridge"])
-        self.assertEqual(route["blocked_reason"], "")
+        self.assertEqual(route["buildable_dry_run_platforms"], [])
+        self.assertEqual(route["blocked_reason"], "frozen_for_new_selection")
         self.assertNotIn("hk_low_vol_dividend_quality_snapshot", coverage["artifact_blocked_profiles"])
         self.assertEqual(coverage["summary"]["declared_dry_run_route_count"], 63)
-        self.assertEqual(coverage["summary"]["buildable_dry_run_route_count"], 63)
+        self.assertEqual(coverage["summary"]["buildable_dry_run_route_count"], 40)
 
     def test_feature_snapshot_platform_coverage_matches_runtime_injection(self):
         self.assertEqual(
@@ -756,7 +761,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(json.loads(printed.call_args.args[0])["schema_version"], "platform_health_report.v1")
 
     def test_runtime_target_rejects_live_switch_for_non_runtime_profile(self):
-        _, target = self.load_target("examples/targets/qmt/cn_combo.example.json")
+        _, target = self.load_target("python/tests/fixtures/retired_cn_combo_target.json")
         target["runtime_target"]["execution_mode"] = "live"
         target["runtime_target"]["dry_run_only"] = False
 
@@ -1175,7 +1180,10 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         },
                         errors,
                     )
-                self.assertEqual(errors, [])
+                if config[profile].get("frozen") is True:
+                    self.assertEqual(errors, [f"runtime_target.strategy_profile {profile} is frozen for new selection"])
+                else:
+                    self.assertEqual(errors, [])
 
     def test_strategy_switch_console_normalizes_dry_run_and_keeps_non_live_profiles_selectable(self):
         catalog_source = (ROOT / "web" / "strategy-switch-console" / "strategy_profiles_asset.js").read_text(encoding="utf-8")
@@ -1489,7 +1497,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             runtime_settings.validate_target(target),
         )
 
-    def test_controlled_option_overlay_variables_are_allowed_and_validated(self):
+    def test_legacy_option_overlay_variables_are_rejected(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")
         target["extra_variables"] = {
             "OPTION_OVERLAY_ENABLED": "true",
@@ -1497,20 +1505,10 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             "OPTION_GROWTH_OVERLAY_RECIPE": "tqqq_leaps_growth_v1",
             "OPTION_GROWTH_OVERLAY_START_USD": "250000",
             "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO": "0.03",
-            "OPTION_INCOME_OVERLAY_ENABLED": "false",
-            "OPTION_INCOME_OVERLAY_RECIPE": "",
-            "OPTION_INCOME_OVERLAY_START_USD": "",
-            "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO": "",
         }
-
-        self.assertEqual(runtime_settings.validate_target(target), [])
-
-        target["extra_variables"] = {"OPTION_OVERLAY_ENABLED": "true"}
-
-        self.assertIn(
-            "extra_variables.OPTION_OVERLAY_ENABLED is true but no option overlay family is enabled",
-            runtime_settings.validate_target(target),
-        )
+        errors = runtime_settings.validate_target(target)
+        for key in target["extra_variables"]:
+            self.assertIn(f"extra_variables.{key}: option overlay retired; migrate existing settings explicitly", errors)
 
     def test_legacy_income_layer_variables_are_rejected(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")
@@ -2467,31 +2465,14 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         with self.assertRaisesRegex(ValueError, "research-only"):
             build_runtime_switch.build_switch_target(args)
 
-    def test_build_switch_target_sets_option_overlay_profile_defaults(self):
+    def test_build_switch_target_rejects_enabled_option_overlay(self):
         parser = build_runtime_switch.build_parser()
-        args = parser.parse_args(
-            [
-                "--platform",
-                "schwab",
-                "--target-name",
-                "live",
-                "--strategy-profile",
-                "tqqq_growth_income",
-                "--option-overlay-mode",
-                "enabled",
-            ]
-        )
-
-        target = build_runtime_switch.build_switch_target(args)
-        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
-
-        self.assertEqual(assignments["OPTION_OVERLAY_ENABLED"], "true")
-        self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_ENABLED"], "true")
-        self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_RECIPE"], "tqqq_leaps_growth_v1")
-        self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_START_USD"], "250000")
-        self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO"], "0.03")
-        self.assertEqual(assignments["OPTION_INCOME_OVERLAY_ENABLED"], "false")
-        self.assertEqual(assignments["OPTION_INCOME_OVERLAY_RECIPE"], "")
+        args = parser.parse_args([
+            "--platform", "schwab", "--target-name", "live",
+            "--strategy-profile", "tqqq_growth_income", "--option-overlay-mode", "enabled",
+        ])
+        with self.assertRaisesRegex(ValueError, "retired"):
+            build_runtime_switch.build_switch_target(args)
 
     def test_build_switch_target_can_disable_option_overlay(self):
         parser = build_runtime_switch.build_parser()
@@ -2551,7 +2532,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             ]
         )
 
-        with self.assertRaisesRegex(ValueError, "option overlay defaults"):
+        with self.assertRaisesRegex(ValueError, "retired"):
             build_runtime_switch.build_switch_target(args)
 
     def test_build_switch_target_rejects_legacy_income_extra_variables(self):
@@ -3099,7 +3080,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         )
 
     def test_runtime_target_scheduler_rejects_extra_fields(self):
-        _, target = self.load_target("examples/targets/longbridge/hk_combo.example.json")
+        _, target = self.load_target("python/tests/fixtures/retired_hk_combo_target.json")
         target["runtime_target"]["scheduler"]["offset_minutes"] = 10
 
         self.assertIn(
@@ -3108,7 +3089,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         )
 
     def test_runtime_target_scheduler_requires_timezone(self):
-        _, target = self.load_target("examples/targets/longbridge/hk_combo.example.json")
+        _, target = self.load_target("python/tests/fixtures/retired_hk_combo_target.json")
         target["runtime_target"]["scheduler"].pop("timezone")
 
         self.assertIn(
@@ -3819,6 +3800,39 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         new_target = copy.deepcopy(old_target)
         new_target["runtime_target"]["strategy_profile"] = "soxl_soxx_trend_income"
         return [old_target], [new_target]
+
+    def test_frozen_existing_disabled_target_can_move_to_core_only_after_disabled_readback(self):
+        self.enterContext(patch.object(runtime_settings, "load_platform_config", return_value=build_config.load_config()))
+        args = build_runtime_switch.build_parser().parse_args([
+            "--platform", "longbridge", "--target-name", "paper", "--strategy-profile", "tqqq_growth_income",
+            "--execution-mode", "dry_run", "--variable-scope", "environment", "--github-environment", "longbridge-paper",
+            "--deployment-selector", "paper", "--account-selector", "PAPER", "--account-scope", "PAPER",
+            "--service-name", "longbridge-quant-paper-service",
+        ])
+        new = build_runtime_switch.build_switch_target(args)
+        old = copy.deepcopy(new)
+        old["runtime_target"]["strategy_profile"] = "global_etf_rotation"
+        old_variables = {
+            "repository": {},
+            "target": {
+                "RUNTIME_TARGET_ENABLED": "true",
+                "RUNTIME_TARGET_JSON": runtime_settings.compact_json(old["runtime_target"]),
+                "STRATEGY_PROFILE": "global_etf_rotation",
+            },
+        }
+        with patch.object(runtime_settings, "read_disabled_profile_apply_variables", return_value=old_variables), \
+                patch.object(runtime_settings, "write_disabled_profile_assignment") as write:
+            with self.assertRaisesRegex(ValueError, "target_not_disabled"):
+                runtime_settings.apply_disabled_strategy_profile_change([old], [new])
+            write.assert_not_called()
+        runtime_settings._disabled_profile_target_pair([old], [new])
+        old_variables["target"]["RUNTIME_TARGET_ENABLED"] = "false"
+        self.assertEqual(
+            runtime_settings._disabled_profile_expected_variables(old_variables, old, existing_disabled=True),
+            old_variables,
+        )
+        with self.assertRaisesRegex(ValueError, "invalid_target"):
+            runtime_settings._disabled_profile_target_pair([new], [old])
 
     @staticmethod
     def disabled_profile_variables(target, *, enabled="false"):

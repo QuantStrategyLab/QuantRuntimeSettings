@@ -1,7 +1,6 @@
 {
-  "$schema": "../../../schemas/runtime-target.schema.json",
   "target_id": "longbridge/hk_combo",
-  "description": "LongBridge dry-run target for hk_equity_combo research validation.",
+  "description": "Synthetic retired profile fixture for validation tests; not a selectable target.",
   "github": {
     "repository": "QuantStrategyLab/LongBridgePlatform",
     "variable_scope": "repository"
