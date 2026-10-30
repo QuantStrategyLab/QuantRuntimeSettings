@@ -86,6 +86,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight_active_module:
+    # Preserve the existing preflight job's no-checkout boundary. This job
+    # uses only the event's main SHA and runs after the bounded metadata read.
+    needs: preflight
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+          inputs.read_only_preflight &&
+          inputs.private_release_check == 'off' && !inputs.external_flow_enable &&
+          !inputs.check_explicit_version_inherit && !inputs.diagnose_restore_target &&
+          !inputs.rollback_to_pre_release && !inputs.release_frontend_assets &&
+          !inputs.sync_secrets && !inputs.sync_strategy_profiles &&
+          inputs.ibkr_candidate_resume == 'off' && inputs.source_sha == '' }}
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed preflight source
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Inspect active Worker module without writing
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          node scripts/console_active_module_probe.mjs
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+
   preflight:
     if: github.event_name == 'workflow_dispatch' && (inputs.read_only_preflight || inputs.check_explicit_version_inherit)
     runs-on: ubuntu-latest

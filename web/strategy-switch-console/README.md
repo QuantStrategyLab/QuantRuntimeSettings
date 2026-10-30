@@ -309,7 +309,9 @@ IDs, configuration, or credentials. The patterns are hints only: they do not
 prove that a backend-only patch is safe, nor do they authorize or perform a
 release. If traffic is split, the module shape is unsupported, or its two
 observations of the active deployment differ, the workflow fails closed. Matching observations do not rule
-out an intervening change.
+out an intervening change. The existing **Deploy Strategy Switch Console**
+workflow also runs this probe for the plain `read_only_preflight` mode with the
+other release, rollback and special-check inputs disabled and `source_sha` empty.
 
 Copy the example config:
 
