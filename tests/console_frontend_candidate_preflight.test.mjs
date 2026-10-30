@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {SNAPSHOT,verifyEvidence} from '../scripts/console_frontend_candidate_preflight.mjs';
+import {SNAPSHOT,RECOVERY_SNAPSHOT,verifyEvidence,verifyRecoveryEvidence} from '../scripts/console_frontend_candidate_preflight.mjs';
 const bundle = Buffer.from(`var V2_BUILD_ID = "${SNAPSHOT.buildId}";\n`);
 const entries = () => ['worker.js','worker.js.map','README.md'].map(name=>({name,isFile:true}));
 const good=()=>({commit:SNAPSHOT.commit,tree:SNAPSHOT.tree,assetBlob:SNAPSHOT.assetBlob,
@@ -24,4 +24,22 @@ test('rejects unexpected or missing bundle output, including directories',()=>{
   for(const altered of [[...entries(),{name:'extra.js',isFile:true}],entries().filter(x=>x.name!=='worker.js.map'),[...entries(),{name:'assets',isFile:false}]]) {
     assert.throws(()=>verifyEvidence({...good(),firstEntries:altered}),/bundle_output_unexpected/);
   }
+});
+
+test('recovery evidence is pinned to complete main and cannot substitute for the frontend candidate',()=>{
+  const recoveryBundle = Buffer.from(`var V2_BUILD_ID = "${RECOVERY_SNAPSHOT.buildId}";\n`);
+  const recovery = {...good(), commit:RECOVERY_SNAPSHOT.commit, tree:RECOVERY_SNAPSHOT.tree,
+    assetBlob:RECOVERY_SNAPSHOT.assetBlob, asset:`export const V2_BUILD_ID = "${RECOVERY_SNAPSHOT.buildId}";\n`,
+    firstBundle:recoveryBundle, secondBundle:recoveryBundle};
+  const out=verifyRecoveryEvidence(recovery);
+  assert.equal(out.snapshot_commit,RECOVERY_SNAPSHOT.commit);
+  assert.equal(out.bundle_reproduced,true);
+  assert.equal(out.production_read,false);
+  assert.equal(out.release_approved,false);
+  assert.throws(()=>verifyEvidence(recovery),/snapshot_identity_mismatch/);
+  assert.throws(()=>verifyRecoveryEvidence(good()),/snapshot_identity_mismatch/);
+  for(const key of ['commit','tree','assetBlob'])
+    assert.throws(()=>verifyRecoveryEvidence({...recovery,[key]:'bad'}),/snapshot_identity_mismatch/);
+  assert.throws(()=>verifyRecoveryEvidence({...recovery,asset:good().asset}),/asset_build_id_mismatch/);
+  assert.throws(()=>verifyRecoveryEvidence({...recovery,firstBundle:bundle,secondBundle:bundle}),/bundle_build_id_mismatch/);
 });

@@ -1,18 +1,39 @@
 #!/usr/bin/env bash
-# Build a fixed draft candidate offline. Never calls the Cloudflare API.
+# Build a fixed frontend or compatible main candidate offline.
+# Neither mode calls the Cloudflare API or changes a checked-out source file.
 set -euo pipefail
 umask 077
 readonly source_dir="${1:?candidate checkout required}"
 readonly verifier="$(cd "$(dirname "$0")" && pwd)/console_frontend_candidate_preflight.mjs"
-readonly result="${RUNNER_TEMP:?}/console-frontend-candidate"
-readonly repeat="${RUNNER_TEMP}/console-frontend-candidate-repeat"
+readonly mode="${2:-frontend}"
+case "$mode" in
+ frontend)
+  expected_commit=9e508c71ba46a9670cda32288f0b62f1781d5c54
+  expected_tree=ea2f7d8c6166136e19096968f44acaabfaa5c533
+  expected_asset=b7ba0b6b81a02452ba130f8e40712ef412d0595c
+  output_name=console-frontend-candidate
+  verifier_args=()
+  ;;
+ recovery-main)
+  expected_commit=acf56083568b795f3a86ef40588fcc726333a88b
+  expected_tree=c6e6ef4fec8df52480592591c84e5e7def8ff03e
+  expected_asset=ac2278a21a5a1580d11587e4025a30c6a9363984
+  output_name=console-recovery-candidate
+  verifier_args=(--recovery)
+  ;;
+ *) exit 2 ;;
+esac
+readonly expected_commit expected_tree expected_asset output_name
+readonly result="${RUNNER_TEMP:?}/${output_name}"
+readonly repeat="${RUNNER_TEMP}/${output_name}-repeat"
+readonly evidence="${RUNNER_TEMP}/${output_name}-evidence.json"
 cd "$source_dir"
-[[ "$(git rev-parse HEAD)" == 9e508c71ba46a9670cda32288f0b62f1781d5c54 ]]
-[[ "$(git rev-parse 'HEAD^{tree}')" == ea2f7d8c6166136e19096968f44acaabfaa5c533 ]]
+[[ "$(git rev-parse HEAD)" == "$expected_commit" ]]
+[[ "$(git rev-parse 'HEAD^{tree}')" == "$expected_tree" ]]
 [[ -z "$(git status --porcelain)" ]]
 readonly asset=web/strategy-switch-console/v2_asset_map.js
-[[ "$(git hash-object "$asset")" == b7ba0b6b81a02452ba130f8e40712ef412d0595c ]]
-[[ ! -e "$result" && ! -e "$repeat" ]]
+[[ "$(git hash-object "$asset")" == "$expected_asset" ]]
+[[ ! -e "$result" && ! -e "$repeat" && ! -e "$evidence" ]]
 unset CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_KEY CLOUDFLARE_EMAIL
 export WRANGLER_SEND_METRICS=false CLOUDFLARE_CF_FETCH_ENABLED=false npm_config_update_notifier=false
 npm ci --prefix web/strategy-switch-console
@@ -20,7 +41,7 @@ npm ci --prefix web/strategy-switch-console/frontend
 node tests/console_v2_assets_validation.mjs
 npm run build --prefix web/strategy-switch-console/frontend
 npm run sync:v2-assets --prefix web/strategy-switch-console/frontend
-[[ "$(git hash-object "$asset")" == b7ba0b6b81a02452ba130f8e40712ef412d0595c ]]
+[[ "$(git hash-object "$asset")" == "$expected_asset" ]]
 node tests/console_v2_assets_validation.mjs
 git diff --exit-code
 python3 python/scripts/build_platform_config.py --check
@@ -31,4 +52,4 @@ cp web/strategy-switch-console/wrangler.toml.example web/strategy-switch-console
  npx --yes wrangler@4.106.0 deploy --dry-run --config wrangler.toml --outdir "$repeat"
 )
 [[ -s "$result/worker.js" && -s "$repeat/worker.js" ]]
-node "$verifier" "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')" "$(git hash-object "$asset")" "$asset" "$result/worker.js" "$repeat/worker.js"
+node "$verifier" "${verifier_args[@]}" "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')" "$(git hash-object "$asset")" "$asset" "$result/worker.js" "$repeat/worker.js" | tee "$evidence"

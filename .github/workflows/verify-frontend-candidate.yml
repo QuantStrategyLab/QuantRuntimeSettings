@@ -9,10 +9,16 @@ on:
       - 'tests/console_frontend_candidate_preflight.test.mjs'
       - 'scripts/console_storage_compat_old_build.mjs'
       - 'tests/console_storage_compat.test.mjs'
+      - 'tests/console_recovery_compat.test.mjs'
 permissions:
   contents: read
 jobs:
   draft-snapshot:
+    name: SQLite recovery (${{ matrix.recovery_target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        recovery_target: [old-production, compatible-main]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -27,6 +33,13 @@ jobs:
           ref: 9e508c71ba46a9670cda32288f0b62f1781d5c54
           path: candidate-snapshot
           persist-credentials: false
+      - name: Check out fixed compatible recovery candidate
+        if: matrix.recovery_target == 'compatible-main'
+        uses: actions/checkout@v4
+        with:
+          ref: acf56083568b795f3a86ef40588fcc726333a88b
+          path: recovery-snapshot
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
@@ -37,6 +50,9 @@ jobs:
         run: node --test tests/console_frontend_candidate_preflight.test.mjs
       - name: Build and check the fixed draft snapshot
         run: bash scripts/console_frontend_candidate_build.sh "$GITHUB_WORKSPACE/candidate-snapshot"
+      - name: Build and check the compatible main recovery snapshot
+        if: matrix.recovery_target == 'compatible-main'
+        run: bash scripts/console_frontend_candidate_build.sh "$GITHUB_WORKSPACE/recovery-snapshot" recovery-main
       - name: Install validation dependencies
         env:
           CLOUDFLARE_CF_FETCH_ENABLED: 'false'
@@ -59,7 +75,19 @@ jobs:
           bash scripts/console_54e_baseline_build.sh
           node scripts/console_storage_compat_old_build.mjs
       - name: Verify SQLite upgrade and rollback offline
+        if: matrix.recovery_target == 'old-production'
         env:
           QRS_OLD_WORKER_BUNDLE: ${{ runner.temp }}/qrs-storage-compat/old-worker.js
           QRS_NEW_WORKER_BUNDLE: ${{ runner.temp }}/console-frontend-candidate/worker.js
         run: node --test tests/console_storage_compat.test.mjs
+      - name: Verify compatible main recovery against the same SQLite state
+        if: matrix.recovery_target == 'compatible-main'
+        env:
+          QRS_OLD_WORKER_BUNDLE: ${{ runner.temp }}/qrs-storage-compat/old-worker.js
+          QRS_NEW_WORKER_BUNDLE: ${{ runner.temp }}/console-frontend-candidate/worker.js
+          QRS_RECOVERY_WORKER_BUNDLE: ${{ runner.temp }}/console-recovery-candidate/worker.js
+        run: |
+          set -euo pipefail
+          QRS_RECOVERY_WORKER_SHA256="$(jq -er '.bundle_sha256' "$RUNNER_TEMP/console-recovery-candidate-evidence.json")"
+          export QRS_RECOVERY_WORKER_SHA256
+          node --test tests/console_recovery_compat.test.mjs

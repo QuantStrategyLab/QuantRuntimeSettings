@@ -350,6 +350,18 @@ row after valid legacy claim/result requests; missing display metadata alone is
 not evidence that rollback writes are unsafe. An observed incompatible write
 fails qualification rather than being converted into a passing rollback result.
 
+The matrix retains that old-production recovery test unchanged and separately
+tests an undeployed complete main recovery snapshot. The latter is pinned to
+`acf56083568b795f3a86ef40588fcc726333a88b`, including its tree, asset blob and
+build ID. It has the pre-draft frontend and the current native-task protocol
+guards. It is not the historical serving module. Both builds must reproduce
+before their recorded digests enter the three-version SQLite test: old serving
+fixture, draft candidate, then compatible main recovery candidate. The test
+requires the complete pending native row and its `native_json` to remain equal,
+retains every original legacy column, checks rejected legacy callbacks for both
+row types and repeats recovery startup. A passing compatible-main job does not
+make the old-production rollback compatible; the failed job remains visible.
+
 This workflow has no cloud credentials, production reads, upload or activation
 step. Its output explicitly retains `production_read=false` and
 `release_approved=false`. Successful source CI, reproducible assets and isolated
@@ -365,6 +377,19 @@ inheritance from the then-active version, configuration readback, compatible
 storage and a verified recovery target. Do not use the empty-source generic
 deployment branch or widen a historical byte check to substitute for those
 checks.
+
+Before a complete release, compare the active version's full binding inventory,
+including KV and Durable Object namespace/class metadata, every secret name and
+type, plaintext/JSON variables and service references. Preserve native diagnosis
+settings rather than enabling them for validation. Compare runtime compatibility
+date/flags, usage/limits, placement, handlers/exports and migration tags, and
+reject unreviewed migration or export reconciliation. Secret metadata readback
+does not prove secret values or functional credential health. Routes, custom
+domains, workers.dev exposure and cron triggers are version-external settings
+and require their own observations. The existing pinned inheritance checks do
+not provide provider-side compare-and-swap, so an observed match cannot rule out
+an intervening concurrent change. None of these production facts is established
+by the offline matrix or by rendering the example Wrangler configuration.
 
 ### Manual deployment configuration
 
