@@ -1,0 +1,89 @@
+name: Verify draft frontend candidate offline
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/verify-frontend-candidate.yml'
+      - 'scripts/console_frontend_candidate_build.sh'
+      - 'scripts/console_frontend_candidate_preflight.mjs'
+      - 'tests/console_frontend_candidate_preflight.test.mjs'
+      - 'scripts/console_storage_compat_old_build.mjs'
+      - 'tests/console_storage_compat.test.mjs'
+      - 'tests/console_recovery_compat.test.mjs'
+permissions:
+  contents: read
+jobs:
+  draft-snapshot:
+    name: SQLite recovery (${{ matrix.recovery_target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        recovery_target: [old-production, compatible-main]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out validation scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check out fixed draft candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 9e508c71ba46a9670cda32288f0b62f1781d5c54
+          path: candidate-snapshot
+          persist-credentials: false
+      - name: Check out fixed compatible recovery candidate
+        if: matrix.recovery_target == 'compatible-main'
+        uses: actions/checkout@v4
+        with:
+          ref: acf56083568b795f3a86ef40588fcc726333a88b
+          path: recovery-snapshot
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test evidence checks
+        run: node --test tests/console_frontend_candidate_preflight.test.mjs
+      - name: Build and check the fixed draft snapshot
+        run: bash scripts/console_frontend_candidate_build.sh "$GITHUB_WORKSPACE/candidate-snapshot"
+      - name: Build and check the compatible main recovery snapshot
+        if: matrix.recovery_target == 'compatible-main'
+        run: bash scripts/console_frontend_candidate_build.sh "$GITHUB_WORKSPACE/recovery-snapshot" recovery-main
+      - name: Install validation dependencies
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: 'false'
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          set -euo pipefail
+          npm ci --prefix web/strategy-switch-console
+          npm ci --prefix web/strategy-switch-console/frontend
+      - name: Build fixed old bundle offline
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: 'false'
+          WRANGLER_SEND_METRICS: 'false'
+          QRS946_QUIET: 'true'
+        run: |
+          set -euo pipefail
+          for sha in 54e146fcef01fecc6c7ec2d4cfd858b9946679eb 5b526d911ad7eb6344e4be69d740884742681c24 9a1744b62d6d547f2d6856dad139c267076e439a; do
+            git cat-file -e "${sha}^{commit}" || git fetch --no-tags origin "$sha"
+          done
+          bash scripts/console_946_bundle_evidence.sh
+          bash scripts/console_54e_baseline_build.sh
+          node scripts/console_storage_compat_old_build.mjs
+      - name: Verify SQLite upgrade and rollback offline
+        if: matrix.recovery_target == 'old-production'
+        env:
+          QRS_OLD_WORKER_BUNDLE: ${{ runner.temp }}/qrs-storage-compat/old-worker.js
+          QRS_NEW_WORKER_BUNDLE: ${{ runner.temp }}/console-frontend-candidate/worker.js
+        run: node --test tests/console_storage_compat.test.mjs
+      - name: Verify compatible main recovery against the same SQLite state
+        if: matrix.recovery_target == 'compatible-main'
+        env:
+          QRS_OLD_WORKER_BUNDLE: ${{ runner.temp }}/qrs-storage-compat/old-worker.js
+          QRS_NEW_WORKER_BUNDLE: ${{ runner.temp }}/console-frontend-candidate/worker.js
+          QRS_RECOVERY_WORKER_BUNDLE: ${{ runner.temp }}/console-recovery-candidate/worker.js
+        run: node --test tests/console_recovery_compat.test.mjs
