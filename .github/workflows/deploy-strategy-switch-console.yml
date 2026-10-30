@@ -136,8 +136,10 @@ jobs:
           npm ci --prefix web/strategy-switch-console
           npm ci --prefix web/strategy-switch-console/frontend
           bash scripts/console_946_bundle_evidence.sh
-          node --test tests/console_946_patch_unit.test.mjs
+          bash scripts/console_54e_baseline_build.sh
+          node --test tests/console_946_patch_unit.test.mjs tests/console_54e_baseline_report.test.mjs
           node tests/console_946_candidate_validation.mjs
+          node tests/console_54e_baseline_real_ast.test.mjs
       - name: Verify active backend candidate without upload
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -150,6 +152,7 @@ jobs:
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          node scripts/console_54e_baseline_report.mjs
           node scripts/console_946_active_dry_run.mjs
           [[ "$GITHUB_REF" == refs/heads/main ]]
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
