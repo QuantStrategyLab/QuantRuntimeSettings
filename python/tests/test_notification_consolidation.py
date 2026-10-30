@@ -314,20 +314,71 @@ class ConsolidationCandidateTests(unittest.TestCase):
         self.assertEqual(text, "")
         self.assertEqual(len(receipt["stale_candidates"]), 1)
 
-    def test_orders_remain_immediate_and_digest_counts_only_archive_facts(self):
+    def test_orders_are_routine_and_digest_counts_only_archive_facts(self):
         a = candidate(kind="order_submitted", order_count=2, fill_count=None)
         a["notification_event"]["order_execution_digest"] = "a" * 64
         a["notification_event"].pop("dedupe_key")
         a["notification_event"].pop("coverage_status")
         self.assertEqual(select_notification_route(event_kind="order_submitted", env=ON,
-                                                   flag_key="QRS_UNIFIED_NOTIFICATION_ENABLED"), "immediate")
+                                                   flag_key="QRS_UNIFIED_NOTIFICATION_ENABLED"), "digest_candidate")
         _, text, _, receipt = build([a, a])
         self.assertIn("订单：2", text)
         self.assertIn("成交：全窗口统计未知", text)
-        self.assertEqual(receipt["notification_summary"]["immediate_events"], 1)
+        self.assertEqual(receipt["notification_summary"]["immediate_events"], 0)
         self.assertIsNone(receipt["total_fills"])
         self.assertEqual(select_notification_route(event_kind="blocked_run", env=ON,
                                                    flag_key="QRS_UNIFIED_NOTIFICATION_ENABLED"), "immediate")
+
+    def test_successful_fill_is_daily_but_unknown_outcome_remains_urgent(self):
+        fill = candidate(kind="fill", order_count=1, fill_count=1)
+        fill["notification_event"].update(order_execution_digest="b" * 64)
+        for name in ("dedupe_key", "coverage_status"):
+            fill["notification_event"].pop(name)
+        _, text, _, receipt = build([fill, fill])
+        self.assertEqual(receipt["notification_summary"]["immediate_events"], 0)
+        self.assertEqual(receipt["total_fills"], 1)
+        self.assertNotIn("紧急事项", text)
+        _, text, _, receipt = build([fill, candidate("run-b", kind="order_status_unknown")])
+        self.assertEqual(receipt["notification_summary"]["immediate_events"], 1)
+        self.assertIn("紧急事项 1 项（日报留档）", text)
+
+    def test_observations_from_candidate_archive_and_heartbeat_count_once(self):
+        counts = {"watch": 2, "opportunity_watch": 1, "taco_rebound": 0}
+        a = candidate(routine_observation_counts=counts)
+        archived = {key: value for key, value in a.items() if key != "notification_event"}
+        heartbeat = candidate(kind="healthy_heartbeat", routine_observation_counts=counts)
+        p, text, _, receipt = build([a, archived, heartbeat, a])
+        self.assertEqual(len(p.runs), 1)
+        self.assertEqual(p.runs[0].routine_observation_counts, counts)
+        self.assertEqual(receipt["notification_summary"]["source_inventory"]["schwab"]["runs"], 1)
+        self.assertEqual(receipt["notification_summary"]["immediate_events"], 0)
+        self.assertEqual(receipt["total_fills"], 0)
+        self.assertEqual(text.count("策略观察 2"), 1)
+        self.assertIn("机会观察 1", text)
+        self.assertNotIn("反弹观察", text)
+        _, english, _, _ = build([a, heartbeat], locale="en")
+        self.assertIn("Strategy watch 2; Opportunity watch 1", english)
+        self.assertNotRegex(english, r"[\u4e00-\u9fff]")
+
+    def test_observation_disagreement_is_sticky_unknown_without_changing_trade_counts(self):
+        known = candidate(routine_observation_counts={"watch": 2})
+        for other in ({"watch": 3}, {}, {"watch": None}):
+            with self.subTest(other=other):
+                p, text, _, receipt = build([known, candidate(routine_observation_counts=other), known])
+                self.assertIsNone(p.runs[0].routine_observation_counts["watch"])
+                self.assertIn("策略观察 统计待核对", text)
+                self.assertEqual(receipt["total_fills"], 0)
+                self.assertEqual(len(p.runs), 1)
+        p, _, _, _ = build([candidate(), known, candidate()])
+        self.assertEqual(p.runs[0].routine_observation_counts, {"watch": 2})
+
+    def test_observation_contract_rejects_private_and_invalid_values(self):
+        for invalid in ([], "watch", {"watch": True}, {"watch": -1}, {"watch": 1.5},
+                        {"source_uri": "gs://private/report"}, {"local_path": "/private/report"},
+                        {"watch": "raw exception"}):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "^routine_observation_counts_invalid$"):
+                    build([candidate(routine_observation_counts=invalid)])
 
     def test_changed_protected_target_cannot_enter_the_summary(self):
         with self.assertRaisesRegex(ValueError, "identity_mismatch"):
@@ -337,7 +388,7 @@ class ConsolidationCandidateTests(unittest.TestCase):
         import hashlib
         root = Path(aggregator.__file__).parent / "notification_snapshot"
         source = json.loads((root / "source.json").read_text())
-        self.assertEqual(source["commit"], "07e24c0c804a9b47316b6ec3c75bb63820d8f421")
+        self.assertEqual(source["commit"], "2b04882058666ebc81d1650d93fa2105ec4ba3d8")
         for name, expected in source["files"].items():
             self.assertEqual(hashlib.sha256((root / name).read_bytes()).hexdigest(), expected)
 

@@ -72,6 +72,32 @@ class CloudRunDigestTests(unittest.TestCase):
         from dataclasses import replace
         return replace(self.configuration, enabled=True)
 
+    def test_locale_variants_are_normalized_at_the_production_boundary(self):
+        from dataclasses import replace
+        for locale, expected in (("zh", "zh"), ("zh-CN", "zh"), (" ZH_hans ", "zh"),
+                                 ("en", "en"), ("en-US", "en"), (" EN_gb ", "en")):
+            with self.subTest(locale=locale):
+                self.assertEqual(replace(self.configuration, locale=locale).locale, expected)
+                env = dict(DIGEST_EXPECTED_TARGETS_JSON=json.dumps(EXPECTED),
+                           DIGEST_SCHEDULER_JOB_NAME=JOB, DIGEST_RECIPIENT_SCOPE="synthetic",
+                           DIGEST_CUTOVER_REPORT_DATE="2026-10-16", QSL_NOTIFY_LANG=locale)
+                with patch.dict(os.environ, env):
+                    self.assertEqual(app.Configuration.from_environment().locale, expected)
+        for locale in ("", "fr", "zh-", "english", "zh/secret", None, True):
+            with self.subTest(invalid_locale=locale):
+                with self.assertRaisesRegex(ValueError, "^digest_locale_invalid$"):
+                    replace(self.configuration, locale=locale)
+
+    def test_locale_change_does_not_create_a_second_daily_delivery(self):
+        from dataclasses import replace
+        first = replace(self.enable(), locale="EN-us")
+        second = replace(self.enable(), locale="zh-CN")
+        self.run_request(configuration=first)
+        self.run_request(configuration=second)
+        self.assertEqual(len(self.sent), 1)
+        self.assertNotRegex(self.sent[0], r"[\u4e00-\u9fff]")
+        self.assertEqual(list(self.store.records), ["synthetic/2026-10-16.json"])
+
     def test_preview_never_reserves_or_sends_and_returns_no_financial_body(self):
         self.store.rows[next(iter(self.store.rows))]['runs'][0] = dict(ROW, equity_usd=123456)
         status, result = self.run_request(preview=True)

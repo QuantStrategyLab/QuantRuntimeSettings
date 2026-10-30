@@ -539,6 +539,8 @@ class DigestRunEntry:
     # Display-only plan observation; never approves a risk gate or supplies counts.
     routine_decision: Mapping[str, object] | None = None
     routine_decisions: tuple[Mapping[str, object], ...] = ()
+    # Per-run routine signal observations; never order, fill or run counters.
+    routine_observation_counts: Mapping[str, int | None] | None = None
     presentation_attention: InitVar[bool] = False
 
     def __post_init__(self, presentation_attention: bool = False) -> None:
@@ -911,6 +913,47 @@ def routine_decision_text(entry: DigestRunEntry, locale: DigestLocale) -> str:
     if single and single not in reasons:
         reasons.append(single)
     return "\n".join(_routine_decision_text(reason, locale) for reason in reasons)
+
+
+_ROUTINE_OBSERVATION_LABELS = {
+    "watch": ("策略观察", "Strategy watch"),
+    "opportunity_watch": ("机会观察", "Opportunity watch"),
+    "panic_reversal": ("反转观察", "Reversal watch"),
+    "taco_rebound": ("反弹观察", "Rebound watch"),
+}
+
+
+def parse_routine_observation_counts(raw: object) -> dict[str, int | None] | None:
+    """Only bounded category/count facts may cross the digest boundary.
+
+    None means unavailable evidence or a conflicting count for one source run.
+    Private plugin prose, source URIs and arbitrary category keys are rejected.
+    """
+    if raw is None:
+        return None
+    if (not isinstance(raw, Mapping)
+            or any(name not in _ROUTINE_OBSERVATION_LABELS for name in raw)
+            or any(value is not None and (type(value) is not int or value < 0)
+                   for value in raw.values())):
+        raise ValueError("routine_observation_counts_invalid")
+    return dict(raw)
+
+
+def routine_observation_text(entry: DigestRunEntry, locale: DigestLocale) -> str:
+    counts = parse_routine_observation_counts(entry.routine_observation_counts)
+    if not counts:
+        return ""
+    zh = normalize_locale(locale) == "zh"
+    parts = []
+    for name, labels in _ROUTINE_OBSERVATION_LABELS.items():
+        if name not in counts:
+            continue
+        value = counts[name]
+        if value == 0:
+            continue
+        count = str(value) if value is not None else ("统计待核对" if zh else "count needs review")
+        parts.append(f"{labels[0 if zh else 1]} {count}")
+    return ("；" if zh else "; ").join(parts)
 
 
 def _parse_block_reason(raw: object) -> dict[str, object] | None:
@@ -1791,6 +1834,7 @@ def filter_runs_for_digest(
                 block_reason=_parse_block_reason(raw.get("block_reason")) if raw.get("platform_id") in {"schwab", "ibkr"} else None,
                 routine_decision=_parse_routine_decision(raw.get("routine_decision")),
                 routine_decisions=_parse_routine_decisions(raw.get("routine_decisions")),
+                routine_observation_counts=parse_routine_observation_counts(raw.get("routine_observation_counts")),
                 source_run_id=str(raw.get("source_run_id") or "") if consolidation_enabled() else "",
                 approved_gate_reasons=tuple(raw.get("_validated_approved_gate_reasons", ())) if consolidation_enabled() else _legacy_gate_reasons(raw),
                 presentation_attention=False if consolidation_enabled() else _legacy_presentation_attention(raw),

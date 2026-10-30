@@ -1,5 +1,51 @@
 # Unified daily notification
 
+## Delivery policy and message contract
+
+Routine successful trades, broker acknowledgements, healthy no-trade runs and
+heartbeats are recorded for the next scheduled daily report. They do not create
+instant messages, including when an older platform release flag is disabled.
+Unknown order outcomes, authentication or execution errors, new risk incidents
+and failures to preserve required report evidence retain the urgent path.
+Routine pending broker acknowledgements require producer-validated identities
+and compatible counts; the word `pending_reconciliation` alone cannot establish
+either a healthy acknowledgement or an urgent failure.
+
+Deferral requires a confirmed write to the existing protected candidate/report
+path. A failed or uncertain write produces an operational coverage diagnostic;
+the original successful-trade or heartbeat body is never a fallback message.
+A broker acknowledgement means submitted, not filled. Missing fill evidence
+stays unknown in the report. Urgent items listed in a digest are a daily record,
+not a claim that their instant notification was delivered.
+
+The production compact template, with `QRS_UNIFIED_NOTIFICATION_ENABLED=true`,
+uses one selected language: report business day, observed
+run count, independently verified order/fill totals, source coverage, attention
+items, then routine decisions and observations. Healthy zero-trade runs still
+produce a daily report. Unknown coverage never becomes a successful idle day.
+The existing UTF-16 budget keeps delivery to one message and prioritizes issues.
+Internal exception text, account identifiers, private paths and plugin prose
+are not display fallbacks.
+
+Each producer row is one protected source run, keyed by platform, account,
+target, strategy and `source_run_id`. Archive, event and heartbeat observations
+with that identity are merged once. A legacy day aggregate without run identity
+is rejected; producers must use their explicit per-run archive projector.
+The optional `routine_observation_counts` map allows only `watch`,
+`opportunity_watch`, `panic_reversal` and `taco_rebound` with nonnegative integer
+counts. Producers classify live signals before archiving this map, because old
+plugin summaries omit error flags. An absent map is unavailable evidence; an
+empty map is observed zero. An unavailable optional map is omitted from display,
+which does not claim zero observations. Repeated maps do not add counts. Conflicting counts
+for the same run remain unknown, including an empty map against a positive
+count. These observations never increment order, fill or run totals.
+
+Chinese and English templates share the same facts and routing. Production
+accepts `zh`/`en` and regional variants such as `zh-CN`, `ZH_hans` and `en-US`,
+normalizing them before rendering; unsupported or malformed locales fail
+configuration validation. The default is Chinese. Locale does not change the
+recipient/date delivery reservation or permit a second daily send.
+
 ## Cloud Run delivery
 
 The standalone notification image uses `python/Dockerfile.digest`. Cloud Scheduler
@@ -62,7 +108,7 @@ Required protected configuration:
 | `DIGEST_DELIVERY_ENABLED` | Default `false`; previews do not enable delivery |
 | `TELEGRAM_TOKEN` | Existing Bot secret reference |
 | `QSL_GLOBAL_TELEGRAM_CHAT_ID` | Existing approved recipient |
-| `QSL_NOTIFY_LANG` | `zh` or `en` |
+| `QSL_NOTIFY_LANG` | `zh` or `en`, including normalized regional variants |
 
 ### Delivery reservation
 

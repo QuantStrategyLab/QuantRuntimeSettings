@@ -54,8 +54,10 @@ class Configuration:
             raise ValueError('digest_recipient_scope_invalid')
         if not re.fullmatch(r'projects/[^/]+/locations/[^/]+/jobs/[^/]+', self.scheduler_job):
             raise ValueError('digest_scheduler_job_required')
-        if self.locale not in {'zh', 'en'}:
+        if not isinstance(self.locale, str) or not re.fullmatch(
+                r'(?:zh|en)(?:[-_][a-z0-9]{1,8})*', self.locale.strip().lower()):
             raise ValueError('digest_locale_invalid')
+        object.__setattr__(self, 'locale', re.split('[-_]', self.locale.strip().lower())[0])
 
     @classmethod
     def from_environment(cls):
@@ -162,7 +164,8 @@ def _report(configuration, rows, outcomes, day, platform_config):
         platform = _safe_display_text(display_name('platforms', binding['platform_id'], configuration.locale))
         strategy = _safe_display_text(display_name('strategies', binding['strategy_profile'], configuration.locale,
                                                   fallback='未命名策略' if zh else 'Unnamed strategy'))
-        details.append(f'• {platform} / {strategy}：{labels[outcome]}')
+        separator = '：' if zh else ': '
+        details.append(f'• {platform} / {strategy}{separator}{labels[outcome]}')
     coverage_label = {'complete': '完整', 'partial': '部分', 'unavailable': '不可用'}[coverage] if zh else coverage
     trailer = [f'数据覆盖：{coverage_label}' if zh else f'Data coverage: {coverage_label}']
     for index, detail in enumerate(details):
