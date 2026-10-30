@@ -960,7 +960,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   /* Topbar keeps one row: the scope trigger flexes and truncates, the icon
      controls keep a 44px touch target. */
   .topbar { flex-wrap: nowrap; gap: 8px; padding: 8px 12px; }
-  .topbar .scope-switcher { flex: 1 1 auto; min-width: 0; }
+  .topbar .scope-switcher { flex: 1 1 auto; min-width: 44px; }
   .topbar .spacer { display: none; }
   .lang-label-full { display: none; }
   .lang-label-short { display: inline; }
@@ -968,6 +968,10 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .topbar .appearance-toggle,
   .topbar .icon-button,
   .topbar .user-menu > summary { min-width: 44px; min-height: 44px; }
+  /* The scope trigger is the primary control on this bar, so it keeps a full
+     44px touch target and fills whatever width the row leaves it; a long
+     account name still truncates inside the label. */
+  .topbar .scope-trigger { width: 100%; min-width: 44px; min-height: 44px; }
   .scope-panel { width: min(340px, calc(100vw - 24px)); max-height: 60dvh; }
   .scope-option { min-height: 44px; }
   .calendar-year-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -975,6 +979,23 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .empty-state, .error-state { padding: 11px 12px; }
   .state-icon { width: 24px; height: 24px; }
   .data-table th, .data-table td { padding: 9px 11px; }
+}
+
+/* At the narrowest widths the synthetic badge, which cannot shrink, would take
+   the room the scope trigger needs: the trigger would collapse to a sliver and
+   the account name would disappear. The badge therefore moves onto its own row
+   below the controls, still at its normal size and centered. The rule is gated
+   on both elements, so a production topbar without the badge — and the health
+   topbar, which has no scope — keep their existing single row, and no badge is
+   ever hidden. */
+@media (max-width: 430px) {
+  .topbar:has(> .scope-switcher):has(> .topbar-synthetic) { flex-wrap: wrap; }
+  .topbar:has(> .scope-switcher):has(> .topbar-synthetic) > .topbar-synthetic {
+    order: 10;
+    flex: 1 1 100%;
+    display: flex;
+    justify-content: center;
+  }
 }
 
 .update-notice {
@@ -1013,8 +1034,9 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .account-identity-note { color: var(--muted); font-size: 12px; }
 @media (max-width: 768px) {
   .topbar { gap: 8px; padding-inline: 12px; }
-  /* The scope trigger takes the free space; its own label truncates. */
-  .topbar .scope-switcher { min-width: 0; }
+  /* The scope trigger takes the free space; its own label truncates, but the
+     box never shrinks below a usable touch target. */
+  .topbar .scope-switcher { min-width: 44px; }
   .scope-switcher > button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .account-strategy-link { min-height: 44px; }
 }
