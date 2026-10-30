@@ -98,6 +98,15 @@ jobs:
       - name: Install local Worker test runtime
         working-directory: web/strategy-switch-console
         run: npm ci
+      - name: Build synthetic QRS 946 bundle evidence
+        run: bash scripts/console_946_bundle_evidence.sh
+      - name: Preserve synthetic QRS 946 bundle evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: qrs946-synthetic-bundle-evidence
+          path: ${{ runner.temp }}/qrs946-bundle-evidence/
+          if-no-files-found: error
+          retention-days: 3
       - name: Validate strategy switch web assets
         env:
           CLOUDFLARE_CF_FETCH_ENABLED: "false"
