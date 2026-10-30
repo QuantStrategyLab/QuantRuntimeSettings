@@ -1,7 +1,7 @@
 // Fixed existing-candidate activation; transport is injected for offline tests.
 // The production entry point always uses these exact reviewed identities.
 import {createHash} from 'node:crypto';
-import {describeNamedHandlers} from './console_full_bundle_release.mjs';
+import {describeNamedHandlers} from './console_named_handler_metadata.mjs';
 
 const EXPECTED=Object.freeze({
   deployment:'50aade1f-2a51-42ef-86b2-464d1b665c30',
