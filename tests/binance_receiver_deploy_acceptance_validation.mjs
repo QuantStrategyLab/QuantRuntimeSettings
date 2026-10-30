@@ -428,21 +428,92 @@ assert.doesNotMatch(workflow.slice(verifyIndex, publishIndex), /BINANCE_ACCOUNT_
 assert.equal((workflow.match(/node tests\/binance_receiver_deploy_acceptance_validation\.mjs/g) || []).length, 1);
 const validateWorkflow = readFileSync(new URL("../.github/workflows/validate.yml", import.meta.url), "utf8");
 assert.equal((validateWorkflow.match(/node tests\/binance_receiver_deploy_acceptance_validation\.mjs/g) || []).length, 1);
-// Local Miniflare tests use its built-in synthetic Request.cf fallback. The
-// supported switch must remain test-step-scoped, never a production job env.
-for (const [text, name] of [[workflow, "Build new console and embedded assets"],
-  [validateWorkflow, "Validate strategy switch web assets"]]) {
-  const start = text.indexOf(`      - name: ${name}\n`);
-  assert.ok(start >= 0);
-  const next = text.indexOf("\n      - name:", start + 1);
-  const step = text.slice(start, next < 0 ? text.length : next);
-  assert.match(step, /\n        env:\n          CLOUDFLARE_CF_FETCH_ENABLED: "false"\n/);
-  assert.match(step, /\n          npm_config_update_notifier: "false"\n/);
-  for (const flag of ["CLOUDFLARE_CF_FETCH_ENABLED", "npm_config_update_notifier"]) {
-    assert.equal(text.split(flag).length - 1, 1,
-      "synthetic cf metadata and npm configuration are confined to the named build/test step");
+// Synthetic Request.cf and npm settings are allowed only in the named jobs
+// and steps. Count every occurrence as well, so a job/global environment or
+// an unlisted step cannot silently inherit either option.
+function workflowJob(text, name) {
+  const jobs = text.slice(text.indexOf('\njobs:\n') + '\njobs:\n'.length);
+  const found = [...jobs.matchAll(new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:\\n|(?![\\s\\S]))`, 'gm'))];
+  assert.equal(found.length, 1, `one job named ${name} is required`);
+  return found[0][1];
+}
+function namedStep(job, name) {
+  const header = `      - name: ${name}\n`;
+  const start = job.indexOf(header);
+  assert.ok(start >= 0 && job.indexOf(header, start + header.length) < 0, `one step named ${name} is required`);
+  const tail = job.slice(start + header.length);
+  const next = tail.search(/\n      - (?:name:|uses:)/);
+  return header + (next < 0 ? tail : tail.slice(0, next));
+}
+function stepEnvironment(step) {
+  return step.match(/^        env:\n((?:          [^\n]*\n)+)/m)?.[1] || '';
+}
+function checkOfflineScopes(text, expected) {
+  for (const flag of ['CLOUDFLARE_CF_FETCH_ENABLED', 'npm_config_update_notifier']) {
+    const allowed = expected.filter(item => item.flags.includes(flag));
+    assert.equal(text.split(flag).length - 1, allowed.length,
+      `${flag} must occur only in its explicitly allowed steps`);
+    for (const item of allowed) {
+      const step = namedStep(workflowJob(text, item.job), item.name);
+      const env = stepEnvironment(step);
+      assert.match(env, new RegExp(`^          ${flag}: "false"$`, 'm'));
+      assert.equal(step.split(flag).length - 1, 1, `${flag} must be confined to the step environment`);
+    }
   }
 }
+const deploymentOfflineScopes = [
+  {job:'deploy', name:'Build new console and embedded assets', flags:['CLOUDFLARE_CF_FETCH_ENABLED','npm_config_update_notifier']},
+  {job:'preflight_active_module', name:'Build and validate fixed synthetic candidate baseline', flags:['CLOUDFLARE_CF_FETCH_ENABLED','npm_config_update_notifier']},
+  {job:'preflight_active_module', name:'Verify active backend candidate without upload', flags:['CLOUDFLARE_CF_FETCH_ENABLED']},
+];
+checkOfflineScopes(workflow, deploymentOfflineScopes);
+checkOfflineScopes(validateWorkflow, [
+  {job:'js', name:'Validate strategy switch web assets', flags:['CLOUDFLARE_CF_FETCH_ENABLED','npm_config_update_notifier']},
+]);
+// This new read-only job cannot expose CF credentials to checkout, npm, the
+// synthetic build, or job-wide environment. The two fixed readers get only the
+// same existing token/account selectors at their own step scope.
+function checkReadOnlyCredentials(text) {
+  const activePreflight = workflowJob(text, 'preflight_active_module');
+  const header = activePreflight.slice(0, activePreflight.indexOf('    steps:\n'));
+  assert.match(header, /needs: preflight/);
+  assert.match(header, /inputs\.read_only_preflight/);
+  assert.doesNotMatch(header, /CLOUDFLARE_(?:API_TOKEN|ACCOUNT_ID|API_KEY|EMAIL)|secrets\./);
+  const build = namedStep(activePreflight, 'Build and validate fixed synthetic candidate baseline');
+  assert.doesNotMatch(build, /CLOUDFLARE_(?:API_TOKEN|ACCOUNT_ID|API_KEY|EMAIL)|secrets\.|vars\.CLOUDFLARE/);
+  assert.match(stepEnvironment(build), /^          QRS946_QUIET: "true"$/m);
+  const readSteps = ['Inspect active Worker module without writing', 'Verify active backend candidate without upload'];
+  let remaining = activePreflight;
+  for (const name of readSteps) {
+    const step = namedStep(activePreflight, name), env = stepEnvironment(step);
+    assert.match(env, /^          CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}$/m);
+    assert.match(env, /^          CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \|\| vars\.CLOUDFLARE_ACCOUNT_ID \}\}$/m);
+    assert.equal((step.match(/secrets\./g) || []).length, 2, `${name} has only its two fixed credential selectors`);
+    remaining = remaining.replace(step, '');
+  }
+  assert.doesNotMatch(remaining, /CLOUDFLARE_(?:API_TOKEN|ACCOUNT_ID|API_KEY|EMAIL)|secrets\.|vars\.CLOUDFLARE/,
+    'CF credential selectors cannot occur outside the two read steps');
+  for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']) {
+    assert.equal((activePreflight.match(new RegExp(`^          ${key}:`, 'gm')) || []).length, readSteps.length,
+      `${key} must occur only in the two fixed read steps`);
+  }
+}
+checkReadOnlyCredentials(workflow);
+// Check the negative contract on synthetic workflow text too, without calling
+// the deployment, CF API, or a receiver.
+assert.throws(() => checkOfflineScopes(workflow.replace('jobs:\n', 'env:\n  CLOUDFLARE_CF_FETCH_ENABLED: "false"\njobs:\n'), deploymentOfflineScopes));
+assert.throws(() => checkOfflineScopes(workflow.replace('QRS946_QUIET: "true"', 'QRS946_QUIET: "true"\n          npm_config_update_notifier: "false"'), deploymentOfflineScopes));
+assert.throws(() => checkOfflineScopes(workflow.replace('CLOUDFLARE_CF_FETCH_ENABLED: "false"', 'CLOUDFLARE_CF_FETCH_ENABLED: "true"'), deploymentOfflineScopes));
+assert.throws(() => checkReadOnlyCredentials(workflow.replace('QRS946_QUIET: "true"', 'QRS946_QUIET: "true"\n          LEAK: ${{ secrets.CLOUDFLARE_API_TOKEN }}')));
+assert.throws(() => checkReadOnlyCredentials(workflow.replace('uses: actions/checkout@v4', 'uses: actions/checkout@v4\n        env:\n          LEAK: ${{ secrets.CLOUDFLARE_API_TOKEN }}')));
+// The candidate runtime helper lives in scripts/, outside the historical
+// tests/*.mjs scan below. Its host metadata switch and Worker egress blocker
+// must remain explicit in the shared CI and read-only paths.
+const candidateRuntime = readFileSync(new URL('../scripts/console_946_runtime_test.mjs', import.meta.url), 'utf8');
+assert.equal((candidateRuntime.match(/\bcf\s*:/g) || []).length, 1);
+assert.match(candidateRuntime, /\bcf\s*:\s*false\s*,/);
+assert.match(candidateRuntime, /\boutboundService\s*:\s*\(\)\s*=>\s*\{\s*outbound\+\+;\s*throw Error\(['"]external_calls_forbidden['"]\);\s*\}/);
+assert.match(candidateRuntime, /assert\.equal\(outbound\s*,\s*0\s*,/);
 let miniflareTestFiles = 0;
 for (const name of readdirSync(new URL(".", import.meta.url)).filter(name => name.endsWith(".mjs"))) {
   const text = readFileSync(new URL(name, import.meta.url), "utf8");
