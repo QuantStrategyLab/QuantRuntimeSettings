@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import { useLanguage, useT } from "../i18n";
 import type { Point } from "../api/contracts";
 import { formatMoney, maskedAmount } from "../lib/format";
@@ -111,6 +112,16 @@ export function AreaChart({
     setCursor(best);
   };
 
+  // Same keyboard reading as LineChart: arrows walk the real observations.
+  const onKeyDown = (event: KeyboardEvent<SVGSVGElement>) => {
+    if (points.length === 0) return;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      const delta = event.key === "ArrowRight" ? 1 : -1;
+      setCursor(current => Math.max(0, Math.min(points.length - 1, (current ?? 0) + delta)));
+    }
+  };
+
   const xTicks = (() => {
     const count = points.length;
     if (count === 0) return [];
@@ -134,8 +145,12 @@ export function AreaChart({
         role="img"
         aria-label={ariaLabel}
         tabIndex={0}
+        onKeyDown={onKeyDown}
         onMouseMove={event => onMove(event.clientX)}
         onMouseLeave={() => setCursor(null)}
+        // Touch has no hover: a tap or drag reads the nearest real observation.
+        onPointerDown={event => { if (event.pointerType !== "mouse") onMove(event.clientX); }}
+        onPointerMove={event => { if (event.pointerType !== "mouse") onMove(event.clientX); }}
         onFocus={() => setCursor(value => value ?? 0)}
         onBlur={() => setCursor(null)}
       >

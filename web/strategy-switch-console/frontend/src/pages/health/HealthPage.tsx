@@ -124,6 +124,7 @@ function StatStrip({
         />
         {notifications && (
           <KpiCard
+            className="kpi-card-legacy"
             title={t("health.kpi.notifications")}
             value={
               notifications.phase === "loading" ? <Skeleton height={24} width={90} />
@@ -133,7 +134,10 @@ function StatStrip({
                       : t("health.account_fraction", { count: notificationDelivered, total: notificationItems.length })
             }
             sub={t("health.kpi.notifications_note")}
-            footer={notificationIncomplete ? <StatusBadge status="partial" /> : undefined}
+            footer={<>
+              <Badge tone="unknown">{t("health.current_notification")}</Badge>
+              {notificationIncomplete && <StatusBadge status="partial" />}
+            </>}
           />
         )}
       </div>
@@ -218,6 +222,7 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
       <DataTable columns={columns} rows={group.accounts.flatMap(account => account.rows)}
         rowKey={row => `${row.platform}/${row.account_alias}`}
         defaultSort={{ column: "account", direction: "asc" }}
+        scrollHint
         caption={`${t("health.freshness_title")} · ${names.platform(group.platform)}`} />
     </section>)}
     {!groups.length && <EmptyState title={t("state.no_data")} />}
@@ -248,7 +253,26 @@ function CredentialsCard({ credential }: { credential: Loadable<CredentialMainte
       sortValue: row => row.expires_at,
     },
   ];
-  return <DataTable columns={columns} rows={[item]} rowKey={row => row.id} caption={t("health.credentials_title")} />;
+  return <DataTable columns={columns} rows={[item]} rowKey={row => row.id} scrollHint caption={t("health.credentials_title")} />;
+}
+
+/**
+ * Static source-limit block. The page can read legacy GitHub receipts only, so
+ * the current Cloud Run/GCS notification path stays explicitly unverified —
+ * this is a capability statement, not today's receipt or a new KPI.
+ */
+function NotificationSourceNote() {
+  const t = useT();
+  return (
+    <div className="health-source-note" data-state="unverified">
+      <div className="health-source-head">
+        <Badge tone="unknown">{t("health.current_notification")}</Badge>
+        <span className="health-source-label">{t("health.source_limits")}</span>
+      </div>
+      <p className="card-note">{t("health.notifications_scope")}</p>
+      <p className="card-note">{t("health.notifications_schedule_scope")}</p>
+    </div>
+  );
 }
 
 function NotificationsCardView({ state }: { state: Loadable<NotificationSendLog> }) {
@@ -257,25 +281,25 @@ function NotificationsCardView({ state }: { state: Loadable<NotificationSendLog>
   if (state.phase === "loading") return <Skeleton height={72} />;
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
   const log = state.data;
-  const scope = <details className="health-notes">
-    <summary>{t("health.notes")}</summary>
-    <p className="card-note">{t("health.notifications_scope")}</p>
-  </details>;
+  const source = <NotificationSourceNote />;
   if (log.status === "not_connected" || log.read_status === "not_connected") return <>
+    {source}
     <EmptyState title={t("health.notifications_not_connected")} action={<StatusBadge status="not_connected" />} />
-    {scope}
   </>;
-  if (log.status === "read_failed" || log.read_status === "read_failed") return <ErrorState onRetry={state.reload} />;
+  if (log.status === "read_failed" || log.read_status === "read_failed") return <>
+    {source}
+    <ErrorState onRetry={state.reload} />
+  </>;
   const incomplete = log.status === "partial" || log.read_status === "partial"
     || log.read_status === "unknown" || log.truncated === true;
   if (!log.items.length) return <>
+    {source}
     {incomplete && <p role="alert">{t("health.notifications_partial")}</p>}
     <EmptyState title={t(incomplete ? "health.notifications_empty_partial" : "health.notifications_empty")} />
-    {scope}
   </>;
   const columns: Column<(typeof log.items)[number]>[] = [
     { id: "date", header: t("health.notification_business_day"), cell: row => row.business_day || "—", sortValue: row => row.business_day },
-    { id: "status", header: t("common.status"), cell: row => <>
+    { id: "status", header: t("health.notification_legacy_status"), cell: row => <>
       {t(`health.notification.${row.status}`)}
       <span className="card-note"> · {t("health.notification_delivered")}: {t(row.delivered === null ? "state.unknown" : row.delivered ? "health.notification_yes" : "health.notification_no")}</span>
       {row.dry_run === true && <span> · {t("health.notification.dry_run")}</span>}
@@ -296,9 +320,9 @@ function NotificationsCardView({ state }: { state: Loadable<NotificationSendLog>
     },
   ];
   return <>
+    {source}
     {incomplete && <p role="alert">{t("health.notifications_partial")}</p>}
-    <div className="health-notifications"><DataTable columns={columns} rows={log.items} rowKey={row => row.id} caption={t("health.notifications_title")} /></div>
-    {scope}
+    <div className="health-notifications"><DataTable columns={columns} rows={log.items} rowKey={row => row.id} scrollHint caption={t("health.notifications_title")} /></div>
   </>;
 }
 
@@ -336,6 +360,14 @@ export default function HealthPage() {
       </header>
 
       <p className="card-note">{t("health.global_scope_note")}</p>
+      {/* Business day and read time sit above the KPIs: a browser-local date must never stand in for the business day. */}
+      <div className="health-day-context">
+        {summary.phase === "loading" ? <Skeleton height={18} width={240} />
+          : summary.phase === "error"
+            ? <span className="health-business-day" data-state="read_failed">{t("state.read_failed")}</span>
+            : <span className="health-business-day">{t("health.business_date", { value: `${summary.data.date} · ${summary.data.timezone}` })}</span>}
+        {summary.phase === "ready" && summary.data.as_of && <AsOfStamp value={summary.data.as_of} />}
+      </div>
       <StatStrip summary={summary} credential={credential} notifications={notifications} />
 
       <section className="card">

@@ -153,6 +153,7 @@ try {
     month: null,
     cells: [
       { ...cell(undefined, { returnPercent: 0, amount: 0 }), month: "2026-07" },
+      { ...cell(undefined, { returnPercent: 1.23 }), month: "2026-05" },
       { ...cell(undefined, { reason: "snapshot_missing" }), month: "2026-08" },
       { ...cell(undefined, { reason: "snapshot_pending" }), month: "2026-11" },
       { ...cell(undefined, { reason: "future_date", status: "no_data" }), month: "2026-12" },
@@ -172,6 +173,66 @@ try {
   assert.match(yearMissing, /title="缺少资产快照"/);
   assert.doesNotMatch(yearMissing, /cell-pending|cell-future/);
   assert.match(yearCell(yearView, "2026-07"), /cell-value flat">0\.00%/);
+  // The year view shares the same formatter, so a fractional month keeps its
+  // exact digits there too instead of collapsing to "+1%".
+  assert.ok(yearCell(yearView, "2026-05").includes(">+1.23%</span>"));
+
+  // Percentage precision. return_percent is already in percentage points and
+  // formatPercent does not rescale it. The strict rule is that a narrow cell
+  // never loses precision: every real percentage renders at the shared
+  // two-decimal form, and width is solved by layout (the grid scrolls), not by
+  // shortening the number. An earlier attempt rounded to a bare integer and
+  // rendered 0.05 as "+0%", 1.23 as "+1%" and -0.25 as "-0%": a false zero with
+  // the sign still attached. Every case is checked in both languages.
+  const precisionView = language => render({
+    year: 2026,
+    month: 10,
+    cells: [
+      cell("2026-10-01", { returnPercent: 0.05 }),
+      cell("2026-10-02", { returnPercent: -0.25 }),
+      cell("2026-10-03", { returnPercent: 1.23 }),
+      cell("2026-10-04", { returnPercent: 1.2 }),
+      cell("2026-10-05", { returnPercent: 0 }),
+      cell("2026-10-06", { returnPercent: -12.34 }),
+      cell("2026-10-07", { returnPercent: null, amount: null, status: "no_data" }),
+    ],
+    onNavigate() {},
+  }, language);
+  // [day, exact value, tone]
+  const precision = [
+    [1, "+0.05%", "up"],
+    [2, "-0.25%", "down"],
+    [3, "+1.23%", "up"],
+    [4, "+1.20%", "up"],
+    [5, "0.00%", "flat"],
+    [6, "-12.34%", "down"],
+  ];
+  for (const language of ["zh", "en"]) {
+    const view = precisionView(language);
+    for (const [day, exact, tone] of precision) {
+      const html = monthCell(view, day);
+      assert.ok(html.includes(`class="cell-value ${tone}"`), `${language} day ${day} keeps the ${tone} tone`);
+      assert.ok(html.includes(`>${exact}</span>`), `${language} day ${day} shows the full ${exact}`);
+      // Exactly one statement of the value: no shortened glyphs plus a hidden
+      // duplicate for assistive tech.
+      assert.equal(html.replace(/title="[^"]*"/g, "").split(exact).length - 1, 1,
+        `${language} day ${day} states ${exact} exactly once`);
+      assert.ok(!html.includes('aria-hidden="true"'), `${language} day ${day} hides no duplicate value`);
+      assert.ok(!/<span class="sr-only">[+-]?[\d.,]+%/.test(html), `${language} day ${day} adds no duplicate percentage`);
+      // No value may collapse into a rounded zero or a truncated integer.
+      for (const wrong of ["+0%", "-0%", "+1%", "-1%", "+12%", "-12%", ">0%<"]) {
+        assert.ok(!html.includes(`>${wrong}<`), `${language} day ${day} never renders ${wrong}`);
+      }
+    }
+    const absent = monthCell(view, 7);
+    assert.doesNotMatch(absent, /cell-value/, `${language} day 7 without a value invents no percentage`);
+    assert.match(absent, /cell-empty/);
+  }
+  // Width is solved by layout, not by shortening numbers: the month grid lives
+  // in its own scroll box so a 360px screen scrolls the grid, not the page.
+  assert.match(monthView, /class="calendar-scroll"/, "the month grid has its own scroll container");
+  assert.ok(monthView.indexOf('class="calendar-scroll"') < monthView.indexOf('class="calendar-month-grid"'),
+    "the scroll container wraps the grid");
 } finally {
   globalThis.Date = RealDate;
 }

@@ -55,11 +55,19 @@ export function AppShell({
   const [moreOpen, setMoreOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const userMenuRef = useRef<HTMLDetailsElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const moreWasOpen = useRef(false);
 
   useEffect(() => {
     if (userMenuRef.current) userMenuRef.current.open = false;
     setMoreOpen(false);
   }, [page]);
+
+  // Closing the "more" sheet returns focus to the control that opened it.
+  useEffect(() => {
+    if (moreWasOpen.current && !moreOpen) moreButtonRef.current?.focus();
+    moreWasOpen.current = moreOpen;
+  }, [moreOpen]);
 
   useEffect(() => {
     const closeIfOutside = (event: PointerEvent) => {
@@ -67,7 +75,9 @@ export function AppShell({
       if (menu?.open && !menu.contains(event.target as Node)) menu.open = false;
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape" && userMenuRef.current) userMenuRef.current.open = false;
+      if (event.key !== "Escape") return;
+      if (userMenuRef.current) userMenuRef.current.open = false;
+      setMoreOpen(false);
     };
     document.addEventListener("pointerdown", closeIfOutside);
     document.addEventListener("keydown", closeOnEscape);
@@ -113,8 +123,10 @@ export function AppShell({
           {page !== "health" && <ScopeSwitcher />}
           {updated && <span className="topbar-updated">{t("common.updated_at", { value: `${updated.text}${updated.zone ? ` (${updated.zone})` : ""}` })}</span>}
           <span className="spacer" />
-          <button type="button" className="button button-secondary button-sm appearance-toggle" aria-label={t("prefs.language")} title={t("prefs.language")} onClick={() => setPrefs({ ...prefs, language: language === "zh" ? "en" : "zh" })}>
-            {language === "zh" ? "English" : "中文"}
+          <button type="button" className="button button-secondary button-sm appearance-toggle lang-toggle" aria-label={t("prefs.language")} title={t("prefs.language")} onClick={() => setPrefs({ ...prefs, language: language === "zh" ? "en" : "zh" })}>
+            {/* Narrow screens keep the control short; the full word stays for wide layouts. */}
+            <span className="lang-label lang-label-full">{language === "zh" ? "English" : "中文"}</span>
+            <span className="lang-label lang-label-short" aria-hidden="true">{language === "zh" ? "EN" : "中"}</span>
           </button>
           <button type="button" className="button button-secondary button-sm appearance-toggle" aria-label={t(dark ? "shell.switch_light" : "shell.switch_dark")} title={t(dark ? "shell.switch_light" : "shell.switch_dark")} onClick={() => setPrefs({ ...prefs, theme: dark ? "light" : "dark" })}>
             <span aria-hidden="true">{dark ? "☀" : "☾"}</span><span className="theme-toggle-label">{t(dark ? "prefs.theme_light" : "prefs.theme_dark")}</span>
@@ -153,14 +165,14 @@ export function AppShell({
       <nav className="bottom-tabs" aria-label={t("nav.main")}>
         <div className="bottom-tabs-inner">
           {MOBILE_PRIMARY.map(id => navButton(NAV_ITEMS.find(item => item.id === id)!, "bottom-tab"))}
-          <button type="button" className={`bottom-tab${moreOpen || MOBILE_MORE.includes(page) ? " active" : ""}`} aria-expanded={moreOpen} onClick={() => setMoreOpen(value => !value)}>
+          <button type="button" ref={moreButtonRef} className={`bottom-tab${moreOpen || MOBILE_MORE.includes(page) ? " active" : ""}`} aria-expanded={moreOpen} aria-controls="more-sheet" onClick={() => setMoreOpen(value => !value)}>
             <NavIcon path="M5 12 m-1.5 0 a1.5 1.5 0 1 0 3 0 a1.5 1.5 0 1 0 -3 0 M12 12 m-1.5 0 a1.5 1.5 0 1 0 3 0 a1.5 1.5 0 1 0 -3 0 M19 12 m-1.5 0 a1.5 1.5 0 1 0 3 0 a1.5 1.5 0 1 0 -3 0" />
             <span className="nav-text">{t("nav.more")}</span>
           </button>
         </div>
       </nav>
       {moreOpen && (
-        <div className="more-sheet" role="menu">
+        <div className="more-sheet" id="more-sheet" role="menu">
           {MOBILE_MORE.map(id => navButton(NAV_ITEMS.find(item => item.id === id)!, "nav-item"))}
           <button type="button" className="nav-item" onClick={() => { setPrefsOpen(true); setMoreOpen(false); }}>
             <NavIcon path="M12 15 m-3 0 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0 M19 12 a7 7 0 0 0-.1-1.2 l2-1.5 -2-3.4 -2.3 1 a7 7 0 0 0-2-1.2 L14.2 3 H9.8 L9.4 5.7 a7 7 0 0 0-2 1.2 l-2.3-1 -2 3.4 2 1.5 A7 7 0 0 0 5 12" />

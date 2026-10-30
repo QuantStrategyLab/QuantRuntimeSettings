@@ -189,27 +189,34 @@ export function SummaryCards({ scope, platform, state, chartAvailable }: Summary
     return <ErrorState onRetry={state.reload} />;
   }
   const data = state.data;
+  const blank = summaryIsBlank(data);
+  // Only a mixed-currency scope gets an explained sentence, and only that scope.
+  // Other reasons stay diagnostic (data-reason) so the short state is not
+  // repeated as body copy; no FX rate is ever inferred here.
+  const coverage = data.coverage;
+  const fxNotApplied = !!coverage && !Array.isArray(coverage) && coverage !== "fills_not_connected"
+    && coverage.fx === "not_applied";
+  const inPlaceReason = data.unavailable_reason === "mixed_currency"
+    ? t(fxNotApplied ? "perf.mixed_currency_unavailable" : "perf.mixed_currency_native")
+    : blank && chartAvailable ? t("perf.combined_metrics_unavailable") : null;
   return (
     <div className="section-stack">
-      {(data.status !== "ok" || data.unavailable_reason || data.as_of) && (
+      {(data.status !== "ok" || data.unavailable_reason || data.as_of || inPlaceReason) && (
         <div className="metric-note perf-summary-note" data-state={data.status}
           data-reason={data.unavailable_reason ?? undefined}>
           {data.status !== "ok" && <StatusBadge status={data.status} />}
+          {inPlaceReason && <span className="state-short">{inPlaceReason}</span>}
           {data.as_of && <AsOfStamp value={data.as_of} />}
         </div>
       )}
-      {chartAvailable && summaryIsBlank(data) ? (
-        <p className="metric-note perf-summary-note">{t("perf.combined_metrics_unavailable")}</p>
-      ) : (
-        <div className="perf-kpi-grid">
-          <TwrCard data={data} />
-          <AmountCard data={data} />
-          <DrawdownCard data={data} />
-          <ExcessCard data={data} policy={policy} />
-          <DayCard data={data} field="best_day" titleKey="perf.card.best_day" />
-          <DayCard data={data} field="worst_day" titleKey="perf.card.worst_day" />
-        </div>
-      )}
+      <div className="perf-kpi-grid">
+        <TwrCard data={data} />
+        <AmountCard data={data} />
+        <DrawdownCard data={data} />
+        <ExcessCard data={data} policy={policy} />
+        <DayCard data={data} field="best_day" titleKey="perf.card.best_day" />
+        <DayCard data={data} field="worst_day" titleKey="perf.card.worst_day" />
+      </div>
     </div>
   );
 }

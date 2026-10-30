@@ -32,6 +32,7 @@ import { Timeline } from "../../components/Timeline";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { useToast } from "../../components/Toast";
 import { resolveAccountChoice } from "./helpers";
+import { sourceLabelKey } from "./sources";
 import { InitialEnrollmentFacts } from "./InitialEnrollmentFacts";
 import { ReconciliationMaterials } from "./ReconciliationMaterials";
 import "./decisions.css";
@@ -64,6 +65,16 @@ function showsStaleHint(item: InboxItem): boolean {
   if (item.evidence_freshness?.status === "stale") return true;
   const created = item.created_at ? Date.parse(item.created_at) : NaN;
   return Number.isFinite(created) && Date.now() - created > STALE_HINT_AGE_MS;
+}
+
+/**
+ * The hint is visible text, not a hover title: an aged item says so in the list
+ * so a touch user can tell why it may no longer be relevant.
+ */
+function staleHintKey(item: InboxItem): "decisions.stale_hint" | "decisions.stale_visible_hint" | null {
+  if (item.evidence_freshness?.status === "stale") return "decisions.stale_hint";
+  const created = item.created_at ? Date.parse(item.created_at) : NaN;
+  return Number.isFinite(created) && Date.now() - created > STALE_HINT_AGE_MS ? "decisions.stale_visible_hint" : null;
 }
 
 function subjectIdOf(item: InboxItem): string {
@@ -732,6 +743,7 @@ export default function DecisionsPage() {
               {visibleItems.map(item => {
                 const expired = isExpired(item);
                 const fresh = relativeFreshness(item.created_at, language);
+                const hintKey = staleHintKey(item);
                 return (
                   <button
                     key={item.id}
@@ -747,12 +759,13 @@ export default function DecisionsPage() {
                         {item.category === "reconciliation_recovery" && (
                           <Badge tone="warn">{t("category.reconciliation_recovery")}</Badge>
                         )}
-                        <span>{accountLabel(item)}</span>
                         {item.platform && <span>{names.platform(item.platform)}</span>}
+                        <span>{accountLabel(item)}</span>
+                      </span>
+                      <span className="item-meta item-meta-secondary">
                         <span className="item-ref">{t("decisions.ref", { id: item.short_id })}</span>
-                        {fresh && (
-                          <span title={showsStaleHint(item) ? t("decisions.stale_hint") : undefined}>{fresh}</span>
-                        )}
+                        {fresh && <span>{fresh}</span>}
+                        {hintKey && <span className="decision-stale-hint">{t(hintKey)}</span>}
                       </span>
                     </span>
                     <Badge tone={expired ? "unknown" : "warn"}>
@@ -781,20 +794,8 @@ export default function DecisionsPage() {
         </div>
       </div>
       <div className="decisions-filters">
-        <Tabs id="decisions" items={categoryTabs} active={category} onChange={id => setCategory(id as CategoryFilter)} ariaLabel={t("decisions.title")} />
-        <div className="decisions-filter-controls">
-          {view === "pending" && degradedSources.length > 0 && (
-            <span
-              className="decision-degraded"
-              role="status"
-              title={t("decisions.partial_notice")}
-              aria-label={t("decisions.partial_notice")}
-              data-state="partial"
-              data-degraded-count={degradedSources.length}
-            >
-              <StatusBadge status="partial" />
-            </span>
-          )}
+        {/* Tier one: the main view. Partial-source state is not a view. */}
+        <div className="decisions-view-row">
           <div className="segmented" role="group" aria-label={t("decisions.title")}>
             <button
               type="button"
@@ -815,7 +816,32 @@ export default function DecisionsPage() {
             </button>
           </div>
         </div>
+        {/* Tier two: category. One row, scrolled sideways when it does not fit. */}
+        <div className="decisions-category-row">
+          <Tabs id="decisions" items={categoryTabs} active={category} onChange={id => setCategory(id as CategoryFilter)} ariaLabel={t("decisions.title")} />
+        </div>
       </div>
+      {view === "pending" && degradedSources.length > 0 && (
+        <div
+          className="decision-degraded-note"
+          role="status"
+          data-state="partial"
+          data-degraded-count={degradedSources.length}
+        >
+          <StatusBadge status="partial" />
+          <span>{t("decisions.partial_notice")}</span>
+          <details className="decision-degraded-sources">
+            <summary>{t("decisions.partial_sources")}</summary>
+            <ul>
+              {degradedSources.map(source => (
+                <li key={source.source} data-source={source.source}>
+                  {t(sourceLabelKey(source.source))} · {t(`state.${source.status}`)}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      )}
       <div id="decisions-panel" role="tabpanel" aria-labelledby={`decisions-tab-${category}`} tabIndex={0}>
         {view === "pending" ? renderPending() : <HistoryPanel epoch={epoch} category={category} />}
       </div>

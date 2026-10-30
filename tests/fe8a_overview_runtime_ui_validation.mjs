@@ -54,13 +54,24 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       const html = ui.render(language, { phase: "ready", data });
       assert.ok(html.includes("2/8"));
       assert.ok(!html.includes("—"));
+      assert.ok(html.includes(language === "zh" ? "今日有记录账户" : "Accounts with records today"),
+        "the card names the count it shows: accounts with records, not runs");
       assert.equal(data.counts.runs, null);
       const conflict = ui.render(language, { phase: "ready", data: { ...data, accounts: [{ unavailable_reason: "runtime_daily_binding_conflict" }] } });
       assert.ok(conflict.includes(language === "zh" ? "运行记录存在多个账户绑定" : "Multiple run-record bindings match this account"));
+      // A known denominator makes zero an effective zero: 0/8 accounts have records.
       const empty = ui.render(language, { phase: "ready", data: { ...data, counts: { ...data.counts, observed: 0 } } });
-      assert.ok(empty.includes(language === "zh" ? "暂无数据" : "No data"));
-      assert.ok(!empty.includes("0/8"));
-      assert.ok(empty.includes("—"), "unknown run counts retain a compact empty value");
+      assert.ok(empty.includes("0/8"), "zero observed accounts keep a real 0/N value");
+      assert.ok(!empty.includes("—"), "a known zero is never replaced by an unknown dash");
+      assert.ok(empty.includes(language === "zh" ? "纽约业务日" : "New York business day"),
+        "the business day the count refers to stays next to it");
+      assert.ok(empty.includes(language === "zh" ? "该业务日暂无记录" : "No records for this business day"));
+      assert.ok(empty.includes(language === "zh" ? "部分" : "Partial"), "the partial source state is retained");
+      // Only an unknowable denominator falls back to an unknown value.
+      const unknownCounts = ui.render(language, { phase: "ready", data: { ...data, counts: { ...data.counts, configured: 0, observed: 0 } } });
+      assert.ok(unknownCounts.includes("—"), "an unknowable denominator keeps a compact unknown value");
+      assert.ok(unknownCounts.includes(language === "zh" ? "暂无数据" : "No data"));
+      assert.ok(!unknownCounts.includes("0/0"), "an empty denominator is never rendered as a ratio");
       const failed = ui.render(language, { phase: "error", error: Error("synthetic_read_failed") });
       assert.ok(failed.includes(language === "zh" ? "读取失败" : "Read failed"));
       assert.ok(!failed.includes("0/8"));

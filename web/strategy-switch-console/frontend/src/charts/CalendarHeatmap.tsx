@@ -127,10 +127,14 @@ export function CalendarHeatmap({
         </button>
         <button type="button" className="button button-secondary button-sm" onClick={() => onNavigate(...(month === 12 ? [year + 1, 1] : [year, month + 1]) as [number, number])} aria-label="›">›</button>
       </div>
-      <div className="calendar-month-grid" style={{ marginTop: 12 }}>
-        {WEEKDAY_KEYS.map(day => (
-          <div key={day} className="calendar-weekday">{language === "zh" ? WEEKDAY_ZH[day] : day}</div>
-        ))}
+      {/* Precision is not negotiable, so on a narrow screen the grid keeps real
+          column widths and scrolls inside this box instead of shrinking the
+          numbers. The page itself never scrolls sideways. */}
+      <div className="calendar-scroll" style={{ marginTop: 12 }}>
+        <div className="calendar-month-grid">
+          {WEEKDAY_KEYS.map(day => (
+            <div key={day} className="calendar-weekday">{language === "zh" ? WEEKDAY_ZH[day] : day}</div>
+          ))}
         {weeks.flatMap((row, weekIndex) =>
           [0, 1, 2, 3, 4, 5, 6].map(column => {
             const cell = row[column];
@@ -165,6 +169,8 @@ export function CalendarHeatmap({
               >
                 <span className="cell-date num">{cell.date ? Number(cell.date.slice(8)) : ""}</span>
                 {hasValue && (
+                  // The exact figure, at the shared formatPercent precision. A
+                  // narrow cell never shortens it: the grid scrolls instead.
                   <span className={`cell-value ${cellTone(cell)}`}>
                     {valueText(cell)}
                   </span>
@@ -174,6 +180,7 @@ export function CalendarHeatmap({
             );
           }),
         )}
+        </div>
       </div>
     </div>
   );

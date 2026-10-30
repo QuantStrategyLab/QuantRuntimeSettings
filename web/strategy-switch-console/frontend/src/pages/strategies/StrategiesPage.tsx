@@ -72,7 +72,13 @@ function StrategyCard({ strategy, assignmentKnown = true }: { strategy: Strategy
     <article className="card strategy-card">
       <div className="strategy-card-head">
         <h3 className="strategy-card-title">{names.strategy(strategy.profile)}</h3>
-        {strategy.health_status && <StatusBadge status={strategy.health_status} />}
+        {/* Health is labelled as strategy health so it is never read as platform status. */}
+        <span className="strategy-health-tag">
+          <span className="strategy-health-label">{t("strategies.health_label")}</span>
+          {strategy.health_status
+            ? <StatusBadge status={strategy.health_status} />
+            : <Badge tone="unknown">{t("strategies.health_not_provided")}</Badge>}
+        </span>
       </div>
       <dl className="strategy-rows">
         <div className="strategy-row">
@@ -104,7 +110,7 @@ function StrategyCard({ strategy, assignmentKnown = true }: { strategy: Strategy
       </dl>
       {strategy.configured_accounts.length > 0 && (
         <details className="strategy-details">
-          <summary>{t("strategies.details")}{hasUnknownExecution ? ` · ${t("strategies.execution.unknown")}` : ""}</summary>
+          <summary>{t("strategies.execution_section")}{hasUnknownExecution ? ` · ${t("strategies.execution.unknown")}` : ""}</summary>
           <div className="strategy-details-body">
             <AccountExecution accounts={strategy.configured_accounts} />
           </div>
@@ -156,6 +162,8 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
         {summary.status !== "ok" && <StatusBadge status={summary.status} />}
         <AsOfStamp value={summary.as_of} />
       </div>
+      {/* Said once, in the catalogue: two different sources, neither is a run result. */}
+      <p className="card-note strategy-domain-note">{t("strategies.domain_note")}</p>
       {hasLive && (
         <div className="card-note strategy-live-note">
           <Badge tone="warn">{t("strategies.execution.live")}</Badge>
