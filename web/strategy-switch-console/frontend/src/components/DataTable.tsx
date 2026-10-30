@@ -19,6 +19,7 @@ export function DataTable<T>({
   emptyKey = "state.no_data",
   defaultSort,
   caption,
+  scrollHint = false,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -26,6 +27,8 @@ export function DataTable<T>({
   emptyKey?: MessageKey;
   defaultSort?: { column: string; direction: "asc" | "desc" };
   caption?: string;
+  /** Dense tables scroll inside the wrapper on narrow screens; say so once, in text. */
+  scrollHint?: boolean;
 }) {
   const t = useT();
   const [sort, setSort] = useState(defaultSort || null);
@@ -48,40 +51,43 @@ export function DataTable<T>({
   if (!rows.length) return <EmptyState title={t(emptyKey)} />;
 
   return (
-    <div className="table-wrap" tabIndex={0} role="region" aria-label={caption}>
-      <table className="data-table">
-        {caption && <caption className="sr-only">{caption}</caption>}
-        <thead>
-          <tr>
-            {columns.map(column => {
-              const sortable = Boolean(column.sortValue);
-              const active = sort?.column === column.id;
-              return (
-                <th
-                  key={column.id}
-                  className={`${column.numeric ? "num " : ""}${sortable ? "sortable" : ""}`}
-                  aria-sort={active ? (sort!.direction === "asc" ? "ascending" : "descending") : undefined}
-                >
-                  {sortable ? (
-                    <button type="button" className="table-sort" onClick={() => setSort({ column: column.id, direction: active && sort!.direction === "desc" ? "asc" : "desc" })}>
-                      {column.header}{active ? (sort!.direction === "asc" ? " ▲" : " ▼") : ""}
-                    </button>
-                  ) : column.header}
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map(row => (
-            <tr key={rowKey(row)}>
-              {columns.map(column => (
-                <td key={column.id} className={column.numeric ? "num" : ""}>{column.cell(row)}</td>
-              ))}
+    <>
+      {scrollHint && <p className="table-scroll-hint">{t("common.table_scroll_hint")}</p>}
+      <div className="table-wrap" tabIndex={0} role="region" aria-label={caption}>
+        <table className="data-table">
+          {caption && <caption className="sr-only">{caption}</caption>}
+          <thead>
+            <tr>
+              {columns.map(column => {
+                const sortable = Boolean(column.sortValue);
+                const active = sort?.column === column.id;
+                return (
+                  <th
+                    key={column.id}
+                    className={`${column.numeric ? "num " : ""}${sortable ? "sortable" : ""}`}
+                    aria-sort={active ? (sort!.direction === "asc" ? "ascending" : "descending") : undefined}
+                  >
+                    {sortable ? (
+                      <button type="button" className="table-sort" onClick={() => setSort({ column: column.id, direction: active && sort!.direction === "desc" ? "asc" : "desc" })}>
+                        {column.header}{active ? (sort!.direction === "asc" ? " ▲" : " ▼") : ""}
+                      </button>
+                    ) : column.header}
+                  </th>
+                );
+              })}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {sorted.map(row => (
+              <tr key={rowKey(row)}>
+                {columns.map(column => (
+                  <td key={column.id} className={column.numeric ? "num" : ""}>{column.cell(row)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

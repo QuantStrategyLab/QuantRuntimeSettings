@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useScope } from "../../app/context";
-import { useLanguage, useT } from "../../i18n";
+import { useLanguage, useT, type MessageKey } from "../../i18n";
 import type { AsyncState } from "../../lib/hooks";
 import { formatDate, formatPercentagePoints } from "../../lib/format";
 import type { SummaryResponse } from "../../api/contracts";
@@ -87,14 +87,27 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
     return <KpiCard title={title} value={<span className="currency-totals">
       {data.per_currency.map(item => {
         const dd = item.max_drawdown;
-        const tag = methodTag(item, t);
+        const percent = dd.percent;
+        // A method label explains how a figure was derived, so it only belongs
+        // next to a figure. A missing drawdown shows the dash plus its own
+        // localized reason instead; the code itself stays diagnostic in
+        // data-reason and never becomes user-facing text.
+        const hasValue = percent !== null;
+        const tag = hasValue ? methodTag(item, t) : null;
+        const reason = hasValue ? null
+          : dd.unavailable_reason ? t(`reason.${dd.unavailable_reason}` as MessageKey) : t("state.unavailable");
+        // No dates are invented: a missing figure carries no peak/trough pair.
+        const dates = hasValue && dd.peak_date && dd.trough_date
+          ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) })
+          : null;
         return <span className="currency-total" key={item.currency} data-state={dd.unavailable_reason || undefined}>
           <span className="kpi-sub">{item.currency}</span>
           {tag && <span className="kpi-sub">{tag}</span>}
-          {dd.percent === null ? <span className="flat">—</span> : <Percent value={-dd.percent || 0} />}
-          <span className="kpi-sub">{dd.peak_date && dd.trough_date
-            ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) })
-            : null}</span>
+          {percent === null
+            ? <span className="flat" data-reason={dd.unavailable_reason ?? undefined}>—</span>
+            : <Percent value={-percent || 0} />}
+          {reason && <span className="kpi-sub">{reason}</span>}
+          {dates && <span className="kpi-sub">{dates}</span>}
         </span>;
       })}
     </span>} />;
@@ -189,27 +202,34 @@ export function SummaryCards({ scope, platform, state, chartAvailable }: Summary
     return <ErrorState onRetry={state.reload} />;
   }
   const data = state.data;
+  const blank = summaryIsBlank(data);
+  // Only a mixed-currency scope gets an explained sentence, and only that scope.
+  // Other reasons stay diagnostic (data-reason) so the short state is not
+  // repeated as body copy; no FX rate is ever inferred here.
+  const coverage = data.coverage;
+  const fxNotApplied = !!coverage && !Array.isArray(coverage) && coverage !== "fills_not_connected"
+    && coverage.fx === "not_applied";
+  const inPlaceReason = data.unavailable_reason === "mixed_currency"
+    ? t(fxNotApplied ? "perf.mixed_currency_unavailable" : "perf.mixed_currency_native")
+    : blank && chartAvailable ? t("perf.combined_metrics_unavailable") : null;
   return (
     <div className="section-stack">
-      {(data.status !== "ok" || data.unavailable_reason || data.as_of) && (
+      {(data.status !== "ok" || data.unavailable_reason || data.as_of || inPlaceReason) && (
         <div className="metric-note perf-summary-note" data-state={data.status}
           data-reason={data.unavailable_reason ?? undefined}>
           {data.status !== "ok" && <StatusBadge status={data.status} />}
+          {inPlaceReason && <span className="state-short">{inPlaceReason}</span>}
           {data.as_of && <AsOfStamp value={data.as_of} />}
         </div>
       )}
-      {chartAvailable && summaryIsBlank(data) ? (
-        <p className="metric-note perf-summary-note">{t("perf.combined_metrics_unavailable")}</p>
-      ) : (
-        <div className="perf-kpi-grid">
-          <TwrCard data={data} />
-          <AmountCard data={data} />
-          <DrawdownCard data={data} />
-          <ExcessCard data={data} policy={policy} />
-          <DayCard data={data} field="best_day" titleKey="perf.card.best_day" />
-          <DayCard data={data} field="worst_day" titleKey="perf.card.worst_day" />
-        </div>
-      )}
+      <div className="perf-kpi-grid">
+        <TwrCard data={data} />
+        <AmountCard data={data} />
+        <DrawdownCard data={data} />
+        <ExcessCard data={data} policy={policy} />
+        <DayCard data={data} field="best_day" titleKey="perf.card.best_day" />
+        <DayCard data={data} field="worst_day" titleKey="perf.card.worst_day" />
+      </div>
     </div>
   );
 }

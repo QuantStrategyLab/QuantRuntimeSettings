@@ -815,16 +815,24 @@ export default {
         });
       }
       if (["/api/decisions-inbox", "/api/owner-decisions/history", "/api/accounts", "/api/account-settings/diff", "/api/account-settings/history", "/api/account-settings/draft", "/api/runtime/today", "/api/strategies/summary", "/api/notifications/send-log", "/api/accounts/run-controls"].includes(url.pathname)) {
+        // The today projection invokes the same daily reader once per account.
+        // Share only this request's authenticated session and binding inputs.
+        let todaySession, todayOptions, todayRegistered;
+        const today = url.pathname === "/api/runtime/today";
+        const readTodaySession = () => todaySession ??= readSession(request, env);
+        const readTodayOptions = () => todayOptions ??= loadAccountOptionsConfig(env);
+        const readTodayRegistered = () => todayRegistered ??= readTodayOptions().then(config => runtimeDailyRegisteredBindings(env, config.options));
         return await consoleApiResponse(request, env, {
-          json, readSession, command: runtimeInstanceCommand, accountOptions: loadAccountOptionsConfig,
+          json, readSession: today ? readTodaySession : readSession, command: runtimeInstanceCommand,
+          accountOptions: today ? readTodayOptions : loadAccountOptionsConfig,
           settings: accountSettingsResponse, saveDraft: saveCombinedAccountDraft,
           owner: ownerDecisionQueueResponse, promotion: researchPromotionTicketsResponse,
           recovery: reconciliationRecoveryResponse, credential: (req, e) => credentialMaintenanceResponse(req, e, new URL("/api/credential-maintenance", req.url)),
           audit: loadAuditLog,
           profiles: loadStrategyProfilesConfig, health: strategyHealthResponse,
           currentStrategies: (options, e) => readCurrentStrategies(options, e, ctx),
-          dailyBindings: async e => runtimeDailyReadModelEnabled(e) ? runtimeDailyPublicBindings(e, (await loadAccountOptionsConfig(e)).options) : [],
-          daily: (req, e) => runtimeDailyResponse(req, e, new URL(req.url)),
+          dailyBindings: async e => runtimeDailyReadModelEnabled(e) ? runtimeDailyPublicBindings(e, (await (today ? readTodayOptions() : loadAccountOptionsConfig(e))).options, today ? readTodayRegistered : undefined) : [],
+          daily: (req, e) => runtimeDailyResponse(req, e, new URL(req.url), today ? { readSession: readTodaySession, readOptions: readTodayOptions, readRegistered: readTodayRegistered } : undefined),
           notificationReceipts: e => readNotificationLog({ repository: e.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY, token: e.RUNTIME_SETTINGS_DISPATCH_TOKEN }),
           runControls: consoleRunControls,
         });
@@ -9504,7 +9512,7 @@ async function runtimeDailyRegisteredBindings(env, accountOptions) {
   }));
 }
 
-async function runtimeDailyPublicBindings(env, accountOptions) {
+async function runtimeDailyPublicBindings(env, accountOptions, readRegistered = () => runtimeDailyRegisteredBindings(env, accountOptions)) {
   const legacy = await Promise.all(Object.values(RUNTIME_DAILY_TARGETS).map(async target => {
     try {
       const binding = await runtimeDailyTrustedBinding(env, target, accountOptions);
@@ -9515,7 +9523,7 @@ async function runtimeDailyPublicBindings(env, accountOptions) {
     }
   }));
   try {
-    const registered = await runtimeDailyRegisteredBindings(env, accountOptions);
+    const registered = await readRegistered();
     return [...legacy, ...registered.map(({ platform, target_key, account_key, status }) => ({ platform, target_key, account_key, status }))];
   } catch {
     return [...legacy, { platform: "ibkr", target_key: "", account_key: null, status: "read_failed" }];
@@ -9748,9 +9756,9 @@ async function syncRuntimeDailyResponse(request, env) {
   });
 }
 
-async function runtimeDailyResponse(request, env, url) {
+async function runtimeDailyResponse(request, env, url, context = null) {
   if (!runtimeDailyReadModelEnabled(env)) return runtimeDailyDisabledResponse();
-  const session = await readSession(request, env);
+  const session = await (context ? context.readSession() : readSession(request, env));
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   if (!hasConfigStore(env)) return json({ ok: false, error: "runtime daily KV is not configured" }, 503);
   const platforms = url.searchParams.getAll("platform");
@@ -9768,8 +9776,8 @@ async function runtimeDailyResponse(request, env, url) {
   if (!businessDate || businessDate > runtimeDailyToday()) return json({ ok: false, error: "invalid_runtime_daily_date" }, 400);
   let binding;
   try {
-    const config = await loadAccountOptionsConfig(env);
-    const matches = accounts.length ? (await runtimeDailyRegisteredBindings(env, config.options))
+    const config = await (context ? context.readOptions() : loadAccountOptionsConfig(env));
+    const matches = accounts.length ? (await (context ? context.readRegistered() : runtimeDailyRegisteredBindings(env, config.options)))
       .filter(item => item.platform === platforms[0] && item.account_key === accounts[0]) : [];
     if (matches.length) {
       if (matches.length !== 1 || matches[0].status !== "bound") return runtimeDailyUnattributedResponse();

@@ -127,8 +127,20 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
             const evidence = config?.currentStrategies?.[row.platform]?.[row.account_alias]?.execution_evidence;
             const enabled = config?.currentStrategies?.[row.platform]?.[row.account_alias]?.runtime_target_enabled;
             return <div className="account-strategy-block" key={accountKey(row)}>
-              <button type="button" className="account-strategy-link" onClick={() => onSelect(accountKey(row))}>
-                <span className="account-strategy-name">{strategy ? names.strategy(strategy) : t("common.unknown")}</span>
+              <button
+                type="button"
+                className="account-strategy-link"
+                aria-label={t("accounts.open_strategy", {
+                  account: names.account(row.account_alias, row.platform),
+                  strategy: strategy ? names.strategy(strategy) : t("common.unknown"),
+                })}
+                onClick={() => onSelect(accountKey(row))}
+              >
+                <span className="account-strategy-head">
+                  <span className="account-strategy-name">{strategy ? names.strategy(strategy) : t("common.unknown")}</span>
+                  {/* Visible affordance: the row opens the strategy settings. */}
+                  <span className="account-strategy-chevron" aria-hidden="true">›</span>
+                </span>
                 {typeof enabled === "boolean" && <span className="account-row"><span title={t("accounts.execution.runtime_target_note")}>{t("accounts.activation_setting")}</span><span>{t(enabled ? "overview.runtime_enabled" : "overview.runtime_disabled")}</span></span>}
                 {row.pending_draft_count > 0 && <span className="account-row"><span>{t("accounts.col.drafts")}</span><span>{row.pending_draft_count}</span></span>}
                 {row.pending_decision_count !== null && row.pending_decision_count > 0 && (

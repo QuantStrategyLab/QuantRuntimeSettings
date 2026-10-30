@@ -8,6 +8,7 @@ export function KpiCard({
   footer,
   detail,
   onClick,
+  className,
 }: {
   title: string;
   value: ReactNode;
@@ -16,6 +17,8 @@ export function KpiCard({
   /** Collapsible specifics; rendered only on non-navigating cards, never inside a button. */
   detail?: ReactNode;
   onClick?: () => void;
+  /** Layout hook for the owning page (e.g. a card that needs its own row on narrow screens). */
+  className?: string;
 }) {
   // Block values (native-currency totals) need a div; keep spans when the card
   // itself is a button, since a button cannot contain flow content.
@@ -27,8 +30,9 @@ export function KpiCard({
       {footer && <span className="kpi-foot">{footer}</span>}
     </>
   );
+  const classes = className ? `kpi-card ${className}` : "kpi-card";
   if (onClick) {
-    return <button type="button" className="kpi-card" onClick={onClick}>{inner("span")}</button>;
+    return <button type="button" className={classes} onClick={onClick}>{inner("span")}</button>;
   }
-  return <div className="kpi-card">{inner("div")}{detail}</div>;
+  return <div className={classes}>{inner("div")}{detail}</div>;
 }

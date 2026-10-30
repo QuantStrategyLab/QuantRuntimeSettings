@@ -3,16 +3,16 @@
 .overview-summary {
   display: grid;
   grid-template-columns: minmax(300px, 1.1fr) minmax(0, 1.7fr);
-  align-items: stretch;
+  /* The asset card sizes to its content; it no longer stretches to match the 2x2 grid. */
+  align-items: start;
   gap: 14px;
 }
 .overview-primary-kpi, .overview-secondary-kpis { min-width: 0; }
 .overview-primary-kpi > .kpi-card {
-  height: 100%;
+  height: auto;
   gap: 8px;
   padding: 20px 22px;
   border-top: 2px solid var(--accent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, var(--surface)) 0%, var(--surface) 62%);
 }
 .overview-primary-kpi .kpi-title { color: var(--accent); font-size: 13px; font-weight: 600; }
 .overview-primary-kpi .kpi-value {

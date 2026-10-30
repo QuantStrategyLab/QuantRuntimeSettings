@@ -376,6 +376,34 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
       : data && (isApproximateDietz(data) || data.per_currency.some(isApproximateDietz)) ? "perf.method_body_dietz"
         : "perf.method_body";
 
+  // When the combined series cannot be drawn, the per-account native returns
+  // move above the combined empty state instead of sitting below a large blank.
+  const combinedDrawn = Boolean(view && renderableStatus(view.status) && view.points.length > 0);
+  const accountDaily = accountSeries.length > 0 ? (
+    <section className="perf-account-daily" data-account-daily-count={accountSeries.length}>
+      <div className="perf-card-head">
+        <h3 className="card-title">{t("perf.per_account_daily_title")}</h3>
+      </div>
+      <p className="card-note">{t("perf.per_account_daily_note")}</p>
+      {accountSeries.map(account => {
+        const label = `${names.platform(account.platform)} · ${names.account(account.accountAlias, account.platform)}`;
+        return (
+          <div key={account.key} className="perf-account-daily-item" data-account={account.accountAlias}>
+            <p className="card-note">
+              <span className="perf-kind">{label}</span>
+              {account.currency && <span className="perf-currency"> · {account.currency}</span>}
+            </p>
+            <LineChart
+              series={[{ id: "main", label, color: "var(--accent)", points: account.points, primary: true }]}
+              mode="daily"
+              ariaLabel={`${t("perf.per_account_daily_title")} · ${label}`}
+            />
+          </div>
+        );
+      })}
+    </section>
+  ) : null;
+
   return (
     <div className="card">
       <div className="perf-card-head">
@@ -409,31 +437,9 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
           {view && renderableStatus(view.status) && <AsOfStamp value={view.asOf} />}
         </span>
       </div>
+      {!combinedDrawn && accountDaily}
       {body}
-      {accountSeries.length > 0 && (
-        <section className="perf-account-daily" data-account-daily-count={accountSeries.length}>
-          <div className="perf-card-head">
-            <h3 className="card-title">{t("perf.per_account_daily_title")}</h3>
-          </div>
-          <p className="card-note">{t("perf.per_account_daily_note")}</p>
-          {accountSeries.map(account => {
-            const label = `${names.platform(account.platform)} · ${names.account(account.accountAlias, account.platform)}`;
-            return (
-              <div key={account.key} className="perf-account-daily-item" data-account={account.accountAlias}>
-                <p className="card-note">
-                  <span className="perf-kind">{label}</span>
-                  {account.currency && <span className="perf-currency"> · {account.currency}</span>}
-                </p>
-                <LineChart
-                  series={[{ id: "main", label, color: "var(--accent)", points: account.points, primary: true }]}
-                  mode="daily"
-                  ariaLabel={`${t("perf.per_account_daily_title")} · ${label}`}
-                />
-              </div>
-            );
-          })}
-        </section>
-      )}
+      {combinedDrawn && accountDaily}
       {unchartedNativeAccounts.length > 0 ? <p className="card-note" data-native-return-accounts={unchartedNativeAccounts.length}>{t("perf.native_return_accounts", { accounts: unchartedNativeAccounts.map(account => `${names.platform(account.platform)} · ${names.account(account.account_alias, account.platform)}`).join("、") })}</p> : null}
       <MethodNote titleKey="perf.how_calculated" bodyKey={methodBodyKey} />
     </div>

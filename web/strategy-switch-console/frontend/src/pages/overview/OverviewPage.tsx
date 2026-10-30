@@ -32,7 +32,6 @@ import { useScopeLabel } from "../../lib/useScopeLabel";
 import {
   AsOfStamp,
   Badge,
-  DateText,
   EmptyState,
   ErrorState,
   Money,
@@ -198,7 +197,9 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   const t = useT();
   const navigate = useNavigate();
   const open = () => navigate({ page: "health" });
-  const title = t("nav.health");
+  // "Accounts with records today" is a count of observed accounts, never a run
+  // count and never a success count.
+  const title = t("overview.runs_card_title");
   if (state.phase === "loading") {
     return <KpiCard title={title} value={<Skeleton height={28} width="70%" />} onClick={open} />;
   }
@@ -207,18 +208,24 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   }
   const data = state.data;
   const { configured, observed } = data.counts;
-  const value = observed === 0 ? <KpiState status="no_data" /> : <>{observed}/{configured}</>;
+  // A known denominator makes 0/N an effective zero. Only an unknowable
+  // denominator or count falls back to an em dash; a null run count is not
+  // displayed at all, so it can never read as zero.
+  const denominatorKnown = Number.isSafeInteger(configured) && configured > 0
+    && Number.isSafeInteger(observed) && observed >= 0;
+  const value = denominatorKnown ? `${observed}/${configured}` : <KpiState status="unknown" />;
   const reason = data.accounts?.some(account => account.unavailable_reason === "runtime_daily_binding_conflict")
     ? "runtime_daily_binding_conflict" : "runtime_daily_not_connected";
-  const footer = observed === 0
-    ? <><span className="asof"><DateText value={data.date} /></span>{data.status === "partial" && <StatusBadge status="partial" reason={reason} />}</>
-    : data.status === "partial" ? <StatusBadge status="partial" reason={reason} /> : undefined;
+  const sub = denominatorKnown
+    ? <>{t("overview.business_date", { value: data.date })}
+        {observed === 0 && <> · {t("overview.no_records_for_day")}</>}</>
+    : t("state.no_data");
   return (
     <KpiCard
       title={title}
       value={value}
-      sub={observed === 0 ? t("state.no_data") : <DateText value={data.date} />}
-      footer={footer}
+      sub={sub}
+      footer={data.status === "partial" ? <StatusBadge status="partial" reason={reason} /> : undefined}
       onClick={open}
     />
   );

@@ -1,0 +1,39 @@
+import assert from 'node:assert/strict';
+import worker, { __test } from './helpers/directory_worker.mjs';
+
+// Only synthetic KV and a local Worker are used. Exercise the actual routing,
+// binding resolution and per-account readers, not a mocked todaySummary.
+globalThis.fetch = async () => { throw Error('external request forbidden'); };
+const store = new Map(), reads = new Map();
+let failedKey = null;
+const kv = { async get(key) { reads.set(key, (reads.get(key) || 0) + 1); if (key === failedKey) throw Error('synthetic read failure'); return store.get(key) ?? null; }, async put(key,value) { store.set(key,value); }, async list() { return { keys: [] }; } };
+const env = { STRATEGY_SWITCH_CONFIG: kv, RUNTIME_DAILY_READ_MODEL_ENABLED:'true', SESSION_SECRET:'synthetic-session', ALLOWED_GITHUB_LOGINS:'reader' };
+const cookie = await __test.makeSession('reader', [], env);
+const options = Array.from({length:10},(_,i)=>({key:`account-${i}`,label:`Account ${i}`,target_name:`target-${i}`,service_name:'synthetic-service',deployment_selector:`deployment-${i}`,account_scope:'live',account_selector:`U10000${i}`}));
+const facts = options.map((o,i)=>({platform:'ibkr',account_key:o.key,account_scope:o.account_scope,target_name:o.target_name,service_name:o.service_name,deployment_selector:o.deployment_selector,account_selector:o.account_selector,target_id:`target-${i}`,source_binding:{kind:'deployment_runtime_account',id:(i+1).toString(16).repeat(64)}}));
+const registry = facts.map((f,i)=>({account_key:f.account_key,target_id:f.target_id,source_binding_id:f.source_binding.id,strategy_profile:'synthetic-strategy',target_key:`synthetic-service|synthetic-strategy|live|${(i+1).toString(16).repeat(32)}`}));
+const save=(key,value)=>store.set(key,JSON.stringify(value));
+save('account_options',{ibkr:options});
+save('account_facts_bindings',{schema_version:'qsl_account_facts_bindings.v1',bindings:facts});
+save('runtime_daily_bindings',{schema_version:'qsl_runtime_daily_bindings.v1',bindings:registry});
+const get=path=>worker.fetch(new Request(`https://fixture.invalid${path}`,{headers:{Cookie:`qsl_switch_session=${cookie}`}}),env);
+reads.clear();
+const response=await get('/api/runtime/today');
+assert.equal(response.status,200);
+const body=await response.json();
+assert.equal(body.accounts.length,10);
+assert.ok(body.accounts.every(row=>row.status==='no_data' && row.unavailable_reason==='today_record_missing'));
+console.log('synthetic shared reads', JSON.stringify(Object.fromEntries(['auth_config','account_options','runtime_daily_bindings','account_facts_bindings'].map(key => [key, reads.get(key)]))));
+assert.equal(reads.get('runtime_daily_bindings'),1,'one registry read for the request');
+assert.equal(reads.get('account_options'),1,'one account options read for the request');
+assert.equal(reads.get('account_facts_bindings'),1,'one protected facts read for the request');
+assert.equal(reads.get('auth_config'),1,'one session validation for the request');
+failedKey='runtime_daily_bindings';
+const failed=await (await get('/api/runtime/today')).json();
+assert.ok(failed.accounts.every(row=>row.status==='read_failed'));
+failedKey=null;
+const bad=[...registry];bad[0]={...bad[0],source_binding_id:registry[1].source_binding_id};save('runtime_daily_bindings',{schema_version:'qsl_runtime_daily_bindings.v1',bindings:bad});
+const conflict=await (await get('/api/runtime/today')).json();
+assert.equal(conflict.accounts[0].unavailable_reason,'runtime_daily_binding_conflict');
+assert.equal(conflict.accounts[2].status,'no_data');
+console.log('runtime today request reuse: PASS');

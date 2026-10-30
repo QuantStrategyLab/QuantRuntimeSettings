@@ -2,16 +2,44 @@
 
 .decisions-filters {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 16px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--line);
 }
-.decisions-filters .tabs { flex: 1 1 auto; border-bottom: 0; }
-.decisions-filter-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
-.decision-degraded { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.decisions-view-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.decisions-view-row .segmented { flex: 0 0 auto; }
+.decisions-category-row { min-width: 0; }
+/* One row of categories; it scrolls sideways instead of wrapping into a block. */
+.decisions-category-row .tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 0;
+}
+.decisions-category-row .tabs::-webkit-scrollbar { display: none; }
+.decisions-category-row .tab { flex: 0 0 auto; white-space: nowrap; }
+
+/* Persistent partial-source notice: visible text, expandable source names. */
+.decision-degraded-note {
+  display: flex;
+  align-items: center;
+  gap: 8px 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--status-warn);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--status-warn) 8%, var(--surface));
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.decision-degraded-sources { font-size: 12px; color: var(--muted); }
+.decision-degraded-sources > summary { display: inline-flex; align-items: center; min-height: 28px; cursor: pointer; }
+.decision-degraded-sources ul { margin: 4px 0 0; padding-left: 18px; }
 
 .decision-detail-head { display: flex; flex-direction: column; gap: 8px; }
 
@@ -60,6 +88,7 @@
 .inbox-item { padding: 12px 14px; border-radius: 10px; }
 .inbox-item .item-title { font-size: 14px; line-height: 1.4; }
 .inbox-item .item-meta { margin-top: 3px; }
+.inbox-item .item-meta-secondary { margin-top: 2px; color: var(--muted); font-size: 12px; }
 .inbox-item.is-expired { opacity: 0.7; }
 
 .inbox-detail { top: 76px; }
@@ -134,10 +163,9 @@
 
 @media (max-width: 600px) {
   .decisions-filters { align-items: stretch; }
-  .decisions-filters .tabs { width: 100%; }
-  .decisions-filter-controls { width: 100%; margin-left: 0; justify-content: space-between; }
-  .decisions-filter-controls .segmented { flex: 1 1 auto; }
-  .decisions-filters .segment { flex: 1 1 auto; justify-content: center; }
+  .decisions-view-row .segmented { flex: 1 1 auto; }
+  .decisions-view-row .segment { flex: 1 1 auto; justify-content: center; }
+  .decisions-category-row .tab { min-height: 44px; }
   .decision-prompt { font-size: 14px; }
   .inbox-item { padding: 11px 12px; }
   .initial-enrollment-scope,

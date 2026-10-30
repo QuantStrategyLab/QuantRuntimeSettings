@@ -237,15 +237,21 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 
 .more-sheet {
   position: fixed;
-  left: 0; right: 0; bottom: 0;
+  left: 0; right: 0;
+  /* Sits above the fixed tab bar instead of covering it. */
+  bottom: calc(var(--bottom-tabs-height) + env(safe-area-inset-bottom));
   background: var(--surface);
   border-top: 1px solid var(--line);
   border-radius: 16px 16px 0 0;
-  padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+  padding: 8px 16px 16px;
+  max-height: 70dvh;
+  overflow-y: auto;
   z-index: 40;
   box-shadow: var(--shadow);
 }
-.more-sheet .nav-item { font-size: 16px; }
+.more-sheet .nav-item { font-size: 16px; min-height: 44px; }
+
+.lang-label-short { display: none; }
 
 /* ---------- Buttons ---------- */
 
@@ -770,6 +776,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 .health-grid table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 12px; }
 .health-grid-hint { display: none; margin: 0 0 8px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.table-scroll-hint { display: none; margin: 0 0 6px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .health-grid th, .health-grid td { padding: 4px; text-align: center; }
 .health-grid th { color: var(--muted); font-weight: 500; white-space: nowrap; }
 .health-cell {
@@ -793,7 +800,9 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* ---------- Scope switcher ---------- */
 
-.scope-switcher { position: relative; }
+.scope-switcher { position: relative; min-width: 0; }
+.scope-trigger { max-width: 100%; min-width: 0; }
+.scope-trigger-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scope-panel {
   position: absolute;
   top: calc(100% + 4px);
@@ -817,7 +826,22 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   padding: 8px;
   border-radius: var(--radius-s);
   text-align: left;
+  min-width: 0;
 }
+/* The open panel is the one place the full account name must be readable, so a
+   long unbroken name wraps inside the option instead of pushing the panel wide.
+   min-width:0 defeats the flex item's automatic minimum, which would otherwise
+   keep the text on one line. */
+.scope-option-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.scope-option .badge { flex: none; }
+/* Same automatic-minimum problem inside the panel's status row. */
+.scope-panel-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .scope-option:hover { background: var(--surface-2); }
 .scope-option.active { color: var(--accent); font-weight: 600; }
 
@@ -917,6 +941,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
      safe area, with a gap, so the last row of every page clears the nav. */
   .content { padding: 14px 12px calc(var(--bottom-tabs-height) + 40px + env(safe-area-inset-bottom)); }
   .health-grid-hint { display: block; }
+  .table-scroll-hint { display: block; }
   .page { gap: 14px; }
   .page-header { gap: 10px; }
   .page-title { font-size: 20px; }
@@ -932,6 +957,19 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .kpi-value { font-size: 21px; }
   .kpi-card { padding: 12px 13px; }
   .topbar-updated { display: none; }
+  /* Topbar keeps one row: the scope trigger flexes and truncates, the icon
+     controls keep a 44px touch target. */
+  .topbar { flex-wrap: nowrap; gap: 8px; padding: 8px 12px; }
+  .topbar .scope-switcher { flex: 1 1 auto; min-width: 0; }
+  .topbar .spacer { display: none; }
+  .lang-label-full { display: none; }
+  .lang-label-short { display: inline; }
+  .topbar .theme-toggle-label { display: none; }
+  .topbar .appearance-toggle,
+  .topbar .icon-button,
+  .topbar .user-menu > summary { min-width: 44px; min-height: 44px; }
+  .scope-panel { width: min(340px, calc(100vw - 24px)); max-height: 60dvh; }
+  .scope-option { min-height: 44px; }
   .calendar-year-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .inbox-actions { position: static; }
   .empty-state, .error-state { padding: 11px 12px; }
@@ -960,17 +998,25 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .appearance-toggle { flex: 0 0 auto; white-space: nowrap; }
 .account-platform-group + .account-platform-group { margin-top: 20px; }
 .account-platform-title { margin: 0 0 10px; font-size: 16px; }
-.account-strategy-link { display: flex; flex-direction: column; text-align: left; width: 100%; gap: 6px; padding: 10px 0; }
+.account-strategy-link { display: flex; flex-direction: column; text-align: left; width: 100%; gap: 6px; padding: 10px 8px; margin: 0 -8px; border-radius: 8px; transition: background-color 120ms ease; }
 .account-strategy-link + .account-strategy-link { border-top: 1px solid var(--line); }
 .account-strategy-link:hover .account-strategy-name { color: var(--accent); text-decoration: underline; }
+/* The row opens settings: show it with a chevron and a hover/focus surface. */
+.account-strategy-link:hover,
+.account-strategy-link:focus-visible { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.account-strategy-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.account-strategy-chevron { flex: 0 0 auto; color: var(--muted); font-size: 16px; line-height: 1; transition: color 120ms ease, transform 120ms ease; }
+.account-strategy-link:hover .account-strategy-chevron,
+.account-strategy-link:focus-visible .account-strategy-chevron { color: var(--accent); transform: translateX(2px); }
 .account-strategy-name { font-weight: 600; overflow-wrap: anywhere; }
 .account-broker-title { margin: 0 0 8px; font-size: 15px; overflow-wrap: anywhere; }
 .account-identity-note { color: var(--muted); font-size: 12px; }
 @media (max-width: 768px) {
-  .theme-toggle-label { display: none; }
-  .topbar { gap: 6px; padding-inline: 12px; }
-  .topbar .scope-switcher { min-width: 0; max-width: 40%; }
+  .topbar { gap: 8px; padding-inline: 12px; }
+  /* The scope trigger takes the free space; its own label truncates. */
+  .topbar .scope-switcher { min-width: 0; }
   .scope-switcher > button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account-strategy-link { min-height: 44px; }
 }
 
 .account-group-card .account-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }

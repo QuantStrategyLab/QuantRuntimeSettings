@@ -1,6 +1,7 @@
 /* Strategies page: catalog cards + research leads list. */
 
 .catalog-meta { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.strategy-domain-note { margin: 0; max-width: 88ch; }
 
 .strategy-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .strategy-section-title { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
@@ -8,8 +9,11 @@
 .strategy-section-empty { margin: 0; padding: 10px 0; }
 
 .strategy-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px 18px; }
-.strategy-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.strategy-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .strategy-card-title { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+/* "Strategy health: X" reads as one qualified fact, not a bare status chip. */
+.strategy-health-tag { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.strategy-health-label { color: var(--muted); font-size: 12px; }
 
 .strategy-rows { margin: 0; display: flex; flex-direction: column; gap: 0; }
 .strategy-row {
