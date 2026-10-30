@@ -131,7 +131,10 @@ try {
     const missingCashflowReason = language === "zh" ? "缺少完整出入金记录，无法计算 TWR 及其回撤。"
       : "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated.";
     ok(oldCards.includes('data-reason="no_cashflow_data"'), "TWR-unavailable reason remains diagnostic");
-    ok(!visibleText(oldCards).includes(missingCashflowReason), "the shared reason does not occupy each metric card");
+    // The reason explains the one card whose figure is missing, once: it never
+    // spreads across every metric card.
+    assert.equal(visibleText(oldCards).split(missingCashflowReason).length - 1, 1,
+      "the shared reason explains the missing drawdown exactly once");
     checks += 1;
     ok(!oldCards.includes("<details"), "summary metrics keep no audit details block");
     ok(visibleText(oldCards).includes(UNAVAILABLE[language]), "the missing TWR keeps a short visible state");
@@ -181,22 +184,43 @@ try {
     ok(twoCards.indexOf(DIETZ[language]) > twoCards.indexOf("USD")
       && (twoCards.match(/Modified Dietz/g) || []).length === 1,
       "only the USD row carries the approximate tag");
+    const drawdownTexts = language === "zh"
+      ? ["暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
+      : ["No valuation is available.", "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
+    // HKD has no figure, USD has a real zero: only the row without a value
+    // explains itself, and the valued row keeps its label and its number.
+    const twoText = visibleText(twoCards);
+    assert.equal(twoText.split(drawdownTexts[1]).length - 1, 1,
+      "the row without a value states its reason exactly once");
+    checks += 1;
+    ok(twoText.indexOf(drawdownTexts[1]) < twoText.indexOf("USD"),
+      "the valued row gains no reason text next to its number");
+    ok(twoCards.includes("0.00%"), "a real zero drawdown stays 0.00%");
     const drawdownReasons = structuredClone(two.summary);
     drawdownReasons.per_currency[0].max_drawdown.unavailable_reason = "no_snapshot";
     drawdownReasons.per_currency[1].max_drawdown.percent = null;
     drawdownReasons.per_currency[1].max_drawdown.unavailable_reason = "no_cashflow_data";
     const drawdownCards = renderCards(language, drawdownReasons);
-    const drawdownTexts = language === "zh"
-      ? ["暂无可用估值。", "缺少完整出入金记录，无法计算 TWR 及其回撤。"]
-      : ["No valuation is available.", "Complete cash-flow records are missing; TWR and its drawdown cannot be calculated."];
     ok(drawdownCards.includes('data-state="no_snapshot"') && drawdownCards.includes('data-state="no_cashflow_data"'),
       "each missing drawdown retains its distinct diagnostic state");
-    for (const reason of drawdownTexts) ok(!visibleText(drawdownCards).includes(reason), "drawdown reasons do not stretch the metric grid");
+    // A method label explains how a figure was derived, so it cannot survive the
+    // figure: the approximate row that lost its percent drops the tag and states
+    // its own localized reason instead. The intact fixture above still proves the
+    // label is kept whenever the value exists.
+    ok(!drawdownCards.includes(DIETZ[language]),
+      "a missing drawdown drops the approximate label it never used");
+    for (const reason of drawdownTexts) {
+      assert.equal(visibleText(drawdownCards).split(reason).length - 1, 1,
+        "each missing row states its own localized reason exactly once");
+      checks += 1;
+    }
     ok(!drawdownCards.includes("<details"), "per-currency drawdown keeps no audit details");
     ok(visibleText(drawdownCards).includes("HKD") && visibleText(drawdownCards).includes("USD"),
       "currency labels remain visible next to their drawdowns");
-    ok(visibleText(drawdownCards).includes(DIETZ[language]), "the real approximate method tag remains visible");
+    ok(drawdownCards.includes('data-reason="no_cashflow_data"'),
+      "the raw reason code stays available as diagnostic data");
     ok(visibleText(drawdownCards).includes("—"), "missing drawdowns keep an honest blank");
+    ok(!visibleText(drawdownCards).includes("→"), "a missing drawdown invents no peak/trough dates");
     const twoReturns = renderReturns(language, two.returns, "all");
     ok(twoReturns.includes(">USD</button>") && twoReturns.includes(">HKD</button>"), "currency switch offers each entry");
     assert.equal((twoReturns.match(/class="perf-kind"/g) || []).length, 1, "only the selected currency curve is rendered");

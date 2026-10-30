@@ -60,21 +60,43 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       const conflict = ui.render(language, { phase: "ready", data: { ...data, accounts: [{ unavailable_reason: "runtime_daily_binding_conflict" }] } });
       assert.ok(conflict.includes(language === "zh" ? "运行记录存在多个账户绑定" : "Multiple run-record bindings match this account"));
       // A known denominator makes zero an effective zero: 0/8 accounts have records.
+      const NO_RECORDS = { zh: "当前未观测到该业务日记录", en: "No records observed for this business day" };
+      const NOT_CONNECTED = { zh: "运行记录源未接入", en: "The run-record source is not connected" };
+      const BINDING_CONFLICT = { zh: "运行记录存在多个账户绑定", en: "Multiple run-record bindings match this account" };
       const empty = ui.render(language, { phase: "ready", data: { ...data, counts: { ...data.counts, observed: 0 } } });
       assert.ok(empty.includes("0/8"), "zero observed accounts keep a real 0/N value");
       assert.ok(!empty.includes("—"), "a known zero is never replaced by an unknown dash");
       assert.ok(empty.includes(language === "zh" ? "纽约业务日" : "New York business day"),
         "the business day the count refers to stays next to it");
-      assert.ok(empty.includes(language === "zh" ? "该业务日暂无记录" : "No records for this business day"));
+      assert.ok(empty.includes(NO_RECORDS[language]), "zero observations say what was observed, not that trading was absent");
+      assert.ok(!empty.includes(language === "zh" ? "该业务日暂无记录" : "No records for this business day"),
+        "the retired wording is gone");
       assert.ok(empty.includes(language === "zh" ? "部分" : "Partial"), "the partial source state is retained");
+      assert.ok(empty.includes(NOT_CONNECTED[language]), "an unconnected run-record source stays named next to the zero");
+      // The same zero keeps its wording when the reason is a binding conflict.
+      const zeroConflict = ui.render(language, { phase: "ready", data: {
+        ...data, counts: { ...data.counts, observed: 0 },
+        accounts: [{ unavailable_reason: "runtime_daily_binding_conflict" }],
+      } });
+      assert.ok(zeroConflict.includes("0/8") && zeroConflict.includes(NO_RECORDS[language]),
+        "a binding conflict does not change the observed count or its wording");
+      assert.ok(zeroConflict.includes(BINDING_CONFLICT[language]), "the binding conflict reason stays visible");
+      assert.ok(!zeroConflict.includes(NOT_CONNECTED[language]), "one source state is named, not two");
       // Only an unknowable denominator falls back to an unknown value.
       const unknownCounts = ui.render(language, { phase: "ready", data: { ...data, counts: { ...data.counts, configured: 0, observed: 0 } } });
       assert.ok(unknownCounts.includes("—"), "an unknowable denominator keeps a compact unknown value");
       assert.ok(unknownCounts.includes(language === "zh" ? "暂无数据" : "No data"));
       assert.ok(!unknownCounts.includes("0/0"), "an empty denominator is never rendered as a ratio");
+      assert.ok(!unknownCounts.includes(NO_RECORDS[language]), "an unknown denominator claims no observation either");
       const failed = ui.render(language, { phase: "error", error: Error("synthetic_read_failed") });
       assert.ok(failed.includes(language === "zh" ? "读取失败" : "Read failed"));
       assert.ok(!failed.includes("0/8"));
+      assert.ok(!failed.includes(NO_RECORDS[language]), "a failed read is not reported as zero observations");
+      // A response-level read failure takes the same branch, never the zero copy.
+      const failedData = ui.render(language, { phase: "ready", data: { ...data, status: "read_failed", counts: { ...data.counts, observed: 0 } } });
+      assert.ok(failedData.includes(language === "zh" ? "读取失败" : "Read failed"));
+      assert.ok(!failedData.includes("0/8") && !failedData.includes(NO_RECORDS[language]),
+        "a read_failed payload shows the failure instead of an observed zero");
     }
     for (const language of ["zh", "en"]) {
       const summary = {

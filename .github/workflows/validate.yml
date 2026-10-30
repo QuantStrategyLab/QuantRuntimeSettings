@@ -179,6 +179,7 @@ jobs:
           node tests/credential_maintenance_worker_validation.mjs
           node --experimental-strip-types tests/credential_maintenance_presentation_validation.mjs
           node tests/runtime_daily_worker_validation.mjs
+          node tests/runtime_today_request_reuse_validation.mjs
           node tests/account_facts_validation.mjs
           node tests/account_facts_history_currencies_validation.mjs
           node tests/console_equity_history_validation.mjs

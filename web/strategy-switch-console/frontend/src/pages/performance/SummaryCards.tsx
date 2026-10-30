@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useScope } from "../../app/context";
-import { useLanguage, useT } from "../../i18n";
+import { useLanguage, useT, type MessageKey } from "../../i18n";
 import type { AsyncState } from "../../lib/hooks";
 import { formatDate, formatPercentagePoints } from "../../lib/format";
 import type { SummaryResponse } from "../../api/contracts";
@@ -87,14 +87,27 @@ function DrawdownCard({ data }: { data: SummaryResponse }) {
     return <KpiCard title={title} value={<span className="currency-totals">
       {data.per_currency.map(item => {
         const dd = item.max_drawdown;
-        const tag = methodTag(item, t);
+        const percent = dd.percent;
+        // A method label explains how a figure was derived, so it only belongs
+        // next to a figure. A missing drawdown shows the dash plus its own
+        // localized reason instead; the code itself stays diagnostic in
+        // data-reason and never becomes user-facing text.
+        const hasValue = percent !== null;
+        const tag = hasValue ? methodTag(item, t) : null;
+        const reason = hasValue ? null
+          : dd.unavailable_reason ? t(`reason.${dd.unavailable_reason}` as MessageKey) : t("state.unavailable");
+        // No dates are invented: a missing figure carries no peak/trough pair.
+        const dates = hasValue && dd.peak_date && dd.trough_date
+          ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) })
+          : null;
         return <span className="currency-total" key={item.currency} data-state={dd.unavailable_reason || undefined}>
           <span className="kpi-sub">{item.currency}</span>
           {tag && <span className="kpi-sub">{tag}</span>}
-          {dd.percent === null ? <span className="flat">—</span> : <Percent value={-dd.percent || 0} />}
-          <span className="kpi-sub">{dd.peak_date && dd.trough_date
-            ? t("perf.card.max_drawdown_dates", { peak: formatDate(dd.peak_date, language), trough: formatDate(dd.trough_date, language) })
-            : null}</span>
+          {percent === null
+            ? <span className="flat" data-reason={dd.unavailable_reason ?? undefined}>—</span>
+            : <Percent value={-percent || 0} />}
+          {reason && <span className="kpi-sub">{reason}</span>}
+          {dates && <span className="kpi-sub">{dates}</span>}
         </span>;
       })}
     </span>} />;
