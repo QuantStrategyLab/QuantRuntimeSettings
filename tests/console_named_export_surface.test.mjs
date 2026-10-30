@@ -25,7 +25,11 @@ test('pinned candidate has no RPC or HTTP surface for the two test helpers', asy
   let outbound = 0;
   const denyOutbound = async () => { outbound++; throw Error('unexpected outbound request'); };
   // A standalone default request must succeed independently of named bindings.
-  const boot = new Miniflare({ ...target, cf: false, outboundService: denyOutbound });
+  const boot = new Miniflare({
+    ...target,
+    cf: false,
+    outboundService: denyOutbound,
+  });
   try {
     const home = await boot.dispatchFetch('https://console.example/');
     assert.equal(home.status, 200, 'default candidate route must boot');
@@ -51,7 +55,9 @@ test('pinned candidate has no RPC or HTTP surface for the two test helpers', asy
       dispatchAccountDiagnosis() { return 'synthetic-rpc-ok'; }
     }
     export default { fetch() { return new Response('control'); } };`;
-  const mf = new Miniflare({ cf: false, outboundService: denyOutbound, workers: [
+  const mf = new Miniflare({
+    cf: false,
+    outboundService: denyOutbound, workers: [
     { name: 'test-caller', modules: true, script: caller, compatibilityDate: '2026-06-08',
       serviceBindings: { TARGET: { name: 'candidate', entrypoint: '__test' } } },
     { name: 'control-caller', modules: true, script: caller, compatibilityDate: '2026-06-08',
