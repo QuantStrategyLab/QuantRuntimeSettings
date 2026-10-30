@@ -36,7 +36,13 @@ export function ReconciliationMaterials({ data, language, t, itemId }: {
       const account = displayName("accounts", item.account_alias || "", language, t("common.account"), item.platform || "");
       return <article key={item.id} className="reconciliation-material">
         <h3>{material?.label[language] || t("reconciliation.materials")}</h3>
-        <p>{strategy} · {account} · <span className="reconciliation-ref">{t("decisions.ref", { id: item.short_id })}</span></p>
+        {/* A selected detail already carries the one traceable ref in its header, so the
+            single-item context reuses it instead of repeating the number here. Collection
+            rendering (no itemId) has no header of its own and keeps a per-row ref. */}
+        <p>
+          {strategy} · {account}
+          {!itemId && <> · <span className="reconciliation-ref">{t("decisions.ref", { id: item.short_id })}</span></>}
+        </p>
         <dl>
           <div><dt>{t("reconciliation.decision_status")}</dt><dd>{material?.decision_status_label[language] || t("reconciliation.decision_unknown")}</dd></div>
           <div><dt>{t("reconciliation.freshness")}</dt><dd>{t(item.evidence_freshness.status === "stale" ? "state.stale" : item.evidence_freshness.status === "ready" ? "decisions.freshness.ready" : "common.unknown")}</dd></div>

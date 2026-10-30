@@ -171,6 +171,11 @@ for (const language of ["zh", "en"]) {
   assert.ok(!html.includes(recovery.strategy_profile));
   assert.ok(!html.includes(recovery.target_name));
   assert.ok(!html.includes("<button"), "material history never adds decision actions");
+  // Collection rendering has no detail header of its own, so each material row
+  // keeps its own ref. Only the selected-detail mode (itemId given) reuses the
+  // header ref, and that is covered by initial_enrollment_ui_validation.
+  assert.ok(html.includes('class="reconciliation-ref"'), "collection materials keep a per-row ref");
+  assert.ok(html.includes(renderedInboxes.get(decided).items[0].short_id), "that per-row ref is the item short id");
   const coexistHtml = render(coexist, language);
   assert.ok(coexistHtml.includes(coexist.current_reconciliation_observation.status_label[language]));
   assert.ok(coexistHtml.includes(observed));
