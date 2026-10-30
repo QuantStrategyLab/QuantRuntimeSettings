@@ -63,6 +63,11 @@ on:
         required: true
         type: boolean
         default: false
+      backend_only_release:
+        description: "Release the fixed reviewed backend repair while preserving the active frontend and configuration."
+        required: true
+        type: boolean
+        default: false
       rollback_to_pre_release:
         description: "Restore only the selected fixed baseline (legacy or FE-RELEASE-11); never build or sync. Read-only mode takes priority."
         required: true
@@ -86,6 +91,63 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  backend_only_release:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+          inputs.backend_only_release && !inputs.read_only_preflight &&
+          inputs.private_release_check == 'off' && !inputs.external_flow_enable &&
+          !inputs.check_explicit_version_inherit && !inputs.diagnose_restore_target &&
+          !inputs.rollback_to_pre_release && !inputs.release_frontend_assets &&
+          !inputs.sync_secrets && !inputs.sync_strategy_profiles &&
+          !inputs.skip_binance_receiver_checks && inputs.ibkr_candidate_resume == 'off' &&
+          inputs.source_sha == '' }}
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 20
+    steps:
+      - name: Checkout fixed backend release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js for backend release
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Build fixed backend release baseline
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+          QRS946_QUIET: "true"
+          npm_config_update_notifier: "false"
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          npm ci --prefix web/strategy-switch-console
+          npm ci --prefix web/strategy-switch-console/frontend
+          bash scripts/console_946_bundle_evidence.sh
+          bash scripts/console_54e_baseline_build.sh
+          node --test tests/console_946_patch_unit.test.mjs tests/console_946_54e_patch.test.mjs tests/console_946_54e_pipeline_unit.test.mjs tests/console_946_backend_release.test.mjs
+          node tests/console_946_54e_candidate_validation.mjs
+      - name: Publish fixed backend repair
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          node scripts/console_946_backend_release.mjs
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+
   preflight_active_module:
     # Preserve the existing preflight job's no-checkout boundary. This job
     # uses only the event's main SHA and runs after the bounded metadata read.
@@ -591,7 +653,7 @@ jobs:
 
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && !inputs.rollback_to_pre_release && inputs.private_release_check == 'off'
+    if: github.event_name == 'workflow_dispatch' && !inputs.backend_only_release && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && !inputs.rollback_to_pre_release && inputs.private_release_check == 'off'
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 25
@@ -2063,7 +2125,7 @@ jobs:
           done
 
   rollback:
-    if: github.event_name == 'workflow_dispatch' && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && inputs.rollback_to_pre_release && !inputs.external_flow_enable && inputs.private_release_check == 'off'
+    if: github.event_name == 'workflow_dispatch' && !inputs.backend_only_release && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && inputs.rollback_to_pre_release && !inputs.external_flow_enable && inputs.private_release_check == 'off'
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 5

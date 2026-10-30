@@ -462,6 +462,8 @@ function checkOfflineScopes(text, expected) {
   }
 }
 const deploymentOfflineScopes = [
+  {job:'backend_only_release', name:'Build fixed backend release baseline', flags:['CLOUDFLARE_CF_FETCH_ENABLED','npm_config_update_notifier']},
+  {job:'backend_only_release', name:'Publish fixed backend repair', flags:['CLOUDFLARE_CF_FETCH_ENABLED']},
   {job:'deploy', name:'Build new console and embedded assets', flags:['CLOUDFLARE_CF_FETCH_ENABLED','npm_config_update_notifier']},
   {job:'preflight_active_module', name:'Build and validate fixed synthetic candidate baseline', flags:['CLOUDFLARE_CF_FETCH_ENABLED','npm_config_update_notifier']},
   {job:'preflight_active_module', name:'Verify active backend candidate without upload', flags:['CLOUDFLARE_CF_FETCH_ENABLED']},
@@ -504,8 +506,10 @@ checkReadOnlyCredentials(workflow);
 assert.throws(() => checkOfflineScopes(workflow.replace('jobs:\n', 'env:\n  CLOUDFLARE_CF_FETCH_ENABLED: "false"\njobs:\n'), deploymentOfflineScopes));
 assert.throws(() => checkOfflineScopes(workflow.replace('QRS946_QUIET: "true"', 'QRS946_QUIET: "true"\n          npm_config_update_notifier: "false"'), deploymentOfflineScopes));
 assert.throws(() => checkOfflineScopes(workflow.replace('CLOUDFLARE_CF_FETCH_ENABLED: "false"', 'CLOUDFLARE_CF_FETCH_ENABLED: "true"'), deploymentOfflineScopes));
-assert.throws(() => checkReadOnlyCredentials(workflow.replace('QRS946_QUIET: "true"', 'QRS946_QUIET: "true"\n          LEAK: ${{ secrets.CLOUDFLARE_API_TOKEN }}')));
-assert.throws(() => checkReadOnlyCredentials(workflow.replace('uses: actions/checkout@v4', 'uses: actions/checkout@v4\n        env:\n          LEAK: ${{ secrets.CLOUDFLARE_API_TOKEN }}')));
+const originalActivePreflight = workflowJob(workflow, 'preflight_active_module');
+const mutateActivePreflight = (before, after) => workflow.replace(originalActivePreflight, originalActivePreflight.replace(before, after));
+assert.throws(() => checkReadOnlyCredentials(mutateActivePreflight('QRS946_QUIET: "true"', 'QRS946_QUIET: "true"\n          LEAK: ${{ secrets.CLOUDFLARE_API_TOKEN }}')));
+assert.throws(() => checkReadOnlyCredentials(mutateActivePreflight('uses: actions/checkout@v4', 'uses: actions/checkout@v4\n        env:\n          LEAK: ${{ secrets.CLOUDFLARE_API_TOKEN }}')));
 // The candidate runtime helper lives in scripts/, outside the historical
 // tests/*.mjs scan below. Its host metadata switch and Worker egress blocker
 // must remain explicit in the shared CI and read-only paths.
