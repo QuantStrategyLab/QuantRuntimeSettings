@@ -8,6 +8,8 @@ export {describeNamedHandlers} from './console_named_handler_metadata.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const uuid = s => typeof s === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(s);
+const outerFailureKinds = new Set(['active_identity_mismatch','active_module_invalid','active_module_mismatch',
+  'active_configuration_invalid','transport','size','length','envelope','id']);
 export const POLICY = Object.freeze({
   frontend: Object.freeze({before:'afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d', candidate:'f8a9b2598fcac89b5c7dc4d9bd8b6417a75126744c5e53c30f7d35bf8555fd15'}),
   recovery: Object.freeze({before:'f8a9b2598fcac89b5c7dc4d9bd8b6417a75126744c5e53c30f7d35bf8555fd15', candidate:'afe13eefe12d0e4f4db0f1bcfc515a2d3445963fd8f42ef8e5286c4062b6027d'}),
@@ -117,12 +119,16 @@ export async function execute({api,core=runBackendRelease,policy,expected,candid
       !uuid(expected?.version) || !uuid(expected?.deployment) || typeof release!=='boolean' ||
       !Buffer.isBuffer(candidate) || !candidate.length || candidate.length>10*1024*1024 || sha(candidate)!==policy.candidate)
     return {ok:false,reason:'input_or_candidate_invalid',upload_attempted:false,deploy_attempted:false};
+  let stage='active_before',coreEntered=false,uploadAttempted=false,deployAttempted=false;
   try {
     verifyActive(await api.deployments(),expected);
+    stage='module';
     verifyModule(await api.betaVersion(expected.version),expected.version,policy.before);
+    stage='configuration';
     const activeConfiguration = await api.scriptVersion(expected.version);
     if (activeConfiguration?.id!==expected.version) throw Error('active_configuration_invalid');
     const configurationSummary = release ? undefined : summarizeActiveConfiguration(activeConfiguration, expected.version);
+    stage='active_recheck';
     verifyActive(await api.deployments(),expected);
     if (!release) return {ok:true,preflight:true,active_identity_verified:true,active_module_verified:true,candidate_sha256:policy.candidate,configuration_summary:configurationSummary,upload_attempted:false,deploy_attempted:false};
     // Bind the core's own first baseline read to the operator's observation. The
@@ -131,17 +137,21 @@ export async function execute({api,core=runBackendRelease,policy,expected,candid
     const annotation={'workers/message':'Reviewed fixed complete console bundle'};
     const guarded={...api,
       deployments:async()=>{const value=await api.deployments();if(first){first=false;verifyActive(value,expected);}return value;},
-      upload:async body=>{const value=await api.upload({...body,annotations:annotation});if(uuid(value?.id))versionId=value.id;return value;},
-      activate:async body=>{const value=await api.activate({...body,annotations:annotation});if(uuid(value?.id))deploymentId=value.id;return value;},
+      upload:async body=>{uploadAttempted=true;const value=await api.upload({...body,annotations:annotation});if(uuid(value?.id))versionId=value.id;return value;},
+      activate:async body=>{deployAttempted=true;const value=await api.activate({...body,annotations:annotation});if(uuid(value?.id))deploymentId=value.id;return value;},
     };
+    stage='core';coreEntered=true;
     const result=await core(guarded,async old=>{if(sha(old)!==policy.before)throw Error('active_module_mismatch');return candidate;},async bytes=>{
       if(sha(bytes)!==policy.candidate)throw Error('candidate_mismatch');
     });
+    stage='core_result';
     if(!result.ok)return result;
-    if(!versionId||!deploymentId)return {ok:false,reason:'verified_identity_unavailable',outcome:'REQUIRES_READBACK',retry:false};
+    if(!versionId||!deploymentId)return {ok:false,reason:'verified_identity_unavailable',stage:'core_result',upload_attempted:uploadAttempted,deploy_attempted:deployAttempted,outcome:'REQUIRES_READBACK',retry:false};
     return {...result,version_id:versionId,deployment_id:deploymentId};
-  } catch {
-    return {ok:false,reason:'verification_failed',outcome:release?'REQUIRES_READBACK':'NOT_ATTEMPTED',retry:false};
+  } catch (error) {
+    const failureKind = outerFailureKinds.has(error?.message) ? error.message : 'unexpected';
+    return {ok:false,reason:'verification_failed',stage,failure_kind:failureKind,upload_attempted:uploadAttempted,deploy_attempted:deployAttempted,
+      outcome:coreEntered?'REQUIRES_READBACK':'NOT_ATTEMPTED',retry:false};
   }
 }
 async function main(){

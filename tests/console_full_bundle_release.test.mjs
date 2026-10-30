@@ -60,6 +60,59 @@ test('candidate substitution and active drift stop before any write',async()=>{
   assert.equal(r.ok,false);assert.ok(!f.calls.includes('upload'));assert.ok(!f.calls.includes('activate'));
  }
 });
+test('outer failures identify each pre-core read without exposing provider errors',async()=>{
+ for(const stage of ['active_before','module','configuration','active_recheck']){
+  for(const failure of ['throw','invalid']){
+   const f=fixture();let deployments=0,coreCalled=false;
+   const original=f.api.deployments;
+   f.api.deployments=async()=>{
+    deployments++;
+    if((stage==='active_before'&&deployments===1)||(stage==='active_recheck'&&deployments===2)){
+     if(failure==='throw')throw Error('PRIVATE_ERROR_SENTINEL');
+     return {deployments:[{id:'PRIVATE_RESPONSE_SENTINEL'}]};
+    }
+    return original();
+   };
+   if(stage==='module') f.api.betaVersion=async()=>{if(failure==='throw')throw Error('PRIVATE_ERROR_SENTINEL');return {id:'PRIVATE_RESPONSE_SENTINEL'};};
+   if(stage==='configuration') f.api.scriptVersion=async()=>{if(failure==='throw')throw Error('PRIVATE_ERROR_SENTINEL');return {id:'PRIVATE_RESPONSE_SENTINEL'};};
+   const core=async()=>{coreCalled=true;throw Error('core must not run');};
+   const r=await execute({...f,policy,expected,candidate,release:true,core});
+   const failure_kind = failure === 'throw' ? 'unexpected' : stage === 'module' ? 'active_module_invalid' : stage === 'configuration' ? 'active_configuration_invalid' : 'active_identity_mismatch';
+   assert.deepEqual(r,{ok:false,reason:'verification_failed',stage,failure_kind,upload_attempted:false,deploy_attempted:false,outcome:'NOT_ATTEMPTED',retry:false});
+   assert.equal(coreCalled,false);assert.doesNotMatch(JSON.stringify(r),/PRIVATE_|SENTINEL/);
+  }
+ }
+});
+test('outer module read distinguishes fixed verification and transport failures',async()=>{
+ for(const kind of ['transport','size','length','envelope','id']){
+  const f=fixture();f.api.betaVersion=async()=>{throw Error(kind);};
+  const r=await execute({...f,policy,expected,candidate,release:true});
+  assert.equal(r.stage,'module');assert.equal(r.failure_kind,kind);assert.equal(r.outcome,'NOT_ATTEMPTED');
+  assert.equal(r.upload_attempted,false);assert.equal(r.deploy_attempted,false);assert.equal(r.retry,false);
+ }
+ const f=fixture();f.api.betaVersion=async id=>({id,modules:[{name:'worker.js',content_type:'application/javascript+module',content_base64:Buffer.from('different').toString('base64')}]});
+ const r=await execute({...f,policy,expected,candidate,release:true});
+ assert.equal(r.stage,'module');assert.equal(r.failure_kind,'active_module_mismatch');assert.equal(r.outcome,'NOT_ATTEMPTED');
+});
+test('outer failures after core entry retain conservative outcome and write attempt flags',async()=>{
+ for(const point of ['before_write','upload_throw','after_upload','activation_throw','after_activation','core_result']){
+  const f=fixture(),version='cccccccc-cccc-4ccc-8ccc-cccccccccccc',deployment='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  f.api.upload=async()=>{if(point==='upload_throw')throw Error('PRIVATE_UPLOAD_SENTINEL');return {id:version};};
+  f.api.activate=async()=>{if(point==='activation_throw')throw Error('PRIVATE_ACTIVATION_SENTINEL');return {id:deployment};};
+  const core=async api=>{
+   if(point==='before_write')throw Error('PRIVATE_CORE_SENTINEL');
+   await api.upload({});
+   if(point==='after_upload')throw Error('PRIVATE_CORE_SENTINEL');
+   await api.activate({});
+   if(point==='after_activation')throw Error('PRIVATE_CORE_SENTINEL');
+   return Object.defineProperty({},'ok',{get(){throw Error('PRIVATE_RESULT_SENTINEL');}});
+  };
+  const r=await execute({...f,policy,expected,candidate,release:true,core});
+  assert.deepEqual(r,{ok:false,reason:'verification_failed',stage:point==='core_result'?'core_result':'core',failure_kind:'unexpected',
+   upload_attempted:point!=='before_write',deploy_attempted:['activation_throw','after_activation','core_result'].includes(point),outcome:'REQUIRES_READBACK',retry:false});
+  assert.doesNotMatch(JSON.stringify(r),/PRIVATE_|SENTINEL/);
+ }
+});
 test('release binds core baseline and feeds only the fixed complete bundle',async()=>{
  const f=fixture();let called=false;
  const version='cccccccc-cccc-4ccc-8ccc-cccccccccccc',deployment='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
@@ -90,6 +143,14 @@ test('actual core stages and verifies the whole candidate with inherited binding
  assert.equal(body.modules[0].content_base64,candidate.toString('base64'));assert.ok(!Object.hasOwn(body,'migrations'));
  assert.deepEqual(body.annotations,{'workers/message':'Reviewed fixed complete console bundle'});
  assert.deepEqual(activation.annotations,body.annotations);assert.equal(r.version_id,staged);assert.equal(r.deployment_id,dep2);
+});
+test('missing verified identities after a core result preserve actual attempt flags',async()=>{
+ const f=fixture();f.api.upload=async()=>({id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'});
+ f.api.activate=async()=>({id:'PRIVATE_RESULT_SENTINEL'});
+ const core=async api=>{await api.upload({});await api.activate({});return {ok:true};};
+ const r=await execute({...f,policy,expected,candidate,release:true,core});
+ assert.deepEqual(r,{ok:false,reason:'verified_identity_unavailable',stage:'core_result',upload_attempted:true,deploy_attempted:true,outcome:'REQUIRES_READBACK',retry:false});
+ assert.doesNotMatch(JSON.stringify(r),/PRIVATE_|SENTINEL/);
 });
 test('failed core outcomes do not disclose IDs obtained from provider responses',async()=>{
  const f=fixture(), staged='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
