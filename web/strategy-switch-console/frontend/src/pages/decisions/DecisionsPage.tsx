@@ -708,11 +708,15 @@ export default function DecisionsPage() {
             />
           </details>
         )}
-        <details className="decision-materials">
-          <summary>{t("decisions.more_info")}</summary>
-          <p>{t("decisions.ref", { id: item.short_id })}</p>
-          {item.evidence_freshness?.as_of && <AsOfStamp value={item.evidence_freshness.as_of} />}
-        </details>
+        {/* The detail header already carries the one traceable ref; this block
+            keeps only the evidence timestamp, so it is not shown when there is
+            nothing left to disclose. */}
+        {item.evidence_freshness?.as_of && (
+          <details className="decision-materials">
+            <summary>{t("decisions.more_info")}</summary>
+            <AsOfStamp value={item.evidence_freshness.as_of} />
+          </details>
+        )}
         {actions}
       </div>
     );
@@ -756,17 +760,21 @@ export default function DecisionsPage() {
                     <span className="item-main">
                       <span className="item-title">{itemTitle(item, t)}</span>
                       <span className="item-meta">
-                        {item.category === "reconciliation_recovery" && (
+                        {/* A normal recovery title already names the category, so a
+                            badge here only repeats it. A first-enrollment item has
+                            its own title, so its category still adds information. */}
+                        {isInitialEnrollmentItem(item) && (
                           <Badge tone="warn">{t("category.reconciliation_recovery")}</Badge>
                         )}
                         {item.platform && <span>{names.platform(item.platform)}</span>}
                         <span>{accountLabel(item)}</span>
                       </span>
-                      <span className="item-meta item-meta-secondary">
-                        <span className="item-ref">{t("decisions.ref", { id: item.short_id })}</span>
-                        {fresh && <span>{fresh}</span>}
-                        {hintKey && <span className="decision-stale-hint">{t(hintKey)}</span>}
-                      </span>
+                      {(fresh || hintKey) && (
+                        <span className="item-meta item-meta-secondary">
+                          {fresh && <span>{fresh}</span>}
+                          {hintKey && <span className="decision-stale-hint">{t(hintKey)}</span>}
+                        </span>
+                      )}
                     </span>
                     <Badge tone={expired ? "unknown" : "warn"}>
                       {t(`decisions.status.${expired ? "expired" : item.status}`)}

@@ -18,8 +18,14 @@ try {
     import { I18nProvider, translate } from './src/i18n';
     import { Tabs, revealDelta } from './src/components/Tabs';
     import { sourceLabelKey } from './src/pages/decisions/sources';
+    import { AccountDirectoryContext, ScopeContext } from './src/app/context';
+    import { AppShell } from './src/app/AppShell';
     export { revealDelta, sourceLabelKey, translate };
     export const tabs = (language, items, active) => renderToStaticMarkup(h(I18nProvider, { language }, h(Tabs, { id: 'demo', items, active, onChange() {} })));
+    export const shell = (language, synthetic) => renderToStaticMarkup(h(I18nProvider, { language },
+      h(AccountDirectoryContext.Provider, { value: null },
+        h(ScopeContext.Provider, { value: { scope: 'all', options: [], setScope: () => {}, status: 'ready', retry: () => {} } },
+          h(AppShell, { page: 'overview', todoCount: null, synthetic, login: null, updatedAt: null, onLogout: () => {}, children: 'x' })))));
   ` }, bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", loader: { ".css": "empty" }, define: { "import.meta.env": "{}" }, logLevel: "silent" });
   const ui = createRequire(import.meta.url)(outfile);
 
@@ -131,5 +137,88 @@ try {
   assert.doesNotMatch(heatmap, /Number\.isInteger\(percent \* 100\)/, "no rescaled-integer rounding of percentage points");
   assert.match(heatmap, /className="calendar-scroll"/, "the grid is wrapped in its scroll container");
 
-  console.log("console_tabs_scope_sources_ui_validation: PASS (container-relative tab reveal incl. first/last and offset strips, keyboard tab semantics, localized degraded-source labels with honest fallback, open scope option wraps without inline flex, calendar keeps two-decimal precision via internal grid scroll instead of compacting; synthetic only)");
+  // --- Phone topbar: scope touch target and the synthetic badge -------------
+  // A 360px topbar cannot hold an unshrinkable badge and a usable scope trigger
+  // at once, so the badge steps onto its own row instead of the trigger
+  // collapsing to a sliver. Only the CSS contract is checkable here; the
+  // 360/390/430 pixel result still needs a browser.
+  // Several blocks share the same breakpoint, so the one that matters is the
+  // one that actually carries the selector under test.
+  const mediaBlock = (source, query, mustContain) => {
+    let from = 0;
+    while (from < source.length) {
+      const at = source.indexOf(`@media ${query} {`, from);
+      if (at < 0) break;
+      let depth = 0;
+      let index = source.indexOf("{", at);
+      const start = index;
+      for (; index < source.length; index += 1) {
+        if (source[index] === "{") depth += 1;
+        else if (source[index] === "}") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      const block = source.slice(start, index + 1);
+      if (block.includes(mustContain)) return block;
+      from = index + 1;
+    }
+    assert.fail(`@media ${query} containing ${mustContain} exists`);
+  };
+  const ruleIn = (block, selector) => {
+    const at = block.indexOf(`${selector} {`);
+    assert.ok(at >= 0, `${selector} rule exists in the block`);
+    return block.slice(at, block.indexOf("}", at));
+  };
+  const phone = mediaBlock(css, "(max-width: 768px)", ".topbar .scope-trigger");
+  const phoneTrigger = ruleIn(phone, ".topbar .scope-trigger");
+  assert.match(phoneTrigger, /min-height:\s*44px/, "the phone scope trigger is at least 44px tall");
+  assert.match(phoneTrigger, /min-width:\s*44px/, "the phone scope trigger is at least 44px wide");
+  assert.match(phoneTrigger, /\{\s*width:\s*100%/, "the trigger fills the width its row leaves it");
+  assert.match(ruleIn(phone, ".topbar .scope-switcher"), /min-width:\s*44px/,
+    "the switcher box cannot be squeezed below the touch target");
+  // A later duplicate block must not undo it: the last rule wins in CSS.
+  assert.doesNotMatch(css, /\.topbar \.scope-switcher\s*\{[^}]*min-width:\s*0[;\s}]/,
+    "no later rule shrinks the switcher back to zero");
+  // The truncation itself is unchanged: the label still ellipsizes.
+  assert.match(rule(".scope-trigger-label"), /text-overflow:\s*ellipsis/,
+    "a long account name is still shortened inside the trigger");
+
+  const narrow = mediaBlock(css, "(max-width: 430px)", ".topbar-synthetic");
+  assert.match(narrow, /\.topbar:has\(> \.scope-switcher\):has\(> \.topbar-synthetic\)[^{]*\{[^}]*flex-wrap:\s*wrap/,
+    "the topbar only wraps when both the scope and the synthetic badge are present");
+  assert.match(narrow, /> \.topbar-synthetic\s*\{[^}]*order:\s*10/,
+    "the badge is moved after the controls, onto its own row");
+  assert.match(narrow, /> \.topbar-synthetic\s*\{[^}]*flex:\s*1 1 100%/,
+    "the badge row claims the full width instead of shrinking the trigger");
+  // Hiding the badge is not an acceptable fix, and production has no badge.
+  assert.doesNotMatch(css, /\.topbar-synthetic[^{}]*\{[^}]*display:\s*none/,
+    "the synthetic badge is never hidden");
+  assert.doesNotMatch(narrow, /\.topbar\s*\{[^}]*flex-wrap:\s*wrap/,
+    "the wrap is gated on the badge, so a production topbar keeps one row");
+
+  const shell = await readFile(join(root, "src/app/AppShell.tsx"), "utf8");
+  assert.match(shell, /className="topbar-synthetic"/, "the badge carries its own layout class");
+  assert.match(shell, /\{synthetic && \(/, "the badge is still conditional on the synthetic flag");
+  assert.match(shell, /<span className="badge badge-accent">\{t\("common\.synthetic_badge"\)\}<\/span>/,
+    "the badge itself keeps its normal size and copy");
+  assert.match(shell, /\{page !== "health" && <ScopeSwitcher \/>\}/,
+    "the health topbar still has no scope switcher");
+
+  // Rendered markup, so the wrapper is proven rather than assumed: the badge is
+  // present and visible with the synthetic flag, and absent without it.
+  for (const language of ["zh", "en"]) {
+    const badge = language === "zh" ? "合成演示" : "Synthetic demo";
+    const withBadge = ui.shell(language, true);
+    assert.match(withBadge, /class="topbar-synthetic"><span class="badge badge-accent">/,
+      `${language}: the badge sits in its own layout wrapper`);
+    assert.equal(withBadge.split(badge).length - 1, 1, `${language}: the badge copy stays visible exactly once`);
+    assert.match(withBadge, /class="scope-switcher"/, `${language}: the scope switcher is still rendered next to it`);
+    const withoutBadge = ui.shell(language, false);
+    assert.ok(!withoutBadge.includes("topbar-synthetic"), `${language}: a production topbar has no badge wrapper`);
+    assert.ok(!withoutBadge.includes(badge), `${language}: no badge copy without the synthetic flag`);
+    assert.match(withoutBadge, /class="scope-switcher"/, `${language}: the production topbar still has its scope`);
+  }
+
+  console.log("console_tabs_scope_sources_ui_validation: PASS (container-relative tab reveal incl. first/last and offset strips, keyboard tab semantics, localized degraded-source labels with honest fallback, open scope option wraps without inline flex, calendar keeps two-decimal precision via internal grid scroll instead of compacting, phone topbar keeps a 44px scope trigger and moves the synthetic badge onto its own row only when both are present; synthetic only)");
 } finally { await rm(directory, { recursive: true, force: true }); }

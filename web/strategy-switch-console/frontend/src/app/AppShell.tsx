@@ -131,7 +131,13 @@ export function AppShell({
           <button type="button" className="button button-secondary button-sm appearance-toggle" aria-label={t(dark ? "shell.switch_light" : "shell.switch_dark")} title={t(dark ? "shell.switch_light" : "shell.switch_dark")} onClick={() => setPrefs({ ...prefs, theme: dark ? "light" : "dark" })}>
             <span aria-hidden="true">{dark ? "☀" : "☾"}</span><span className="theme-toggle-label">{t(dark ? "prefs.theme_light" : "prefs.theme_dark")}</span>
           </button>
-          {synthetic && <span className="badge badge-accent">{t("common.synthetic_badge")}</span>}
+          {/* The badge never shrinks, so it gets a wrapper the narrow layout can
+              move onto its own row; the badge itself keeps its normal size. */}
+          {synthetic && (
+            <span className="topbar-synthetic">
+              <span className="badge badge-accent">{t("common.synthetic_badge")}</span>
+            </span>
+          )}
           <button
             type="button"
             className="icon-button"
