@@ -8,7 +8,7 @@ import { useT } from "../i18n";
 export function ScopeSwitcher() {
   const t = useT();
   const names = useDisplayNames();
-  const { scope, options, setScope, status, retry } = useScope();
+  const { scope, options, setScope, status, metaStatus, retry } = useScope();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -58,7 +58,7 @@ export function ScopeSwitcher() {
   const current = scope === "all" ? t("shell.scope_all") : selected ? `${names.platform(selected.platform)} · ${names.account(selected.alias, selected.platform)}` : t("common.unknown");
   const platforms = [...new Set(options.map(option => option.platform))];
 
-  const optionRow = (option: { alias: string; platform: string; paper: boolean }) => (
+  const optionRow = (option: { alias: string; platform: string; paper: boolean | null }) => (
     <button
       key={`${option.platform}:${option.alias}`}
       type="button"
@@ -71,7 +71,7 @@ export function ScopeSwitcher() {
       {/* The open panel shows the whole name: the label wraps instead of
           overflowing the panel, and the paper badge never shrinks away. */}
       <span className="scope-option-label">{names.account(option.alias, option.platform)}</span>
-      {option.paper && <span className="badge badge-accent">{t("common.paper_badge")}</span>}
+      {option.paper === true && <span className="badge badge-accent">{t("common.paper_badge")}</span>}
     </button>
   );
 
@@ -96,6 +96,12 @@ export function ScopeSwitcher() {
             <div className="scope-error" role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px" }}>
               <span className="scope-panel-text">{status === "error" ? scopeError : scopeLoading}</span>
               {status === "error" && <button type="button" className="button button-secondary button-sm" onClick={retry}>{t("common.retry")}</button>}
+            </div>
+          )}
+          {status === "ready" && metaStatus === "error" && (
+            <div className="scope-error" role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px" }}>
+              <span className="scope-panel-text">{t("shell.scope_meta_error")}</span>
+              <button type="button" className="button button-secondary button-sm" onClick={retry}>{t("common.retry")}</button>
             </div>
           )}
           <button

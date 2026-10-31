@@ -49,8 +49,10 @@ export default function App() {
   const [scopeOptions, setScopeOptions] = useState<ScopeOption[]>([]);
   const [scopeStatus, setScopeStatus] = useState<"loading" | "ready" | "error">("loading");
   const [scopeEpoch, setScopeEpoch] = useState(0);
+  const [metaStatus, setMetaStatus] = useState<"ready" | "error">("ready");
   const [persistFailed, setPersistFailed] = useState(false);
   const [todoCount, setTodoCount] = useState<number | null>(null);
+  const [todoStatus, setTodoStatus] = useState<"loading" | "ok" | "read_failed">("loading");
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [bootEpoch, setBootEpoch] = useState(0);
   const routeRef = useRef(route);
@@ -94,12 +96,17 @@ export default function App() {
         }
         setSession(next);
         setBoot("ready");
+        setTodoStatus("loading");
         try {
           const inbox = await loadInbox();
           if (cancelled) return;
-          setTodoCount(inbox.status === "read_failed" ? null : inbox.items.filter(item => item.status === "pending").length);
+          const unreadable = inbox.status === "read_failed";
+          setTodoStatus(unreadable ? "read_failed" : "ok");
+          setTodoCount(unreadable ? null : inbox.items.filter(item => item.status === "pending").length);
         } catch {
-          if (!cancelled) setTodoCount(null);
+          if (cancelled) return;
+          setTodoStatus("read_failed");
+          setTodoCount(null);
         }
       } catch (error) {
         if (cancelled) return;
@@ -124,11 +131,19 @@ export default function App() {
         let config: DirectoryConfig | null = null;
         try {
           config = await getJson<DirectoryConfig>("/api/config");
-        } catch { /* The list remains usable when optional account metadata is unavailable. */ }
+        } catch { /* The list stays usable; only the metadata below is unknown. */ }
         if (cancelled) return;
         setDirectory(config);
-        setScopeOptions(accounts.accounts.map(account => ({ alias: account.account_alias, platform: account.platform,
-          paper: config?.accountOptions?.[account.platform]?.find(option => option.key === account.account_alias)?.broker_environment === "paper" })));
+        setMetaStatus(config ? "ready" : "error");
+        setScopeOptions(accounts.accounts.map(account => ({
+          alias: account.account_alias,
+          platform: account.platform,
+          // Without the directory, an account has no declared environment: neither
+          // "paper" nor "live" is known, so no paper badge and no live totals.
+          paper: config
+            ? config.accountOptions?.[account.platform]?.find(option => option.key === account.account_alias)?.broker_environment === "paper"
+            : null,
+        })));
         setUpdatedAt(new Date().toISOString());
         setScopeStatus("ready");
       } catch {
@@ -229,6 +244,7 @@ export default function App() {
     options: scopeOptions,
     setScope: (scope: string) => navigate({ scope }),
     status: scopeStatus,
+    metaStatus,
     retry: retryScope,
   };
 
@@ -242,6 +258,7 @@ export default function App() {
               <AppShell
                 page={route.page}
                 todoCount={todoCount}
+                todoStatus={todoStatus}
                 synthetic={session?.synthetic === true}
                 login={session?.login || null}
                 updatedAt={updatedAt}

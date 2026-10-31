@@ -23,7 +23,9 @@ export function benchmarkPolicy(
 ): BenchmarkPolicy {
   let platforms: string[];
   if (scope === "all") {
-    const live = options.filter(option => !option.paper);
+    // An unknown environment is not evidence of a live account, so only accounts
+    // the directory declares as non-paper form the live basis.
+    const live = options.filter(option => option.paper === false);
     const basis = live.length > 0 ? live : options;
     platforms = basis.map(option => option.platform);
   } else {
