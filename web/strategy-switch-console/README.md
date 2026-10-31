@@ -526,7 +526,7 @@ A separate fixed-source diagnostic rebuilds public commit `54e146fcef01fecc6c7ec
 ### Fixed complete-bundle release
 
 The separate manual `Console fixed complete-bundle release` workflow defaults to
-read-only preflight. It bundles the pinned new candidate and compatible #965 recovery
+read-only preflight. It bundles the pinned new candidate and compatible serving recovery
 snapshots twice each, checks their complete bundle identities, and runs the SQLite
 upgrade and recovery regression using the fixed old production candidate. The
 operator supplies freshly observed active deployment and version UUIDs. Preflight
@@ -537,8 +537,8 @@ through the existing #946 release core. The core inherits each binding from the
 explicit active version, preserves runtime configuration, requires unchanged
 migration and export reconciliation, checks the staged bytes and configuration,
 and checks active state before and after activation. The frontend candidate
-requires the verified #965 module as predecessor; compatible recovery
-requires the fixed new candidate and restores the complete #965 bundle. The older
+requires the verified serving module as predecessor; compatible recovery
+requires the fixed new candidate and restores the complete serving bundle. The older
 production module is not a safe rollback after the candidate has written native-task state. An ambiguous result
 requires read-only investigation; do not retry automatically. Cloudflare does
 not provide compare-and-swap for this sequence, so concurrent external changes
