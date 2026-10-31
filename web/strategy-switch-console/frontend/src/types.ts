@@ -82,6 +82,7 @@ export type AccountFactsAccount = {
   platform: string;
   account_key: string;
   binding_status: "bound" | "missing" | "duplicate";
+  binding_reason?: "bound" | "unbound" | "duplicate_source" | "identity_mismatch";
   identity_status: "partial_identity" | "missing_identity";
   identity_mismatch?: boolean;
   aggregation_status?: "included" | "duplicate" | "conflict" | "unverified";
@@ -193,6 +194,7 @@ export type AccountFactsHistorySnapshot = {
   platform: string;
   account_key: string;
   binding_status: "bound" | "missing" | "duplicate";
+  binding_reason?: "bound" | "unbound" | "duplicate_source" | "identity_mismatch";
   identity_status: "partial_identity" | "missing_identity";
   identity_mismatch?: boolean;
   aggregation_status?: "included" | "duplicate" | "conflict" | "unverified";
@@ -380,8 +382,8 @@ export function accountFactsDisplayReady(account: AccountFactsAccount | null | u
 
 export function accountFactsDetail(account: AccountFactsAccount | null | undefined): string {
   if (!account) return "尚未取得账户资产资料";
-  if (account.identity_mismatch === true) return "账户身份不匹配";
-  if (account.binding_status === "duplicate") return "账户资料绑定重复";
+  if (account.binding_reason === "identity_mismatch" || account.identity_mismatch === true) return "账户身份不匹配";
+  if (account.binding_reason === "duplicate_source" || account.binding_status === "duplicate") return "账户资料绑定重复";
   if (account.binding_status === "missing") return "账户资料尚未绑定";
   if (account.identity_status !== "partial_identity") return "账户身份待核实";
   if (account.data_status === "stale") return "账户资产资料已过期";
