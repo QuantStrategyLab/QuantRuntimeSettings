@@ -22,7 +22,7 @@ import {
   StatusBadge,
 } from "../../components/primitives";
 import { RunGrid } from "./RunGrid";
-import { runActivityCounts, runActivityLabelKey, runActivityState, todayFailures } from "./status";
+import { runActivityCounts, runActivityLabelKey, runActivityState, todayFailures, weekendWithoutScheduledRuns } from "./status";
 import { groupAccounts } from "../../lib/accountDirectory";
 import { boundDailyAccounts } from "./dailySelection";
 import "./health.css";
@@ -65,6 +65,9 @@ function StatStrip({
   const okCount = data ? data.accounts.filter(account => account.status === "ok").length : 0;
   const failures = data ? todayFailures(data) : { count: 0, complete: false };
   const stateCounts = data ? runActivityCounts(data.accounts) : null;
+  // Weekend records are absent because nothing was scheduled, not because the
+  // day is degraded. Binance may still report later; the day context says so.
+  const nonTrading = data ? weekendWithoutScheduledRuns(data) : false;
   const unconnectedNote = stateCounts && (stateCounts.not_connected > 0 || stateCounts.no_data > 0)
     ? t("health.kpi.today_runs_note", { not_connected: stateCounts.not_connected, no_data: stateCounts.no_data })
     : undefined;
@@ -86,9 +89,12 @@ function StatStrip({
         <KpiCard
           title={t("health.kpi.today_runs")}
           value={
-            <StatValue state={summary} render={() => t("health.account_fraction", { count: okCount, total: data?.counts.configured ?? 0 })} />
+            <StatValue state={summary} render={() => nonTrading && (data?.counts.observed ?? 0) === 0
+              ? "—"
+              : t("health.account_fraction", { count: okCount, total: data?.counts.configured ?? 0 })} />
           }
-          sub={unconnectedNote ? <span title={t("health.kpi.today_runs_note_title")}>{unconnectedNote}</span> : undefined}
+          sub={nonTrading ? <span>{t("health.non_trading_day_short")}</span>
+            : unconnectedNote ? <span title={t("health.kpi.today_runs_note_title")}>{unconnectedNote}</span> : undefined}
           footer={data?.as_of ? <AsOfStamp value={data.as_of} /> : undefined}
         />
         <KpiCard
@@ -102,9 +108,11 @@ function StatStrip({
         />
         <KpiCard
           title={t("health.kpi.recent_failure")}
-          value={<StatValue state={summary} render={() => failures.complete
-            ? String(failures.count)
-            : failures.count > 0 ? t("health.failure_at_least", { count: failures.count }) : t("state.unknown")} />}
+          value={<StatValue state={summary} render={() => nonTrading && failures.count === 0 ? "—"
+            : failures.complete
+              ? String(failures.count)
+              : failures.count > 0 ? t("health.failure_at_least", { count: failures.count }) : t("state.unknown")} />}
+          sub={nonTrading ? t("health.non_trading_day_short") : undefined}
         />
         <KpiCard
           title={t("health.kpi.credentials")}
@@ -130,7 +138,7 @@ function StatStrip({
       )}
       <p className="metric-note" title={t("health.failure_window_detail")}>
         {t("health.failure_window", { date: data?.date ?? "—" })}
-        {!failures.complete && ` · ${t("health.failure_incomplete")}`}
+        {nonTrading ? ` · ${t("health.non_trading_day_short")}` : !failures.complete && ` · ${t("health.failure_incomplete")}`}
       </p>
     </>
   );

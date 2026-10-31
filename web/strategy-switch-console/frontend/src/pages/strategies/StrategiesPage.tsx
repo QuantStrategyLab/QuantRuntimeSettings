@@ -66,8 +66,9 @@ function StrategyCard({ strategy, assignmentKnown = true }: { strategy: Strategy
   const t = useT();
   const names = useDisplayNames();
   const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.map(names.lane).join(" · ") : t("common.na");
-  const hasUnknownExecution = strategy.configured_accounts.some(account =>
-    !account.execution_evidence?.value || account.execution_evidence.value === "unknown");
+  const unknownExecutionCount = strategy.configured_accounts.filter(account =>
+    !account.execution_evidence?.value || account.execution_evidence.value === "unknown").length;
+  const hasUnknownExecution = unknownExecutionCount > 0;
   return (
     <article className="card strategy-card">
       <div className="strategy-card-head">
@@ -110,9 +111,11 @@ function StrategyCard({ strategy, assignmentKnown = true }: { strategy: Strategy
       </dl>
       {strategy.configured_accounts.length > 0 && (
         <details className="strategy-details">
-          <summary>{t("strategies.execution_section")}{hasUnknownExecution ? ` · ${t("strategies.execution.unknown")}` : ""}</summary>
+          <summary>{t("strategies.execution_section")}{hasUnknownExecution
+            ? ` · ${t("strategies.execution.unknown")} ${unknownExecutionCount}` : ""}</summary>
           <div className="strategy-details-body">
             <AccountExecution accounts={strategy.configured_accounts} />
+            {hasUnknownExecution && <p className="card-note">{t("strategies.execution_unknown_note")}</p>}
           </div>
         </details>
       )}

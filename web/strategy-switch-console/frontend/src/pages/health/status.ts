@@ -2,7 +2,7 @@ import type { RunState, TodayRunSummary } from "../../api/contracts";
 import type { RuntimeDailySnapshot } from "../../api/endpoints";
 import { runtimeDailyRunIssue } from "../../../../runtime_daily_contract.js";
 
-export type CellKind = "ok" | "failed" | "blocked" | "not-run" | "no-record" | "unknown" | "incomplete" | "stale" | "read-failed";
+export type CellKind = "ok" | "failed" | "blocked" | "not-run" | "no-record" | "unknown" | "incomplete" | "stale" | "read-failed" | "binding-changed";
 
 type SummaryAccount = TodayRunSummary["accounts"][number];
 
@@ -175,6 +175,20 @@ export function cellKind(snapshot: RuntimeDailySnapshot): CellKind {
   if (record.kind === "run" && ["no_submission", "no_signal", "no_rebalance", "filled"].includes(record.status)
     && runs.length > 0 && runs.every(run => runtimeDailyRunIssue(run) === null)) return "ok";
   return "unknown";
+}
+
+/**
+ * A weekend in which every account is either fine or simply has no scheduled
+ * run. Missing records are the expected state then, not degraded coverage.
+ * Crypto accounts may still be waiting for their later snapshot, which the
+ * caller states separately; any stale, partial or unreadable account makes
+ * this false so genuine degradation keeps its normal presentation.
+ */
+export function weekendWithoutScheduledRuns(summary: TodayRunSummary): boolean {
+  if (summary.market_session !== "weekend") return false;
+  return summary.accounts.every(account => account.status === "ok"
+    || (account.status === "no_data"
+      && (account.unavailable_reason === "non_trading_weekend" || account.unavailable_reason === "today_record_missing")));
 }
 
 /** Count failed accounts only within today's New York summary. */

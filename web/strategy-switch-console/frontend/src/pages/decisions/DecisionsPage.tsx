@@ -32,7 +32,7 @@ import { Timeline } from "../../components/Timeline";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { useToast } from "../../components/Toast";
 import { resolveAccountChoice } from "./helpers";
-import { sourceLabelKey } from "./sources";
+import { sourceConsequenceKey, sourceLabelKey } from "./sources";
 import { InitialEnrollmentFacts } from "./InitialEnrollmentFacts";
 import { ReconciliationMaterials } from "./ReconciliationMaterials";
 import "./decisions.css";
@@ -837,17 +837,17 @@ export default function DecisionsPage() {
           data-degraded-count={degradedSources.length}
         >
           <StatusBadge status="partial" />
-          <span>{t("decisions.partial_notice")}</span>
-          <details className="decision-degraded-sources">
-            <summary>{t("decisions.partial_sources")}</summary>
-            <ul>
+          <div className="decision-degraded-body">
+            <span>{t("decisions.partial_notice")}</span>
+            <ul className="decision-degraded-sources" aria-label={t("decisions.partial_affected")}>
               {degradedSources.map(source => (
                 <li key={source.source} data-source={source.source}>
-                  {t(sourceLabelKey(source.source))} · {t(`state.${source.status}`)}
+                  <strong>{t(sourceLabelKey(source.source))}</strong>
+                  <span> · {t(`state.${source.status}`)} — {t(sourceConsequenceKey(source.status))}</span>
                 </li>
               ))}
             </ul>
-          </details>
+          </div>
         </div>
       )}
       <div id="decisions-panel" role="tabpanel" aria-labelledby={`decisions-tab-${category}`} tabIndex={0}>

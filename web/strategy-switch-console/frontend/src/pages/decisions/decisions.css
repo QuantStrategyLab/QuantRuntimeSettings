@@ -22,7 +22,7 @@
 .decisions-category-row .tabs::-webkit-scrollbar { display: none; }
 .decisions-category-row .tab { flex: 0 0 auto; white-space: nowrap; }
 
-/* Persistent partial-source notice: visible text, expandable source names. */
+/* Persistent partial-source notice: each degraded source states its own effect. */
 .decision-degraded-note {
   display: flex;
   align-items: center;
@@ -37,9 +37,10 @@
   font-size: 12.5px;
   line-height: 1.5;
 }
-.decision-degraded-sources { font-size: 12px; color: var(--muted); }
-.decision-degraded-sources > summary { display: inline-flex; align-items: center; min-height: 28px; cursor: pointer; }
-.decision-degraded-sources ul { margin: 4px 0 0; padding-left: 18px; }
+.decision-degraded-body { display: flex; flex-direction: column; gap: 2px; flex: 1 1 100%; }
+.decision-degraded-sources { margin: 2px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+.decision-degraded-sources li + li { margin-top: 2px; }
+.decision-degraded-sources strong { font-weight: 600; color: var(--ink); }
 
 .decision-detail-head { display: flex; flex-direction: column; gap: 8px; }
 
