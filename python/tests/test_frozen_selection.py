@@ -50,6 +50,17 @@ class FrozenSelectionTest(unittest.TestCase):
                         {'platform_id': 'ibkr', 'strategy_profile': profile, 'execution_mode': 'dry_run'}, errors)
                     self.assertEqual(errors, [])
 
+    def test_display_alias_cannot_skip_strategy_policy(self):
+        errors = []
+        runtime.validate_runtime_target_strategy_policy(
+            {'platform_id': 'binance', 'strategy_profile': 'bitcoin_etf_smart_dca', 'execution_mode': 'dry_run'},
+            errors,
+        )
+        self.assertTrue(
+            any('domain us_equity is not supported by binance' in error for error in errors),
+            errors,
+        )
+
     def test_policy_lookup_preserves_original_legacy_target_and_fingerprint(self):
         target = {'platform_id': 'ibkr', 'strategy_profile': 'GLOBAL-ETF-ROTATION', 'execution_mode': 'live'}
         digest = runtime.runtime_target_fingerprint(target)

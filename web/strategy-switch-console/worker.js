@@ -23,6 +23,7 @@ import {
   assertBinanceFactsHistoryBindings, BINANCE_WALLET_HISTORY_MAX_DAYS,
 } from "./binance_account_facts.js";
 import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
+import { DISPLAY_NAMES } from "./display_names_data.js";
 import {
   DCA_SUPPORTED_PLATFORMS,
   DEFAULT_VARIABLE_SCOPES as DEFAULT_VARIABLE_SCOPE,
@@ -15623,10 +15624,7 @@ function parseStrategyProfiles(raw, fieldName = "strategy profiles") {
 }
 
 function isFrozenStrategyProfile(strategy) {
-  const aliases = {
-    global_macro_etf_rotation: "global_etf_rotation",
-    global_etf_confidence_vol_gate: "global_etf_rotation",
-  };
+  const aliases = DISPLAY_NAMES.strategy_aliases || {};
   // Normalize only the policy lookup; retain the original profile in payloads.
   const lookup = String(strategy?.profile || "").trim().toLowerCase().replaceAll("-", "_");
   const profile = aliases[lookup] || lookup;
