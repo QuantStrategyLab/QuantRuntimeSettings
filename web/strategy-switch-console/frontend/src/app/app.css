@@ -635,10 +635,15 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   font-size: 12px;
   padding: 2px 4px;
   border-radius: 4px;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
 }
 .chart-legend button:hover { background: var(--surface-2); }
 .chart-legend button.off { opacity: 0.4; text-decoration: line-through; }
-.chart-legend .legend-swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.chart-legend .legend-swatch { flex: 0 0 14px; width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
 .chart-tooltip {
   background: var(--surface);
   border: 1px solid var(--line);
