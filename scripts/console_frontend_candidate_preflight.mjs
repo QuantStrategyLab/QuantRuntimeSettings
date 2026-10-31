@@ -4,8 +4,8 @@ import {readFile,readdir} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 
 export const SNAPSHOT = Object.freeze({
-  commit: '270e387c3246799e4daa6127126bab4092314958',
-  tree: 'c8deff46416b15daa980b6285d152e4fe4bc8f04',
+  commit: '85504dd6ee201fd358f6ea3489742ea5c47afcf8',
+  tree: 'ce46afc9354beb08ce808593595ca1e08a96a52e',
   assetBlob: 'acb728faf6247535bdc173b0f18c82adeea3485e',
   buildId: '58894b1c9aa1e7627d9985edbbc09e8f6a06f1b8521811032266fc11565c74d5',
   bundleSha256: '44386d5bb3eddf40be110c2503bfbeae5a3cc1b227eaef03a31846e8ea4098af',

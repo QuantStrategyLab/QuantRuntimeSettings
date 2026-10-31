@@ -70,7 +70,7 @@ jobs:
       - name: Check out fixed frontend snapshot
         uses: actions/checkout@v4
         with:
-          ref: 270e387c3246799e4daa6127126bab4092314958
+          ref: 85504dd6ee201fd358f6ea3489742ea5c47afcf8
           path: candidate-snapshot
           persist-credentials: false
       - name: Check out fixed recovery snapshot
