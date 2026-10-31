@@ -11,11 +11,11 @@
     "test:performance": "node --experimental-strip-types ../../../tests/console_performance_math_validation.mjs && node --experimental-strip-types ../../../tests/console_performance_data_validation.mjs && node --experimental-strip-types ../../../tests/console_calendar_pending_ui_validation.mjs && node ../../../tests/website_currency_ranking_validation.mjs && node ../../../tests/website_summary_request_validation.mjs && node ../../../tests/console_compact_summary_validation.mjs && node ../../../tests/native_daily_gap_ui_validation.mjs"
   },
   "dependencies": {
-    "react": "19.1.1",
+    "react": "19.3.1",
     "react-dom": "19.1.1"
   },
   "devDependencies": {
-    "@types/react": "19.1.10",
+    "@types/react": "19.3.0",
     "@types/react-dom": "19.1.7",
     "typescript": "5.9.2",
     "vite": "7.3.6"
