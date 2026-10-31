@@ -1515,9 +1515,11 @@ const afterLbRefresh = await (await get(sessionHeaders, env)).json();
 assert.equal(afterLbRefresh.accounts.find((item) => item.platform === "longbridge" && item.account_key === account.key).data_status, "fresh");
 
 // Cross-day binding rotation: old daily rows stay stored but are excluded from
-// the current account history for both platforms.
+// the current account history for both platforms. The hour must stay recent: the
+// live sync endpoint refuses any observation older than its 36h freshness window,
+// so a fixed hour made the run time-dependent rather than the rotation.
 const previousDayStart = new Date(Date.now() - 86400000);
-previousDayStart.setUTCHours(10, 0, 0, 0);
+previousDayStart.setUTCHours((previousDayStart.getUTCHours() + 23) % 24, 0, 0, 0);
 const previousDayStartedAt = previousDayStart.toISOString().replace(/\.\d{3}Z$/, "Z");
 const previousDayFinishedAt = new Date(previousDayStart.getTime() + 60000).toISOString().replace(/\.\d{3}Z$/, "Z");
 const rotationLb = {

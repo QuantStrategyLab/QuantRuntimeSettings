@@ -94,6 +94,11 @@ console.log('account facts history currency discovery: synthetic qualified linea
 // Exercise the actual Worker wiring: its binding loader must not swallow a KV
 // read failure before the history use case can distinguish it from no binding.
 const { default: worker, __test } = await import('../web/strategy-switch-console/worker.js');
+// Sync producers keep only the HTTP status, so each refusal must also name its
+// code in one bounded log event. Capture the events instead of printing them.
+const rejections=[];
+const realWarn=console.warn;
+console.warn=(event,...rest)=>{ if(event==='account_facts_refused') rejections.push(rest[0]); else realWarn.apply(console,[event,...rest]); };
 let kvFailure=null, missingBinding=false, storedHistory={ok:true,days:[]}, storedStatus=200;
 const workerEnv={
   ACCOUNT_FACTS_READ_MODEL_ENABLED:'true',
@@ -151,4 +156,39 @@ try {
   missingBinding=true;
   assert.equal((await requestHistory(legacyUrl)).status,200,'a successful missing binding read keeps its legacy empty state');
 } finally {globalThis.fetch=originalFetch;}
+// One event per refusal, the code identical to the one the client receives, and no
+// field beyond the fixed endpoint, the status and the classified code.
+assert.ok(rejections.length>=3,'every rejected account-facts read above is observable');
+assert.deepEqual(rejections.at(-1),{endpoint:'read',http_status:409,error_category:'account_facts_stored_invalid'},
+  'the logged code is exactly the code the producer receives');
+for(const event of rejections){
+  assert.deepEqual(Object.keys(event).sort(),['endpoint','error_category','http_status'],'the event carries no other field');
+  assert.equal(event.endpoint,'read','reads keep the default endpoint literal');
+  assert.match(event.error_category,/^[a-z][a-z0-9_]{2,63}$/);
+  assert.ok(Number.isInteger(event.http_status)&&event.http_status>=400&&event.http_status<=599);
+}
+// A free-form failure keeps its previous response body but is classified, never copied.
+const unclassified=await __test.accountFactsErrorResponse(new Error('net_assets 98765.432101 rejected'));
+assert.equal(unclassified.status,400,'an unclassified failure stays a 400');
+assert.equal((await unclassified.json()).error,'net_assets 98765.432101 rejected','the response is unchanged');
+assert.equal(rejections.at(-1).error_category,'unknown','free-form text is classified, never copied');
+const syncRefusal=await __test.accountFactsErrorResponse(
+  Object.assign(new Error('period_return_conflict'),{status:409}),'period_return_sync');
+assert.equal(syncRefusal.status,409);
+assert.equal((await syncRefusal.json()).error,'period_return_conflict');
+assert.deepEqual(rejections.at(-1),{endpoint:'period_return_sync',http_status:409,error_category:'period_return_conflict'},
+  'a sync refusal names the endpoint the producer posted to');
+// The history-sync use case lives in application/account_facts/sync.js and calls its
+// injected error mapper with no endpoint, so the worker injection site must pre-tag it;
+// otherwise a refused history push would be logged as a read.
+const historySync=await worker.fetch(new Request('https://switch.example/api/account-facts/history/sync',{
+  method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
+}),workerEnv);
+assert.equal(historySync.status,500,'this synthetic env configures no sync token');
+assert.deepEqual(await historySync.json(),{ok:false,error:'account_facts_sync_token_not_configured'});
+assert.deepEqual(rejections.at(-1),
+  {endpoint:'history_sync',http_status:500,error_category:'account_facts_sync_token_not_configured'},
+  'a refused history push is attributed to the sync endpoint, not to a read');
+assert.ok(!JSON.stringify(rejections).includes('98765'),'no payload value reaches the log stream');
+console.warn=realWarn;
 console.log('account facts history Worker wiring: synthetic KV/DO failures and empty states passed');

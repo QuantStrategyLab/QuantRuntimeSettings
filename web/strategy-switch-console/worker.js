@@ -11519,14 +11519,22 @@ function accountFactsDisabledResponse() {
   return json({ ok: false, error: "account_facts_disabled" }, 404);
 }
 
-function accountFactsErrorResponse(error) {
-  if (error instanceof AccountFactsError) {
-    return json({ ok: false, error: error.code }, error.status || 400);
-  }
-  if (error instanceof HttpError) {
-    return json({ ok: false, error: error.message }, error.status || 400);
-  }
-  return json({ ok: false, error: error?.message || "invalid_account_facts_history" }, error?.status || 400);
+// Sync producers keep only the HTTP status, so a refused push is undiagnosable
+// from their logs. Publish the refusal code, tagged with a fixed endpoint literal
+// from the caller; free-form exception text is classified to "unknown" so payload
+// content, identities and credentials cannot enter the log stream. The response
+// body and status are exactly what this helper already returned.
+function accountFactsErrorResponse(error, endpoint = "read") {
+  const code = error instanceof AccountFactsError ? error.code
+    : error instanceof HttpError ? error.message
+    : error?.message || "invalid_account_facts_history";
+  const status = error?.status || 400;
+  console.warn("account_facts_refused", {
+    endpoint,
+    http_status: status,
+    error_category: typeof code === "string" && /^[a-z][a-z0-9_]{2,63}$/.test(code) ? code : "unknown",
+  });
+  return json({ ok: false, error: code }, status);
 }
 
 function requireCycleHealthProvisionToken(request, env) {
@@ -11762,7 +11770,7 @@ async function syncAccountExternalFlowResponse(request, env) {
       record_count: new Set(flow.windows.flatMap(w => w.records.map(r => r.source_ref))).size });
   } catch (error) {
     if (error instanceof AccountFactsError || error instanceof HttpError || error?.code?.startsWith("external_flow")
-        || error?.code === "invalid_external_flow") return accountFactsErrorResponse(error);
+        || error?.code === "invalid_external_flow") return accountFactsErrorResponse(error, "external_flow_sync");
     return json({ ok: false, error: "account_external_flow_unavailable" }, 503);
   }
 }
@@ -11787,7 +11795,7 @@ async function syncAccountExecutionsResponse(request, env) {
       account_key: binding.account_key, period: payload.period, record_count: payload.records.length });
   } catch (error) {
     if (error instanceof AccountFactsError || error instanceof HttpError || error?.code?.startsWith("execution_")
-        || error?.code === "invalid_broker_executions") return accountFactsErrorResponse(error);
+        || error?.code === "invalid_broker_executions") return accountFactsErrorResponse(error, "executions_sync");
     return json({ ok: false, error: "account_executions_unavailable" }, 503);
   }
 }
@@ -11811,7 +11819,7 @@ async function syncAccountPeriodReturnResponse(request, env) {
     return json({ ok: true, stored: true, unchanged: stored.unchanged === true, account_key: binding.account_key,
       period: payload.period, currency: payload.currency, method: payload.method });
   } catch (error) {
-    if (error instanceof AccountFactsError || error instanceof HttpError) return accountFactsErrorResponse(error);
+    if (error instanceof AccountFactsError || error instanceof HttpError) return accountFactsErrorResponse(error, "period_return_sync");
     return json({ ok: false, error: "account_period_return_unavailable" }, 503);
   }
 }
@@ -11826,7 +11834,7 @@ async function syncAccountFactsResponse(request, env, options) {
     runtimeInstanceCommand,
     readBoundedJson,
     requireDedicatedAccountFactsSyncToken,
-    accountFactsErrorResponse,
+    accountFactsErrorResponse: (error) => accountFactsErrorResponse(error, "history_sync"),
   }, options);
 }
 
@@ -17721,6 +17729,7 @@ export const __test = {
   resolveTrustedAccountFactsBinding,
   decideAccountFactsPut,
   accountFactsOptionMatchesBinding,
+  accountFactsErrorResponse,
   canonicalizeAccountFactsHistory,
   ux1JobUnknownAfterMs: UX1_JOB_UNKNOWN_AFTER_MS,
   ux1CalculatorDeadlineMs: UX1_CALCULATOR_DEADLINE_MS,
