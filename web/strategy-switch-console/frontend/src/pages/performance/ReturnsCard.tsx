@@ -5,7 +5,7 @@ import { useT } from "../../i18n";
 import type { AsyncState } from "../../lib/hooks";
 import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useScopeLabel } from "../../lib/useScopeLabel";
-import type { CashflowMethodMeta, PerformanceCoverage, Point, ReturnsResponse } from "../../api/contracts";
+import type { AssetChangeSeries, CashflowMethodMeta, PerformanceCoverage, Point, ReturnsResponse } from "../../api/contracts";
 import { AsOfStamp, EmptyState, ErrorState, MethodNote, Skeleton, StatusBadge } from "../../components/primitives";
 import { LineChart, type ChartSeries } from "../../charts/LineChart";
 import { renderableStatus } from "./shared";
@@ -62,6 +62,19 @@ interface AccountDailySeries {
 }
 
 const NO_BENCHMARKS: BenchmarkView = { series: [], defaults: [], disabled: [] };
+
+/**
+ * A qualified return needs complete cash-flow history. When only the bounded
+ * asset series is available, plot that separately labeled asset change instead
+ * of an empty card; never relabel the fallback as a return.
+ */
+function chartSeries(entry: { points: Point[]; asset_change?: AssetChangeSeries | null }): {
+  points: Point[];
+  fallback: AssetChangeSeries | null;
+} {
+  if (entry.points.length > 0) return { points: entry.points, fallback: null };
+  return { points: entry.asset_change?.points ?? [], fallback: entry.asset_change ?? null };
+}
 
 /**
  * Single-account native returns arrive as real per-day percentages with `breakBefore` gaps.
@@ -257,7 +270,8 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
     && (renderableStatus(data.status) || data.unavailable_reason === "mixed_currency"));
   const selectedEntry: CurrencyEntry | null = multi && data
     ? data.per_currency.find(entry => entry.currency === selectedCurrency)
-      ?? data.per_currency.find(entry => renderableStatus(entry.status) && entry.points.length > 0)
+      ?? data.per_currency.find(entry => renderableStatus(entry.status)
+        && (entry.points.length > 0 || (entry.asset_change?.points.length ?? 0) > 0))
       ?? data.per_currency[0]
       ?? null
     : null;
@@ -273,6 +287,8 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
   } else {
     const returned = state.data;
     const disabled = returned.benchmark_availability.filter(item => !renderableStatus(item.status));
+    const returnedSeries = chartSeries(returned);
+    const returnedFallback = returnedSeries.fallback;
     if (multi && selectedEntry) {
       // Mixed-currency scope: a product currency switch, never a combined curve.
       const entry = selectedEntry;
@@ -293,28 +309,33 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
           </div>
         </div>
       );
-      if (renderableStatus(entry.status) && entry.points.length > 0) {
+      const series = chartSeries(entry);
+      const fallback = series.fallback;
+      const shownStatus = fallback ? fallback.status : entry.status;
+      const shownReason = fallback ? fallback.unavailable_reason : entry.unavailable_reason;
+      if (renderableStatus(shownStatus) && series.points.length > 0) {
         const entryView: ReturnView = {
-          points: entry.points,
-          benchmarks: entry.benchmarks,
-          returnKind: entry.return_kind,
+          points: series.points,
+          benchmarks: fallback ? [] : entry.benchmarks,
+          returnKind: fallback ? "unadjusted_asset_ratio" : entry.return_kind,
           method: entry,
-          alignedStart: entry.aligned_start,
+          alignedStart: fallback ? fallback.aligned_start : entry.aligned_start,
           currency: entry.currency,
-          status: entry.status,
-          unavailableReason: entry.unavailable_reason,
-          asOf: entry.as_of ?? null,
+          status: shownStatus,
+          unavailableReason: shownReason,
+          asOf: fallback ? fallback.as_of : entry.as_of ?? null,
           disabled,
         };
         view = entryView;
-        benchmarks = nativeDailyOnly ? NO_BENCHMARKS : resolveBenchmarks(entryView, policy);
+        benchmarks = nativeDailyOnly || fallback ? NO_BENCHMARKS : resolveBenchmarks(entryView, policy);
         body = (
           <div>
             {switchControl}
+            {fallback && <p className="card-note">{t("perf.mixed_currency_asset_change")}</p>}
             <ReturnsChart
               view={entryView}
               seriesLabel={`${scopeLabel} · ${entry.currency}`}
-              mode={nativeDailyOnly ? "daily" : modeFor(entry.points)}
+              mode={nativeDailyOnly ? "daily" : modeFor(series.points)}
               ariaLabel={`${t(chartLabelKey(entryView, nativeDailyOnly))} ${entry.currency}`}
               benchmarks={benchmarks}
               disabled={benchmarks.disabled}
@@ -323,13 +344,13 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
           </div>
         );
       } else {
-        const stateKey = renderableStatus(entry.status) ? "no_data" : entry.status;
+        const stateKey = renderableStatus(shownStatus) ? "no_data" : shownStatus;
         body = (
           <div>
             {switchControl}
-            <div data-reason={entry.unavailable_reason ?? undefined}>
-              <EmptyState title={t(stateKey === "no_data" && entry.unavailable_reason === "external_cashflow_required"
-                ? "perf.missing_cashflow_records" : `state.${stateKey}`)} state={stateKey} body={entry.unavailable_reason ? t(`reason.${entry.unavailable_reason}`) : undefined} />
+            <div data-reason={shownReason ?? undefined}>
+              <EmptyState title={t(stateKey === "no_data" && shownReason === "external_cashflow_required"
+                ? "perf.missing_cashflow_records" : `state.${stateKey}`)} state={stateKey} body={shownReason ? t(`reason.${shownReason}`) : undefined} />
             </div>
           </div>
         );
@@ -340,7 +361,7 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
           <EmptyState title={t(`state.${returned.status}`)} state={returned.status} body={returned.unavailable_reason ? t(`reason.${returned.unavailable_reason}`) : undefined} />
         </div>
       );
-    } else if (returned.points.length === 0) {
+    } else if (returnedSeries.points.length === 0) {
       body = (
         <div data-reason={returned.unavailable_reason ?? undefined}>
           <EmptyState title={t(returned.unavailable_reason === "external_cashflow_required"
@@ -349,24 +370,25 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
       );
     } else {
       const singleView: ReturnView = {
-        points: returned.points,
-        benchmarks: returned.no_common_date ? [] : returned.benchmarks,
-        returnKind: returned.return_kind,
+        points: returnedSeries.points,
+        benchmarks: returnedFallback ? [] : (returned.no_common_date ? [] : returned.benchmarks),
+        returnKind: returnedFallback ? "unadjusted_asset_ratio" : returned.return_kind,
         method: returned,
-        alignedStart: returned.aligned_start,
+        alignedStart: returnedFallback ? returnedFallback.aligned_start : returned.aligned_start,
         currency: returned.currency ?? null,
-        status: returned.status,
-        unavailableReason: returned.unavailable_reason,
-        asOf: returned.as_of ?? null,
+        status: returnedFallback ? returnedFallback.status : returned.status,
+        unavailableReason: returnedFallback ? returnedFallback.unavailable_reason : returned.unavailable_reason,
+        asOf: returnedFallback ? returnedFallback.as_of : returned.as_of ?? null,
         disabled,
       };
       view = singleView;
-      benchmarks = nativeDailyOnly || returned.no_common_date ? NO_BENCHMARKS : resolveBenchmarks(singleView, policy);
+      benchmarks = nativeDailyOnly || returnedFallback || returned.no_common_date
+        ? NO_BENCHMARKS : resolveBenchmarks(singleView, policy);
       body = (
         <ReturnsChart
           view={singleView}
           seriesLabel={scopeLabel}
-          mode={nativeDailyOnly ? "daily" : modeFor(returned.points)}
+          mode={nativeDailyOnly ? "daily" : modeFor(returnedSeries.points)}
           ariaLabel={t(chartLabelKey(singleView, nativeDailyOnly))}
           benchmarks={benchmarks}
           disabled={benchmarks.disabled}

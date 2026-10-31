@@ -201,6 +201,55 @@ export function calendarCells(points, year, month, options = {}) {
     };
   });
 }
+/**
+ * A bounded forward-filled asset series describes money movement, never a
+ * return. Reuse the calendar grid, then strip every return claim from the cells
+ * that only carry a carried balance.
+ */
+function assetChangeCalendarCells(points, year, month, options) {
+  const cells = calendarCells(
+    points.map(({ partial, forward_filled_accounts, missing_accounts, membership_changed, ...point }) => point),
+    year,
+    month,
+    options,
+  );
+  return cells.map((cell) => {
+    if (month) {
+      if (cell.amount === null) return cell;
+      return {
+        ...cell,
+        return_percent: null,
+        value_kind: "asset_change",
+        status: "partial",
+        unavailable_reason: "snapshot_history_missing",
+      };
+    }
+    if (cell.observed_amount === null || cell.observed_amount === undefined) return cell;
+    return {
+      ...cell,
+      amount: cell.amount ?? cell.observed_amount,
+      return_percent: null,
+      value_kind: "asset_change",
+      status: cell.status === "unavailable" ? cell.status : "partial",
+      unavailable_reason: cell.status === "unavailable"
+        ? cell.unavailable_reason
+        : cell.amount === null ? "incomplete_month" : "snapshot_history_missing",
+    };
+  });
+}
+/** An unqualified curve still describes a cumulative asset ratio; keep it separate from TWR. */
+function assetChangeSeries(curve) {
+  return curve.return_kind === "twr" ? null : {
+    return_kind: "unadjusted_asset_ratio",
+    status: !curve.points.length ? "no_data" : curve.status === "stale" ? "stale" : "partial",
+    unavailable_reason: !curve.points.length ? "snapshot_history_missing" : curve.unavailable_reason,
+    as_of: curve.points.at(-1)?.date || null,
+    aligned_start: curve.points[0]?.date || null,
+    points: curve.points,
+    benchmarks: [],
+    coverage: curve.coverage,
+  };
+}
 export function holdingsRows(accounts) {
   return accounts
     .flatMap((a) =>
@@ -282,6 +331,7 @@ export function performanceBlocks({
   );
   const incompleteCohort = failed.length > 0 || combined.missingAccounts.length > 0;
   const allPoints = mixed ? [] : combined.points;
+  const cryptoDays = histories.length > 0 && histories.every((history) => history.crypto === true);
   const points = sliceRange(allPoints, range.toLowerCase(), today);
   const asOf = points.at(-1)?.date || null;
   const chained = chainReturns(points);
@@ -353,7 +403,7 @@ export function performanceBlocks({
         unavailable_reason: mixed ? "mixed_currency" : incompleteCohort && points.length ? "snapshot_history_missing" : returnUnavailableReason(points),
       };
   const daily = dailyChanges(incompleteCohort ? [] : allPoints, {
-    crypto: histories.length > 0 && histories.every((history) => history.crypto === true),
+    crypto: cryptoDays,
   }).filter((d) => d.date >= (points[0]?.date || today) && d.date <= today);
   const validDays = daily.filter((d) => d.amount !== null);
   const ranked = validDays
@@ -374,7 +424,7 @@ export function performanceBlocks({
   const primaryByDate = new Map(aligned.primary.map((p) => [p.date, p.value]));
   const cells = calendarCells(incompleteCohort ? [] : allPoints, year, month, {
     today,
-    crypto: histories.length > 0 && histories.every((history) => history.crypto === true),
+    crypto: cryptoDays,
   });
   const calendarHasValues = cells.some(
     (c) =>
@@ -398,7 +448,24 @@ export function performanceBlocks({
     return curve;
   });
   const singleHistory = mixed ? null : historyCurves[0];
-  const byCurrency = mixed ? historyCurves.map(({ asset_points, ...curve }) => curve) : [];
+  // A strict cohort with omitted dates can still expose a bounded, carried
+  // native-currency asset series. Missing members and failed reads stay gated
+  // off so this fallback never substitutes for a qualified cohort.
+  const fallbackCells = !mixed && !calendarHasValues && failed.length === 0
+    && combined.missingAccounts.length === 0 && combined.omittedDates > 0
+    && historyCurves[0]?.asset_points.length > 1
+    ? assetChangeCalendarCells(historyCurves[0].asset_points, year, month, {
+        today, crypto: cryptoDays,
+      })
+    : null;
+  const fallbackHasValues = Boolean(fallbackCells?.some((cell) =>
+    cell.amount !== null
+    || (cell.observed_amount !== undefined && cell.observed_amount !== null)));
+  const byCurrency = mixed ? historyCurves.map(({ asset_points, ...curve }) => ({
+    ...curve,
+    points: curve.return_kind === "twr" ? curve.points : [],
+    asset_change: assetChangeSeries(curve),
+  })) : [];
   const historyMeta = singleHistory ? {
     status: singleHistory.status,
     unavailable_reason: singleHistory.unavailable_reason,
@@ -427,26 +494,37 @@ export function performanceBlocks({
     && accounts.every(a => a.positions_complete === true && Array.isArray(a.positions))
     && positions.every(row => row.status === "ok");
   const knownInventory = accounts.some(a => a.positions?.length || a.positions_complete === true);
+  const calendar = {
+    ...meta,
+    status: mixed
+      ? "unavailable"
+      : !calendarHasValues
+        ? "no_data"
+        : meta.status === "no_data"
+          ? "partial"
+          : meta.status,
+    unavailable_reason: mixed
+      ? "mixed_currency"
+      : !calendarHasValues
+        ? "snapshot_history_missing"
+        : meta.unavailable_reason,
+    year,
+    month: month || null,
+    cells: cells.map((c) => ({ ...c, currency: meta.currency })),
+    as_of: allPoints.at(-1)?.date || null,
+  };
+  if (fallbackCells && fallbackHasValues) {
+    Object.assign(calendar, {
+      status: "partial",
+      unavailable_reason: "snapshot_history_missing",
+      value_kind: "asset_change",
+      as_of: historyCurves[0].asset_points.at(-1)?.date || null,
+      coverage: { ...coverage, ...historyCurves[0].coverage, asset_change_fallback: true },
+      cells: fallbackCells.map((c) => ({ ...c, currency: meta.currency })),
+    });
+  }
   return {
-    calendar: {
-      ...meta,
-      status: mixed
-        ? "unavailable"
-        : !calendarHasValues
-          ? "no_data"
-          : meta.status === "no_data"
-            ? "partial"
-            : meta.status,
-      unavailable_reason: mixed
-        ? "mixed_currency"
-        : !calendarHasValues
-          ? "snapshot_history_missing"
-          : meta.unavailable_reason,
-      year,
-      month: month || null,
-      cells: cells.map((c) => ({ ...c, currency: meta.currency })),
-      as_of: allPoints.at(-1)?.date || null,
-    },
+    calendar,
     summary: {
       ...meta,
       twr_return_percent: qualified
@@ -495,7 +573,8 @@ export function performanceBlocks({
       return_kind: singleHistory ? singleHistory.return_kind : qualified ? "twr" : "unadjusted_asset_ratio",
       points: singleHistory ? (singleHistory.return_kind === "twr" ? singleHistory.points : []) : qualified ? aligned.primary : [],
       benchmarks: singleHistory ? singleHistory.benchmarks : qualified ? aligned.benchmarks : [],
-      per_currency: byCurrency.map(curve => ({ ...curve, points: curve.return_kind === "twr" ? curve.points : [] })),
+      per_currency: byCurrency,
+      asset_change: singleHistory ? assetChangeSeries(singleHistory) : null,
       no_common_date: singleHistory ? singleHistory.no_common_date : aligned.noCommonDate,
       benchmark_availability: availableBenchmarks.map((b) => ({
         id: b.id,
