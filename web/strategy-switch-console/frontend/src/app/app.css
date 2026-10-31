@@ -166,6 +166,8 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   text-align: center;
   line-height: 18px;
 }
+/* A count that could not be read is marked, never left blank: blank reads as "no to-dos". */
+.nav-badge-unknown { background: var(--surface-2); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
 .sidenav-collapse {
   margin-top: auto;
   padding: 8px 12px;

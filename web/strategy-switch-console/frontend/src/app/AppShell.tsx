@@ -31,6 +31,7 @@ function NavIcon({ path }: { path: string }) {
 export function AppShell({
   page,
   todoCount,
+  todoStatus = "ok",
   synthetic,
   login,
   updatedAt,
@@ -39,6 +40,7 @@ export function AppShell({
 }: {
   page: PageId;
   todoCount: number | null;
+  todoStatus?: "loading" | "ok" | "read_failed";
   synthetic: boolean;
   login: string | null;
   updatedAt: string | null;
@@ -88,6 +90,9 @@ export function AppShell({
   }, []);
 
   const badge = todoCount !== null && todoCount > 0 ? <span className="nav-badge">{todoCount}</span> : null;
+  // An unreadable inbox has no count to show, and showing nothing would read as
+  // "nothing to do", so the item carries an explicit unknown marker instead.
+  const todoUnknown = todoStatus === "read_failed";
   const updated = updatedAt ? formatDateTime(updatedAt, language) : null;
 
   const navButton = (item: (typeof NAV_ITEMS)[number], extraClass = "") => (
@@ -95,13 +100,13 @@ export function AppShell({
       key={item.id}
       type="button"
       className={`${extraClass}${page === item.id ? " active" : ""}`}
-      aria-label={t(item.labelKey)}
+      aria-label={item.id === "decisions" && todoUnknown ? `${t(item.labelKey)} · ${t("nav.todo_unavailable")}` : t(item.labelKey)}
       aria-current={page === item.id ? "page" : undefined}
       onClick={() => navigate({ page: item.id, account: null, tab: null })}
     >
       <NavIcon path={item.icon} />
       <span className="nav-text">{t(item.labelKey)}</span>
-      {item.id === "decisions" && badge}
+      {item.id === "decisions" && (badge || (todoUnknown && <span className="nav-badge nav-badge-unknown" aria-hidden="true">?</span>))}
     </button>
   );
 
