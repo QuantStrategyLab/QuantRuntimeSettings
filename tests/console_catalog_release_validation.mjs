@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -99,10 +99,11 @@ test("the deploy renderer pins account-facts, runtime-daily and external-flow fl
   assert.match(workflow, /EXECUTION_EVIDENCE_SYNC_TOKEN: \$\{\{ secrets\.EXECUTION_EVIDENCE_SYNC_TOKEN \}\}/);
   assert.match(workflow, /node tests\/console_catalog_release_validation\.mjs/);
 
-  function render({ flag, token, ibkrToken, runtimeDailyFlag, executionEvidenceToken, externalFlowFlag } = {}) {
+  function render({ flag, token, ibkrToken, runtimeDailyFlag, executionEvidenceToken, externalFlowFlag, example } = {}) {
     const directory = mkdtempSync(join(tmpdir(), "qsl-config-render-"));
     try {
-      copyFileSync(template, join(directory, "wrangler.toml.example"));
+      if (example === undefined) copyFileSync(template, join(directory, "wrangler.toml.example"));
+      else writeFileSync(join(directory, "wrangler.toml.example"), example, "utf8");
       const env = { ...process.env, WORKER_DIR: directory, STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: "synthetic-kv-id", CLOUDFLARE_ACCOUNT_ID: "synthetic-account-id" };
       for (const key of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_WRANGLER_CONFIG_TOML", "UX1_RESEARCH_JOB_TOKEN"]) delete env[key];
       env.UX1_PREVIEW_MODE = "";
@@ -238,4 +239,19 @@ test("the deploy renderer pins account-facts, runtime-daily and external-flow fl
     assert.equal(targetExists, false, "an invalid external-flow flag must fail before creating a deploy config");
     assert.equal(toml, "");
   }
+
+  // Reviewed pinned sources predate the declaration, so requiring it would stop every
+  // historical release path from publishing; the value has to be injected instead.
+  const historicalExample = '[vars]\nACCOUNT_FACTS_READ_MODEL_ENABLED = "false"\nRUNTIME_DAILY_READ_MODEL_ENABLED = "false"\n';
+  const injected = render({ externalFlowFlag: "true", example: historicalExample });
+  assert.equal(injected.result.status, 0, injected.result.stderr);
+  assert.equal((injected.toml.match(/^CONSOLE_EXTERNAL_FLOW_ENABLED\s*=/gm) || []).length, 1);
+  assert.equal(parsedConfig(injected.toml).vars.CONSOLE_EXTERNAL_FLOW_ENABLED, "true");
+
+  // A template that already states the switch must state it closed, or the checked-in
+  // default stops being the fail-closed value the deploy contract assumes.
+  const openDefault = render({ externalFlowFlag: "false", example: historicalExample + 'CONSOLE_EXTERNAL_FLOW_ENABLED = "true"\n' });
+  assert.notEqual(openDefault.result.status, 0, "accepted a template declaring the switch open");
+  assert.match(openDefault.result.stderr, /CONSOLE_EXTERNAL_FLOW_ENABLED/);
+  assert.equal(openDefault.targetExists, false);
 });

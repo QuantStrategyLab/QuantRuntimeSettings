@@ -61,6 +61,7 @@ class Ux1DeployWorkflowTests(unittest.TestCase):
             "WORKER_DIR": str(worker_dir),
             "CLOUDFLARE_API_TOKEN": "synthetic-cloudflare-token",
             "STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID": "a" * 32,
+            "CONSOLE_EXTERNAL_FLOW_ENABLED": "",
             **ux1_env,
         }
         result = subprocess.run(
