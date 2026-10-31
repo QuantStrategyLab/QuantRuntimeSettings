@@ -42,16 +42,36 @@ class UnifiedPresentationTests(unittest.TestCase):
                     self.assertIn(heading, text)
                     self.assertIn(f"{day} 06:00 – {following} 06:00 (UTC+8)", text)
 
-    def test_management_station_name_preserves_not_connected_unknown(self):
+    def test_management_station_outside_digest_scope_preserves_unknown(self):
         inventory = {"qrs": {"expected_targets": 0, "covered_targets": 0, "runs": None}}
-        for locale, expected in (("zh", "管理站：未接入，运行状态未知"),
-                                 ("en", "Management console: not connected; run state unknown")):
+        for locale, expected in (("zh", "管理站：未纳入本期汇总，运行状态未知"),
+                                 ("en", "Management console: not included in this digest; run state unknown")):
             with self.subTest(locale=locale):
                 value = replace(payload(row(), locale=locale), notification_summary={
                     "counts_scope_unknown": True, "source_inventory": inventory})
                 text = render(value)
                 self.assertIn(expected, text)
                 self.assertIn("全窗口统计未知" if locale == "zh" else "whole-window count unknown", text)
+
+    def test_source_inventory_counts_only_included_evidence(self):
+        for locale in ("zh", "en"):
+            for runs, covered in ((0, 0), (0, 1), (None, 0)):
+                with self.subTest(locale=locale, included_runs=runs, covered_targets=covered):
+                    inventory = {"firstrade": {"expected_targets": 1, "covered_targets": covered, "runs": runs}}
+                    value = replace(payload(row(), locale=locale), notification_summary={
+                        "counts_scope_unknown": True, "source_inventory": inventory})
+                    before = deepcopy(asdict(value))
+                    text = render(value)
+                    line = next(line for line in text.splitlines() if line.startswith("Firstrade"))
+                    if runs is None:
+                        self.assertIn("已收录运行次数未知" if locale == "zh" else "Included run count unknown", line)
+                        self.assertNotIn("0", line.split("目标覆盖" if locale == "zh" else "expected target coverage")[0])
+                    else:
+                        self.assertIn("已收录 0 次运行" if locale == "zh" else "Included runs: 0", line)
+                    self.assertIn(f"目标覆盖 {covered}/1" if locale == "zh" else f"expected target coverage {covered}/1", line)
+                    self.assertNotIn("无交易" if locale == "zh" else "no trades", line.lower())
+                    self.assertIn("全窗口统计未知" if locale == "zh" else "whole-window count unknown", text)
+                    self.assertEqual(asdict(value), before)
 
     def test_legacy_bilingual_render_also_shows_window(self):
         with patch.dict(os.environ, {"QRS_UNIFIED_NOTIFICATION_ENABLED": "false"}):

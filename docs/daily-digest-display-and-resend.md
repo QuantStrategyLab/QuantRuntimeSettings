@@ -9,8 +9,12 @@ language selection.
 
 The unified trading digest displays its existing business window from 06:00
 UTC+8 on the business day through 06:00 UTC+8 the next day. The start is
-inclusive and the end is exclusive. The management console's source coverage
-uses a localized display name; an unconnected source remains explicitly unknown.
+inclusive and the end is exclusive. Source inventory uses localized display
+names and counts only included runs. Zero included runs does not prove that no
+run or trade occurred. Target coverage counts expected targets with usable
+evidence, including an explicit non-run report; it is not a run count. An
+unconfigured source is shown as outside this digest's scope with unknown run
+state, without making a claim about its deployment or connectivity.
 
 Schwab may supply an optional `block_reason` object with `reason_code`,
 `observed_value`, `limit` and `order_submitted_this_run`. A validated
