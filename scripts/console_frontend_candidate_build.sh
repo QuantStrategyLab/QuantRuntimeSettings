@@ -8,16 +8,16 @@ readonly verifier="$(cd "$(dirname "$0")" && pwd)/console_frontend_candidate_pre
 readonly mode="${2:-frontend}"
 case "$mode" in
  frontend)
-  expected_commit=37bd4798cba9fa12673709964b67a907a7d40d96
-  expected_tree=f3c557f3f01aab2302c94f893b0a8a5e6dd49c91
-  expected_asset=2c53dfcbdd106dbb9e763c6ef3bbef9c3c8b60f2
+  expected_commit=ccaf1c4136d416aac9b0852aa8d389dd48c96bc1
+  expected_tree=e0fca786a77fa5fb0bdd77292fa3655b59a1c7ed
+  expected_asset=81796f7dfef775038b9564126f16980ed7d355ec
   output_name=console-frontend-candidate
   verifier_flag=""
   ;;
  recovery-main)
-  expected_commit=8a161555c697c0440dacf5a9d526fae2f826bb5b
-  expected_tree=22270ec273d9b9781c9470bb6f627c44c6759f2c
-  expected_asset=64244efac3c08e58f68fb6f1b71cca6e8c048af3
+  expected_commit=37bd4798cba9fa12673709964b67a907a7d40d96
+  expected_tree=f3c557f3f01aab2302c94f893b0a8a5e6dd49c91
+  expected_asset=2c53dfcbdd106dbb9e763c6ef3bbef9c3c8b60f2
   output_name=console-recovery-candidate
   verifier_flag="--recovery"
   ;;
