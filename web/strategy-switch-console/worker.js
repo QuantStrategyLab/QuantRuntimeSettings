@@ -2194,7 +2194,7 @@ async function runtimeInstancesResponse(request, env) {
   return json(await runtimeInstanceCommand(env, command));
 }
 
-import { dateOnlyExternalFlow, externalFlowEnabled, initializeExternalFlow, normalizeExternalFlow, putExternalFlow, readExternalFlow } from "./application/account_facts/external_flow.js";
+import { dateOnlyExternalFlow, externalFlowEnabled, initializeExternalFlow, normalizeExternalFlow, putExternalFlow, readExternalFlow, readExternalFlowCoverage } from "./application/account_facts/external_flow.js";
 import { initializeExecutions, normalizeExecutions, putExecutions, readExecutions } from "./application/account_facts/executions.js";
 
 export class RuntimeInstances {
@@ -3535,6 +3535,9 @@ export class RuntimeInstances {
   readAccountFactsDailyHistory(command) {
     const context = this.accountFactsStorageContext(command);
     const { platform, account_key: accountKey } = context;
+    if (command.projection === "external-flow-coverage") {
+      return { ok: true, ...readExternalFlowCoverage(this.sql, context) };
+    }
     if (command.projection !== undefined) {
       const dates = accountFactsIdentityDates(command.from, command.to);
       if (command.projection !== "identity" || !dates) {

@@ -269,3 +269,26 @@ for (const [name, code] of [["loadAccountOptionsConfig", "account_options_unread
   assert.equal(body.asset_coverage.accounts.find(a => a.platform === "firstrade").reason, "binding_missing");
   assert.equal(body.asset_coverage.accounts.find(a => a.platform === "binance").reason, "source_not_supported");
 }
+
+// Coverage endpoint rebuilds fixed metadata and never forwards private storage values.
+{
+ const option={key:'synthetic',account_scope:'live',target_name:'target',service_name:'service',deployment_selector:'deployment',account_selector:'selector'};
+ const binding={...option,platform:'schwab',account_key:option.key,target_id:'target',broker_account_hash:'private-native-sentinel',source_binding:{id:'f'.repeat(64)}};
+ const params='platform=schwab&account_key=synthetic&projection=external-flow-coverage';
+ const safe={ok:true,read_status:'stored',precision:'instant',window_count:1,record_count:1,observed_from:'2026-01-01T12:00:00.000Z',observed_to:'2026-01-02T12:00:00.000Z',
+   groups:[{precision:'instant',coverage:'complete',window_count:1,record_count:1,observed_from:'2026-01-01T12:00:00.000Z',observed_to:'2026-01-02T12:00:00.000Z',amount:'PRIVATE_AMOUNT',source_ref:'PRIVATE_SOURCE',transfer_ref:'PRIVATE_TRANSFER'}],native_id:'private-native-sentinel'};
+ const deps=baseDeps({loadAccountOptionsConfig:async()=>({options:{schwab:[option]}}),loadAccountFactsBindings:async()=>({bindings:[binding]}),runtimeInstanceCommand:async()=>safe});
+ const invoke=async(query=params,override={})=>{const url=new URL(`https://console.example/api/account-facts/history?${query}`);return accountFactsHistoryResponse(new Request(url),{ACCOUNT_FACTS_READ_MODEL_ENABLED:'true'},url,{...deps,...override});};
+ let response=await invoke();let body=await response.json();assert.equal(response.status,200);assert.equal(body.computation_enabled,false);
+ assert.equal(body.read_status,'stored');assert.doesNotMatch(JSON.stringify(body),/PRIVATE_|private-native|source_ref|transfer_ref|amount/);
+ const enabledUrl=new URL(`https://console.example/api/account-facts/history?${params}`);
+ const enabledResponse=await accountFactsHistoryResponse(new Request(enabledUrl),{ACCOUNT_FACTS_READ_MODEL_ENABLED:'true',CONSOLE_EXTERNAL_FLOW_ENABLED:'true'},enabledUrl,deps);
+ assert.equal((await enabledResponse.json()).computation_enabled,true);
+ for(const query of [params+'&currency=USD',params+'&projection=external-flow-coverage',params+'&extra=x',params.replace('schwab','other')]) assert.equal((await invoke(query)).status,400);
+ assert.equal((await invoke(params,{readSession:async()=>null})).status,401);
+ assert.equal((await invoke(params,{loadAccountFactsBindings:async()=>null})).status,409);
+ response=await invoke(params,{runtimeInstanceCommand:async()=>{throw Error('PRIVATE_ERROR');}});body=await response.json();
+ assert.equal(response.status,503);assert.equal(body.read_status,'read_error');assert.equal(body.record_count,null);assert.doesNotMatch(JSON.stringify(body),/PRIVATE/);
+ response=await invoke(params,{runtimeInstanceCommand:async()=>({...safe,groups:[{...safe.groups[0],coverage:'PRIVATE_ERROR'}]})});
+ assert.equal(response.status,503);assert.equal((await response.json()).read_status,'read_error');
+}

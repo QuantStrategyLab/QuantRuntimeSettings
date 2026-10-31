@@ -62,14 +62,14 @@ const dated = { currency: "USD", date: "2026-01-02", period_start: "2026-01-01",
 const datedOverlap = { ...dated, period_start: "2026-01-02" };
 const mixed = mergeExternalFlow(adjacentResult, { schema_version: "external_flow.v2", windows: [dated, datedOverlap] });
 assert.equal(mixed.windows.length, 5, "date-only overlapping reports and mixed precision remain accepted");
-const context = { platform: "synthetic", account_key: "synthetic", target_id: "t", source_binding_id: "s",
-  account_scope: "live", account_selector: "selector" };
+const context = { platform: "schwab", account_key: "synthetic", target_id: "t", source_binding_id: "s",
+  account_scope: "live", account_selector: "selector", broker_account_hash: "synthetic-hash" };
 const invalidStored = payload([preciseWindow("", ".200"), preciseWindow(".100", ".150"), preciseWindow(".300", ".400")]);
 let reads = 0;
 const sql = { exec(query) {
   assert.ok(query.startsWith("SELECT"), "invalid stored facts must not be mutated");
   reads++;
-  return { toArray: () => [{ context_json: JSON.stringify(["t", "s", "live", "selector", null, null]),
+  return { toArray: () => [{ context_json: JSON.stringify(["t", "s", "live", "selector", "synthetic-hash", null]),
     payload_json: JSON.stringify(invalidStored) }] };
 } };
 assert.throws(() => readExternalFlow(sql, context), overlapError);
@@ -365,3 +365,38 @@ assert.equal(emptyCompatBlocks.returns.aligned_start, null);
 assert.deepEqual(emptyCompatBlocks.assets, emptyCompatLegacy.assets);
 assert.deepEqual(emptyCompatBlocks.calendar, emptyCompatLegacy.calendar);
 console.log("console_external_flow_validation: ok (synthetic only)");
+
+// Coverage diagnostics read stored metadata without enabling computation or leaking records.
+const { readExternalFlowCoverage } = await import('../web/strategy-switch-console/application/account_facts/external_flow.js');
+const coverageSql = rows => ({ exec: () => ({ toArray: () => rows }) });
+const contextJson = JSON.stringify(['t','s','live','selector','synthetic-hash',null]);
+const coverage = raw => readExternalFlowCoverage(coverageSql([{context_json:contextJson,payload_json:JSON.stringify(raw)}]),context);
+assert.deepEqual(readExternalFlowCoverage(coverageSql([]),context),{read_status:'absent',precision:null,window_count:0,record_count:0,observed_from:null,observed_to:null,groups:[]});
+assert.equal(readExternalFlowCoverage(coverageSql([{context_json:JSON.stringify(['different','s','live','selector','synthetic-hash',null]),payload_json:'{}'}]),context).read_status,'identity_mismatch');
+assert.equal(readExternalFlowCoverage(coverageSql([{context_json:contextJson,payload_json:'{'}]),context).read_status,'read_error');
+const sameSourceMixed = { ...mixed, windows: mixed.windows.map(w => ({ ...w, source: "schwab_transactions" })) };
+const observed = coverage(sameSourceMixed);
+assert.equal(observed.read_status,'stored');assert.equal(observed.precision,'mixed');assert.equal(observed.window_count,5);
+assert.equal(observed.observed_from,null);assert.equal(observed.observed_to,null);
+assert.ok(observed.groups.some(g=>g.precision==='date' && g.coverage==='reported' && g.record_count===0));
+assert.ok(!JSON.stringify(observed).includes('source_ref'));
+const dateRecord={source_ref:'b'.repeat(64),type:'deposit',amount:'123.45',effective_date:'2026-01-02',settlement_date:null,transfer_ref:'c'.repeat(64)};
+const datedWithRecord={...dated,source:"schwab_transactions",records:[dateRecord]};
+const dateOverlapWithSame={...datedOverlap,source:"schwab_transactions",records:[dateRecord]};
+const repeated=coverage(mergeExternalFlow(flow,{schema_version:'external_flow.v2',windows:[datedWithRecord,dateOverlapWithSame]}));
+assert.equal(repeated.record_count,2,'duplicate source record is counted once across overlapping windows');
+assert.equal(repeated.groups.find(g=>g.precision==='date').record_count,1);
+assert.doesNotMatch(JSON.stringify(repeated),/123\.45|source_ref|transfer_ref|[abc]{64}/);
+assert.equal(coverage(flow).precision,'instant');assert.equal(coverage({schema_version:'external_flow.v2',windows:[{...dated,source:'schwab_transactions'}]}).precision,'date');
+
+assert.equal(readExternalFlowCoverage(coverageSql([{context_json:'broken',payload_json:'{}'}]),context).read_status,'read_error');
+const { RuntimeInstances } = await import('../web/strategy-switch-console/worker.js');
+const fakeInstance=Object.create(RuntimeInstances.prototype);
+fakeInstance.externalFlowEnabled=false;
+const boundContext={...context,account_key:'synthetic'};
+fakeInstance.sql=coverageSql([{context_json:contextJson,payload_json:JSON.stringify(flow)}]);
+const offlineStored=fakeInstance.readAccountFactsDailyHistory({action:'account_facts_history_read',projection:'external-flow-coverage',...boundContext});
+assert.equal(offlineStored.read_status,'stored');assert.equal(offlineStored.precision,'instant');
+assert.equal(offlineStored.record_count,1,'v1 remains inspectable while calculation is off');
+assert.doesNotMatch(JSON.stringify(offlineStored),/123\.45|source_ref|transfer_ref|[abc]{64}/);
+assert.equal(coverage({schema_version:'external_flow.v2',windows:[dated]}).read_status,'read_error','wrong platform source is invalid');

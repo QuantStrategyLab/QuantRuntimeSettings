@@ -109,6 +109,43 @@ export function initializeExternalFlow(sql) {
 }
 const identity = c => stable([c.target_id, c.source_binding_id, c.account_scope, c.account_selector,
   c.broker_account_hash ?? null, c.broker_account_id ?? null]);
+// Only aggregate inside the storage boundary; no financial record leaves it.
+export function readExternalFlowCoverage(sql, context) {
+  const unknown = read_status => ({ read_status, precision: null, window_count: null, record_count: null,
+    observed_from: null, observed_to: null, groups: null });
+  try {
+    const row = sql.exec("SELECT context_json, payload_json FROM account_external_flow WHERE platform = ? AND account_key = ?",
+      context.platform, context.account_key).toArray()[0];
+    if (!row) return { ...unknown("absent"), window_count: 0, record_count: 0, groups: [] };
+    const storedIdentity = JSON.parse(row.context_json);
+    if (!Array.isArray(storedIdentity) || storedIdentity.length !== 6
+        || storedIdentity.slice(0, 4).some(value => typeof value !== "string")
+        || storedIdentity.slice(4).some(value => value !== null && typeof value !== "string")) return unknown("read_error");
+    if (row.context_json !== identity(context)) return unknown("identity_mismatch");
+    const flow = normalizeExternalFlow(JSON.parse(row.payload_json), { maxWindows: 4096, maxRecords: 4096 });
+    const source = { ibkr: "ibkr_flex", schwab: "schwab_transactions", longbridge: "longbridge_cashflow" }[context.platform];
+    if (!source || flow.windows.some(w => w.source !== source)) return unknown("read_error");
+    const allRefs = new Set(), groups = new Map();
+    for (const w of flow.windows) {
+      const precision = w.time_precision === "date" ? "date" : "instant";
+      const key = `${precision}:${w.coverage}`;
+      let group = groups.get(key);
+      if (!group) { group = { precision, coverage: w.coverage, window_count: 0, refs: new Set(), observed_from: w.period_start, observed_to: w.period_end }; groups.set(key, group); }
+      group.window_count++;
+      if (Date.parse(w.period_start) < Date.parse(group.observed_from)) group.observed_from = w.period_start;
+      if (Date.parse(w.period_end) > Date.parse(group.observed_to)) group.observed_to = w.period_end;
+      for (const record of w.records) { group.refs.add(record.source_ref); allRefs.add(record.source_ref); }
+    }
+    const values = [...groups.values()].map(({ refs, ...group }) => ({ ...group, record_count: refs.size }))
+      .sort((a, b) => a.precision.localeCompare(b.precision) || a.coverage.localeCompare(b.coverage));
+    const precisions = new Set(values.map(g => g.precision));
+    const precision = precisions.size === 1 ? values[0].precision : "mixed";
+    const sortedStart = values.map(g => g.observed_from).sort((a, b) => Date.parse(a) - Date.parse(b));
+    const sortedEnd = values.map(g => g.observed_to).sort((a, b) => Date.parse(a) - Date.parse(b));
+    return { read_status: "stored", precision, window_count: flow.windows.length, record_count: allRefs.size,
+      observed_from: precision === "mixed" ? null : sortedStart[0], observed_to: precision === "mixed" ? null : sortedEnd.at(-1), groups: values };
+  } catch { return unknown("read_error"); }
+}
 export function readExternalFlow(sql, context, { dateOnly = false } = {}) {
   const row = sql.exec("SELECT context_json, payload_json FROM account_external_flow WHERE platform = ? AND account_key = ?",
     context.platform, context.account_key).toArray()[0];
