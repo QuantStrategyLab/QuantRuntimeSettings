@@ -2058,6 +2058,9 @@
                   "null"
                 ]
               },
+              "unrealized_pnl_percent": {
+                "type": ["number", "null"]
+              },
               "unavailable_reason": {
                 "type": [
                   "string",
@@ -3316,6 +3319,9 @@
         },
         "value": {
           "type": "number"
+        },
+        "daily_return_percent": {
+          "type": ["number", "null"]
         },
         "externalFlow": {
           "type": [

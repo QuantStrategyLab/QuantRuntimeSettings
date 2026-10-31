@@ -341,8 +341,8 @@ export interface PerformanceMeta {
 export interface Point {
   date: string;
   value: number;
-  /** Native daily TWR percentage (not a ratio); absent when the backend cannot chain a day. */
-  daily_return_percent?: number;
+  /** Native daily TWR percentage (not a ratio); absent or null when the backend cannot chain a day. */
+  daily_return_percent?: number | null;
   breakBefore?: boolean;
   contributing_accounts?: string[];
   missing_accounts?: string[];
@@ -474,6 +474,13 @@ export interface HoldingsResponse extends PerformanceMeta {
     broker_cost_price?: string | null;
     broker_cost_method?: "broker_configured" | string | null;
     unrealized_pnl: number | null;
+    /**
+     * Server-computed unrealized P/L percentage of cost basis (percentage
+     * points, not a ratio). Optional and nullable: an older response omits it,
+     * and the producer returns null when cost, quantity or currency are not
+     * eligible. Missing/null means unavailable — never zero, never re-derived.
+     */
+    unrealized_pnl_percent?: number | null;
     unavailable_reason: Reason | null;
     coverage: string;
     status: Status;

@@ -236,13 +236,20 @@ availability status. Missing health is null; a valid `review` or `watch` is not
 unknown. Holdings coverage also supports optional `platform` and `account_ref`;
 older coverage entries containing only `account_alias` and `scope` remain valid.
 
-`/api/notifications/send-log` provides a stable read contract for runtime and
-preference screens. **No delivery-log store is connected to this console.**
-It returns `not_connected/notification_log_not_connected`, null timestamp and
-cursor, and an empty item list. It does not report an empty successful history,
-convert queued intent into delivery, send notifications or store destinations.
-Pagination syntax is validated for compatibility with a future stored source.
-Connecting that source requires a separately scoped integration.
+`/api/notifications/send-log` reads bounded public receipts from the earlier
+GitHub daily-digest workflow when its configured source is available. It may
+return `not_connected`, incomplete or failed reads; receipt status only describes
+the earlier workflow and cannot establish whether a current Cloud Run/GCS
+notification was accepted or delivered. This read does not send notifications.
+
+`/api/performance/holdings` may include nullable `unrealized_pnl_percent` per
+row: unrealized P/L divided by positive finite cost basis, in percent, only when
+the inputs and currency are available. Zero is valid; null or an absent field
+means unavailable, including older responses. Existing P/L and ranking order
+are unchanged. Return points may carry nullable `daily_return_percent`; a value
+is supplied only for a qualified original daily interval, and null or absence
+is unknown, not a zero return. Existing native daily values retain their own
+coverage semantics; cashflow-adjusted approximations retain their method label.
 
 ## Native Binance account-card reads
 
