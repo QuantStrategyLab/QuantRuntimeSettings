@@ -145,9 +145,22 @@ test("a bound account without today's record is missing, not a known zero-run da
   });
   assert.equal(summary.accounts[0].status, "no_data");
   assert.equal(summary.accounts[0].unavailable_reason, "today_record_missing");
+  assert.equal(summary.market_session, "trading_day");
   assert.equal(summary.counts.observed, 0);
   assert.equal(summary.counts.runs, null);
   assert.equal(summary.counts.by_state.no_data, 1);
+});
+
+test("a weekend without records is a non-trading day, not missing data", async () => {
+  const saturday = Date.parse("2026-10-24T12:00:00Z");
+  const { summary } = await summarize({ selected: [accounts[2]],
+    at: saturday,
+    read: account => Response.json(dailyBody(account, { date: "2026-10-24", record: null, data_status: "unavailable" },
+      { business_date: "2026-10-24" })),
+  });
+  assert.equal(summary.market_session, "weekend");
+  assert.equal(summary.accounts[0].status, "no_data");
+  assert.equal(summary.accounts[0].unavailable_reason, "non_trading_weekend");
 });
 
 test("ambiguous ownership never reads or merges reports across bindings", async () => {

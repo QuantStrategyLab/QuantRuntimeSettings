@@ -8,9 +8,15 @@ export function businessDate(now = Date.now()) {
     timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(now);
 }
+// No market holiday source exists in this Worker; only weekends are provable.
+function nonTradingWeekend(date) {
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return weekday === 0 || weekday === 6;
+}
 export async function todaySummary(request, env, deps, accounts, now = Date.now()) {
   // Daily records, their reader, and this summary must share one date domain.
   const date = runtimeDailyBusinessDate(now);
+  const weekend = nonTradingWeekend(date);
   let bindings;
   try { bindings = await deps.dailyBindings(env); }
   catch { bindings = null; }
@@ -37,7 +43,11 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
       const body = await response.json();
       if (body.account_key !== account.key || body.platform !== account.platform || body.date !== date)
         throw Error("daily_binding_mismatch");
-      if (!body.record) return { ...base, status: "no_data", unavailable_reason: "today_record_missing" };
+      if (!body.record) {
+        const weekendClosed = weekend && account.platform !== "binance";
+        return { ...base, status: "no_data",
+          unavailable_reason: weekendClosed ? "non_trading_weekend" : "today_record_missing" };
+      }
       const record = body.record;
       if (record.business_date !== date || record.target_key !== matches[0].target_key)
         throw Error("daily_record_mismatch");
@@ -72,7 +82,8 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
   }
   return { status: rows.some(r => r.status === "read_failed") ? "read_failed"
     : rows.some(r => r.status !== "ok") ? "partial" : "ok",
-    date, timezone: RUNTIME_DAILY_TIMEZONE, as_of: rows.map(r => r.as_of).filter(Boolean).sort()[0] || null,
+    date, timezone: RUNTIME_DAILY_TIMEZONE, market_session: weekend ? "weekend" : "trading_day",
+    as_of: rows.map(r => r.as_of).filter(Boolean).sort()[0] || null,
     accounts: rows, counts: { configured: rows.length, by_state: runStateCounts(rows),
       observed: rows.filter(r => r.run_count !== null).length,
       runs: rows.some(r => r.run_count === null || r.completeness !== "complete") ? null : rows.reduce((n, r) => n + r.run_count, 0) },
