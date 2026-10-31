@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { runActivityState, runActivityCounts, todayFailures } from '../web/strategy-switch-console/frontend/src/pages/health/status.ts';
 const base = { status:'ok', activity:'read_incomplete', completeness:'incomplete', run_status:'incomplete', read_error_count:1, read_error_codes:['coverage_unconfirmed'], run_count:2, runs:[{activity:'unknown',errors_present:null},{activity:'no_rebalance',errors_present:false}] };
+const disabled = {...base, read_error_codes:['target_disabled']};
+assert.equal(runActivityState(disabled), 'incomplete', 'a disabled-target diagnostic is incomplete, not a read failure or confirmed inactivity');
+assert.equal(runActivityState({...disabled,read_error_count:2,read_error_codes:['target_disabled','source_read_error']}), 'read_failed');
+for (const state of ['failed','blocked']) assert.equal(runActivityState({...disabled,activity:state}), state);
+assert.equal(runActivityState({...disabled,read_error_count:2}), 'unknown');
+assert.deepEqual(todayFailures({status:'partial',counts:{runs:null,configured:1,observed:1},accounts:[disabled]}),{count:0,complete:false});
+assert.equal(runActivityCounts([disabled]).incomplete, 1);
+assert.equal(runActivityState({...base,activity:'no_submission',completeness:'complete',read_error_count:0,read_error_codes:[],runs:[{activity:'no_submission',errors_present:false}]}), 'succeeded');
 assert.equal(runActivityState(base), 'incomplete');
 for (const code of ['coverage_unconfirmed','report_rejected','read_truncated','listing_truncated','schedule_unverified']) assert.equal(runActivityState({...base,read_error_codes:[code]}), 'incomplete', code);
 for (const code of ['report_read_error','read_failed','list_failed','source_read_error']) assert.equal(runActivityState({...base,run_status:'read_failed',read_error_codes:[code]}), 'read_failed', code);
