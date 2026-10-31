@@ -8,15 +8,15 @@ import { build } from "../web/strategy-switch-console/frontend/node_modules/esbu
 import { createNotificationLogReader } from "../web/strategy-switch-console/application/console_api/notification_receipts.js";
 
 /*
- * The health page no longer presents a notification module: there is no
- * trustworthy source for "what is the current notification state", and the old
- * GitHub receipts are transport diagnostics, not run status. This file therefore
- * keeps two jobs:
+ * The health page presents no legacy notification module: the old GitHub
+ * receipts are transport diagnostics, not run status, and the page shows a
+ * labeled digest-delivery projection instead. This file therefore keeps two
+ * jobs:
  *
  * 1. Prove the read-only receipt API still exists and still classifies reads.
  *    Removing the UI is not retiring the API.
- * 2. Prove the health page renders no legacy/current notification module and
- *    issues no notification request, while keeping its other real states.
+ * 2. Prove the health page renders no legacy/current notification module, reads
+ *    the digest source at most once, and keeps its other real states.
  */
 
 const root = new URL("../web/strategy-switch-console/frontend/", import.meta.url).pathname;
@@ -76,7 +76,22 @@ try {
             globalThis.__calls.push('loadRuntimeDaily'); return globalThis.__fx.daily; });
           export const loadNotificationLog = named('loadNotificationLog', () => {
             globalThis.__notificationRequests += 1;
-            throw new Error('the health page must not request the notification log'); });`,
+            globalThis.__calls.push('loadNotificationLog');
+            return globalThis.__fx.notificationLog; });`,
+        loader: "js",
+      }));
+      // The digest adapter reads the legacy log but only surfaces a labeled
+      // projection; these adapters never reach the network during SSR.
+      builder.onLoad({ filter: /\/api\/client\.ts$/ }, () => ({
+        contents: `export class AccessError extends Error { constructor(status) { super('access'); this.status = status; } }
+          export class HttpError extends Error { constructor(status) { super('http'); this.status = status; } }
+          export const invalidatePrivateSession = () => {};
+          export const getJson = async path => {
+            globalThis.__calls.push('getJson:' + path);
+            if (path.startsWith('/api/audit-events')) return { events: [] };
+            throw new HttpError(404);
+          };
+          export const postJson = async () => { throw new HttpError(404); };`,
         loader: "js",
       }));
       // Call the loader during render so the counters above observe real calls.
@@ -84,7 +99,7 @@ try {
         contents: `export function useApi(loader) {
             try {
               const data = loader();
-              if (data && data.__loading) return { phase: 'loading', data: null, error: null, reload() {} };
+              if (data && (data.__loading || typeof data.then === 'function')) return { phase: 'loading', data: null, error: null, reload() {} };
               return { phase: 'ready', data, error: null, reload() {} };
             } catch (error) { return { phase: 'error', data: null, error, reload() {} }; }
           }
@@ -112,6 +127,10 @@ try {
     accounts: { accounts: [] },
     bindings: [],
     daily: null,
+    notificationLog: {
+      status: "ok", as_of: "2026-10-30T20:00:00Z", items: [], next_cursor: null,
+      coverage: "recent_daily_digest_public_receipts_only", unavailable_reason: null,
+    },
   };
 
   const render = (language, override = {}) => {
@@ -142,7 +161,7 @@ try {
   const titles = html => [...html.matchAll(/class="kpi-title">([^<]*)</g)].map(match => decode(match[1]));
 
   for (const language of ["zh", "en"]) {
-    test(`${language}: health renders no notification module and issues no notification request`, () => {
+    test(`${language}: health renders no legacy notification module and reads the digest source once`, () => {
       const html = render(language);
       for (const copy of REMOVED[language]) {
         assert.ok(!html.includes(copy), `removed notification copy is still rendered: ${copy}`);
@@ -158,8 +177,10 @@ try {
       assert.ok(!html.includes("notification-reason"), "the legacy reason disclosure is gone");
       assert.ok(!html.includes("actions/runs"), "no raw run/attempt link is rendered");
       assert.ok(!html.includes("data-state=\"unverified\""), "no faux current-notification badge is rendered");
-      assert.equal(globalThis.__notificationRequests, 0, "the page must not request the notification log");
-      assert.ok(!globalThis.__calls.includes("loadNotificationLog"), "no notification loader runs");
+      // The digest projection reads the same source, but only once, and the
+      // legacy receipt rows themselves never reach the page.
+      assert.equal(globalThis.__notificationRequests, 1, "the digest projection reads its source exactly once");
+      assert.equal(globalThis.__calls.filter(call => call === "loadNotificationLog").length, 1, "no second notification read");
       // Only the freshness and credential tables remain.
       assert.equal((html.match(/<table/g) || []).length, 2, "only freshness and credential tables remain");
       // The page itself is intact.
@@ -186,16 +207,18 @@ try {
       globalThis.__throw = "loadCredentialMaintenance";
       globalThis.__fx = { ...fixtures };
       globalThis.__calls = [];
+      globalThis.__notificationRequests = 0;
       const errorHtml = ui.render(language);
       assert.ok(errorHtml.includes(language === "zh" ? "重试" : "Retry"), "a failed credential read keeps its retry");
-      assert.equal(globalThis.__notificationRequests, 0);
+      assert.equal(globalThis.__notificationRequests, 1, "the digest source is still read exactly once per render");
 
       // Loading still shows skeletons rather than an empty page.
       globalThis.__fx = { ...fixtures };
       globalThis.__loading = ["loadTodayRuns"];
+      globalThis.__notificationRequests = 0;
       const loadingHtml = ui.render(language);
       assert.ok(loadingHtml.includes("skeleton"), "the loading state still renders skeletons");
-      assert.equal(globalThis.__notificationRequests, 0);
+      assert.equal(globalThis.__notificationRequests, 1, "the digest source is still read exactly once per render");
       globalThis.__loading = [];
       globalThis.__throw = null;
     });

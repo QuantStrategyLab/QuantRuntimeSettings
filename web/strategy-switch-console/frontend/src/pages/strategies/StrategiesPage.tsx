@@ -5,11 +5,14 @@ import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useState } from "react";
 import { getJson } from "../../api/client";
 import { loadStrategySummary } from "../../api/endpoints";
+import { loadLifecycles } from "../../api/cockpit";
+import type { LifecycleBinding } from "../../api/cockpit";
 import type { M0ResearchDashboard, StrategySummary } from "../../api/contracts";
 import { useNavigate } from "../../app/context";
 import { useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { AsOfStamp, Badge, EmptyState, ErrorState, Skeleton, StatusBadge } from "../../components/primitives";
+import { EvidenceSummary, LifecycleStepper } from "../../components/cockpit";
 import { Tabs } from "../../components/Tabs";
 import "./strategies.css";
 
@@ -62,7 +65,11 @@ function AccountExecution({ accounts }: { accounts: Strategy["configured_account
   );
 }
 
-function StrategyCard({ strategy, assignmentKnown = true }: { strategy: Strategy; assignmentKnown?: boolean }) {
+function StrategyCard({ strategy, assignmentKnown = true, lifecycles }: {
+  strategy: Strategy;
+  assignmentKnown?: boolean;
+  lifecycles?: LifecycleBinding[];
+}) {
   const t = useT();
   const names = useDisplayNames();
   const modes = strategy.allowed_execution_modes.length > 0 ? strategy.allowed_execution_modes.map(names.lane).join(" · ") : t("common.na");
@@ -119,6 +126,35 @@ function StrategyCard({ strategy, assignmentKnown = true }: { strategy: Strategy
           </div>
         </details>
       )}
+      {lifecycles && lifecycles.length > 0 && (
+        <details className="strategy-details">
+          <summary>{t("cockpit.lifecycle.title")}</summary>
+          <div className="strategy-details-body">
+            {lifecycles.map((binding, index) => (
+              <div className="strategy-lifecycle" key={`${binding.account_alias}/${binding.platform}/${binding.release_id ?? index}`}>
+                <p className="cockpit-meta">
+                  {binding.platform && <>{names.platform(binding.platform)} · </>}
+                  {binding.account_alias
+                    ? names.account(binding.account_alias, binding.platform ?? "")
+                    : t("decisions.account_unbound")}
+                  {" · "}
+                  {t("cockpit.lifecycle.identity", {
+                    release: binding.release_id ?? t("cockpit.unknown"),
+                    target: binding.target_id ?? t("cockpit.unknown"),
+                  })}
+                </p>
+                {binding.present ? (
+                  <>
+                    <LifecycleStepper binding={binding} />
+                    {binding.evidence && <EvidenceSummary evidence={binding.evidence} />}
+                    {binding.regime_effect && <p className="cockpit-note">{binding.regime_effect}</p>}
+                  </>
+                ) : <p className="cockpit-note">{t("cockpit.lifecycle.not_provided")}</p>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       {(strategy.status !== "ok" || strategy.as_of) && <div className="strategy-card-foot">
         {strategy.status !== "ok" && <StatusBadge status={strategy.status} reason={strategy.unavailable_reason} />}
         {strategy.as_of && <AsOfStamp value={strategy.as_of} prefix="strategies.health_as_of" />}
@@ -132,6 +168,13 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
   const names = useDisplayNames();
   const navigate = useNavigate();
   const state = useApi(loadStrategySummary, [refreshEpoch]);
+  // Lifecycle axes come from the same summary read; absent records stay absent.
+  const lifecycleRead = useApi(
+    () => state.phase === "ready"
+      ? loadLifecycles(state.data)
+      : Promise.resolve({ status: "ready" as const, data: [] as LifecycleBinding[], synthetic: false }),
+    [state.phase === "ready" ? state.data : null],
+  );
   if (state.phase === "loading") {
     return (
       <div className="strategy-grid" aria-busy="true">
@@ -149,6 +192,14 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
   if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
   const summary = state.data;
   if (summary.status === "read_failed") return <ErrorState onRetry={state.reload} />;
+  const lifecyclesByProfile = new Map<string, LifecycleBinding[]>();
+  if (lifecycleRead.phase === "ready" && lifecycleRead.data.status === "ready") {
+    for (const binding of lifecycleRead.data.data) {
+      const list = lifecyclesByProfile.get(binding.profile);
+      if (list) list.push(binding);
+      else lifecyclesByProfile.set(binding.profile, [binding]);
+    }
+  }
   if (summary.strategies.length === 0) {
     if (summary.status === "not_connected") {
       return <EmptyState title={t("state.not_connected")} body={t("reason.strategy_health_not_connected")} />;
@@ -201,7 +252,7 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
       )}
       {!assignmentKnown ? <>
         <p className="card-note" role="status">{t("strategies.assignment_unavailable")}</p>
-        <div className="strategy-grid">{summary.strategies.map(strategy => <StrategyCard key={strategy.profile} strategy={strategy} assignmentKnown={false} />)}</div>
+        <div className="strategy-grid">{summary.strategies.map(strategy => <StrategyCard key={strategy.profile} strategy={strategy} assignmentKnown={false} lifecycles={lifecyclesByProfile.get(strategy.profile)} />)}</div>
       </> : <><section className="strategy-section">
         <div className="strategy-section-head">
           <h2 className="strategy-section-title">{t("strategies.configured_section")}</h2>
@@ -210,7 +261,7 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
         {configured.length > 0
           ? <div className="strategy-grid">
               {configured.map(strategy => (
-                <StrategyCard key={strategy.profile} strategy={strategy} />
+                <StrategyCard key={strategy.profile} strategy={strategy} lifecycles={lifecyclesByProfile.get(strategy.profile)} />
               ))}
             </div>
           : <p className="card-note strategy-section-empty">{t("strategies.no_configured")}</p>}
@@ -223,7 +274,7 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
           </div>
           <div className="strategy-grid">
             {catalogOnly.map(strategy => (
-              <StrategyCard key={strategy.profile} strategy={strategy} />
+              <StrategyCard key={strategy.profile} strategy={strategy} lifecycles={lifecyclesByProfile.get(strategy.profile)} />
             ))}
           </div>
         </section>
