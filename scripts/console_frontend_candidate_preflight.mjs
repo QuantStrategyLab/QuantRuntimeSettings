@@ -4,11 +4,11 @@ import {readFile,readdir} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 
 export const SNAPSHOT = Object.freeze({
-  commit: 'ccaf1c4136d416aac9b0852aa8d389dd48c96bc1',
-  tree: 'e0fca786a77fa5fb0bdd77292fa3655b59a1c7ed',
-  assetBlob: '81796f7dfef775038b9564126f16980ed7d355ec',
-  buildId: '7d6631f026a482a4862c69ce5a29e5b068174a5eabb06af92ac472f70fbc9241',
-  bundleSha256: '84f14d0fce3b1822f084ee4991f8d0464d1faad15bcb8d01611cd9985ba67538',
+  commit: '270e387c3246799e4daa6127126bab4092314958',
+  tree: 'c8deff46416b15daa980b6285d152e4fe4bc8f04',
+  assetBlob: 'acb728faf6247535bdc173b0f18c82adeea3485e',
+  buildId: '58894b1c9aa1e7627d9985edbbc09e8f6a06f1b8521811032266fc11565c74d5',
+  bundleSha256: '44386d5bb3eddf40be110c2503bfbeae5a3cc1b227eaef03a31846e8ea4098af',
 });
 // The complete serving 37bd4798 bundle is the recovery target and retains
 // native-task protocol guards.

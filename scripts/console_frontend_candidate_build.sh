@@ -8,9 +8,9 @@ readonly verifier="$(cd "$(dirname "$0")" && pwd)/console_frontend_candidate_pre
 readonly mode="${2:-frontend}"
 case "$mode" in
  frontend)
-  expected_commit=ccaf1c4136d416aac9b0852aa8d389dd48c96bc1
-  expected_tree=e0fca786a77fa5fb0bdd77292fa3655b59a1c7ed
-  expected_asset=81796f7dfef775038b9564126f16980ed7d355ec
+  expected_commit=270e387c3246799e4daa6127126bab4092314958
+  expected_tree=c8deff46416b15daa980b6285d152e4fe4bc8f04
+  expected_asset=acb728faf6247535bdc173b0f18c82adeea3485e
   output_name=console-frontend-candidate
   verifier_flag=""
   ;;

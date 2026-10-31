@@ -59,7 +59,7 @@ test('production to candidate to compatible serving recovery preserves SQLite pr
   const recoveryPath = resolve(process.env.QRS_RECOVERY_WORKER_BUNDLE);
   const [oldBytes, newBytes, recoveryBytes] = await Promise.all([readFile(oldPath), readFile(newPath), readFile(recoveryPath)]);
   assert.equal(sha(oldBytes), oldDigest, 'old Worker must be the fixed, previously verified production candidate');
-  assert.equal(sha(newBytes), '84f14d0fce3b1822f084ee4991f8d0464d1faad15bcb8d01611cd9985ba67538', 'candidate must be the fixed complete new bundle');
+  assert.equal(sha(newBytes), '44386d5bb3eddf40be110c2503bfbeae5a3cc1b227eaef03a31846e8ea4098af', 'candidate must be the fixed complete new bundle');
   assert.equal(sha(recoveryBytes), RECOVERY_SNAPSHOT.bundleSha256, 'recovery bundle must match the independently observed complete serving module');
   assert.notEqual(sha(recoveryBytes), oldDigest, 'recovery is not the incompatible production rollback');
   assert.notEqual(sha(recoveryBytes), sha(newBytes), 'recovery must be a distinct complete bundle');
