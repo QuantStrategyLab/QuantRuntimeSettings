@@ -71,6 +71,8 @@ export async function inbox(request, env, deps) {
   );
   const priority = { high: 0, medium: 1, normal: 2 };
   return {
+    schema_version: "qsl.decision_inbox.v1",
+    server_time: new Date().toISOString(),
     status: results.some((r) => r.status === "read_failed")
       ? "read_failed"
       : results.some((r) => r.status !== "ok")
