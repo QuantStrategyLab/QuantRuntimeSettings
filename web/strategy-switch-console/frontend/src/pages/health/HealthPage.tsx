@@ -284,6 +284,9 @@ export default function HealthPage() {
             ? <span className="health-business-day" data-state="read_failed">{t("state.read_failed")}</span>
             : <span className="health-business-day">{t("health.business_date", { value: `${summary.data.date} · ${summary.data.timezone}` })}</span>}
         {summary.phase === "ready" && summary.data.as_of && <AsOfStamp value={summary.data.as_of} />}
+        {summary.phase === "ready" && summary.data.market_session === "weekend" && (
+          <span className="health-business-day" data-state="non_trading">{t("health.non_trading_day")}</span>
+        )}
       </div>
       <StatStrip summary={summary} credential={credential} />
 

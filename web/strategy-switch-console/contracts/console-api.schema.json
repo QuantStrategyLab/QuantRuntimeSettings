@@ -2361,6 +2361,12 @@
         "timezone": {
           "const": "America/New_York"
         },
+        "market_session": {
+          "enum": [
+            "weekend",
+            "trading_day"
+          ]
+        },
         "as_of": {
           "type": [
             "string",

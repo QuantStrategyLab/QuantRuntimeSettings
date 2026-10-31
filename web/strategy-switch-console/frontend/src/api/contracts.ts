@@ -566,6 +566,7 @@ export interface TodayRunSummary extends ReadOnlyProjection {
   status: "ok" | "partial" | "read_failed";
   date: string;
   timezone: "America/New_York";
+  market_session?: "weekend" | "trading_day";
   as_of: string | null;
   coverage: string;
   counts: { configured: number; observed: number; runs: number | null; by_state?: Record<RunState, number> };
