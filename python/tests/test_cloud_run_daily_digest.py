@@ -153,7 +153,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertIn('全窗口统计未知', self.sent[0])
         self.assertIn('未找到当日报告', self.sent[0])
         self.assertIn('本轮 0 单', self.sent[0])
-        self.assertIn('Binance：未接入，运行状态未知', self.sent[0])
+        self.assertIn('Binance：未纳入本期汇总，运行状态未知', self.sent[0])
         self.assertNotIn('Binance：运行 0', self.sent[0])
 
     def test_invalid_or_unreadable_target_does_not_discard_another_platform(self):
@@ -395,3 +395,4 @@ class OldSenderRetirementTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

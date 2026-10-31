@@ -203,11 +203,15 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         label = display_name("platforms", platform, locale, fallback=fallback)
         expected, covered, runs = source["expected_targets"], source["covered_targets"], source["runs"]
         if not expected:
-            lines.append(f"{label}：未接入，运行状态未知" if zh else f"{label}: not connected; run state unknown")
+            lines.append(f"{label}：未纳入本期汇总，运行状态未知" if zh else
+                         f"{label}: not included in this digest; run state unknown")
             continue
-        runs = runs if runs is not None else ("未知" if zh else "unknown")
-        state = f"{covered}/{expected}" if expected else ("未配置" if zh else "not configured")
-        lines.append(f"{label}：运行 {runs} 次，覆盖 {state}" if zh else f"{label}: {runs} runs, coverage {state}")
+        # Inventory counts describe included evidence, not every actual run.
+        observed = (("已收录运行次数未知" if zh else "Included run count unknown") if runs is None else
+                    f"已收录 {runs} 次运行" if zh else f"Included runs: {runs}")
+        state = f"{covered}/{expected}"
+        lines.append(f"{label}：{observed}，目标覆盖 {state}" if zh else
+                     f"{label}: {observed}; expected target coverage {state}")
     immediate = summary.get("immediate_events", 0)
     if immediate:
         lines.append(f"紧急事项 {immediate} 项（日报留档）" if zh else f"Urgent items: {immediate} (daily record)")
