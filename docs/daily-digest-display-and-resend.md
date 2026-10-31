@@ -16,6 +16,11 @@ evidence, including an explicit non-run report; it is not a run count. An
 unconfigured source is shown as outside this digest's scope with unknown run
 state, without making a claim about its deployment or connectivity.
 
+An explicit `not_due` or `market_closed` record can establish target coverage
+without establishing order or fill counts. Unknown counts on these non-run
+rows remain unknown in the consolidated summary and persistent receipt, even
+when every expected target is covered. They never create a business run ID.
+
 Schwab may supply an optional `block_reason` object with `reason_code`,
 `observed_value`, `limit` and `order_submitted_this_run`. A validated
 `consecutive_loss_limit_exceeded` observation renders the supplied numbers in
