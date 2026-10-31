@@ -88,6 +88,8 @@ export const zh: Record<string, string> = {
   "decisions.source.credential": "凭证",
   "decisions.technical_details": "参数详情",
   "decisions.account_unbound": "未绑定账户",
+  "decisions.policy_unbound": "该晋级方案尚未绑定风险档位与策略版本，暂时不能提交。",
+  "decisions.outcome_unknown": "请求结果无法确认；为避免重复提交，请先刷新并确认当前状态。",
 
   "initial_enrollment.title": "首次接入事实",
   "initial_enrollment.source_time": "来源时间",
@@ -246,6 +248,8 @@ export const en: Record<string, string> = {
   "decisions.source.credential": "Credentials",
   "decisions.technical_details": "Parameter details",
   "decisions.account_unbound": "No linked account",
+  "decisions.policy_unbound": "This promotion has no bound risk tier and policy revision, so it cannot be submitted yet.",
+  "decisions.outcome_unknown": "The request outcome cannot be confirmed. Refresh and confirm the current state before trying again.",
 
   "initial_enrollment.title": "First enrollment facts",
   "initial_enrollment.source_time": "Source time",
