@@ -226,10 +226,11 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
       : undefined;
   // On a weekend, absent records are the schedule, not degraded coverage.
   const nonTrading = weekendWithoutScheduledRuns(data);
+  // The footer badge already names a non-trading day; the sub-line only adds the
+  // missing-record reason on a normal business day.
   const sub = denominatorKnown
     ? <>{t("overview.business_date", { value: data.date })}
-        {nonTrading ? <> · {t("overview.non_trading_day_short")}</>
-          : observed === 0 && <> · {t("overview.no_records_for_day")}</>}</>
+        {!nonTrading && observed === 0 && <> · {t("overview.no_records_for_day")}</>}</>
     : t("state.no_data");
   return (
     <KpiCard

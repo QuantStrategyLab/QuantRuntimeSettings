@@ -37,7 +37,8 @@ try {
       id: 'test-tabs', items: [{ id: 'first', label: 'First' }, { id: 'second', label: 'Second' }], active: 'second', onChange() {} });
     export const detail = (language, snapshot) => render(language, DayDetail, {
       selection: { date: snapshot.date, account: { platform: snapshot.platform, account_alias: snapshot.account_key } },
-      cell: { phase: 'ready', snapshot } });`, resolveDir: root },
+      cell: { phase: 'ready', snapshot } });
+    export const detailState = (language, selection, cell) => render(language, DayDetail, { selection, cell });`, resolveDir: root },
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", loader: { ".css": "empty" },
     define: { "import.meta.env": "{}" }, plugins: [{ name: "controlled-read", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents:
@@ -158,6 +159,14 @@ try {
       noCodes(ui.detail(language, snapshot));
       assert.ok(!ui.detail(language, snapshot).includes(`>${activity}<`));
     }
+    // A binding rotation withholds a stored day; that is not an unreadable date.
+    const selection = { date: "2026-10-23", account: { platform: "longbridge", account_alias: "synthetic-paper" } };
+    const rotated = ui.detailState(language, selection, { phase: "binding-changed" });
+    noCodes(rotated);
+    assert.ok(rotated.includes(ui.translate(language, "health.grid.binding_changed_detail")));
+    assert.ok(!rotated.includes(ui.translate(language, "state.read_failed")), "a rotated binding is not a read failure");
+    assert.ok(ui.detailState(language, selection, { phase: "error" })
+      .includes(ui.translate(language, "state.read_failed")), "an unreadable date keeps its own explanation");
     const account = { account_alias: "synthetic-paper", platform: "longbridge", status: "ok", unavailable_reason: null,
       completeness: "complete", run_count: 1, activity: "filled", runs: [{ activity: "filled", errors_present: false }] };
     const summary = { status: "ok", date: "2026-10-16", timezone: "America/New_York", as_of: null,
@@ -184,6 +193,13 @@ try {
     }
     const partialFailed = { ...summary, status: "partial", counts: { configured: 10, observed: 1, runs: null }, accounts: [{ ...account, activity: "failed" }] };
     assert.ok(statValue(partialFailed).includes(language === "zh" ? "至少 1" : "At least 1"));
+    // A weekend with nothing scheduled is a non-trading day, not a failed or unknown day.
+    const weekend = { ...summary, market_session: "weekend", date: "2026-10-31",
+      counts: { configured: 1, observed: 0, runs: null },
+      accounts: [{ ...account, status: "no_data", unavailable_reason: "non_trading_weekend",
+        activity: null, completeness: null, run_count: 0, runs: [] }] };
+    assert.ok(ui.stats(language, weekend).includes(ui.translate(language, "health.non_trading_day_short")));
+    assert.match(statValue(weekend), /—/, "a non-trading weekend certifies neither failures nor zero");
   }
   globalThis.__displayPayload = m0Subjects;
   assert.deepEqual(await ui.loadResearchLeads(), ui.parseResearchLeads(m0Subjects));
