@@ -7,6 +7,7 @@ import type {
   CalendarCell,
   CalendarResponse,
   HistoryCoverage,
+  InboxItem,
   InboxResponse,
   Point,
   Reason,
@@ -27,8 +28,11 @@ import { useApi } from "../../lib/hooks";
 import type { AsyncState } from "../../lib/hooks";
 import { latestAssetBalance } from "../../lib/performance";
 import { renderableStatus } from "../../lib/status";
+import { formatDateTime } from "../../lib/format";
+import { loadAuditEvents } from "../../api/cockpit";
+import { AuditTimeline, FreshnessBadge } from "../../components/cockpit";
 import { useNavigate, useScope } from "../../app/context";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { useScopeLabel } from "../../lib/useScopeLabel";
 import {
   AsOfStamp,
@@ -469,6 +473,100 @@ export function TrendCard({ returns, assets }: { returns: Api<ReturnsResponse>; 
   );
 }
 
+const QUEUE_PRIORITY: Record<string, number> = { high: 0, medium: 1, normal: 2 };
+
+/** Recovery first, then the server priority, then newest; no client urgency score. */
+function queueOrder(a: InboxItem, b: InboxItem): number {
+  const recovery = Number(b.category === "reconciliation_recovery") - Number(a.category === "reconciliation_recovery");
+  if (recovery !== 0) return recovery;
+  return (QUEUE_PRIORITY[a.priority] ?? 3) - (QUEUE_PRIORITY[b.priority] ?? 3)
+    || (b.created_at || "").localeCompare(a.created_at || "");
+}
+
+function QueueRow({ item, onOpen }: { item: InboxItem; onOpen: () => void }) {
+  const t = useT();
+  const language = useLanguage();
+  const title = t(item.title_key);
+  const expires = item.expires_at ? formatDateTime(item.expires_at, language) : null;
+  return (
+    <li className="overview-queue-item">
+      <button type="button" className="overview-queue-open" onClick={onOpen}>
+        <span className="overview-queue-main">
+          <span className="overview-queue-title">{title === item.title_key ? item.short_id : title}</span>
+          <span className="overview-queue-meta">
+            <Badge tone={item.category === "reconciliation_recovery" ? "warn" : "accent"}>{t(`category.${item.category}`)}</Badge>
+            <span>{item.account_alias || t("decisions.account_unbound")}</span>
+            <span>{t("decisions.ref", { id: item.short_id })}</span>
+            {expires && <span>{t("overview.expires_plain", { value: expires.zone ? `${expires.text} (${expires.zone})` : expires.text })}</span>}
+          </span>
+        </span>
+        <FreshnessBadge state={item.evidence_freshness?.status} observedAt={item.evidence_freshness?.as_of} />
+      </button>
+    </li>
+  );
+}
+
+/**
+ * Owner decisions lead the page. Counts appear only when every decision source
+ * was read; a partial read lists what is known and says coverage is incomplete.
+ */
+function DecisionQueue({ inbox, onRetry }: { inbox: Api<InboxResponse>; onRetry: () => void }) {
+  const t = useT();
+  const navigate = useNavigate();
+  const open = () => navigate({ page: "decisions" });
+  let body: ReactNode;
+  if (inbox.phase === "loading") {
+    body = <Skeleton height={88} />;
+  } else if (inbox.phase === "error" || (inbox.phase === "ready" && inbox.data.status === "read_failed" && inbox.data.items.length === 0)) {
+    body = (
+      <>
+        <p className="cockpit-note error" role="status">{t("overview.queue_read_failed")}</p>
+        <button type="button" className="button button-secondary button-sm" onClick={onRetry}>{t("common.retry")}</button>
+      </>
+    );
+  } else {
+    const data = inbox.data;
+    const complete = data.status === "ok" && data.sources.every(source => source.status === "ok");
+    const now = Date.now();
+    const actionable = data.items
+      .filter(item => item.status === "pending" && !(item.expires_at && Date.parse(item.expires_at) < now))
+      .sort(queueOrder);
+    const blocked = actionable.filter(item => !["fresh", "ready"].includes(item.evidence_freshness?.status ?? "")).length;
+    const urgent = actionable.filter(item => item.priority === "high").length;
+    body = (
+      <>
+        <p className="overview-queue-lede">
+          {complete
+            ? actionable.length === 0 ? t("overview.queue_complete_empty") : t("overview.needs_review", { count: actionable.length })
+            : t("overview.queue_incomplete")}
+        </p>
+        {complete && actionable.length > 0 && (
+          <p className="overview-queue-counts">
+            <span>{t("overview.queue_blocked", { count: blocked })}</span>
+            <span>{t("overview.queue_high_priority", { count: urgent })}</span>
+          </p>
+        )}
+        {actionable.length > 0 && (
+          <ul className="overview-queue-list">
+            {actionable.slice(0, 3).map(item => <QueueRow key={item.id} item={item} onOpen={open} />)}
+          </ul>
+        )}
+        <button type="button" className="button button-secondary button-sm" onClick={open}>
+          {t("overview.queue_more")}
+        </button>
+      </>
+    );
+  }
+  return (
+    <section className="card overview-queue" aria-label={t("overview.decision_queue")}>
+      <div className="overview-card-head">
+        <h2 className="card-title">{t("overview.decision_queue")}</h2>
+      </div>
+      {body}
+    </section>
+  );
+}
+
 /* ---------- page ---------- */
 
 export default function OverviewPage() {
@@ -493,6 +591,11 @@ export default function OverviewPage() {
   const inbox = useApi(() => loadInbox(epoch > 0), [epoch]);
   const todayRuns = useApi(() => loadTodayRuns(), [epoch]);
   const returns = useApi(() => loadPerformanceReturns(scope, RANGE), [scope, epoch]);
+  const activity = useApi(() => loadAuditEvents(), [epoch]);
+  const activityStatus = activity.phase === "loading" ? "loading" as const
+    : activity.phase === "error" ? "error" as const
+      : activity.data.status === "not_ready" ? "not_ready" as const : "ready" as const;
+  const activityEvents = activity.phase === "ready" && activity.data.status === "ready" ? activity.data.data : null;
 
   return (
     <div className="page">
@@ -504,6 +607,7 @@ export default function OverviewPage() {
           </button>
         </div>
       </div>
+      <DecisionQueue inbox={inbox} onRetry={inbox.reload} />
       <section className="overview-summary" aria-label={t("overview.asset_summary")}>
         <div className="overview-primary-kpi"><AssetKpi state={assets} /></div>
         <div className="overview-secondary-kpis">
@@ -514,6 +618,12 @@ export default function OverviewPage() {
         </div>
       </section>
       <TrendCard returns={returns} assets={assets} />
+      <section className="card overview-activity" aria-label={t("overview.latest_activity")}>
+        <div className="overview-card-head">
+          <h2 className="card-title">{t("overview.latest_activity")}</h2>
+        </div>
+        <AuditTimeline events={activityEvents} status={activityStatus} />
+      </section>
     </div>
   );
 }

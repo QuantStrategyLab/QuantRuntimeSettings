@@ -77,6 +77,8 @@
 .strategy-details summary:hover { color: var(--ink); }
 .strategy-details-body { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
 .strategy-details-body .strategy-execution { padding: 0; border: 0; background: transparent; }
+.strategy-lifecycle + .strategy-lifecycle { border-top: 1px solid var(--line); padding-top: 10px; }
+.strategy-lifecycle .cockpit-section { padding: 0; border: 0; background: transparent; }
 
 .research-list { display: flex; flex-direction: column; gap: 10px; }
 .research-item { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; }

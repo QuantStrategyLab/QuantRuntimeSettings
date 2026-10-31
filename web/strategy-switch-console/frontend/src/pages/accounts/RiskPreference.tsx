@@ -1,8 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { postJson } from "../../api/client";
 import { loadAccountSettings } from "../../api/endpoints";
 import { createAccountSettingsController, refreshAccountSettingsReadback, sameIdentity } from "../../accountSettingsState";
 import { Skeleton } from "../../components/primitives";
+import { RiskTierSelector } from "../../components/cockpit";
 import { useT } from "../../i18n";
 
 /**
@@ -13,15 +14,11 @@ import { useT } from "../../i18n";
  */
 const unresolvedSaves: Parameters<typeof createAccountSettingsController>[0] = new Map();
 
-const PREFERENCES = ["CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"] as const;
-
-
 type ReadError = "" | "denied" | "mismatch" | "unavailable";
 type Verify = "" | "saved" | "mismatch" | "unverified" | "conflict";
 
 export function RiskPreference({ platform, accountKey }: { platform: string; accountKey: string }) {
   const t = useT();
-  const selectId = useId();
   const controller = useRef(createAccountSettingsController(unresolvedSaves)).current;
   const [, setTick] = useState(0);
   const [readAttempt, setReadAttempt] = useState(0);
@@ -132,12 +129,7 @@ export function RiskPreference({ platform, accountKey }: { platform: string; acc
 
   const gateOpen = settings?.operations?.save_risk_preference === true;
   const currentValue = typeof settings?.risk?.preference === "string" ? settings?.risk?.preference : "";
-  const label = (value: string) =>
-    value === "CAPITAL_PRESERVATION" ? t("risk.capital")
-      : value === "BALANCED_COMPOUNDING" ? t("risk.balanced")
-        : value === "GROWTH_COMPOUNDING" ? t("risk.growth")
-          : t("risk.other");
-  const unrecognized = view.preference !== "" && !(PREFERENCES as readonly string[]).includes(view.preference);
+  const unrecognized = view.preference !== "" && !["CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"].includes(view.preference);
   const dirty = controller.riskDirty();
   const revisionReady = Boolean(settings?.identity && typeof settings.identity === "object" && Number.isSafeInteger(settings?.risk?.revision));
   const editable = readState === "ready" && gateOpen && !view.saving && verify !== "unverified" && verify !== "mismatch";
@@ -178,33 +170,23 @@ export function RiskPreference({ platform, accountKey }: { platform: string; acc
       {view.saving && <p className="accounts-inline-note" role="status">{t("risk.saving")}</p>}
       {readState !== "loading" && settings && (
         <>
-          <div className="accounts-field-rows">
-            <div className="accounts-field-row">
-              <label className="accounts-field-label" htmlFor={selectId}>{t("risk.field")}</label>
-              <div className="accounts-field-body">
-                <div className="accounts-field-control">
-                  <select
-                    id={selectId}
-                    className="input"
-                    value={view.preference}
-                    disabled={!editable}
-                    onChange={event => {
-                      setVerify("");
-                      controller.edit({ preference: event.target.value });
-                      sync();
-                    }}
-                  >
-                    <option value="">{t("risk.unset")}</option>
-                    {PREFERENCES.map(value => <option key={value} value={value}>{label(value)}</option>)}
-                    {unrecognized && <option value={view.preference}>{t("risk.other")}</option>}
-                  </select>
-                </div>
-                <span className="accounts-field-current">{t("risk.savedValue")} · {currentValue === "" ? t("risk.unset") : label(currentValue)}</span>
-              </div>
-            </div>
-          </div>
+          <RiskTierSelector
+            scope={`${platform}:${accountKey}`}
+            value={view.preference}
+            savedValue={currentValue}
+            selectionRevision={typeof settings?.risk?.revision === "number" ? settings.risk.revision : null}
+            mappingAvailable={!unrecognized}
+            disabled={!editable}
+            saving={Boolean(view.saving)}
+            dirty={dirty}
+            onChange={tier => {
+              setVerify("");
+              controller.edit({ preference: tier });
+              sync();
+            }}
+            onSave={() => { if (canSave) void save(); }}
+          />
           <div className="accounts-toolbar">
-            <button type="button" className="button button-primary" disabled={!canSave} onClick={() => void save()}>{t("risk.save")}</button>
             {dirty && (
               <button type="button" className="button button-secondary" onClick={() => { controller.revertRisk(); setVerify(""); sync(); }}>{t("risk.discard")}</button>
             )}
