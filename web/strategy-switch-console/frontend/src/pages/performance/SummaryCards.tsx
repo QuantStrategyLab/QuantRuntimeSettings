@@ -184,6 +184,7 @@ function DayCard({ data, field, titleKey }: { data: SummaryResponse; field: "bes
 
 export function SummaryCards({ scope, platform, state, chartAvailable }: SummaryCardsProps) {
   const t = useT();
+  const language = useLanguage();
   const { options } = useScope();
   const policy = benchmarkPolicy(scope, platform, options);
 
@@ -207,11 +208,24 @@ export function SummaryCards({ scope, platform, state, chartAvailable }: Summary
   // Other reasons stay diagnostic (data-reason) so the short state is not
   // repeated as body copy; no FX rate is ever inferred here.
   const coverage = data.coverage;
-  const fxNotApplied = !!coverage && !Array.isArray(coverage) && coverage !== "fills_not_connected"
-    && coverage.fx === "not_applied";
+  const coverageDetail = !!coverage && !Array.isArray(coverage) && coverage !== "fills_not_connected" ? coverage : null;
+  const fxNotApplied = coverageDetail?.fx === "not_applied";
+  // A bare "Unavailable" hides the actionable fact: the range asks for dates the
+  // store never received. The server states both ends, so name the shortfall and
+  // keep the totals withheld exactly as before.
+  const lateHistoryStart = blank && coverageDetail
+    && coverageDetail.range_complete === false
+    && typeof coverageDetail.period_from === "string"
+    && typeof coverageDetail.requested_period_from === "string"
+    && coverageDetail.period_from > coverageDetail.requested_period_from
+      ? coverageDetail : null;
   const inPlaceReason = data.unavailable_reason === "mixed_currency"
     ? t(fxNotApplied ? "perf.mixed_currency_unavailable" : "perf.mixed_currency_native")
-    : blank && chartAvailable ? t("perf.combined_metrics_unavailable") : null;
+    : lateHistoryStart ? t("perf.history_window_short", {
+        requested: formatDate(lateHistoryStart.requested_period_from!, language),
+        available: formatDate(lateHistoryStart.period_from!, language),
+      })
+      : blank && chartAvailable ? t("perf.combined_metrics_unavailable") : null;
   return (
     <div className="section-stack">
       {(data.status !== "ok" || data.unavailable_reason || data.as_of || inPlaceReason) && (
