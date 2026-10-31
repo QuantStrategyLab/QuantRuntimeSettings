@@ -227,16 +227,43 @@ function CredentialsCard({ credential }: { credential: Loadable<CredentialMainte
   return <DataTable columns={columns} rows={[item]} rowKey={row => row.id} scrollHint caption={t("health.credentials_title")} />;
 }
 
+/**
+ * The grid owns its two reads. A parent refresh remounts this whole subtree
+ * (`key={epoch}`) instead of re-mounting it mid-flight: keeping the reads inside
+ * one component means a stale `ready` from the previous epoch can never start a
+ * read on the new one, which issued every first-column request twice.
+ */
+function GridSection() {
+  const t = useT();
+  const accounts = useApi(() => loadAccounts(), []);
+  const dailyBindings = useApi(() => loadRuntimeDailyBindings(), []);
+  const gridAccounts = useMemo(() => accounts.phase === "ready" && dailyBindings.phase === "ready"
+    ? boundDailyAccounts(accounts.data.accounts, dailyBindings.data) : [],
+    [accounts.phase, accounts.data, dailyBindings.phase, dailyBindings.data]);
+
+  return (
+    <section className="card">
+      <h2 className="card-title">{t("health.grid_title")}</h2>
+      {(accounts.phase === "loading" || dailyBindings.phase === "loading") && <Skeleton height={160} />}
+      {accounts.phase === "error" && <ErrorState onRetry={accounts.reload} />}
+      {dailyBindings.phase === "error" && <ErrorState onRetry={dailyBindings.reload} />}
+      {dailyBindings.phase === "ready" && dailyBindings.data.some(binding => binding.status === "read_failed") && <p role="alert">{t("state.read_failed")}</p>}
+      {accounts.phase === "ready" && dailyBindings.phase === "ready"
+        && (gridAccounts.length > 0 || !dailyBindings.data.some(binding => binding.status === "read_failed")) && (
+        <RunGrid
+          accounts={gridAccounts}
+          epoch={0}
+        />
+      )}
+    </section>
+  );
+}
+
 export default function HealthPage() {
   const t = useT();
   const [epoch, setEpoch] = useState(0);
   const summary = useApi(() => loadTodayRuns(), [epoch]);
   const credential = useApi(() => loadCredentialMaintenance(), [epoch]);
-  const accounts = useApi(() => loadAccounts(), [epoch]);
-  const dailyBindings = useApi(() => loadRuntimeDailyBindings(), [epoch]);
-  const gridAccounts = useMemo(() => accounts.phase === "ready" && dailyBindings.phase === "ready"
-    ? boundDailyAccounts(accounts.data.accounts, dailyBindings.data) : [],
-    [accounts.phase, accounts.data, dailyBindings.phase, dailyBindings.data]);
 
   return (
     <div className="page">
@@ -260,20 +287,7 @@ export default function HealthPage() {
       </div>
       <StatStrip summary={summary} credential={credential} />
 
-      <section className="card">
-        <h2 className="card-title">{t("health.grid_title")}</h2>
-        {(accounts.phase === "loading" || dailyBindings.phase === "loading") && <Skeleton height={160} />}
-        {accounts.phase === "error" && <ErrorState onRetry={accounts.reload} />}
-        {dailyBindings.phase === "error" && <ErrorState onRetry={dailyBindings.reload} />}
-        {dailyBindings.phase === "ready" && dailyBindings.data.some(binding => binding.status === "read_failed") && <p role="alert">{t("state.read_failed")}</p>}
-        {accounts.phase === "ready" && dailyBindings.phase === "ready"
-          && (gridAccounts.length > 0 || !dailyBindings.data.some(binding => binding.status === "read_failed")) && (
-          <RunGrid
-            accounts={gridAccounts}
-            epoch={epoch}
-          />
-        )}
-      </section>
+      <GridSection key={epoch} />
 
       <section className="card">
         <h2 className="card-title">{t("health.freshness_title")}</h2>
