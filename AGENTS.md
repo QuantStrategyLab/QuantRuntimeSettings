@@ -73,6 +73,8 @@ Organization documentation rules are checked by `python scripts/check_style.py`,
 
 ## Do not
 
+- Only the owner, or a reviewer explicitly authorized by the owner, may apply the `owner-approved` label; coding agents must never apply it to their own PRs.
+
 - Do not hand-edit generated `platform-config.json` or display names; run the
   generator and commit the result.
 - Do not treat `live_configured`, a strategy label or a console switch as trading
