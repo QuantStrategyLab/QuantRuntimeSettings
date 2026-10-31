@@ -4,21 +4,21 @@ import {readFile,readdir} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 
 export const SNAPSHOT = Object.freeze({
+  commit: '0b5d9527313d719547ef844797b47158c83dea53',
+  tree: '46b2e2a2cea43d4f03deb70badc0b9a367c58301',
+  assetBlob: 'cc3782b3b13233662e0af274567a667db4413a5e',
+  buildId: 'd7935e42f5c309421d081abfc8d8183e61758938236ae7d3a028057fdc40bee4',
+  bundleSha256: '59b2316fb8153a4266d60baed19ac781c4de503d4850a9898853da2a1949badb',
+});
+// The complete serving 85504dd6 bundle is the recovery target and retains
+// native-task protocol guards.
+export const RECOVERY_SNAPSHOT = Object.freeze({
   commit: '85504dd6ee201fd358f6ea3489742ea5c47afcf8',
   tree: 'ce46afc9354beb08ce808593595ca1e08a96a52e',
   assetBlob: 'acb728faf6247535bdc173b0f18c82adeea3485e',
   buildId: '58894b1c9aa1e7627d9985edbbc09e8f6a06f1b8521811032266fc11565c74d5',
-  bundleSha256: '44386d5bb3eddf40be110c2503bfbeae5a3cc1b227eaef03a31846e8ea4098af',
-});
-// The complete serving 37bd4798 bundle is the recovery target and retains
-// native-task protocol guards.
-export const RECOVERY_SNAPSHOT = Object.freeze({
-  commit: '37bd4798cba9fa12673709964b67a907a7d40d96',
-  tree: 'f3c557f3f01aab2302c94f893b0a8a5e6dd49c91',
-  assetBlob: '2c53dfcbdd106dbb9e763c6ef3bbef9c3c8b60f2',
-  buildId: '68f4d2367c7556748b4d2cdd8cafa449c5a90cdb44e716a0ee8a587a4ff6355a',
   // Current serving module is the fixed recovery target.
-  bundleSha256: '1f58021acb0b6af1738c89d81f9698dee72ff272980f3165ea76df468f1873da',
+  bundleSha256: '44386d5bb3eddf40be110c2503bfbeae5a3cc1b227eaef03a31846e8ea4098af',
 });
 export const verifyEvidence = evidence => verifySnapshot(SNAPSHOT, evidence);
 export function verifyRecoveryEvidence(evidence) {
