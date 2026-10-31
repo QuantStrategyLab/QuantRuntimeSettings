@@ -169,6 +169,26 @@ class ConsolidationLanguageTests(unittest.TestCase):
 
 
 class ConsolidationCandidateTests(unittest.TestCase):
+    def test_non_execution_coverage_keeps_unknown_trade_counts_in_receipt(self):
+        for reason in ("not_due", "market_closed"):
+            for with_live in (False, True):
+                with self.subTest(reason=reason, with_live=with_live):
+                    skipped = candidate(actually_ran=False, reason_code=reason,
+                        order_count=None, fill_count=None, cycle_count=0,
+                        field_status={"order_count": "unknown", "fill_count": "unknown", "cycle_count": "known"})
+                    skipped.pop("notification_event")
+                    if reason == "not_due":
+                        skipped.pop("source_run_id")
+                        skipped["scheduled_idle"] = True
+                    _, _, _, receipt = build([skipped] + ([candidate()] if with_live else []))
+                    self.assertEqual(receipt["run_count"], int(with_live))
+                    self.assertIsNone(receipt["total_fills"])
+                    self.assertEqual(receipt["total_fills_status"], "unknown")
+                    summary = receipt["notification_summary"]
+                    self.assertTrue(summary["counts_unknown"])
+                    self.assertFalse(summary["counts_scope_unknown"])
+                    self.assertEqual(summary["source_inventory"]["schwab"]["covered_targets"], 1)
+
     def test_identity_in_event_is_bound_before_expected_target_coverage(self):
         a = candidate(order_count=2, fill_count=None)
         for name in ("opaque_account_uid", "target_id", "source_run_id", "business_day"):
