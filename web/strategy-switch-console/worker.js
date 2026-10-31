@@ -11,7 +11,8 @@ import { decorateQueue, decisionFields, actorAlias, pageQuery } from "./applicat
 import { inbox } from "./application/console_api/inbox.js";
 import {
   DECISION_ACTIONS, DECISION_REVIEW_SCHEMA_VERSION, decisionCategoryPart, decisionCurrentEligibility,
-  decisionExpiry, decisionExpiryState, decisionKind, decisionRevision, decisionWriteCategory,
+  decisionExpiry, decisionExpiryState, decisionKind, decisionOperationId, decisionOperationSha256,
+  decisionRevision, decisionWriteCategory,
   operationIdFor, operationStatusFromApplication,
 } from "./application/console_api/decision_contract.js";
 import { RISK_TIER_POLICY_BINDINGS, riskTierBindingView } from "./application/console_api/risk_tiers.js";
@@ -12905,7 +12906,7 @@ async function decisionActionResponse(request, env, rawId) {
   }
   if (!raw || Array.isArray(raw) || typeof raw !== "object")
     return json({ ok: false, error: "decision_action_request_invalid" }, 400);
-  if (Object.keys(raw).some((key) => !["action", "expected_revision", "expected_expires_at", "request_id", "selection"].includes(key)))
+  if (Object.keys(raw).some((key) => !["action", "expected_revision", "expected_expires_at", "request_id", "operation_id", "selection"].includes(key)))
     return json({ ok: false, error: "decision_action_request_invalid" }, 400);
   const action = typeof raw.action === "string" ? raw.action.trim() : "";
   if (!supported.includes(action))
@@ -12913,8 +12914,15 @@ async function decisionActionResponse(request, env, rawId) {
   if (typeof raw.expected_revision !== "string" || !/^rev[0-9]-[0-9a-z-]{1,64}$/.test(raw.expected_revision))
     return json({ ok: false, error: "decision_revision_required" }, 400);
   const requestId = typeof raw.request_id === "string" ? raw.request_id.trim() : "";
-  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(requestId))
-    return json({ ok: false, error: "invalid request_id" }, 400);
+  // The operation id names the intent. It is the durable idempotency key, so a
+  // retry with the same id replays and a new intent needs a new id.
+  const operationId = decisionOperationId(raw);
+  if (!operationId) {
+    if (requestId && !/^[A-Za-z0-9._:-]{1,128}$/.test(requestId))
+      return json({ ok: false, error: "invalid request_id" }, 400);
+    return json({ ok: false, error: "decision_operation_id_invalid" }, 400);
+  }
+  const operationSha256 = await decisionOperationSha256(parsed.id, raw);
   const selection = decisionSelection(raw);
   if ((parsed.category === "strategy_promotion" || parsed.category === "paper_account_application")
     && action === "accept" && (!selection?.confirmation || !selection?.selected_account))
@@ -12938,8 +12946,22 @@ async function decisionActionResponse(request, env, rawId) {
   const materialKey = item.decision_binding?.material_sha256 || null;
   const existing = authorityRaw?.decision;
   if (existing && materialKey && existing.material_key === materialKey) {
-    if (existing.kind !== kind || existing.subject_id !== parsed.subject_id || existing.action !== action)
-      return json({ ok: false, error: "human_decision_conflict", decision_id: item.id, server_time: serverTime }, 409);
+    // The durable record keeps the operation id that produced it.
+    const recordedOperationId = typeof existing.payload?.request_id === "string" ? existing.payload.request_id
+      : typeof existing.payload?.requestId === "string" ? existing.payload.requestId
+      : null;
+    // A retry of the recorded intent replays; any other intent on the same
+    // material is a conflicting operation, whether or not it reuses the id.
+    if (existing.kind !== kind || existing.subject_id !== parsed.subject_id || existing.action !== action) {
+      return json({
+        ok: false,
+        error: "decision_operation_conflict",
+        decision_id: item.id,
+        operation_id: operationId,
+        recorded_operation_id: recordedOperationId,
+        server_time: serverTime,
+      }, 409);
+    }
     const receipt = await humanDecisionReceipt(existing, {
       kind, subject_id: parsed.subject_id, material_sha256: materialKey,
     });
@@ -12950,6 +12972,8 @@ async function decisionActionResponse(request, env, rawId) {
       decision_id: item.id,
       revision: item.revision,
       action,
+      operation_id: operationId,
+      operation_sha256: operationSha256,
       decision_receipt: receipt,
       decided_at: existing.decided_at,
       decision_state: { status: "decided", action, decided_at: existing.decided_at },
@@ -12988,7 +13012,7 @@ async function decisionActionResponse(request, env, rawId) {
       candidate_id: parsed.subject_id,
       decision: action,
       candidate_evidence_sha256: materialKey,
-      request_id: requestId,
+      request_id: operationId,
     };
   } else if (parsed.category === "reconciliation_recovery") {
     targetPath = "/api/reconciliation-recovery-confirmations";
@@ -12999,7 +13023,7 @@ async function decisionActionResponse(request, env, rawId) {
         candidate_sha256: item.initial_enrollment.candidate_sha256,
         facts_sha256: item.initial_enrollment.facts_sha256,
         decision: action,
-        request_id: requestId,
+        request_id: operationId,
       };
     } else {
       innerBody = {
@@ -13007,7 +13031,7 @@ async function decisionActionResponse(request, env, rawId) {
         candidate_sha256: item.evidence_summary?.candidate_sha256,
         dual_review_binding_sha256: item.evidence_summary?.dual_review_binding_sha256,
         decision: action,
-        request_id: requestId,
+        request_id: operationId,
       };
     }
   } else {
@@ -13032,7 +13056,7 @@ async function decisionActionResponse(request, env, rawId) {
         confirmation: selection.confirmation,
         selected_account: selection.selected_account,
       } : {}),
-      request_id: requestId,
+      request_id: operationId,
     };
   }
 
@@ -13071,6 +13095,8 @@ async function decisionActionResponse(request, env, rawId) {
     decision_id: item.id,
     revision: item.revision,
     action,
+    operation_id: operationId,
+    operation_sha256: operationSha256,
     decision_receipt: payload.decision_receipt || null,
     decided_at: decidedAt,
     decision_state: { status: "decided", action, decided_at: decidedAt },

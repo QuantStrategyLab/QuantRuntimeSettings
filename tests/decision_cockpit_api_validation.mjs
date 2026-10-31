@@ -162,6 +162,8 @@ assert.equal(decided.body.ok, true);
 assert.equal(decided.body.decision_id, ownerItem.decision_id);
 assert.equal(decided.body.decision_state.status, "decided");
 assert.match(decided.body.decision_receipt.receipt_sha256, /^[0-9a-f]{64}$/);
+assert.equal(decided.body.operation_id, "cockpit-request-1");
+assert.match(decided.body.operation_sha256, /^[0-9a-f]{64}$/);
 assert.equal(decided.body.policy.no_order, true);
 const replayed = await call(actionUrl, { method: "POST", body: {
   action: "keep_parked", expected_revision: ownerItem.revision, request_id: "cockpit-request-1",
@@ -169,11 +171,33 @@ const replayed = await call(actionUrl, { method: "POST", body: {
 assert.equal(replayed.status, 200);
 assert.equal(replayed.body.replayed, true);
 assert.equal(replayed.body.decision_receipt.receipt_sha256, decided.body.decision_receipt.receipt_sha256);
+// A retry under the same operation id returns the same operation identity.
+assert.equal(replayed.body.operation_id, decided.body.operation_id);
+assert.equal(replayed.body.operation_sha256, decided.body.operation_sha256);
+// Reusing the recorded operation id for a different intent is rejected, not replayed.
+const reusedOperation = await call(actionUrl, { method: "POST", body: {
+  action: "approve_limited_live_canary", expected_revision: ownerItem.revision, operation_id: "cockpit-request-1",
+} });
+assert.equal(reusedOperation.status, 409);
+assert.equal(reusedOperation.body.error, "decision_operation_conflict");
+assert.equal(reusedOperation.body.operation_id, "cockpit-request-1");
+// A malformed or mismatched operation id never reaches the durable writer.
+const badOperation = await call(actionUrl, { method: "POST", body: {
+  action: "keep_parked", expected_revision: ownerItem.revision, operation_id: "not a valid id",
+} });
+assert.equal(badOperation.status, 400);
+assert.equal(badOperation.body.error, "decision_operation_id_invalid");
+const mismatchedOperation = await call(actionUrl, { method: "POST", body: {
+  action: "keep_parked", expected_revision: ownerItem.revision,
+  operation_id: "cockpit-op-a", request_id: "cockpit-request-b",
+} });
+assert.equal(mismatchedOperation.status, 400);
+assert.equal(mismatchedOperation.body.error, "decision_operation_id_invalid");
 const conflictingAction = await call(actionUrl, { method: "POST", body: {
   action: "approve_limited_live_canary", expected_revision: ownerItem.revision, request_id: "cockpit-request-2",
 } });
 assert.equal(conflictingAction.status, 409);
-assert.equal(conflictingAction.body.error, "human_decision_conflict");
+assert.equal(conflictingAction.body.error, "decision_operation_conflict");
 const decidedReview = await call(`/api/decisions/${encodeURIComponent(ownerItem.decision_id)}`);
 assert.equal(decidedReview.body.current_eligibility.eligible, false);
 assert.equal(decidedReview.body.decision.allowed_actions.length, 0);

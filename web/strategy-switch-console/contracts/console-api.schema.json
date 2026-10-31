@@ -4154,6 +4154,20 @@
         "action": {
           "type": "string"
         },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "operation_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "recorded_operation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "decision_receipt": {
           "type": [
             "object",

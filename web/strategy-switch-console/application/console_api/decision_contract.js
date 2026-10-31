@@ -233,6 +233,36 @@ export function operationIdFor(category, subjectId) {
   return subjectId ? `operation:${category}:${subjectId}` : null;
 }
 
+/** Client-supplied identity of one decision action intent. */
+export const DECISION_OPERATION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+
+/**
+ * The stable operation id of an action request. `request_id` stays the transport
+ * retry id; `operation_id` names the intent itself, so a retried intent keeps one
+ * identity while a genuinely new intent must pick a new id.
+ */
+export function decisionOperationId(body) {
+  const operationId = typeof body?.operation_id === "string" ? body.operation_id.trim() : "";
+  const requestId = typeof body?.request_id === "string" ? body.request_id.trim() : "";
+  if (operationId && requestId && operationId !== requestId) return null;
+  const id = operationId || requestId;
+  return DECISION_OPERATION_ID_PATTERN.test(id) ? id : null;
+}
+
+/** Digest of the action intent, so a reused operation id is told apart from a retry. */
+export async function decisionOperationSha256(decisionId, body) {
+  const selection = body?.selection && typeof body.selection === "object" ? body.selection : null;
+  const canonical = JSON.stringify([
+    String(decisionId || ""),
+    String(body?.action || ""),
+    selection ? [String(selection.confirmation || ""), String(selection.selected_account || "")] : null,
+  ]);
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)),
+  );
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function operationStatusFromApplication(application) {
   if (!application) return "unapplied";
   if (application.status === "approved")
