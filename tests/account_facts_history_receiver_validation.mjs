@@ -174,6 +174,32 @@ try {
   await kv.put("account_options", JSON.stringify(Object.fromEntries(fixtures.map(f => [f.platform, [f.option]]))));
 
   const cookie = await __test.makeSession("synthetic-reader", [], settings);
+  const coverageUrl = `https://synthetic.example/api/account-facts/history?platform=longbridge&account_key=${first.option.key}&projection=external-flow-coverage`;
+  const headers = { Cookie: `qsl_switch_session=${cookie}` };
+  assert.equal((await worker.fetch(new Request(coverageUrl), env)).status, 401);
+  assert.equal((await worker.fetch(new Request(`${coverageUrl}&currency=USD`, { headers }), env)).status, 400);
+  assert.equal((await worker.fetch(new Request(`${coverageUrl}&projection=external-flow-coverage`, { headers }), env)).status, 400);
+  response = await worker.fetch(new Request(coverageUrl, { headers }), env);
+  assert.deepEqual(await response.json(), { ok: true, projection: "external-flow-coverage", computation_enabled: false,
+    read_status: "absent", precision: null, window_count: 0, record_count: 0, observed_from: null, observed_to: null, groups: [] });
+  const b = first.binding, day = dateAgo(2);
+  const flow = { schema_version: "external_flow.v2", windows: [{ currency: "USD", date: day, period_start: day, period_end: day,
+    coverage: "reported", source: "longbridge_cashflow", time_precision: "date", records: [] }] };
+  const putFlow = await namespace.get(namespace.idFromName("runtime-instances")).fetch("https://runtime-instances/", {
+    method: "POST", body: JSON.stringify({ action: "account_external_flow_put", platform: b.platform, account_key: b.account_key,
+      account_scope: b.account_scope, account_selector: b.account_selector, target_id: b.target_id, source_binding_id: b.source_binding.id, externalFlow: flow }) });
+  assert.equal(putFlow.status, 200, await putFlow.clone().text());
+  response = await worker.fetch(new Request(coverageUrl, { headers }), env);
+  const coverage = await response.json();
+  assert.equal(response.status, 200); assert.equal(coverage.computation_enabled, false);
+  assert.equal(coverage.read_status, "stored"); assert.equal(coverage.precision, "date");
+  assert.deepEqual(coverage.groups, [{ precision: "date", coverage: "reported", window_count: 1, record_count: 0, observed_from: day, observed_to: day }]);
+  const oldBinding = { ...b, source_binding: { ...b.source_binding, id: "e".repeat(64) } };
+  await saveBindings(fixtures.map(f => f === first ? oldBinding : f.binding));
+  response = await worker.fetch(new Request(coverageUrl, { headers }), env);
+  const mismatch = await response.json();
+  assert.equal(mismatch.read_status, "identity_mismatch"); assert.equal(mismatch.record_count, null);
+  await saveBindings(fixtures.map(f => f.binding));
   const hkd = payload(first, 6, currentId);
   hkd.broker_reported_balances[0].currency = "HKD";
   hkd.cash[0].currency = "HKD";

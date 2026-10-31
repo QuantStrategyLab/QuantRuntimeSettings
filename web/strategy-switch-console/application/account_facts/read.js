@@ -18,6 +18,40 @@ import {
   buildAccountFactsReadModel,
   projectAccountFactsHistoryCurrencies,
 } from "../../account_facts.js";
+import { externalFlowEnabled, instant } from "./external_flow.js";
+
+// Rebuild the small fixed projection at the HTTP boundary; never spread DO data.
+function externalFlowCoverageResponse(raw, enabled) {
+  const unknown = status => ({ ok: status !== "read_error", projection: "external-flow-coverage", computation_enabled: enabled,
+    read_status: status, precision: null, window_count: null, record_count: null, observed_from: null, observed_to: null, groups: null });
+  if (!raw || raw.ok !== true || !["stored", "absent", "identity_mismatch", "read_error"].includes(raw.read_status)) return unknown("read_error");
+  if (["identity_mismatch", "read_error"].includes(raw.read_status)) return unknown(raw.read_status);
+  if (raw.read_status === "absent") return { ...unknown("absent"), window_count: 0, record_count: 0, groups: [] };
+  const count = n => Number.isSafeInteger(n) && n >= 0 && n <= 4096;
+  const validBound = (v, p) => p === "date" ? Boolean(accountFactsIdentityDates(v, v)) : Number.isFinite(instant(v));
+  if (!["date", "instant", "mixed"].includes(raw.precision) || !count(raw.window_count) || raw.window_count < 1
+      || !count(raw.record_count) || !Array.isArray(raw.groups) || raw.groups.length < 1 || raw.groups.length > 3) return unknown("read_error");
+  const groups = [], seen = new Set();
+  for (const g of raw.groups) {
+    if (!g || !["date", "instant"].includes(g.precision)
+        || !(g.precision === "date" ? g.coverage === "reported" : ["complete", "incomplete"].includes(g.coverage))
+        || !count(g.window_count) || g.window_count < 1 || !count(g.record_count)
+        || !validBound(g.observed_from, g.precision) || !validBound(g.observed_to, g.precision)
+        || Date.parse(g.observed_from) > Date.parse(g.observed_to) || seen.has(`${g.precision}:${g.coverage}`)) return unknown("read_error");
+    seen.add(`${g.precision}:${g.coverage}`);
+    groups.push({ precision: g.precision, coverage: g.coverage, window_count: g.window_count, record_count: g.record_count,
+      observed_from: g.observed_from, observed_to: g.observed_to });
+  }
+  const precisions = new Set(groups.map(g => g.precision));
+  if ((precisions.size === 2 ? "mixed" : groups[0].precision) !== raw.precision
+      || groups.reduce((n, g) => n + g.window_count, 0) !== raw.window_count
+      || (raw.precision === "mixed" ? raw.observed_from !== null || raw.observed_to !== null
+        : !validBound(raw.observed_from, raw.precision) || !validBound(raw.observed_to, raw.precision)
+          || Date.parse(raw.observed_from) > Date.parse(raw.observed_to))) return unknown("read_error");
+  return { ok: true, projection: "external-flow-coverage", computation_enabled: enabled, read_status: "stored",
+    precision: raw.precision, window_count: raw.window_count, record_count: raw.record_count,
+    observed_from: raw.observed_from, observed_to: raw.observed_to, groups };
+}
 
 export function accountFactsIdentityDates(from, to) {
   const valid = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -183,23 +217,28 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   const currency = String(url.searchParams.get("currency") || "");
   const projection = url.searchParams.get("projection");
   const currenciesProjection = projection === "currencies";
+  const flowCoverage = projection === "external-flow-coverage";
+  if (flowCoverage && ([...url.searchParams.keys()].some(key => !["platform", "account_key", "projection"].includes(key))
+      || ["platform", "account_key", "projection"].some(key => url.searchParams.getAll(key).length !== 1))) {
+    return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
+  }
   const includeCurrencies = url.searchParams.get("include_currencies") === "true";
   if (url.searchParams.has("include_currencies") && (!includeCurrencies || projection !== null
       || ["platform", "account_key", "currency", "include_currencies"].some(key => url.searchParams.getAll(key).length !== 1))) {
     return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
   }
-  const requireCurrencies = currenciesProjection || includeCurrencies;
+  const requireCurrencies = currenciesProjection || includeCurrencies || flowCoverage;
   const dates = projection === "identity"
     ? accountFactsIdentityDates(url.searchParams.get("from"), url.searchParams.get("to")) : null;
   if (currenciesProjection && (["platform", "account_key", "projection"].some((key) => url.searchParams.getAll(key).length !== 1)
       || ["currency", "from", "to"].some((key) => url.searchParams.has(key)))) {
     return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
   }
-  if (projection !== null && !currenciesProjection && (projection !== "identity" || !ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !dates
+  if (projection !== null && !currenciesProjection && !flowCoverage && (projection !== "identity" || !ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !dates
       || ["platform", "account_key", "currency", "projection", "from", "to"].some((key) => url.searchParams.getAll(key).length !== 1))) {
     return json({ ok: false, error: "invalid_account_facts_identity_query" }, 400);
   }
-  if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !accountKey || (!currenciesProjection && !/^[A-Z]{3}$/.test(currency))) {
+  if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !accountKey || (!currenciesProjection && !flowCoverage && !/^[A-Z]{3}$/.test(currency))) {
     return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
   }
   let accountConfig;
@@ -223,6 +262,19 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   if (requireCurrencies && (!option || !binding || !accountFactsOptionMatchesBinding(option, binding)
       || bindings.bindings.filter((item) => item.platform === platform && item.account_key === accountKey).length !== 1)) {
     return json({ ok: false, error: "account_facts_identity_unavailable" }, 409);
+  }
+  if (flowCoverage) {
+    const enabled = externalFlowEnabled(env);
+    let raw;
+    try {
+      raw = await runtimeInstanceCommand(env, { action: "account_facts_history_read", projection: "external-flow-coverage",
+        platform, account_key: accountKey, account_scope: binding.account_scope, account_selector: binding.account_selector,
+        target_id: binding.target_id, source_binding_id: binding.source_binding.id,
+        ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM ? { broker_account_hash: binding.broker_account_hash } : {}),
+        ...(platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? { broker_account_id: binding.broker_account_id } : {}) });
+    } catch { raw = null; }
+    const result = externalFlowCoverageResponse(raw, enabled);
+    return json(result, result.read_status === "read_error" ? 503 : 200);
   }
   if (projection === "identity") {
     if (!option || !binding || !accountFactsOptionMatchesBinding(option, binding)

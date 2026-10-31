@@ -525,3 +525,19 @@ probe and acceptance. Then verify GET bytes once and run the six-page acceptance
 keep every failure and do not retry failed acceptance into a pass. A timeout stops
 acceptance/promotion. This guard does not claim global propagation is atomic and
 does not remove transient platform responses before readiness.
+
+### External-flow coverage inspection
+
+Authenticated `GET /api/account-facts/history?platform=…&account_key=…&projection=external-flow-coverage`
+uses the existing unique account binding and reads only the stored flow row. It
+returns `computation_enabled` (the calculation flag, not an eligibility decision),
+`read_status` (`stored`, `absent`, `identity_mismatch`, or `read_error`),
+`precision` (`date`, `instant`, `mixed`, or null), window and deduplicated record
+counts, and groups by precision and source coverage. `observed_from` and
+`observed_to` are window boundaries, not proof of continuous coverage; mixed
+precision has null overall boundaries and retains boundaries per group. Date-only
+v2 windows report `reported`, never complete coverage. `absent` gives zero counts
+only after a successful empty row read. Identity mismatch and read failure give
+null counts; read failure returns HTTP 503. No amounts, account identity, record
+references or raw rows are returned. The projection reads v1 and v2 metadata even
+when computation is disabled and does not enable it or change history calculations.
