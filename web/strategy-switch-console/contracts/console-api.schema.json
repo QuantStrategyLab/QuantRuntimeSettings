@@ -533,6 +533,13 @@
             ]
           }
         },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Opaque cursor for the next inbox page; null when the page is the last."
+        },
         "coverage": {
           "type": "string"
         },

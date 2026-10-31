@@ -30,6 +30,16 @@ export async function consoleApiResponse(request, env, deps) {
     || [...url.searchParams.keys()].some(key => key !== "include"))) {
     return json({ ok: false, error: "invalid_accounts_include" }, 400);
   }
+  // The inbox owns its opaque cursor; the numeric page cursor below does not apply.
+  if (path === "/api/decisions-inbox") {
+    try {
+      return json(await inbox(request, env, deps));
+    } catch (error) {
+      if (error?.message === "invalid_pagination")
+        return json({ ok: false, error: "invalid_pagination" }, 400);
+      throw error;
+    }
+  }
   let page;
   try {
     page = pageQuery(url);
@@ -53,8 +63,6 @@ export async function consoleApiResponse(request, env, deps) {
         coverage: "durable_human_decision_records",
       });
     }
-    if (path === "/api/decisions-inbox")
-      return json(await inbox(request, env, deps));
     if (path === "/api/notifications/send-log") return json(await notificationLog(env, deps));
     const config = await deps.accountOptions(env);
     const accounts = Object.entries(config.options || {}).flatMap(

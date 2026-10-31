@@ -262,5 +262,34 @@ assert.equal((await call(actionUrl, { method: "POST", cookie: reader, body: {
   action: "keep_parked", expected_revision: ownerItem.revision, request_id: "cockpit-request-4",
 } })).status, 403);
 
+// Inbox pagination: bounded limit, opaque cursor, stable order, null on the last page.
+assert.equal((await syncRecovery(recoverySource("cockpit-page-recovery", now))).status, 200);
+const fullInbox = await call("/api/decisions-inbox?limit=100");
+assert.equal(fullInbox.status, 200);
+assert.equal(fullInbox.body.next_cursor, null, "the fixture inbox fits in one bounded page");
+assert.ok(fullInbox.body.items.length >= 2, "pagination needs at least two items");
+const firstPage = await call("/api/decisions-inbox?limit=1");
+assert.equal(firstPage.status, 200);
+assert.equal(firstPage.body.items.length, 1);
+assert.equal(typeof firstPage.body.next_cursor, "string");
+assert.match(firstPage.body.next_cursor, /^[A-Za-z0-9_-]+$/, "cursor is opaque, not a raw offset");
+const secondPage = await call(`/api/decisions-inbox?limit=1&cursor=${encodeURIComponent(firstPage.body.next_cursor)}`);
+assert.equal(secondPage.status, 200);
+assert.equal(secondPage.body.items.length, 1);
+assert.deepEqual(
+  secondPage.body.items.map((item) => item.id),
+  fullInbox.body.items.slice(1, 2).map((item) => item.id),
+  "the cursor continues the stable full-page order",
+);
+const repeatedPage = await call("/api/decisions-inbox?limit=1");
+assert.deepEqual(
+  repeatedPage.body.items.map((item) => item.id),
+  firstPage.body.items.map((item) => item.id),
+  "ordering is deterministic across identical requests",
+);
+assert.equal((await call("/api/decisions-inbox?limit=0")).status, 400);
+assert.equal((await call("/api/decisions-inbox?limit=101")).status, 400);
+assert.equal((await call("/api/decisions-inbox?cursor=not-a-cursor!")).status, 400);
+
 await mf.dispose();
 console.log("decision_cockpit_api_validation: PASS");
