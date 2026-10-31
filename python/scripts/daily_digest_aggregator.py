@@ -267,26 +267,13 @@ def default_workflow_allowlist(config: Mapping[str, Any]) -> list[dict[str, str]
     """Allowlisted workflows that may contribute *run existence* evidence only.
 
     Counts remain unknown unless a candidates file supplies them. Heartbeat-only
-    monitor workflows are intentionally omitted.
+    monitor workflows are intentionally omitted. The list is explicit platform
+    configuration; an absent list stays empty rather than falling back to a
+    second copy that can drift from calibrated paths.
     """
 
     platforms = config.get("platforms") or {}
     rows: list[dict[str, str]] = []
-    # Fallback only when platform-config allowlist is absent.
-    # Keep in sync with calibrated present paths (P0-04); never list 404 stems.
-    defaults: dict[str, tuple[str, str, str]] = {
-        # workflow → strategy_profile → evidence_role
-        "longbridge": (
-            "publish-runtime-daily-once.yml",
-            "russell_top50_leader_rotation",
-            "paper_projection_once",
-        ),
-        "schwab": (
-            "runtime-daily-sync.yml",
-            "soxl_soxx_trend_income",
-            "manual_daily_projection",
-        ),
-    }
     configured = (
         (config.get("notifications") or {})
         .get("quant_sentinel", {})
@@ -323,21 +310,6 @@ def default_workflow_allowlist(config: Mapping[str, Any]) -> list[dict[str, str]
             rows.append(row)
         return rows
 
-    for platform_id, (workflow, strategy, evidence_role) in defaults.items():
-        meta = platforms.get(platform_id) or {}
-        repo = str(meta.get("repository") or "").strip()
-        if not repo:
-            continue
-        rows.append(
-            {
-                "platform_id": platform_id,
-                "repository": repo,
-                "workflow": workflow,
-                "strategy_profile": strategy,
-                "evidence_role": evidence_role,
-                "path_status": "present",
-            }
-        )
     return rows
 
 
