@@ -5,14 +5,15 @@ export const zhCN = {
   "shell.update_available": "新版已就绪，刷新后使用。",
   "shell.reload": "刷新页面",
   "app.name": "QuantStrategyLab",
+  "shell.cockpit": "决策驾驶舱",
 
   "nav.main": "主导航",
   "nav.overview": "总览",
   "nav.performance": "收益分析",
-  "nav.decisions": "待办",
+  "nav.decisions": "决策",
   "nav.accounts": "账户",
   "nav.strategies": "策略",
-  "nav.health": "运行状态",
+  "nav.health": "健康",
   "nav.more": "更多",
   "nav.todo_unavailable": "待办数量不可读",
 

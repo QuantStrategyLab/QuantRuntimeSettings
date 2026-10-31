@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { useNavigate, usePrefs, useScope } from "../app/context";
+import { useNavigate, usePrefs } from "../app/context";
 import { UpdateNotice } from "./UpdateNotice";
 import { useLanguage, useT } from "../i18n";
 import { formatDateTime } from "../lib/format";
@@ -10,15 +10,17 @@ import type { PageId } from "./router";
 
 const NAV_ITEMS: { id: PageId; labelKey: string; icon: string }[] = [
   { id: "overview", labelKey: "nav.overview", icon: "M3 12 L12 4 L21 12 M6 10 V20 H18 V10" },
-  { id: "performance", labelKey: "nav.performance", icon: "M4 18 L10 10 L14 13 L20 5" },
   { id: "decisions", labelKey: "nav.decisions", icon: "M4 6 H20 M4 12 H20 M4 18 H14" },
-  { id: "accounts", labelKey: "nav.accounts", icon: "M12 12 m-4 0 a4 4 0 1 0 8 0 a4 4 0 1 0 -8 0 M4 20 c0-4 4-6 8-6 s8 2 8 6" },
   { id: "strategies", labelKey: "nav.strategies", icon: "M5 5 H19 V19 H5 Z M5 10 H19 M10 10 V19" },
+  { id: "accounts", labelKey: "nav.accounts", icon: "M12 12 m-4 0 a4 4 0 1 0 8 0 a4 4 0 1 0 -8 0 M4 20 c0-4 4-6 8-6 s8 2 8 6" },
+  { id: "performance", labelKey: "nav.performance", icon: "M4 18 L10 10 L14 13 L20 5" },
   { id: "health", labelKey: "nav.health", icon: "M3 12 H7 L10 5 L14 19 L17 12 H21" },
 ];
 
-const MOBILE_PRIMARY: PageId[] = ["overview", "performance", "decisions", "accounts"];
-const MOBILE_MORE: PageId[] = ["strategies", "health"];
+// Mobile navigation is deliberate: the queue and the cockpit are the two
+// destinations that need one tap; everything else lives behind More.
+const MOBILE_PRIMARY: PageId[] = ["overview", "decisions"];
+const MOBILE_MORE: PageId[] = ["strategies", "accounts", "performance", "health"];
 
 function NavIcon({ path }: { path: string }) {
   return (
@@ -52,8 +54,6 @@ export function AppShell({
   const navigate = useNavigate();
   const { prefs, setPrefs, resolvedTheme } = usePrefs();
   const dark = resolvedTheme === "dark";
-  useScope();
-  const [collapsed, setCollapsed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const userMenuRef = useRef<HTMLDetailsElement>(null);
@@ -105,7 +105,7 @@ export function AppShell({
       onClick={() => navigate({ page: item.id, account: null, tab: null })}
     >
       <NavIcon path={item.icon} />
-      <span className="nav-text">{t(item.labelKey)}</span>
+      <span className={extraClass === "topnav-item" ? "topnav-label" : "nav-text"}>{t(item.labelKey)}</span>
       {item.id === "decisions" && (badge || (todoUnknown && <span className="nav-badge nav-badge-unknown" aria-hidden="true">?</span>))}
     </button>
   );
@@ -113,21 +113,21 @@ export function AppShell({
   return (
     <div className="shell">
       <a className="skip-link" href="#main-content">{t("shell.skip_to_content")}</a>
-      <nav className={`sidenav${collapsed ? " collapsed" : ""}`} aria-label={t("nav.main")}>
-        <div className="brand">
-          <img src="/v2/assets/qsl-brand-icon.svg" alt="" width={28} height={28} />
-          <span className="brand-name">{t("app.name")}</span>
-        </div>
-        {NAV_ITEMS.map(item => navButton(item, "nav-item"))}
-        <button type="button" className="sidenav-collapse" onClick={() => setCollapsed(value => !value)} aria-label={t(collapsed ? "common.expand" : "common.collapse")}>
-          {collapsed ? "»" : "«"}
-        </button>
-      </nav>
       <div className="shell-main">
         <header className="topbar">
+          <button type="button" className="brand" aria-label={t("app.name")} onClick={() => navigate({ page: "overview", account: null, tab: null })}>
+            <img src="/v2/assets/qsl-brand-icon.svg" alt="" width={28} height={28} />
+            <span className="brand-copy">
+              <span className="brand-name">{t("app.name")}</span>
+              <span className="brand-subtitle">{t("shell.cockpit")}</span>
+            </span>
+          </button>
+          <nav className="topnav" aria-label={t("nav.main")}>
+            {NAV_ITEMS.map(item => navButton(item, "topnav-item"))}
+          </nav>
+          <span className="spacer" />
           {page !== "health" && <ScopeSwitcher />}
           {updated && <span className="topbar-updated">{t("common.updated_at", { value: `${updated.text}${updated.zone ? ` (${updated.zone})` : ""}` })}</span>}
-          <span className="spacer" />
           <button type="button" className="button button-secondary button-sm appearance-toggle lang-toggle" aria-label={t("prefs.language")} title={t("prefs.language")} onClick={() => setPrefs({ ...prefs, language: language === "zh" ? "en" : "zh" })}>
             {/* Narrow screens keep the control short; the full word stays for wide layouts. */}
             <span className="lang-label lang-label-full">{language === "zh" ? "English" : "中文"}</span>
@@ -176,7 +176,7 @@ export function AppShell({
       <nav className="bottom-tabs" aria-label={t("nav.main")}>
         <div className="bottom-tabs-inner">
           {MOBILE_PRIMARY.map(id => navButton(NAV_ITEMS.find(item => item.id === id)!, "bottom-tab"))}
-          <button type="button" ref={moreButtonRef} className={`bottom-tab${moreOpen || MOBILE_MORE.includes(page) ? " active" : ""}`} aria-expanded={moreOpen} aria-controls="more-sheet" onClick={() => setMoreOpen(value => !value)}>
+          <button type="button" ref={moreButtonRef} className={`bottom-tab${moreOpen || MOBILE_MORE.includes(page) ? " active" : ""}`} aria-expanded={moreOpen} aria-controls="more-sheet" aria-label={t("nav.more")} onClick={() => setMoreOpen(value => !value)}>
             <NavIcon path="M5 12 m-1.5 0 a1.5 1.5 0 1 0 3 0 a1.5 1.5 0 1 0 -3 0 M12 12 m-1.5 0 a1.5 1.5 0 1 0 3 0 a1.5 1.5 0 1 0 -3 0 M19 12 m-1.5 0 a1.5 1.5 0 1 0 3 0 a1.5 1.5 0 1 0 -3 0" />
             <span className="nav-text">{t("nav.more")}</span>
           </button>

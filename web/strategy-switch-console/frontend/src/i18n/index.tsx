@@ -10,6 +10,7 @@ import * as accounts from "./pages/accounts";
 import * as strategies from "./pages/strategies";
 import * as health from "./pages/health";
 import * as facts from "./pages/facts";
+import * as cockpit from "./pages/cockpit";
 
 const zh: Record<string, string> = {
   ...zhCN,
@@ -20,6 +21,7 @@ const zh: Record<string, string> = {
   ...strategies.zh,
   ...health.zh,
   ...facts.zh,
+  ...cockpit.zh,
 };
 const enMessages: Record<string, string> = {
   ...en,
@@ -30,6 +32,7 @@ const enMessages: Record<string, string> = {
   ...strategies.en,
   ...health.en,
   ...facts.en,
+  ...cockpit.en,
 };
 
 for (const key of Object.keys(zh)) {
