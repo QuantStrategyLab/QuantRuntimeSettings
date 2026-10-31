@@ -11,8 +11,8 @@ const uuid = s => typeof s === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9
 const outerFailureKinds = new Set(['active_identity_mismatch','active_module_invalid','active_module_mismatch',
   'active_configuration_invalid','transport','size','length','envelope','id']);
 export const POLICY = Object.freeze({
-  frontend: Object.freeze({before:'fc219f21adae7f2aac68f351a134413b5e2de301f85ccccc9aaf62e87af3469d', candidate:'1f58021acb0b6af1738c89d81f9698dee72ff272980f3165ea76df468f1873da'}),
-  recovery: Object.freeze({before:'1f58021acb0b6af1738c89d81f9698dee72ff272980f3165ea76df468f1873da', candidate:'fc219f21adae7f2aac68f351a134413b5e2de301f85ccccc9aaf62e87af3469d'}),
+  frontend: Object.freeze({before:'1f58021acb0b6af1738c89d81f9698dee72ff272980f3165ea76df468f1873da', candidate:'44386d5bb3eddf40be110c2503bfbeae5a3cc1b227eaef03a31846e8ea4098af'}),
+  recovery: Object.freeze({before:'44386d5bb3eddf40be110c2503bfbeae5a3cc1b227eaef03a31846e8ea4098af', candidate:'1f58021acb0b6af1738c89d81f9698dee72ff272980f3165ea76df468f1873da'}),
 });
 function verifyActive(result, expected) {
   const d=result?.deployments?.[0];

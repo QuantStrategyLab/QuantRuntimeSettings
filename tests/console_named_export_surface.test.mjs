@@ -16,7 +16,7 @@ const methods = ['effectiveAccountSettings', 'dispatchAccountDiagnosis'];
 
 test('pinned candidate has no RPC or HTTP surface for the two test helpers', async () => {
   assert.ok(path, 'QRS_NEW_WORKER_BUNDLE is required');
-  assert.equal(digest(await readFile(path)), '1f58021acb0b6af1738c89d81f9698dee72ff272980f3165ea76df468f1873da', 'candidate bundle must be exact');
+  assert.equal(digest(await readFile(path)), '44386d5bb3eddf40be110c2503bfbeae5a3cc1b227eaef03a31846e8ea4098af', 'candidate bundle must be exact');
   const root = dirname(path);
   const target = { name: 'candidate', modules: true, scriptPath: path, modulesRoot: root, rootPath: root,
     compatibilityDate: '2026-06-08', bindings: { SESSION_SECRET: 'synthetic-only-session-key' },
@@ -79,4 +79,20 @@ test('pinned candidate has no RPC or HTTP surface for the two test helpers', asy
     }
     assert.equal(outbound, 0, 'no external request is permitted');
   } finally { await mf.dispose(); }
+});
+
+
+test('candidate and serving recovery expose the same named module exports', async () => {
+  assert.ok(path && process.env.QRS_RECOVERY_WORKER_BUNDLE, 'both fixed bundle paths are required');
+  const recoveryPath = resolve(process.env.QRS_RECOVERY_WORKER_BUNDLE);
+  const [candidate, recovery] = await Promise.all([readFile(path), readFile(recoveryPath)]);
+  assert.equal(digest(candidate), '44386d5bb3eddf40be110c2503bfbeae5a3cc1b227eaef03a31846e8ea4098af');
+  assert.equal(digest(recovery), '1f58021acb0b6af1738c89d81f9698dee72ff272980f3165ea76df468f1873da');
+  const exportsOf = bytes => {
+    const match = /\nexport \{([^}]+)\};\s*\/\/# sourceMappingURL=worker\.js\.map\s*$/.exec(bytes.toString('utf8'));
+    assert.ok(match, 'expected one final bundle export declaration');
+    return match[1].split(',').map(item => item.trim()).filter(Boolean).sort();
+  };
+  assert.deepEqual(exportsOf(candidate), ['RuntimeInstances', '__test', 'worker_default as default'].sort());
+  assert.deepEqual(exportsOf(recovery), exportsOf(candidate));
 });

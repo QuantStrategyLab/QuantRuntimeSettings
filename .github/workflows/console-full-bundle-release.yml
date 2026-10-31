@@ -70,13 +70,13 @@ jobs:
       - name: Check out fixed frontend snapshot
         uses: actions/checkout@v4
         with:
-          ref: 37bd4798cba9fa12673709964b67a907a7d40d96
+          ref: 85504dd6ee201fd358f6ea3489742ea5c47afcf8
           path: candidate-snapshot
           persist-credentials: false
       - name: Check out fixed recovery snapshot
         uses: actions/checkout@v4
         with:
-          ref: 8a161555c697c0440dacf5a9d526fae2f826bb5b
+          ref: 37bd4798cba9fa12673709964b67a907a7d40d96
           path: recovery-snapshot
           persist-credentials: false
       - uses: actions/setup-node@v6
@@ -122,6 +122,7 @@ jobs:
       - name: Verify candidate named export access in workerd
         env:
           QRS_NEW_WORKER_BUNDLE: ${{ runner.temp }}/console-frontend-candidate/worker.js
+          QRS_RECOVERY_WORKER_BUNDLE: ${{ runner.temp }}/console-recovery-candidate/worker.js
         run: node --test tests/console_named_export_surface.test.mjs
       - name: Preserve verified public bundles for the manual job
         if: github.event_name == 'workflow_dispatch'
