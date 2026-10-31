@@ -11834,7 +11834,8 @@ async function syncAccountFactsResponse(request, env, options) {
     runtimeInstanceCommand,
     readBoundedJson,
     requireDedicatedAccountFactsSyncToken,
-    accountFactsErrorResponse: (error) => accountFactsErrorResponse(error, "history_sync"),
+    accountFactsErrorResponse: (error) => accountFactsErrorResponse(
+      error, options?.historical ? "history_sync" : "current_sync"),
   }, options);
 }
 

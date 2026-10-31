@@ -178,17 +178,19 @@ assert.equal(syncRefusal.status,409);
 assert.equal((await syncRefusal.json()).error,'period_return_conflict');
 assert.deepEqual(rejections.at(-1),{endpoint:'period_return_sync',http_status:409,error_category:'period_return_conflict'},
   'a sync refusal names the endpoint the producer posted to');
-// The history-sync use case lives in application/account_facts/sync.js and calls its
-// injected error mapper with no endpoint, so the worker injection site must pre-tag it;
-// otherwise a refused history push would be logged as a read.
-const historySync=await worker.fetch(new Request('https://switch.example/api/account-facts/history/sync',{
-  method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
-}),workerEnv);
-assert.equal(historySync.status,500,'this synthetic env configures no sync token');
-assert.deepEqual(await historySync.json(),{ok:false,error:'account_facts_sync_token_not_configured'});
-assert.deepEqual(rejections.at(-1),
-  {endpoint:'history_sync',http_status:500,error_category:'account_facts_sync_token_not_configured'},
-  'a refused history push is attributed to the sync endpoint, not to a read');
+// Both sync routes live in application/account_facts/sync.js and call their injected
+// error mapper with no endpoint, so the worker injection site must pick the label from
+// the route; otherwise a refused current snapshot would be logged as a history append.
+for(const [path,endpoint] of [['/api/account-facts/sync','current_sync'],['/api/account-facts/history/sync','history_sync']]){
+  const refused=await worker.fetch(new Request(`https://switch.example${path}`,{
+    method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
+  }),workerEnv);
+  assert.equal(refused.status,500,'this synthetic env configures no sync token');
+  assert.deepEqual(await refused.json(),{ok:false,error:'account_facts_sync_token_not_configured'});
+  assert.deepEqual(rejections.at(-1),
+    {endpoint,http_status:500,error_category:'account_facts_sync_token_not_configured'},
+    `${path} is attributed to its own sync endpoint, not to a read`);
+}
 assert.ok(!JSON.stringify(rejections).includes('98765'),'no payload value reaches the log stream');
 console.warn=realWarn;
 console.log('account facts history Worker wiring: synthetic KV/DO failures and empty states passed');
