@@ -53,10 +53,11 @@ assert.deepEqual(cumulative.series[0].points.map(point => [point.date, point.val
   ["2026-10-01", 10],
   ["2026-10-02", 4.5],
 ], "cumulative percentages stay exactly as the server chained them");
+// Daily mode plots only the explicit server field. A cumulative-only series has no daily
+// view at all: the browser no longer compounds two cumulative points into a daily return.
 const daily = prepareChartSeries(syntheticSeries, "daily", "2026-10-01");
-assert.equal(daily.series[0].points.length, 1, "no fabricated first-day daily return");
-assert.equal(daily.series[0].points[0].date, "2026-10-02");
-assert.ok(Math.abs(daily.series[0].points[0].value + 5) < 1e-9, "daily return compounds back to -5%");
+assert.deepEqual(daily.series[0].points, [],
+  "a series without explicit daily percentages has no daily view");
 const filtered = prepareChartSeries(syntheticSeries, "cumulative", "2026-10-02");
 assert.deepEqual(filtered.series[0].points.map(point => point.value), [4.5], "alignStart filters without rebasing");
 const gapped = prepareChartSeries(
@@ -73,7 +74,7 @@ const dailyGap = prepareChartSeries(
 );
 assert.deepEqual(dailyGap.series[0].points, [], "a flagged break never manufactures a daily return");
 // Broker-native daily TWR is explicit: it keeps the first known day and the day after a
-// real break, while points without the field still fall back to the two-point compounding.
+// real break. A point without the field is a gap, never a compounded stand-in.
 const nativeDaily = prepareChartSeries(
   [{ ...syntheticSeries[0], points: [
     { date: "2026-10-01", value: 10, daily_return_percent: 10 },
@@ -86,6 +87,14 @@ assert.deepEqual(nativeDaily.series[0].points.map(point => [point.date, point.va
   ["2026-10-01", 10],
   ["2026-10-02", -5],
 ], "native daily returns include the first known day instead of dropping it");
+// A real 0% day is a value, not a gap.
+const zeroDaily = prepareChartSeries(
+  [{ ...syntheticSeries[0], points: [{ date: "2026-10-01", value: 0, daily_return_percent: 0 }] }],
+  "daily",
+  "2026-10-01",
+);
+assert.deepEqual(zeroDaily.series[0].points.map(point => [point.date, point.value]), [["2026-10-01", 0]],
+  "an explicit 0% day is preserved");
 const nativeBreak = prepareChartSeries(
   [{ ...syntheticSeries[0], points: [
     { date: "2026-10-01", value: 10, daily_return_percent: 10 },
@@ -108,9 +117,8 @@ const missingNative = prepareChartSeries(
   "daily",
   "2026-10-01",
 );
-assert.deepEqual(missingNative.series[0].points.map(point => point.date), ["2026-10-02"],
-  "absent or out-of-range native fields keep the legacy rules: no first-day guess, no break bridging");
-assert.ok(Math.abs(missingNative.series[0].points[0].value + 5) < 1e-9, "the fallback still compounds two cumulative points");
+assert.deepEqual(missingNative.series[0].points, [],
+  "an out-of-range or absent native field is a gap, never a compounded guess");
 const account = { id: "synthetic", platformKey: binding.platform, accountKey: option.key, runtimeDailyBinding: "not_applicable", title: "Synthetic live", platform: "LongBridge", environment: "Live", brokerEnvironment: "live", environmentSource: "config", strategy: "Synthetic strategy", statusLabel: "", statusDetail: "", activation: "待确认", preference: null, facts: model.accounts[0], runtime: null };
 const initialData = { accounts: [{ id: account.id, points: series.points.map(p => ({ date: p.observation_date, value: Number(p.net_assets), externalFlow: null })) }], failed: [], omittedCurrencies: [], truncated: false, referenceFx: false, incompleteDates: 0 };
 const render = (Component, props, language = "zh") => renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: language }, React.createElement(Component, props)));
@@ -202,4 +210,4 @@ try {
   assert.doesNotMatch(yearView, /var\(--(?:up|down)\)/);
   assert.doesNotMatch(yearView, /NaN|undefined/);
 } finally { Date.now = originalNow; }
-console.log("console_chart_visibility_validation: PASS (receiver history → unified return/asset SVG, native cumulative 10%→4.5% preserved, daily −5% without a fabricated first day, four overlaid benchmarks, partial/empty/stale, English; calendar 0% neutral and null/undefined/NaN blank; synthetic only)");
+console.log("console_chart_visibility_validation: PASS (receiver history → unified return/asset SVG, native cumulative 10%→4.5% preserved, daily mode plots only explicit server percentages so a cumulative-only series has no daily view, first explicit day and 0% kept, four overlaid benchmarks, partial/empty/stale, English; calendar 0% neutral and null/undefined/NaN blank; synthetic only)");

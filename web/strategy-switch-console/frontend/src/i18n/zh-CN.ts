@@ -407,8 +407,6 @@ export const zhCN = {
   "health.credential_phase.1": "1 天内到期",
   "health.credential_phase.not_due": "正常",
   "health.credential_phase.unknown": "未知",
-  "health.notifications_title": "旧 GitHub 日报回执",
-  "health.notifications_not_connected": "通知发送记录未接入。",
   "health.activity": "活动",
   "health.run_count": "运行次数",
   "health.col.account": "账户",

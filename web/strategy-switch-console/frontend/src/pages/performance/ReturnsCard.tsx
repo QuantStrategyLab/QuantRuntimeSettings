@@ -108,6 +108,18 @@ export function accountDailyPoints(points: Point[]): Point[] {
   return kept;
 }
 
+/**
+ * Daily mode exists only for a series that really carries explicit daily percentages. An
+ * older response without the field has no daily view at all: the browser must not compound
+ * cumulative points into a financial result of its own.
+ */
+export function hasExplicitDailyPoints(points: Point[]): boolean {
+  return points.some(point => {
+    const native = point.daily_return_percent;
+    return typeof native === "number" && Number.isFinite(native) && native >= -100;
+  });
+}
+
 function chartLabelKey(view: ReturnView, nativeDailyOnly: boolean): string {
   if (nativeDailyOnly) return "perf.native_daily_title";
   return view.returnKind === "unadjusted_asset_ratio" ? "perf.asset_change_title" : "perf.returns_title";
@@ -215,7 +227,9 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
   const data = state.phase === "ready" ? state.data : null;
   // Only an explicit coverage flag pins the chart to daily mode; `partial` alone must not.
   const nativeDailyOnly = isNativeDailyOnly(data);
-  const effectiveMode: Mode = nativeDailyOnly ? "daily" : mode;
+  // Daily mode is offered only for a series with explicit daily values, and a
+  // currency switch never leaves the chart stuck in an empty daily view.
+  const modeFor = (points: Point[]): Mode => (mode === "daily" && hasExplicitDailyPoints(points) ? "daily" : "cumulative");
   const policy = benchmarkPolicy(scope, platform, options);
   const nativeAccounts = data?.per_account?.filter(account => renderableStatus(account.status) && account.return_kind === "twr" && account.points.length > 0) ?? [];
 
@@ -300,7 +314,7 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
             <ReturnsChart
               view={entryView}
               seriesLabel={`${scopeLabel} · ${entry.currency}`}
-              mode={effectiveMode}
+              mode={nativeDailyOnly ? "daily" : modeFor(entry.points)}
               ariaLabel={`${t(chartLabelKey(entryView, nativeDailyOnly))} ${entry.currency}`}
               benchmarks={benchmarks}
               disabled={benchmarks.disabled}
@@ -352,7 +366,7 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
         <ReturnsChart
           view={singleView}
           seriesLabel={scopeLabel}
-          mode={effectiveMode}
+          mode={nativeDailyOnly ? "daily" : modeFor(returned.points)}
           ariaLabel={t(chartLabelKey(singleView, nativeDailyOnly))}
           benchmarks={benchmarks}
           disabled={benchmarks.disabled}
@@ -369,7 +383,9 @@ export function ReturnsCard({ scope, platform, state }: ReturnsCardProps) {
       : assetChange ? t("perf.asset_change_title")
         : hasBenchmarks ? t("perf.returns_title")
           : t("perf.returns_title_plain");
-  const canToggleMode = Boolean(view && !nativeDailyOnly && !assetChange && renderableStatus(view.status) && view.points.length > 0);
+  // Daily mode is only offered when this exact series carries explicit daily values.
+  const canToggleMode = Boolean(view && !nativeDailyOnly && !assetChange && renderableStatus(view.status)
+    && view.points.length > 0 && hasExplicitDailyPoints(view.points));
   const methodBodyKey = nativeDailyOnly ? "perf.method_body_native_daily"
     : view && assetChange ? "perf.method_body_asset_change"
     : data && [data, ...data.per_currency].some(item => classifyCashflowMethod(item) === "unknown") ? "perf.method_body_unknown"

@@ -125,7 +125,9 @@ interface RankableHolding {
   symbol: string;
   /** Null when the source did not provide a usable currency; such a row is never ranked. */
   currency: string | null;
+  /** Native unrealized P/L amount: membership and order only. */
   pnl: number;
+  /** Server-computed unrealized P/L percentage: the bar value. Never re-derived. */
   value: number;
 }
 
@@ -137,18 +139,22 @@ interface CurrencyRanking {
 
 function rankableHolding(row: HoldingRow): RankableHolding | null {
   if (!renderableStatus(row.status)) return null;
-  const { quantity, avg_cost, unrealized_pnl } = row;
-  // Bars show P/L relative to cost basis; both inputs come from the same row, nothing is estimated.
-  if (!Number.isFinite(unrealized_pnl) || !Number.isFinite(avg_cost) || !Number.isFinite(quantity)) return null;
-  if (unrealized_pnl === null || avg_cost === null || quantity === null || !(avg_cost * quantity > 0)) return null;
+  const pnl = row.unrealized_pnl;
+  const percent = row.unrealized_pnl_percent;
+  // Membership and order keep using the native unrealized amount. The bar length
+  // is the percentage the API already computed; this page never divides by cost
+  // basis itself. A missing field (older response) or null (cost, quantity or
+  // currency not eligible) means unavailable — not zero, and never estimated.
+  if (typeof pnl !== "number" || !Number.isFinite(pnl)) return null;
+  if (typeof percent !== "number" || !Number.isFinite(percent)) return null;
   const currency = typeof row.currency === "string" && row.currency.trim() ? row.currency.trim() : null;
   return {
     row,
     id: `${row.platform}:${row.account_alias}|${row.symbol}`,
     symbol: row.symbol,
     currency,
-    pnl: unrealized_pnl,
-    value: (unrealized_pnl / (avg_cost * quantity)) * 100,
+    pnl,
+    value: percent,
   };
 }
 
