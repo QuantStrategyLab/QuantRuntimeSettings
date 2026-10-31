@@ -253,7 +253,7 @@ class ConsolidationCandidateTests(unittest.TestCase):
         self.assertEqual(receipt["total_fills"], 3)
         self.assertEqual(collected.notification_summary["source_inventory"]["schwab"]["runs"], 2)
         self.assertEqual(len(collected.notification_summary["source_inventory"]), 6)
-        self.assertIn("未接入，运行状态未知", text)
+        self.assertIn("未纳入本期汇总，运行状态未知", text)
         self.assertNotIn("Binance：运行 0", text)
 
     def test_conflicting_revision_stays_unknown_and_earlier_alert_survives(self):
