@@ -4451,7 +4451,10 @@
               ]
             },
             "status": {
-              "type": "string"
+              "enum": [
+                "observed",
+                "unavailable"
+              ]
             },
             "unavailable_reason": {
               "type": [
@@ -4464,14 +4467,24 @@
                 "string",
                 "null"
               ]
+            },
+            "observed_at": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
             "tier",
             "status",
             "unavailable_reason",
-            "source"
+            "source",
+            "observed_at"
           ]
+        },
+        "effective_derived_from_approved": {
+          "const": false
         },
         "no_order": {
           "const": true
@@ -4488,6 +4501,7 @@
         "selected",
         "approved",
         "effective",
+        "effective_derived_from_approved",
         "no_order",
         "execution_authority_granted"
       ]

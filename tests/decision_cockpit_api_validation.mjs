@@ -225,6 +225,28 @@ assert.equal(risk.status, 200);
 assert.equal(risk.body.no_order, true);
 assert.equal(risk.body.execution_authority_granted, false);
 assert.ok(Array.isArray(risk.body.tier_bindings));
+for (const tierBinding of risk.body.tier_bindings) {
+  // Effective tier is an observed readback; with no observation it stays null and says why.
+  assert.equal(tierBinding.effective_derived_from_approved, false);
+  assert.equal(tierBinding.effective.observed_at, null);
+  if (tierBinding.effective.status === "unavailable") {
+    assert.equal(tierBinding.effective.tier, null);
+    assert.equal(tierBinding.effective.unavailable_reason, "effective_tier_not_observed");
+    assert.equal(tierBinding.effective.source, null);
+  } else {
+    assert.equal(tierBinding.effective.status, "observed");
+    assert.ok(tierBinding.effective.tier);
+  }
+}
+const { riskTierBindingView } = await import("../web/strategy-switch-console/application/console_api/risk_tiers.js");
+const observedTier = riskTierBindingView({
+  binding: { profile_selection: { risk_preference: "BALANCED_COMPOUNDING", profile_id: "balanced_compounding_v1" } },
+  observation: { tier: "CAPITAL_PRESERVATION", observed_at: now, source: "runtime_readback" },
+});
+assert.equal(observedTier.effective.tier, "CAPITAL_PRESERVATION");
+assert.equal(observedTier.effective.status, "observed");
+assert.equal(observedTier.effective.source, "runtime_readback");
+assert.notEqual(observedTier.effective.tier, observedTier.approved.tier);
 
 // Unauthenticated access fails closed.
 assert.equal((await call("/api/decisions/owner_decision:cockpit-owner", { cookie: "" })).status, 401);

@@ -36,7 +36,29 @@ export function riskTierPolicy(tier) {
   } : null;
 }
 
-export function riskTierBindingView({ scope_id, platform, target_name, binding, revision = null }) {
+/**
+ * Effective tier is an independently observed runtime readback, never a copy of
+ * the approved policy (ARCHITECTURE.md 4.4). Without an observation the tier
+ * stays null and carries an explicit reason code.
+ */
+export function riskTierEffectiveView(observation) {
+  const tier = observation && RISK_TIER_POLICY_BINDINGS[observation.tier] ? observation.tier : null;
+  return tier ? {
+    tier,
+    status: "observed",
+    unavailable_reason: null,
+    source: observation.source || "runtime_readback",
+    observed_at: observation.observed_at || null,
+  } : {
+    tier: null,
+    status: "unavailable",
+    unavailable_reason: "effective_tier_not_observed",
+    source: null,
+    observed_at: null,
+  };
+}
+
+export function riskTierBindingView({ scope_id, platform, target_name, binding, revision = null, observation = null }) {
   const tier = binding?.profile_selection?.risk_preference || null;
   const policy = riskTierPolicy(tier);
   return {
@@ -59,12 +81,8 @@ export function riskTierBindingView({ scope_id, platform, target_name, binding, 
       policy,
       source: "policy_binding",
     } : null,
-    effective: {
-      tier: null,
-      status: "unavailable",
-      unavailable_reason: "effective_tier_not_observed",
-      source: null,
-    },
+    effective: riskTierEffectiveView(observation),
+    effective_derived_from_approved: false,
     no_order: true,
     execution_authority_granted: false,
   };
