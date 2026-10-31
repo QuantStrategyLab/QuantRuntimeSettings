@@ -14,16 +14,18 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
     await build({
       stdin: { resolveDir: root, contents: `import { createElement } from 'react';
         import { renderToStaticMarkup } from 'react-dom/server';
-        import { RunsKpi, AssetKpi, ReturnKpi, LastDayKpi } from './src/pages/overview/OverviewPage';
+        import { RunsKpi, AssetKpi, ReturnKpi, LastDayKpi, carryoverMonthForLatestDay } from './src/pages/overview/OverviewPage';
         import { I18nProvider } from './src/i18n';
+        export { carryoverMonthForLatestDay };
         export const render = (language, state) => renderToStaticMarkup(
           createElement(I18nProvider, { language }, createElement(RunsKpi, { state })));
         export const renderAsset = (language, state) => renderToStaticMarkup(
           createElement(I18nProvider, { language }, createElement(AssetKpi, { state })));
         export const renderReturn = (language, state) => renderToStaticMarkup(
           createElement(I18nProvider, { language }, createElement(ReturnKpi, { state })));
-        export const renderLastDay = (language, state) => renderToStaticMarkup(
-          createElement(I18nProvider, { language }, createElement(LastDayKpi, { state })));` },
+        export const renderLastDay = (language, state, carryover, carryoverState) => renderToStaticMarkup(
+          createElement(I18nProvider, { language },
+            createElement(LastDayKpi, { state, carryover, carryoverState })));` },
       bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic",
       loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },
       plugins: [{ name: "test-runtime-card", setup(builder) {
@@ -49,7 +51,10 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
     const visibleText = html => outsideDetails(html).replace(/<[^>]*>/g, " ");
     const meta = { schema_version: "console_api.v1", scope: "all", range: "YTD", coverage: [] };
     const asOf = "2026-10-20T02:00:05Z";
-    const data = { status: "partial", date: "2026-10-22", counts: { configured: 8, observed: 2, runs: null } };
+    const data = {
+      status: "partial", date: "2026-10-22", market_session: "trading_day",
+      counts: { configured: 8, observed: 2, runs: null },
+    };
     for (const language of ["zh", "en"]) {
       const html = ui.render(language, { phase: "ready", data });
       assert.ok(html.includes("2/8"));
@@ -170,6 +175,88 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       assert.ok(visibleText(normalReturn).includes(METHOD[language]), "a normal return keeps its method label");
       assert.ok(!normalReturn.includes(`<summary>${DETAILS[language]}</summary>`), "normal values need no extra disclosure");
       assert.ok(visibleText(normalReturn).includes(AS_OF[language]), "a normal card keeps as-of visible");
+    }
+
+    /* ---------- latest daily change is not bounded by the browser's month ---------- */
+    const dayCell = (date, amount, reason = null) => ({
+      date, amount, return_percent: null, currency: "USD", status: amount === null ? "no_data" : "ok",
+      value_kind: "asset_change", unavailable_reason: reason,
+    });
+    // Dates stay far in the past so no clock can make them future.
+    const emptyMonth = {
+      ...meta, status: "no_data", unavailable_reason: "snapshot_history_missing", as_of: "2020-01-31",
+      value_kind: "asset_change", year: 2020, month: 2,
+      cells: [dayCell("2020-02-01", null, "snapshot_missing"), dayCell("2020-02-02", null, "non_trading_weekend")],
+    };
+    const carriedMonth = {
+      ...meta, status: "stale", unavailable_reason: null, as_of: "2020-01-31",
+      value_kind: "asset_change", year: 2020, month: 1,
+      cells: [dayCell("2020-01-30", 456), dayCell("2020-01-31", 789)],
+    };
+    assert.deepEqual(ui.carryoverMonthForLatestDay(emptyMonth), { year: 2020, month: 1 },
+      "an empty request month resolves to the month that holds the latest observation");
+    assert.equal(ui.carryoverMonthForLatestDay(carriedMonth), null,
+      "a month that already has a value asks for nothing else");
+    assert.equal(ui.carryoverMonthForLatestDay({ ...emptyMonth, month: 1, as_of: "2020-02-05" }), null,
+      "a later month is never fetched to answer for an earlier one");
+    assert.equal(ui.carryoverMonthForLatestDay({ ...emptyMonth, as_of: null }), null,
+      "without a latest observation there is nothing to resolve");
+    assert.equal(ui.carryoverMonthForLatestDay({ ...emptyMonth, month: null }), null,
+      "the year view is not a month request and carries nothing over");
+    const NO_DATA = { zh: "暂无数据", en: "No data" };
+    for (const language of ["zh", "en"]) {
+      const unresolved = ui.renderLastDay(language, { phase: "ready", data: emptyMonth, error: null });
+      assert.ok(visibleText(unresolved).includes("—"), "an empty month keeps an honest blank");
+      assert.ok(visibleText(unresolved).includes(NO_DATA[language]));
+      assert.ok(!visibleText(unresolved).includes("789"), "no value is invented for the month that has none");
+
+      const carried = ui.renderLastDay(language, { phase: "ready", data: emptyMonth, error: null },
+        { year: 2020, month: 1 }, { phase: "ready", data: carriedMonth, error: null });
+      assert.ok(visibleText(carried).includes("789"),
+        "the latest provable daily change surfaces instead of an empty current month");
+      assert.ok(visibleText(carried).includes(ASSET_CHANGE[language]), "the carried value keeps its method label");
+      assert.ok(visibleText(carried).includes(AS_OF[language]), "the carried value states which day it covers");
+      assert.ok(!visibleText(carried).includes("456"), "only the latest day is shown, not the whole month");
+      assert.ok(!visibleText(carried).includes(NO_DATA[language]), "a resolved month is not reported as having no data");
+      assert.ok(carried.includes('data-status="stale"'), "the cohort lag stays visible as a status on the carried month");
+
+      const pending = ui.renderLastDay(language, { phase: "ready", data: emptyMonth, error: null },
+        { year: 2020, month: 1 }, { phase: "loading", data: null, error: null });
+      assert.ok(!visibleText(pending).includes(NO_DATA[language]),
+        "a month being fetched never announces no data first");
+      // The carry-over month is decided during render while useApi has not yet
+      // committed its new request, so that one frame must stay a skeleton.
+      const starting = ui.renderLastDay(language, { phase: "ready", data: emptyMonth, error: null },
+        { year: 2020, month: 1 }, { phase: "ready", data: null, error: null });
+      assert.ok(!visibleText(starting).includes(NO_DATA[language]),
+        "the frame between deciding a carry-over and fetching it never announces no data");
+      assert.ok(!visibleText(starting).includes("—"),
+        "a month that is about to be fetched does not flash an unknown value");
+      const failedCarry = ui.renderLastDay(language, { phase: "ready", data: emptyMonth, error: null },
+        { year: 2020, month: 1 }, { phase: "error", data: null, error: Error("synthetic_read_failed") });
+      assert.ok(visibleText(failedCarry).includes(NO_DATA[language]),
+        "a failed follow-up falls back to the month that was asked for instead of claiming a read failure");
+    }
+
+    /* ---------- a weekend date is never called a business day ---------- */
+    const WEEKEND = { zh: "纽约日期", en: "New York date" };
+    const BUSINESS = { zh: "纽约业务日", en: "New York business day" };
+    for (const language of ["zh", "en"]) {
+      const weekendData = { ...data, date: "2020-01-31", market_session: "weekend",
+        counts: { configured: 8, observed: 0, runs: null },
+        accounts: [{ status: "no_data", unavailable_reason: "non_trading_weekend" }] };
+      const weekend = ui.render(language, { phase: "ready", data: weekendData });
+      assert.ok(weekend.includes("0/8"), "the weekend count itself is unchanged");
+      assert.ok(weekend.includes(WEEKEND[language]), "the date next to the count is stated as a date");
+      assert.ok(!weekend.includes(BUSINESS[language]), "a Saturday is never labelled a business day");
+      assert.ok(weekend.includes(language === "zh" ? "非交易日" : "Non-trading day"), "the non-trading badge still carries the state");
+      const tradingDay = ui.render(language, { phase: "ready", data: { ...weekendData, market_session: "trading_day" } });
+      assert.ok(tradingDay.includes(BUSINESS[language]), "a trading day keeps the business-day wording");
+      // The field is optional, so a payload that never reports a session may not
+      // be handed a trading claim the API did not make.
+      const unknownSession = ui.render(language, { phase: "ready", data: { ...weekendData, market_session: undefined } });
+      assert.ok(unknownSession.includes(WEEKEND[language]), "an unreported session is stated as a plain date");
+      assert.ok(!unknownSession.includes(BUSINESS[language]), "a missing session is never assumed to be a business day");
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
