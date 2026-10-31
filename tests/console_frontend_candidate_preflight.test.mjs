@@ -38,6 +38,9 @@ test('recovery evidence rejects snapshot substitution and bytes outside the inde
   assert.throws(()=>verifyRecoveryEvidence(good()),/snapshot_identity_mismatch/);
   for(const key of ['commit','tree','assetBlob'])
     assert.throws(()=>verifyRecoveryEvidence({...recovery,[key]:'bad'}),/snapshot_identity_mismatch/);
-  assert.throws(()=>verifyRecoveryEvidence({...recovery,asset:good().asset}),/asset_build_id_mismatch/);
-  assert.throws(()=>verifyRecoveryEvidence({...recovery,firstBundle:bundle,secondBundle:bundle}),/bundle_build_id_mismatch/);
+  // Metadata-only releases can share an asset build ID. Use a genuinely
+  // different marker to exercise each negative check.
+  assert.throws(()=>verifyRecoveryEvidence({...recovery,asset:'export const V2_BUILD_ID = "'+ '0'.repeat(64) +'";\n'}),/asset_build_id_mismatch/);
+  const wrongBundle = Buffer.from('var V2_BUILD_ID = "'+ '0'.repeat(64) +'";\n');
+  assert.throws(()=>verifyRecoveryEvidence({...recovery,firstBundle:wrongBundle,secondBundle:wrongBundle}),/bundle_build_id_mismatch/);
 });

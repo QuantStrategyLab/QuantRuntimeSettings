@@ -53,14 +53,14 @@ async function storedRow(root, requestId) {
   return result[0];
 }
 
-test('production to candidate to compatible #965 recovery preserves SQLite protocol boundaries', async () => {
+test('production to candidate to compatible serving recovery preserves SQLite protocol boundaries', async () => {
   assert.ok(process.env.QRS_OLD_WORKER_BUNDLE && process.env.QRS_NEW_WORKER_BUNDLE && process.env.QRS_RECOVERY_WORKER_BUNDLE, 'all three complete Worker bundle paths are required');
   const oldPath = resolve(process.env.QRS_OLD_WORKER_BUNDLE), newPath = resolve(process.env.QRS_NEW_WORKER_BUNDLE);
   const recoveryPath = resolve(process.env.QRS_RECOVERY_WORKER_BUNDLE);
   const [oldBytes, newBytes, recoveryBytes] = await Promise.all([readFile(oldPath), readFile(newPath), readFile(recoveryPath)]);
   assert.equal(sha(oldBytes), oldDigest, 'old Worker must be the fixed, previously verified production candidate');
-  assert.equal(sha(newBytes), 'f8a9b2598fcac89b5c7dc4d9bd8b6417a75126744c5e53c30f7d35bf8555fd15', 'candidate must be the fixed complete new bundle');
-  assert.equal(sha(recoveryBytes), RECOVERY_SNAPSHOT.bundleSha256, 'recovery bundle must match the independently observed complete #965 module');
+  assert.equal(sha(newBytes), 'fc219f21adae7f2aac68f351a134413b5e2de301f85ccccc9aaf62e87af3469d', 'candidate must be the fixed complete new bundle');
+  assert.equal(sha(recoveryBytes), RECOVERY_SNAPSHOT.bundleSha256, 'recovery bundle must match the independently observed complete serving module');
   assert.notEqual(sha(recoveryBytes), oldDigest, 'recovery is not the incompatible production rollback');
   assert.notEqual(sha(recoveryBytes), sha(newBytes), 'recovery must be a distinct complete bundle');
   console.log(JSON.stringify({ old_worker_sha256: sha(oldBytes), candidate_worker_sha256: sha(newBytes), recovery_worker_sha256: sha(recoveryBytes) }));
@@ -199,8 +199,8 @@ test('production to candidate to compatible #965 recovery preserves SQLite proto
       await stop();
       assert.deepEqual((await storedRow(persist, newId)).row, beforeRecovery.row, 'native row remains unchanged after restart and callbacks');
     }
-    // Also start a new native task on the actual #965 predecessor, then
-    // upgrade to the new bundle and recover to the same #965 bundle.
+    // Also start a new native task on the actual serving predecessor, then
+    // upgrade to the new bundle and recover to the same serving bundle.
     await rm(persist, { recursive: true, force: true });
     await start(recoveryPath, { native: true, transport: true });
     response = await mf.dispatchFetch('https://console.example/api/internal/sync-runtime-target-lifecycle-source', {
@@ -225,6 +225,6 @@ test('production to candidate to compatible #965 recovery preserves SQLite proto
     assert.deepEqual((await storedRow(persist, predecessorId)).row, predecessorRow.row);
     assert.equal(outbound, 0, 'no unexpected external dispatch');
     assert.equal(nativeCalls, 2, 'only the synthetic native transports were called');
-    console.log(JSON.stringify({ upgrade: 'pass', compatible_965_recovery: 'pass', production_rollback: 'not_tested_here' }));
+    console.log(JSON.stringify({ upgrade: 'pass', compatible_serving_recovery: 'pass', production_rollback: 'not_tested_here' }));
   } finally { await stop(); await rm(persist, { recursive: true, force: true }); }
 });
