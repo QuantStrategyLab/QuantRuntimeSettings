@@ -214,6 +214,13 @@ The existing external-flow switch continues to control exact-time ingress and
 performance calculation; it is not enabled merely to store dates. No new
 credential or storage service is used.
 
+`CONSOLE_EXTERNAL_FLOW_ENABLED` is an ordinary non-secret Worker variable. Set it
+to `true` in the `runtime-strategy-switch` GitHub Environment, then deploy normally:
+`release_frontend_assets=false` and no historical `source_sha`. The deploy workflow
+renders the value into `wrangler.toml`, so a later release keeps it instead of
+dropping an undeclared variable. A frontend-asset release removes `[vars]` from the
+generated config and inherits the live bindings, so it cannot activate the switch.
+
 `external_flow.v2` retains v1 exact-time windows and also accepts native date
 windows: `time_precision: "date"`, inclusive ISO `period_start`/`period_end` of at
 most 31 days, and `coverage: "reported"`. These records contain `effective_date`

@@ -543,11 +543,17 @@ for (const frontendMode of ["false", "true"]) {
     const text = readFileSync(join(temp, "wrangler.toml"), "utf8");
     const parsed = spawnSync("python3", ["-c", "import json,sys,tomllib;print(json.dumps(tomllib.loads(sys.stdin.read())))"], { input: text, encoding: "utf8" });
     assert.equal(parsed.status, 0, parsed.stderr);
-    renderedConfigs.push(JSON.parse(parsed.stdout));
+    const rendered = JSON.parse(parsed.stdout);
+    renderedConfigs.push(rendered);
     if (frontendMode === "true") {
       assert.match(text, /\[vars\]\n\n\[triggers\]/);
       assert.doesNotMatch(text, /ACCOUNT_FACTS_READ_MODEL_ENABLED =/);
-    } else assert.match(text, /ACCOUNT_FACTS_READ_MODEL_ENABLED = "true"/);
+    } else {
+      assert.match(text, /ACCOUNT_FACTS_READ_MODEL_ENABLED = "true"/);
+      // A normal wrangler deploy uploads only what wrangler.toml declares, so the
+      // external-flow switch has to be in the rendered config to survive one.
+      assert.equal(rendered.vars.CONSOLE_EXTERNAL_FLOW_ENABLED, "false", "an ordinary deploy must carry the external-flow switch");
+    }
     assert.ok(!result.stdout.includes("SYNTHETIC_CONFIG_SENTINEL") && !result.stderr.includes("SYNTHETIC_CONFIG_SENTINEL"));
     configCases++;
   } finally { rmSync(temp, { recursive: true, force: true }); }

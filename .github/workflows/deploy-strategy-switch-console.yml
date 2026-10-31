@@ -20,7 +20,7 @@ on:
         default: "off"
         options: ["off", "baseline", "candidate"]
       external_flow_enable:
-        description: "Enable the existing external-flow contract while retaining all other settings."
+        description: "Enable the existing external-flow contract on its pinned reviewed release. For current main set the CONSOLE_EXTERNAL_FLOW_ENABLED Environment variable instead."
         required: true
         type: boolean
         default: false
@@ -671,6 +671,7 @@ jobs:
       UX1_EXPECTED_EVIDENCE_HASHES: ${{ vars.UX1_EXPECTED_EVIDENCE_HASHES }}
       ACCOUNT_FACTS_READ_MODEL_ENABLED: ${{ vars.ACCOUNT_FACTS_READ_MODEL_ENABLED }}
       RUNTIME_DAILY_READ_MODEL_ENABLED: ${{ vars.RUNTIME_DAILY_READ_MODEL_ENABLED }}
+      CONSOLE_EXTERNAL_FLOW_ENABLED: ${{ vars.CONSOLE_EXTERNAL_FLOW_ENABLED }}
       STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       STRATEGY_HEALTH_SYNC_TOKEN: ${{ secrets.STRATEGY_HEALTH_SYNC_TOKEN }}
       CONTROL_PLANE_SYNC_TOKEN: ${{ secrets.CONTROL_PLANE_SYNC_TOKEN }}
@@ -1398,6 +1399,10 @@ jobs:
           ):
               raise SystemExit("EXECUTION_EVIDENCE_SYNC_TOKEN must be non-empty without surrounding whitespace or HTTP control characters when runtime daily is enabled.")
           runtime_daily_value = "true" if runtime_daily_flag == "true" else "false"
+          external_flow_flag = os.environ.get("CONSOLE_EXTERNAL_FLOW_ENABLED", "")
+          if external_flow_flag not in ("", "true", "false"):
+              raise SystemExit("CONSOLE_EXTERNAL_FLOW_ENABLED must be empty, true, or false.")
+          external_flow_value = "true" if external_flow_flag == "true" else "false"
           text = source.read_text(encoding="utf-8")
           account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
           if account_id and "\naccount_id" not in text:
@@ -1430,6 +1435,19 @@ jobs:
           if text.count(runtime_daily_placeholder) != 1 or "[vars]\n" not in text:
               raise SystemExit("wrangler.toml.example must define RUNTIME_DAILY_READ_MODEL_ENABLED once under [vars].")
           text = text.replace(runtime_daily_placeholder, f'RUNTIME_DAILY_READ_MODEL_ENABLED = "{runtime_daily_value}"', 1)
+
+          external_flow_line = f'CONSOLE_EXTERNAL_FLOW_ENABLED = "{external_flow_value}"'
+          external_flow_default = 'CONSOLE_EXTERNAL_FLOW_ENABLED = "false"'
+          if text.count(external_flow_default) == 1:
+              text = text.replace(external_flow_default, external_flow_line, 1)
+          elif "CONSOLE_EXTERNAL_FLOW_ENABLED" in text:
+              raise SystemExit("wrangler.toml.example must declare CONSOLE_EXTERNAL_FLOW_ENABLED with the closed default value.")
+          else:
+              # Reviewed historical sources predate the declaration, and a variable the
+              # config does not declare is erased by the next ordinary deploy, so render
+              # it into [vars] instead of refusing to publish those pinned sources.
+              # The account-facts check above already requires a [vars] section.
+              text = text.replace("[vars]\n", f"[vars]\n{external_flow_line}\n", 1)
 
           mode = os.environ.get("UX1_PREVIEW_MODE", "")
           if mode and mode != "github_actions":
