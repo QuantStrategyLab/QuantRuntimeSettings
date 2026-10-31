@@ -4,6 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import { useScope } from "../app/context";
 import { useT } from "../i18n";
 
+/** Stated once for the whole panel: ten accounts with an unknown environment are one line, not ten. */
+export function ScopeMetaNotice({ onRetry }: { onRetry: () => void }) {
+  const t = useT();
+  return (
+    <div className="scope-error" role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px" }}>
+      <span className="scope-panel-text">{t("shell.scope_meta_error")}</span>
+      <button type="button" className="button button-secondary button-sm" onClick={onRetry}>{t("common.retry")}</button>
+    </div>
+  );
+}
+
 /** Topbar account-scope selector; grouped by platform, paper accounts in their own group. */
 export function ScopeSwitcher() {
   const t = useT();
@@ -98,12 +109,7 @@ export function ScopeSwitcher() {
               {status === "error" && <button type="button" className="button button-secondary button-sm" onClick={retry}>{t("common.retry")}</button>}
             </div>
           )}
-          {status === "ready" && metaStatus === "error" && (
-            <div className="scope-error" role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px" }}>
-              <span className="scope-panel-text">{t("shell.scope_meta_error")}</span>
-              <button type="button" className="button button-secondary button-sm" onClick={retry}>{t("common.retry")}</button>
-            </div>
-          )}
+          {status === "ready" && metaStatus === "error" && <ScopeMetaNotice onRetry={retry} />}
           <button
             type="button"
             className={`scope-option${scope === "all" ? " active" : ""}`}

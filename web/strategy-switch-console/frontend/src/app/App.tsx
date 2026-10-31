@@ -4,7 +4,7 @@ import { AccountDirectoryContext, NavigateContext, PrefsContext, ScopeContext, t
 import { loadPreferences, resolveTheme, savePreferences, type Preferences } from "../lib/prefs";
 import { getNavigationGuard, parseRoute, pushRoute, type Route } from "./router";
 import { AccessError, getJson, invalidatePrivateSession, postJson } from "../api/client";
-import { loadAccounts, loadInbox, loadSession, type Session } from "../api/endpoints";
+import { loadAccounts, loadInbox, loadSession, onInboxRead, type Session } from "../api/endpoints";
 import type { DirectoryConfig } from "../lib/accountDirectory";
 import { AppShell } from "./AppShell";
 import { ToastProvider } from "../components/Toast";
@@ -82,7 +82,7 @@ export default function App() {
     return () => mq.removeEventListener?.("change", update);
   }, []);
 
-  // Boot: session, then the todo badge. Auxiliary read failures never block the shell.
+  // Boot reads the session only; every auxiliary read is a separate effect the shell can fail into.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -96,18 +96,6 @@ export default function App() {
         }
         setSession(next);
         setBoot("ready");
-        setTodoStatus("loading");
-        try {
-          const inbox = await loadInbox();
-          if (cancelled) return;
-          const unreadable = inbox.status === "read_failed";
-          setTodoStatus(unreadable ? "read_failed" : "ok");
-          setTodoCount(unreadable ? null : inbox.items.filter(item => item.status === "pending").length);
-        } catch {
-          if (cancelled) return;
-          setTodoStatus("read_failed");
-          setTodoCount(null);
-        }
       } catch (error) {
         if (cancelled) return;
         if (error instanceof AccessError && error.status === 401) setBoot("denied");
@@ -118,6 +106,34 @@ export default function App() {
       cancelled = true;
     };
   }, [bootEpoch]);
+
+  // The to-do badge follows every inbox read, not just the boot one: the To-dos and
+  // Overview pages retry the same cached request, and a badge stuck on the boot
+  // outcome would keep reporting an outage the pages have already recovered from.
+  useEffect(() => {
+    if (boot !== "ready") return;
+    let cancelled = false;
+    const sync = () => {
+      void loadInbox().then(inbox => {
+        if (cancelled) return;
+        const unreadable = inbox.status === "read_failed";
+        setTodoStatus(unreadable ? "read_failed" : "ok");
+        setTodoCount(unreadable ? null : inbox.items.filter(item => item.status === "pending").length);
+      }).catch(() => {
+        if (cancelled) return;
+        setTodoStatus("read_failed");
+        setTodoCount(null);
+      });
+    };
+    setTodoStatus("loading");
+    setTodoCount(null);
+    sync();
+    const unsubscribe = onInboxRead(sync);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [boot]);
 
   // Scope options load on their own so a failure can be retried without re-reading the session or inbox.
   useEffect(() => {
