@@ -4,10 +4,12 @@ import type { TodayRunSummary } from "../../api/contracts";
 import {
   loadAccounts,
   loadCredentialMaintenance,
+  loadNotificationLog,
   loadTodayRuns,
   loadRuntimeDailyBindings,
   type CredentialMaintenance,
 } from "../../api/endpoints";
+import { loadAuditEvents, loadDigestStatus } from "../../api/cockpit";
 import { useLanguage, useT } from "../../i18n";
 import { useApi, type AsyncState } from "../../lib/hooks";
 import { formatDateTime } from "../../lib/format";
@@ -21,6 +23,7 @@ import {
   Skeleton,
   StatusBadge,
 } from "../../components/primitives";
+import { AuditTimeline, DigestStatus } from "../../components/cockpit";
 import { RunGrid } from "./RunGrid";
 import { runActivityCounts, runActivityLabelKey, runActivityState, todayFailures, weekendWithoutScheduledRuns } from "./status";
 import { groupAccounts } from "../../lib/accountDirectory";
@@ -83,8 +86,7 @@ function StatStrip({
   return (
     <>
       {/* Four KPIs only: accounts with complete data, accounts with records,
-          failed accounts, credentials. This page has no trustworthy source for
-          a current notification, so it states no notification status at all. */}
+          failed accounts, credentials. Digest delivery is a separate read below. */}
       <div className="stat-strip health-kpis">
         <KpiCard
           title={t("health.kpi.today_runs")}
@@ -272,6 +274,16 @@ export default function HealthPage() {
   const [epoch, setEpoch] = useState(0);
   const summary = useApi(() => loadTodayRuns(), [epoch]);
   const credential = useApi(() => loadCredentialMaintenance(), [epoch]);
+  const digest = useApi(async () => loadDigestStatus(await loadNotificationLog(1), false), [epoch]);
+  const activity = useApi(() => loadAuditEvents(), [epoch]);
+  const digestStatus = digest.phase === "loading" ? "loading" as const
+    : digest.phase === "error" ? "error" as const
+      : digest.data.status === "not_ready" ? "not_ready" as const : "ready" as const;
+  const digestData = digest.phase === "ready" && digest.data.status === "ready" ? digest.data.data : null;
+  const activityStatus = activity.phase === "loading" ? "loading" as const
+    : activity.phase === "error" ? "error" as const
+      : activity.data.status === "not_ready" ? "not_ready" as const : "ready" as const;
+  const activityEvents = activity.phase === "ready" && activity.data.status === "ready" ? activity.data.data : null;
 
   return (
     <div className="page">
@@ -308,6 +320,15 @@ export default function HealthPage() {
       <section className="card">
         <h2 className="card-title">{t("health.credentials_title")}</h2>
         <div className="health-credentials"><CredentialsCard credential={credential} /></div>
+      </section>
+
+      <section className="card health-digest">
+        <DigestStatus digest={digestData} status={digestStatus} onRetry={digest.reload} />
+      </section>
+
+      <section className="card health-activity">
+        <h2 className="card-title">{t("overview.latest_activity")}</h2>
+        <AuditTimeline events={activityEvents} status={activityStatus} />
       </section>
     </div>
   );
