@@ -141,7 +141,6 @@ drift(REVIEW|CRITICAL)
 - 资金信封：[qsl-capital-risk-envelope-v1.zh-CN.md](qsl-capital-risk-envelope-v1.zh-CN.md)
 - 组合 A→B：[qsl-multi-strategy-combo-ab-v1.zh-CN.md](qsl-multi-strategy-combo-ab-v1.zh-CN.md)
 - 研究任务（只读队列）：[qsl-research-task-v1.zh-CN.md](qsl-research-task-v1.zh-CN.md)
-- 历史工程与验收边界：[qsl-overnight-open-items.zh-CN.md](qsl-overnight-open-items.zh-CN.md)
 
 ## 8. 残留工程（读回与部署，非再造框架）
 

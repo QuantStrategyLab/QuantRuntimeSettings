@@ -8,8 +8,8 @@
 
 | 项 | 状态 |
 | --- | --- |
-| FX 同源代理 | QRS #585 已上线 `/api/overview-fx`；勿再当 CSP 未修 |
-| 日报渲染字段 | #584 已支持权益/持仓/信号/调仓；缺的是各平台 DIGEST_CANDIDATES 管道 |
+| FX 同源代理 | 已上线 `/api/overview-fx`；勿再当 CSP 未修 |
+| 日报渲染字段 | 已支持权益/持仓/信号/调仓；缺的是各平台 DIGEST_CANDIDATES 管道 |
 | LongBridge HK | 已回 `scheduler_archive`；Environment：`RECORDING_ENABLED=true`、无 `OBSERVATION_MODE`、`RUNTIME_TARGET_ENABLED=false`；阻塞为 observation_timeout（`/probe`→GCS），**非** ingress。来源：quant 2026-10-09 FYI。勿改 `independent_get` / Cloud Run ingress；与 SG 同款 PAUSED resume 由 quant 负责 |
 | Firstrade facts sync | 关闭待 quant；本基线不改 Firstrade sync |
 
