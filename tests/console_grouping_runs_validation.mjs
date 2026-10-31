@@ -49,7 +49,7 @@ try {
     import { renderToStaticMarkup } from 'react-dom/server';
     import { I18nProvider } from './src/i18n';
     import { AccountDirectoryContext } from './src/app/context';
-    import { FreshnessTable, StatStrip, NotificationsCard } from './src/pages/health/HealthPage';
+    import { FreshnessTable, StatStrip } from './src/pages/health/HealthPage';
     import { HoldingsTab, TradesTab } from './src/pages/performance/PerformanceTabs';
     import { cellKind, todayFailures } from './src/pages/health/status';
     import { DayDetail } from './src/pages/health/RunGrid';
@@ -57,14 +57,13 @@ try {
     export { cellKind, todayFailures };
     export const freshness = (language, data, config) => render(language, FreshnessTable, { summary: { phase:'ready', data, reload() {} } }, config);
     export const stats = (language, data) => render(language, StatStrip, { summary: { phase:'ready', data, reload() {} }, credential: { phase:'loading' } });
-    export const notifications = language => render(language, NotificationsCard, { epoch: 0 });
     export const trades = language => render(language, TradesTab, { scope:'all', range:'ALL', epoch:0 });
     export const holdings = (language, data, config) => render(language, HoldingsTab, { state: { phase:'ready', data, reload() {} } }, config);
     export const detail = (language, snapshot) => render(language, DayDetail, { selection: { date:'2026-10-16', account: { platform:'schwab', account_alias:'live' } }, cell: { phase:'ready', snapshot } });`, resolveDir: root },
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },
     plugins: [{ name: "local-read-only-fixtures", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: "export const useApi = () => globalThis.__groupingState;", loader: "js" }));
-      for (const [file, exports] of [["HealthPage", "FreshnessTable, StatStrip, NotificationsCard"], ["PerformanceTabs", "HoldingsTab, TradesTab"], ["RunGrid", "DayDetail"]])
+      for (const [file, exports] of [["HealthPage", "FreshnessTable, StatStrip"], ["PerformanceTabs", "HoldingsTab, TradesTab"], ["RunGrid", "DayDetail"]])
         b.onLoad({ filter: new RegExp(`/${file}\\.tsx$`) }, async ({ path }) => ({ contents: await readFile(path, "utf8") + `\nexport { ${exports} };`, loader: "tsx" }));
     } }],
   });
@@ -118,19 +117,10 @@ try {
     assert.doesNotMatch(partialTrades, /class="empty-state/);
     globalThis.__groupingState = { phase:"ready", data:{ status:"ok", rows:[], reported_execution_count:0, as_of:null } };
     assert.match(ui.trades(language), /data-state="no_data"/);
-    for (const [status, expected] of [["not_connected", language === "zh" ? "未接入" : "not connected"], ["ok", language === "zh" ? "暂无通知记录" : "No notification records"], ["read_failed", language === "zh" ? "暂时无法加载" : "Unable to load"]]) {
-      globalThis.__groupingState = { phase:"ready", data:{ status, items:[] } };
-      const stateHtml = ui.notifications(language);
-      assert.ok(stateHtml.includes(expected));
-      if (status === "read_failed") {
-        assert.ok(stateHtml.includes('data-state="read_failed"'));
-        assert.ok(stateHtml.includes('role="alert"'));
-      }
-    }
-    globalThis.__groupingState = { phase:"ready", data:{ status:"ok", items:[{ id:"1:1", source_run_id:1, source_run_attempt:1, source_url:"https://github.com/example/console/actions/runs/1", workflow_updated_at:"2026-10-16T23:00:00Z", sent_at:null, status:"blocked_resend_guard", delivered:false, dry_run:false, test_message:false, reason_code:"HISTORY_UNAVAILABLE", business_day:"2026-10-16" }] } };
-    const notifications = ui.notifications(language);
-    assert.doesNotMatch(notifications, /health\.|common\.|state\./); assert.match(notifications, /2026-10-16/);
-    assert.ok(notifications.includes(language === "zh" ? "无法读取发送历史" : "Send history unavailable"));
+    // Legacy receipt rendering was removed from the product health page.
+    // Its read-only API remains covered by console_notification_receipts_validation;
+    // the page boundary is covered by console_notification_receipts_ui_validation.
+
   }
   const partialHoldings = { status:"partial", label_key:"performance.current_holdings_unrealized", unavailable_reason:"positions_partial_coverage",
     coverage:[{ platform:"binance", account_alias:"live" }, { platform:"schwab", account_alias:"live" }, { platform:"ibkr", account_alias:"synthetic-z" }],
@@ -144,4 +134,4 @@ try {
     assert.doesNotMatch(holdings, /synthetic-z|Binance:|Schwab:/, "the actual row keeps its display name without an ordinary coverage roster");
   }
 } finally { delete globalThis.__groupingState; await rm(directory, { recursive:true, force:true }); }
-console.log("console_grouping_runs_validation: PASS (8 unconnected + 2 missing, separate block/failure, unknown reasons, platform/account ordering, per-row flags, coverage identity, honest fills, notification states zh/en)");
+console.log("console_grouping_runs_validation: PASS (8 unconnected + 2 missing, separate block/failure, unknown reasons, platform/account ordering, per-row flags, coverage identity, honest fills zh/en)");

@@ -214,8 +214,15 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   const denominatorKnown = Number.isSafeInteger(configured) && configured > 0
     && Number.isSafeInteger(observed) && observed >= 0;
   const value = denominatorKnown ? `${observed}/${configured}` : <KpiState status="unknown" />;
-  const reason = data.accounts?.some(account => account.unavailable_reason === "runtime_daily_binding_conflict")
-    ? "runtime_daily_binding_conflict" : "runtime_daily_not_connected";
+  // Name a reason only when the account evidence actually carries it. A partial
+  // summary is not by itself evidence that the run-record source is disconnected,
+  // so an unexplained partial keeps the generic "partial" badge.
+  const accountReasons = new Set((data.accounts ?? [])
+    .map(account => account.unavailable_reason)
+    .filter((reason): reason is string => typeof reason === "string" && reason !== ""));
+  const reason = accountReasons.has("runtime_daily_binding_conflict") ? "runtime_daily_binding_conflict"
+    : accountReasons.has("runtime_daily_not_connected") ? "runtime_daily_not_connected"
+      : undefined;
   const sub = denominatorKnown
     ? <>{t("overview.business_date", { value: data.date })}
         {observed === 0 && <> · {t("overview.no_records_for_day")}</>}</>

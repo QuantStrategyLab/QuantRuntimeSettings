@@ -26,6 +26,22 @@ export function intervalFlows(payload, currency, start, end) {
   return cursor >= b ? [...records.values()] : null;
 }
 
+// Only expose the original eligible one-day period, never a return inferred
+// from points removed by alignment or spanning a gap.
+function withDailyReturns(points, periods, index) {
+  const byDate = new Map(periods.map(period => [period.date, period]));
+  const source = new Map(index.map(point => [point.date, point]));
+  return points.map((point, i) => {
+    const period = byDate.get(point.date);
+    const previous = points[i - 1];
+    const valid = previous && period && period.daily_eligible && Number.isFinite(period.return_percent)
+      && previous.date === period.previous_date
+      && dateMs(period.date) - dateMs(period.previous_date) === 86400000
+      && !point.breakBefore && !source.get(point.date)?.breakBefore;
+    return { ...point, daily_return_percent: valid ? period.return_percent : null };
+  });
+}
+
 export function cashflowCurrencyResult(histories, { range, today, failed = [] }) {
   const currency = histories[0]?.currency;
   const normalized = histories.map(h => ({ ...h, points: sliceRange(h.points, range.toLowerCase(), today) }));
@@ -87,12 +103,13 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
     growth *= 1 + r;
     if (!Number.isFinite(growth)) return unavailable("invalid_return_period");
     periods.push({ date: common[i], previous_date: common[i - 1], opening_value: v0, amount: v1 - v0 - net,
-      net_flow: net, return_percent: r * 100, value_kind: "pnl", status: "ok", unavailable_reason: null });
+      net_flow: net, return_percent: r * 100, daily_eligible: next.every(point => point.membership_changed !== true),
+      value_kind: "pnl", status: "ok", unavailable_reason: null });
     index.push({ date: common[i], value: growth,
       breakBefore: hasGap(index.at(-1), { date: common[i] }) || next.some(point => point.breakBefore === true) });
   }
   return { currency, status: "ok", unavailable_reason: null, twr_return_percent: (growth - 1) * 100,
-    max_drawdown: maxDrawdown(index), index, points: alignReturns(index, []).primary,
+    max_drawdown: maxDrawdown(index), index, points: withDailyReturns(alignReturns(index, []).primary, periods, index),
     return_kind: "twr", ...(approximate ? { cashflow_method: "modified_dietz", approximate: true } : {}),
     periods, multi_day_intervals: multiDay };
 }
@@ -183,7 +200,7 @@ export function applyCashflowPerformance(blocks, input, env) {
     block.coverage = { ...block.coverage, cashflows: "complete" };
   }
   const comparisonTruncated = aligned.primary.at(-1)?.date < r.index.at(-1)?.date;
-  Object.assign(blocks.returns, { points: aligned.primary, benchmarks: aligned.benchmarks,
+  Object.assign(blocks.returns, { points: withDailyReturns(aligned.primary, r.periods, r.index), benchmarks: aligned.benchmarks,
     as_of: aligned.primary.at(-1)?.date || null,
     status: comparisonTruncated && blocks.returns.status !== "stale" ? "partial" : blocks.returns.status,
     unavailable_reason: comparisonTruncated ? "benchmark_history_missing" : null,

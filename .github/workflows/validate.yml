@@ -244,6 +244,7 @@ jobs:
           node --experimental-strip-types tests/console_cashflow_method_presentation_validation.mjs
           node --experimental-strip-types tests/console_runtime_daily_selection_validation.mjs
           node tests/console_performance_stats_validation.mjs
+          node tests/product_financial_boundary_validation.mjs
           node tests/website_coverage_regression_validation.mjs
           node tests/website_cohort_regression_validation.mjs
           node tests/website_strategy_freshness_validation.mjs
