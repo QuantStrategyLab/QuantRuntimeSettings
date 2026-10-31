@@ -160,6 +160,7 @@ function ReturnKpi({ state }: { state: Api<SummaryResponse> }) {
     footer={footer} />;
 }
 
+/** Latest daily change, following the cohort forward one month when the asked month is empty. */
 function LastDayKpi({ state, carryover, carryoverState }: {
   state: Api<CalendarResponse>;
   carryover?: { year: number; month: number } | null;
@@ -168,14 +169,14 @@ function LastDayKpi({ state, carryover, carryoverState }: {
   const t = useT();
   const title = t("overview.last_day_change");
   // The earlier month is consulted only once it is actually requested; a failed
-  // or empty follow-up leaves the month that was asked for on screen.
+  // follow-up leaves the month that was asked for on screen. Anything still
+  // unresolved reads as in flight, because the requested month is already known
+  // to be empty and rendering it would flash an unknown value for one frame.
   let active: AsyncState<CalendarResponse> = state;
-  if (carryover) {
-    if (carryoverState?.phase === "ready" && carryoverState.data) {
-      active = { phase: "ready", data: carryoverState.data, error: null };
-    } else if (carryoverState?.phase === "loading") {
-      active = { phase: "loading", data: null, error: null };
-    }
+  if (carryover && carryoverState?.phase !== "error") {
+    active = carryoverState?.phase === "ready" && carryoverState.data
+      ? { phase: "ready", data: carryoverState.data, error: null }
+      : { phase: "loading", data: null, error: null };
   }
   if (active.phase === "loading") return kpiLoading(title);
   if (active.phase === "error") return <KpiCard title={title} value={<KpiState status="read_failed" />} sub={t("state.read_failed")} />;
@@ -232,6 +233,7 @@ function TodosKpi({ state }: { state: Api<InboxResponse> }) {
   );
 }
 
+/** Accounts with a run record on the New York day the API reports. */
 function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   const t = useT();
   const navigate = useNavigate();
@@ -266,8 +268,10 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   const nonTrading = weekendWithoutScheduledRuns(data);
   // The footer badge already names a non-trading day; the sub-line only adds the
   // missing-record reason on a normal business day. The session comes from the
-  // API because a browser weekday can disagree with New York.
-  const dateLabelKey = data.market_session === "weekend" ? "overview.calendar_date" : "overview.business_date";
+  // API because a browser weekday can disagree with New York, and only an
+  // explicit trading day may be called a business day: an older payload without
+  // the field must not assert a trading status the API never reported.
+  const dateLabelKey = data.market_session === "trading_day" ? "overview.business_date" : "overview.calendar_date";
   const sub = denominatorKnown
     ? <>{t(dateLabelKey, { value: data.date })}
         {!nonTrading && observed === 0 && <> · {t("overview.no_records_for_day")}</>}</>

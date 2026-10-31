@@ -51,7 +51,10 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
     const visibleText = html => outsideDetails(html).replace(/<[^>]*>/g, " ");
     const meta = { schema_version: "console_api.v1", scope: "all", range: "YTD", coverage: [] };
     const asOf = "2026-10-20T02:00:05Z";
-    const data = { status: "partial", date: "2026-10-22", counts: { configured: 8, observed: 2, runs: null } };
+    const data = {
+      status: "partial", date: "2026-10-22", market_session: "trading_day",
+      counts: { configured: 8, observed: 2, runs: null },
+    };
     for (const language of ["zh", "en"]) {
       const html = ui.render(language, { phase: "ready", data });
       assert.ok(html.includes("2/8"));
@@ -221,6 +224,14 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
         { year: 2020, month: 1 }, { phase: "loading", data: null, error: null });
       assert.ok(!visibleText(pending).includes(NO_DATA[language]),
         "a month being fetched never announces no data first");
+      // The carry-over month is decided during render while useApi has not yet
+      // committed its new request, so that one frame must stay a skeleton.
+      const starting = ui.renderLastDay(language, { phase: "ready", data: emptyMonth, error: null },
+        { year: 2020, month: 1 }, { phase: "ready", data: null, error: null });
+      assert.ok(!visibleText(starting).includes(NO_DATA[language]),
+        "the frame between deciding a carry-over and fetching it never announces no data");
+      assert.ok(!visibleText(starting).includes("—"),
+        "a month that is about to be fetched does not flash an unknown value");
       const failedCarry = ui.renderLastDay(language, { phase: "ready", data: emptyMonth, error: null },
         { year: 2020, month: 1 }, { phase: "error", data: null, error: Error("synthetic_read_failed") });
       assert.ok(visibleText(failedCarry).includes(NO_DATA[language]),
@@ -241,6 +252,11 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       assert.ok(weekend.includes(language === "zh" ? "非交易日" : "Non-trading day"), "the non-trading badge still carries the state");
       const tradingDay = ui.render(language, { phase: "ready", data: { ...weekendData, market_session: "trading_day" } });
       assert.ok(tradingDay.includes(BUSINESS[language]), "a trading day keeps the business-day wording");
+      // The field is optional, so a payload that never reports a session may not
+      // be handed a trading claim the API did not make.
+      const unknownSession = ui.render(language, { phase: "ready", data: { ...weekendData, market_session: undefined } });
+      assert.ok(unknownSession.includes(WEEKEND[language]), "an unreported session is stated as a plain date");
+      assert.ok(!unknownSession.includes(BUSINESS[language]), "a missing session is never assumed to be a business day");
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
