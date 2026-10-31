@@ -1,8 +1,45 @@
 import { canonicalItem } from "./presentation.js";
+import { riskTierPolicyCatalog } from "./risk_tiers.js";
 import { directoryStatus } from "../../kv_directory.js";
 import { readFailure } from "./read_failures.js";
 
+/** Bounded page size; the inbox is a read projection, not an export. */
+export const INBOX_PAGE_DEFAULT = 25;
+export const INBOX_PAGE_MAX = 100;
+
+const base64url = (value) =>
+  btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+/** Opaque cursor: clients must not derive meaning from it. */
+export const inboxCursor = (offset) =>
+  base64url(JSON.stringify({ v: 1, o: offset }));
+
+export function inboxCursorOffset(cursor) {
+  if (typeof cursor !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(cursor)) return null;
+  try {
+    const parsed = JSON.parse(
+      atob(cursor.replace(/-/g, "+").replace(/_/g, "/")),
+    );
+    if (parsed?.v !== 1 || !Number.isSafeInteger(parsed.o) || parsed.o < 0) return null;
+    return parsed.o;
+  } catch {
+    return null;
+  }
+}
+
+export function inboxPage(url) {
+  const rawLimit = url.searchParams.get("limit");
+  const limit = rawLimit === null || rawLimit === "" ? INBOX_PAGE_DEFAULT : Number(rawLimit);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > INBOX_PAGE_MAX)
+    throw new Error("invalid_pagination");
+  const rawCursor = url.searchParams.get("cursor");
+  const offset = rawCursor === null || rawCursor === "" ? 0 : inboxCursorOffset(rawCursor);
+  if (!Number.isSafeInteger(offset)) throw new Error("invalid_pagination");
+  return { limit, offset };
+}
+
 export async function inbox(request, env, deps) {
+  const { limit, offset } = inboxPage(new URL(request.url));
   const definitions = [
     ["owner", "owner_decision", "candidates"],
     ["promotion", "strategy_promotion", "tickets"],
@@ -70,7 +107,18 @@ export async function inbox(request, env, deps) {
     results.flatMap((r) => r.items).map((item) => [item.id, item]),
   );
   const priority = { high: 0, medium: 1, normal: 2 };
+  // Stable, deterministic order: priority, then age, then id. The id tiebreak
+  // keeps equal priority and timestamp rows from reordering between pages.
+  const ordered = [...unique.values()].sort(
+    (a, b) =>
+      (priority[a.priority] ?? 3) - (priority[b.priority] ?? 3) ||
+      (a.created_at || "").localeCompare(b.created_at || "") ||
+      String(a.id ?? "").localeCompare(String(b.id ?? "")),
+  );
+  const items = ordered.slice(offset, offset + limit);
   return {
+    schema_version: "qsl.decision_inbox.v1",
+    server_time: new Date().toISOString(),
     status: results.some((r) => r.status === "read_failed")
       ? "read_failed"
       : results.some((r) => r.status !== "ok")
@@ -81,12 +129,11 @@ export async function inbox(request, env, deps) {
     sources: results.map(({ source, status, failure_reason, error_state, current_reconciliation_observation }) => ({ source, status,
       ...(current_reconciliation_observation ? { current_reconciliation_observation } : {}),
       ...(failure_reason ? { failure_reason, error_state } : {}) })),
-    items: [...unique.values()].sort(
-      (a, b) =>
-        priority[a.priority] - priority[b.priority] ||
-        (a.created_at || "").localeCompare(b.created_at || ""),
-    ),
+    items,
+    next_cursor:
+      ordered.length > offset + limit ? inboxCursor(offset + limit) : null,
     coverage: "existing_decision_sources",
+    tier_policies: riskTierPolicyCatalog(),
     no_order: true,
     execution_authority_granted: false,
   };

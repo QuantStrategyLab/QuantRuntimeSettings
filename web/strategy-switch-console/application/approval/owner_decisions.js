@@ -71,6 +71,7 @@ export async function ownerDecisionQueueResponse(request, env, deps) {
       candidate,
       candidate_evidence_sha256: candidateEvidenceSha256,
       decision_binding: { kind: "owner", subject_id: candidate.candidate_id, material_sha256: candidateEvidenceSha256 },
+      decision_authority: stored.authority || null,
       intent,
     });
   }
