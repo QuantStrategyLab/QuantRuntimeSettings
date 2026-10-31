@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { __test } from "./helpers/directory_worker.mjs";
+import { validate } from "./console_api_contract_validation.mjs";
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
@@ -138,8 +139,13 @@ assert.equal(review.body.decision_id, ownerItem.decision_id);
 assert.equal(review.body.current_eligibility.eligible, true);
 assert.equal(review.body.current_eligibility.expired, false);
 assert.equal(review.body.decision.decision_id, ownerItem.decision_id);
-assert.equal((await call("/api/decisions/owner_decision:missing")).status, 404);
-assert.equal((await call("/api/decisions/not-a-decision")).status, 400);
+validate("decision_review", review.body);
+const missingReview = await call("/api/decisions/owner_decision:missing");
+assert.equal(missingReview.status, 404);
+assert.equal(missingReview.body.error, "decision_not_found");
+const malformedReview = await call("/api/decisions/not-a-decision");
+assert.equal(malformedReview.status, 400);
+assert.equal(malformedReview.body.error, "decision_id_invalid");
 
 // POST /api/decisions/:id/actions delegates to the durable owner command.
 const actionUrl = `/api/decisions/${encodeURIComponent(ownerItem.decision_id)}/actions`;
@@ -165,11 +171,13 @@ assert.match(decided.body.decision_receipt.receipt_sha256, /^[0-9a-f]{64}$/);
 assert.equal(decided.body.operation_id, "cockpit-request-1");
 assert.match(decided.body.operation_sha256, /^[0-9a-f]{64}$/);
 assert.equal(decided.body.policy.no_order, true);
+validate("decision_action_result", decided.body);
 const replayed = await call(actionUrl, { method: "POST", body: {
   action: "keep_parked", expected_revision: ownerItem.revision, request_id: "cockpit-request-1",
 } });
 assert.equal(replayed.status, 200);
 assert.equal(replayed.body.replayed, true);
+validate("decision_action_result", replayed.body);
 assert.equal(replayed.body.decision_receipt.receipt_sha256, decided.body.decision_receipt.receipt_sha256);
 // A retry under the same operation id returns the same operation identity.
 assert.equal(replayed.body.operation_id, decided.body.operation_id);
@@ -200,8 +208,10 @@ assert.equal(conflictingAction.status, 409);
 assert.equal(conflictingAction.body.error, "decision_operation_conflict");
 const decidedReview = await call(`/api/decisions/${encodeURIComponent(ownerItem.decision_id)}`);
 assert.equal(decidedReview.body.current_eligibility.eligible, false);
+assert.ok(decidedReview.body.current_eligibility.reason_codes.includes("decision_already_decided"));
 assert.equal(decidedReview.body.decision.allowed_actions.length, 0);
 assert.equal(decidedReview.body.decision.decision_state.status, "decided");
+validate("decision_review", decidedReview.body);
 
 // Operations resolve a recorded decision without resubmitting it.
 const operation = await call(`/api/operations/${encodeURIComponent("operation:owner_decision:cockpit-owner")}`);

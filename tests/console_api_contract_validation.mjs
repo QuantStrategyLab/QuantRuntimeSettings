@@ -76,6 +76,49 @@ validate("assets", { ...assetFixture, curve_status: "partial", curve_coverage: {
 validate("assets", { ...assetFixture, curve_coverage: null });
 assert.throws(() => validate("assets", { ...assetFixture, curve_status: "healthy" }), /curve_status: enum/);
 assert.throws(() => validate("assets", { ...assetFixture, curve_coverage: { forward_filled_points: "1" } }), /curve_coverage: anyOf/);
+// The decision cockpit read and action envelopes are published schema contracts.
+const reviewEnvelope = {
+  schema_version: "qsl.decision_review.v1",
+  server_time: "2026-10-15T12:00:00Z",
+  data_status: "ready",
+  decision_id: "owner_decision:synthetic",
+  decision: {},
+  current_eligibility: { eligible: true, material_matches: true, expired: false, blocked: false, reason_codes: [] },
+  decision_authority: null,
+  decision_receipt: null,
+  operation: null,
+  policy: {},
+  errors: [],
+};
+validate("decision_review", reviewEnvelope);
+const { server_time: _reviewTime, ...reviewWithoutTime } = reviewEnvelope;
+assert.throws(() => validate("decision_review", reviewWithoutTime), /server_time: required/);
+assert.throws(
+  () => validate("decision_review", { ...reviewEnvelope, current_eligibility: { eligible: "yes" } }),
+  /current_eligibility\.material_matches: required/,
+);
+const actionEnvelope = {
+  schema_version: "qsl.decision_action_result.v1",
+  server_time: "2026-10-15T12:00:00Z",
+  ok: true,
+  replayed: false,
+  decision_id: "owner_decision:synthetic",
+  revision: "rev1-0123456789abcdef",
+  action: "keep_parked",
+  operation_id: "synthetic-operation",
+  operation_sha256: "a".repeat(64),
+  decision_receipt: null,
+  decided_at: null,
+  decision_state: {},
+  operation: null,
+  policy: {},
+};
+validate("decision_action_result", actionEnvelope);
+assert.throws(() => validate("decision_action_result", { ...actionEnvelope, revision: "r1" }), /decision_action_result\.revision/);
+assert.throws(
+  () => validate("decision_action_result", { ...actionEnvelope, schema_version: "qsl.decision_action_result.v2" }),
+  /schema_version/,
+);
 const endpoints = {
   "/api/decisions-inbox": "inbox",
   "/api/owner-decisions/history": "decision_history",
