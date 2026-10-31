@@ -26,6 +26,7 @@ LOCAL_TARGETS_DIR = ROOT / "local" / "targets"
 EXAMPLE_TARGETS_DIR = ROOT / "examples" / "targets"
 LOCAL_POLICY_PATH = ROOT / "local" / "policy.json"
 PLATFORM_CONFIG_PATH = ROOT / "platform-config.json"
+DISPLAY_NAMES_PATH = ROOT / "python" / "scripts" / "display_names.json"
 
 SUPPORTED_PLATFORMS = {
     "schwab": {"plugin_mounts_prefix": "SCHWAB_", "repository": "QuantStrategyLab/CharlesSchwabPlatform"},
@@ -411,6 +412,18 @@ def load_platform_config() -> dict[str, Any]:
     with PLATFORM_CONFIG_PATH.open("r", encoding="utf-8") as handle:
         config = json.load(handle)
     return config if isinstance(config, dict) else {}
+
+
+def strategy_aliases() -> dict[str, str]:
+    """Load the generated display aliases so alias spellings cannot skip policy checks."""
+    if not DISPLAY_NAMES_PATH.exists():
+        return {}
+    with DISPLAY_NAMES_PATH.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    aliases = payload.get("strategy_aliases") if isinstance(payload, dict) else None
+    if not isinstance(aliases, dict):
+        return {}
+    return {str(key): str(value) for key, value in aliases.items() if isinstance(value, str)}
 
 
 def target_path_id(path: Path) -> str | None:
@@ -855,10 +868,7 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
         return
     profile = str(runtime_target.get("strategy_profile") or "").strip()
     normalized_profile = profile.lower().replace("-", "_")
-    canonical_profile = {
-        "global_macro_etf_rotation": "global_etf_rotation",
-        "global_etf_confidence_vol_gate": "global_etf_rotation",
-    }.get(normalized_profile, normalized_profile)
+    canonical_profile = strategy_aliases().get(normalized_profile, normalized_profile)
     strategy = strategies.get(canonical_profile)
     if not isinstance(strategy, dict) and canonical_profile != profile:
         strategy = strategies.get(profile)
