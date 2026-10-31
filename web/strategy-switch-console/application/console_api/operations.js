@@ -42,7 +42,7 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
       if (record.business_date !== date || record.target_key !== matches[0].target_key)
         throw Error("daily_record_mismatch");
       const safeReadCodes = new Set(["coverage_unconfirmed", "report_read_error", "report_rejected", "read_failed",
-        "read_truncated", "list_failed", "listing_truncated", "schedule_unverified", "source_read_error"]);
+        "read_truncated", "list_failed", "listing_truncated", "schedule_unverified", "target_disabled", "source_read_error"]);
       const readErrorCount = Number.isSafeInteger(body.read_error_count) && body.read_error_count >= 0
         ? body.read_error_count : null;
       const readErrorCodes = readErrorCount !== null && Array.isArray(body.read_error_codes)
