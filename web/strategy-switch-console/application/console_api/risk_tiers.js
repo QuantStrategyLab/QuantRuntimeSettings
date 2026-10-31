@@ -37,6 +37,20 @@ export function riskTierPolicy(tier) {
 }
 
 /**
+ * Declarative tier policies as owner intent only. Nothing consumes these
+ * numbers for orders, so every entry keeps the non-executable flags and an
+ * unknown tier resolves to null instead of a numeric default.
+ */
+export function riskTierPolicyCatalog() {
+  return Object.keys(RISK_TIER_POLICY_BINDINGS).map((tier) => ({
+    ...riskTierPolicy(tier),
+    owner_intent_only: true,
+    no_order: true,
+    execution_authority_granted: false,
+  }));
+}
+
+/**
  * Effective tier is an independently observed runtime readback, never a copy of
  * the approved policy (ARCHITECTURE.md 4.4). Without an observation the tier
  * stays null and carries an explicit reason code.

@@ -543,6 +543,13 @@
         "coverage": {
           "type": "string"
         },
+        "tier_policies": {
+          "type": "array",
+          "description": "Declarative tier policies. Owner intent only; never applied to orders.",
+          "items": {
+            "$ref": "#/$defs/risk_tier_policy"
+          }
+        },
         "no_order": {
           "const": true
         },
@@ -4066,6 +4073,61 @@
         "reason_codes"
       ]
     },
+    "risk_tier_policy": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "qsl.risk_tier_policy.v1"
+        },
+        "tier": {
+          "enum": [
+            "CAPITAL_PRESERVATION",
+            "BALANCED_COMPOUNDING",
+            "GROWTH_COMPOUNDING"
+          ]
+        },
+        "policy_id": {
+          "type": "string"
+        },
+        "profile_id": {
+          "type": "string"
+        },
+        "composer_mdd_multiple": {
+          "type": "number"
+        },
+        "promotion_size_scale": {
+          "type": "number"
+        },
+        "executable": {
+          "const": false
+        },
+        "activation_status": {
+          "const": "not_connected"
+        },
+        "owner_intent_only": {
+          "const": true
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "tier",
+        "policy_id",
+        "profile_id",
+        "composer_mdd_multiple",
+        "promotion_size_scale",
+        "executable",
+        "activation_status",
+        "owner_intent_only",
+        "no_order",
+        "execution_authority_granted"
+      ]
+    },
     "decision_review": {
       "type": "object",
       "properties": {
@@ -4110,6 +4172,13 @@
         },
         "policy": {
           "type": "object"
+        },
+        "tier_policies": {
+          "type": "array",
+          "description": "Declarative tier policies. Owner intent only; never applied to orders.",
+          "items": {
+            "$ref": "#/$defs/risk_tier_policy"
+          }
         },
         "errors": {
           "type": "array",

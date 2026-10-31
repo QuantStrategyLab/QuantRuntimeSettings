@@ -97,6 +97,38 @@ assert.throws(
   () => validate("decision_review", { ...reviewEnvelope, current_eligibility: { eligible: "yes" } }),
   /current_eligibility\.material_matches: required/,
 );
+// Tier-policy parameters are published as declarative owner intent only.
+const tierPolicyEnvelope = {
+  schema_version: "qsl.risk_tier_policy.v1",
+  tier: "CAPITAL_PRESERVATION",
+  policy_id: "capital_preservation_v1",
+  profile_id: "capital_preservation_v1",
+  composer_mdd_multiple: 1,
+  promotion_size_scale: 0.5,
+  executable: false,
+  activation_status: "not_connected",
+  owner_intent_only: true,
+  no_order: true,
+  execution_authority_granted: false,
+};
+validate("risk_tier_policy", tierPolicyEnvelope);
+validate("decision_review", { ...reviewEnvelope, tier_policies: [tierPolicyEnvelope] });
+assert.throws(
+  () => validate("risk_tier_policy", { ...tierPolicyEnvelope, composer_mdd_multiple: "1.0" }),
+  /composer_mdd_multiple: type/,
+);
+assert.throws(
+  () => validate("risk_tier_policy", { ...tierPolicyEnvelope, tier: "UNKNOWN_TIER" }),
+  /tier: enum/,
+);
+assert.throws(
+  () => validate("risk_tier_policy", { ...tierPolicyEnvelope, executable: true }),
+  /executable/,
+);
+assert.throws(
+  () => validate("risk_tier_policy", { ...tierPolicyEnvelope, execution_authority_granted: true }),
+  /execution_authority_granted/,
+);
 const actionEnvelope = {
   schema_version: "qsl.decision_action_result.v1",
   server_time: "2026-10-15T12:00:00Z",

@@ -1,4 +1,5 @@
 import { canonicalItem } from "./presentation.js";
+import { riskTierPolicyCatalog } from "./risk_tiers.js";
 import { directoryStatus } from "../../kv_directory.js";
 import { readFailure } from "./read_failures.js";
 
@@ -132,6 +133,7 @@ export async function inbox(request, env, deps) {
     next_cursor:
       ordered.length > offset + limit ? inboxCursor(offset + limit) : null,
     coverage: "existing_decision_sources",
+    tier_policies: riskTierPolicyCatalog(),
     no_order: true,
     execution_authority_granted: false,
   };

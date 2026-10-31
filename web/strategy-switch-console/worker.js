@@ -15,7 +15,7 @@ import {
   decisionRevision, decisionWriteCategory,
   operationIdFor, operationStatusFromApplication,
 } from "./application/console_api/decision_contract.js";
-import { RISK_TIER_POLICY_BINDINGS, riskTierBindingView } from "./application/console_api/risk_tiers.js";
+import { RISK_TIER_POLICY_BINDINGS, riskTierBindingView, riskTierPolicyCatalog } from "./application/console_api/risk_tiers.js";
 import { recoveryMaterialPresentation, currentReconciliationObservationPresentation } from "./application/console_api/reconciliation_presentation.js";
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
@@ -12872,6 +12872,7 @@ async function decisionReviewResponse(request, env, rawId) {
     decision_receipt: receipt,
     operation: item.operation_reference,
     policy: DECISION_POLICY,
+    tier_policies: riskTierPolicyCatalog(),
     errors: [...new Set(errors)],
   });
 }

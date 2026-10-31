@@ -117,6 +117,7 @@ const owner = ownerSnapshot("cockpit-owner");
 assert.equal((await syncControl(owner)).status, 200);
 let inbox = await call("/api/decisions-inbox");
 assert.equal(inbox.status, 200);
+validate("inbox", inbox.body);
 assert.equal(typeof inbox.body.server_time, "string");
 const ownerItem = inbox.body.items.find((item) => item.decision_id === "owner_decision:cockpit-owner");
 assert.ok(ownerItem, "owner decision item is present");
@@ -272,7 +273,43 @@ for (const tierBinding of risk.body.tier_bindings) {
     assert.ok(tierBinding.effective.tier);
   }
 }
-const { riskTierBindingView } = await import("../web/strategy-switch-console/application/console_api/risk_tiers.js");
+const { riskTierPolicy, riskTierPolicyCatalog, riskTierBindingView, RISK_TIER_POLICY_BINDINGS } =
+  await import("../web/strategy-switch-console/application/console_api/risk_tiers.js");
+// Declarative tier policies are readable owner intent, never order input.
+const tierPolicies = inbox.body.tier_policies;
+assert.ok(Array.isArray(tierPolicies), "the inbox exposes the tier-policy catalog");
+assert.deepEqual(
+  tierPolicies.map((entry) => entry.tier).sort(),
+  Object.keys(RISK_TIER_POLICY_BINDINGS).sort(),
+  "every declarative tier appears exactly once",
+);
+for (const entry of tierPolicies) {
+  const binding = RISK_TIER_POLICY_BINDINGS[entry.tier];
+  assert.equal(entry.schema_version, "qsl.risk_tier_policy.v1");
+  assert.equal(typeof entry.tier, "string");
+  assert.equal(entry.policy_id, binding.policy_id);
+  assert.equal(entry.profile_id, binding.profile_id);
+  assert.equal(entry.composer_mdd_multiple, binding.composer_mdd_multiple);
+  assert.equal(entry.promotion_size_scale, binding.promotion_size_scale);
+  assert.equal(typeof entry.composer_mdd_multiple, "number");
+  assert.equal(typeof entry.promotion_size_scale, "number");
+  assert.equal(entry.executable, false);
+  assert.equal(entry.activation_status, "not_connected");
+  assert.equal(entry.owner_intent_only, true);
+  assert.equal(entry.no_order, true);
+  assert.equal(entry.execution_authority_granted, false);
+}
+assert.deepEqual(review.body.tier_policies, tierPolicies, "the review carries the same catalog");
+// An unknown tier fails closed instead of falling back to a numeric policy.
+assert.equal(riskTierPolicy("UNKNOWN_TIER"), null);
+const unknownTier = riskTierBindingView({
+  binding: { profile_selection: { risk_preference: "UNKNOWN_TIER", profile_id: "unknown_v1" } },
+  observation: { tier: "UNKNOWN_TIER" },
+});
+assert.equal(unknownTier.approved, null);
+assert.equal(unknownTier.effective.tier, null);
+assert.equal(unknownTier.effective.status, "unavailable");
+assert.equal(unknownTier.effective.unavailable_reason, "effective_tier_not_observed");
 const observedTier = riskTierBindingView({
   binding: { profile_selection: { risk_preference: "BALANCED_COMPOUNDING", profile_id: "balanced_compounding_v1" } },
   observation: { tier: "CAPITAL_PRESERVATION", observed_at: now, source: "runtime_readback" },
