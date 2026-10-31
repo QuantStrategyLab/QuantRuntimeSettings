@@ -83,7 +83,7 @@ test("the deploy workflow syncs catalogs only after an explicit manual choice", 
   assert.doesNotMatch(workflow, /git diff --quiet "\$BEFORE" HEAD -- platform-config\.json/);
 });
 
-test("the deploy renderer pins account-facts and runtime-daily flags and fails closed before deploy", () => {
+test("the deploy renderer pins account-facts, runtime-daily and external-flow flags and fails closed before deploy", () => {
   const workflow = readFileSync(new URL("../.github/workflows/deploy-strategy-switch-console.yml", import.meta.url), "utf8");
   const template = new URL("../web/strategy-switch-console/wrangler.toml.example", import.meta.url);
   const heredoc = workflow.match(/          python3 - <<'PY'\n([\s\S]*?)\n          PY\n/);
@@ -95,10 +95,11 @@ test("the deploy renderer pins account-facts and runtime-daily flags and fails c
   assert.match(workflow, /Sync optional IBKR account-facts ingress token/);
   assert.match(workflow, /secret put IBKR_ACCOUNT_FACTS_SYNC_TOKEN/);
   assert.match(workflow, /RUNTIME_DAILY_READ_MODEL_ENABLED: \$\{\{ vars\.RUNTIME_DAILY_READ_MODEL_ENABLED \}\}/);
+  assert.match(workflow, /CONSOLE_EXTERNAL_FLOW_ENABLED: \$\{\{ vars\.CONSOLE_EXTERNAL_FLOW_ENABLED \}\}/);
   assert.match(workflow, /EXECUTION_EVIDENCE_SYNC_TOKEN: \$\{\{ secrets\.EXECUTION_EVIDENCE_SYNC_TOKEN \}\}/);
   assert.match(workflow, /node tests\/console_catalog_release_validation\.mjs/);
 
-  function render({ flag, token, ibkrToken, runtimeDailyFlag, executionEvidenceToken } = {}) {
+  function render({ flag, token, ibkrToken, runtimeDailyFlag, executionEvidenceToken, externalFlowFlag } = {}) {
     const directory = mkdtempSync(join(tmpdir(), "qsl-config-render-"));
     try {
       copyFileSync(template, join(directory, "wrangler.toml.example"));
@@ -118,6 +119,8 @@ test("the deploy renderer pins account-facts and runtime-daily flags and fails c
       else env.RUNTIME_DAILY_READ_MODEL_ENABLED = runtimeDailyFlag;
       if (executionEvidenceToken === undefined) delete env.EXECUTION_EVIDENCE_SYNC_TOKEN;
       else env.EXECUTION_EVIDENCE_SYNC_TOKEN = executionEvidenceToken;
+      if (externalFlowFlag === undefined) delete env.CONSOLE_EXTERNAL_FLOW_ENABLED;
+      else env.CONSOLE_EXTERNAL_FLOW_ENABLED = externalFlowFlag;
       const result = spawnSync("python3", ["-c", renderer], { encoding: "utf8", env });
       const target = join(directory, "wrangler.toml");
       const exists = existsSync(target);
@@ -216,5 +219,23 @@ test("the deploy renderer pins account-facts and runtime-daily flags and fails c
     assert.equal(targetExists, false, "missing or malformed token must fail before creating a deploy config");
     assert.equal(toml, "");
     assert.doesNotMatch(result.stdout + result.stderr, /synthetic-token/);
+  }
+
+  // Without a [vars] entry only the pinned release path can set this flag, and the
+  // next ordinary wrangler deploy erases it. Rendering it from the Environment keeps
+  // enabling external flows a configuration change instead of a stale-source release.
+  for (const [externalFlowFlag, expected] of [["true", "true"], ["false", "false"], ["", "false"], [undefined, "false"]]) {
+    const { result, toml } = render({ externalFlowFlag });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal((toml.match(/^CONSOLE_EXTERNAL_FLOW_ENABLED\s*=/gm) || []).length, 1);
+    assert.equal(parsedConfig(toml).vars.CONSOLE_EXTERNAL_FLOW_ENABLED, expected);
+  }
+
+  for (const externalFlowFlag of ["TRUE", " true", "true ", "enabled"]) {
+    const { result, toml, targetExists } = render({ externalFlowFlag });
+    assert.notEqual(result.status, 0, `accepted invalid external-flow flag ${JSON.stringify(externalFlowFlag)}`);
+    assert.match(result.stderr, /CONSOLE_EXTERNAL_FLOW_ENABLED/);
+    assert.equal(targetExists, false, "an invalid external-flow flag must fail before creating a deploy config");
+    assert.equal(toml, "");
   }
 });
