@@ -19,3 +19,10 @@ export function sourceLabelKey(source: string): MessageKey {
   const category = SOURCE_CATEGORY[source];
   return category ? (`category.${category}` as MessageKey) : "decisions.unknown_source";
 }
+
+/** What a degraded source means for the list, stated per source. */
+export function sourceConsequenceKey(status: string): MessageKey {
+  if (status === "read_failed") return "decisions.partial_consequence.read_failed";
+  if (status === "unavailable") return "decisions.partial_consequence.unavailable";
+  return "decisions.partial_consequence.stale";
+}

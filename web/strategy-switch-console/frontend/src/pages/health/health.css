@@ -22,6 +22,7 @@
 .health-cell.selected { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .health-grid-note { margin: 10px 0 0; font-size: 12px; color: var(--status-error); }
+.health-grid-note-info { color: var(--muted); }
 
 .health-day-detail {
   margin-top: 12px;
@@ -43,6 +44,7 @@
 
 .health-cell.unknown, .health-cell.incomplete, .health-cell.stale { background: var(--surface-2); color: var(--muted); }
 .health-cell.read-failed { background: var(--surface-2); color: var(--status-error); }
+.health-cell.binding-changed { background: var(--surface-2); color: var(--status-warn); }
 
 .health-grid table { border-collapse: separate; border-spacing: 0; }
 .health-grid tr > th:first-child {

@@ -12,7 +12,18 @@ import type { GridAccount } from "./dailySelection";
 type CellState =
   | { phase: "loading" }
   | { phase: "ready"; snapshot: RuntimeDailySnapshot }
+  | { phase: "binding-changed" }
   | { phase: "error" };
+
+/**
+ * A stored day written under a previous binding is intentionally withheld by
+ * the API (409) so a rotation can never silently re-attribute it. That is a
+ * distinct, explainable state, not an unreadable date.
+ */
+function isBindingChanged(error: unknown): boolean {
+  const failure = error as { status?: unknown; message?: unknown } | null;
+  return failure?.status === 409 && failure?.message === "runtime_daily_binding_changed";
+}
 
 const CELL_LABEL_KEY: Record<CellKind, MessageKey> = {
   ok: "health.grid.ok",
@@ -24,6 +35,7 @@ const CELL_LABEL_KEY: Record<CellKind, MessageKey> = {
   incomplete: "health.grid.incomplete",
   stale: "state.stale",
   "read-failed": "state.read_failed",
+  "binding-changed": "health.grid.binding_changed",
 };
 
 const CELL_ICON: Record<CellKind, string> = {
@@ -36,6 +48,7 @@ const CELL_ICON: Record<CellKind, string> = {
   incomplete: "…",
   stale: "~",
   "read-failed": "!",
+  "binding-changed": "↻",
 };
 
 function cellKey(account: GridAccount, date: string): string {
@@ -67,6 +80,8 @@ function DayDetail({ selection, cell }: { selection: Selection; cell: CellState 
   let body;
   if (!cell || cell.phase === "loading") {
     body = <Skeleton height={16} width={240} />;
+  } else if (cell.phase === "binding-changed") {
+    body = <span className="health-grid-note health-grid-note-info">{t("health.grid.binding_changed_detail")}</span>;
   } else if (cell.phase === "error") {
     body = <span className="health-grid-note">{t("state.read_failed")}</span>;
   } else if (!cell.snapshot.record) {
@@ -153,6 +168,8 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
           const key = cellKey(accounts[index], date);
           if (result.status === "fulfilled") {
             patch[key] = { phase: "ready", snapshot: result.value };
+          } else if (isBindingChanged(result.reason)) {
+            patch[key] = { phase: "binding-changed" };
           } else {
             patch[key] = { phase: "error" };
             anyError = true;
@@ -172,6 +189,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
   if (!accounts.length) return <EmptyState title={t("state.no_data")} />;
 
   const legendKinds = Object.keys(CELL_LABEL_KEY) as CellKind[];
+  const hasBindingChanged = Object.values(cells).some(cell => cell.phase === "binding-changed");
 
   return (
     <>
@@ -206,16 +224,18 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
                       </td>
                     );
                   }
-                  if (cell.phase === "error") {
+                  if (cell.phase === "binding-changed" || cell.phase === "error") {
+                    const kind: CellKind = cell.phase === "error" ? "read-failed" : "binding-changed";
+                    const label = t(CELL_LABEL_KEY[kind]);
                     return (
                       <td key={date}>
                         <button
                           type="button"
-                          className={`health-cell read-failed${isSelected ? " selected" : ""}`}
-                          title={t("state.read_failed")}
-                          aria-label={`${names.account(account.account_alias, account.platform)} ${date}: ${t("state.read_failed")}`}
+                          className={`health-cell ${kind}${isSelected ? " selected" : ""}`}
+                          title={label}
+                          aria-label={`${names.account(account.account_alias, account.platform)} ${date}: ${label}`}
                           onClick={() => setSelected({ account, date })}
-                        >!</button>
+                        >{CELL_ICON[kind]}</button>
                       </td>
                     );
                   }
@@ -250,6 +270,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
         ))}
       </div>
       {historyError && <p className="health-grid-note">{t("health.grid_read_failed_note")}</p>}
+      {hasBindingChanged && <p className="health-grid-note health-grid-note-info">{t("health.grid_binding_changed_note")}</p>}
       {selected && <DayDetail selection={selected} cell={cells[cellKey(selected.account, selected.date)]} />}
     </>
   );

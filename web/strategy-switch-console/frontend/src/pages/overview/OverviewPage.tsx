@@ -43,6 +43,7 @@ import { KpiCard } from "../../components/KpiCard";
 import { AreaChart } from "../../charts/AreaChart";
 import { LineChart, type ChartSeries } from "../../charts/LineChart";
 import { DIETZ_APPROX_LABEL_KEY, UNKNOWN_METHOD_LABEL_KEY, classifyCashflowMethod } from "../performance/cashflowMethod";
+import { weekendWithoutScheduledRuns } from "../health/status";
 import "./overview.css";
 
 type Api<T> = AsyncState<T> & { reload: () => void };
@@ -223,16 +224,20 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   const reason = accountReasons.has("runtime_daily_binding_conflict") ? "runtime_daily_binding_conflict"
     : accountReasons.has("runtime_daily_not_connected") ? "runtime_daily_not_connected"
       : undefined;
+  // On a weekend, absent records are the schedule, not degraded coverage.
+  const nonTrading = weekendWithoutScheduledRuns(data);
   const sub = denominatorKnown
     ? <>{t("overview.business_date", { value: data.date })}
-        {observed === 0 && <> · {t("overview.no_records_for_day")}</>}</>
+        {nonTrading ? <> · {t("overview.non_trading_day_short")}</>
+          : observed === 0 && <> · {t("overview.no_records_for_day")}</>}</>
     : t("state.no_data");
   return (
     <KpiCard
       title={title}
       value={value}
       sub={sub}
-      footer={data.status === "partial" ? <StatusBadge status="partial" reason={reason} /> : undefined}
+      footer={nonTrading ? <Badge tone="unknown">{t("overview.non_trading_day_short")}</Badge>
+        : data.status === "partial" ? <StatusBadge status="partial" reason={reason} /> : undefined}
       onClick={open}
     />
   );

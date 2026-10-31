@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { runActivityState, runActivityCounts, todayFailures } from '../web/strategy-switch-console/frontend/src/pages/health/status.ts';
+import { runActivityState, runActivityCounts, todayFailures, weekendWithoutScheduledRuns } from '../web/strategy-switch-console/frontend/src/pages/health/status.ts';
 const base = { status:'ok', activity:'read_incomplete', completeness:'incomplete', run_status:'incomplete', read_error_count:1, read_error_codes:['coverage_unconfirmed'], run_count:2, runs:[{activity:'unknown',errors_present:null},{activity:'no_rebalance',errors_present:false}] };
 // Old contract: the same record with `run_status` omitted keeps classifying from
 // the raw fields, so the conservative code/count/failure rules stay covered.
@@ -125,4 +125,26 @@ assert.equal(runActivityState({...clean, activity:'read_incomplete', completenes
 // Partial summary with a null total stays incomplete-or-unknown, never complete.
 assert.deepEqual(todayFailures({status:'partial',counts:{runs:null,configured:1,observed:1},
   accounts:[{...clean, run_status:'incomplete'}]}),{count:0,complete:false});
+
+// ---------------------------------------------------------------------------
+// Weekend semantics. Absent records on a non-trading day are the schedule, not
+// degraded coverage; genuine degradation must keep its normal presentation.
+// ---------------------------------------------------------------------------
+const dayAccount = (status, unavailable_reason = null) => ({ status, unavailable_reason });
+const weekend = accounts => ({ market_session:'weekend', accounts });
+const tradingDay = accounts => ({ market_session:'trading_day', accounts });
+
+assert.equal(weekendWithoutScheduledRuns(weekend([dayAccount('ok'), dayAccount('no_data','non_trading_weekend')])), true,
+  'a clean weekend with a non-trading account is not degraded');
+assert.equal(weekendWithoutScheduledRuns(weekend([dayAccount('no_data','non_trading_weekend'), dayAccount('no_data','today_record_missing')])), true,
+  'a crypto account still waiting for its later snapshot stays a non-trading weekend');
+for (const [status, reason] of [['stale',null],['read_failed',null],['partial',null],
+  ['not_connected',null],['no_data',null],['no_data','unavailable'],['no_data','read_failed']]) {
+  assert.equal(weekendWithoutScheduledRuns(weekend([dayAccount('ok'), dayAccount(status, reason)])), false,
+    `weekend account ${status}/${reason} keeps its degraded presentation`);
+}
+assert.equal(weekendWithoutScheduledRuns(tradingDay([dayAccount('ok'), dayAccount('no_data','non_trading_weekend')])), false,
+  'a trading day is never contextualised as non-trading');
+assert.equal(weekendWithoutScheduledRuns({ accounts:[dayAccount('ok')] }), false,
+  'an old payload without market_session is not declared non-trading');
 console.log('health today incomplete UI: PASS');

@@ -9,6 +9,7 @@ export const zh: Record<string, string> = {
   "overview.runs_card_title": "今日有记录账户",
   "overview.business_date": "纽约业务日 {value}",
   "overview.no_records_for_day": "当前未观测到该业务日记录",
+  "overview.non_trading_day_short": "非交易日",
 };
 export const en: Record<string, string> = {
   "overview.asset_summary": "Asset summary",
@@ -20,4 +21,5 @@ export const en: Record<string, string> = {
   "overview.runs_card_title": "Accounts with records today",
   "overview.business_date": "New York business day {value}",
   "overview.no_records_for_day": "No records observed for this business day",
+  "overview.non_trading_day_short": "Non-trading day",
 };
