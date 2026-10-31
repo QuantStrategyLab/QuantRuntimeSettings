@@ -1,0 +1,24 @@
+
+
+# Risk-sensitive changes require the repository owner.
+/.github/CODEOWNERS @Pigbibi
+/.github/workflows/ @Pigbibi
+/actions/publish-runtime-execution-evidence/ @Pigbibi
+/python/scripts/check_credential_maintenance_read.py @Pigbibi
+/python/scripts/credential_maintenance_notify.py @Pigbibi
+/python/scripts/deployment_bundle_contract.py @Pigbibi
+/python/scripts/deterministic_risk_gate.py @Pigbibi
+/python/scripts/execution_evidence_projection.py @Pigbibi
+/python/scripts/forward_observation_risk_control.py @Pigbibi
+/python/scripts/long_horizon_risk_composer.py @Pigbibi
+/python/scripts/long_horizon_risk_composer_v2.py @Pigbibi
+/python/scripts/long_horizon_risk_observation_ingress.py @Pigbibi
+/python/scripts/long_horizon_risk_observation_ingress_v2.py @Pigbibi
+/python/scripts/paper_risk_admission_receipt.py @Pigbibi
+/schemas/qsl-deployment-bundle.v1.schema.json @Pigbibi
+/schemas/qsl-forward-observation-risk-control.v1.schema.json @Pigbibi
+/schemas/qsl-reconcile-only-risk-control.v1.schema.json @Pigbibi
+/scripts/provision_binance_recovery_credentials.sh @Pigbibi
+/scripts/provision_soxl_v7_review_credential.py @Pigbibi
+/web/strategy-switch-console/application/console_api/strategy_execution.js @Pigbibi
+/web/strategy-switch-console/prepare_execution_daily_registration.mjs @Pigbibi
