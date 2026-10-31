@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
 import { m0Subjects, healthStates, controlReasons, runtimeRecords } from "./fixtures/console-gaps.ts";
-import { formatDateTime } from "../web/strategy-switch-console/frontend/src/lib/format.ts";
+import { formatDateTime, formatDate } from "../web/strategy-switch-console/frontend/src/lib/format.ts";
 
 // Render production components and dictionaries. Only network/hooks are replaced.
 const root = new URL("../web/strategy-switch-console/frontend/", import.meta.url).pathname;
@@ -77,6 +77,36 @@ try {
     for (const [, value] of mainValues) assert.doesNotMatch(value.replace(/<[^>]*>/g, ""), /多币种|currenc/i, "reason must not become a main metric");
     assert.equal((metrics.match(/class="metric-note(?:\s[^"]*)?"/g) || []).length, 1, "one shared metric explanation");
     assert.doesNotMatch(metrics, /USD [0-9]|USDT [0-9]/, "mixed currencies never produce a combined amount");
+    // A withheld total must name the date the store actually starts on, because
+    // "Unavailable" alone reads like a broken pipeline instead of a short history.
+    const shortHistory = coverageOverrides => ({
+      status: "partial", unavailable_reason: "snapshot_history_missing", as_of: "2026-10-29",
+      currency: "USD", value_kind: "pnl",
+      coverage: {
+        account_aliases: ["tqqq"], currencies: ["USD"], cashflows: "complete",
+        period_from: "2026-09-25", period_to: "2026-10-29", requested_period_from: "2026-01-01",
+        range_complete: false, ...coverageOverrides,
+      },
+      twr_return_percent: null, amount: null, simple_weighted_return_percent: null,
+      max_drawdown: { percent: null, peak_date: null, trough_date: null, unavailable_reason: "snapshot_history_missing" },
+      excess_returns: [{ benchmark: "SPX", start: "2026-09-25", end: "2026-10-29", percentage_points: null, unavailable_reason: "snapshot_history_missing" }],
+      best_day: null, worst_day: null,
+    });
+    globalThis.__displayState = { phase: "ready", data: shortHistory(), reload() {} };
+    const short = ui.summary(language);
+    const shortNote = short.match(/<div class="metric-note[^"]*"[^>]*>([\s\S]*?)<\/div>/)?.[1]?.replace(/<[^>]*>/g, " ") ?? "";
+    assert.equal((short.match(/class="metric-note(?:\s[^"]*)?"/g) || []).length, 1, "the window sentence stays inside the single shared note");
+    assert.ok(shortNote.includes(language === "zh" ? "已存记录自" : "stored records begin"), shortNote);
+    for (const date of ["2026-01-01", "2026-09-25"]) assert.ok(shortNote.includes(formatDate(date, language)), `${date} must be rendered in ${language}`);
+    for (const [, value] of [...short.matchAll(/<div class="kpi-value num">([\s\S]*?)<\/div>/g)]) {
+      assert.doesNotMatch(value.replace(/<[^>]*>/g, ""), /\d/, "an explained blank is still a blank: no invented total");
+    }
+    // A complete range, an equal start, or a missing window must not claim a shortfall.
+    for (const overrides of [{ range_complete: true }, { requested_period_from: "2026-09-25" }, { period_from: undefined }]) {
+      globalThis.__displayState = { phase: "ready", data: shortHistory(overrides), reload() {} };
+      const settled = ui.summary(language).match(/<div class="metric-note[^"]*"[^>]*>([\s\S]*?)<\/div>/)?.[1]?.replace(/<[^>]*>/g, " ") ?? "";
+      assert.doesNotMatch(settled, /已存记录自|stored records begin/, `${JSON.stringify(overrides)} is not a short history`);
+    }
     const tabs = ui.tabs(language);
     assert.match(tabs, /id="test-tabs-tab-first"[^>]*aria-controls="test-tabs-panel"[^>]*aria-selected="false"[^>]*tabindex="-1"/);
     assert.match(tabs, /id="test-tabs-tab-second"[^>]*aria-controls="test-tabs-panel"[^>]*aria-selected="true"[^>]*tabindex="0"/);

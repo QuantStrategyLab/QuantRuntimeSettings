@@ -287,6 +287,11 @@ export interface PerformanceCoverage {
   native_daily_only?: boolean;
   /** Calendar cells come from a bounded, forward-filled asset series, not a return chain. */
   asset_change_fallback?: boolean;
+  /** Stored history may start after the requested period; totals then cover no requested range at all. */
+  period_from?: string | null;
+  period_to?: string | null;
+  requested_period_from?: string | null;
+  range_complete?: boolean;
 }
 export interface AccountFreshness {
   platform: string | null;
