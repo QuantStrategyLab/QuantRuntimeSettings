@@ -224,6 +224,7 @@ for (const body of [incompleteDaily, todayBody]) {
 const schemaChecks = [];
 for (const [name, adjust] of [
   ["schedule_unverified", row => { row.runs = []; }],
+  ["target_disabled", row => { row.read_error_codes = ["target_disabled"]; row.read_error_count = 1; }],
   ["null run id", row => { row.read_error_codes = []; row.read_error_count = 0; }],
   ["original response", () => {}],
 ]) {
@@ -232,6 +233,23 @@ for (const [name, adjust] of [
   try { validate("today_runs", candidate); } catch (error) { schemaChecks.push(new Error(`${name}: ${error.message}`)); }
 }
 assert.equal(schemaChecks.length, 0, schemaChecks.map(error => error.message).join("\n"));
+// The producer's explicit disabled reason stays partial across the real daily
+// reader, aggregation, public schema and run-status projection.
+const disabledContract = structuredClone(incompleteContract);
+disabledContract.read_errors = ["runtime_target_disabled"];
+store.set(incompleteKey, JSON.stringify(disabledContract));
+const disabledDaily = await (await get(today, sessionHeaders)).json();
+assert.deepEqual(disabledDaily.read_error_codes, ["target_disabled"]);
+assert.equal(disabledDaily.read_summary.status, "partial");
+assert.equal(disabledDaily.read_summary.total_run_count, null);
+const disabledSummary = await (await worker.fetch(new Request("https://switch.example/api/runtime/today", { headers: sessionHeaders }), env)).json();
+const disabledAccount = disabledSummary.accounts.find(item => item.account_alias === account.key);
+assert.deepEqual(disabledAccount.read_error_codes, ["target_disabled"]);
+assert.equal(disabledAccount.status, "partial");
+assert.equal(disabledAccount.run_status, "incomplete");
+assert.equal(disabledAccount.run_count, 1);
+assert.equal(disabledSummary.counts.runs, null);
+validate("today_runs", disabledSummary);
 store.delete(incompleteKey);
 store.delete(orderedKey);
 const firstObservation = projection({}, { business_date: orderedDate, observed_at: "2020-01-10T21:00:00Z" });
@@ -552,7 +570,7 @@ assert.equal(quotaLists, 0, "date-only reads spend no list quota");
 assert.equal(dateOnlyBody.history, null, "omitted discovery is distinct from empty coverage");
 assert.deepEqual(dateOnlyBody.record, coverageRead.record, "source evidence is unchanged");
 assert.deepEqual(dateOnlyBody.read_error_codes, []);
-const diagnosticProjection = projection({ read_errors: ["coverage_unconfirmed", "private/path/fixture", "read_failed", "runtime_target_enabled_schedule_unverified"] }, {
+const diagnosticProjection = projection({ read_errors: ["coverage_unconfirmed", "private/path/fixture", "read_failed", "runtime_target_enabled_schedule_unverified", "runtime_target_disabled"] }, {
   business_date: coverageDayB, observed_at: `${coverageDayB}T20:00:00Z`, status: "read_incomplete", completeness: "incomplete",
 });
 const diagnosticStore = { ...quotaEnv.STRATEGY_SWITCH_CONFIG, async get(key) {
@@ -561,8 +579,10 @@ const diagnosticStore = { ...quotaEnv.STRATEGY_SWITCH_CONFIG, async get(key) {
 const diagnostic = await worker.fetch(new Request(`https://console.example/api/runtime-daily?date=${coverageDayB}&include_history=false`, { headers: sessionHeaders }), { ...env, STRATEGY_SWITCH_CONFIG: diagnosticStore });
 const diagnosticBody = await diagnostic.json();
 assert.equal(diagnostic.status, 200);
-assert.deepEqual(diagnosticBody.read_error_codes, ["coverage_unconfirmed", "source_read_error", "read_failed", "schedule_unverified"]);
-assert.equal(diagnosticBody.read_error_count, 4);
+assert.deepEqual(diagnosticBody.read_error_codes, ["coverage_unconfirmed", "source_read_error", "read_failed", "schedule_unverified", "target_disabled"]);
+assert.equal(diagnosticBody.read_error_count, 5);
+assert.equal(diagnosticBody.read_summary.status, "partial");
+assert.equal(diagnosticBody.read_summary.total_run_count, null);
 assert.equal(diagnosticBody.record.completeness, "incomplete");
 assert.ok(!JSON.stringify(diagnosticBody).includes("private/path/fixture"));
 for (const selection of ["include_history=maybe", "include_history=false&include_history=true"]) {
