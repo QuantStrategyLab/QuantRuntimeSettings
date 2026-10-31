@@ -63,7 +63,22 @@ test("runtime KPI renders real observed coverage and explicit empty/error states
       const NO_RECORDS = { zh: "当前未观测到该业务日记录", en: "No records observed for this business day" };
       const NOT_CONNECTED = { zh: "运行记录源未接入", en: "The run-record source is not connected" };
       const BINDING_CONFLICT = { zh: "运行记录存在多个账户绑定", en: "Multiple run-record bindings match this account" };
-      const empty = ui.render(language, { phase: "ready", data: { ...data, counts: { ...data.counts, observed: 0 } } });
+      for (const account of [
+        { status: "partial", unavailable_reason: "runtime_daily_incomplete", completeness: "incomplete" },
+        { status: "stale", unavailable_reason: "runtime_daily_stale" },
+        { status: "no_data", unavailable_reason: null },
+        { status: "partial", unavailable_reason: null },
+      ]) {
+        const partial = ui.render(language, { phase: "ready", data: { ...data, accounts: [account] } });
+        assert.ok(partial.includes("2/8"), "source completeness does not change observed coverage");
+        assert.ok(!partial.includes(NOT_CONNECTED[language]),
+          `${account.status}: partial coverage must not invent an unconnected source`);
+        assert.ok(partial.includes(language === "zh" ? "部分" : "Partial"), "incomplete coverage remains visible");
+      }
+      const empty = ui.render(language, { phase: "ready", data: {
+        ...data, counts: { ...data.counts, observed: 0 },
+        accounts: [{ status: "not_connected", unavailable_reason: "runtime_daily_not_connected" }],
+      } });
       assert.ok(empty.includes("0/8"), "zero observed accounts keep a real 0/N value");
       assert.ok(!empty.includes("—"), "a known zero is never replaced by an unknown dash");
       assert.ok(empty.includes(language === "zh" ? "纽约业务日" : "New York business day"),

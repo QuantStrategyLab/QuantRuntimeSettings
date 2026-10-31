@@ -208,6 +208,10 @@ export function holdingsRows(accounts) {
         const cost = finite(p.avg_cost),
           quantity = finite(p.quantity),
           value = finite(p.market_value);
+        const pnl = cost !== null && quantity !== null && value !== null ? value - cost * quantity : null;
+        const basis = cost !== null && quantity !== null ? cost * quantity : null;
+        const percent = Number.isFinite(pnl) && Number.isFinite(basis) && basis > 0
+          && typeof p.currency === "string" && p.currency.trim() ? (pnl / basis) * 100 : null;
         return {
           account_alias: a.account_key,
           platform: a.platform,
@@ -222,10 +226,8 @@ export function holdingsRows(accounts) {
               broker_cost_price: p.broker_cost_price,
               broker_cost_method: p.broker_cost_method,
             } : {}),
-          unrealized_pnl:
-            cost !== null && quantity !== null && value !== null
-              ? value - cost * quantity
-              : null,
+          unrealized_pnl: pnl,
+          unrealized_pnl_percent: Number.isFinite(percent) ? percent : null,
           unavailable_reason:
             cost === null
               ? "avg_cost_missing"

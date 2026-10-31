@@ -162,7 +162,7 @@ try {
       completeness: "complete", run_count: 1, activity: "filled", runs: [{ activity: "filled", errors_present: false }] };
     const summary = { status: "ok", date: "2026-10-16", timezone: "America/New_York", as_of: null,
       counts: { configured: 1, observed: 1, runs: 1 }, accounts: [account] };
-    const statValue = data => ui.stats(language, data).match(/<div class="kpi-value[^"]*">([\s\S]*?)<\/div>/g)?.at(-1) || ui.stats(language, data);
+    const statValue = data => ui.stats(language, data).match(/<div class="kpi-value[^"]*">([\s\S]*?)<\/div>/g)?.at(2) || ui.stats(language, data);
     assert.ok(ui.stats(language, summary).replaceAll("&#x27;", "'").includes(language === "zh" ? "今日失败账户" : "Today's failed accounts"));
     assert.ok(ui.stats(language, summary).includes("2026-10-16"));
     assert.ok(ui.stats(language, summary).includes(language === "zh" ? "纽约时间" : "New York time"));

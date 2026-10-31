@@ -86,10 +86,10 @@ try {
     assert.ok(!costOnlyRanking.includes('bar-row'), 'native broker cost cannot become ranking P/L');
     const ranking = ui.ranking(language, data);
     assert.ok(ranking.includes(language === 'zh' ? '暂无可排名的持仓' : 'No holdings are eligible for ranking'));
-    assert.ok(ranking.includes(language === 'zh' ? '未实现盈亏' : 'unrealized P/L'));
+    assert.ok(ranking.includes(language === 'zh' ? '持仓收益数据' : 'holding return data'));
     const staleNumber = ui.ranking(language, { ...data, rows: [{ ...row, status: 'unavailable', quantity: 2, avg_cost: 3, unrealized_pnl: 1 }] });
     assert.doesNotMatch(staleNumber, /bar-row|33\.33/);
-    const noMovement = ui.ranking(language, { ...data, rows: [{ ...row, quantity: 2, avg_cost: 3, unrealized_pnl: 0 }] });
+    const noMovement = ui.ranking(language, { ...data, rows: [{ ...row, quantity: 2, avg_cost: 3, unrealized_pnl: 0, unrealized_pnl_percent: 0 }] });
     assert.ok(noMovement.includes(language === 'zh' ? '暂无盈亏变化' : 'no P/L movement'));
     assert.ok(!noMovement.includes(language === 'zh' ? '排名需要' : 'Ranking requires'));
     const total = { currency: 'USD', total: 42, status: 'partial', account_count: 1, expected_account_count: 2, as_of: null, stale: false, unavailable_reason: 'valuation_date_mismatch', account_coverage: [

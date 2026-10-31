@@ -55,6 +55,23 @@ try {
     const continuous = render(language);
     assert.equal(globalThis.__gapCharts[0].mode, "cumulative", "ordinary partial responses preserve mode");
     assert.match(continuous, /perf-mode-toggle/);
+    // Old responses without explicit daily percentages get no daily mode at all:
+    // the chart is not allowed to compound the cumulative points itself.
+    globalThis.__gapReturns = { ...mixedReturns, status: "ok", return_kind: "twr", currency: "USD",
+      coverage: { account_aliases: ["synthetic"] }, no_common_date: false, aligned_start: "2026-10-01",
+      per_currency: [], per_account: [],
+      points: [{ date: "2026-10-01", value: 10 }, { date: "2026-10-02", value: 4.5 }],
+      benchmarks: [], benchmark_availability: [] };
+    globalThis.__gapCharts = [];
+    const cumulativeOnly = render(language);
+    assert.equal(globalThis.__gapCharts.length, 1);
+    assert.equal(globalThis.__gapCharts[0].mode, "cumulative", "a series without daily values stays cumulative");
+    assert.doesNotMatch(cumulativeOnly, /perf-mode-toggle/, "daily mode is not offered without explicit daily values");
+    // An explicit 0% is a real daily value, so the mode is offered.
+    globalThis.__gapReturns = { ...globalThis.__gapReturns,
+      points: [{ date: "2026-10-01", value: 0, daily_return_percent: 0 }, { date: "2026-10-02", value: 1, daily_return_percent: 1 }] };
+    globalThis.__gapCharts = [];
+    assert.match(render(language), /perf-mode-toggle/, "an explicit 0% still enables the daily mode");
     globalThis.__gapReturns = { ...mixedReturns, status: "partial", points: [], per_currency: [],
       per_account: structuredClone(syntheticAccountReturns) };
     globalThis.__gapCharts = [];

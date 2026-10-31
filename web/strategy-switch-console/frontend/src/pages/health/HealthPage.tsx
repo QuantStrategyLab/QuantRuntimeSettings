@@ -1,10 +1,9 @@
 import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useMemo, useState } from "react";
-import type { NotificationSendLog, TodayRunSummary } from "../../api/contracts";
+import type { TodayRunSummary } from "../../api/contracts";
 import {
   loadAccounts,
   loadCredentialMaintenance,
-  loadNotificationLog,
   loadTodayRuns,
   loadRuntimeDailyBindings,
   type CredentialMaintenance,
@@ -57,12 +56,9 @@ type Loadable<T> = AsyncState<T> & { reload: () => void };
 function StatStrip({
   summary,
   credential,
-  notifications,
 }: {
   summary: Loadable<TodayRunSummary>;
   credential: Loadable<CredentialMaintenance>;
-  /** Optional so component-level fixtures can render the run KPIs alone. */
-  notifications?: Loadable<NotificationSendLog>;
 }) {
   const t = useT();
   const data = summary.phase === "ready" ? summary.data : null;
@@ -75,16 +71,6 @@ function StatStrip({
   const credentialData = credential.phase === "ready" ? credential.data : null;
   const credentialCount = credentialData?.requires_action === true || (credentialData && ATTENTION_PHASES.includes(credentialData.phase)) ? 1 : 0;
   const credentialUnknown = !credentialData || credentialData.phase === "unknown";
-  const notificationData = notifications?.phase === "ready" ? notifications.data : null;
-  const notificationItems = notificationData?.items ?? [];
-  const notificationDelivered = notificationItems.filter(item => item.delivered === true).length;
-  const notificationFailed = notifications?.phase === "error"
-    || notificationData?.status === "read_failed" || notificationData?.read_status === "read_failed";
-  const notificationMissing = notificationData?.status === "not_connected"
-    || notificationData?.read_status === "not_connected";
-  const notificationIncomplete = notificationData !== null
-    && (notificationData.status === "partial" || notificationData.read_status === "partial"
-      || notificationData.read_status === "unknown" || notificationData.truncated === true);
   const primaryStates = ["succeeded", "failed", "read_failed", "incomplete"] as const;
   const stateEntries = stateCounts ? Object.entries(stateCounts) : [];
   const primaryCounts = stateEntries.filter(([state]) => (primaryStates as readonly string[]).includes(state));
@@ -93,7 +79,10 @@ function StatStrip({
 
   return (
     <>
-      <div className="stat-strip">
+      {/* Four KPIs only: accounts with complete data, accounts with records,
+          failed accounts, credentials. This page has no trustworthy source for
+          a current notification, so it states no notification status at all. */}
+      <div className="stat-strip health-kpis">
         <KpiCard
           title={t("health.kpi.today_runs")}
           value={
@@ -112,34 +101,16 @@ function StatStrip({
           }
         />
         <KpiCard
-          title={t("health.kpi.credentials")}
-          value={<StatValue state={credential} render={() => credentialUnknown ? t("state.unknown") : String(credentialCount)} />}
-          sub={t("health.kpi.credentials_unit")}
-        />
-        <KpiCard
           title={t("health.kpi.recent_failure")}
           value={<StatValue state={summary} render={() => failures.complete
             ? String(failures.count)
             : failures.count > 0 ? t("health.failure_at_least", { count: failures.count }) : t("state.unknown")} />}
         />
-        {notifications && (
-          <KpiCard
-            className="kpi-card-legacy"
-            title={t("health.kpi.notifications")}
-            value={
-              notifications.phase === "loading" ? <Skeleton height={24} width={90} />
-                : notificationFailed ? <span className="kpi-state">{t("state.read_failed")}</span>
-                  : notificationMissing ? <span className="kpi-state">{t("state.not_connected")}</span>
-                    : !notificationItems.length ? <span className="kpi-state">{t("state.no_data")}</span>
-                      : t("health.account_fraction", { count: notificationDelivered, total: notificationItems.length })
-            }
-            sub={t("health.kpi.notifications_note")}
-            footer={<>
-              <Badge tone="unknown">{t("health.current_notification")}</Badge>
-              {notificationIncomplete && <StatusBadge status="partial" />}
-            </>}
-          />
-        )}
+        <KpiCard
+          title={t("health.kpi.credentials")}
+          value={<StatValue state={credential} render={() => credentialUnknown ? t("state.unknown") : String(credentialCount)} />}
+          sub={t("health.kpi.credentials_unit")}
+        />
       </div>
       {stateCounts && (
         <div className="health-state-summary">
@@ -256,92 +227,11 @@ function CredentialsCard({ credential }: { credential: Loadable<CredentialMainte
   return <DataTable columns={columns} rows={[item]} rowKey={row => row.id} scrollHint caption={t("health.credentials_title")} />;
 }
 
-/**
- * Static source-limit block. The page can read legacy GitHub receipts only, so
- * the current Cloud Run/GCS notification path stays explicitly unverified —
- * this is a capability statement, not today's receipt or a new KPI.
- */
-function NotificationSourceNote() {
-  const t = useT();
-  return (
-    <div className="health-source-note" data-state="unverified">
-      <div className="health-source-head">
-        <Badge tone="unknown">{t("health.current_notification")}</Badge>
-        <span className="health-source-label">{t("health.source_limits")}</span>
-      </div>
-      <p className="card-note">{t("health.notifications_scope")}</p>
-      <p className="card-note">{t("health.notifications_schedule_scope")}</p>
-    </div>
-  );
-}
-
-function NotificationsCardView({ state }: { state: Loadable<NotificationSendLog> }) {
-  const t = useT();
-  const language = useLanguage();
-  if (state.phase === "loading") return <Skeleton height={72} />;
-  if (state.phase === "error") return <ErrorState onRetry={state.reload} />;
-  const log = state.data;
-  const source = <NotificationSourceNote />;
-  if (log.status === "not_connected" || log.read_status === "not_connected") return <>
-    {source}
-    <EmptyState title={t("health.notifications_not_connected")} action={<StatusBadge status="not_connected" />} />
-  </>;
-  if (log.status === "read_failed" || log.read_status === "read_failed") return <>
-    {source}
-    <ErrorState onRetry={state.reload} />
-  </>;
-  const incomplete = log.status === "partial" || log.read_status === "partial"
-    || log.read_status === "unknown" || log.truncated === true;
-  if (!log.items.length) return <>
-    {source}
-    {incomplete && <p role="alert">{t("health.notifications_partial")}</p>}
-    <EmptyState title={t(incomplete ? "health.notifications_empty_partial" : "health.notifications_empty")} />
-  </>;
-  const columns: Column<(typeof log.items)[number]>[] = [
-    { id: "date", header: t("health.notification_business_day"), cell: row => row.business_day || "—", sortValue: row => row.business_day },
-    { id: "status", header: t("health.notification_legacy_status"), cell: row => <>
-      {t(`health.notification.${row.status}`)}
-      <span className="card-note"> · {t("health.notification_delivered")}: {t(row.delivered === null ? "state.unknown" : row.delivered ? "health.notification_yes" : "health.notification_no")}</span>
-      {row.dry_run === true && <span> · {t("health.notification.dry_run")}</span>}
-      {row.test_message === true && <span> · {t("health.notification.test_message")}</span>}
-      {row.reason_code && (
-        <details className="notification-reason">
-          <summary>{t("health.notification_reason_details")}</summary>
-          <p className="card-note">{t(`health.notification_reason.${row.reason_code}`)}</p>
-        </details>
-      )}
-    </> },
-    { id: "sent", header: t("health.notification_sent_at"), cell: row => formatDateTime(row.sent_at, language).text },
-    { id: "workflow_time", header: t("health.notification_workflow_time"), cell: row => formatDateTime(row.workflow_updated_at, language).text, sortValue: row => row.workflow_updated_at },
-    {
-      id: "source",
-      header: t("health.notification_source"),
-      cell: row => <a href={row.source_url} target="_blank" rel="noreferrer">{t("health.notification_run", { id: row.source_run_id, attempt: row.source_run_attempt })}</a>,
-    },
-  ];
-  return <>
-    {source}
-    {incomplete && <p role="alert">{t("health.notifications_partial")}</p>}
-    <div className="health-notifications"><DataTable columns={columns} rows={log.items} rowKey={row => row.id} scrollHint caption={t("health.notifications_title")} /></div>
-  </>;
-}
-
-function NotificationsCardLoader({ epoch }: { epoch: number }) {
-  const state = useApi(() => loadNotificationLog(), [epoch]);
-  return <NotificationsCardView state={state} />;
-}
-
-/** The page passes the lifted state used by the KPI; fixtures may self-load by epoch. */
-function NotificationsCard({ state, epoch = 0 }: { state?: Loadable<NotificationSendLog>; epoch?: number }) {
-  return state ? <NotificationsCardView state={state} /> : <NotificationsCardLoader epoch={epoch} />;
-}
-
 export default function HealthPage() {
   const t = useT();
   const [epoch, setEpoch] = useState(0);
   const summary = useApi(() => loadTodayRuns(), [epoch]);
   const credential = useApi(() => loadCredentialMaintenance(), [epoch]);
-  const notifications = useApi(() => loadNotificationLog(), [epoch]);
   const accounts = useApi(() => loadAccounts(), [epoch]);
   const dailyBindings = useApi(() => loadRuntimeDailyBindings(), [epoch]);
   const gridAccounts = useMemo(() => accounts.phase === "ready" && dailyBindings.phase === "ready"
@@ -368,7 +258,7 @@ export default function HealthPage() {
             : <span className="health-business-day">{t("health.business_date", { value: `${summary.data.date} · ${summary.data.timezone}` })}</span>}
         {summary.phase === "ready" && summary.data.as_of && <AsOfStamp value={summary.data.as_of} />}
       </div>
-      <StatStrip summary={summary} credential={credential} notifications={notifications} />
+      <StatStrip summary={summary} credential={credential} />
 
       <section className="card">
         <h2 className="card-title">{t("health.grid_title")}</h2>
@@ -393,11 +283,6 @@ export default function HealthPage() {
       <section className="card">
         <h2 className="card-title">{t("health.credentials_title")}</h2>
         <div className="health-credentials"><CredentialsCard credential={credential} /></div>
-      </section>
-
-      <section className="card">
-        <h2 className="card-title">{t("health.notifications_title")}</h2>
-        <NotificationsCard state={notifications} />
       </section>
     </div>
   );

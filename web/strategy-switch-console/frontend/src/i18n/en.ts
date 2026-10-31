@@ -409,8 +409,6 @@ export const en: Record<CoreMessageKey, string> = {
   "health.credential_phase.1": "Expires within 1 day",
   "health.credential_phase.not_due": "Normal",
   "health.credential_phase.unknown": "Unknown",
-  "health.notifications_title": "Legacy GitHub digest receipts",
-  "health.notifications_not_connected": "The notification log is not connected.",
   "health.activity": "Activity",
   "health.run_count": "Run count",
   "health.col.account": "Account",
