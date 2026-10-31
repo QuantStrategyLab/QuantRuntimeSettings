@@ -1,5 +1,6 @@
 /** Read-only page projections. Missing observations never imply a successful run. */
 import { RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate } from "../../runtime_daily_contract.js";
+import { canonicalStrategyProfile, sameStrategyProfile } from "../../strategy_identity.js";
 import { configuredStrategyExecution } from "./strategy_execution.js";
 import { runStatus, runStateCounts } from "./run_status.js";
 export const READ_ONLY = { no_order: true, execution_authority_granted: false };
@@ -97,13 +98,16 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
   const invalid = (health.errors || []).some(e => /invalid|unreadable|failed/.test(e));
   const status = health.data_status === "partial" ? "partial" : invalid ? "read_failed" : health.data_status === "ready" ? "ok"
     : health.data_status === "stale" ? "stale" : "not_connected";
+  const boundProfile = (account) => currentStrategies[account.platform]?.[account.key]?.strategy_profile;
+  const catalogProfiles = new Set(profiles.map(profile => canonicalStrategyProfile(profile.profile)));
   const strategies = profiles.map(profile => {
-      const observation = (health.strategies || []).find(s => s.profile === profile.profile);
+      const profileKey = canonicalStrategyProfile(profile.profile);
+      const observation = (health.strategies || []).find(s => canonicalStrategyProfile(s.profile) === profileKey);
       const rowStatus = observation && ["ok", "partial"].includes(status) && observation.freshness?.status === "stale"
         ? "stale" : observation ? status === "partial" ? "ok" : status : status === "read_failed" ? status : "not_connected";
       return { profile: profile.profile, domain: profile.domain,
         allowed_execution_modes: profile.allowed_execution_modes || [],
-        configured_accounts: accounts.filter(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile === profile.profile)
+        configured_accounts: accounts.filter(a => sameStrategyProfile(boundProfile(a), profileKey))
           .map(a => ({ account_alias: a.key, platform: a.platform, account_ref: `${a.platform}:${a.key}`,
             ...configuredStrategyExecution(currentStrategies[a.platform][a.key], profile, a.platform),
             execution_evidence: currentStrategies[a.platform][a.key].execution_evidence })),
@@ -116,6 +120,16 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
           : observation && status !== "read_failed" ? null : status === "read_failed"
           ? "stored_records_unreadable" : "strategy_health_not_connected" };
     });
+  // A bound profile the catalog no longer declares stays visible; silently
+  // dropping it would make a stale binding look like an unbound account.
+  const unmatched_strategy_assignments = accounts.flatMap(account => {
+    const bound = boundProfile(account);
+    if (typeof bound !== "string" || !bound.trim() || catalogProfiles.has(canonicalStrategyProfile(bound))) return [];
+    const current = currentStrategies[account.platform][account.key];
+    return [{ account_alias: account.key, platform: account.platform,
+      account_ref: `${account.platform}:${account.key}`, strategy_profile: bound,
+      execution_evidence: current.execution_evidence }];
+  });
   const assignmentFailures = accounts.flatMap(account => {
     const readStatus = currentStrategies[account.platform]?.[account.key]?.execution_evidence?.status;
     return ["read_failed", "permission_denied"].includes(readStatus)
@@ -124,6 +138,7 @@ export async function strategySummary(request, env, deps, accounts, currentStrat
   return { status: status === "read_failed" ? "read_failed"
       : assignmentFailures.length || status === "ok" && strategies.some(row => row.status !== "ok") ? "partial" : status,
     account_assignment_read_failures: assignmentFailures,
+    unmatched_strategy_assignments,
     configured_accounts_source: "currentStrategies",
     account_assignment_status: assignmentFailures.length ? "read_failed" : accounts.every(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile) ? "complete"
       : accounts.some(a => currentStrategies[a.platform]?.[a.key]?.strategy_profile) ? "partial" : "unavailable",

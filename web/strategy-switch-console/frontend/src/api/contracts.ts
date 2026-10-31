@@ -610,6 +610,13 @@ export interface StrategySummary extends ReadOnlyProjection {
   configured_accounts_source?: "currentStrategies";
   account_assignment_status?: "complete" | "partial" | "unavailable" | "read_failed";
   account_assignment_read_failures?: { platform: string; account_alias: string; status: "read_failed" | "permission_denied" }[];
+  unmatched_strategy_assignments?: {
+    account_alias: string;
+    platform: string;
+    account_ref?: string;
+    strategy_profile: string;
+    execution_evidence?: AccountExecutionEvidence;
+  }[];
   strategies: {
     profile: string;
     domain: string;

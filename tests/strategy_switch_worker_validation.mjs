@@ -790,6 +790,19 @@ assert.throws(
   /not live-enabled/,
 );
 
+// A configured alias resolves to the canonical catalog profile before any
+// DCA or domain rule runs; the alias is not a separate strategy.
+assert.equal(
+  __test.dcaDraftSupported("longbridge", [{ profile: "ibit_smart_dca" }], "bitcoin_etf_smart_dca"),
+  true,
+  "a legacy DCA alias keeps the canonical DCA capability",
+);
+assert.equal(
+  __test.dcaDraftSupported("binance", [{ profile: "ibit_smart_dca" }], "bitcoin_etf_smart_dca"),
+  false,
+  "alias resolution must not bypass the DCA platform constraint",
+);
+
 const kvUnboundProfileSyncResponse = await worker.fetch(
   new Request("https://switch.example/api/internal/sync-strategy-profiles", {
     method: "POST",

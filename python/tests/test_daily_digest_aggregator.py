@@ -215,20 +215,15 @@ class DailyDigestAggregatorTests(unittest.TestCase):
         omitted_ids = {str(item.get("platform_id")) for item in omitted}
         self.assertTrue({"ibkr", "binance", "firstrade"}.issubset(omitted_ids))
 
-    def test_allowlist_fallback_defaults_match_calibrated_paths(self):
+    def test_allowlist_without_explicit_config_stays_empty(self):
         config = {
             "platforms": {
                 "longbridge": {"repository": "QuantStrategyLab/LongBridgePlatform"},
                 "schwab": {"repository": "QuantStrategyLab/CharlesSchwabPlatform"},
-                "ibkr": {"repository": "QuantStrategyLab/InteractiveBrokersPlatform"},
             },
             "notifications": {"quant_sentinel": {"daily_digest": {"aggregator": {}}}},
         }
-        rows = aggregator.default_workflow_allowlist(config)
-        by_platform = {row["platform_id"]: row for row in rows}
-        self.assertEqual(set(by_platform), {"longbridge", "schwab"})
-        self.assertEqual(by_platform["schwab"]["workflow"], "runtime-daily-sync.yml")
-        self.assertNotIn("ibkr", by_platform)
+        self.assertEqual(aggregator.default_workflow_allowlist(config), [])
 
     def test_sender_dry_run_does_not_require_secrets(self):
         code = sender.main(

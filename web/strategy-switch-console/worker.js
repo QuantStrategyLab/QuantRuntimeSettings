@@ -23,7 +23,7 @@ import {
   assertBinanceFactsHistoryBindings, BINANCE_WALLET_HISTORY_MAX_DAYS,
 } from "./binance_account_facts.js";
 import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
-import { DISPLAY_NAMES } from "./display_names_data.js";
+import { canonicalStrategyProfile, sameStrategyProfile } from "./strategy_identity.js";
 import {
   DCA_SUPPORTED_PLATFORMS,
   DEFAULT_VARIABLE_SCOPES as DEFAULT_VARIABLE_SCOPE,
@@ -208,7 +208,11 @@ const STRATEGY_HEALTH_SNAPSHOT_KEY = "strategy_health_snapshot";
 const STRATEGY_HEALTH_MAX_BODY_BYTES = 256 * 1024;
 const STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS = 2 * 60 * 60;
 const STRATEGY_HEALTH_STATUSES = ["healthy", "watch", "review", "critical"];
-const STRATEGY_HEALTH_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
+// Derived from the generated platform config so a domain is declared once.
+const SUPPORTED_STRATEGY_DOMAINS = Object.freeze([
+  ...new Set(Object.values(PLATFORM_CONFIG).flatMap((platform) => platform.supported_domains || [])),
+]);
+const STRATEGY_HEALTH_DOMAINS = SUPPORTED_STRATEGY_DOMAINS;
 const STRATEGY_HEALTH_DATA_STATUSES = ["ready", "unavailable", "stale"];
 const CONTROL_PLANE_SNAPSHOT_KEY = "control_plane_snapshot";
 const CONTROL_PLANE_SOURCE_PREFIX = "control_plane_source:";
@@ -646,7 +650,6 @@ function validateAccountOptionsSchemaOrThrow(payload, fieldName = "account_optio
 }
 
 
-const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
 const LIVE_CONTINUITY_STATES = [
   "NONE",
   "ACTIVE_LKG",
@@ -5646,7 +5649,7 @@ async function loadAccountDraftProfiles(env) {
 
 function profileDefinesOptionOverlay(profiles, profileId) {
   if (!Array.isArray(profiles) || typeof profileId !== "string" || !profileId) return false;
-  const found = profiles.find((item) => item?.profile === profileId);
+  const found = profiles.find((item) => sameStrategyProfile(item?.profile, profileId));
   return found?.option_overlay_enabled === true;
 }
 
@@ -5657,7 +5660,7 @@ function optionOverlayDraftAllowed(platform, profiles, profileId) {
 function dcaDraftSupported(platform, profiles, profileId) {
   if (!profileId || !Array.isArray(profiles)) return false;
   if (!DCA_SUPPORTED_PLATFORMS.has(platform) || !isDcaProfile(profileId)) return false;
-  return profiles.some((item) => item?.profile === profileId);
+  return profiles.some((item) => sameStrategyProfile(item?.profile, profileId));
 }
 
 function accountDraftStrategyChoices(platform, accountOption, profiles) {
@@ -5723,8 +5726,8 @@ function assertAccountDraftPatch(profiles, observed, patch, trustedProfile, opti
   }
   if (!profiles && (touchesDcaMode || touchesDcaBase)) throw new HttpError("account_settings_dca_rejected", 400);
   if (touchesStrategy && patch.strategy_profile !== null) {
-    const allowedChoice = choices.some((item) => item.profile === patch.strategy_profile);
-    const currentEditable = patch.strategy_profile === trustedProfile && dcaDraftSupported(observed.platform, profiles, patch.strategy_profile);
+    const allowedChoice = choices.some((item) => sameStrategyProfile(item.profile, patch.strategy_profile));
+    const currentEditable = sameStrategyProfile(patch.strategy_profile, trustedProfile) && dcaDraftSupported(observed.platform, profiles, patch.strategy_profile);
     if (typeof patch.strategy_profile !== "string" || (!allowedChoice && !currentEditable)) {
       throw new HttpError("account_settings_strategy_rejected", 400);
     }
@@ -5752,7 +5755,7 @@ function assertAccountDraftPatch(profiles, observed, patch, trustedProfile, opti
   const hasMergedDca = (mergedMode !== null && mergedMode !== undefined) || (mergedBase !== null && mergedBase !== undefined);
   if (!dcaDraftSupported(observed.platform, profiles, next)) {
     if (hasMergedDca) throw new HttpError("account_settings_dca_rejected", 400);
-    if (previous !== next && dcaDraftSupported(observed.platform, profiles, previous)
+    if (!sameStrategyProfile(previous, next) && dcaDraftSupported(observed.platform, profiles, previous)
       && (!touchesDcaMode || patch.dca_mode !== null || !touchesDcaBase || patch.dca_base_investment_usd !== null)) {
       throw new HttpError("account_settings_dca_rejected", 400);
     }
@@ -5760,13 +5763,13 @@ function assertAccountDraftPatch(profiles, observed, patch, trustedProfile, opti
   }
   if (touchesDcaMode || touchesDcaBase) {
     const clearingDca = patch.dca_mode === null && patch.dca_base_investment_usd === null;
-    const boundToProfile = patch.strategy_profile === next;
+    const boundToProfile = sameStrategyProfile(patch.strategy_profile, next);
     const clearingCurrentBinding = patch.strategy_profile === null && clearingDca;
     if (!touchesStrategy || (!boundToProfile && !clearingCurrentBinding)) {
       throw new HttpError("account_settings_dca_rejected", 400);
     }
   }
-  if (previous !== next || touchesDcaMode || touchesDcaBase) {
+  if (!sameStrategyProfile(previous, next) || touchesDcaMode || touchesDcaBase) {
     if (!touchesDcaMode || !touchesDcaBase) throw new HttpError("account_settings_dca_rejected", 400);
   }
 }
@@ -7398,7 +7401,7 @@ async function syncAccountDefaultResponse(request, env) {
   }
   const accountConfig = await loadAccountOptionsConfig(env);
   const strategyProfiles = await loadStrategyProfilesConfig(env);
-  const strategy = strategyProfiles.find((item) => item.profile === inputs.strategy_profile);
+  const strategy = strategyProfiles.find((item) => sameStrategyProfile(item.profile, inputs.strategy_profile));
   if (!strategy) throw new Error(`strategy ${inputs.strategy_profile} is not configured`);
 
   let accountOptions = accountConfig.options;
@@ -7430,7 +7433,7 @@ async function syncAccountDefaultResponse(request, env) {
     }
   }
   if (!accountOption) throw new Error("switch inputs do not match configured account options");
-  if (isFrozenStrategyProfile(strategy) && accountOption.default_strategy_profile !== inputs.strategy_profile) {
+  if (isFrozenStrategyProfile(strategy) && !sameStrategyProfile(accountOption.default_strategy_profile, inputs.strategy_profile)) {
     throw new HttpError(`strategy ${inputs.strategy_profile} requires an existing matching account default`, 409);
   }
   assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles);
@@ -15449,7 +15452,7 @@ function registerLegacyContinuityAccount(env, accountOptions, inputs, strategy) 
 }
 
 function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles) {
-  const strategy = strategyProfiles.find((item) => item.profile === inputs.strategy_profile);
+  const strategy = strategyProfiles.find((item) => sameStrategyProfile(item.profile, inputs.strategy_profile));
   if (!strategy) {
     throw new Error(`strategy ${inputs.strategy_profile} is not configured`);
   }
@@ -15624,10 +15627,8 @@ function parseStrategyProfiles(raw, fieldName = "strategy profiles") {
 }
 
 function isFrozenStrategyProfile(strategy) {
-  const aliases = DISPLAY_NAMES.strategy_aliases || {};
+  const profile = canonicalStrategyProfile(strategy?.profile);
   // Normalize only the policy lookup; retain the original profile in payloads.
-  const lookup = String(strategy?.profile || "").trim().toLowerCase().replaceAll("-", "_");
-  const profile = aliases[lookup] || lookup;
   return strategy?.frozen === true || DEFAULT_STRATEGY_PROFILES.some((item) => item.profile === profile && item.frozen === true);
 }
 
@@ -16011,7 +16012,7 @@ function cleanChoice(value, allowed, field) {
 }
 
 function isDcaProfile(profile) {
-  return Boolean(DCA_PROFILE_CONFIG[cleanCurrentStrategy(profile)]);
+  return Boolean(DCA_PROFILE_CONFIG[canonicalStrategyProfile(profile)]);
 }
 
 function assertDcaPlatform(platform, strategyProfile) {
