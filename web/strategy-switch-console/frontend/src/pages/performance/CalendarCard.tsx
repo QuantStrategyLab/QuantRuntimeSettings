@@ -34,6 +34,7 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
   let reason: string | null = null;
   let asOf: string | null = null;
   let assetChange = false;
+  let assetFallback = false;
   let hasFlowDays = false;
   let currencySwitch: ReactNode;
   if (state.phase === "loading") {
@@ -46,6 +47,8 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
     reason = data.unavailable_reason;
     asOf = data.as_of;
     assetChange = data.value_kind === "asset_change";
+    assetFallback = !!data.coverage && typeof data.coverage === "object" && !Array.isArray(data.coverage)
+      && (data.coverage as { asset_change_fallback?: boolean }).asset_change_fallback === true;
     hasFlowDays = data.cells.some(cell => cell.observed_amount !== null && cell.observed_amount !== undefined);
     if ((data.available_currencies?.length || 0) > 1) {
       currencySwitch = <div className="perf-currency-switch">
@@ -100,6 +103,7 @@ export function CalendarCard({ scope, platform, range, epoch }: CalendarCardProp
       </div>
       {currencySwitch}
       {body}
+      {assetFallback && <p className="card-note" data-asset-change-fallback="true">{t("perf.calendar_fallback_note")}</p>}
       {hasFlowDays && <p className="card-note">{t("perf.calendar_deposit_note")}</p>}
     </div>
   );

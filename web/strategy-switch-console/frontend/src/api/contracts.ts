@@ -285,6 +285,8 @@ export interface PerformanceCoverage {
   read_failures?: string[];
   /** Single-account native daily returns: observed days only, gaps are never chained. */
   native_daily_only?: boolean;
+  /** Calendar cells come from a bounded, forward-filled asset series, not a return chain. */
+  asset_change_fallback?: boolean;
 }
 export interface AccountFreshness {
   platform: string | null;
@@ -420,6 +422,17 @@ export interface SummaryResponse extends PerformanceMeta, CashflowMethodMeta {
     unavailable_reason: Reason | null;
   }[];
 }
+export interface AssetChangeSeries {
+  return_kind: "unadjusted_asset_ratio";
+  status: Status;
+  unavailable_reason: Reason | null;
+  as_of: string | null;
+  aligned_start: string | null;
+  /** Cumulative asset change in percent, including cash-flow effects. Never a TWR. */
+  points: Point[];
+  benchmarks: { id: string; points: Point[] }[];
+  coverage?: HistoryCoverage;
+}
 export interface ReturnsResponse extends PerformanceMeta, CashflowMethodMeta {
   per_account?: (ReturnsResponse & { platform: string; account_alias: string })[];
   cashflow_per_currency?: CashflowReturnMetrics[];
@@ -428,6 +441,8 @@ export interface ReturnsResponse extends PerformanceMeta, CashflowMethodMeta {
   points: Point[];
   benchmarks: { id: string; points: Point[] }[];
   no_common_date: boolean;
+  /** Present only when the qualified return is unavailable; labeled as asset change. */
+  asset_change?: AssetChangeSeries | null;
   per_currency: ({
     currency: string;
     as_of?: string | null;
@@ -438,6 +453,7 @@ export interface ReturnsResponse extends PerformanceMeta, CashflowMethodMeta {
     aligned_start: string | null;
     points: Point[];
     benchmarks: { id: string; points: Point[] }[];
+    asset_change?: AssetChangeSeries | null;
   } & CashflowMethodMeta)[];
   benchmark_availability: {
     id: string;
