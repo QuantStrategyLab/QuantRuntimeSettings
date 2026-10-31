@@ -774,6 +774,7 @@ export interface AccountFactsAccount {
   platform: string;
   account_key: string;
   binding_status: "bound" | "missing" | "duplicate";
+  binding_reason?: "bound" | "unbound" | "duplicate_source" | "identity_mismatch";
   identity_status: "partial_identity" | "missing_identity";
   identity_source?: "protected_configuration";
   identity_mismatch: boolean;

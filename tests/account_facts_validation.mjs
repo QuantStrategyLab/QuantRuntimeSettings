@@ -606,6 +606,7 @@ const driftedTarget = identityDriftRead.accounts.find((item) => item.account_key
 assert.equal(driftedTarget.data_status, "unavailable");
 assert.equal(driftedTarget.identity_mismatch, true);
 assert.equal(driftedTarget.identity_status, "missing_identity");
+assert.equal(driftedTarget.binding_reason, "identity_mismatch");
 assert.equal(driftedTarget.balances.length, 0);
 
 await saveAccounts([account, otherAccount]);
@@ -741,6 +742,7 @@ await saveAccounts([{
 }, otherAccount]);
 const remappedHistory = await (await getHistory("longbridge", "lb-paper", "USD", sessionHeaders, env)).json();
 assert.equal(remappedHistory.identity_mismatch, true);
+assert.equal(remappedHistory.binding_reason, "identity_mismatch");
 assert.equal(remappedHistory.series.points.length, 0);
 
 await saveAccounts([account, otherAccount]);

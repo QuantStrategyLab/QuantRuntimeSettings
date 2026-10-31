@@ -297,6 +297,7 @@ const unboundModel = buildAccountFactsReadModel({
   storedByAccount: new Map([[`longbridge:${option.key}`, withFinancing]]),
 });
 assert.equal(unboundModel.accounts[0].binding_status, "missing");
+assert.equal(unboundModel.accounts[0].binding_reason, "unbound");
 assert.equal(Object.hasOwn(unboundModel.accounts[0], "financing"), false);
 assert.deepEqual(unboundModel.accounts[0].cash, []);
 
@@ -310,6 +311,7 @@ const mismatchModel = buildAccountFactsReadModel({
   storedByAccount: new Map([[`longbridge:${option.key}`, withFinancing]]),
 });
 assert.equal(mismatchModel.accounts[0].identity_mismatch, true);
+assert.equal(mismatchModel.accounts[0].binding_reason, "identity_mismatch");
 assert.equal(Object.hasOwn(mismatchModel.accounts[0], "financing"), false);
 
 const accountFresh = {

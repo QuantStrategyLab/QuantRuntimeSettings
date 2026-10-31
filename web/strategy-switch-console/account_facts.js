@@ -924,9 +924,17 @@ export function buildAccountFactsReadModel({
       const binding = bindingByAccount.get(accountId) || null;
       const sourceKey = binding ? `${binding.target_id}|${binding.source_binding.id}` : null;
       let bindingStatus = "missing";
-      if (binding && sourceKey && (sourceCounts.get(sourceKey) || 0) > 1) bindingStatus = "duplicate";
-      else if (binding && accountFactsOptionMatchesBinding(option, binding)) bindingStatus = "bound";
-      else if (binding) bindingStatus = "identity_mismatch";
+      let bindingReason = "unbound";
+      if (binding && sourceKey && (sourceCounts.get(sourceKey) || 0) > 1) {
+        bindingStatus = "duplicate";
+        bindingReason = "duplicate_source";
+      } else if (binding && accountFactsOptionMatchesBinding(option, binding)) {
+        bindingStatus = "bound";
+        bindingReason = "bound";
+      } else if (binding) {
+        bindingStatus = "identity_mismatch";
+        bindingReason = "identity_mismatch";
+      }
 
       const stored = storedByAccount.get(accountId) || null;
       let projected = null;
@@ -965,6 +973,7 @@ export function buildAccountFactsReadModel({
         platform,
         account_key: option.key,
         binding_status: bindingStatus === "identity_mismatch" ? "missing" : bindingStatus,
+        binding_reason: bindingReason,
         identity_status: bindingStatus === "bound" ? "partial_identity" : "missing_identity",
         ...(projected && platform === ACCOUNT_FACTS_PLATFORM && binding?.physical_account_id
           ? { identity_source: "protected_configuration" } : {}),
@@ -1263,6 +1272,7 @@ export function buildAccountFactsHistoryReadModel({
       platform: platform || null,
       account_key: accountKey || null,
       binding_status: "missing",
+      binding_reason: "unbound",
       identity_status: "missing_identity",
       identity_mismatch: false,
       series: projectAccountFactsHistorySeries({ days: [], binding: null, currency }),
@@ -1270,10 +1280,13 @@ export function buildAccountFactsHistoryReadModel({
     };
   }
   let bindingStatus = "missing";
+  let bindingReason = "unbound";
   if (binding && accountFactsOptionMatchesBinding(option, binding) && binding.account_key === accountKey) {
     bindingStatus = "bound";
+    bindingReason = "bound";
   } else if (binding) {
     bindingStatus = "identity_mismatch";
+    bindingReason = "identity_mismatch";
   }
   const qualified = includeCurrencies && bindingStatus === "bound" && typeof currency === "string" && CURRENCY_RE.test(currency)
     ? qualifiedHistoryDays(days, binding) : null;
@@ -1287,6 +1300,7 @@ export function buildAccountFactsHistoryReadModel({
     platform,
     account_key: accountKey,
     binding_status: bindingStatus === "identity_mismatch" ? "missing" : bindingStatus,
+    binding_reason: bindingReason,
     identity_status: bindingStatus === "bound" ? "partial_identity" : "missing_identity",
     identity_mismatch: bindingStatus === "identity_mismatch",
     target_id: bindingStatus === "bound" ? binding.target_id : null,
