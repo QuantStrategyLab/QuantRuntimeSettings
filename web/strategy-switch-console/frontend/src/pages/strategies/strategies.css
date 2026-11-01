@@ -8,6 +8,11 @@
 .strategy-section-head .card-note { margin: 0; }
 .strategy-section-empty { margin: 0; padding: 10px 0; }
 
+/* A binding outside the catalog stays listed with its raw profile identifier. */
+.strategy-unmatched { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.strategy-unmatched li { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.strategy-unmatched code { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+
 .strategy-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px 18px; }
 .strategy-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .strategy-card-title { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }

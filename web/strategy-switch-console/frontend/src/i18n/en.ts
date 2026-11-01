@@ -16,6 +16,7 @@ export const en: Record<CoreMessageKey, string> = {
   "nav.strategies": "Strategies",
   "nav.health": "Run status",
   "nav.more": "More",
+  "nav.todo_unavailable": "To-do count unavailable",
 
   "common.loading": "Loading…",
   "common.retry": "Retry",
@@ -156,6 +157,7 @@ export const en: Record<CoreMessageKey, string> = {
   "shell.scope": "Account scope",
   "shell.scope_error": "Accounts unavailable",
   "shell.scope_loading": "Loading accounts…",
+  "shell.scope_meta_error": "Account names and paper/live labels are unavailable.",
   "prefs.save_error": "Preferences could not be saved and may be lost after refresh.",
   "shell.scope_all": "All accounts",
   "shell.scope_paper_group": "Paper accounts",

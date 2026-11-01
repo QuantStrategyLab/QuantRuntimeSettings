@@ -37,6 +37,12 @@ export function loadSession(): Promise<Session> {
 
 let inboxRead: Promise<InboxResponse> | null = null;
 let inboxCached: { value: InboxResponse; until: number; revision: number } | null = null;
+const inboxListeners = new Set<() => void>();
+/** Subscribe to every fresh inbox read, so the shell badge and the pages share one request. */
+export function onInboxRead(listener: () => void): () => void {
+  inboxListeners.add(listener);
+  return () => { inboxListeners.delete(listener); };
+}
 function inboxTtl(failed: boolean): number {
   const configured = Number(failed ? import.meta.env?.VITE_INBOX_FAILURE_BACKOFF_MS : import.meta.env?.VITE_INBOX_CACHE_MS);
   return Number.isFinite(configured) && configured >= 1000 && configured <= 300_000 ? configured : failed ? 60_000 : 15_000;
@@ -48,7 +54,7 @@ export function loadInbox(force = false): Promise<InboxResponse> {
   if (inboxCached && inboxCached.revision === revision && Date.now() < inboxCached.until
     && (!force || inboxCached.value.status === "read_failed")) return Promise.resolve(inboxCached.value);
   if (!inboxRead) inboxRead = getJson<InboxResponse>("/api/decisions-inbox")
-    .then(value => { inboxCached = { value, until: Date.now() + inboxTtl(value.status === "read_failed"), revision }; return value; })
+    .then(value => { inboxCached = { value, until: Date.now() + inboxTtl(value.status === "read_failed"), revision }; for (const listener of [...inboxListeners]) listener(); return value; })
     .finally(() => { inboxRead = null; });
   return inboxRead;
 }

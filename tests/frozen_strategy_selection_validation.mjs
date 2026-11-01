@@ -4,7 +4,7 @@ import { DEFAULT_STRATEGY_PROFILES } from '../web/strategy-switch-console/strate
 import { PLATFORM_CONFIG } from '../web/strategy-switch-console/config.js';
 
 const frozen = DEFAULT_STRATEGY_PROFILES.filter(p => p.frozen === true);
-assert.equal(frozen.length, 14);
+assert.equal(frozen.length, 13);
 for (const item of frozen) {
   const platform = item.domain === 'cn_equity' ? 'qmt' : 'ibkr';
   const account = {key:'synthetic', supported_domains:[item.domain]};
@@ -13,6 +13,28 @@ for (const item of frozen) {
   assert.equal(__test.accountDraftStrategyChoices(platform, account, stale).length, 0);
   assert.throws(() => __test.assertStrategyAllowedForAccount({platform, strategy_profile:item.profile, execution_mode:'dry_run'}, account, stale), /frozen/);
 }
+// The bundled Global ETFs policy permits new compatible targets without continuity.
+const globalPolicy = DEFAULT_STRATEGY_PROFILES.find(p => p.profile === 'global_etf_rotation');
+const restored = __test.normalizeStrategyProfilesPayload([globalPolicy]);
+assert.equal(restored[0].runtime_enabled, true);
+assert.equal(restored[0].can_switch_live, true);
+assert.notEqual(restored[0].frozen, true);
+for (const platform of ['ibkr', 'longbridge', 'schwab', 'firstrade']) {
+  const account = {key:'synthetic-new', supported_domains:['us_equity']};
+  assert(__test.accountDraftStrategyChoices(platform, account, restored)
+    .some(p => p.profile === 'global_etf_rotation'));
+  for (const execution_mode of ['live', 'dry_run']) {
+    assert.doesNotThrow(() => __test.assertStrategyAllowedForAccount(
+      {platform, strategy_profile:'global_etf_rotation', execution_mode}, account, restored));
+  }
+}
+assert.throws(() => __test.assertStrategyAllowedForAccount(
+  {platform:'binance', strategy_profile:'global_etf_rotation', execution_mode:'live'},
+  {key:'synthetic-crypto', supported_domains:['crypto']}, restored), /domain/);
+
+// A synthetic freeze retains the independent stale-catalog and continuity tests.
+const originalGlobalFrozen = globalPolicy.frozen;
+globalPolicy.frozen = true;
 const retired = ['global_etf_rotation', 'global_macro_etf_rotation', 'global_etf_confidence_vol_gate'];
 const core = ['tqqq_growth_income', 'soxl_soxx_trend_income', 'russell_top50_leader_rotation', 'ibit_smart_dca', 'nasdaq_sp500_smart_dca'];
 const stale = __test.normalizeStrategyProfilesPayload([...retired, ...core].map(profile => ({profile, domain: 'us_equity', allowed_execution_modes: ['paper', 'dry_run']})));
@@ -94,6 +116,30 @@ for (const [canonical, platform, alias] of [
   assert.equal(result.status, 409, alias);
   assert.equal(aliasWrites, 0, alias);
 }
+globalPolicy.frozen = originalGlobalFrozen;
+// A registered target can select Global ETFs without legacy continuity.
+const restoredKv = new Map([
+  ['strategy_profiles', JSON.stringify(DEFAULT_STRATEGY_PROFILES)],
+  ['account_options', JSON.stringify({ibkr:[]})],
+]);
+const restoredEnv = {STRATEGY_SWITCH_SYNC_TOKEN:'synthetic', STRATEGY_SWITCH_CONFIG:{
+  get:async key => restoredKv.get(key) || null,
+  put:async (key, value) => {restoredKv.set(key, value);},
+}};
+const newTarget = {...payload, target_name:'synthetic-new', account_selector:'SYNTHETIC_NEW',
+  deployment_selector:'synthetic-new', account_scope:'synthetic-new', service_name:'synthetic-new-service'};
+for (const key of ['live_continuity_state', 'live_continuity_baseline_id', 'live_continuity_captured_at']) {
+  delete newTarget[key];
+}
+restoredKv.set('account_options', JSON.stringify({ibkr:[{
+  key:'synthetic-new', label:'Synthetic new target', target_name:newTarget.target_name,
+  account_selector:newTarget.account_selector, deployment_selector:newTarget.deployment_selector,
+  account_scope:newTarget.account_scope, service_name:newTarget.service_name,
+  supported_domains:['us_equity'], default_strategy_profile:'tqqq_growth_income',
+}]}));
+const newTargetResponse = await worker.fetch(request(newTarget), restoredEnv);
+assert.equal(newTargetResponse.status, 200, JSON.stringify(await newTargetResponse.clone().json()));
+assert.equal((await newTargetResponse.json()).account_options_sync.synced, true);
 const unchanged = __test.normalizeStrategyProfilesPayload([
   {profile:'tqqq-growth-income', domain:'us_equity', allowed_execution_modes:['dry_run']},
   {profile:'synthetic-unknown', domain:'us_equity', allowed_execution_modes:['dry_run']},

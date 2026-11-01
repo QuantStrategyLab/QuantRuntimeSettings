@@ -3,6 +3,11 @@ name: Deploy Strategy Switch Console
 on:
   workflow_dispatch:
     inputs:
+      render_and_compare_only:
+        description: "Render the ordinary config and compare with live using GET only; never deploy or sync."
+        required: true
+        type: boolean
+        default: false
       sync_secrets:
         description: "After deploy, synchronize Worker secrets. Disable to retain deployed secrets."
         required: true
@@ -20,7 +25,7 @@ on:
         default: "off"
         options: ["off", "baseline", "candidate"]
       external_flow_enable:
-        description: "Enable the existing external-flow contract while retaining all other settings."
+        description: "Enable the existing external-flow contract on its pinned reviewed release. For current main set the CONSOLE_EXTERNAL_FLOW_ENABLED Environment variable instead."
         required: true
         type: boolean
         default: false
@@ -93,7 +98,7 @@ concurrency:
 jobs:
   backend_only_release:
     if: >-
-      ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      ${{ github.event_name == 'workflow_dispatch' && !inputs.render_and_compare_only && github.ref == 'refs/heads/main' &&
           inputs.backend_only_release && !inputs.read_only_preflight &&
           inputs.private_release_check == 'off' && !inputs.external_flow_enable &&
           !inputs.check_explicit_version_inherit && !inputs.diagnose_restore_target &&
@@ -153,7 +158,7 @@ jobs:
     # uses only the event's main SHA and runs after the bounded metadata read.
     needs: preflight
     if: >-
-      ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      ${{ github.event_name == 'workflow_dispatch' && !inputs.render_and_compare_only && github.ref == 'refs/heads/main' &&
           inputs.read_only_preflight &&
           inputs.private_release_check == 'off' && !inputs.external_flow_enable &&
           !inputs.check_explicit_version_inherit && !inputs.diagnose_restore_target &&
@@ -221,7 +226,7 @@ jobs:
           [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
 
   preflight:
-    if: github.event_name == 'workflow_dispatch' && (inputs.read_only_preflight || inputs.check_explicit_version_inherit)
+    if: github.event_name == 'workflow_dispatch' && !inputs.render_and_compare_only && (inputs.read_only_preflight || inputs.check_explicit_version_inherit)
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 5
@@ -653,7 +658,7 @@ jobs:
 
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && !inputs.backend_only_release && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && !inputs.rollback_to_pre_release && inputs.private_release_check == 'off'
+    if: github.event_name == 'workflow_dispatch' && (inputs.render_and_compare_only || (github.event_name == 'workflow_dispatch' && !inputs.backend_only_release && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && !inputs.rollback_to_pre_release && inputs.private_release_check == 'off'))
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 25
@@ -671,6 +676,7 @@ jobs:
       UX1_EXPECTED_EVIDENCE_HASHES: ${{ vars.UX1_EXPECTED_EVIDENCE_HASHES }}
       ACCOUNT_FACTS_READ_MODEL_ENABLED: ${{ vars.ACCOUNT_FACTS_READ_MODEL_ENABLED }}
       RUNTIME_DAILY_READ_MODEL_ENABLED: ${{ vars.RUNTIME_DAILY_READ_MODEL_ENABLED }}
+      CONSOLE_EXTERNAL_FLOW_ENABLED: ${{ vars.CONSOLE_EXTERNAL_FLOW_ENABLED }}
       STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       STRATEGY_HEALTH_SYNC_TOKEN: ${{ secrets.STRATEGY_HEALTH_SYNC_TOKEN }}
       CONTROL_PLANE_SYNC_TOKEN: ${{ secrets.CONTROL_PLANE_SYNC_TOKEN }}
@@ -693,7 +699,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate render-only inputs
+        if: inputs.render_and_compare_only
+        env:
+          DISPATCH_INPUTS: ${{ toJSON(inputs) }}
+        run: |
+          python3 - <<'PYINPUT'
+          import json, os
+          inputs = json.loads(os.environ["DISPATCH_INPUTS"])
+          disabled = ("sync_secrets", "sync_strategy_profiles", "external_flow_enable",
+                      "read_only_preflight", "diagnose_restore_target", "check_explicit_version_inherit",
+                      "release_frontend_assets", "backend_only_release", "rollback_to_pre_release")
+          if (os.environ["GITHUB_REF"] != "refs/heads/main"
+              or any(inputs.get(key) not in (False, "false") for key in disabled)
+              or inputs.get("source_sha", "") != ""
+              or inputs.get("private_release_check") != "off"
+              or inputs.get("ibkr_candidate_resume") != "off"):
+              raise SystemExit("render_only_incompatible_inputs")
+          PYINPUT
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
+
       - name: Select reviewed historical main source
+        if: ${{ !inputs.render_and_compare_only }}
         env:
           RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
           RELEASE_FRONTEND_ASSETS: ${{ inputs.release_frontend_assets }}
@@ -1061,11 +1089,13 @@ jobs:
           python-version: "3.12"
 
       - name: Setup Node.js
+        if: ${{ !inputs.render_and_compare_only }}
         uses: actions/setup-node@v6
         with:
           node-version: "22"
 
       - name: Build new console and embedded assets
+        if: ${{ !inputs.render_and_compare_only }}
         env:
           CLOUDFLARE_CF_FETCH_ENABLED: "false"
           npm_config_update_notifier: "false"
@@ -1087,13 +1117,14 @@ jobs:
           node tests/binance_receiver_deploy_acceptance_validation.mjs
 
       - name: Build config & assets from platform-config.json
+        if: ${{ !inputs.render_and_compare_only }}
         run: |
           set -euo pipefail
           python3 python/scripts/build_platform_config.py
           python3 python/scripts/build_platform_config.py --check
 
       - name: Overlay fixed reviewed frontend assets
-        if: inputs.release_frontend_assets && inputs.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef'
+        if: inputs.release_frontend_assets && inputs.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef' && !inputs.render_and_compare_only
         run: |
           set -euo pipefail
           integrated="0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a"
@@ -1256,6 +1287,7 @@ jobs:
           printf 'Frontend map: %s; backend source: %s\n' "$blob" "$backend"
 
       - name: Validate Worker assets
+        if: ${{ !inputs.render_and_compare_only }}
         run: |
           set -euo pipefail
           jq empty web/strategy-switch-console/strategy-profiles.example.json
@@ -1264,7 +1296,7 @@ jobs:
           node --check --input-type=module < web/strategy-switch-console/worker.js
 
       - name: Validate fixed backend with reviewed frontend
-        if: inputs.release_frontend_assets
+        if: inputs.release_frontend_assets && !inputs.render_and_compare_only
         run: |
           set -euo pipefail
           node tests/console_v2_assets_validation.mjs
@@ -1278,7 +1310,7 @@ jobs:
           node tests/native_daily_returns_validation.mjs
 
       - name: Validate optional Binance account-facts binding
-        if: env.BINANCE_ACCOUNT_FACTS_BINDING_JSON != ''
+        if: env.BINANCE_ACCOUNT_FACTS_BINDING_JSON != '' && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
@@ -1295,6 +1327,7 @@ jobs:
 
       - name: Prepare Wrangler config
         env:
+          RENDER_AND_COMPARE_ONLY: ${{ inputs.render_and_compare_only }}
           UX1_RESEARCH_JOB_TOKEN: ${{ secrets.UX1_RESEARCH_JOB_TOKEN }}
           RELEASE_FRONTEND_ASSETS: ${{ inputs.release_frontend_assets }}
         run: |
@@ -1303,7 +1336,7 @@ jobs:
             echo "CLOUDFLARE_API_TOKEN or CLOUDFLARE_WRANGLER_CONFIG_TOML is required to deploy the strategy switch console." >&2
             exit 2
           fi
-          if [ -n "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]; then
+          if [ -n "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ] && [ "${RENDER_AND_COMPARE_ONLY:-false}" != true ]; then
             mkdir -p "$HOME/.config/.wrangler/config"
             printf '%s' "$CLOUDFLARE_WRANGLER_CONFIG_TOML" > "$HOME/.config/.wrangler/config/default.toml"
             chmod 600 "$HOME/.config/.wrangler/config/default.toml"
@@ -1398,6 +1431,10 @@ jobs:
           ):
               raise SystemExit("EXECUTION_EVIDENCE_SYNC_TOKEN must be non-empty without surrounding whitespace or HTTP control characters when runtime daily is enabled.")
           runtime_daily_value = "true" if runtime_daily_flag == "true" else "false"
+          external_flow_flag = os.environ.get("CONSOLE_EXTERNAL_FLOW_ENABLED", "")
+          if external_flow_flag not in ("", "true", "false"):
+              raise SystemExit("CONSOLE_EXTERNAL_FLOW_ENABLED must be empty, true, or false.")
+          external_flow_value = "true" if external_flow_flag == "true" else "false"
           text = source.read_text(encoding="utf-8")
           account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
           if account_id and "\naccount_id" not in text:
@@ -1430,6 +1467,19 @@ jobs:
           if text.count(runtime_daily_placeholder) != 1 or "[vars]\n" not in text:
               raise SystemExit("wrangler.toml.example must define RUNTIME_DAILY_READ_MODEL_ENABLED once under [vars].")
           text = text.replace(runtime_daily_placeholder, f'RUNTIME_DAILY_READ_MODEL_ENABLED = "{runtime_daily_value}"', 1)
+
+          external_flow_line = f'CONSOLE_EXTERNAL_FLOW_ENABLED = "{external_flow_value}"'
+          external_flow_default = 'CONSOLE_EXTERNAL_FLOW_ENABLED = "false"'
+          if text.count(external_flow_default) == 1:
+              text = text.replace(external_flow_default, external_flow_line, 1)
+          elif "CONSOLE_EXTERNAL_FLOW_ENABLED" in text:
+              raise SystemExit("wrangler.toml.example must declare CONSOLE_EXTERNAL_FLOW_ENABLED with the closed default value.")
+          else:
+              # Reviewed historical sources predate the declaration, and a variable the
+              # config does not declare is erased by the next ordinary deploy, so render
+              # it into [vars] instead of refusing to publish those pinned sources.
+              # The account-facts check above already requires a [vars] section.
+              text = text.replace("[vars]\n", f"[vars]\n{external_flow_line}\n", 1)
 
           mode = os.environ.get("UX1_PREVIEW_MODE", "")
           if mode and mode != "github_actions":
@@ -1489,8 +1539,16 @@ jobs:
           target.write_text(text, encoding="utf-8")
           PY
 
+      - name: Compare rendered config with live without publishing
+        if: inputs.render_and_compare_only
+        run: python3 scripts/console_config_compare.py
+
+      - name: Remove render-only private config
+        if: always() && inputs.render_and_compare_only
+        run: rm -f web/strategy-switch-console/wrangler.toml
+
       - name: Verify M0 research-ledger ingress token
-        if: github.event_name == 'workflow_dispatch' && inputs.sync_secrets
+        if: github.event_name == 'workflow_dispatch' && inputs.sync_secrets && !inputs.render_and_compare_only
         env:
           # Only the Worker deployment receives this copy. The M0 publisher
           # reads the same value from its separate main-only Environment,
@@ -1504,7 +1562,7 @@ jobs:
           fi
 
       - name: Build reviewed website Worker bundle without publishing
-        if: inputs.release_frontend_assets
+        if: inputs.release_frontend_assets && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         env:
           WRANGLER_SEND_METRICS: "false"
@@ -1513,7 +1571,7 @@ jobs:
           npx wrangler@4.106.0 deploy --dry-run --config wrangler.toml --outdir "$RUNNER_TEMP/console-frontend-bundle"
 
       - name: Publish fixed reviewed website Worker version
-        if: inputs.release_frontend_assets
+        if: inputs.release_frontend_assets && !inputs.render_and_compare_only
         env:
           RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
           IBKR_CANDIDATE_RESUME: ${{ inputs.ibkr_candidate_resume }}
@@ -1873,7 +1931,7 @@ jobs:
           JS
 
       - name: Deploy Worker
-        if: ${{ !inputs.release_frontend_assets }}
+        if: ${{ !inputs.release_frontend_assets && !inputs.render_and_compare_only }}
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
@@ -1881,7 +1939,7 @@ jobs:
 
       # Secret writes require an explicit manual opt-in.
       - name: Sync UX1 research job token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.UX1_PREVIEW_MODE == 'github_actions')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.UX1_PREVIEW_MODE == 'github_actions') && !inputs.render_and_compare_only
         env:
           UX1_RESEARCH_JOB_TOKEN: ${{ secrets.UX1_RESEARCH_JOB_TOKEN }}
         working-directory: web/strategy-switch-console
@@ -1890,91 +1948,91 @@ jobs:
           printf '%s' "$UX1_RESEARCH_JOB_TOKEN" | npx wrangler@4.106.0 secret put UX1_RESEARCH_JOB_TOKEN --config wrangler.toml
 
       - name: Sync optional control-plane ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.CONTROL_PLANE_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.CONTROL_PLANE_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$CONTROL_PLANE_SYNC_TOKEN" | npx wrangler@4.106.0 secret put CONTROL_PLANE_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional AAB validation-only ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.AAB_VALIDATION_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.AAB_VALIDATION_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$AAB_VALIDATION_SYNC_TOKEN" | npx wrangler@4.106.0 secret put AAB_VALIDATION_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional strategy-health ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.STRATEGY_HEALTH_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.STRATEGY_HEALTH_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$STRATEGY_HEALTH_SYNC_TOKEN" | npx wrangler@4.106.0 secret put STRATEGY_HEALTH_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional research-task ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.RESEARCH_TASK_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.RESEARCH_TASK_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$RESEARCH_TASK_SYNC_TOKEN" | npx wrangler@4.106.0 secret put RESEARCH_TASK_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional research-promotion ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.RESEARCH_PROMOTION_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.RESEARCH_PROMOTION_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$RESEARCH_PROMOTION_SYNC_TOKEN" | npx wrangler@4.106.0 secret put RESEARCH_PROMOTION_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional execution-evidence ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.EXECUTION_EVIDENCE_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.EXECUTION_EVIDENCE_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$EXECUTION_EVIDENCE_SYNC_TOKEN" | npx wrangler@4.106.0 secret put EXECUTION_EVIDENCE_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional reconciliation-recovery ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.RECONCILIATION_RECOVERY_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.RECONCILIATION_RECOVERY_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$RECONCILIATION_RECOVERY_SYNC_TOKEN" | npx wrangler@4.106.0 secret put RECONCILIATION_RECOVERY_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional reconciliation-recovery controller token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$RECONCILIATION_RECOVERY_CONTROLLER_TOKEN" | npx wrangler@4.106.0 secret put RECONCILIATION_RECOVERY_CONTROLLER_TOKEN --config wrangler.toml
 
       - name: Sync optional account-facts ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.ACCOUNT_FACTS_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.ACCOUNT_FACTS_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional IBKR account-facts ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$IBKR_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put IBKR_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional Schwab account-facts ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional Firstrade account-facts ingress token
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional Binance account-facts credentials
-        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != '')
+        if: (github.event_name == 'workflow_dispatch' && inputs.sync_secrets) && (env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != '') && !inputs.render_and_compare_only
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
@@ -1983,7 +2041,7 @@ jobs:
           printf '%s' "$BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON --config wrangler.toml
 
       - name: Sync M0 research-ledger ingress token
-        if: github.event_name == 'workflow_dispatch' && inputs.sync_secrets
+        if: github.event_name == 'workflow_dispatch' && inputs.sync_secrets && !inputs.render_and_compare_only
         env:
           M0_RESEARCH_SYNC_TOKEN: ${{ secrets.M0_RESEARCH_SYNC_TOKEN }}
         working-directory: web/strategy-switch-console
@@ -1992,17 +2050,17 @@ jobs:
           printf '%s' "$M0_RESEARCH_SYNC_TOKEN" | npx wrangler@4.106.0 secret put M0_RESEARCH_SYNC_TOKEN --config wrangler.toml
 
       - name: Wait for optional Binance account-facts readiness stability
-        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != '' && !inputs.skip_binance_receiver_checks
+        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != '' && !inputs.skip_binance_receiver_checks && !inputs.render_and_compare_only
         env:
           BINANCE_ACCOUNT_FACTS_DEPLOYMENT_READINESS: "true"
         run: node scripts/verify_binance_account_facts_receiver.mjs
 
       - name: Verify optional Binance account-facts receiver credentials
-        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != '' && !inputs.skip_binance_receiver_checks
+        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != '' && !inputs.skip_binance_receiver_checks && !inputs.render_and_compare_only
         run: node scripts/verify_binance_account_facts_receiver.mjs
 
       - name: Sync bundled strategy profiles to KV
-        if: github.event_name == 'workflow_dispatch' && inputs.sync_strategy_profiles
+        if: github.event_name == 'workflow_dispatch' && inputs.sync_strategy_profiles && !inputs.render_and_compare_only
         run: |
           set -euo pipefail
           if [ -z "${STRATEGY_SWITCH_CONSOLE_URL:-}" ]; then
@@ -2125,7 +2183,7 @@ jobs:
           done
 
   rollback:
-    if: github.event_name == 'workflow_dispatch' && !inputs.backend_only_release && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && inputs.rollback_to_pre_release && !inputs.external_flow_enable && inputs.private_release_check == 'off'
+    if: github.event_name == 'workflow_dispatch' && !inputs.render_and_compare_only && !inputs.backend_only_release && !inputs.read_only_preflight && !inputs.check_explicit_version_inherit && inputs.rollback_to_pre_release && !inputs.external_flow_enable && inputs.private_release_check == 'off'
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 5

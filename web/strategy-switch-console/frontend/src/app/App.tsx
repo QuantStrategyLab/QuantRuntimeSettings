@@ -4,7 +4,7 @@ import { AccountDirectoryContext, NavigateContext, PrefsContext, ScopeContext, t
 import { loadPreferences, resolveTheme, savePreferences, type Preferences } from "../lib/prefs";
 import { getNavigationGuard, parseRoute, pushRoute, type Route } from "./router";
 import { AccessError, getJson, invalidatePrivateSession, postJson } from "../api/client";
-import { loadAccounts, loadInbox, loadSession, type Session } from "../api/endpoints";
+import { loadAccounts, loadInbox, loadSession, onInboxRead, type Session } from "../api/endpoints";
 import type { DirectoryConfig } from "../lib/accountDirectory";
 import { AppShell } from "./AppShell";
 import { ToastProvider } from "../components/Toast";
@@ -49,8 +49,10 @@ export default function App() {
   const [scopeOptions, setScopeOptions] = useState<ScopeOption[]>([]);
   const [scopeStatus, setScopeStatus] = useState<"loading" | "ready" | "error">("loading");
   const [scopeEpoch, setScopeEpoch] = useState(0);
+  const [metaStatus, setMetaStatus] = useState<"ready" | "error">("ready");
   const [persistFailed, setPersistFailed] = useState(false);
   const [todoCount, setTodoCount] = useState<number | null>(null);
+  const [todoStatus, setTodoStatus] = useState<"loading" | "ok" | "read_failed">("loading");
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [bootEpoch, setBootEpoch] = useState(0);
   const routeRef = useRef(route);
@@ -80,7 +82,7 @@ export default function App() {
     return () => mq.removeEventListener?.("change", update);
   }, []);
 
-  // Boot: session, then the todo badge. Auxiliary read failures never block the shell.
+  // Boot reads the session only; every auxiliary read is a separate effect the shell can fail into.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -94,13 +96,6 @@ export default function App() {
         }
         setSession(next);
         setBoot("ready");
-        try {
-          const inbox = await loadInbox();
-          if (cancelled) return;
-          setTodoCount(inbox.status === "read_failed" ? null : inbox.items.filter(item => item.status === "pending").length);
-        } catch {
-          if (!cancelled) setTodoCount(null);
-        }
       } catch (error) {
         if (cancelled) return;
         if (error instanceof AccessError && error.status === 401) setBoot("denied");
@@ -111,6 +106,34 @@ export default function App() {
       cancelled = true;
     };
   }, [bootEpoch]);
+
+  // The to-do badge follows every inbox read, not just the boot one: the To-dos and
+  // Overview pages retry the same cached request, and a badge stuck on the boot
+  // outcome would keep reporting an outage the pages have already recovered from.
+  useEffect(() => {
+    if (boot !== "ready") return;
+    let cancelled = false;
+    const sync = () => {
+      void loadInbox().then(inbox => {
+        if (cancelled) return;
+        const unreadable = inbox.status === "read_failed";
+        setTodoStatus(unreadable ? "read_failed" : "ok");
+        setTodoCount(unreadable ? null : inbox.items.filter(item => item.status === "pending").length);
+      }).catch(() => {
+        if (cancelled) return;
+        setTodoStatus("read_failed");
+        setTodoCount(null);
+      });
+    };
+    setTodoStatus("loading");
+    setTodoCount(null);
+    sync();
+    const unsubscribe = onInboxRead(sync);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [boot]);
 
   // Scope options load on their own so a failure can be retried without re-reading the session or inbox.
   useEffect(() => {
@@ -124,11 +147,19 @@ export default function App() {
         let config: DirectoryConfig | null = null;
         try {
           config = await getJson<DirectoryConfig>("/api/config");
-        } catch { /* The list remains usable when optional account metadata is unavailable. */ }
+        } catch { /* The list stays usable; only the metadata below is unknown. */ }
         if (cancelled) return;
         setDirectory(config);
-        setScopeOptions(accounts.accounts.map(account => ({ alias: account.account_alias, platform: account.platform,
-          paper: config?.accountOptions?.[account.platform]?.find(option => option.key === account.account_alias)?.broker_environment === "paper" })));
+        setMetaStatus(config ? "ready" : "error");
+        setScopeOptions(accounts.accounts.map(account => ({
+          alias: account.account_alias,
+          platform: account.platform,
+          // Without the directory, an account has no declared environment: neither
+          // "paper" nor "live" is known, so no paper badge and no live totals.
+          paper: config
+            ? config.accountOptions?.[account.platform]?.find(option => option.key === account.account_alias)?.broker_environment === "paper"
+            : null,
+        })));
         setUpdatedAt(new Date().toISOString());
         setScopeStatus("ready");
       } catch {
@@ -229,6 +260,7 @@ export default function App() {
     options: scopeOptions,
     setScope: (scope: string) => navigate({ scope }),
     status: scopeStatus,
+    metaStatus,
     retry: retryScope,
   };
 
@@ -242,6 +274,7 @@ export default function App() {
               <AppShell
                 page={route.page}
                 todoCount={todoCount}
+                todoStatus={todoStatus}
                 synthetic={session?.synthetic === true}
                 login={session?.login || null}
                 updatedAt={updatedAt}

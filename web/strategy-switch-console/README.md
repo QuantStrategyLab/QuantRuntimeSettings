@@ -300,6 +300,106 @@ Store the client ID and client secret in Worker secrets.
 
 ## Deploy With Wrangler
 
+The manual deploy workflow's default-off `render_and_compare_only` input uses
+its ordinary `Prepare Wrangler config` step and the same GitHub Environment.
+Comparison requires both `CLOUDFLARE_API_TOKEN` and an explicit
+`CLOUDFLARE_ACCOUNT_ID` in that Environment. `CLOUDFLARE_WRANGLER_CONFIG_TOML`
+alone or an omitted account ID is insufficient; validation fails before the
+first GET.
+Use current `main`, an empty `source_sha`, `private_release_check=off`,
+`ibkr_candidate_resume=off`, and disable all sync, release, rollback and other
+preflight inputs. This mode skips builds, Wrangler commands, credential-file
+installation, receiver checks and every write step, even with conflicting
+inputs (conflicts fail validation). It only renders the private TOML, performs
+Cloudflare GETs, prints a value-redacted per-item comparison and removes the
+rendered file. Neither raw API responses nor config files are uploaded.
+
+The comparison checks settings, active-version bindings, variables, KV IDs,
+Durable Object namespace identity/storage, migration tag, cron, subdomain,
+routes, custom domains and secret name/type inventory. Secret values remain
+unreadable and are retained by ordinary deployment; they are never compared
+against GitHub secret values. Remote-only binding names are also redacted.
+Unknown fields, unsupported template shapes, incomplete inventories, read errors,
+multiple active versions or changed observations produce a nonzero exit code.
+Deployment selection accepts a `deployments` list or a complete `items` list.
+When timestamps are present, it selects the unique newest timezone-aware
+`created_on`; missing/malformed ordering data, duplicate IDs, tied newest times
+or conflicting list keys block comparison. A single entry may omit its timestamp.
+The documented List Deployments endpoint returns the active deployment on its
+first page, so additional history pages do not imply an incomplete inventory.
+Only that endpoint's `deployments` shape may use first-page history metadata
+(or absent/null metadata); cursors and non-first pages still block comparison.
+All binding, namespace, secret, route and domain inventories must remain complete.
+See the [Cloudflare endpoint schema](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/)
+and [pinned Wrangler parser](https://github.com/cloudflare/workers-sdk/blob/wrangler%404.106.0/packages/deploy-helpers/src/deploy/helpers/versions-api.ts).
+
+Read failures retain `status=unreadable`, HTTP status and a nonzero exit code.
+Deployment errors use fixed `deployment_schema:` reason codes: `content_type`,
+`response_limit`, `json`, `envelope`, `pagination`, `result`, `deployment_shape`,
+`deployment_timestamp`, `deployment_ambiguous`, `active_not_single` or `redirect`.
+HTTP errors use `http`; unexpected exceptions retain
+`request_or_schema_unreadable`. Reasons never contain response bodies, URLs,
+provider messages, identifiers or exception text.
+
+Unsupported settings remain unreadable and include only a sanitized `field`
+name: ASCII letters, digits, `_`, `.`, or `-`, with 1–64 characters. Other names
+become `<unsupported-field>`; values and nested content are never emitted.
+This diagnostic does not make the field supported.
+
+The settings response's optional `annotations` object describes the Worker
+version, separately from Worker `tags`. Only string-valued `workers/message`
+(up to 1000 UTF-8 bytes), `workers/tag` (up to 100 bytes), and
+`workers/triggered_by` are recognized. They describe the version message,
+identifier and creation operation; `triggered_by` is set by the server.
+Recognized entries produce `match` rows with
+`classification=deployment_metadata`, an absent rendered value and a redacted
+live value. They are recorded without treating deployment metadata as config
+drift. Omission and an empty object are also accepted; null, malformed objects,
+non-string/invalid values and unknown keys remain unreadable. Unknown annotation
+keys and all annotation values are redacted. Local `annotations` declarations
+and annotations inside runtime settings are still unsupported.
+
+A version tag can be exposed to Worker code through a `version_metadata`
+binding. A tag is therefore accepted as deployment metadata only when both the
+settings and active-version binding inventories are readable and neither has
+that binding; otherwise `annotation_runtime_dependency` blocks comparison.
+Other keys, including `workers/alias` (which can affect version URLs), are never
+implicitly allowed. The existing full-snapshot stability check still blocks
+changes between observations, including metadata changes. See the
+[settings API](https://developers.cloudflare.com/api/typescript/resources/workers/subresources/scripts/subresources/script_and_version_settings/),
+[upload annotations](https://developers.cloudflare.com/workers/configuration/multipart-upload-metadata/)
+and [runtime version metadata](https://developers.cloudflare.com/workers/runtime-apis/bindings/version-metadata/).
+
+An omitted or empty rendered `compatibility_flags` list matches an omitted,
+null or empty list in the settings and active runtime responses. Nonempty flags
+still require an exact match; invalid shapes and missing required dates block
+comparison.
+The template declares placement mode `off`. Pinned Wrangler
+omits placement from the upload for `off` without a hint, matching an absent or
+empty live placement object; smart/targeted placement is not inferred. Pinned
+Wrangler has no top-level `tags` option: such declarations fail closed. With no
+configured environments, its tag transform preserves an empty live tag list;
+nonempty undeclared tags still block comparison. An
+omitted observability config matches absent logging or exactly
+`{"enabled": false}`. Wrangler's implicit disable is a no-op for either state;
+enabled logging or additional observability fields still block comparison.
+
+Undeclared provider settings are reported as unknown unless the pinned Wrangler
+version has a verified preservation rule; absence is not an invented default.
+An omitted `preview_urls` retains the readable live boolean, rather than copying
+`workers_dev`; an unreadable preview setting still blocks the comparison.
+The local `main` filename is a build input, not a deployed code equality check.
+Two matching observations are not an atomic lock or permission to deploy. After
+a clean result, any separately authorized standard deployment must use the same
+reviewed source and unchanged Environment inputs; a mismatch or unreadable item
+requires stopping, not changing production to make the comparison pass.
+
+References: [Cloudflare configuration source of truth](https://developers.cloudflare.com/workers/wrangler/configuration/#source-of-truth),
+[script settings API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/script_and_version_settings/methods/get/),
+[version API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/get/),
+[Durable Object namespaces API](https://developers.cloudflare.com/api/resources/durable_objects/subresources/namespaces/methods/list/),
+and [Version URL settings](https://developers.cloudflare.com/workers/versions-and-deployments/version-urls/).
+
 The manual **Diagnose Active Console Module** workflow performs a read-only
 inspection of the single 100%-active Worker version. Supply the full reviewed
 main commit SHA; the workflow checks the checkout and current remote main before

@@ -31,6 +31,9 @@ export const zh: Record<string, string> = {
   "strategies.binding": "账户绑定",
   "strategies.unbound": "未绑定账户",
   "strategies.unbound_note": "目录项尚未绑定账户；这不表示策略已停用或正在运行。",
+  "strategies.unmatched_title": "目录外策略绑定",
+  "strategies.unmatched_note": "以下账户绑定的策略不在当前策略目录中（可能已停用或改名）。此处只读展示绑定事实，不推断该策略仍可运行。",
+  "strategies.unmatched_profile": "目录中不存在的策略标识",
 };
 export const en: Record<string, string> = {
   "strategies.assignment_unknown": "Account binding unconfirmed",
@@ -64,4 +67,7 @@ export const en: Record<string, string> = {
   "strategies.binding": "Account binding",
   "strategies.unbound": "No account linked",
   "strategies.unbound_note": "This catalog entry has no linked account; it does not mean the strategy is stopped or running.",
+  "strategies.unmatched_title": "Bindings outside the catalog",
+  "strategies.unmatched_note": "These accounts are bound to a strategy the current catalog no longer declares (retired or renamed). The row reports the binding as configured; it does not claim the strategy can still run.",
+  "strategies.unmatched_profile": "Strategy identifier missing from the catalog",
 };

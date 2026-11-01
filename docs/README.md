@@ -16,10 +16,17 @@ The June 2026 design proposed one `platform-config.json` source for platform met
 
 The current package retains configuration and compatibility ownership. Broker credentials, order execution and strategy logic stay in their owning repositories. `RUNTIME_TARGET_JSON` is desired deployment state; settings, CI, lifecycle labels or workflow dispatch do not grant runtime, fund or stage-change authority. The complete [P0–P6 boundary](ARCHITECTURE.md#p0p6-runtime-authority-boundary) remains applicable.
 
+## Conventions
+
+| Document | Scope |
+| --- | --- |
+| [GCP resource naming convention](gcp-resource-naming-convention.md) · [中文](gcp-resource-naming-convention.zh-CN.md) | Names and labels for new GCP resources (buckets, Cloud Run, Scheduler, secrets, service accounts), the Google-managed name allowlist and the tiered policy for existing resources. Convention only; it authorizes no rename, migration or cloud change. |
+
 ## Console by task
 
 - [English operator guide](../web/strategy-switch-console/README.md#reading-by-task) · [中文操作入口](../web/strategy-switch-console/README.zh-CN.md#按任务阅读): installation/configuration, interfaces and operations grouped without moving contract text.
 - [Console API](console-api.md): interface details.
+- [Snapshot completeness](snapshot-completeness.md): cloud archive checks, daily Binance detail, and approval-bound activation.
 - [English fork guide](strategy-switch-fork-guide.md) · [中文 Fork 指南](strategy-switch-fork-guide.zh-CN.md): installation in a separately configured environment.
 - [English permission model](manual-strategy-switch-permission-control.md) · [中文权限说明](manual-strategy-switch-permission-control.zh-CN.md).
 

@@ -89,7 +89,9 @@ PY
 )"
 consumer_repos=()
 if [ -n "${consumer_repos_text}" ]; then
-  mapfile -t consumer_repos <<< "${consumer_repos_text}"
+  while IFS= read -r consumer_repo; do
+    consumer_repos+=("${consumer_repo}")
+  done <<< "${consumer_repos_text}"
 fi
 
 consumer_ref="${QSL_CONSUMER_REF:-${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}}"

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -83,7 +83,7 @@ test("the deploy workflow syncs catalogs only after an explicit manual choice", 
   assert.doesNotMatch(workflow, /git diff --quiet "\$BEFORE" HEAD -- platform-config\.json/);
 });
 
-test("the deploy renderer pins account-facts and runtime-daily flags and fails closed before deploy", () => {
+test("the deploy renderer pins account-facts, runtime-daily and external-flow flags and fails closed before deploy", () => {
   const workflow = readFileSync(new URL("../.github/workflows/deploy-strategy-switch-console.yml", import.meta.url), "utf8");
   const template = new URL("../web/strategy-switch-console/wrangler.toml.example", import.meta.url);
   const heredoc = workflow.match(/          python3 - <<'PY'\n([\s\S]*?)\n          PY\n/);
@@ -95,13 +95,15 @@ test("the deploy renderer pins account-facts and runtime-daily flags and fails c
   assert.match(workflow, /Sync optional IBKR account-facts ingress token/);
   assert.match(workflow, /secret put IBKR_ACCOUNT_FACTS_SYNC_TOKEN/);
   assert.match(workflow, /RUNTIME_DAILY_READ_MODEL_ENABLED: \$\{\{ vars\.RUNTIME_DAILY_READ_MODEL_ENABLED \}\}/);
+  assert.match(workflow, /CONSOLE_EXTERNAL_FLOW_ENABLED: \$\{\{ vars\.CONSOLE_EXTERNAL_FLOW_ENABLED \}\}/);
   assert.match(workflow, /EXECUTION_EVIDENCE_SYNC_TOKEN: \$\{\{ secrets\.EXECUTION_EVIDENCE_SYNC_TOKEN \}\}/);
   assert.match(workflow, /node tests\/console_catalog_release_validation\.mjs/);
 
-  function render({ flag, token, ibkrToken, runtimeDailyFlag, executionEvidenceToken } = {}) {
+  function render({ flag, token, ibkrToken, runtimeDailyFlag, executionEvidenceToken, externalFlowFlag, example } = {}) {
     const directory = mkdtempSync(join(tmpdir(), "qsl-config-render-"));
     try {
-      copyFileSync(template, join(directory, "wrangler.toml.example"));
+      if (example === undefined) copyFileSync(template, join(directory, "wrangler.toml.example"));
+      else writeFileSync(join(directory, "wrangler.toml.example"), example, "utf8");
       const env = { ...process.env, WORKER_DIR: directory, STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: "synthetic-kv-id", CLOUDFLARE_ACCOUNT_ID: "synthetic-account-id" };
       for (const key of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_WRANGLER_CONFIG_TOML", "UX1_RESEARCH_JOB_TOKEN"]) delete env[key];
       env.UX1_PREVIEW_MODE = "";
@@ -118,6 +120,8 @@ test("the deploy renderer pins account-facts and runtime-daily flags and fails c
       else env.RUNTIME_DAILY_READ_MODEL_ENABLED = runtimeDailyFlag;
       if (executionEvidenceToken === undefined) delete env.EXECUTION_EVIDENCE_SYNC_TOKEN;
       else env.EXECUTION_EVIDENCE_SYNC_TOKEN = executionEvidenceToken;
+      if (externalFlowFlag === undefined) delete env.CONSOLE_EXTERNAL_FLOW_ENABLED;
+      else env.CONSOLE_EXTERNAL_FLOW_ENABLED = externalFlowFlag;
       const result = spawnSync("python3", ["-c", renderer], { encoding: "utf8", env });
       const target = join(directory, "wrangler.toml");
       const exists = existsSync(target);
@@ -217,4 +221,37 @@ test("the deploy renderer pins account-facts and runtime-daily flags and fails c
     assert.equal(toml, "");
     assert.doesNotMatch(result.stdout + result.stderr, /synthetic-token/);
   }
+
+  // Without a [vars] entry only the pinned release path can set this flag, and the
+  // next ordinary wrangler deploy erases it. Rendering it from the Environment keeps
+  // enabling external flows a configuration change instead of a stale-source release.
+  for (const [externalFlowFlag, expected] of [["true", "true"], ["false", "false"], ["", "false"], [undefined, "false"]]) {
+    const { result, toml } = render({ externalFlowFlag });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal((toml.match(/^CONSOLE_EXTERNAL_FLOW_ENABLED\s*=/gm) || []).length, 1);
+    assert.equal(parsedConfig(toml).vars.CONSOLE_EXTERNAL_FLOW_ENABLED, expected);
+  }
+
+  for (const externalFlowFlag of ["TRUE", " true", "true ", "enabled"]) {
+    const { result, toml, targetExists } = render({ externalFlowFlag });
+    assert.notEqual(result.status, 0, `accepted invalid external-flow flag ${JSON.stringify(externalFlowFlag)}`);
+    assert.match(result.stderr, /CONSOLE_EXTERNAL_FLOW_ENABLED/);
+    assert.equal(targetExists, false, "an invalid external-flow flag must fail before creating a deploy config");
+    assert.equal(toml, "");
+  }
+
+  // Reviewed pinned sources predate the declaration, so requiring it would stop every
+  // historical release path from publishing; the value has to be injected instead.
+  const historicalExample = '[vars]\nACCOUNT_FACTS_READ_MODEL_ENABLED = "false"\nRUNTIME_DAILY_READ_MODEL_ENABLED = "false"\n';
+  const injected = render({ externalFlowFlag: "true", example: historicalExample });
+  assert.equal(injected.result.status, 0, injected.result.stderr);
+  assert.equal((injected.toml.match(/^CONSOLE_EXTERNAL_FLOW_ENABLED\s*=/gm) || []).length, 1);
+  assert.equal(parsedConfig(injected.toml).vars.CONSOLE_EXTERNAL_FLOW_ENABLED, "true");
+
+  // A template that already states the switch must state it closed, or the checked-in
+  // default stops being the fail-closed value the deploy contract assumes.
+  const openDefault = render({ externalFlowFlag: "false", example: historicalExample + 'CONSOLE_EXTERNAL_FLOW_ENABLED = "true"\n' });
+  assert.notEqual(openDefault.result.status, 0, "accepted a template declaring the switch open");
+  assert.match(openDefault.result.stderr, /CONSOLE_EXTERNAL_FLOW_ENABLED/);
+  assert.equal(openDefault.targetExists, false);
 });

@@ -14,6 +14,7 @@ export const zhCN = {
   "nav.strategies": "策略",
   "nav.health": "运行状态",
   "nav.more": "更多",
+  "nav.todo_unavailable": "待办数量不可读",
 
   "common.loading": "正在读取…",
   "common.retry": "重试",
@@ -154,6 +155,7 @@ export const zhCN = {
   "shell.scope": "账户范围",
   "shell.scope_error": "账户不可用",
   "shell.scope_loading": "正在读取账户…",
+  "shell.scope_meta_error": "无法读取账户名称与模拟/实盘标记。",
   "prefs.save_error": "无法保存偏好，刷新后可能失效。",
   "shell.scope_all": "全部账户",
   "shell.scope_paper_group": "模拟账户",

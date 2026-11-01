@@ -287,6 +287,11 @@ export interface PerformanceCoverage {
   native_daily_only?: boolean;
   /** Calendar cells come from a bounded, forward-filled asset series, not a return chain. */
   asset_change_fallback?: boolean;
+  /** Stored history may start after the requested period; totals then cover no requested range at all. */
+  period_from?: string | null;
+  period_to?: string | null;
+  requested_period_from?: string | null;
+  range_complete?: boolean;
 }
 export interface AccountFreshness {
   platform: string | null;
@@ -610,6 +615,13 @@ export interface StrategySummary extends ReadOnlyProjection {
   configured_accounts_source?: "currentStrategies";
   account_assignment_status?: "complete" | "partial" | "unavailable" | "read_failed";
   account_assignment_read_failures?: { platform: string; account_alias: string; status: "read_failed" | "permission_denied" }[];
+  unmatched_strategy_assignments?: {
+    account_alias: string;
+    platform: string;
+    account_ref?: string;
+    strategy_profile: string;
+    execution_evidence?: AccountExecutionEvidence;
+  }[];
   strategies: {
     profile: string;
     domain: string;

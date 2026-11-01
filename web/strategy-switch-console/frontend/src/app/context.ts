@@ -25,7 +25,8 @@ export function usePrefs(): PrefsContextValue {
 export type ScopeOption = {
   alias: string;
   platform: string;
-  paper: boolean;
+  /** `null` means the account directory was unreadable, so the environment is unknown. */
+  paper: boolean | null;
 };
 
 export interface ScopeContextValue {
@@ -33,6 +34,8 @@ export interface ScopeContextValue {
   options: ScopeOption[];
   setScope: (scope: string) => void;
   status: "loading" | "ready" | "error";
+  /** Whether the account metadata behind names and paper/live labels was read. */
+  metaStatus: "ready" | "error";
   retry: () => void;
 }
 
@@ -41,6 +44,7 @@ export const ScopeContext = createContext<ScopeContextValue>({
   options: [],
   setScope: () => {},
   status: "ready",
+  metaStatus: "ready",
   retry: () => {},
 });
 

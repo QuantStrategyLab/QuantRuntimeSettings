@@ -63,6 +63,24 @@ assert.equal((await summarize({ execution_mode: "live", dry_run_only: false })).
 assert.equal((await summarize(live, { ...profile, live_continuity: { eligible: false } })).continuation_reason, null);
 assert.equal((await summarize(live, { ...profile, live_continuity: { eligible: true, allowed_platforms: ["other"] } })).continuation_reason, null);
 
+// A configured alias belongs to its canonical catalog entry.
+const dcaCatalog = [{ profile: "ibit_smart_dca", domain: "crypto", allowed_execution_modes: ["paper", "dry_run"] }];
+const aliasAccount = { platform: "binance", key: "synthetic-alias" };
+const aliasBody = await strategySummary(request, {}, { ...deps, profiles: async () => dcaCatalog },
+  [aliasAccount], { binance: { [aliasAccount.key]: { strategy_profile: "bitcoin_etf_smart_dca" } } });
+assert.equal(aliasBody.strategies[0].configured_accounts[0]?.account_alias, aliasAccount.key,
+  "legacy alias still resolves to the catalog profile");
+assert.deepEqual(aliasBody.unmatched_strategy_assignments, []);
+
+// A binding the catalog no longer declares is reported, never silently dropped.
+const retiredAccount = { platform: "binance", key: "synthetic-retired" };
+const retiredBody = await strategySummary(request, {}, { ...deps, profiles: async () => dcaCatalog },
+  [retiredAccount], { binance: { [retiredAccount.key]: { strategy_profile: "retired_synthetic_profile" } } });
+assert.equal(retiredBody.strategies[0].configured_accounts.length, 0);
+assert.equal(retiredBody.unmatched_strategy_assignments.length, 1);
+assert.equal(retiredBody.unmatched_strategy_assignments[0].account_alias, retiredAccount.key);
+assert.equal(retiredBody.unmatched_strategy_assignments[0].strategy_profile, "retired_synthetic_profile");
+
 // Render the actual card and dictionaries, including compatibility with old responses.
 const directory = await mkdtemp(join(tmpdir(), "strategy-execution-"));
 try {
@@ -135,6 +153,15 @@ try {
     assert.ok(page.includes(labels.source), "page-level execution source note");
     assert.ok(page.includes(labels.live));
     assert.doesNotMatch(page, /synthetic-rotation|strategies\.execution\./, "page copy is fully translated");
+    const pageWithRetiredBinding = ui.renderCatalog(language, {
+      status: "ok", as_of: null, strategies: [card(actual)],
+      unmatched_strategy_assignments: [{ account_alias: account.key, platform: account.platform,
+        strategy_profile: "retired_synthetic_profile" }],
+    });
+    assert.ok(pageWithRetiredBinding.includes(language === "zh" ? "目录外策略绑定" : "Bindings outside the catalog"),
+      "a binding outside the catalog gets its own visible section");
+    assert.ok(pageWithRetiredBinding.includes("retired_synthetic_profile"),
+      "the raw profile identifier stays visible");
   }
 } finally { await rm(directory, { recursive: true, force: true }); }
 console.log("console_strategy_execution_validation: PASS");

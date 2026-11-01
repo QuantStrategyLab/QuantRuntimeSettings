@@ -155,17 +155,19 @@ export const DEFAULT_STRATEGY_PROFILES = [
     "label_en": "Global ETF Rotation",
     "label_zh": "全球ETF轮动",
     "domain": "us_equity",
-    "runtime_enabled": false,
+    "runtime_enabled": true,
     "income_layer_enabled": true,
     "option_overlay_enabled": false,
     "combo_enabled": false,
-    "frozen": true,
-    "lifecycle_stage": "research_active",
-    "can_switch_live": false,
+    "frozen": false,
+    "lifecycle_stage": "runtime_enabled",
+    "can_switch_live": true,
     "allowed_execution_modes": [
-      "dry_run"
+      "paper",
+      "dry_run",
+      "live"
     ],
-    "blocked_live_reason": "research_backtest_only_requires_evidence_package",
+    "blocked_live_reason": "",
     "live_continuity": {
       "eligible": true,
       "allowed_platforms": [

@@ -1,3 +1,20 @@
+import {
+  decisionActionability,
+  decisionActionList,
+  decisionAllowedActions,
+  decisionEvidenceSummary,
+  decisionExpiry,
+  decisionIdFor,
+  decisionOperationReference,
+  decisionRecordAction,
+  decisionRecordDecidedAt,
+  decisionRecorded,
+  decisionRevision,
+  decisionRiskImpact,
+  decisionSubjectId,
+  decisionTransition,
+} from "./decision_contract.js";
+
 /** Display-safe projections. Legacy evidence payloads are never display text. */
 export const SETTINGS_FIELDS = {
   strategy_profile: "strategy",
@@ -46,7 +63,7 @@ export function settingsDiff(settings) {
 }
 export function decisionFields(entry, category, now = Date.now()) {
   const data = entry.candidate || entry.recovery || entry;
-  const expires = time(data.expires_at || entry.expires_at);
+  const expires = decisionExpiry(entry, data);
   const freshness =
     entry.freshness?.status ||
     entry.freshness?.data_status ||
@@ -59,7 +76,7 @@ export function decisionFields(entry, category, now = Date.now()) {
     data.human_decision
   );
   const expired =
-    (expires && Date.parse(expires) < now) ||
+    (expires && Date.parse(expires) <= now) ||
     ["stale", "expired"].includes(freshness);
   const diff = [];
   const row = (field, before, after, affects = category !== "paper_account_application") => {
@@ -159,22 +176,60 @@ export function decorateQueue(payload, field, category) {
 export function canonicalItem(entry, category) {
   category = decisionCategory(entry, category);
   const data = entry.candidate || entry.recovery || entry;
+  const subjectId = decisionSubjectId(category, data, entry);
   const id =
     category === "credential_maintenance"
       ? `credential:${data.id}`
-      : `${category}:${data.candidate_id || data.recovery_id || data.ticket_id}`;
+      : decisionIdFor(category, subjectId) || `${category}:${data.candidate_id || data.recovery_id || data.ticket_id}`;
+  const binding = entry.decision_binding || null;
+  const fields = decisionFields(entry, category);
+  const actionability = decisionActionability(entry, data, category);
+  const recorded = decisionRecorded(entry, data, category);
+  const action = decisionRecordAction(entry, data, category);
+  const allowed = decisionAllowedActions(entry, data, category, actionability);
+  const authority = entry.decision_authority;
+  const tier = data.confirmation_risk_profile || data.suggested_risk_profile || null;
   return {
     id,
     short_id: shortId(id),
-    ...decisionFields(entry, category),
+    ...fields,
     ...(category === "paper_account_application" ? {
-      status: entry.application || entry.state === "human_accepted" ? "decided" : decisionFields(entry, category).status,
+      status: entry.application || entry.state === "human_accepted" ? "decided" : fields.status,
       application_status: entry.application?.status || null,
     } : {}),
+    decision_id: id,
+    revision: decisionRevision(binding, id),
+    transition: decisionTransition(category, data, entry, action),
+    actionable: actionability.actionable,
+    blocking_reason_codes: actionability.blocker_codes,
+    allowed_actions: decisionActionList(category, allowed),
+    request_id_required: allowed.length > 0,
+    action_endpoint: allowed.length
+      ? `/api/decisions/${encodeURIComponent(id)}/actions`
+      : null,
+    decision_state: {
+      status: recorded ? "decided" : "pending",
+      action: recorded ? action : null,
+      decided_at: recorded ? decisionRecordDecidedAt(entry, data) : null,
+    },
+    risk_impact: decisionRiskImpact(category, data, fields.affects_live, tier),
+    evidence_summary: decisionEvidenceSummary(entry, data, category, binding),
+    operation_reference: decisionOperationReference(entry, category, subjectId),
+    decision_authority: authority ? {
+      material_sha256:
+        typeof authority.material_sha256 === "string" && /^[0-9a-f]{64}$/.test(authority.material_sha256)
+          ? authority.material_sha256
+          : null,
+      expires_at: time(authority.expires_at),
+      eligible: typeof authority.eligible === "boolean" ? authority.eligible : null,
+      blocked: authority.blocked === true,
+      unavailable: authority.unavailable === true,
+      source: authority.source || "durable_human_decision_material",
+    } : null,
     title_key: `decisions.${category}`,
     account_alias: data.account_key || data.confirmation_account_key || null,
     platform: scalar(data.platform || data.confirmation_target_platform),
-    decision_binding: entry.decision_binding || null,
+    decision_binding: binding,
     ...(category === "reconciliation_recovery" && entry.presentation ? { presentation: entry.presentation } : {}),
     ...(category === "reconciliation_recovery" && data.mode === "initial_enrollment" ? {
       initial_enrollment: { facts: data.facts, candidate_sha256: data.candidate_sha256, facts_sha256: data.facts_sha256, readiness: data.readiness, blocker_codes: data.blocker_codes },

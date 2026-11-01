@@ -63,6 +63,7 @@ for (const step of writers) {
     for (const optedIn of [false, true]) {
       const expression = gate.replaceAll("github.event_name", JSON.stringify(event))
         .replaceAll(`inputs.${input}`, String(optedIn))
+        .replaceAll("inputs.render_and_compare_only", "false")
         .replace(/env\.[A-Z0-9_]+/g, "'github_actions'");
       assert.match(expression, /^[\w\s'"=!&|().-]+$/, "only the known gate grammar is evaluated");
       assert.equal(Function(`return (${expression})`)(), event === "workflow_dispatch" && optedIn, `${name}: ${event}, ${input}=${optedIn}`);
@@ -130,6 +131,7 @@ assert.deepEqual([...preflight.matchAll(/^      ([A-Z_]+):/gm)].map(match => mat
 const schemaStep = steps.find(s => s.startsWith("Read fixed frontend baseline schema categories\n"));
 assert.ok(schemaStep && preflight.includes("Read fixed frontend baseline schema categories"));
 assert.match(schemaStep, /^        if: inputs\.release_frontend_assets$/m);
+assert.equal(evaluate(preflightGate, { read_only_preflight: true, release_frontend_assets: true, render_and_compare_only: true }), false, "render-only skips the schema diagnostic's entire preflight job");
 const schemaScript = schemaStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1].split("\n").map(l=>l.slice(10)).join("\n");
 const runSchema = new (Object.getPrototypeOf(async function(){}).constructor)("process","fetch","console",schemaScript);
 let schemaCases = 0;
@@ -410,7 +412,7 @@ for (const delta of [
 // are synthetic; hash-object validates the real reviewed map bytes.
 const overlayStep = steps.find(step => step.startsWith("Overlay fixed reviewed frontend assets\n"));
 assert.ok(overlayStep);
-assert.match(overlayStep, /^        if: inputs\.release_frontend_assets && inputs\.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef'$/m);
+assert.match(overlayStep, /^        if: inputs\.release_frontend_assets && inputs\.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef' && !inputs\.render_and_compare_only$/m);
 assert.ok(deploy.indexOf("Build config & assets") < deploy.indexOf("Overlay fixed reviewed frontend assets"));
 assert.ok(deploy.indexOf("Overlay fixed reviewed frontend assets") < deploy.indexOf("Validate fixed backend with reviewed frontend"));
 assert.match(deploy, /Validate fixed backend with reviewed frontend[\s\S]*?node tests\/console_v2_assets_validation\.mjs\n          node tests\/console_v2_worker_validation\.mjs/);
@@ -543,11 +545,17 @@ for (const frontendMode of ["false", "true"]) {
     const text = readFileSync(join(temp, "wrangler.toml"), "utf8");
     const parsed = spawnSync("python3", ["-c", "import json,sys,tomllib;print(json.dumps(tomllib.loads(sys.stdin.read())))"], { input: text, encoding: "utf8" });
     assert.equal(parsed.status, 0, parsed.stderr);
-    renderedConfigs.push(JSON.parse(parsed.stdout));
+    const rendered = JSON.parse(parsed.stdout);
+    renderedConfigs.push(rendered);
     if (frontendMode === "true") {
       assert.match(text, /\[vars\]\n\n\[triggers\]/);
       assert.doesNotMatch(text, /ACCOUNT_FACTS_READ_MODEL_ENABLED =/);
-    } else assert.match(text, /ACCOUNT_FACTS_READ_MODEL_ENABLED = "true"/);
+    } else {
+      assert.match(text, /ACCOUNT_FACTS_READ_MODEL_ENABLED = "true"/);
+      // A normal wrangler deploy uploads only what wrangler.toml declares, so the
+      // external-flow switch has to be in the rendered config to survive one.
+      assert.equal(rendered.vars.CONSOLE_EXTERNAL_FLOW_ENABLED, "false", "an ordinary deploy must carry the external-flow switch");
+    }
     assert.ok(!result.stdout.includes("SYNTHETIC_CONFIG_SENTINEL") && !result.stderr.includes("SYNTHETIC_CONFIG_SENTINEL"));
     configCases++;
   } finally { rmSync(temp, { recursive: true, force: true }); }
@@ -559,11 +567,11 @@ assert.deepEqual(frontendWithoutVars, normalWithoutVars, "namespace, DO migratio
 const publishStep = steps.find(s => s.startsWith("Publish fixed reviewed website Worker version\n"));
 const bundleStep = steps.find(s => s.startsWith("Build reviewed website Worker bundle without publishing\n"));
 const normalDeploy = steps.find(s => s.startsWith("Deploy Worker\n"));
-assert.match(normalDeploy, /if: \$\{\{ !inputs\.release_frontend_assets \}\}/);
+assert.match(normalDeploy, /if: \$\{\{ !inputs\.release_frontend_assets && !inputs\.render_and_compare_only \}\}/);
 assert.match(normalDeploy, /npx wrangler@4\.106\.0 deploy --config wrangler\.toml\n/);
 assert.match(bundleStep, /WRANGLER_SEND_METRICS: "false"/);
 assert.match(bundleStep, /deploy --dry-run --config wrangler\.toml --outdir/);
-for (const s of [bundleStep,publishStep]) assert.match(s, /^        if: inputs\.release_frontend_assets$/m);
+for (const s of [bundleStep,publishStep]) assert.match(s, /^        if: inputs\.release_frontend_assets && !inputs\.render_and_compare_only$/m);
 assert.doesNotMatch(publishStep, /npx|triggers deploy|secret put|script-settings|\/schedules|\/routes/);
 assert.match(workflow, /group: strategy-switch-console-deploy\n  cancel-in-progress: false/);
 const releaseScript = publishStep.match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1].split("\n").map(l=>l.slice(10)).filter(l=>!l.startsWith("import ")).join("\n");

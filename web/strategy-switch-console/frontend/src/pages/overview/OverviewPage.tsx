@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type {
   AssetsResponse,
+  CalendarCell,
   CalendarResponse,
   HistoryCoverage,
   InboxResponse,
@@ -55,6 +56,32 @@ function localToday(): string {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/** Cells the API actually observed on a dated day that is not ahead of this clock. */
+function datedValueCells(cells: CalendarCell[]): (CalendarCell & { date: string })[] {
+  const today = localToday();
+  return cells
+    .filter((cell): cell is CalendarCell & { date: string } =>
+      typeof cell.date === "string" && cell.date <= today && (cell.amount !== null || cell.return_percent !== null));
+}
+
+/**
+ * A calendar request is one month wide, so an empty current month is a request
+ * boundary rather than evidence that no daily change exists: `as_of` names the
+ * cohort's newest observation whatever month was asked for. Only an earlier
+ * month is returned, so the follow-up can never re-resolve to its own month.
+ */
+export function carryoverMonthForLatestDay(data: CalendarResponse): { year: number; month: number } | null {
+  if (data.month === null || datedValueCells(data.cells).length > 0) return null;
+  const latest = /^(\d{4})-(\d{2})-\d{2}$/.exec(data.as_of ?? "");
+  if (!latest) return null;
+  const year = Number(latest[1]);
+  const month = Number(latest[2]);
+  if (month < 1 || month > 12) return null;
+  const requested = `${data.year}-${String(data.month).padStart(2, "0")}`;
+  const target = `${year}-${String(month).padStart(2, "0")}`;
+  return target < requested ? { year, month } : null;
 }
 
 const usable = renderableStatus;
@@ -133,12 +160,27 @@ function ReturnKpi({ state }: { state: Api<SummaryResponse> }) {
     footer={footer} />;
 }
 
-function LastDayKpi({ state }: { state: Api<CalendarResponse> }) {
+/** Latest daily change, following the cohort forward one month when the asked month is empty. */
+function LastDayKpi({ state, carryover, carryoverState }: {
+  state: Api<CalendarResponse>;
+  carryover?: { year: number; month: number } | null;
+  carryoverState?: AsyncState<CalendarResponse | null>;
+}) {
   const t = useT();
   const title = t("overview.last_day_change");
-  if (state.phase === "loading") return kpiLoading(title);
-  if (state.phase === "error") return <KpiCard title={title} value={<KpiState status="read_failed" />} sub={t("state.read_failed")} />;
-  const data = state.data;
+  // The earlier month is consulted only once it is actually requested; a failed
+  // follow-up leaves the month that was asked for on screen. Anything still
+  // unresolved reads as in flight, because the requested month is already known
+  // to be empty and rendering it would flash an unknown value for one frame.
+  let active: AsyncState<CalendarResponse> = state;
+  if (carryover && carryoverState?.phase !== "error") {
+    active = carryoverState?.phase === "ready" && carryoverState.data
+      ? { phase: "ready", data: carryoverState.data, error: null }
+      : { phase: "loading", data: null, error: null };
+  }
+  if (active.phase === "loading") return kpiLoading(title);
+  if (active.phase === "error") return <KpiCard title={title} value={<KpiState status="read_failed" />} sub={t("state.read_failed")} />;
+  const data = active.data;
   if (!usable(data.status)) {
     return <KpiCard title={title} value={<KpiState status={data.status} />}
       sub={reasonText(t, data.unavailable_reason) || t(`state.${data.status}`)}
@@ -149,10 +191,7 @@ function LastDayKpi({ state }: { state: Api<CalendarResponse> }) {
   const footer = statusBadge || data.as_of
     ? <>{statusBadge}{data.as_of && <AsOfStamp value={data.as_of} />}</>
     : undefined;
-  const today = localToday();
-  const cell = data.cells
-    .filter((item): item is typeof item & { date: string } => Boolean(item.date) && item.date! <= today && (item.amount !== null || item.return_percent !== null))
-    .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+  const cell = datedValueCells(data.cells).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
   if (!cell) {
     return <KpiCard title={title} value={<span className="flat">—</span>}
       sub={reasonText(t, data.unavailable_reason) || t("state.no_data")} footer={footer} />;
@@ -194,6 +233,7 @@ function TodosKpi({ state }: { state: Api<InboxResponse> }) {
   );
 }
 
+/** Accounts with a run record on the New York day the API reports. */
 function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   const t = useT();
   const navigate = useNavigate();
@@ -227,9 +267,13 @@ function RunsKpi({ state }: { state: Api<TodayRunSummary> }) {
   // On a weekend, absent records are the schedule, not degraded coverage.
   const nonTrading = weekendWithoutScheduledRuns(data);
   // The footer badge already names a non-trading day; the sub-line only adds the
-  // missing-record reason on a normal business day.
+  // missing-record reason on a normal business day. The session comes from the
+  // API because a browser weekday can disagree with New York, and only an
+  // explicit trading day may be called a business day: an older payload without
+  // the field must not assert a trading status the API never reported.
+  const dateLabelKey = data.market_session === "trading_day" ? "overview.business_date" : "overview.calendar_date";
   const sub = denominatorKnown
-    ? <>{t("overview.business_date", { value: data.date })}
+    ? <>{t(dateLabelKey, { value: data.date })}
         {!nonTrading && observed === 0 && <> · {t("overview.no_records_for_day")}</>}</>
     : t("state.no_data");
   return (
@@ -434,9 +478,18 @@ export default function OverviewPage() {
   const refresh = () => setEpoch(value => value + 1);
 
   const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
   const assets = useApi(() => loadPerformanceAssets(scope, RANGE), [scope, epoch]);
   const summary = useApi(() => loadPerformanceSummary(scope, RANGE), [scope, epoch]);
-  const calendar = useApi(() => loadPerformanceCalendar(scope, RANGE, now.getFullYear(), now.getMonth() + 1), [scope, epoch]);
+  const calendar = useApi(() => loadPerformanceCalendar(scope, RANGE, currentYear, currentMonth), [scope, epoch]);
+  const latestDayCarryover = calendar.phase === "ready" ? carryoverMonthForLatestDay(calendar.data) : null;
+  const calendarCarryover = useApi(
+    () => (latestDayCarryover
+      ? loadPerformanceCalendar(scope, RANGE, latestDayCarryover.year, latestDayCarryover.month)
+      : Promise.resolve(null)),
+    [scope, epoch, latestDayCarryover ? `${latestDayCarryover.year}-${latestDayCarryover.month}` : ""],
+  );
   const inbox = useApi(() => loadInbox(epoch > 0), [epoch]);
   const todayRuns = useApi(() => loadTodayRuns(), [epoch]);
   const returns = useApi(() => loadPerformanceReturns(scope, RANGE), [scope, epoch]);
@@ -455,7 +508,7 @@ export default function OverviewPage() {
         <div className="overview-primary-kpi"><AssetKpi state={assets} /></div>
         <div className="overview-secondary-kpis">
           <ReturnKpi state={summary} />
-          <LastDayKpi state={calendar} />
+          <LastDayKpi state={calendar} carryover={latestDayCarryover} carryoverState={calendarCarryover} />
           <TodosKpi state={inbox} />
           <RunsKpi state={todayRuns} />
         </div>

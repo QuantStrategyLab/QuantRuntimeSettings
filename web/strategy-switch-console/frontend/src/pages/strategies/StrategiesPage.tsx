@@ -130,6 +130,7 @@ function StrategyCard({ strategy, assignmentKnown = true }: { strategy: Strategy
 function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
   const t = useT();
   const names = useDisplayNames();
+  const navigate = useNavigate();
   const state = useApi(loadStrategySummary, [refreshEpoch]);
   if (state.phase === "loading") {
     return (
@@ -159,6 +160,7 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
     strategy.configured_accounts.some(account => accountExecutionMode(account, names.config) === "live"));
   const configured = summary.strategies.filter(strategy => strategy.configured_accounts.length > 0);
   const catalogOnly = summary.strategies.filter(strategy => strategy.configured_accounts.length === 0);
+  const unmatched = summary.unmatched_strategy_assignments || [];
   return (
     <section className="section-stack">
       <div className="catalog-meta">
@@ -167,6 +169,29 @@ function CatalogTab({ refreshEpoch }: { refreshEpoch: number }) {
       </div>
       {/* Said once, in the catalogue: two different sources, neither is a run result. */}
       <p className="card-note strategy-domain-note">{t("strategies.domain_note")}</p>
+      {unmatched.length > 0 && (
+        <section className="strategy-section" data-binding="unmatched">
+          <div className="strategy-section-head">
+            <h2 className="strategy-section-title">{t("strategies.unmatched_title")}</h2>
+            <span className="card-note">{t("strategies.section_count", { count: unmatched.length })}</span>
+          </div>
+          <p className="card-note" role="status">{t("strategies.unmatched_note")}</p>
+          <ul className="strategy-unmatched">
+            {unmatched.map(item => (
+              <li key={accountKey(item)}>
+                <button
+                  type="button"
+                  className="strategy-account-link"
+                  onClick={() => navigate({ page: "accounts", account: accountKey(item) })}
+                >
+                  {names.platform(item.platform)} · {names.account(item.account_alias, item.platform)}
+                </button>
+                <code title={t("strategies.unmatched_profile")}>{item.strategy_profile}</code>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {hasLive && (
         <div className="card-note strategy-live-note">
           <Badge tone="warn">{t("strategies.execution.live")}</Badge>

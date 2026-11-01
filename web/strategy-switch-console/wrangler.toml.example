@@ -2,6 +2,11 @@ name = "qsl-strategy-switch-console"
 main = "worker.js"
 compatibility_date = "2026-06-08"
 workers_dev = true
+# Preserve the no-placement state (Wrangler omits placement for mode=off).
+placement = { mode = "off" }
+# No environment grouping; Wrangler preserves the empty live tag inventory.
+# Top-level tags is not a supported Wrangler option.
+# Keep observability omitted so logging remains disabled.
 
 # Set these with `wrangler secret put ...` instead of committing values:
 # - GITHUB_CLIENT_ID
@@ -33,6 +38,9 @@ ACCOUNT_FACTS_READ_MODEL_ENABLED = "false"
 # The deploy workflow renders this from the runtime-strategy-switch Environment value.
 # Keep daily runtime read access disabled unless explicitly enabled for deployment.
 RUNTIME_DAILY_READ_MODEL_ENABLED = "false"
+# The deploy workflow renders this from the runtime-strategy-switch Environment value.
+# Keep the checked-in default closed; use the Environment value as the deployment source of truth.
+CONSOLE_EXTERNAL_FLOW_ENABLED = "false"
 # Website visibility only; does not disable trading or remove platform support.
 # Comma-separated platform IDs. Set to an empty string to show all platforms.
 STRATEGY_SWITCH_HIDDEN_PLATFORMS = "qmt"
