@@ -183,8 +183,9 @@ const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
 const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
-const CURRENT_STRATEGIES_CACHE_TTL_MS = 5_000;       // 5 sec — rapid refresh during active development
+const CURRENT_STRATEGIES_CACHE_TTL_MS = 60_000;      // 60 sec — was 5 sec "active development" default; 5 sec drove ~600 KV writes/day at quota-critical traffic
 const CURRENT_STRATEGIES_STALE_TTL_MS = 600_000;       // 10 min — return stale + background refresh
+const CURRENT_STRATEGIES_KV_BUMP_MS = 600_000;       // 10 min — min interval for quota-limited ts-only cache refreshes
 const GITHUB_API_TIMEOUT_MS = 8000;
 const GITHUB_LOGIN_REQUEST_TIMEOUT_MS = 20000;
 const UX1_CALCULATOR_DEADLINE_MS = 30000;
@@ -1085,10 +1086,7 @@ export default {
     try {
       const accountConfig = await loadAccountOptionsConfig(env);
       const strategies = await loadCurrentStrategiesSafely(accountConfig.options, env);
-      await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
-        ts: Date.now(),
-        data: strategies,
-      });
+      await writeCurrentStrategiesCache(env, strategies, Date.now());
     } catch {
       // Silently skip — next user request will populate cache via SWR
     }
@@ -6323,6 +6321,25 @@ let _memCurrentStrategies = null;
 let _memCurrentStrategiesTs = 0;
 let _memRefreshing = false;  // prevent concurrent background refreshes
 
+// KV free tier caps writes at 1,000/day account-wide, and every /api/config
+// request can drive a refresh, so the cache write is paid for only when the
+// payload changed or the stored entry needs its ts bumped to stay inside the
+// stale window that cold isolates serve from.
+let _lastKvCachePayloadJson = null;
+
+async function writeCurrentStrategiesCache(env, payload, ts) {
+  const payloadJson = JSON.stringify(payload);
+  if (payloadJson !== _lastKvCachePayloadJson) {
+    await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, { ts, data: payload });
+    _lastKvCachePayloadJson = payloadJson;
+    return;
+  }
+  const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+  if (cached?.ts && ts - cached.ts < CURRENT_STRATEGIES_KV_BUMP_MS) return;
+  await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, { ts, data: payload });
+  _lastKvCachePayloadJson = payloadJson;
+}
+
 async function configPayload(request, env, ctx) {
   const session = await readSession(request, env);
   const meta = await loadPlatformMeta(env);
@@ -6386,10 +6403,7 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
         const fresh = await loadCurrentStrategiesSafely(accountOptions, env);
         _memCurrentStrategies = fresh;
         _memCurrentStrategiesTs = Date.now();
-        await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
-          ts: _memCurrentStrategiesTs,
-          data: fresh,
-        });
+        await writeCurrentStrategiesCache(env, fresh, _memCurrentStrategiesTs);
       } catch { /* keep stale data */ }
       finally { _memRefreshing = false; }
     })());
@@ -6401,10 +6415,7 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
     _memCurrentStrategies = currentStrategies;
     _memCurrentStrategiesTs = Date.now();
     if (hasConfigStore(env) && ctx) {
-      ctx.waitUntil(writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
-        ts: _memCurrentStrategiesTs,
-        data: currentStrategies,
-      }));
+      ctx.waitUntil(writeCurrentStrategiesCache(env, currentStrategies, _memCurrentStrategiesTs));
     }
   }
 

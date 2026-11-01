@@ -1517,7 +1517,9 @@ assert.equal(afterLbRefresh.accounts.find((item) => item.platform === "longbridg
 // Cross-day binding rotation: old daily rows stay stored but are excluded from
 // the current account history for both platforms.
 const previousDayStart = new Date(Date.now() - 86400000);
-previousDayStart.setUTCHours(10, 0, 0, 0);
+// 23:00 UTC keeps the previous-day row inside the Worker's 36h observation window at
+// any run hour; 10:00 made this case fail every day between 22:00 and 24:00 UTC.
+previousDayStart.setUTCHours(23, 0, 0, 0);
 const previousDayStartedAt = previousDayStart.toISOString().replace(/\.\d{3}Z$/, "Z");
 const previousDayFinishedAt = new Date(previousDayStart.getTime() + 60000).toISOString().replace(/\.\d{3}Z$/, "Z");
 const rotationLb = {
