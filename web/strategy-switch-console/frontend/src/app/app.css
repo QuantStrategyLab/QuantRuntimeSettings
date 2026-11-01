@@ -212,7 +212,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .topbar .spacer { flex: 1 1 auto; }
 .topbar-updated { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
 
-.topnav { display: flex; align-items: stretch; gap: 2px; height: 64px; min-width: 0; }
+.topnav { display: flex; flex-shrink: 0; align-items: stretch; gap: 2px; height: 64px; min-width: 0; }
 .topnav-item {
   display: inline-flex;
   align-items: center;
@@ -1021,8 +1021,13 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* Tablet: the header keeps every destination, but icon-only so the scope and
    session controls retain their targets. Each button keeps its accessible name. */
+@media (max-width: 1700px) and (min-width: 769px) {
+  .topbar { flex-wrap: wrap; gap: 8px 16px; padding-block: 8px; }
+  .topnav { order: 1; flex-basis: 100%; height: 44px; }
+}
 @media (max-width: 1180px) and (min-width: 769px) {
   .topbar { gap: 10px; padding: 0 16px; }
+  .topbar-updated { display: none; }
   .topnav-item { width: 44px; padding: 0; justify-content: center; }
   .topnav-label { display: none; }
 }
