@@ -665,13 +665,23 @@ Failures contain only `{ok: false, error: <fixed code>}`: 400
 with the state indicating uncertainty. Reason codes are `proxy_unconfirmed`,
 `maintenance_revision_conflict`, `provider_failed`, or null.
 
+The browser API adapter in `frontend/src/api/endpoints.ts` distinguishes
+operation reason codes from HTTP error codes and uses the same bounded ID and
+calendar validation as the backend. It rejects unexpected response fields and
+preserves unknown outcomes. A `403 step_up_invalid` on these fixed POST routes
+is a request error, so the owner can correct the factor without losing login;
+401 and other permission failures still invalidate the private session. This
+backend PR includes those adapter types/functions only. A separately developed
+rotation page must use them rather than restore its older adapter definitions.
+
 Rotation audit events join the existing sorted pagination stream. Their exact
 fields are `event_id`, `occurred_at`, `actor_alias`, `action`, `subject`,
 `operation_id`, and `outcome`; denied events may have a null operation ID. The
 subject is `{kind: "credential", id: "ibkr_flex"}`. Actions use
 `credential_rotation_stage`, `credential_rotation_finalize`,
 `credential_rotation_cancel`, and `credential_rotation_denied`. Outcomes use the
-corresponding confirmed/unknown state, `failed`, or `denied`. Internal denial
-reasons are not projected. No notification is sent by these endpoints; any later
+corresponding confirmed/unknown state, `failed`, or `denied`. The frontend
+explicitly retains `event_id` and `operation_id` for this variant alongside the
+legacy `id`/`ref` event parser. Internal denial reasons are not projected. No notification is sent by these endpoints; any later
 notification integration must occur after audit commit and use only these fixed
 fields, without retrying the secret mutation.

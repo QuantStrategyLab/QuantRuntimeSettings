@@ -1,4 +1,4 @@
-/** HTTP client for the console API. Session cookies only; 401/403 invalidate the private session globally. */
+/** HTTP client for the console API. Session cookies only; authentication/permission failures invalidate the private session. */
 
 export class AccessError extends Error {
   readonly status: number;
@@ -64,12 +64,19 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (response.status === 401 || response.status === 403) {
+  // A rejected second factor does not revoke an otherwise valid owner session.
+  // Scope the exception to the fixed rotation routes and exact error contract.
+  const payload = await response.json().catch(() => ({}));
+  assertCurrent(epoch);
+  const stepUpRejected = response.status === 403
+    && /^\/api\/credential-rotation\/ibkr_flex\/(?:stage|operations\/[A-Za-z0-9][A-Za-z0-9_-]{7,127}\/(?:finalize|cancel))$/.test(path)
+    && payload !== null && typeof payload === "object" && !Array.isArray(payload)
+    && Object.keys(payload).sort().join() === "error,ok"
+    && payload.ok === false && payload.error === "step_up_invalid";
+  if (response.status === 401 || (response.status === 403 && !stepUpRejected)) {
     invalidatePrivateSession();
     throw new AccessError(response.status);
   }
-  assertCurrent(epoch);
-  const payload = await response.json().catch(() => ({}));
   assertCurrent(epoch);
   if (!response.ok || (payload as { ok?: boolean })?.ok === false) {
     throw new HttpError(response.status, payload);
