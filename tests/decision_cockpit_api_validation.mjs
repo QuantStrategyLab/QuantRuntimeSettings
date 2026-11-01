@@ -365,7 +365,7 @@ assert.ok(audit.body.events.some((event) => event.source === "durable_human_deci
 assert.ok(audit.body.events.every((event) => !("login" in event) && "actor_alias" in event));
 const auditPage = await call("/api/audit-events?limit=1");
 assert.equal(auditPage.body.events.length, 1);
-assert.equal(auditPage.body.next_cursor, "1");
+assert.match(auditPage.body.next_cursor, /^[A-Za-z0-9_-]+$/);
 assert.equal((await call("/api/audit-events?cursor=bad")).status, 400);
 // Event types are derived from the normalized source for all three classes.
 assert.equal(__test.auditEventAction("durable_human_decision", "promotion"), "record_promotion_decision");
@@ -569,6 +569,53 @@ const beyondAction = await call(`/api/decisions/${encodeURIComponent(beyondId)}/
 } });
 assert.equal(beyondAction.status, 409, "the action route reaches revision validation instead of reporting a missing decision");
 assert.equal(beyondAction.body.error, "decision_revision_conflict");
+
+// Audit pages merge the durable and bounded sources, with stable ties and no offset drift.
+const kv = await mf.getKVNamespace("STRATEGY_SWITCH_CONFIG");
+const auditTime = new Date(Date.now() - 60_000).toISOString();
+const auditRows = Array.from({ length: 63 }, (_, index) => ({ ts: auditTime, action: `fixture_${index}`, candidate_id: `demo-${index}` }));
+await kv.put("audit_log", JSON.stringify(auditRows));
+const expectedAudit = await call("/api/audit-events?limit=100");
+validate("audit_events", expectedAudit.body);
+let page = await call("/api/audit-events?limit=7");
+const seenEvents = [...page.body.events];
+assert.ok(page.body.next_cursor);
+// A newer event cannot shift the cursor or join an in-progress traversal.
+await new Promise(resolve => setTimeout(resolve, 5));
+await kv.put("audit_log", JSON.stringify([{ ts: new Date().toISOString(), action: "newer_event" }, ...auditRows]));
+assert.ok((await call("/api/audit-events")).body.events.some(event => event.action === "newer_event"));
+let pageCount = 1;
+while (page.body.next_cursor) {
+  assert.ok(pageCount++ < 30, "pagination terminates");
+  page = await call(`/api/audit-events?limit=7&cursor=${encodeURIComponent(page.body.next_cursor)}`);
+  assert.equal(page.status, 200);
+  validate("audit_events", page.body);
+  seenEvents.push(...page.body.events);
+}
+assert.deepEqual(seenEvents.map(event => event.id), expectedAudit.body.events.map(event => event.id));
+assert.equal(new Set(seenEvents.map(event => event.id)).size, seenEvents.length);
+for (const query of ["limit=0", "limit=101", "limit=1.5", "limit=", "limit=1&limit=2", "cursor=", "cursor=1", "cursor=bad!", "extra=1", "cursor=a&cursor=b"]) {
+  assert.equal((await call(`/api/audit-events?${query}`)).status, 400);
+}
+assert.equal((await call("/api/audit-events", { method: "POST" })).status, 405);
+await kv.put("audit_log", "{}");
+assert.equal((await call("/api/audit-events")).status, 503, "invalid optional-source storage cannot look complete");
+await kv.put("audit_log", "[]");
+
+// Runtime readback is authenticated, GET-only, and does not dispatch anything.
+assert.equal((await call("/api/runtime/readback?scope=longbridge:paper", { cookie: "" })).status, 401);
+assert.equal((await call("/api/runtime/readback?scope=longbridge:paper", { method: "POST" })).status, 405);
+for (const query of ["", "scope=", "scope=bad", "scope=longbridge:paper&scope=longbridge:paper", "scope=longbridge:paper&extra=1"]) {
+  assert.equal((await call(`/api/runtime/readback?${query}`)).status, 400);
+}
+assert.equal((await call("/api/runtime/readback?scope=longbridge:missing")).status, 404);
+const missingRuntime = await call("/api/runtime/readback?scope=longbridge:paper");
+assert.equal(missingRuntime.status, 200);
+validate("runtime_readback", missingRuntime.body);
+assert.equal(missingRuntime.body.data_status, "unavailable");
+assert.equal(missingRuntime.body.runtime_enabled, null);
+assert.equal(missingRuntime.body.observed_at, null);
+assert.equal(missingRuntime.body.policy.execution_authority_granted, false);
 
 await mf.dispose();
 console.log("decision_cockpit_api_validation: PASS");

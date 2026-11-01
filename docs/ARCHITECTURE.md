@@ -147,6 +147,14 @@ A Cloudflare Workers-based strategy switch console. The daily pages are the Reac
 
 **Dependency boundary:** The web app consumes generated assets (`config.js`, `strategy_profiles_asset.js`) and reads `platform-config.json` indirectly via the Worker API. It does **not** depend on Python scripts at runtime.
 
+The cockpit's audit reader merges database keyset pages with the retained KV
+activity log. Its cursor fixes the first page's time ceiling and carries the
+last event's time and ID. Runtime readback projects existing lifecycle source
+snapshots through an explicit account-to-target binding; it neither queries a
+cloud control plane nor dispatches a runtime change. Missing and stale evidence
+retain unknown effective state. See [Console API](console-api.md) for pagination,
+coverage and error contracts.
+
 ---
 
 ## CI/CD: Independent Validation
