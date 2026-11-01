@@ -99,9 +99,9 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertEqual(list(self.store.records), ["synthetic/2026-10-16.json"])
 
     def test_candidate_source_map_is_optional_and_validated_at_startup(self):
-        env = dict(DIGEST_EXPECTED_TARGETS_JSON=json.dumps(EXPECTED),
-                   DIGEST_SCHEDULER_JOB_NAME=JOB, DIGEST_RECIPIENT_SCOPE='synthetic',
-                   DIGEST_CUTOVER_REPORT_DATE='2026-10-16')
+        env = {'DIGEST_EXPECTED_TARGETS_JSON': json.dumps(EXPECTED),
+               'DIGEST_SCHEDULER_JOB_NAME': JOB, 'DIGEST_RECIPIENT_SCOPE': 'synthetic',
+               'DIGEST_CUTOVER_REPORT_DATE': '2026-10-16'}
         with patch.dict(os.environ, env):
             self.assertEqual(app.Configuration.from_environment().candidate_uris, {})
             source = {ROW['platform_id']: 'gs://synthetic-isolated/candidates'}
@@ -112,9 +112,9 @@ class CloudRunDigestTests(unittest.TestCase):
                         json.dumps({ROW['platform_id']: None}),
                         json.dumps({ROW['platform_id']: 'gs://synthetic'}),
                         json.dumps({ROW['platform_id']: 'gs://synthetic/a/../b'})):
-                with self.subTest(raw=raw), patch.dict(os.environ, DIGEST_CANDIDATES_BY_PLATFORM_JSON=raw):
-                    with self.assertRaisesRegex(ValueError, '^digest_candidate_sources_invalid$'):
-                        app.Configuration.from_environment()
+                with (self.subTest(raw=raw), patch.dict(os.environ, DIGEST_CANDIDATES_BY_PLATFORM_JSON=raw),
+                      self.assertRaisesRegex(ValueError, '^digest_candidate_sources_invalid$')):
+                    app.Configuration.from_environment()
 
     def test_candidate_source_change_preserves_preview_and_delivery_reservation(self):
         from dataclasses import replace

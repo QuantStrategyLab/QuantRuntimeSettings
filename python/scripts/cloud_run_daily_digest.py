@@ -47,9 +47,9 @@ class Configuration:
         for uri in self.candidate_uris.values():
             try:
                 if not isinstance(uri, str):
-                    raise ValueError()
+                    raise TypeError()
                 location(uri)
-            except ValueError:
+            except (TypeError, ValueError):
                 raise ValueError('digest_candidate_sources_invalid') from None
         identities, objects = set(), set()
         for row in self.expected:
