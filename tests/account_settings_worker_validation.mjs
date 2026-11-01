@@ -1047,7 +1047,7 @@ assert.equal(missedRead.body.draft.overrides.reserved_cash_ratio, "0.1");
 assert.equal((await accountAudit()).length, auditCountBeforeMiss);
 
 const catalogIds = missedRead.body.strategy_options.map((item) => item.profile);
-assert.equal(catalogIds.includes("global_etf_rotation"), false);
+assert.equal(catalogIds.includes("global_etf_rotation"), true);
 assert.equal(catalogIds.some((id) => String(id).startsWith("hk_")), false);
 assert.equal(catalogIds.includes("russell_top50_leader_rotation"), true);
 assert.equal(missedRead.body.strategy_options.find((item) => item.profile === "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve").option_overlay_enabled, false);

@@ -688,12 +688,12 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
         self.assertEqual(report["status"], "attention_required")
         self.assertEqual(report["schema_version"], "platform_health_report.v1")
-        self.assertEqual(report["summary"]["runtime_enabled_switchable_count"], 4)
+        self.assertEqual(report["summary"]["runtime_enabled_switchable_count"], 5)
         self.assertIn("codex_repair_context", report)
         self.assertIn("automation_registry", report)
         self.assertIn("automation_lane_counts", report["summary"])
         self.assertEqual(report["summary"]["dry_run_uncovered_strategy_count"], 0)
-        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 13)
+        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 14)
         self.assertGreater(report["summary"]["dry_run_route_count"], 0)
         self.assertGreater(
             report["summary"]["declared_dry_run_route_count"],
@@ -735,7 +735,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(route["blocked_reason"], "frozen_for_new_selection")
         self.assertNotIn("hk_low_vol_dividend_quality_snapshot", coverage["artifact_blocked_profiles"])
         self.assertEqual(coverage["summary"]["declared_dry_run_route_count"], 63)
-        self.assertEqual(coverage["summary"]["buildable_dry_run_route_count"], 40)
+        self.assertEqual(coverage["summary"]["buildable_dry_run_route_count"], 44)
 
     def test_feature_snapshot_platform_coverage_matches_runtime_injection(self):
         self.assertEqual(
@@ -914,6 +914,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
                 strategy = build_config.load_config()["strategies"][profile]
                 restored_live = {
+                    "global_etf_rotation",
                     "tqqq_growth_income",
                     "russell_top50_leader_rotation",
                 }
@@ -1067,7 +1068,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             projection["summary"]["strategy_profile_count"],
             len(config["strategies"]),
         )
-        self.assertEqual(projection["summary"]["live_switchable_count"], 4)
+        self.assertEqual(projection["summary"]["live_switchable_count"], 5)
         self.assertEqual(
             projection["source"]["content_sha256"],
             build_platform_config._config_content_sha256(config),
@@ -1084,7 +1085,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(matrix["superseded_by"]["candidate_lifecycle"], "GET /api/control-plane")
         self.assertEqual(matrix["superseded_by"]["target_execution_evidence"], "GET /api/execution-evidence")
 
-    def test_global_and_hk_global_etf_rotation_profiles_are_research_only(self):
+    def test_hk_global_etf_rotation_profile_remains_research_only(self):
         expected = {
             "lifecycle_stage": "research_active",
             "runtime_enabled": False,
@@ -1100,7 +1101,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             )
         }
 
-        for profile in ("global_etf_rotation", "hk_global_etf_tactical_rotation"):
+        for profile in ("hk_global_etf_tactical_rotation",):
             with self.subTest(profile=profile):
                 self.assertEqual(
                     {field: config["strategies"][profile][field] for field in expected},
@@ -3802,7 +3803,9 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         return [old_target], [new_target]
 
     def test_frozen_existing_disabled_target_can_move_to_core_only_after_disabled_readback(self):
-        self.enterContext(patch.object(runtime_settings, "load_platform_config", return_value=build_config.load_config()))
+        config = build_config.load_config()
+        config["strategies"]["global_etf_rotation"]["frozen"] = True
+        self.enterContext(patch.object(runtime_settings, "load_platform_config", return_value=config))
         args = build_runtime_switch.build_parser().parse_args([
             "--platform", "longbridge", "--target-name", "paper", "--strategy-profile", "tqqq_growth_income",
             "--execution-mode", "dry_run", "--variable-scope", "environment", "--github-environment", "longbridge-paper",
