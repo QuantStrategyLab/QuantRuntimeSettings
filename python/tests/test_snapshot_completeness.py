@@ -1,6 +1,8 @@
 """Synthetic regression tests; no broker, cloud or notification calls."""
 from datetime import datetime, timezone
 from pathlib import Path
+import json
+import tempfile
 import sys
 import unittest
 from unittest.mock import patch
@@ -173,6 +175,38 @@ class CoverageTests(unittest.TestCase):
         with patch.object(guard, "build_opener", side_effect=RuntimeError("synthetic-secret")):
             with self.assertRaisesRegex(guard.AuditError, "^source_read_failed$"):
                 guard.request_json("https://synthetic.invalid")
+
+    def test_cloud_window_keeps_thirty_completed_dates(self):
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return NOW
+        config = {"window_days": 30, "state_prefix": "gs://synthetic/state", "targets": []}
+        class Store:
+            def __init__(self, env):
+                self.saved = None
+            def create(self, uri, value):
+                self.saved = value
+                return True
+            def get(self, uri):
+                return self.saved
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(json.dumps(config))
+            with patch.dict(guard.os.environ, {"CLOUD_RUN_JOB": "synthetic", "SNAPSHOT_COMPLETENESS_CONFIG": str(path)}, clear=True), \
+                    patch.object(guard, "CloudIO", Store), patch.object(guard, "datetime", Clock), \
+                    patch.object(guard, "run", return_value={"status": "complete", "targets": []}) as audit, \
+                    patch("builtins.print"):
+                self.assertEqual(guard.main(), 0)
+            self.assertEqual(audit.call_args.args[0]["start"], "2026-10-02")
+            self.assertEqual(audit.call_args.args[0]["end"], "2026-10-31")
+
+    def test_cloud_failure_alert_contains_no_exception_or_account(self):
+        with patch.dict(guard.os.environ, {"CLOUD_RUN_JOB": "synthetic"}, clear=True), \
+                patch.object(guard, "send_notification") as send, patch("builtins.print") as output:
+            self.assertEqual(guard.main(), 1)
+        self.assertEqual(send.call_count, 1)
+        self.assertEqual(output.call_args.args[0], '{"status": "unknown", "reason": "snapshot_guard_failed"}')
 
     def test_uncertain_telegram_send_is_not_retried(self):
         io = object.__new__(guard.CloudIO)
