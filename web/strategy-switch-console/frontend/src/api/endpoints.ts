@@ -8,7 +8,6 @@ import type {
   CalendarResponse,
   CombinedDraftRequest,
   CombinedDraftResponse,
-  CredentialExpirySeverity,
   DecisionHistoryResponse,
   ExecutionsResponse,
   HoldingsResponse,
@@ -216,9 +215,6 @@ export interface CredentialMaintenance {
   id: string;
   expires_at: string | null;
   phase: "unknown" | "not_due" | "30" | "14" | "7" | "expired";
-  /** Server-computed projection; optional for reads served before the fields rolled out. */
-  days_remaining?: number | null;
-  severity?: CredentialExpirySeverity;
   requires_action: boolean;
   delivery: string;
 }
