@@ -284,7 +284,7 @@ export default function App() {
                   <Suspense fallback={<Skeleton height={240} />}>
                     {route.page === "overview" && <OverviewPage />}
                     {route.page === "performance" && <PerformancePage />}
-                    {route.page === "decisions" && <DecisionsPage />}
+                    {route.page === "decisions" && <DecisionsPage decision={route.decision} />}
                     {route.page === "accounts" && <AccountsPage account={route.account} tab={route.tab} />}
                     {route.page === "strategies" && <StrategiesPage />}
                     {route.page === "health" && <HealthPage />}

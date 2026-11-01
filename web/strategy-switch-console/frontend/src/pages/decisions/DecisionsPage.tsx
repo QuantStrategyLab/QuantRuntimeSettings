@@ -289,7 +289,7 @@ function DecisionOperation({ operationId }: { operationId: string }) {
 
 /* ---------- page ---------- */
 
-export default function DecisionsPage() {
+export default function DecisionsPage({ decision }: { decision: string | null }) {
   const t = useT();
   const names = useDisplayNames();
   const language = useLanguage();
@@ -338,9 +338,31 @@ export default function DecisionsPage() {
     ? names.account(item.account_alias, item.platform)
     : t("decisions.account_unbound");
 
+  // A deep link is applied once: re-using the param after the user navigates
+  // inside the queue must not reset the filters again.
+  const consumedDeepLink = useRef<string | null>(null);
+
+  const selectItem = useCallback((id: string | null) => {
+    setSelectedId(id);
+    consumedDeepLink.current = id;
+    // Selecting is a URL change only when the URL does not already say so.
+    if (id !== decision) navigate({ decision: id });
+  }, [navigate, decision]);
+
   useEffect(() => {
-    if (inbox.phase === "ready" && selectedId && !visibleItems.some(item => item.id === selectedId)) setSelectedId(null);
-  }, [inbox.phase, selectedId, visibleItems]);
+    if (inbox.phase === "ready" && selectedId && !visibleItems.some(item => item.id === selectedId)) selectItem(null);
+  }, [inbox.phase, selectedId, visibleItems, selectItem]);
+
+  // A deep link arrives before the inbox does and may point at a decision the
+  // current filters hide, so the target tab is restored when it resolves.
+  useEffect(() => {
+    if (!decision || consumedDeepLink.current === decision || inbox.phase !== "ready") return;
+    if (!items.some(item => item.id === decision)) return;
+    consumedDeepLink.current = decision;
+    setView("pending");
+    setCategory("all");
+    setSelectedId(decision);
+  }, [decision, inbox.phase, items]);
 
   // Account options for promotion categories come from the legacy ticket payload.
   const needsPromotions = Boolean(
@@ -800,7 +822,7 @@ export default function DecisionsPage() {
     return (
       <div className="card inbox-detail">
         <div className="decision-detail-head">
-          <button type="button" className="button button-secondary inbox-back" onClick={() => setSelectedId(null)}>
+          <button type="button" className="button button-secondary inbox-back" onClick={() => selectItem(null)}>
             {t("common.back")}
           </button>
           <div className="decision-badges">
@@ -846,7 +868,7 @@ export default function DecisionsPage() {
             expiresAt={item.expires_at}
             serverTime={expanded.server_time}
             receivedAt={receivedAt}
-            onBoundary={() => { setSelectedId(null); refresh(); }}
+            onBoundary={() => { selectItem(null); refresh(); }}
           />
         )}
         {support && <EvidenceSummary evidence={support} />}
@@ -907,7 +929,7 @@ export default function DecisionsPage() {
           <EmptyState title={t("decisions.empty_pending")} />
         ) : (
           <div className={`inbox${selected ? " detail-open" : " list-only"}`}>
-            <div className="inbox-list" role="list">
+            <div className="inbox-list">
               {visibleItems.map(item => {
                 const expired = isExpired(item);
                 const fresh = relativeFreshness(item.created_at, language);
@@ -916,9 +938,9 @@ export default function DecisionsPage() {
                   <button
                     key={item.id}
                     type="button"
-                    role="listitem"
+                    aria-current={selected?.id === item.id ? "true" : undefined}
                     className={`inbox-item${selected?.id === item.id ? " active" : ""}${expired ? " is-expired" : ""}`}
-                    onClick={() => setSelectedId(item.id)}
+                    onClick={() => selectItem(item.id)}
                   >
                     <span className={`priority-dot priority-${item.priority}`} aria-hidden="true" />
                     <span className="item-main">

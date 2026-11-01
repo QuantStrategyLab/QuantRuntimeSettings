@@ -213,7 +213,7 @@ function LastDayKpi({ state, carryover, carryoverState }: {
 function TodosKpi({ state }: { state: Api<InboxResponse> }) {
   const t = useT();
   const navigate = useNavigate();
-  const open = () => navigate({ page: "decisions" });
+  const open = () => navigate({ page: "decisions", decision: null });
   const title = t("overview.todos");
   if (state.phase === "loading") {
     return <KpiCard title={title} value={<Skeleton height={28} width="70%" />} onClick={open} />;
@@ -513,7 +513,9 @@ function QueueRow({ item, onOpen }: { item: InboxItem; onOpen: () => void }) {
 function DecisionQueue({ inbox, onRetry }: { inbox: Api<InboxResponse>; onRetry: () => void }) {
   const t = useT();
   const navigate = useNavigate();
-  const open = () => navigate({ page: "decisions" });
+  const open = () => navigate({ page: "decisions", decision: null });
+  /** A queued row links to that decision, not to whichever tab would open by default. */
+  const openItem = (id: string) => navigate({ page: "decisions", decision: id });
   let body: ReactNode;
   if (inbox.phase === "loading") {
     body = <Skeleton height={88} />;
@@ -548,7 +550,7 @@ function DecisionQueue({ inbox, onRetry }: { inbox: Api<InboxResponse>; onRetry:
         )}
         {actionable.length > 0 && (
           <ul className="overview-queue-list">
-            {actionable.slice(0, 3).map(item => <QueueRow key={item.id} item={item} onOpen={open} />)}
+            {actionable.slice(0, 3).map(item => <QueueRow key={item.id} item={item} onOpen={() => openItem(item.id)} />)}
           </ul>
         )}
         <button type="button" className="button button-secondary button-sm" onClick={open}>

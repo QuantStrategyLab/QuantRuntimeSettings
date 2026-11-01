@@ -102,7 +102,7 @@ export function AppShell({
       className={`${extraClass}${page === item.id ? " active" : ""}`}
       aria-label={item.id === "decisions" && todoUnknown ? `${t(item.labelKey)} · ${t("nav.todo_unavailable")}` : t(item.labelKey)}
       aria-current={page === item.id ? "page" : undefined}
-      onClick={() => navigate({ page: item.id, account: null, tab: null })}
+      onClick={() => navigate({ page: item.id, account: null, tab: null, decision: null })}
     >
       <NavIcon path={item.icon} />
       <span className={extraClass === "topnav-item" ? "topnav-label" : "nav-text"}>{t(item.labelKey)}</span>
