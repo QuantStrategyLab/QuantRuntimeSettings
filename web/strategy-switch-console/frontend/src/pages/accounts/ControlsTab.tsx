@@ -73,11 +73,7 @@ export function ControlsTab({
   if (data.account_alias !== account.account_alias || data.platform !== account.platform) return <Skeleton height={200} />;
   const isRuntimeControlPlatform = RUNTIME_CONTROL_PLATFORMS.has(account.platform.toLowerCase());
 
-  const reasonText = (reason: string): string => {
-    const key = `reason.${reason}`;
-    const translated = t(key);
-    return translated === key ? reason : translated;
-  };
+  const reasonText = (reason: string): string => t(`reason.${reason}`);
 
   const control = data.runtime_control;
   const controlLocked = Boolean(pendingControl?.targetKey === targetKey) || Boolean(control && CONTROL_LOCKED_PHASES.has(control.phase || ""));

@@ -71,7 +71,7 @@ export default function AccountsPage({ account, tab }: { account: string | null;
       {!selected && accountsState.phase === "ready" && accountsState.data.unassigned_decision_count > 0 && (
         <p className="card-note accounts-unassigned">
           {t("accounts.unassigned_note", { count: accountsState.data.unassigned_decision_count })}
-          <button type="button" className="button button-secondary button-sm" onClick={() => navigate({ page: "decisions" })}>
+          <button type="button" className="button button-secondary button-sm" onClick={() => navigate({ page: "decisions", decision: null })}>
             {t("accounts.go_todos")}
           </button>
         </p>

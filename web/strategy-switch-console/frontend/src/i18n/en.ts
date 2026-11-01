@@ -7,14 +7,15 @@ export const en: Record<CoreMessageKey, string> = {
   "shell.update_available": "A new version is ready. Refresh to use it.",
   "shell.reload": "Refresh page",
   "app.name": "QuantStrategyLab",
+  "shell.cockpit": "Decision Cockpit",
 
   "nav.main": "Main navigation",
   "nav.overview": "Overview",
   "nav.performance": "Performance",
-  "nav.decisions": "To-dos",
+  "nav.decisions": "Decisions",
   "nav.accounts": "Accounts",
   "nav.strategies": "Strategies",
-  "nav.health": "Run status",
+  "nav.health": "Health",
   "nav.more": "More",
   "nav.todo_unavailable": "To-do count unavailable",
 

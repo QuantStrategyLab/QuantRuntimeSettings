@@ -75,6 +75,7 @@ export const quotaDirectory: DirectoryStatus = {
 };
 export const quotaInbox: InboxResponse = {
   status: "read_failed", items: [], coverage: "existing_decision_sources",
+  server_time: observed, next_cursor: null,
   sources: ["owner", "promotion", "recovery"].map(source => ({ source, status: "read_failed",
     failure_reason: "kv_list_daily_limit_exceeded" })), ...readonly,
 };

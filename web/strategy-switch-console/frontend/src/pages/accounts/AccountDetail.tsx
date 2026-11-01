@@ -2,6 +2,8 @@ import { useDisplayNames } from "../../lib/useDisplayNames";
 import { useEffect, useRef, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import { loadSettingsDiff } from "../../api/endpoints";
+import { loadPolicyBinding } from "../../api/cockpit";
+import { EffectivePolicyPanel } from "../../components/cockpit";
 import { factEnvironment, factForAccount, userDeclarationOf } from "../../lib/accountFacts";
 import { useNavigate } from "../../app/context";
 import { setNavigationGuard } from "../../app/router";
@@ -29,6 +31,17 @@ type TabId = (typeof TAB_IDS)[number];
 
 function normalizeTab(tab: string | null): TabId {
   return (TAB_IDS as readonly string[]).includes(tab || "") ? (tab as TabId) : "overview";
+}
+
+/** Selected, approved and effective policy stay separate; a missing read is not inferred. */
+function PolicyReadback({ platform, accountKey }: { platform: string; accountKey: string }) {
+  const scope = `${platform}:${accountKey}`;
+  const read = useApi(() => loadPolicyBinding(scope, false), [scope]);
+  const status = read.phase === "loading" ? "loading" as const
+    : read.phase === "error" ? "error" as const
+      : read.data.status === "not_ready" ? "not_ready" as const : "ready" as const;
+  const binding = read.phase === "ready" && read.data.status === "ready" ? read.data.data : null;
+  return <EffectivePolicyPanel binding={binding} status={status} onRetry={read.reload} />;
 }
 
 export function AccountDetail({
@@ -175,6 +188,7 @@ export function AccountDetail({
           </section>
         )}
         {active === "overview" && <RiskPreference platform={account.platform} accountKey={account.account_alias} />}
+        {active === "overview" && <PolicyReadback platform={account.platform} accountKey={account.account_alias} />}
         {active === "overview" && <AccountDeclaration platform={account.platform} accountKey={account.account_alias} onSaved={onDeclarationSaved} />}
         {active === "strategy" && (
           <StrategyTab
