@@ -51,6 +51,22 @@ async function mirrorManifest(store, state) {
   await store.put(MANIFEST_KEY, JSON.stringify({ ...state, mirror_dirty: false, schema: SCHEMA }));
 }
 
+// The mirror only carries what legacy receivers and a fresh object adoption
+// actually read; cursor and failures are private pacing state.
+function mirrorVisible(state) {
+  return { keys: state.keys, complete: state.complete, scanned_at: state.scanned_at,
+    error: state.error, last_error: state.last_error };
+}
+
+// Keys only ever grow and stay sorted, so an equal length means an equal list.
+function mirrorStateChanged(before, state) {
+  return before.keys.length !== state.keys.length
+    || before.complete !== state.complete
+    || before.scanned_at !== state.scanned_at
+    || before.error !== state.error
+    || JSON.stringify(before.last_error) !== JSON.stringify(state.last_error);
+}
+
 function manifestRead(state, prefix, limit) {
   if (!state?.complete) {
     const error = new Error(state?.error || "kv_directory_uninitialized");
@@ -107,14 +123,22 @@ export class KvDirectory {
     }
     if (command.action === "maintain") {
       const interval = bounded(this.env.KV_DIRECTORY_RECONCILE_SECONDS, 21600, 3600, 86400) * 1000;
-      if (state.complete && ((!command.refresh && this.now() < state.scanned_at + interval)
+      // A re-scan of a complete directory pages behind the existing snapshot:
+      // keys are union-only, so serving the last completed list is never less
+      // safe than failing the read while the pages run.
+      if (state.complete && !state.cursor && ((!command.refresh && this.now() < state.scanned_at + interval)
         || this.now() < state.scanned_at + 60000))
         return { ok: true, complete: true, count: state.keys.length, scanned_at: state.scanned_at, cached: true };
-      if (state.retry_at > this.now()) return this.unavailable(state);
-      state.complete = false;
+      if (state.retry_at > this.now()) {
+        if (!state.complete) return this.unavailable(state);
+        // A scan is already in flight; reuse the snapshot it started from.
+        return { ok: true, complete: true, count: state.keys.length, scanned_at: state.scanned_at, cached: true };
+      }
+      const completeBeforeScan = state.complete;
+      const mirrorBefore = mirrorVisible(state);
       try {
-        // Migration only: at most one page per maintenance invocation, shared
-        // across every prefix and every Worker isolate. Reads never call list.
+        // One page per maintenance invocation, shared across every prefix and
+        // every Worker isolate. Reads never call list.
         const listing = await this.store.list({ limit: 1000, ...(state.cursor ? { cursor: state.cursor } : {}) });
         if (!Array.isArray(listing?.keys) || typeof listing.list_complete !== "boolean"
           || (!listing.list_complete && !listing.cursor)) throw Error("invalid_listing");
@@ -123,13 +147,17 @@ export class KvDirectory {
         const maximum = bounded(this.env.KV_DIRECTORY_MAX_KEYS, 10000, 100, 100000);
         if (keys.size > maximum || new TextEncoder().encode(JSON.stringify([...keys])).byteLength + 1024 > 120000) throw Error("directory_too_large");
         state.keys = [...keys].sort();
-        state.complete = listing.list_complete;
-        if (state.complete) state.scanned_at = this.now();
+        state.complete = listing.list_complete || completeBeforeScan;
+        if (listing.list_complete) state.scanned_at = this.now();
         state.cursor = listing.list_complete ? null : listing.cursor;
         state.failures = 0;
         state.error = state.complete ? null : "kv_directory_migration_pending";
-        state.retry_at = state.complete ? 0 : this.now() + bounded(this.env.KV_DIRECTORY_PAGE_DELAY_SECONDS, 60, 30, 3600) * 1000;
+        state.retry_at = listing.list_complete ? 0
+          : this.now() + bounded(this.env.KV_DIRECTORY_PAGE_DELAY_SECONDS, 60, 30, 3600) * 1000;
       } catch (error) {
+        // A failed scan keeps the loud contract: the directory reports the
+        // error and refuses reads until the retry window opens.
+        state.complete = false;
         state.failures += 1;
         const quota = error.message === "KV list() limit exceeded for the day.";
         state.error = quota ? "kv_list_daily_limit_exceeded" : "kv_directory_migration_failed";
@@ -139,7 +167,7 @@ export class KvDirectory {
           : this.now() + Math.min(3600000, delay * 1000 * 2 ** Math.min(state.failures - 1, 4));
       }
       await this.storage.put(STATE_KEY, state);
-      await mirrorManifest(this.store, state);
+      if (!state.complete || mirrorStateChanged(mirrorBefore, state)) await mirrorManifest(this.store, state);
       return state.complete ? { ok: true, complete: true, count: state.keys.length, scanned_at: state.scanned_at } : this.unavailable(state);
     }
     if (command.action !== "read" || !indexedKey(command.prefix)) throw Error("kv_directory_invalid_request");
