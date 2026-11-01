@@ -190,3 +190,34 @@ active targets, with platform/profile and protected target/account identity.
 Missing due targets remain diagnostics; an absent inventory stops construction
 rather than silently claiming coverage of all platforms. Configured closed
 sessions provide an `actually_ran=false` candidate without a no-trade heartbeat.
+
+## Candidate readiness before 07:00
+
+The central Cloud Scheduler read remains at 07:00 Asia/Shanghai, after the
+completed business window ends at 06:00. Its 07:30 deadline check reads the
+stored delivery receipt; it does not recollect late candidates or prove receiver
+receipt. Do not postpone the central read or widen the business window to hide
+late producer jobs.
+
+Each expected producer target has an archive-only entrypoint,
+`python -m scripts.publish_digest_before_read`, in its platform repository.
+The proposed trigger is a dedicated Cloud Run Job at 06:10 Asia/Shanghai,
+independent of GitHub heartbeat scheduling, drill results and account refresh.
+Use one job for each already approved target and its exact existing binding.
+Start must be before 06:40; the task and in-process watchdog are limited to ten
+minutes, and successful readback must finish before 06:55. Disable automatic
+job and Scheduler retries because an interrupted write has an unknown outcome.
+
+No new target is implied. The consumer still requires the same platform,
+strategy, opaque account, target, business date and candidate slot. Missing,
+invalid, unreadable or stale candidates retain their existing coverage outcome.
+A producer reports success only after it reads back a nonempty candidate for
+that exact identity and date; `actually_ran=false` is allowed only through the
+existing schedule-aware producer, with unavailable counts left unknown.
+
+This is a rollout contract, not deployment authorization. Candidate readiness
+is unverified until a natural execution writes each exact object before 07:00
+and the central reader observes it. Cloud Scheduler accepting a job execution,
+a successful test, or an English draft PR does not establish that result.
+See the platform notification documents for the proposed job configuration and
+[Google's scheduled-job instructions](https://docs.cloud.google.com/run/docs/execute/jobs-on-schedule).
