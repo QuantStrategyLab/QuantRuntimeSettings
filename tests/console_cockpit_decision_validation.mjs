@@ -17,9 +17,9 @@ try {
         import { createElement as h } from 'react';
         import { renderToStaticMarkup } from 'react-dom/server';
         import { I18nProvider } from './src/i18n';
-        import { actionBlockers, expiryState, MutationOutcomeUnknown } from './src/api/cockpit';
+        import { actionBlockers, expiryState, MutationOutcomeUnknown, loadDecisionDetail, loadOperation, submitDecisionAction, isDecisionRevision } from './src/api/cockpit';
         import { ApplicationStatus, DecisionCard, DigestStatus, EffectivePolicyPanel, FreshnessBadge, LifecycleStepper, PauseControl, RiskTierSelector } from './src/components/cockpit';
-        export { actionBlockers, expiryState, MutationOutcomeUnknown };
+        export { actionBlockers, expiryState, MutationOutcomeUnknown, loadDecisionDetail, loadOperation, submitDecisionAction, isDecisionRevision };
         const wrap = (language, node) => renderToStaticMarkup(h(I18nProvider, { language }, node));
         export const tiers = (language) => wrap(language, h(RiskTierSelector, {
           scope: 'demo_account', value: 'BALANCED_COMPOUNDING', savedValue: 'BALANCED_COMPOUNDING',
@@ -52,7 +52,7 @@ try {
         }));
         const card = (state, blockers) => (language) => wrap(language, h(DecisionCard, {
           decision: {
-            decision_id: 'decision-1', short_id: 'd-1', category: 'reconciliation_recovery', revision: 3,
+            decision_id: 'decision-1', short_id: 'd-1', category: 'reconciliation_recovery', revision: 'rev1-0000ffff',
             state, title_key: 'category.reconciliation_recovery', account_alias: 'demo_account', platform: null,
             release_id: null, target_id: null, expires_at: null, server_time: null, allowed_actions: [],
             evidence: { evidence_id: null, label_key: null, observed_at: null, valid_until: null,
@@ -118,12 +118,16 @@ try {
   assert.equal(ui.expiryState(null, null, received, receivedMs).state, "none");
 
   const decision = {
-    state: "pending", allowed_actions: ["approve"], expires_at: null, revision: 2,
+    state: "pending", allowed_actions: ["approve"], expires_at: null, revision: "rev2-0000abcd",
     policy: { selected_tier: "BALANCED_COMPOUNDING", policy_revision: "r7" },
     evidence: { state: "current", qualification: "qualified", limitations: [] },
   };
   const view = { serverTime: "2026-11-01T10:00:00Z", receivedAt: received, now: receivedMs };
   assert.deepEqual(ui.actionBlockers(decision, view), []);
+  assert.ok(ui.actionBlockers({ ...decision, revision: 2 }, view).includes("revision_invalid"),
+    "a numeric revision is not the server's revN string");
+  assert.ok(ui.actionBlockers({ ...decision, allowed_actions: ["accept"] }, view).length === 0,
+    "accept is an approval action in the server vocabulary");
   assert.ok(ui.actionBlockers({ ...decision, evidence: { ...decision.evidence, state: "stale" } }, view).includes("evidence_stale"),
     "stale supporting data blocks approval");
   assert.ok(ui.actionBlockers({ ...decision, evidence: { ...decision.evidence, qualification: "unknown" } }, view).includes("evidence_unqualified"));
@@ -136,6 +140,184 @@ try {
   assert.equal(unknown.requestId, "req-1");
   assert.equal(unknown.operationId, "op-1");
   assert.equal(unknown.message, "mutation_outcome_unknown");
+
+  // The decision endpoints return versioned envelopes; the adapters read them.
+  const reviewEnvelope = {
+    schema_version: "qsl.decision_review.v1",
+    server_time: "2026-11-01T10:00:00Z",
+    data_status: "ready",
+    decision_id: "strategy_promotion:t-1",
+    decision: {
+      id: "strategy_promotion:t-1",
+      short_id: "IN-DEMO",
+      category: "strategy_promotion",
+      title_key: "decisions.strategy_promotion",
+      account_alias: "demo_account",
+      platform: "ibkr",
+      status: "pending",
+      created_at: "2026-11-01T09:00:00Z",
+      expires_at: "2026-11-02T09:00:00Z",
+      revision: "rev1-0123456789abcdef",
+      transition: { axis: "authorized_stage", from: "research", to: "small_live_intent" },
+      actionable: true,
+      blocking_reason_codes: [],
+      allowed_actions: [
+        { action: "accept", label_key: "decisions.action.accept", requires_selection: true },
+        { action: "reject", label_key: "decisions.action.reject", requires_selection: false },
+      ],
+      decision_state: { status: "pending", action: null, decided_at: null },
+      risk_impact: {
+        affects_live: false,
+        tier: "BALANCED_COMPOUNDING",
+        policy: { tier: "BALANCED_COMPOUNDING", policy_id: "balanced_compounding_v1", composer_mdd_multiple: 1.25, promotion_size_scale: 0.75 },
+      },
+      evidence_summary: { source_id: "promotion-source", observed_at: "2026-10-31T13:00:00Z", freshness: "current", shadow: { passed: true } },
+      operation_reference: null,
+    },
+    current_eligibility: { eligible: true, material_matches: true, expired: false, blocked: false, reason_codes: [] },
+    decision_authority: null,
+    decision_receipt: null,
+    operation: { id: "operation:strategy_promotion:t-1", status: "unapplied", activation_status: "not_connected", reason_code: "application_not_connected", updated_at: null },
+    policy: { no_order: true, execution_authority_granted: false },
+    tier_policies: [],
+    errors: [],
+  };
+  const actionResult = {
+    schema_version: "qsl.decision_action_result.v1",
+    ok: true,
+    replayed: false,
+    decision_id: "strategy_promotion:t-1",
+    revision: "rev1-0123456789abcdef",
+    action: "accept",
+    operation_id: "req-accept-1",
+    decision_receipt: { decided_at: "2026-11-01T10:01:00Z", action: "accept" },
+    decision_state: { status: "decided", action: "accept", decided_at: "2026-11-01T10:01:00Z" },
+    operation: { id: "operation:strategy_promotion:t-1", status: "accepted", activation_status: "not_connected", reason_code: "application_not_created", updated_at: "2026-11-01T10:01:00Z" },
+    policy: { no_order: true },
+    server_time: "2026-11-01T10:01:00Z",
+  };
+  const operationEnvelope = {
+    schema_version: "qsl.operation.v1",
+    server_time: "2026-11-01T10:02:00Z",
+    data_status: "ready",
+    operation: {
+      id: "operation:strategy_promotion:t-1",
+      decision_id: "strategy_promotion:t-1",
+      kind: "promotion",
+      subject_id: "t-1",
+      status: "applying",
+      reason_code: null,
+      activation_status: "not_connected",
+      updated_at: "2026-11-01T10:02:00Z",
+      dispatch: { status: "queued", workflow_run_id: "wf-1", updated_at: "2026-11-01T10:01:30Z" },
+      application: { status: "claimed", updated_at: "2026-11-01T10:02:00Z" },
+    },
+    decision: { material_sha256: "a".repeat(64), action: "accept", decided_at: "2026-11-01T10:01:00Z" },
+    policy: { no_order: true },
+    errors: [],
+  };
+  let lastPostBody = null;
+  let postCount = 0;
+  const jsonResponse = (payload, status = 200) => ({ status, ok: status >= 200 && status < 300, json: async () => payload });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (path, init) => {
+    if (String(path).endsWith("/actions")) { postCount += 1; lastPostBody = JSON.parse(init.body); return jsonResponse(actionResult); }
+    if (String(path).startsWith("/api/operations/")) return jsonResponse(operationEnvelope);
+    if (String(path).startsWith("/api/decisions/")) return jsonResponse(reviewEnvelope);
+    return jsonResponse({ ok: false, error: "not_found" }, 404);
+  };
+  try {
+    assert.equal(ui.isDecisionRevision("rev1-0123456789abcdef"), true);
+    assert.equal(ui.isDecisionRevision(2), false, "revision is never a number");
+
+    const detail = await ui.loadDecisionDetail("strategy_promotion:t-1");
+    assert.equal(detail.status, "ready");
+    assert.equal(detail.data.revision, "rev1-0123456789abcdef", "the revN string survives normalization");
+    assert.equal(detail.data.state, "pending", "state comes from decision_state.status");
+    assert.deepEqual(detail.data.allowed_actions, ["accept", "reject"], "allowed_actions arrive as objects");
+    assert.equal(detail.data.selection_required, true);
+    assert.equal(detail.data.operation_id, "operation:strategy_promotion:t-1");
+    assert.equal(detail.data.server_time, "2026-11-01T10:00:00Z", "the clock comes from the envelope");
+    assert.equal(detail.data.evidence.state, "current");
+    assert.equal(detail.data.evidence.qualification, "qualified", "shadow.passed is the server qualification");
+    assert.equal(detail.data.policy.selected_tier, "BALANCED_COMPOUNDING");
+    assert.equal(detail.data.from_stage, "research", "a real stage in the transition is kept");
+    assert.equal(ui.actionBlockers(detail.data, { serverTime: detail.data.server_time, receivedAt: received, now: receivedMs })
+      .includes("revision_invalid"), false);
+
+    const post = await ui.submitDecisionAction({
+      decision_id: "strategy_promotion:t-1",
+      category: "strategy_promotion",
+      action: "accept",
+      expected_revision: "rev1-0123456789abcdef",
+      expected_expires_at: "2026-11-02T09:00:00Z",
+      request_id: "req-accept-1",
+      selection: {
+        confirmation: { target_platform: "ibkr", execution_mode: "live", risk_profile: "BALANCED_COMPOUNDING" },
+        selected_account: { platform: "ibkr", key: "demo_account" },
+      },
+    });
+    assert.deepEqual(Object.keys(lastPostBody).sort(),
+      ["action", "expected_expires_at", "expected_revision", "request_id", "selection"],
+      "the POST body carries only the server's whitelisted keys");
+    assert.equal(post.state, "approved", "success is read from decision_state.status");
+    assert.equal(post.revision, "rev1-0123456789abcdef");
+    assert.equal(post.receipt.recorded_at, "2026-11-01T10:01:00Z");
+    assert.equal(post.operation.state, "pending", "an accepted-but-not-applied operation is not shown as applied");
+
+    // Requests the server must reject never reach the network.
+    const postsBefore = postCount;
+    await assert.rejects(() => ui.submitDecisionAction({
+      decision_id: "strategy_promotion:t-1", category: "strategy_promotion", action: "accept",
+      expected_revision: "rev1-0123456789abcdef", request_id: "req-accept-2",
+    }), /decision_selection_required/);
+    assert.equal(postCount, postsBefore, "accept without a selection is not sent");
+    await assert.rejects(() => ui.submitDecisionAction({
+      decision_id: "strategy_promotion:t-1", category: "owner_decision", action: "approve",
+      expected_revision: "2", request_id: "req-x",
+    }), /decision_revision_required/);
+    await assert.rejects(() => ui.submitDecisionAction({
+      decision_id: "strategy_promotion:t-1", category: "owner_decision", action: "approve",
+      expected_revision: "rev1-0123456789abcdef", request_id: "bad request id!",
+    }), /decision_request_id_invalid/);
+    await assert.rejects(() => ui.submitDecisionAction({
+      decision_id: "strategy_promotion:t-1", category: "owner_decision", action: "approve",
+      expected_revision: "rev1-0123456789abcdef", request_id: "req-1", operation_id: "op-other",
+    }), /decision_operation_id_invalid/);
+
+    const operation = await ui.loadOperation("operation:strategy_promotion:t-1");
+    assert.equal(operation.status, "ready");
+    assert.equal(operation.data.state, "applying");
+    assert.equal(operation.data.operation_id, "operation:strategy_promotion:t-1");
+    assert.equal(operation.data.action, "accept", "the recorded action comes from the envelope decision");
+    assert.equal(operation.data.recorded_at, "2026-11-01T10:01:00Z");
+    assert.equal(operation.data.dispatched_at, "2026-11-01T10:01:30Z");
+    assert.equal(operation.data.decision_revision, null, "the operations payload carries no numeric revision");
+    assert.equal(operation.data.readback_available, false, "activation is not connected");
+    assert.equal(operation.data.server_time, "2026-11-01T10:02:00Z");
+
+    // An unapplied operation is unknown, not presented as progress.
+    const flat = { ...operationEnvelope, operation: { ...operationEnvelope.operation, status: "unapplied", reason_code: "application_not_connected", dispatch: null, application: null } };
+    globalThis.fetch = async () => jsonResponse(flat);
+    const unapplied = await ui.loadOperation("operation:strategy_promotion:t-1");
+    assert.equal(unapplied.data.state, "unknown");
+    assert.equal(unapplied.data.unknown_reason, "application_not_connected");
+    assert.equal(unapplied.data.dispatched_at, null);
+
+    // A transport failure is an unknown outcome that keeps the operation identity.
+    globalThis.fetch = async () => { throw new TypeError("network down"); };
+    await assert.rejects(() => ui.submitDecisionAction({
+      decision_id: "strategy_promotion:t-1", category: "owner_decision", action: "approve",
+      expected_revision: "rev1-0123456789abcdef", request_id: "req-net-1",
+    }), err => err instanceof ui.MutationOutcomeUnknown && err.operationId === "req-net-1");
+
+    // Flat legacy payloads are not mistaken for the versioned contract.
+    globalThis.fetch = async () => jsonResponse({ state: "pending", revision: 4 });
+    assert.equal((await ui.loadDecisionDetail("strategy_promotion:t-1")).status, "not_ready", "no review envelope, no decision");
+    assert.equal((await ui.loadOperation("operation:strategy_promotion:t-1")).status, "not_ready", "no operation envelope, no operation");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 
   // Selected preference, approved mapping and observed policy stay separate.
   const policyEn = ui.policy("en");

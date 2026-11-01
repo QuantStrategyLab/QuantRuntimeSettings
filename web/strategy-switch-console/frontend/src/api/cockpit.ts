@@ -14,7 +14,8 @@ export type RiskTier = "CAPITAL_PRESERVATION" | "BALANCED_COMPOUNDING" | "GROWTH
 export type ProductStage = "research" | "paper" | "small_live" | "full_live";
 export type StageAxis = ProductStage | "unclassified";
 export type DecisionState = "pending" | "approved" | "rejected" | "expired" | "superseded" | "withdrawn" | "unknown";
-export type DecisionAction = "approve" | "reject" | "withdraw";
+/** The server owns this vocabulary; action ids are opaque strings bounded by the API. */
+export type DecisionAction = string;
 export type EvidenceState = "current" | "stale" | "missing" | "expired" | "unavailable";
 export type Qualification = "qualified" | "unqualified" | "unknown";
 export type OperatingState = "running" | "paused" | "reduction_only" | "reconcile_only" | "unknown";
@@ -58,7 +59,8 @@ export interface DecisionDetail {
   decision_id: string;
   short_id: string;
   category: Category;
-  revision: number;
+  /** Opaque server revision string matching DECISION_REVISION_PATTERN, never a number. */
+  revision: string | null;
   state: DecisionState;
   title_key: string;
   account_alias: string | null;
@@ -79,9 +81,11 @@ export interface DecisionDetail {
   expires_at: string | null;
   server_time: string | null;
   allowed_actions: DecisionAction[];
+  /** True when the server marked an allowed action as requiring a selection payload. */
+  selection_required: boolean;
   blocking_reasons: string[];
   operation_id: string | null;
-  receipt: { recorded_at: string | null; revision: number | null } | null;
+  receipt: { recorded_at: string | null; revision: string | null } | null;
 }
 
 export interface OperationRecord {
@@ -171,21 +175,62 @@ export class MutationOutcomeUnknown extends Error {
   }
 }
 
+export interface DecisionActionSelection {
+  confirmation: Record<string, unknown>;
+  selected_account: Record<string, unknown>;
+}
+
+/**
+ * The POST body whitelist enforced by `POST /api/decisions/:id/actions`: any
+ * other key is a 400, so this type is the request, not a superset of one.
+ */
 export interface DecisionActionRequest {
   decision_id: string;
+  category: Category;
   action: DecisionAction;
-  expected_revision: number;
+  expected_revision: string;
+  expected_expires_at?: string | null;
   request_id: string;
-  /** The exact server-bound policy the confirmation displayed, never a client choice. */
-  selected_tier: RiskTier | null;
-  policy_revision: string | null;
-  note?: string;
+  /** Names the intent; when present it must equal `request_id` (the retry id). */
+  operation_id?: string | null;
+  selection?: DecisionActionSelection | null;
 }
 
 export interface DecisionActionResponse {
   operation: OperationRecord | null;
   state: DecisionState | null;
-  revision: number | null;
+  revision: string | null;
+  receipt: { recorded_at: string | null; revision: string | null } | null;
+  replayed: boolean;
+}
+
+/** Server-side revision format: `^rev[0-9]-[0-9a-z-]{1,64}$`, never a number. */
+export const DECISION_REVIEW_SCHEMA_VERSION = "qsl.decision_review.v1";
+export const OPERATION_SCHEMA_VERSION = "qsl.operation.v1";
+export const DECISION_REVISION_PATTERN = /^rev[0-9]-[0-9a-z-]{1,64}$/;
+/** Server-side id format for request_id / operation_id. */
+export const DECISION_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+
+export function isDecisionRevision(value: unknown): value is string {
+  return typeof value === "string" && DECISION_REVISION_PATTERN.test(value);
+}
+
+export function isApprovalAction(action: DecisionAction): boolean {
+  return action === "approve" || action === "accept" || action === "approve_limited_live_canary";
+}
+
+/** From `decision_state` (GET detail, inbox and POST result share the shape). */
+export function decisionStateFromRecord(
+  status: unknown,
+  action: unknown,
+  expired: unknown,
+): DecisionState {
+  if (status === "decided") {
+    if (action === "reject" || action === "keep_parked" || action === "withdraw") return "rejected";
+    return isApprovalAction(String(action ?? "")) ? "approved" : "unknown";
+  }
+  if (status === "pending") return expired === true ? "expired" : "pending";
+  return "unknown";
 }
 
 export function isRiskTier(value: unknown): value is RiskTier {
@@ -201,7 +246,9 @@ export function asStage(value: unknown): StageAxis {
 }
 
 export function asDecisionAction(value: unknown): DecisionAction | null {
-  return value === "approve" || value === "reject" || value === "withdraw" ? value : null;
+  return typeof value === "string" && value.length > 0 && value.length <= 64 && /^[a-z][a-z0-9_]*$/.test(value)
+    ? value
+    : null;
 }
 
 export function newRequestId(): string {
@@ -224,13 +271,13 @@ export function actionBlockers(
   if (decision.state !== "pending") blockers.push(`state_${decision.state}`);
   if (expiry.state === "expired") blockers.push("decision_expired");
   if (expiry.state === "unknown" && decision.expires_at) blockers.push("expiry_unverified");
-  if (!decision.allowed_actions.includes("approve")) blockers.push("approval_not_allowed");
+  if (!decision.allowed_actions.some(isApprovalAction)) blockers.push("approval_not_allowed");
   if (!decision.evidence) blockers.push("evidence_missing");
   else if (decision.evidence.state !== "current") blockers.push(`evidence_${decision.evidence.state}`);
   else if (decision.evidence.qualification !== "qualified") blockers.push("evidence_unqualified");
   if (!decision.policy) blockers.push("policy_unavailable");
   else if (!decision.policy.selected_tier || !decision.policy.policy_revision) blockers.push("policy_binding_missing");
-  if (!Number.isSafeInteger(decision.revision) || decision.revision < 0) blockers.push("revision_invalid");
+  if (!isDecisionRevision(decision.revision)) blockers.push("revision_invalid");
   return blockers;
 }
 
@@ -279,10 +326,6 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function asBoolean(value: unknown): boolean | null {
-  return typeof value === "boolean" ? value : null;
-}
-
 function normalizeEvidence(value: unknown): EvidenceSummary | null {
   const raw = asRecord(value);
   if (!raw) return null;
@@ -320,78 +363,145 @@ function normalizeValues(value: unknown): PolicyValue[] {
   });
 }
 
-function normalizeOperation(value: unknown): OperationRecord | null {
+/**
+ * Backend operation objects: the full `qsl.operation.v1` payload and the
+ * compact `operation` reference inside action results share this shape.
+ * `unaccepted`/`unapplied` stay "unknown": the UI never shows progress the
+ * server has not recorded. The durable idempotency id is the request id, so
+ * `request_id` mirrors `operation_id`.
+ */
+function normalizeOperation(
+  value: unknown,
+  context: { serverTime?: string | null; decision?: Record<string, unknown> | null } = {},
+): OperationRecord | null {
   const raw = asRecord(value);
   if (!raw) return null;
-  const applicationStates: ApplicationState[] = ["pending", "applying", "applied", "rejected", "failed", "unknown"];
-  const operatingStates: OperatingState[] = ["running", "paused", "reduction_only", "reconcile_only", "unknown"];
-  const state = applicationStates.includes(raw.state as ApplicationState) ? raw.state as ApplicationState : "unknown";
-  const runtimeState = operatingStates.includes(raw.runtime_state as OperatingState) ? raw.runtime_state as OperatingState : "unknown";
+  const id = asString(raw.id) ?? asString(raw.operation_id) ?? "";
+  const statusByApplication: Record<string, ApplicationState> = {
+    applying: "applying",
+    applied: "applied",
+    failed: "failed",
+    rejected: "rejected",
+    accepted: "pending",
+    unaccepted: "unknown",
+    unapplied: "unknown",
+    unknown: "unknown",
+  };
+  const status = asString(raw.status);
+  const state = status ? statusByApplication[status] ?? "unknown" : "unknown";
+  const reasonCode = asString(raw.reason_code);
+  const dispatch = asRecord(raw.dispatch);
+  const application = asRecord(raw.application);
+  const decidedAt = asString(context.decision?.decided_at);
+  const updatedAt = asString(raw.updated_at);
   return {
-    operation_id: asString(raw.operation_id) ?? "",
-    request_id: asString(raw.request_id) ?? "",
+    operation_id: id,
+    request_id: id,
     decision_id: asString(raw.decision_id),
-    decision_revision: asNumber(raw.decision_revision),
-    action: asDecisionAction(raw.action),
-    title_key: asString(raw.title_key),
-    account_alias: asString(raw.account_alias),
-    platform: asString(raw.platform),
-    release_id: asString(raw.release_id),
-    target_id: asString(raw.target_id),
+    decision_revision: null,
+    action: asDecisionAction(context.decision?.action),
+    title_key: null,
+    account_alias: asString(application?.account_alias),
+    platform: asString(application?.platform),
+    release_id: asString(application?.release_id),
+    target_id: asString(application?.target_id),
     state,
-    recorded_at: asString(raw.recorded_at),
-    dispatched_at: asString(raw.dispatched_at),
-    applied_at: asString(raw.applied_at),
-    applied_by: raw.applied_by === "platform" ? "platform" : null,
-    runtime_confirmed_at: asString(raw.runtime_confirmed_at),
-    runtime_state: runtimeState,
-    failure_reason: asString(raw.failure_reason),
-    unknown_reason: asString(raw.unknown_reason),
-    readback_available: asBoolean(raw.readback_available),
-    server_time: asString(raw.server_time),
+    recorded_at: decidedAt ?? updatedAt,
+    dispatched_at: asString(dispatch?.updated_at),
+    applied_at: state === "applied" ? updatedAt : null,
+    applied_by: application ? "platform" : null,
+    runtime_confirmed_at: null,
+    runtime_state: "unknown",
+    failure_reason: state === "failed" ? reasonCode : null,
+    unknown_reason: state === "unknown" ? reasonCode : null,
+    readback_available: asString(raw.activation_status) === "not_connected" ? false : null,
+    server_time: context.serverTime ?? null,
   };
 }
 
-function normalizeDecision(value: unknown, fallback: { id: string; shortId: string; category: Category; titleKey: string }): DecisionDetail {
-  const raw = asRecord(value) ?? {};
-  const states: DecisionState[] = ["pending", "approved", "rejected", "expired", "superseded", "withdrawn"];
-  // An unrecognized or absent state is unknown, never a silently pending decision.
-  const state = states.includes(raw.state as DecisionState) ? raw.state as DecisionState : "unknown";
-  const allowed = Array.isArray(raw.allowed_actions)
-    ? raw.allowed_actions.map(asDecisionAction).filter((item): item is DecisionAction => item !== null)
-    : [];
-  const policy = asRecord(raw.policy);
-  const receipt = asRecord(raw.receipt);
-  const expiry = raw.expires_at === null || typeof raw.expires_at === "string" ? raw.expires_at : null;
+/** Backend `evidence_summary`; absent freshness or shadow never becomes qualified. */
+function normalizeEvidenceSummary(value: unknown): EvidenceSummary | null {
+  const raw = asRecord(value);
+  if (!raw) return null;
+  const freshness = asString(raw.freshness);
+  const state: EvidenceState = freshness === "current" || freshness === "ok" ? "current"
+    : freshness === "stale" ? "stale"
+      : freshness === "expired" ? "expired"
+        : freshness === "missing" ? "missing" : "unavailable";
+  const shadow = asRecord(raw.shadow);
+  const qualification: Qualification = typeof shadow?.passed === "boolean"
+    ? shadow.passed ? "qualified" : "unqualified" : "unknown";
   return {
-    decision_id: asString(raw.decision_id) ?? fallback.id,
-    short_id: asString(raw.short_id) ?? fallback.shortId,
-    category: (typeof raw.category === "string" ? raw.category : fallback.category) as Category,
-    revision: asNumber(raw.revision) ?? -1,
+    evidence_id: asString(raw.source_id) ?? asString(raw.material_sha256),
+    label_key: null,
+    observed_at: asString(raw.observed_at),
+    valid_until: null,
     state,
-    title_key: asString(raw.title_key) ?? fallback.titleKey,
-    account_alias: asString(raw.account_alias),
-    platform: asString(raw.platform),
-    release_id: asString(raw.release_id),
-    target_id: asString(raw.target_id),
-    from_stage: isProductStage(raw.from_stage) ? raw.from_stage : null,
-    to_stage: isProductStage(raw.to_stage) ? raw.to_stage : null,
-    evidence: normalizeEvidence(raw.evidence),
-    policy: policy ? {
-      selected_tier: isRiskTier(policy.selected_tier) ? policy.selected_tier : null,
-      policy_id: asString(policy.policy_id),
-      policy_revision: asString(policy.policy_revision),
-      summary: asString(policy.summary),
-      values: normalizeValues(policy.values),
+    qualification,
+    limitations: [],
+  };
+}
+
+/**
+ * `GET /api/decisions/:id` returns a `qsl.decision_review.v1` envelope; the
+ * decision itself is the inbox item in `decision`, the tier constants live in
+ * `tier_policies` and the readable policy is `policy`. Flat payloads are not a
+ * supported shape.
+ */
+function normalizeDecision(value: unknown, fallback: { id: string; shortId: string; category: Category; titleKey: string }): DecisionDetail {
+  const envelope = asRecord(value) ?? {};
+  const item = asRecord(envelope.decision) ?? {};
+  const eligibility = asRecord(envelope.current_eligibility);
+  const receipt = asRecord(envelope.decision_receipt);
+  const operationRef = asRecord(envelope.operation) ?? asRecord(item.operation_reference);
+  const decisionState = asRecord(item.decision_state);
+  const transition = asRecord(item.transition);
+  const riskImpact = asRecord(item.risk_impact);
+  const tierPolicy = asRecord(riskImpact?.policy);
+  const allowedEntries = Array.isArray(item.allowed_actions) ? item.allowed_actions : [];
+  const allowed = [...new Set(allowedEntries.flatMap((entry): DecisionAction[] => {
+    const action = asDecisionAction(asRecord(entry)?.action ?? entry);
+    return action ? [action] : [];
+  }))];
+  const blockingReasons = [...new Set(
+    [item.blocking_reason_codes, eligibility?.reason_codes]
+      .flatMap(list => Array.isArray(list) ? list.filter((code): code is string => typeof code === "string") : []),
+  )];
+  const expiry = item.expires_at === null || typeof item.expires_at === "string" ? item.expires_at : null;
+  return {
+    decision_id: asString(envelope.decision_id) ?? asString(item.decision_id) ?? asString(item.id) ?? fallback.id,
+    short_id: asString(item.short_id) ?? fallback.shortId,
+    category: (typeof item.category === "string" ? item.category : fallback.category) as Category,
+    revision: isDecisionRevision(item.revision) ? item.revision : null,
+    state: decisionStateFromRecord(decisionState?.status, decisionState?.action, item.status === "expired"),
+    title_key: asString(item.title_key) ?? fallback.titleKey,
+    account_alias: asString(item.account_alias),
+    platform: asString(item.platform),
+    release_id: asString(item.release_id),
+    target_id: asString(item.target_id),
+    from_stage: isProductStage(transition?.from) ? transition?.from : null,
+    to_stage: isProductStage(transition?.to) ? transition?.to : null,
+    evidence: normalizeEvidenceSummary(item.evidence_summary),
+    policy: riskImpact ? {
+      selected_tier: isRiskTier(riskImpact.tier) ? riskImpact.tier : null,
+      policy_id: asString(tierPolicy?.policy_id),
+      policy_revision: null,
+      summary: null,
+      values: ["composer_mdd_multiple", "promotion_size_scale"].flatMap((key): PolicyValue[] => {
+        const value = tierPolicy?.[key];
+        return typeof value === "number" && Number.isFinite(value)
+          ? [{ key, label_key: null, value, unit: null, status: "known", source: "server" }]
+          : [];
+      }),
     } : null,
-    created_at: asString(raw.created_at),
+    created_at: asString(item.created_at),
     expires_at: expiry,
-    server_time: asString(raw.server_time),
+    server_time: asString(envelope.server_time),
     allowed_actions: allowed,
-    blocking_reasons: Array.isArray(raw.blocking_reasons)
-      ? raw.blocking_reasons.filter((item): item is string => typeof item === "string") : [],
-    operation_id: asString(raw.operation_id),
-    receipt: receipt ? { recorded_at: asString(receipt.recorded_at), revision: asNumber(receipt.revision) } : null,
+    selection_required: allowedEntries.some(entry => asRecord(entry)?.requires_selection === true),
+    blocking_reasons: blockingReasons,
+    operation_id: asString(operationRef?.id),
+    receipt: receipt ? { recorded_at: asString(receipt.decided_at), revision: null } : null,
   };
 }
 
@@ -417,6 +527,7 @@ export async function loadDecisionDetail(
   }
   try {
     const payload = await getJson<unknown>(`/api/decisions/${encodeURIComponent(decisionId)}`);
+    if (asString(asRecord(payload)?.schema_version) !== DECISION_REVIEW_SCHEMA_VERSION) return { status: "not_ready" };
     const item = options.inbox?.items.find(entry => entry.id === decisionId);
     return {
       status: "ready",
@@ -435,30 +546,47 @@ export async function loadDecisionDetail(
 }
 
 /**
- * Submit an owner action bound to the displayed revision and a stable request
- * identity. A timeout or transport failure is an unknown outcome, not a
- * failure: the caller keeps the identity and reconciles, never resubmits.
+ * Submit an owner action bound to the displayed revision string and a stable
+ * request identity. The server rejects any body key outside its whitelist, so
+ * nothing else is sent. A timeout or transport failure is an unknown outcome,
+ * not a failure: the caller keeps the identity and reconciles, never resubmits.
  */
 export async function submitDecisionAction(request: DecisionActionRequest): Promise<DecisionActionResponse> {
+  if (!isDecisionRevision(request.expected_revision)) throw new Error("decision_revision_required");
+  if (!DECISION_REQUEST_ID_PATTERN.test(request.request_id)) throw new Error("decision_request_id_invalid");
+  if (request.operation_id !== undefined && request.operation_id !== null && request.operation_id !== request.request_id) {
+    throw new Error("decision_operation_id_invalid");
+  }
+  if ((request.category === "strategy_promotion" || request.category === "paper_account_application")
+    && request.action === "accept"
+    && !(request.selection?.confirmation && request.selection?.selected_account)) {
+    throw new Error("decision_selection_required");
+  }
+  const body: Record<string, unknown> = {
+    action: request.action,
+    expected_revision: request.expected_revision,
+    request_id: request.request_id,
+  };
+  if (request.expected_expires_at) body.expected_expires_at = request.expected_expires_at;
+  if (request.operation_id) body.operation_id = request.operation_id;
+  if (request.selection) body.selection = request.selection;
   try {
-    const payload = await postJson<unknown>(`/api/decisions/${encodeURIComponent(request.decision_id)}/actions`, {
-      action: request.action,
-      expected_revision: request.expected_revision,
-      request_id: request.request_id,
-      selected_tier: request.selected_tier,
-      policy_revision: request.policy_revision,
-      ...(request.note ? { note: request.note } : {}),
-    });
+    const payload = await postJson<unknown>(`/api/decisions/${encodeURIComponent(request.decision_id)}/actions`, body);
     const raw = asRecord(payload) ?? {};
-    const states: DecisionState[] = ["pending", "approved", "rejected", "expired", "superseded", "withdrawn"];
+    const stateRecord = asRecord(raw.decision_state);
+    const status = asString(stateRecord?.status);
+    const action = asString(stateRecord?.action) ?? asString(raw.action);
+    const receipt = asRecord(raw.decision_receipt);
     return {
-      operation: normalizeOperation(raw.operation),
-      state: states.includes(raw.state as DecisionState) ? raw.state as DecisionState : null,
-      revision: asNumber(raw.revision),
+      operation: normalizeOperation(asRecord(raw.operation), { serverTime: asString(raw.server_time) }),
+      state: status === null ? null : decisionStateFromRecord(status, action, false),
+      revision: isDecisionRevision(raw.revision) ? raw.revision : null,
+      receipt: receipt ? { recorded_at: asString(receipt.decided_at), revision: null } : null,
+      replayed: raw.replayed === true,
     };
   } catch (error) {
     if (error instanceof AccessError || error instanceof HttpError) throw error;
-    throw new MutationOutcomeUnknown(request.request_id, null);
+    throw new MutationOutcomeUnknown(request.request_id, request.operation_id ?? request.request_id);
   }
 }
 
@@ -466,7 +594,12 @@ export async function loadOperation(operationId: string, synthetic = false): Pro
   if (synthetic) return { status: "ready", synthetic: true, data: syntheticOperation(operationId) };
   try {
     const payload = await getJson<unknown>(`/api/operations/${encodeURIComponent(operationId)}`);
-    const operation = normalizeOperation(payload);
+    const envelope = asRecord(payload);
+    if (asString(envelope?.schema_version) !== OPERATION_SCHEMA_VERSION) return { status: "not_ready" };
+    const operation = normalizeOperation(envelope?.operation, {
+      serverTime: asString(envelope?.server_time),
+      decision: asRecord(envelope?.decision),
+    });
     return operation ? { status: "ready", data: operation, synthetic: false } : { status: "not_ready" };
   } catch (error) {
     if (notReady(error)) return { status: "not_ready" };
@@ -623,43 +756,58 @@ export async function loadAuditEvents(cursor: string | null = null, synthetic = 
 function syntheticDecision(item?: ExpandedInboxItem): DecisionDetail {
   const id = item?.id ?? "synthetic-decision-001";
   return normalizeDecision({
-    decision_id: id,
-    short_id: item?.short_id ?? "S-DEMO-1",
-    category: item?.category ?? "strategy_promotion",
-    revision: 3,
-    state: "pending",
-    title_key: "decision.promotion_title",
-    account_alias: "demo_account",
-    platform: "ibkr",
-    release_id: "demo-release-2026.10",
-    target_id: "demo-target",
-    from_stage: "paper",
-    to_stage: "small_live",
-    evidence: {
-      evidence_id: "synthetic-evidence",
-      observed_at: "2026-10-31T13:00:00Z",
-      valid_until: "2026-11-02T13:00:00Z",
-      state: "current",
-      qualification: "qualified",
-      limitations: [],
-    },
-    policy: {
-      selected_tier: "BALANCED_COMPOUNDING",
-      policy_id: "synthetic-policy",
-      policy_revision: "r7",
-      summary: null,
-      values: [
-        { key: "max_gross_exposure", value: 45, unit: "percent", status: "known", source: "server" },
-        { key: "cash_floor", value: 20, unit: "percent", status: "known", source: "server" },
-      ],
-    },
-    created_at: "2026-11-01T09:00:00Z",
-    expires_at: "2026-11-02T09:00:00Z",
+    schema_version: DECISION_REVIEW_SCHEMA_VERSION,
     server_time: new Date().toISOString(),
-    allowed_actions: ["approve", "reject"],
-    blocking_reasons: [],
-    operation_id: null,
-    receipt: null,
+    data_status: "ready",
+    decision_id: id,
+    decision: {
+      id,
+      short_id: item?.short_id ?? "S-DEMO-1",
+      category: item?.category ?? "strategy_promotion",
+      title_key: "decision.promotion_title",
+      account_alias: "demo_account",
+      platform: "ibkr",
+      revision: "rev1-0123456789abcdef",
+      status: "pending",
+      created_at: "2026-11-01T09:00:00Z",
+      expires_at: "2026-11-02T09:00:00Z",
+      transition: { axis: "authorized_stage", from: "paper", to: "small_live" },
+      actionable: true,
+      blocking_reason_codes: [],
+      allowed_actions: [
+        { action: "accept", label_key: "decisions.action.accept", requires_selection: true },
+        { action: "reject", label_key: "decisions.action.reject", requires_selection: false },
+      ],
+      decision_state: { status: "pending", action: null, decided_at: null },
+      risk_impact: {
+        affects_live: false,
+        tier: "BALANCED_COMPOUNDING",
+        policy: {
+          schema_version: "qsl.risk_tier_policy.v1",
+          tier: "BALANCED_COMPOUNDING",
+          policy_id: "balanced_compounding_v1",
+          composer_mdd_multiple: 1.25,
+          promotion_size_scale: 0.75,
+          executable: false,
+          activation_status: "not_connected",
+        },
+      },
+      evidence_summary: {
+        source_id: "synthetic-evidence",
+        observed_at: "2026-10-31T13:00:00Z",
+        sample_count: 42,
+        freshness: "current",
+        shadow: { passed: true, evidence_kind: "synthetic" },
+      },
+      operation_reference: null,
+    },
+    current_eligibility: { eligible: true, material_matches: true, expired: false, blocked: false, reason_codes: [] },
+    decision_authority: null,
+    decision_receipt: null,
+    operation: null,
+    policy: { no_order: true, execution_authority_granted: false },
+    tier_policies: [],
+    errors: [],
   }, { id, shortId: item?.short_id ?? "S-DEMO-1", category: item?.category ?? "strategy_promotion", titleKey: "decision.promotion_title" });
 }
 
