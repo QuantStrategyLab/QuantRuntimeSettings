@@ -112,7 +112,7 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
         '/api/market-benchmark': { ok: true, points: [] },
         '/api/account-facts/history': { data_status: 'unavailable', series: { points: [] } },
         '/api/binance-account-facts': { data_status: 'unavailable', report: null },
-        '/api/credential-maintenance': { id: 'ibkr_flex', metadata_source: 'operator_provided', metadata_revision: 0, expires_at: '2030-01-01T00:00:00.000Z', phase: 'not_due', delivery: 'not_reserved', requires_action: false },
+        '/api/credential-maintenance': { id: 'ibkr_flex', metadata_source: 'operator_provided', metadata_revision: 0, expires_at: '2030-01-01T00:00:00.000Z', phase: 'not_due', days_remaining: 1251, severity: 'none', delivery: 'not_reserved', requires_action: false },
         '/api/admin/config': { revision: 0 },
         '/api/admin/runtime-instances': { revision: 0, instances: [] },
         '/api/risk-profiles': { profiles: [] },

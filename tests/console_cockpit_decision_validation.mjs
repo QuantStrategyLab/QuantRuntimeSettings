@@ -19,8 +19,10 @@ try {
         import { I18nProvider } from './src/i18n';
         import { actionBlockers, expiryState, MutationOutcomeUnknown, loadDecisionDetail, loadOperation, submitDecisionAction, isDecisionRevision } from './src/api/cockpit';
         import { ApplicationStatus, DecisionCard, DigestStatus, EffectivePolicyPanel, FreshnessBadge, LifecycleStepper, PauseControl, RiskTierSelector } from './src/components/cockpit';
+        import { CredentialExpiry } from './src/pages/decisions/CredentialExpiry';
         export { actionBlockers, expiryState, MutationOutcomeUnknown, loadDecisionDetail, loadOperation, submitDecisionAction, isDecisionRevision };
         const wrap = (language, node) => renderToStaticMarkup(h(I18nProvider, { language }, node));
+        export const expiryView = (language, value, variant) => wrap(language, h(CredentialExpiry, { expiry: value, variant }));
         export const tiers = (language) => wrap(language, h(RiskTierSelector, {
           scope: 'demo_account', value: 'BALANCED_COMPOUNDING', savedValue: 'BALANCED_COMPOUNDING',
           selectionRevision: 12, mappingAvailable: true, disabled: false, saving: false, dirty: false,
@@ -431,6 +433,54 @@ try {
   assert.match(ui.tiers("en"), /checked/);
   assert.match(ui.tiers("en"), /No tier selected/, "clearing a tier preference stays possible");
 
+  // The credential reminder shows the server's projection verbatim. Synthetic
+  // timestamps only; the browser never recomputes severity or days from its clock.
+  const credential = {
+    notice: { expires_at: "2031-01-31T00:00:00.000Z", days_remaining: 30, severity: "notice" },
+    warning: { expires_at: "2031-01-15T00:00:00.000Z", days_remaining: 14, severity: "warning" },
+    urgent: { expires_at: "2031-01-08T00:00:00.000Z", days_remaining: 7, severity: "urgent" },
+    expired: { expires_at: "2030-12-01T00:00:00.000Z", days_remaining: 0, severity: "expired" },
+    none: { expires_at: "2032-06-01T00:00:00.000Z", days_remaining: 512, severity: "none" },
+  };
+  const urgentList = ui.expiryView("zh", credential.urgent, "list");
+  assert.match(urgentList, /data-severity="urgent"/);
+  assert.match(urgentList, /立即续期/, "severity names itself in text, never color alone");
+  assert.match(urgentList, /7 天后到期/);
+  const urgentEn = ui.expiryView("en", credential.urgent, "list");
+  assert.match(urgentEn, /Renew now/);
+  assert.match(urgentEn, /Expires in 7 days/);
+  assert.match(ui.expiryView("en", credential.warning, "list"), /Renew soon/);
+  assert.match(ui.expiryView("zh", credential.warning, "list"), /尽快续期/);
+  assert.match(ui.expiryView("en", credential.warning, "list"), /Expires in 14 days/);
+  assert.match(ui.expiryView("en", credential.notice, "list"), /Early reminder/);
+  assert.match(ui.expiryView("zh", credential.notice, "list"), /提前提醒/);
+  assert.match(ui.expiryView("en", credential.notice, "list"), /Expires in 30 days/);
+
+  // An expired token stays an actionable reminder with manual renewal guidance.
+  const expiredDetail = ui.expiryView("en", credential.expired, "detail");
+  assert.match(expiredDetail, /data-severity="expired"/);
+  assert.match(expiredDetail, /Registered expiry passed/);
+  assert.match(expiredDetail, /cannot auto-renew/, "the reminder states the token does not renew on its own");
+  assert.match(expiredDetail, /Sign in to IBKR/);
+  assert.match(expiredDetail, /Registered expiry:/);
+  assert.doesNotMatch(expiredDetail, /Expires in 0 days/, "expired never reads as a countdown");
+  const expiredZh = ui.expiryView("zh", credential.expired, "detail");
+  assert.match(expiredZh, /已过登记到期时间/);
+  assert.match(expiredZh, /无法自动续期/);
+  assert.match(expiredZh, /请登录 IBKR/);
+  assert.match(ui.expiryView("en", credential.none, "detail"), /Not due yet/);
+  assert.match(ui.expiryView("en", credential.none, "detail"), /Expires in 512 days/);
+
+  // A missing or malformed credential_expiry falls back to an honest unknown state.
+  const missing = ui.expiryView("en", undefined, "detail");
+  assert.match(missing, /data-severity="unknown"/);
+  assert.match(missing, /Expiry unknown/);
+  assert.match(missing, /Days remaining unknown/);
+  const malformed = ui.expiryView("zh", { severity: "critical", days_remaining: "soon", expires_at: "not-a-date" }, "list");
+  assert.match(malformed, /data-severity="unknown"/);
+  assert.match(malformed, /剩余天数未知/);
+  assert.doesNotMatch(malformed, /critical|soon|not-a-date/, "an unparseable field reduces to unknown, never echoes raw input");
+
   // The promotion request no longer carries a client-chosen tier.
   const decisions = await readFile(new URL("../web/strategy-switch-console/frontend/src/pages/decisions/DecisionsPage.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(decisions, /CAPITAL_PRESERVATION/, "the promotion request must not hard-code a tier");
@@ -438,6 +488,10 @@ try {
   assert.match(decisions, /risk\.policy_revision/);
   assert.match(decisions, /allowed_actions/, "server allow-lists gate the client controls");
   assert.doesNotMatch(decisions, /role="listitem"/, "a queue row keeps its button semantics");
+  assert.match(decisions, /item\.category === "credential_maintenance"\)\s*return translate\("decisions\.credential_expiry\.title"\)/,
+    "the cockpit names the to-do explicitly instead of the generic inbox title");
+  assert.match(decisions, /<CredentialExpiry expiry=\{item\.credential_expiry\} variant="detail" \/>/);
+  assert.match(decisions, /<CredentialExpiry expiry=\{item\.credential_expiry\} variant="list" \/>/);
 
   // A queue entry links to its own decision and the URL carries that target.
   const [router, overviewSource, accounts] = await Promise.all([
@@ -476,6 +530,8 @@ try {
   assert.match(health, /loadDigestStatus/);
   assert.match(health, /DigestStatus/);
   assert.match(health, /AuditTimeline/);
+  assert.match(health, /ATTENTION_PHASES[\s\S]*?\["30", "14", "7", "expired"\]/, "the due set escalates at 30/14/7/expired");
+  assert.doesNotMatch(health, /"7", "1"/, "phase 1 is retired");
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

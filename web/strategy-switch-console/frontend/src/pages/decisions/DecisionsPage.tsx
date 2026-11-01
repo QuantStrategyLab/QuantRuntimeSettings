@@ -39,6 +39,7 @@ import { fieldLabel } from "../accounts/helpers";
 import { sourceConsequenceKey, sourceLabelKey } from "./sources";
 import { InitialEnrollmentFacts } from "./InitialEnrollmentFacts";
 import { ReconciliationMaterials } from "./ReconciliationMaterials";
+import { CredentialExpiry } from "./CredentialExpiry";
 import "./decisions.css";
 
 type View = "pending" | "decided";
@@ -664,6 +665,8 @@ export default function DecisionsPage({ decision }: { decision: string | null })
 
   function itemTitle(item: InboxItem, translate: ReturnType<typeof useT>): string {
     if (isInitialEnrollmentItem(item)) return translate("decisions.initial_enrollment_title");
+    // The shared inbox title key stays generic; the cockpit names this to-do explicitly.
+    if (item.category === "credential_maintenance") return translate("decisions.credential_expiry.title");
     return translate(item.title_key, {}, "decisions.unknown_title");
   }
 
@@ -687,6 +690,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     const anyBusy = busyIntent || busyApply;
     const enrollment = item.initial_enrollment ?? null;
     const initialEnrollmentMode = isInitialEnrollmentItem(item);
+    const isCredential = item.category === "credential_maintenance";
     const enrollmentBlocked = initialEnrollmentMode && (!enrollment
       || enrollment.readiness !== "awaiting_human_confirmation"
       || !Array.isArray(enrollment.blocker_codes) || enrollment.blocker_codes.length > 0
@@ -713,7 +717,8 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     } : null);
 
     let actions: ReactNode = null;
-    if (pending && admin && !(initialEnrollmentMode && enrollmentBlocked)) {
+    // An expired credential stays an actionable maintenance reminder, not a lapsed approval.
+    if (admin && (pending || isCredential) && !(initialEnrollmentMode && enrollmentBlocked)) {
       if (item.category === "credential_maintenance") {
         actions = (
           <button type="button" className="button button-secondary" onClick={() => navigate({ page: "health" })}>
@@ -844,7 +849,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
             {item.created_at && (
               <span>{t("decisions.created_at", { value: formatDateTime(item.created_at, language).text })}</span>
             )}
-            {item.expires_at && (
+            {item.expires_at && !isCredential && (
               <span>{t("decisions.expires_at", { value: formatDateTime(item.expires_at, language).text })}</span>
             )}
             {item.evidence_freshness && (
@@ -862,7 +867,8 @@ export default function DecisionsPage({ decision }: { decision: string | null })
             <DiffTable rows={diffRows} />
           </>
         )}
-        {expanded.server_time && item.expires_at && (
+        {isCredential && <CredentialExpiry expiry={item.credential_expiry} variant="detail" />}
+        {expanded.server_time && item.expires_at && !isCredential && (
           <ExpiryIndicator
             expiresAt={item.expires_at}
             serverTime={expanded.server_time}
@@ -959,6 +965,9 @@ export default function DecisionsPage({ decision }: { decision: string | null })
                           {fresh && <span>{fresh}</span>}
                           {hintKey && <span className="decision-stale-hint">{t(hintKey)}</span>}
                         </span>
+                      )}
+                      {item.category === "credential_maintenance" && (
+                        <CredentialExpiry expiry={item.credential_expiry} variant="list" />
                       )}
                     </span>
                     <Badge tone={expired ? "unknown" : "warn"}>

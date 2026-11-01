@@ -81,14 +81,22 @@ export function consoleApiFixture(
     },
     "reconciliation_recovery",
   );
+  const credentialExpiresAt = new Date(now + 7 * 86400000).toISOString();
   const credential = canonicalItem(
     {
       id: "synthetic-credential",
       phase: "7",
-      expires_at: new Date(now + 7 * 86400000).toISOString(),
+      expires_at: credentialExpiresAt,
     },
     "credential_maintenance",
   );
+  // The backend canonicalItem projection does not yet emit credential_expiry on
+  // this branch; append the synthetic server-computed contract the cockpit reads.
+  credential.credential_expiry = {
+    expires_at: credentialExpiresAt,
+    days_remaining: 7,
+    severity: "urgent",
+  };
   const settings = {
     ok: true,
     platform: "longbridge",

@@ -92,6 +92,42 @@
 .inbox-item .item-meta-secondary { margin-top: 2px; color: var(--muted); font-size: 12px; }
 .inbox-item.is-expired { opacity: 0.7; }
 
+/* Credential expiry reminder: severity is always paired with text, never color alone. */
+.credential-expiry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.credential-expiry-head { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.credential-expiry-days { font-weight: 600; color: var(--ink); }
+.credential-expiry-notice { margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink); }
+.credential-expiry[data-variant="detail"] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--status-unknown);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
+.credential-expiry[data-variant="detail"][data-severity="none"] { border-left-color: var(--status-ok); }
+.credential-expiry[data-variant="detail"][data-severity="notice"] { border-left-color: var(--accent); }
+.credential-expiry[data-variant="detail"][data-severity="warning"] { border-left-color: var(--status-warn); }
+.credential-expiry[data-variant="detail"][data-severity="urgent"],
+.credential-expiry[data-variant="detail"][data-severity="expired"] { border-left-color: var(--status-error); }
+.credential-expiry[data-severity="warning"] .credential-expiry-days { color: var(--status-warn); }
+.credential-expiry[data-severity="urgent"] .credential-expiry-days,
+.credential-expiry[data-severity="expired"] .credential-expiry-days { color: var(--status-error); }
+@media (max-width: 600px) {
+  .credential-expiry { gap: 4px 8px; }
+}
+
 .inbox-detail { top: 76px; }
 
 /* Mobile two-screen: list and detail take turns; the back button returns to the list. */

@@ -97,9 +97,16 @@ import type { AccountFactsSnapshot, AccountFactsHistorySnapshot, BinanceWalletHi
 import type { RuntimeDailySnapshot } from "./presentation";
 export type { RuntimeDailySnapshot } from "./presentation";
 export type Source<T> = { value: T | null; error: string | null };
+export type CredentialExpirySeverity = "none" | "unknown" | "notice" | "warning" | "urgent" | "expired";
+const CREDENTIAL_SEVERITIES: readonly CredentialExpirySeverity[] = ["none", "unknown", "notice", "warning", "urgent", "expired"];
+const CREDENTIAL_SEVERITY_BY_PHASE = {
+  unknown: "unknown", not_due: "none", "30": "notice", "14": "warning", "7": "urgent", expired: "expired",
+} as const;
 export type CredentialMaintenance = {
   id: "ibkr_flex"; metadata_source: "operator_provided"; metadata_revision: number;
-  expires_at: string | null; phase: "unknown" | "not_due" | "30" | "7" | "1" | "expired";
+  expires_at: string | null; phase: "unknown" | "not_due" | "30" | "14" | "7" | "expired";
+  /** Server-computed projection; optional until the extended read is deployed. */
+  days_remaining?: number | null; severity?: CredentialExpirySeverity;
   requires_action: boolean; delivery: "not_reserved" | "reserved" | "delivered" | "unknown";
 };
 function canonicalCredentialExpiry(value: unknown): string | null {
@@ -114,9 +121,17 @@ export function validCredentialMaintenance(value: unknown): value is CredentialM
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const p = value as CredentialMaintenance;
   if (p.id !== "ibkr_flex" || p.metadata_source !== "operator_provided" || !Number.isSafeInteger(p.metadata_revision) || p.metadata_revision < 0 ||
-      !["unknown", "not_due", "30", "7", "1", "expired"].includes(p.phase) || !["not_reserved", "reserved", "delivered", "unknown"].includes(p.delivery) || p.requires_action !== (p.phase !== "not_due")) return false;
-  if (p.phase === "unknown") return p.expires_at === null && p.delivery === "not_reserved";
-  return typeof p.expires_at === "string" && canonicalCredentialExpiry(p.expires_at) === p.expires_at && (p.phase !== "not_due" || p.delivery === "not_reserved");
+      !["unknown", "not_due", "30", "14", "7", "expired"].includes(p.phase) || !["not_reserved", "reserved", "delivered", "unknown"].includes(p.delivery) || p.requires_action !== (p.phase !== "not_due")) return false;
+  if (p.days_remaining !== undefined && p.days_remaining !== null
+    && !(Number.isSafeInteger(p.days_remaining) && p.days_remaining >= 0)) return false;
+  if (p.severity !== undefined && !CREDENTIAL_SEVERITIES.includes(p.severity)) return false;
+  if (p.phase === "unknown") return p.expires_at === null && p.delivery === "not_reserved"
+    && (p.days_remaining === undefined || p.days_remaining === null)
+    && (p.severity === undefined || p.severity === "unknown");
+  return typeof p.expires_at === "string" && canonicalCredentialExpiry(p.expires_at) === p.expires_at && (p.phase !== "not_due" || p.delivery === "not_reserved")
+    && (p.severity === undefined || p.severity === CREDENTIAL_SEVERITY_BY_PHASE[p.phase])
+    && (p.days_remaining === undefined || p.days_remaining !== null)
+    && (p.phase !== "expired" || p.days_remaining === undefined || p.days_remaining === 0);
 }
 export function validCredentialRegistrationAck(value: unknown, requested: string, previous: CredentialMaintenance): value is CredentialMaintenance {
   const canonical = canonicalCredentialExpiry(requested);

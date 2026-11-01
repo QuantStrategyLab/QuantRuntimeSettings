@@ -73,6 +73,28 @@ try {
   assert.equal(ui.tr("zh", "initial_enrollment.fact.some_field"), "其他字段");
   assert.equal(ui.tr("zh", "initial_enrollment.scope_kind.mystery"), "未知");
 
+  // IBKR Flex reminder: the exact requested titles and severity labels resolve through
+  // copy; a phase/severity enum is never surfaced as a raw i18n key.
+  assert.equal(ui.tr("zh", "decisions.credential_expiry.title"), "IBKR Flex token 到期续期");
+  assert.equal(ui.tr("en", "decisions.credential_expiry.title"), "Renew IBKR Flex token");
+  for (const [key, zh, en] of [
+    ["none", "未到期", "Not due yet"],
+    ["unknown", "到期时间未知", "Expiry unknown"],
+    ["notice", "提前提醒", "Early reminder"],
+    ["warning", "尽快续期", "Renew soon"],
+    ["urgent", "立即续期", "Renew now"],
+    ["expired", "已过期", "Expired"],
+  ]) {
+    assert.equal(ui.tr("zh", `decisions.credential_expiry.severity.${key}`), zh);
+    assert.equal(ui.tr("en", `decisions.credential_expiry.severity.${key}`), en);
+  }
+  assert.equal(ui.tr("en", "decisions.credential_expiry.manual_notice"),
+    "IBKR Flex tokens cannot auto-renew. Sign in to IBKR to regenerate the token, then register the new expiry through the existing maintenance flow.");
+  assert.match(ui.tr("zh", "decisions.credential_expiry.manual_notice"), /无法自动续期/);
+  // An unenumerated severity key falls back to localized copy, never the dotted key.
+  assert.equal(ui.tr("en", "decisions.credential_expiry.severity.not_due"), "Unknown");
+  assert.equal(ui.tr("zh", "decisions.credential_expiry.severity.not_due"), "未知");
+
   // P04: regime effects render through copy only.
   const regimeZhKnown = visible(ui.regime("zh", "risk_reduction_only"));
   assert.match(regimeZhKnown, /仅允许降低风险/);
