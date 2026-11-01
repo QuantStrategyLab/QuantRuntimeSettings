@@ -92,6 +92,12 @@ const LONG_BRIDGE_FINANCING_ALLOWED_FIELDS = Object.freeze([
 const LONG_BRIDGE_RISK_LEVEL_WIRE = Object.freeze(["0", "1", "2", "3"]);
 const IBKR_BALANCE_FIELDS = ["currency", "net_assets"];
 const IBKR_CASH_FIELDS = ["currency", "cash_balance", "source_tag"];
+// Firstrade balance rows optionally carry the balance-API long_stock_value
+// next to net_assets; the publisher sends it only when
+// include_valuation_basis is enabled, so it is allowed when present and
+// never required.
+const FIRSTRADE_BALANCE_FIELDS = ["currency", "net_assets"];
+const FIRSTRADE_OPTIONAL_BALANCE_FIELDS = ["long_stock_value"];
 const SCHWAB_BALANCE_FIELDS = ["currency", "net_assets", "source_tag", "currency_source"];
 
 export class AccountFactsError extends Error {
@@ -275,6 +281,7 @@ function normalizeLongBridgeFinancing(value, balances) {
 
 function moneyRows(value, fields, fieldName, {
   nullableFields = [],
+  optionalFields = [],
   rejectBase = false,
   sourceTags = null,
   fixedFields = null,
@@ -287,9 +294,11 @@ function moneyRows(value, fields, fieldName, {
   }
   const seen = new Set();
   return value.map((item) => {
-    if (!exactKeys(item, fields)) reject(`invalid_account_facts_${fieldName}`);
+    const rowFields = [...fields, ...optionalFields.filter(
+      (field) => Object.prototype.hasOwnProperty.call(item, field))];
+    if (!exactKeys(item, rowFields)) reject(`invalid_account_facts_${fieldName}`);
     const row = {};
-    for (const field of fields) {
+    for (const field of rowFields) {
       const cell = item[field];
       if (field === "currency") {
         if (typeof cell !== "string" || !CURRENCY_RE.test(cell) || seen.has(cell)
@@ -630,7 +639,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   if (observationDate !== startedDate) reject("invalid_account_facts_date");
   const balances = moneyRows(
     raw.broker_reported_balances,
-    (ibkr || firstrade) ? IBKR_BALANCE_FIELDS : (schwab ? SCHWAB_BALANCE_FIELDS : LONG_BRIDGE_BALANCE_FIELDS),
+    firstrade ? FIRSTRADE_BALANCE_FIELDS : (ibkr ? IBKR_BALANCE_FIELDS : (schwab ? SCHWAB_BALANCE_FIELDS : LONG_BRIDGE_BALANCE_FIELDS)),
     "balances",
     schwab
       ? {
@@ -639,7 +648,8 @@ export function normalizeAccountFactsHistoryPayload(raw, {
         sourceTags: new Set(["liquidationValue"]),
         fixedFields: { currency_source: "owner_confirmed" },
       }
-      : (firstrade ? { maxRows: 1 } : { nullableFields: ibkr ? ["net_assets"] : [] }),
+      : (firstrade ? { maxRows: 2, optionalFields: FIRSTRADE_OPTIONAL_BALANCE_FIELDS }
+        : { nullableFields: ibkr ? ["net_assets"] : [] }),
   );
   const cash = moneyRows(
     raw.cash,
