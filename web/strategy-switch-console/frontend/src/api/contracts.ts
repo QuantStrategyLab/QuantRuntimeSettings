@@ -106,9 +106,22 @@ export interface InitialEnrollmentProjection {
   readiness?: string | null;
   blocker_codes?: string[] | null;
 }
+/** Server-computed escalation for a credential_maintenance item. The browser never derives it. */
+export type CredentialExpirySeverity = "none" | "unknown" | "notice" | "warning" | "urgent" | "expired";
+/**
+ * Allowlisted display projection of the registered credential expiry on an inbox item.
+ * Only these three display fields; the day count and severity come from the server clock.
+ */
+export interface CredentialExpiryReminder {
+  expires_at: string | null;
+  days_remaining: number | null;
+  severity: CredentialExpirySeverity;
+}
 export interface InboxItem extends DecisionFields {
   presentation?: RecoveryMaterialPresentation;
   initial_enrollment?: InitialEnrollmentProjection;
+  /** Present only on credential_maintenance items; absent or malformed renders as unknown. */
+  credential_expiry?: CredentialExpiryReminder | null;
   id: string;
   short_id: string;
   application_status?: string | null;

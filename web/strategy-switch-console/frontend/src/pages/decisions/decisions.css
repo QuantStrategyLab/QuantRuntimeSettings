@@ -92,6 +92,28 @@
 .inbox-item .item-meta-secondary { margin-top: 2px; color: var(--muted); font-size: 12px; }
 .inbox-item.is-expired { opacity: 0.7; }
 
+/* Credential expiry reminder. Severity always pairs with the icon+text badge,
+   never color alone. Flat 0.5px hairline block: no accent bar, no shadow, no dim. */
+.credential-expiry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 0.5px solid var(--border-divider);
+  border-radius: var(--radius-s);
+  background: var(--surface-subtle);
+}
+.credential-expiry-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.credential-expiry-days { color: var(--text-primary); font-weight: 600; }
+.credential-expiry-expires { color: var(--text-secondary); font-size: 0.85rem; }
+.credential-expiry-notice { margin: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5; }
+/* The days figure echoes the badge tone; the badge already carries icon + text. */
+.credential-expiry[data-severity="notice"] .credential-expiry-days,
+.credential-expiry[data-severity="warning"] .credential-expiry-days,
+.credential-expiry[data-severity="urgent"] .credential-expiry-days { color: var(--status-attention); }
+.credential-expiry[data-severity="expired"] .credential-expiry-days { color: var(--status-blocked); }
+
 .inbox-detail { top: 76px; }
 
 /* Mobile two-screen: list and detail take turns; the back button returns to the list. */
