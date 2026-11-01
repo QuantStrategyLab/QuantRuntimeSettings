@@ -498,6 +498,40 @@
                   }
                 ]
               },
+              "credential_expiry": {
+                "type": "object",
+                "description": "Credential renewal reminder only; never a token or private source value.",
+                "properties": {
+                  "expires_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "days_remaining": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "severity": {
+                    "enum": [
+                      "none",
+                      "unknown",
+                      "notice",
+                      "warning",
+                      "urgent",
+                      "expired"
+                    ]
+                  }
+                },
+                "required": [
+                  "expires_at",
+                  "days_remaining",
+                  "severity"
+                ],
+                "additionalProperties": false
+              },
               "presentation": {
                 "$ref": "#/$defs/recovery_material_presentation"
               }

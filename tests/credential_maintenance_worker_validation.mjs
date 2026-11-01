@@ -46,6 +46,8 @@ try {
   assert.equal(missing.status, 200, "the existing console must expose a maintenance projection");
   assert.equal(missing.value.phase, "unknown");
   assert.equal(missing.value.expires_at, null);
+  assert.equal(missing.value.days_remaining, null);
+  assert.equal(missing.value.severity, "unknown");
   assert.equal(missing.value.requires_action, true);
   assert.equal(missing.value.id, "ibkr_flex");
   assert.equal((await call(undefined, undefined, "")).status, 401);
@@ -63,6 +65,8 @@ try {
   const saved = await call(undefined, { metadata_revision: 0, expires_at: expires });
   assert.equal(saved.status, 200);
   assert.equal(saved.value.phase, "30");
+  assert.equal(saved.value.days_remaining, 20);
+  assert.equal(saved.value.severity, "notice");
   assert.equal(saved.value.metadata_revision, 1);
   const proposal = { metadata_revision: 1, expires_at: expires, phase: "30" };
   const concurrent = await Promise.all([machine("/claim", proposal), machine("/claim", proposal)]);
@@ -86,6 +90,8 @@ try {
   const current = (await call()).value;
   assert.equal(current.expires_at, renewed);
   assert.equal(current.phase, "not_due");
+  assert.equal(current.days_remaining, 100);
+  assert.equal(current.severity, "none");
   assert.equal(current.delivery, "not_reserved");
   assert.equal((await machine("/claim", { metadata_revision: 2, expires_at: renewed, phase: "30" })).status, 409);
   const returned = await call(undefined, { metadata_revision: 2, expires_at: expires });
@@ -95,20 +101,49 @@ try {
   assert.equal((await machine("/ack", { metadata_revision: 3, expires_at: expires, phase: "30", claim_id: granted.claim_id, outcome: "delivered" })).status, 409);
   // A new, unrelated expiry allows a strict success ACK, never wrong-claim ACK.
   const finalExpiry = new Date(Date.now() + 5 * 86400000).toISOString();
-  await call(undefined, { metadata_revision: 3, expires_at: finalExpiry });
+  const finalSaved = await call(undefined, { metadata_revision: 3, expires_at: finalExpiry });
+  assert.equal(finalSaved.value.phase, "7");
+  assert.equal(finalSaved.value.days_remaining, 5);
+  assert.equal(finalSaved.value.severity, "urgent");
   const finalProposal = { metadata_revision: 4, expires_at: finalExpiry, phase: "7" };
   const finalClaim = (await machine("/claim", finalProposal)).value;
   assert.equal((await machine("/ack", { ...finalProposal, claim_id: "synthetic-wrong", outcome: "delivered" })).status, 409);
   for (let i = 0; i < 2; i++) assert.equal((await machine("/ack", { ...finalProposal, claim_id: finalClaim.claim_id, outcome: "delivered" })).value.delivery, "delivered");
   assert.equal((await machine("/claim", finalProposal)).value.granted, false);
-  const { credentialPhase, normalizeExpiryInstant } = await import("../web/strategy-switch-console/credentialMaintenance.js");
+  const midExpiry = new Date(Date.now() + 10 * 86400000).toISOString();
+  const midSaved = await call(undefined, { metadata_revision: 4, expires_at: midExpiry });
+  assert.equal(midSaved.value.phase, "14");
+  assert.equal(midSaved.value.days_remaining, 10);
+  assert.equal(midSaved.value.severity, "warning");
+  const midProposal = { metadata_revision: 5, expires_at: midExpiry, phase: "14" };
+  const midClaim = (await machine("/claim", midProposal)).value;
+  assert.equal(midClaim.granted, true);
+  assert.equal(midClaim.phase, "14");
+  assert.equal((await machine("/ack", { ...midProposal, claim_id: midClaim.claim_id, outcome: "delivered" })).value.delivery, "delivered");
+  const { credentialExpiryProjection, credentialPhase, normalizeExpiryInstant } = await import("../web/strategy-switch-console/credentialMaintenance.js");
   const now = Date.parse("2035-01-01T00:00:00Z");
-  for (const [days, expected] of [[40, "not_due"], [20, "30"], [5, "7"], [0.5, "1"], [-1, "expired"]]) {
-    assert.equal(credentialPhase(new Date(now + days * 86400000).toISOString(), now), expected);
+  const at = (days) => new Date(now + days * 86400000).toISOString();
+  for (const [days, phase, days_remaining, severity] of [
+    [31, "not_due", 31, "none"],
+    [30, "30", 30, "notice"],
+    [15, "30", 15, "notice"],
+    [14, "14", 14, "warning"],
+    [8, "14", 8, "warning"],
+    [7, "7", 7, "urgent"],
+    [1, "7", 1, "urgent"],
+    [0.5, "7", 1, "urgent"],
+    [0, "expired", 0, "expired"],
+    [-1, "expired", 0, "expired"],
+  ]) {
+    assert.deepEqual(credentialExpiryProjection(at(days), now), { expires_at: at(days), phase, days_remaining, severity });
+    assert.equal(credentialPhase(at(days), now), phase);
   }
-  for (const [days, expected] of [[30, "30"], [7, "7"], [1, "1"], [0, "expired"]]) assert.equal(credentialPhase(new Date(now + days * 86400000).toISOString(), now), expected);
-  assert.equal(credentialPhase(null, now), "unknown");
-  assert.equal(credentialPhase("2035-02-30T00:00:00Z", now), "unknown");
+  for (const [days, phase] of [[30.25, "not_due"], [14.25, "30"], [7.25, "14"], [0.25, "7"]]) {
+    assert.equal(credentialPhase(at(days), now), phase, "a fraction above a boundary stays in the preceding phase");
+  }
+  assert.deepEqual(credentialExpiryProjection(null, now), { expires_at: null, phase: "unknown", days_remaining: null, severity: "unknown" });
+  assert.deepEqual(credentialExpiryProjection("2035-02-30T00:00:00Z", now), { expires_at: null, phase: "unknown", days_remaining: null, severity: "unknown" });
+  assert.equal(credentialExpiryProjection("2035-01-02T08:00:00+08:00", now).expires_at, "2035-01-02T00:00:00.000Z");
   for (const alias of ["RUNTIME_SETTINGS_DISPATCH_TOKEN", "IBKR_ACCOUNT_FACTS_SYNC_TOKEN", "CONTROL_PLANE_SYNC_TOKEN"]) {
     const colliding = new Miniflare({ ...options, durableObjectsPersist: false, bindings: { ...bindings, [alias]: bindings.STRATEGY_SWITCH_SYNC_TOKEN } });
     try {

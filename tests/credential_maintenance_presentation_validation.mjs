@@ -13,7 +13,7 @@ assert.equal(item.kind, 'maintenance');
 assert.deepEqual(item.accountChoices, []);
 assert.equal(item.identity, undefined);
 assert.deepEqual(decisionActionState({ ...item, canAdopt: true, canReject: true }, { admin: true, busy: false, selectedAccountId: '' }), { adoptEnabled: false, rejectEnabled: false });
-for (const phase of ['30', '7', '1', 'expired']) {
+for (const phase of ['30', '14', '7', 'expired']) {
   assert.equal(listDailyDecisions({ ...base, maintenance: { value: { ...metadata, phase, expires_at: '2035-04-01T00:00:00.000Z' }, error: null } }).items.length, 1);
 }
 assert.equal(listDailyDecisions({ ...base, maintenance: { value: { ...metadata, phase: 'not_due', requires_action: false, expires_at: '2035-04-01T00:00:00.000Z' }, error: null } }).items.length, 0);
