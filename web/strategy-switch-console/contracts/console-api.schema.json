@@ -189,6 +189,315 @@
                 "type": "string",
                 "pattern": "^(IN|CH)-[0-9A-Z]{13}$"
               },
+              "decision_id": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^rev[0-9]-[0-9a-z-]{1,64}$"
+              },
+              "transition": {
+                "type": "object",
+                "properties": {
+                  "axis": {
+                    "type": "string"
+                  },
+                  "from": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "to": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pending_to": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "axis",
+                  "from",
+                  "to",
+                  "pending_to"
+                ]
+              },
+              "actionable": {
+                "type": "boolean"
+              },
+              "blocking_reason_codes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "allowed_actions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/decision_action"
+                }
+              },
+              "request_id_required": {
+                "type": "boolean"
+              },
+              "action_endpoint": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "decision_state": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "pending",
+                      "decided"
+                    ]
+                  },
+                  "action": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "decided_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "status",
+                  "action",
+                  "decided_at"
+                ]
+              },
+              "risk_impact": {
+                "type": "object",
+                "properties": {
+                  "affects_live": {
+                    "type": "boolean"
+                  },
+                  "tier": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "tier_label_key": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "policy": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "execution_authority_granted": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "affects_live",
+                  "tier",
+                  "tier_label_key",
+                  "policy",
+                  "execution_authority_granted"
+                ]
+              },
+              "evidence_summary": {
+                "type": "object",
+                "properties": {
+                  "material_sha256": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "review_sha256": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "candidate_sha256": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "facts_sha256": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dual_review_binding_sha256": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "observed_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "first_observed_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "sample_count": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "dual_review": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "shadow": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "source_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "freshness": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "material_sha256",
+                  "review_sha256",
+                  "candidate_sha256",
+                  "facts_sha256",
+                  "dual_review_binding_sha256",
+                  "observed_at",
+                  "first_observed_at",
+                  "sample_count",
+                  "dual_review",
+                  "shadow",
+                  "source_id",
+                  "freshness"
+                ]
+              },
+              "operation_reference": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "unapplied",
+                          "accepted",
+                          "applying",
+                          "applied",
+                          "failed",
+                          "unknown"
+                        ]
+                      },
+                      "activation_status": {
+                        "type": "string"
+                      },
+                      "reason_code": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "status",
+                      "activation_status",
+                      "reason_code",
+                      "updated_at"
+                    ]
+                  }
+                ]
+              },
+              "decision_authority": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "material_sha256": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "expires_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "eligible": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      "blocked": {
+                        "type": "boolean"
+                      },
+                      "unavailable": {
+                        "type": "boolean"
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "material_sha256",
+                      "expires_at",
+                      "eligible",
+                      "blocked",
+                      "unavailable",
+                      "source"
+                    ]
+                  }
+                ]
+              },
               "presentation": {
                 "$ref": "#/$defs/recovery_material_presentation"
               }
@@ -207,12 +516,39 @@
               "status",
               "affects_live",
               "diff",
-              "short_id"
+              "short_id",
+              "decision_id",
+              "revision",
+              "transition",
+              "actionable",
+              "blocking_reason_codes",
+              "allowed_actions",
+              "request_id_required",
+              "action_endpoint",
+              "decision_state",
+              "risk_impact",
+              "evidence_summary",
+              "operation_reference",
+              "decision_authority"
             ]
           }
         },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Opaque cursor for the next inbox page; null when the page is the last."
+        },
         "coverage": {
           "type": "string"
+        },
+        "tier_policies": {
+          "type": "array",
+          "description": "Declarative tier policies. Owner intent only; never applied to orders.",
+          "items": {
+            "$ref": "#/$defs/risk_tier_policy"
+          }
         },
         "no_order": {
           "const": true
@@ -724,6 +1060,12 @@
         },
         "effective": {
           "type": "object"
+        },
+        "risk": {
+          "type": "object"
+        },
+        "tier_binding": {
+          "$ref": "#/$defs/risk_tier_binding"
         },
         "adopted": {
           "const": false
@@ -3678,6 +4020,581 @@
           ]
         }
       }
+    },
+    "decision_action": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "label_key": {
+          "type": "string"
+        },
+        "requires_selection": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action",
+        "label_key",
+        "requires_selection"
+      ]
+    },
+    "decision_eligibility": {
+      "type": "object",
+      "properties": {
+        "eligible": {
+          "type": "boolean"
+        },
+        "material_matches": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "expired": {
+          "type": "boolean"
+        },
+        "blocked": {
+          "type": "boolean"
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "eligible",
+        "material_matches",
+        "expired",
+        "blocked",
+        "reason_codes"
+      ]
+    },
+    "risk_tier_policy": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "qsl.risk_tier_policy.v1"
+        },
+        "tier": {
+          "enum": [
+            "CAPITAL_PRESERVATION",
+            "BALANCED_COMPOUNDING",
+            "GROWTH_COMPOUNDING"
+          ]
+        },
+        "policy_id": {
+          "type": "string"
+        },
+        "profile_id": {
+          "type": "string"
+        },
+        "composer_mdd_multiple": {
+          "type": "number"
+        },
+        "promotion_size_scale": {
+          "type": "number"
+        },
+        "executable": {
+          "const": false
+        },
+        "activation_status": {
+          "const": "not_connected"
+        },
+        "owner_intent_only": {
+          "const": true
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "tier",
+        "policy_id",
+        "profile_id",
+        "composer_mdd_multiple",
+        "promotion_size_scale",
+        "executable",
+        "activation_status",
+        "owner_intent_only",
+        "no_order",
+        "execution_authority_granted"
+      ]
+    },
+    "decision_review": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "qsl.decision_review.v1"
+        },
+        "server_time": {
+          "type": "string"
+        },
+        "data_status": {
+          "enum": [
+            "ready",
+            "partial"
+          ]
+        },
+        "decision_id": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "object"
+        },
+        "current_eligibility": {
+          "$ref": "#/$defs/decision_eligibility"
+        },
+        "decision_authority": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "decision_receipt": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "operation": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "policy": {
+          "type": "object"
+        },
+        "tier_policies": {
+          "type": "array",
+          "description": "Declarative tier policies. Owner intent only; never applied to orders.",
+          "items": {
+            "$ref": "#/$defs/risk_tier_policy"
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "server_time",
+        "data_status",
+        "decision_id",
+        "decision",
+        "current_eligibility",
+        "decision_authority",
+        "decision_receipt",
+        "operation",
+        "policy",
+        "errors"
+      ]
+    },
+    "decision_action_result": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "qsl.decision_action_result.v1"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "decision_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^rev[0-9]-[0-9a-z-]{1,64}$"
+        },
+        "action": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "operation_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "recorded_operation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decision_receipt": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "decided_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decision_state": {
+          "type": "object"
+        },
+        "operation": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "policy": {
+          "type": "object"
+        },
+        "server_time": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "blocking_reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "server_time"
+      ]
+    },
+    "operation": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "qsl.operation.v1"
+        },
+        "server_time": {
+          "type": "string"
+        },
+        "data_status": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "decision_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "subject_id": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "unaccepted",
+                "unapplied",
+                "accepted",
+                "applying",
+                "applied",
+                "failed",
+                "unknown"
+              ]
+            },
+            "reason_code": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "activation_status": {
+              "type": "string"
+            },
+            "updated_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "dispatch": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "application": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "decision_id",
+            "kind",
+            "subject_id",
+            "status",
+            "reason_code",
+            "activation_status",
+            "updated_at",
+            "dispatch",
+            "application"
+          ]
+        },
+        "decision": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "policy": {
+          "type": "object"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "server_time",
+        "data_status",
+        "operation",
+        "decision",
+        "policy",
+        "errors"
+      ]
+    },
+    "audit_events": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "qsl.audit_events.v1"
+        },
+        "server_time": {
+          "type": "string"
+        },
+        "data_status": {
+          "enum": [
+            "ready",
+            "partial"
+          ]
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "source": {
+                "enum": [
+                  "durable_human_decision",
+                  "research_promotion_application",
+                  "account_settings_application",
+                  "bounded_audit_log"
+                ]
+              },
+              "occurred_at": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string"
+              },
+              "actor_alias": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "subject": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "revision": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "outcome": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "source",
+              "occurred_at",
+              "action",
+              "actor_alias",
+              "subject",
+              "revision",
+              "outcome",
+              "ref"
+            ]
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {
+          "type": "string"
+        },
+        "policy": {
+          "type": "object"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "server_time",
+        "data_status",
+        "events",
+        "next_cursor",
+        "coverage",
+        "policy",
+        "errors"
+      ]
+    },
+    "risk_tier_binding": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "qsl.risk_tier_binding.v1"
+        },
+        "scope_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "platform": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "selected": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "approved": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "effective": {
+          "type": "object",
+          "properties": {
+            "tier": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "enum": [
+                "observed",
+                "unavailable"
+              ]
+            },
+            "unavailable_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "observed_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "tier",
+            "status",
+            "unavailable_reason",
+            "source",
+            "observed_at"
+          ]
+        },
+        "effective_derived_from_approved": {
+          "const": false
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope_id",
+        "platform",
+        "target_name",
+        "selected",
+        "approved",
+        "effective",
+        "effective_derived_from_approved",
+        "no_order",
+        "execution_authority_granted"
+      ]
     }
   }
 }
