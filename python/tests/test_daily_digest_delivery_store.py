@@ -60,6 +60,41 @@ class DeliveryStoreTests(unittest.TestCase):
         with self.assertRaises(StoreUnavailable):
             self.store.candidate('key', 5)
 
+    def test_platform_root_changes_only_selected_candidate_reads(self):
+        store = GCSDeliveryStore('gs://synthetic/candidates', 'gs://synthetic/deliveries',
+                                 candidates_by_platform={'firstrade': 'gs://synthetic-isolated/intake'},
+                                 client=self.client)
+        self.blob.download_as_bytes.return_value = b'{"runs": []}'
+        for platform, bucket, prefix in (
+                ('firstrade', 'synthetic-isolated', 'intake'), ('ibkr', 'synthetic', 'candidates')):
+            key = f'{platform}/2026-10-15/slot.json'
+            self.assertEqual(store.candidate(key, 5), {'runs': []})
+            self.client.bucket.assert_called_with(bucket)
+            self.client.bucket.return_value.blob.assert_called_with(prefix + '/' + key)
+            self.assertEqual(self.blob.download_as_bytes.call_args.kwargs['timeout'], 5)
+            self.assertIsNone(self.blob.download_as_bytes.call_args.kwargs['retry'])
+        store.reserve('scope/2026-10-16.json', {'delivery': 'sending'})
+        self.client.bucket.assert_called_with('synthetic')
+        self.client.bucket.return_value.blob.assert_called_with('deliveries/scope/2026-10-16.json')
+        self.assertEqual(self.blob.upload_from_string.call_args.kwargs['if_generation_match'], 0)
+
+    def test_selected_root_never_falls_back_after_missing_denied_or_timeout(self):
+        store = GCSDeliveryStore('gs://synthetic/candidates', 'gs://synthetic/deliveries',
+                                 candidates_by_platform={'firstrade': 'gs://synthetic-isolated/intake'},
+                                 client=self.client)
+        for error in (Missing(), PermissionError('private-path'), TimeoutError('private-path')):
+            with self.subTest(error=type(error).__name__):
+                self.client.reset_mock()
+                self.blob.download_as_bytes.side_effect = error
+                if isinstance(error, Missing):
+                    self.assertIsNone(store.candidate('firstrade/day/slot.json', 5))
+                else:
+                    with self.assertRaises(StoreUnavailable) as caught:
+                        store.candidate('firstrade/day/slot.json', 5)
+                    self.assertNotIn('private-path', str(caught.exception))
+                self.client.bucket.assert_called_once_with('synthetic-isolated')
+                self.blob.download_as_bytes.assert_called_once()
+
     def test_unreadable_existing_reservation_does_not_become_absent(self):
         self.blob.upload_from_string.side_effect = Conflict()
         self.blob.download_as_bytes.return_value = b'not-json'

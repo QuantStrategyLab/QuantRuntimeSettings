@@ -35,6 +35,7 @@ import { expiryState, isRiskTier, loadOperation, normalizeEvidenceSummary } from
 import type { EvidenceSummary as EvidenceSummaryData } from "../../api/cockpit";
 import { ApplicationStatus, EvidenceSummary, ExpiryIndicator, tierLabel } from "../../components/cockpit";
 import { decisionActionAllowed, promotionDecisionBody, resolveAccountChoice } from "./helpers";
+import { fieldLabel } from "../accounts/helpers";
 import { sourceConsequenceKey, sourceLabelKey } from "./sources";
 import { InitialEnrollmentFacts } from "./InitialEnrollmentFacts";
 import { ReconciliationMaterials } from "./ReconciliationMaterials";
@@ -607,13 +608,13 @@ export default function DecisionsPage({ decision }: { decision: string | null })
       ? ` · ${tierLabel(risk.risk_profile, t)}${risk.policy_revision ? ` · ${t("cockpit.policy.revision", { value: risk.policy_revision })}` : ""}`
       : "";
     const target = account
-      ? `${itemTitle(item, t)} · ${account.label} (${account.platform} / ${account.key} / ${account.mode})${riskText}`
+      ? `${itemTitle(item, t)} · ${account.label} (${names.platform(account.platform)} / ${account.key} / ${t(`strategies.execution.${account.mode}`, {}, "strategies.execution.unknown")})${riskText}`
       : `${itemTitle(item, t)}${riskText}`;
     return confirm({
       title: t(action === "adopt" ? "decisions.confirm_adopt_title" : "decisions.confirm_decline_title"),
       target,
       summary: t(paperAdopt ? "decisions.apply_note" : "decisions.confirm_body"),
-      body: <DiffTable rows={item.diff.map(row => ({ ...row, label: t(row.label_key) === row.label_key ? row.field : t(row.label_key), affectsLive: row.affects_live }))} />,
+      body: <DiffTable rows={item.diff.map(row => ({ ...row, label: fieldLabel(t, row), affectsLive: row.affects_live }))} />,
       consequence: t("decisions.intent_note"),
       tone: action === "adopt" ? "normal" : "danger",
       confirmLabel: t(action === "adopt" ? "decisions.confirm_adopt_label" : "decisions.confirm_decline_label"),
@@ -652,8 +653,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
 
   function itemTitle(item: InboxItem, translate: ReturnType<typeof useT>): string {
     if (isInitialEnrollmentItem(item)) return translate("decisions.initial_enrollment_title");
-    const translated = translate(item.title_key);
-    return translated === item.title_key ? item.short_id : translated;
+    return translate(item.title_key, {}, "decisions.unknown_title");
   }
 
   /* ---------- render ---------- */
@@ -669,8 +669,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     const expired = isExpired(item);
     const pending = item.status === "pending" && !expired;
     const diffRows = item.diff.map(row => {
-      const label = t(row.label_key);
-      return { field: row.field, label: label === row.label_key ? row.field : label, before: row.before, after: row.after, affectsLive: row.affects_live };
+      return { field: row.field, label: fieldLabel(t, row), before: row.before, after: row.after, affectsLive: row.affects_live };
     });
     const busyIntent = Boolean(busy[`intent:${item.id}`]);
     const busyApply = Boolean(busy[`apply:${subjectIdOf(item)}`]);

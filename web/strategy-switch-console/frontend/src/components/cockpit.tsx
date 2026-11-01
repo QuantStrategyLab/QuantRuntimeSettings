@@ -13,7 +13,7 @@ import type {
 } from "../api/cockpit";
 import { expiryState, isRiskTier } from "../api/cockpit";
 import { formatDateTime } from "../lib/format";
-import { useLanguage, useT } from "../i18n";
+import { useLanguage, useT, hasTranslation } from "../i18n";
 import { Badge, Skeleton } from "./primitives";
 import "./cockpit.css";
 
@@ -24,13 +24,28 @@ export function tierLabel(value: string | null | undefined, t: ReturnType<typeof
   if (value === "CAPITAL_PRESERVATION") return t("cockpit.tier.capital");
   if (value === "BALANCED_COMPOUNDING") return t("cockpit.tier.balanced");
   if (value === "GROWTH_COMPOUNDING") return t("cockpit.tier.growth");
-  return t("cockpit.not_set");
+  if (value === null || value === undefined || value === "") return t("cockpit.not_set");
+  return t("cockpit.tier.unknown");
 }
 
-/** The server owns this vocabulary; an unmapped value stays readable instead of raw. */
+/** Regime effects are machine values: known codes have copy, unknown ones never render raw. */
 export function regimeLabel(value: string, t: ReturnType<typeof useT>): string {
-  if (value === "risk_reduction_only") return t("cockpit.regime.reduction_only");
-  return value.replace(/_/g, " ");
+  return t(`cockpit.lifecycle.regime_effect.${value}`, {}, "cockpit.lifecycle.regime_effect.unknown");
+}
+
+/** Application reasons may be codes or free text; only vetted codes reach the screen. */
+export function operationReason(reason: string, t: ReturnType<typeof useT>): string {
+  const reasonKey = `reason.${reason}`;
+  if (hasTranslation(reasonKey)) return t(reasonKey);
+  const explicitKey = `cockpit.operation.reason.${reason}`;
+  if (hasTranslation(explicitKey)) return t(explicitKey);
+  return t("cockpit.operation.reason.unknown");
+}
+
+/** Pause/resume unavailability keeps its own fallback: a blocked control is not a pending operation. */
+export function pauseReasonLabel(reason: string | null | undefined, t: ReturnType<typeof useT>): string {
+  if (reason && hasTranslation(`reason.${reason}`)) return t(`reason.${reason}`);
+  return t("cockpit.pause.unavailable");
 }
 
 export function blockerLabel(reason: string, t: ReturnType<typeof useT>): string {
@@ -320,7 +335,8 @@ function PolicyValueCell({ value }: { value: PolicyValue }) {
   if (value.status !== "known" || value.value === null) {
     return <span className="cockpit-unknown">{t("cockpit.policy.unknown_value")}</span>;
   }
-  return <span>{String(value.value)}{value.unit ? ` ${value.unit}` : ""}</span>;
+  const unit = value.unit === "percent" ? t("cockpit.policy.unit.percent") : "";
+  return <span>{String(value.value)}{unit}</span>;
 }
 
 export function EffectivePolicyPanel({
@@ -389,7 +405,9 @@ export function EffectivePolicyPanel({
         <dd>
           {restriction?.active ? (
             <>
-              {restriction.reason || t("cockpit.unknown")}
+              {restriction.reason === "reduction_only" || restriction.reason === "Reduction only"
+                ? t("cockpit.policy.restriction.reason.reduction_only")
+                : t("cockpit.policy.restriction.reason.unknown")}
               {since && <span className="cockpit-meta"> · {t("cockpit.policy.since", { value: since.text })}</span>}
             </>
           ) : t("cockpit.policy.restriction_none")}
@@ -408,11 +426,11 @@ export function EffectivePolicyPanel({
           </thead>
           <tbody>
             {binding.values.map(value => (
-              <tr key={value.key}>
-                <th scope="row">{value.label_key ? t(value.label_key) : value.key}</th>
+              <tr key={value.key} data-limit-key={value.key}>
+                <th scope="row">{value.label_key ? t(value.label_key, {}, `cockpit.policy.limit.${value.key}`) : t(`cockpit.policy.limit.${value.key}`)}</th>
                 <td>
                   <PolicyValueCell value={value} />
-                  {value.source && <span className="cockpit-meta"> · {t("cockpit.policy.source", { value: value.source })}</span>}
+                  {value.source && <span className="cockpit-meta"> · {t("cockpit.policy.source", { value: t(`cockpit.policy.source.${value.source}`) })}</span>}
                 </td>
               </tr>
             ))}
@@ -582,7 +600,7 @@ export function ApplicationStatus({
         ))}
       </ol>
       {(operation.failure_reason || operation.unknown_reason) && (
-        <p className={`cockpit-note ${failed ? "error" : ""}`} role="status">{operation.failure_reason || operation.unknown_reason}</p>
+        <p className={`cockpit-note ${failed ? "error" : ""}`} role="status">{operationReason(operation.failure_reason || operation.unknown_reason || "", t)}</p>
       )}
       {operation.state === "unknown" && <p className="cockpit-note" role="status">{t("cockpit.operation.no_retry")}</p>}
       <details className="cockpit-details">
@@ -655,7 +673,7 @@ export function PauseControl({
         {pending && <span className="cockpit-meta" role="status">{t("cockpit.pause.pending")}</span>}
       </div>
       {unavailable && (
-        <p className="cockpit-note" id={reasonId}>{reason || t("cockpit.pause.unavailable")}</p>
+        <p className="cockpit-note" id={reasonId}>{pauseReasonLabel(reason, t)}</p>
       )}
       <p className="cockpit-note">{t("cockpit.pause.note")}</p>
       <p className="cockpit-note">{t("cockpit.pause.no_liquidation")}</p>
@@ -690,15 +708,21 @@ export function AuditTimeline({
         {events.map(event => {
           const time = formatDateTime(event.occurred_at, language);
           return (
-            <li key={event.event_id} className="cockpit-event">
+            <li key={event.event_id} className="cockpit-event" data-action={event.action}>
               <time dateTime={event.occurred_at}>{time.zone ? `${time.text} (${time.zone})` : time.text}</time>
               <div className="cockpit-event-body">
-                <span className="cockpit-event-action">{event.action.replace(/_/g, " ")}</span>
+                <span className="cockpit-event-action">{t(`cockpit.change_log.action.${event.action}`, {}, "cockpit.change_log.action.other")}</span>
                 <span className="cockpit-meta">
                   {event.actor ? t("cockpit.change_log.actor", { value: event.actor }) : t("cockpit.unknown")}
-                  {event.outcome && ` · ${t("cockpit.change_log.outcome", { value: event.outcome })}`}
+                  {event.outcome && ` · ${t("cockpit.change_log.outcome", { value: t(`cockpit.change_log.outcome.${event.outcome}`, {}, "cockpit.change_log.outcome.unknown") })}`}
                 </span>
-                {event.subject && <span className="cockpit-meta">{t("cockpit.change_log.subject", { value: event.subject })}</span>}
+                {event.subject && (
+                  <span className="cockpit-meta" data-subject-kind={event.subject.kind}>
+                    {t("cockpit.change_log.subject", {
+                      value: `${t(`cockpit.change_log.subject_kind.${event.subject.kind}`, {}, "cockpit.change_log.subject_kind.other")}${event.subject.id ? ` · ${event.subject.id}` : ""}`,
+                    })}
+                  </span>
+                )}
                 {event.revision !== null && <span className="cockpit-meta">{t("cockpit.change_log.revision", { value: event.revision })}</span>}
               </div>
             </li>
@@ -867,7 +891,7 @@ export function DecisionCard({
   onSelect: () => void;
 }) {
   const t = useT();
-  const title = t(decision.title_key);
+  const title = t(decision.title_key, {}, "decisions.unknown_title");
   const blocked = blockedReasons.length > 0;
   return (
     <article className={`cockpit-decision${selected ? " selected" : ""}`} data-state={decision.state}>
@@ -880,7 +904,7 @@ export function DecisionCard({
         </Badge>
         {blocked && <Badge tone="error">{t("cockpit.decision.blocked")}</Badge>}
       </div>
-      <h3 className="cockpit-decision-title">{title === decision.title_key ? decision.short_id : title}</h3>
+      <h3 className="cockpit-decision-title">{title}</h3>
       <dl className="cockpit-kv">
         {decision.account_alias && (
           <div className="cockpit-kv-pair">

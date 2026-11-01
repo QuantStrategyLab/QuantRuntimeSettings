@@ -34,7 +34,7 @@ export function DiffTable({ rows }: { rows: DiffRowLike[] }) {
         <tbody>
           {rows.map(row => (
             <tr key={row.field}>
-              <td title={row.label !== row.field ? row.field : undefined}>{row.label}</td>
+              <td data-field={row.field}>{row.label}</td>
               <td><ScalarText value={row.before} /></td>
               <td><ScalarText value={row.after} /></td>
               <td className={row.affectsLive ? "diff-affects-live" : ""}>

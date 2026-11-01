@@ -149,12 +149,17 @@ export interface DigestStatus {
   targets: DigestTargetCount[];
 }
 
+export interface AuditSubject {
+  kind: string;
+  id: string;
+}
+
 export interface AuditEvent {
   event_id: string;
   occurred_at: string;
   actor: string | null;
   action: string;
-  subject: string | null;
+  subject: AuditSubject | null;
   /** Opaque server revision digest (`^[0-9a-f]{64}$`), never a counter. */
   revision: string | null;
   decision_id: string | null;
@@ -326,6 +331,22 @@ function asString(value: unknown): string | null {
 
 function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** Audit subjects stay structured: kind is translated and id labeled separately at render. */
+function asAuditSubject(value: unknown): AuditSubject | null {
+  const raw = asRecord(value);
+  if (raw) {
+    const kind = asString(raw.kind);
+    const id = asString(raw.id);
+    if (kind === null && id === null) return null;
+    return { kind: kind ?? "unknown", id: id ?? "" };
+  }
+  const text = asString(value);
+  if (text === null) return null;
+  const separator = text.indexOf(":");
+  if (separator < 0) return { kind: "unknown", id: text };
+  return { kind: text.slice(0, separator).trim() || "unknown", id: text.slice(separator + 1).trim() };
 }
 
 function normalizeEvidence(value: unknown): EvidenceSummary | null {
@@ -744,8 +765,6 @@ export async function loadAuditEvents(cursor: string | null = null, synthetic = 
     const events = items.flatMap((item): AuditEvent[] => {
       const event = asRecord(item);
       if (!event) return [];
-      const subject = asRecord(event.subject);
-      const subjectId = asString(subject?.id);
       const refMatch = /^\/api\/(decisions|operations)\/([^/?#]+)/.exec(asString(event.ref) ?? "");
       const refId = refMatch ? decodeRefSegment(refMatch[2]) : null;
       const revision = asString(event.revision);
@@ -754,7 +773,7 @@ export async function loadAuditEvents(cursor: string | null = null, synthetic = 
         occurred_at: asString(event.occurred_at) ?? "",
         actor: asString(event.actor_alias),
         action: asString(event.action) ?? "unknown",
-        subject: subject && subjectId ? `${asString(subject.kind) ?? "unknown"}:${subjectId}` : null,
+        subject: asAuditSubject(event.subject),
         revision,
         decision_id: refMatch?.[1] === "decisions" ? refId : null,
         operation_id: refMatch?.[1] === "operations" ? refId : null,
@@ -920,7 +939,7 @@ function syntheticDigest(): DigestStatus {
 function syntheticAudit(): AuditEvent[] {
   const revision = "0".repeat(63) + "1";
   return [
-    { event_id: "synthetic-event-1", occurred_at: "2026-11-01T10:00:00Z", actor: "owner", action: "approval_recorded", subject: "synthetic-decision-001", revision, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "recorded" },
-    { event_id: "synthetic-event-2", occurred_at: "2026-11-01T10:00:05Z", actor: "platform", action: "application_dispatched", subject: "demo-target", revision, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "applying" },
+    { event_id: "synthetic-event-1", occurred_at: "2026-11-01T10:00:00Z", actor: "owner", action: "approval_recorded", subject: { kind: "owner_decision", id: "synthetic-decision-001" }, revision, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "recorded" },
+    { event_id: "synthetic-event-2", occurred_at: "2026-11-01T10:00:05Z", actor: "platform", action: "application_dispatched", subject: { kind: "paper_account_application", id: "demo-target" }, revision, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "applying" },
   ];
 }
