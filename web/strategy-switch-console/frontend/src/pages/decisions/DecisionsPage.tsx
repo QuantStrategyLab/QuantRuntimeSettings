@@ -39,7 +39,7 @@ import { fieldLabel } from "../accounts/helpers";
 import { sourceConsequenceKey, sourceLabelKey } from "./sources";
 import { InitialEnrollmentFacts } from "./InitialEnrollmentFacts";
 import { ReconciliationMaterials } from "./ReconciliationMaterials";
-import { CredentialExpiry } from "./CredentialExpiry";
+import { CredentialExpiry, isExpiredRow } from "./CredentialExpiry";
 import "./decisions.css";
 
 type View = "pending" | "decided";
@@ -96,12 +96,6 @@ function subjectIdOf(item: InboxItem): string {
   if (binding && typeof binding.subject_id === "string" && binding.subject_id) return binding.subject_id;
   const index = item.id.indexOf(":");
   return index >= 0 ? item.id.slice(index + 1) : item.id;
-}
-
-function isExpired(item: InboxItem): boolean {
-  if (item.status === "expired") return true;
-  const expires = item.expires_at ? Date.parse(item.expires_at) : NaN;
-  return Number.isFinite(expires) && expires < Date.now();
 }
 
 /** First enrollment shares the recovery transport but has different review copy. */
@@ -368,7 +362,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
 
   // Account options for promotion categories come from the legacy ticket payload.
   const needsPromotions = Boolean(
-    selected && selected.status === "pending" && !isExpired(selected)
+    selected && selected.status === "pending" && !isExpiredRow(selected)
       && (selected.category === "strategy_promotion" || selected.category === "paper_account_application"),
   );
   const promotions = useApi(
@@ -540,7 +534,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
       refresh();
       return;
     }
-    if (isExpired(item)) return;
+    if (isExpiredRow(item)) return;
     const op = humanDecisions.current.start(expected);
     if (!op) return; // same decision already in flight
     const busyKey = `intent:${item.id}`;
@@ -637,7 +631,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
   };
 
   const onDecide = async (item: InboxItem, action: Action) => {
-    if (!admin || item.status !== "pending" || isExpired(item)) return;
+    if (!admin || item.status !== "pending" || isExpiredRow(item)) return;
     const allowed = (item as ExpandedInboxItem).allowed_actions;
     if (allowed && !allowed.includes(action === "adopt" ? "approve" : "reject")) return;
     const lockKey = `confirm:${item.id}`;
@@ -680,7 +674,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
   const renderDetail = () => {
     if (!selected) return null;
     const item = selected;
-    const expired = isExpired(item);
+    const expired = isExpiredRow(item);
     const pending = item.status === "pending" && !expired;
     const diffRows = item.diff.map(row => {
       return { field: row.field, label: fieldLabel(t, row), before: row.before, after: row.after, affectsLive: row.affects_live };
@@ -936,7 +930,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
           <div className={`inbox${selected ? " detail-open" : " list-only"}`}>
             <div className="inbox-list">
               {visibleItems.map(item => {
-                const expired = isExpired(item);
+                const expired = isExpiredRow(item);
                 const fresh = relativeFreshness(item.created_at, language);
                 const hintKey = staleHintKey(item);
                 return (

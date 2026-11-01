@@ -117,12 +117,13 @@
   background: var(--surface);
 }
 .credential-expiry[data-variant="detail"][data-severity="none"] { border-left-color: var(--status-ok); }
-.credential-expiry[data-variant="detail"][data-severity="notice"] { border-left-color: var(--accent); }
-.credential-expiry[data-variant="detail"][data-severity="warning"] { border-left-color: var(--status-warn); }
-.credential-expiry[data-variant="detail"][data-severity="urgent"],
+.credential-expiry[data-variant="detail"][data-severity="notice"],
+.credential-expiry[data-variant="detail"][data-severity="warning"],
+.credential-expiry[data-variant="detail"][data-severity="urgent"] { border-left-color: var(--status-warn); }
 .credential-expiry[data-variant="detail"][data-severity="expired"] { border-left-color: var(--status-error); }
-.credential-expiry[data-severity="warning"] .credential-expiry-days { color: var(--status-warn); }
-.credential-expiry[data-severity="urgent"] .credential-expiry-days,
+.credential-expiry[data-severity="notice"] .credential-expiry-days,
+.credential-expiry[data-severity="warning"] .credential-expiry-days,
+.credential-expiry[data-severity="urgent"] .credential-expiry-days { color: var(--status-warn); }
 .credential-expiry[data-severity="expired"] .credential-expiry-days { color: var(--status-error); }
 @media (max-width: 600px) {
   .credential-expiry { gap: 4px 8px; }

@@ -1,4 +1,4 @@
-import type { CredentialExpiryReminder, CredentialExpirySeverity } from "../../api/contracts";
+import type { CredentialExpiryReminder, CredentialExpirySeverity, InboxItem } from "../../api/contracts";
 import { useLanguage, useT } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
 import { Badge } from "../../components/primitives";
@@ -22,11 +22,24 @@ export function readCredentialExpiry(value: unknown): CredentialExpiryReminder {
   return { expires_at: expires, days_remaining: days, severity };
 }
 
-const SEVERITY_TONE: Record<CredentialExpirySeverity, "ok" | "accent" | "warn" | "error" | "unknown"> = {
+/**
+ * Expired-row treatment keys off server fields only: the item status computed at
+ * read time and, for credential maintenance, the projection's severity. The
+ * browser never compares clocks to dim a row.
+ */
+export function isExpiredRow(item: Pick<InboxItem, "status" | "category" | "credential_expiry">): boolean {
+  if (item.status === "expired") return true;
+  if (item.category === "credential_maintenance") return readCredentialExpiry(item.credential_expiry).severity === "expired";
+  return false;
+}
+
+// Reminder severities all read warn, like the health page's phase tones; only a
+// passed expiry escalates to error.
+const SEVERITY_TONE: Record<CredentialExpirySeverity, "ok" | "warn" | "error" | "unknown"> = {
   none: "ok",
-  notice: "accent",
+  notice: "warn",
   warning: "warn",
-  urgent: "error",
+  urgent: "warn",
   expired: "error",
   unknown: "unknown",
 };
