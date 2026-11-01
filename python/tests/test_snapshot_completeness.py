@@ -111,6 +111,13 @@ class CoverageTests(unittest.TestCase):
         del payload["orders"]
         self.assertIn("orders_incomplete", guard.field_issues(payload, target()["fields"]))
 
+    def test_unknown_completeness_contract_cannot_pass(self):
+        rules = target()["fields"]
+        for value in (None, False, 1, "unknown", "partial"):
+            rules["positions"]["complete_value"] = value
+            with self.assertRaises(guard.AuditError):
+                guard.field_issues(record("2026-10-20"), rules)
+
     def test_identity_failure_stops_target(self):
         payload = record("2026-10-20")
         payload["account"] = "other-synthetic"
@@ -151,6 +158,19 @@ class CoverageTests(unittest.TestCase):
         io.persist = lambda *_: None
         result = guard.audit_target(configured, "2026-10-20", "2026-10-20", NOW, io, True)
         self.assertEqual(result["days"][0]["issues"], ["archive_readback_failed"])
+
+    def test_backfill_readback_cannot_hide_concurrent_incomplete_record(self):
+        configured = target()
+        configured["history"] = {"kind": "broker_readable_history"}
+        io = IO(historical=record("2026-10-20"))
+        def persist(target, day, payload):
+            newer = record(day)
+            newer["observed_at"], newer["positions"] = day+"T23:00:00Z", []
+            io.records[day] = [payload, newer]
+        io.persist = persist
+        result = guard.audit_target(configured, "2026-10-20", "2026-10-20", NOW, io, True)
+        self.assertEqual(result["status"], "incomplete")
+        self.assertEqual(result["days"][0]["backfill"], "readback_incomplete")
 
     def test_every_platform_and_unconfigured_account_are_explicit(self):
         configured = [target(platform) for platform in sorted(guard.PLATFORMS)]

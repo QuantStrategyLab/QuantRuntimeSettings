@@ -73,7 +73,9 @@ def field_issues(payload, rules):
         raise AuditError("field_contract_invalid")
     for name, rule in rules.items():
         required, numeric = rule.get("required", []), rule.get("numeric", [])
-        if not required or not numeric:
+        declared = rule.get("complete_value")
+        if (not required or not numeric or not (declared is True
+                or isinstance(declared, str) and declared in {"complete", "complete_for_scope"})):
             raise AuditError("field_contract_invalid")
         rows = at(payload, rule["path"])
         complete = at(payload, rule["complete_path"])
@@ -158,9 +160,12 @@ def audit_target(target, start, end, now, io, backfill=False):
                         else:
                             io.persist(target, day, candidate)
                             readback = io.read_day(target, day)
-                            if candidate not in readback:
+                            encoded = json.dumps(candidate, sort_keys=True)
+                            if not any(json.dumps(row, sort_keys=True) == encoded for row in readback):
                                 raise AuditError("archive_readback_failed")
-                            item["issues"], item["backfill"] = [], "verified"
+                            latest = max(readback, key=lambda p: instant(at(p, target["as_of_path"])))
+                            item["issues"] = validate_snapshot(latest, target, day, close)
+                            item["backfill"] = "verified" if not item["issues"] else "readback_incomplete"
         except AuditError as exc:
             item["issues"], item["backfill"] = [str(exc)], "stopped"
         days.append(item)

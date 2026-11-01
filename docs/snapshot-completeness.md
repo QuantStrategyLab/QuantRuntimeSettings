@@ -46,7 +46,8 @@ Each target declares:
   The guard lists bounded pages and reads each JSON object at its listed
   generation. `payload_path` optionally selects a nested account snapshot.
 - `fields`: rules for all four groups, `cash`, `positions`, `orders`, `fills`.
-  Each rule supplies `path`, `complete_path`, `complete_value`, nonempty
+  Each rule supplies `path`, `complete_path`, `complete_value` (exactly `true`,
+  `complete` or `complete_for_scope`), nonempty
   `required` row paths and `numeric` row paths. Missing values, nonfinite numbers,
   unknown completeness and malformed rows fail. Actual broker-reported zero is
   valid; the guard never creates a value.
