@@ -47,6 +47,26 @@ const otherAccountSelection = {
   confirmation: { target_platform: "longbridge", execution_mode: "live", risk_profile: "CAPITAL_PRESERVATION" },
   selected_account: { platform: "longbridge", key: "live" },
 };
+const v7Profile = profiles.find((item) =>
+  item.profile === "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve");
+assert.ok(v7Profile?.research_candidate_identity);
+const producerNotes = [
+  "frozen_v7_forward_financial_gates_passed_research_only",
+  `forward_record_sha256=${"a".repeat(64)}`, `financial_evidence_sha256=${"b".repeat(64)}`,
+  `p1_manifest_sha256=${"c".repeat(64)}`, `p4_policy_sha256=${"d".repeat(64)}`,
+  `baseline_p3_evidence_sha256=${"e".repeat(64)}`,
+];
+function promotionTicket(ticketId) {
+  return {
+    ticket_id: ticketId, strategy_profile: v7Profile.profile, domain: "us_equity", state: "awaiting_human",
+    drift_status: "not_applicable", drift_score: 0, created_at: "2026-09-13T00:00:00Z", updated_at: "2026-09-13T00:00:00Z",
+    budget: {}, proposed_params: { ...v7Profile.research_candidate_identity }, search_iterations: 0,
+    shadow_evidence_kind: "v7_nonlive_shadow_and_simulated_paper", shadow_passed: true,
+    notification_subject: "V7", notification_body: "fixture", human_decision: "", human_decided_at: "",
+    live_authority_granted: false, suggested_risk_profile: "CAPITAL_PRESERVATION", confirmation_target_platform: "",
+    confirmation_execution_mode: "", confirmation_risk_profile: "", notes: [...producerNotes],
+  };
+}
 const liveDigest = await selectionDigest(liveSelection);
 assert.match(liveDigest, /^[0-9a-f]{64}$/);
 assert.notEqual(await selectionDigest(paperSelection), liveDigest, "paper and live must not share an operation digest");
@@ -243,6 +263,89 @@ assert.ok(decidedReview.body.current_eligibility.reason_codes.includes("decision
 assert.equal(decidedReview.body.decision.allowed_actions.length, 0);
 assert.equal(decidedReview.body.decision.decision_state.status, "decided");
 validate("decision_review", decidedReview.body);
+// A new operation id is a new intent even when it repeats the recorded action.
+const otherOperationSameAction = await call(actionUrl, { method: "POST", body: {
+  action: "keep_parked", expected_revision: ownerItem.revision, operation_id: "cockpit-request-other",
+} });
+assert.equal(otherOperationSameAction.status, 409);
+assert.equal(otherOperationSameAction.body.error, "decision_operation_conflict");
+assert.equal(otherOperationSameAction.body.recorded_operation_id, "cockpit-request-1");
+
+// Promotion replay binds the recorded operation id, material and full selection.
+const promotionId = `rpt_${"8".repeat(64)}`;
+const promotion = promotionTicket(promotionId);
+assert.equal((await syncPromotion(promotion)).status, 200);
+inbox = await call("/api/decisions-inbox");
+const promotionItem = inbox.body.items.find((item) => item.id === `strategy_promotion:${promotionId}`);
+assert.ok(promotionItem, "promotion ticket is actionable");
+const promotionActionUrl = `/api/decisions/${encodeURIComponent(promotionItem.id)}/actions`;
+const promotionAcceptBody = {
+  action: "accept", expected_revision: promotionItem.revision, expected_expires_at: promotionItem.expires_at,
+  operation_id: "cockpit-promotion-1", selection: paperSelection,
+};
+const promotionAccepted = await call(promotionActionUrl, { method: "POST", body: promotionAcceptBody });
+assert.equal(promotionAccepted.status, 200);
+assert.equal(promotionAccepted.body.replayed, false);
+assert.equal(promotionAccepted.body.operation_id, "cockpit-promotion-1");
+assert.match(promotionAccepted.body.decision_receipt.receipt_sha256, /^[0-9a-f]{64}$/);
+// The original decision id still resolves after the paper recategorization.
+const acceptedOriginalId = await call(`/api/decisions/${encodeURIComponent(promotionItem.id)}`);
+assert.equal(acceptedOriginalId.status, 200);
+assert.equal(acceptedOriginalId.body.decision_id, promotionItem.id);
+assert.equal(acceptedOriginalId.body.decision.decision_state.status, "decided");
+assert.equal(acceptedOriginalId.body.decision.decision_state.action, "accept");
+assert.equal(acceptedOriginalId.body.current_eligibility.eligible, false);
+assert.equal(acceptedOriginalId.body.decision_receipt.receipt_sha256, promotionAccepted.body.decision_receipt.receipt_sha256);
+validate("decision_review", acceptedOriginalId.body);
+// An exact retry replays; the receipt and operation id stay those of the record.
+const promotionReplay = await call(promotionActionUrl, { method: "POST", body: promotionAcceptBody });
+assert.equal(promotionReplay.status, 200);
+assert.equal(promotionReplay.body.replayed, true);
+assert.equal(promotionReplay.body.operation_id, "cockpit-promotion-1");
+assert.equal(promotionReplay.body.decision_id, promotionItem.id);
+assert.equal(promotionReplay.body.decision_receipt.receipt_sha256, promotionAccepted.body.decision_receipt.receipt_sha256);
+// The same operation id with a different account/mode selection is not a replay.
+const changedSelectionReplay = await call(promotionActionUrl, { method: "POST", body: {
+  ...promotionAcceptBody, operation_id: "cockpit-promotion-1", selection: otherAccountSelection,
+} });
+assert.equal(changedSelectionReplay.status, 409);
+assert.equal(changedSelectionReplay.body.error, "decision_operation_conflict");
+assert.equal(changedSelectionReplay.body.recorded_operation_id, "cockpit-promotion-1");
+// The recorded selection under a new operation id is a new intent, not a replay.
+const newOperationReplay = await call(promotionActionUrl, { method: "POST", body: {
+  ...promotionAcceptBody, operation_id: "cockpit-promotion-2",
+} });
+assert.equal(newOperationReplay.status, 409);
+assert.equal(newOperationReplay.body.error, "decision_operation_conflict");
+assert.equal(newOperationReplay.body.recorded_operation_id, "cockpit-promotion-1");
+
+// A rejected promotion leaves the pending queue but keeps the original id resolvable.
+const rejectedId = `rpt_${"7".repeat(64)}`;
+assert.equal((await syncPromotion(promotionTicket(rejectedId))).status, 200);
+inbox = await call("/api/decisions-inbox");
+const rejectedItem = inbox.body.items.find((item) => item.id === `strategy_promotion:${rejectedId}`);
+assert.ok(rejectedItem);
+const rejectActionUrl = `/api/decisions/${encodeURIComponent(rejectedItem.id)}/actions`;
+// A reject ignores selection, so a retry that still carries it must replay.
+const rejectBody = {
+  action: "reject", expected_revision: rejectedItem.revision,
+  expected_expires_at: rejectedItem.expires_at, operation_id: "cockpit-promotion-reject",
+  selection: paperSelection,
+};
+const rejected = await call(rejectActionUrl, { method: "POST", body: rejectBody });
+assert.equal(rejected.status, 200);
+const afterReject = await call("/api/decisions-inbox?limit=100");
+assert.ok(!afterReject.body.items.some((item) => item.id === rejectedItem.id), "rejected ticket leaves the pending projection");
+const rejectedReview = await call(`/api/decisions/${encodeURIComponent(rejectedItem.id)}`);
+assert.equal(rejectedReview.status, 200);
+assert.equal(rejectedReview.body.decision_id, rejectedItem.id);
+assert.equal(rejectedReview.body.decision.decision_state.action, "reject");
+assert.equal(rejectedReview.body.decision_receipt.receipt_sha256, rejected.body.decision_receipt.receipt_sha256);
+const rejectedReplay = await call(rejectActionUrl, { method: "POST", body: rejectBody });
+assert.equal(rejectedReplay.status, 200);
+assert.equal(rejectedReplay.body.replayed, true);
+assert.equal(rejectedReplay.body.decision_id, rejectedItem.id);
+assert.equal(rejectedReplay.body.decision_receipt.receipt_sha256, rejected.body.decision_receipt.receipt_sha256);
 
 // Operations resolve a recorded decision without resubmitting it.
 const operation = await call(`/api/operations/${encodeURIComponent("operation:owner_decision:cockpit-owner")}`);
@@ -264,6 +367,56 @@ const auditPage = await call("/api/audit-events?limit=1");
 assert.equal(auditPage.body.events.length, 1);
 assert.equal(auditPage.body.next_cursor, "1");
 assert.equal((await call("/api/audit-events?cursor=bad")).status, 400);
+// Event types are derived from the normalized source for all three classes.
+assert.equal(__test.auditEventAction("durable_human_decision", "promotion"), "record_promotion_decision");
+assert.equal(__test.auditEventAction("research_promotion_application"), "research_promotion_application");
+assert.equal(__test.auditEventAction("account_settings_application"), "account_settings_approval");
+
+// A promotion application must not be reported as an account-settings approval.
+const initializedRuntime = await call("/api/admin/runtime-instances", { method: "POST", body: {
+  action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG",
+} });
+assert.equal(initializedRuntime.status, 200);
+const auditTicketId = `rpt_${"4".repeat(64)}`;
+const auditTicket = promotionTicket(auditTicketId);
+assert.equal((await syncPromotion(auditTicket)).status, 200);
+inbox = await call("/api/decisions-inbox");
+const auditPromotionItem = inbox.body.items.find((item) => item.id === `strategy_promotion:${auditTicketId}`);
+assert.ok(auditPromotionItem);
+const auditAccepted = await call(`/api/decisions/${encodeURIComponent(auditPromotionItem.id)}/actions`, { method: "POST", body: {
+  action: "accept", expected_revision: auditPromotionItem.revision,
+  expected_expires_at: auditPromotionItem.expires_at,
+  operation_id: "cockpit-audit-promotion", selection: paperSelection,
+} });
+assert.equal(auditAccepted.status, 200);
+const namespace = await mf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
+const runtimeStub = namespace.get(namespace.idFromName("runtime-instances"));
+const auditRevision = (await call("/api/admin/runtime-instances")).body.revision;
+const applicationCreated = await runtimeStub.fetch("https://runtime-instances/", { method: "POST", body: JSON.stringify({
+  action: "application_create", actor: "cockpit-admin", ticket_id: auditTicketId,
+  promotion_material_key: await __test.researchPromotionMaterialKey(auditTicket),
+  platform_id: "longbridge", account_key: "paper",
+  application_id: "application-cockpit-audit", claim_token: "claim-cockpit-audit",
+  account_scope: paperAccount.account_scope, account_selector: paperAccount.account_selector,
+  service_name: paperAccount.service_name, broker_environment: paperAccount.broker_environment,
+  expected_revision: auditRevision, expected_strategy_profile: paperAccount.default_strategy_profile,
+  strategy_profile: v7Profile.profile, candidate_id: v7Profile.research_candidate_identity.candidate_id,
+  config_sha256: v7Profile.research_candidate_identity.config_sha256,
+  source_commit: "a".repeat(40), approved_ues_revision: "fixture-ues", created_at: now,
+}) });
+const createdApplication = await applicationCreated.json();
+assert.equal(applicationCreated.status, 200, JSON.stringify(createdApplication));
+assert.equal(createdApplication.created, true);
+const auditAfterPromotion = await call("/api/audit-events?limit=100");
+const promotionApplicationEvent = auditAfterPromotion.body.events.find((event) =>
+  event.source === "research_promotion_application" && event.subject.id === auditTicketId);
+assert.ok(promotionApplicationEvent, "the promotion application row is audited");
+assert.equal(promotionApplicationEvent.action, "research_promotion_application");
+assert.notEqual(promotionApplicationEvent.action, "account_settings_approval");
+const promotionDecisionEvent = auditAfterPromotion.body.events.find((event) =>
+  event.source === "durable_human_decision" && event.subject.id === auditTicketId);
+assert.ok(promotionDecisionEvent, "the promotion decision record is audited");
+assert.equal(promotionDecisionEvent.action, "record_promotion_decision");
 
 // Expired material is visible but never actionable, and the action route fails closed.
 const expiredAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");

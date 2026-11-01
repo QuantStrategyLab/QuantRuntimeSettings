@@ -7,12 +7,12 @@ import { strategyTargetExecution, accountExecutionEvidence } from "./application
 import { performanceResponse } from "./application/console_api/performance_routes.js";
 import { consoleApiResponse } from "./application/console_api/routes.js";
 import { runControls } from "./application/console_api/run_controls.js";
-import { decorateQueue, decisionFields, actorAlias, pageQuery } from "./application/console_api/presentation.js";
+import { decorateQueue, decisionFields, actorAlias, pageQuery, shortId } from "./application/console_api/presentation.js";
 import { inbox } from "./application/console_api/inbox.js";
 import {
   DECISION_ACTIONS, DECISION_REVIEW_SCHEMA_VERSION, decisionCategoryPart, decisionCurrentEligibility,
-  decisionExpiry, decisionExpiryState, decisionKind, decisionOperationId, decisionOperationSha256,
-  decisionRevision, decisionWriteCategory,
+  decisionExpiry, decisionExpiryState, decisionKind, decisionOperationId, decisionOperationReference,
+  decisionOperationSha256, decisionRevision, decisionWriteCategory,
   operationIdFor, operationStatusFromApplication,
 } from "./application/console_api/decision_contract.js";
 import { RISK_TIER_POLICY_BINDINGS, riskTierBindingView, riskTierPolicyCatalog } from "./application/console_api/risk_tiers.js";
@@ -12805,11 +12805,85 @@ function decisionSourceUnreadable(queue, category) {
   return ["read_failed", "unavailable"].includes(source.status);
 }
 
-async function loadDecisionFromInbox(request, env, id) {
+// The durable record keeps the operation id in its request key. The id names the
+// recorded intent; a legacy fingerprint key carries no client operation id.
+function recordedDecisionOperationId(record) {
+  const match = /^id:(?:owner|promotion|recovery):(.+)$/.exec(
+    typeof record?.request_key === "string" ? record.request_key : "",
+  );
+  return match ? match[1] : null;
+}
+
+// The recorded intent's canonical target: accepted selection for promotion, action elsewhere.
+function decisionIntentTargetJson(category, action, selection) {
+  if (category === "strategy_promotion" || category === "paper_account_application") {
+    const accepted = action === "accept" ? selection : null;
+    return canonicalResearchTaskJson({
+      selected_account: accepted?.selected_account ?? null,
+      confirmation: accepted?.confirmation ?? null,
+    });
+  }
+  return canonicalResearchTaskJson({ decision: action });
+}
+
+// A terminal item synthesized from the durable record. It keeps the original
+// decision id resolvable after the pending projection drops or recategorizes it.
+function durableDecisionItem(record, parsed, kind, aliasItem = null) {
+  const material = /^[0-9a-f]{64}$/.test(record.material_key || "") ? record.material_key : null;
+  const reviewSha = /^[0-9a-f]{64}$/.test(record.payload?.review_binding?.review_sha256 || "")
+    ? record.payload.review_binding.review_sha256 : null;
+  const binding = {
+    kind,
+    subject_id: record.subject_id,
+    material_sha256: material,
+    ...(reviewSha ? { review_binding: { schema_version: "qsl_promotion_review_binding.v2", review_sha256: reviewSha } } : {}),
+  };
+  return {
+    id: parsed.id,
+    short_id: shortId(parsed.id),
+    decision_id: parsed.id,
+    category: parsed.category,
+    title_key: `decisions.${parsed.category}`,
+    revision: decisionRevision(binding, parsed.id),
+    actionable: false,
+    blocking_reason_codes: ["decision_already_decided"],
+    allowed_actions: [],
+    request_id_required: false,
+    action_endpoint: null,
+    decision_state: {
+      status: "decided",
+      action: record.action,
+      decided_at: typeof record.decided_at === "string" ? record.decided_at : null,
+    },
+    decision_binding: binding,
+    operation_reference: aliasItem?.operation_reference
+      || decisionOperationReference({}, parsed.category, parsed.subject_id),
+    source: "durable_human_decision_record",
+  };
+}
+
+async function loadDecisionById(request, env, parsed) {
   // Detail and action routes address one decision by id. Reading the unpaged
   // projection keeps them independent of the presentation page a client last saw.
   const queue = await inbox(request, env, decisionInboxSources(), { paginate: false });
-  return { queue, item: queue.items.find((item) => item.id === id) || null };
+  const item = queue.items.find((entry) => entry.id === parsed.id) || null;
+  if (item) return { queue, item, authorityRaw: undefined };
+  // A terminal record outlives the pending projection: accepted paper tickets are
+  // recategorized and rejected tickets leave the queue, so resolve them durably.
+  const kind = decisionKind(parsed.category);
+  if (!kind || !hasRuntimeInstanceStore(env)) return { queue, item: null, authorityRaw: undefined };
+  let authorityRaw;
+  try {
+    authorityRaw = await readHumanDecisionAuthority(env, kind, parsed.subject_id);
+  } catch {
+    throw new HttpError("decision_authority_unavailable", 503);
+  }
+  const record = authorityRaw?.migrated === false ? null : authorityRaw?.decision;
+  if (!record || record.kind !== kind || record.subject_id !== parsed.subject_id)
+    return { queue, item: null, authorityRaw };
+  const alias = queue.items.find((entry) => entry.decision_binding?.subject_id === parsed.subject_id
+    && entry.decision_binding?.kind === kind);
+  return { queue, item: durableDecisionItem(record, parsed, kind, alias || null), authorityRaw };
 }
 
 async function readDecisionAuthorityOrNull(env, kind, subjectId) {
@@ -12824,7 +12898,7 @@ async function decisionReviewResponse(request, env, rawId) {
   if (!session?.allowed) return json({ ok: false, error: "login required", error_state: "unauthorized" }, 401);
   const parsed = decodeDecisionApiId(rawId);
   if (!parsed) return json({ ok: false, error: "decision_id_invalid" }, 400);
-  const { queue, item } = await loadDecisionFromInbox(request, env, parsed.id);
+  const { queue, item, authorityRaw: loadedAuthority } = await loadDecisionById(request, env, parsed);
   if (!item) {
     if (decisionSourceUnreadable(queue, parsed.category))
       return json({ ok: false, error: "decision_source_unavailable", error_state: queue.error_state || null }, 503);
@@ -12833,7 +12907,9 @@ async function decisionReviewResponse(request, env, rawId) {
   const kind = decisionKind(parsed.category);
   let authorityRaw;
   try {
-    authorityRaw = await readDecisionAuthorityOrNull(env, kind, parsed.subject_id);
+    authorityRaw = loadedAuthority !== undefined
+      ? loadedAuthority
+      : await readDecisionAuthorityOrNull(env, kind, parsed.subject_id);
   } catch {
     return json({ ok: false, error: "decision_authority_unavailable" }, 503);
   }
@@ -12922,7 +12998,7 @@ async function decisionActionResponse(request, env, rawId) {
     && action === "accept" && (!selection?.confirmation || !selection?.selected_account))
     return json({ ok: false, error: "decision_selection_required" }, 400);
 
-  const { queue, item } = await loadDecisionFromInbox(request, env, parsed.id);
+  const { queue, item } = await loadDecisionById(request, env, parsed);
   if (!item) {
     if (decisionSourceUnreadable(queue, parsed.category))
       return json({ ok: false, error: "decision_source_unavailable", error_state: queue.error_state || null }, 503);
@@ -12940,13 +13016,22 @@ async function decisionActionResponse(request, env, rawId) {
   const materialKey = item.decision_binding?.material_sha256 || null;
   const existing = authorityRaw?.decision;
   if (existing && materialKey && existing.material_key === materialKey) {
-    // The durable record keeps the operation id that produced it.
-    const recordedOperationId = typeof existing.payload?.request_id === "string" ? existing.payload.request_id
-      : typeof existing.payload?.requestId === "string" ? existing.payload.requestId
-      : null;
-    // A retry of the recorded intent replays; any other intent on the same
-    // material is a conflicting operation, whether or not it reuses the id.
-    if (existing.kind !== kind || existing.subject_id !== parsed.subject_id || existing.action !== action) {
+    // The durable request key keeps the operation id that produced the record.
+    const recordedOperationId = recordedDecisionOperationId(existing);
+    // A retry replays only when the recorded operation id and the complete
+    // canonical intent match. Any other intent on the same material conflicts,
+    // whether it reuses the id or presents a new one with the same action.
+    let recordedTarget = null;
+    try {
+      recordedTarget = canonicalResearchTaskJson(JSON.parse(existing.target_json || "{}"));
+    } catch {
+      recordedTarget = null;
+    }
+    const intentMatches = recordedOperationId !== null && recordedOperationId === operationId
+      && recordedTarget !== null
+      && recordedTarget === decisionIntentTargetJson(parsed.category, action, selection);
+    if (existing.kind !== kind || existing.subject_id !== parsed.subject_id || existing.action !== action
+      || !intentMatches) {
       return json({
         ok: false,
         error: "decision_operation_conflict",
@@ -13183,6 +13268,15 @@ async function operationResponse(request, env, rawId) {
   });
 }
 
+// Event type by normalized projection source. Comparing the normalized source
+// keeps a promotion application from being reported as an account-settings approval.
+function auditEventAction(source, kind) {
+  if (source === "durable_human_decision") return `record_${kind}_decision`;
+  if (source === "research_promotion_application") return "research_promotion_application";
+  if (source === "account_settings_application") return "account_settings_approval";
+  return null;
+}
+
 function auditEventSubjectId(row) {
   if (typeof row.ticket_id === "string" && row.ticket_id) return { kind: "strategy_promotion", id: row.ticket_id };
   if (typeof row.recovery_id === "string" && row.recovery_id) return { kind: "reconciliation_recovery", id: row.recovery_id };
@@ -13234,8 +13328,7 @@ async function auditEventsResponse(request, env, url) {
       id: `${source}:${row.ref}`,
       source,
       occurred_at: occurredAt,
-      action: source === "durable_human_decision" ? `record_${row.kind}_decision`
-        : source === "promotion_application" ? "research_promotion_application" : "account_settings_approval",
+      action: auditEventAction(source, row.kind),
       actor_alias: await actorAlias(row.actor || null),
       subject,
       revision,
@@ -18305,6 +18398,7 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  auditEventAction,
   effectiveAccountSettings,
   dispatchAccountDiagnosis,
   humanDecisionReceipt,
