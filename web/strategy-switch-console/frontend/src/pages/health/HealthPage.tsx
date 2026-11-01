@@ -4,26 +4,21 @@ import type { TodayRunSummary } from "../../api/contracts";
 import {
   loadAccounts,
   loadCredentialMaintenance,
+  loadCredentialRotation,
   loadNotificationLog,
   loadTodayRuns,
   loadRuntimeDailyBindings,
   type CredentialMaintenance,
 } from "../../api/endpoints";
 import { loadAuditEvents, loadDigestStatus } from "../../api/cockpit";
-import { useLanguage, useT } from "../../i18n";
+import { useT } from "../../i18n";
 import { useApi, type AsyncState } from "../../lib/hooks";
-import { formatDateTime } from "../../lib/format";
 import { KpiCard } from "../../components/KpiCard";
 import { DataTable, type Column } from "../../components/DataTable";
-import {
-  AsOfStamp,
-  Badge,
-  EmptyState,
-  ErrorState,
-  Skeleton,
-  StatusBadge,
-} from "../../components/primitives";
+import { AsOfStamp, EmptyState, ErrorState, Skeleton, StatusBadge } from "../../components/primitives";
+import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { AuditTimeline, DigestStatus } from "../../components/cockpit";
+import CredentialRotationPanel from "./CredentialRotationPanel";
 import { RunGrid } from "./RunGrid";
 import { runActivityCounts, runActivityLabelKey, runActivityState, todayFailures, weekendWithoutScheduledRuns } from "./status";
 import { groupAccounts } from "../../lib/accountDirectory";
@@ -34,15 +29,6 @@ type SummaryAccount = TodayRunSummary["accounts"][number];
 type CredentialPhase = CredentialMaintenance["phase"];
 
 const ATTENTION_PHASES: readonly CredentialPhase[] = ["30", "14", "7", "expired"];
-
-const PHASE_TONE: Record<CredentialPhase, "ok" | "warn" | "error" | "unknown"> = {
-  expired: "error",
-  "7": "warn",
-  "14": "warn",
-  "30": "warn",
-  not_due: "ok",
-  unknown: "unknown",
-};
 
 function StatValue({ state, render }: { state: AsyncState<unknown>; render: () => string }) {
   const t = useT();
@@ -210,33 +196,6 @@ function FreshnessTable({ summary }: { summary: Loadable<TodayRunSummary> }) {
   </>;
 }
 
-function CredentialsCard({ credential }: { credential: Loadable<CredentialMaintenance> }) {
-  const t = useT();
-  const language = useLanguage();
-  if (credential.phase === "loading") return <Skeleton height={72} />;
-  if (credential.phase === "error") return <ErrorState onRetry={credential.reload} />;
-  const item = credential.data;
-  const columns: Column<CredentialMaintenance>[] = [
-    { id: "id", header: t("health.col.credential"), cell: row => t(row.id === "ibkr_flex" ? "health.credential_ibkr_report" : "health.credential_other") },
-    {
-      id: "phase",
-      header: t("health.col.phase"),
-      cell: row => <Badge tone={PHASE_TONE[row.phase]}>{t(`health.credential_phase.${row.phase}`)}</Badge>,
-    },
-    {
-      id: "expires",
-      header: t("health.col.expires"),
-      cell: row => {
-        if (!row.expires_at) return "—";
-        const { text, zone } = formatDateTime(row.expires_at, language, true);
-        return t("health.credential_expires", { value: zone ? `${text} (${zone})` : text });
-      },
-      sortValue: row => row.expires_at,
-    },
-  ];
-  return <DataTable columns={columns} rows={[item]} rowKey={row => row.id} scrollHint caption={t("health.credentials_title")} />;
-}
-
 /**
  * The grid owns its two reads. A parent refresh remounts this whole subtree
  * (`key={epoch}`) instead of re-mounting it mid-flight: keeping the reads inside
@@ -272,8 +231,10 @@ function GridSection() {
 export default function HealthPage() {
   const t = useT();
   const [epoch, setEpoch] = useState(0);
+  const { confirmRequest, confirm, resolveConfirm } = useConfirmation();
   const summary = useApi(() => loadTodayRuns(), [epoch]);
   const credential = useApi(() => loadCredentialMaintenance(), [epoch]);
+  const rotation = useApi(() => loadCredentialRotation(), [epoch]);
   const digest = useApi(async () => loadDigestStatus(await loadNotificationLog(1), false), [epoch]);
   const activity = useApi(() => loadAuditEvents(), [epoch]);
   const digestStatus = digest.phase === "loading" ? "loading" as const
@@ -317,10 +278,12 @@ export default function HealthPage() {
         <div className="health-freshness"><FreshnessTable summary={summary} /></div>
       </section>
 
-      <section className="card">
-        <h2 className="card-title">{t("health.credentials_title")}</h2>
-        <div className="health-credentials"><CredentialsCard credential={credential} /></div>
-      </section>
+      <CredentialRotationPanel
+        rotation={rotation}
+        reminder={credential}
+        confirm={confirm}
+        onRotated={() => { rotation.reload(); credential.reload(); activity.reload(); }}
+      />
 
       <section className="card health-digest">
         <DigestStatus digest={digestData} status={digestStatus} onRetry={digest.reload} />
@@ -330,6 +293,8 @@ export default function HealthPage() {
         <h2 className="card-title">{t("overview.latest_activity")}</h2>
         <AuditTimeline events={activityEvents} status={activityStatus} />
       </section>
+
+      {confirmRequest && <ConfirmationDialog request={confirmRequest} onResolve={resolveConfirm} />}
     </div>
   );
 }

@@ -34,6 +34,19 @@
   --chart-benchmark: #646B78;
   --chart-grid: #DFE2E8;
 
+  /* Canonical #1034 tokens (light). Components use these names; literal colors
+     appear only inside the light and dark token blocks. */
+  --surface-0: #F7F8FA;
+  --surface-1: #FFFFFF;
+  --border: #DFE2E8;
+  --border-strong: #858B98;
+  --border-stronger: #525763;
+  --success: #19624D;
+  --success-tint: #EAF6EF;
+  --warning: #805000;
+  --warning-tint: #FFF4DD;
+  --danger-tint: #FCECEF;
+
   --canvas: #F7F8FA;
   --surface: #FFFFFF;
   --surface-2: #F0F2F5;
@@ -58,6 +71,23 @@
   --benchmark-4: #646B78;
   --radius-s: 8px;
   --radius-m: 12px;
+  /* Canonical scale, radius, type and spacing tokens (#1034). Theme-independent,
+     so they are declared once; the ramp colours above are per theme. */
+  --radius: 8px;
+  --radius-card: 12px;
+  --font-sans: "Geist", "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "Geist Mono", "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --pad-card: 1rem 1.25rem;
   --bottom-tabs-height: 64px;
   --shadow: 0 12px 32px #18181B1A;
   color-scheme: light;
@@ -94,6 +124,18 @@
   --chart-secondary: #89C9EF;
   --chart-benchmark: #9AA0AE;
   --chart-grid: #303238;
+
+  /* Canonical #1034 tokens (dark). */
+  --surface-0: #0F1012;
+  --surface-1: #17181C;
+  --border: #303238;
+  --border-strong: #717684;
+  --border-stronger: #B4B6BF;
+  --success: #8DCFB6;
+  --success-tint: #182C25;
+  --warning: #F3C677;
+  --warning-tint: #302718;
+  --danger-tint: #321F23;
 
   --canvas: #0F1012;
   --surface: #17181C;
@@ -132,7 +174,7 @@ html, body {
   padding: 0;
   background: var(--background-canvas);
   color: var(--text-primary);
-  font-family: "Geist", "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -595,18 +637,34 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
 .field > span { font-size: 12px; color: var(--muted); }
-.input, select.input {
-  min-height: 40px;
-  padding: 9px 12px;
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-s);
-  background: var(--surface-default);
+/* One shared form base (#1034): single-line controls are 36px with a hairline
+   border and built-in hover, focus and disabled states. */
+.input, select.input, textarea.input {
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-1);
   color: var(--text-primary);
   font: inherit;
   width: 100%;
 }
-.input:hover, select.input:hover { border-color: var(--accent-foreground); }
+.input:hover:not(:disabled), select.input:hover:not(:disabled), textarea.input:hover:not(:disabled) { border-color: var(--accent-foreground); }
 .input:focus { outline: 2px solid var(--focus-ring); outline-offset: 0; border-color: transparent; }
+.input:disabled, select.input:disabled, textarea.input:disabled {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+/* Flat card primitive: surface, hairline border, card radius and card padding
+   all come from tokens. Legacy `.card` keeps its own rules untouched. */
+.card.card-flat {
+  background: var(--surface-1);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--pad-card);
+}
 
 .checkbox-row { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
 .checkbox-row input { margin-top: 3px; }

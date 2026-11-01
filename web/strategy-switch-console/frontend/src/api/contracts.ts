@@ -885,3 +885,88 @@ export interface BinanceAccountFactsResponse {
   report_status: BinanceAccountFactsReportStatus;
   report: BinanceAccountFactsReport | null;
 }
+
+/* ---------- Credential rotation (ibkr_flex) ----------
+ * Browser-visible credential metadata is limited to `name`, `last_rotated_at`
+ * and `expires_at`. No contract below can carry a value, mask, version name,
+ * resource name, digest or provider payload; the endpoint adapters reject any
+ * such key on arrival. */
+export const CREDENTIAL_ROTATION_SCHEMA_VERSION = "qsl.credential_rotation.v1";
+export const CREDENTIAL_ROTATION_CREDENTIAL = "ibkr_flex";
+
+export type CredentialRotationState =
+  | "adding_version" | "staged" | "finalizing" | "finalized"
+  | "canceling" | "canceled"
+  | "add_unknown" | "finalize_unknown" | "cancel_unknown" | "failed";
+
+/** Fixed codes only; free-text provider or upstream messages are never a member. */
+export type CredentialRotationReasonCode =
+  | "invalid_credential_rotation_request"
+  | "invalid_credential_expiry"
+  | "origin_required"
+  | "cross_origin_rejected"
+  | "rotation_owner_required"
+  | "step_up_invalid"
+  | "step_up_rate_limited"
+  | "credential_rotation_operation_not_found"
+  | "credential_rotation_request_conflict"
+  | "credential_rotation_state_conflict"
+  | "credential_maintenance_revision_conflict"
+  | "credential_rotation_unavailable";
+
+export type CredentialRotationStageAction = "stage";
+export type CredentialRotationOperationAction = "finalize" | "cancel";
+export type CredentialRotationStepUpMethod = "totp" | "recovery";
+
+export interface CredentialRotationStepUp {
+  method: CredentialRotationStepUpMethod;
+  code: string;
+}
+
+export interface CredentialRotationMetadata {
+  name: string;
+  last_rotated_at: string | null;
+  expires_at: string | null;
+}
+
+export interface CredentialRotationOperation {
+  operation_id: string;
+  state: CredentialRotationState;
+  requested_expires_at: string;
+  created_at: string;
+  updated_at: string;
+  allowed_actions: CredentialRotationOperationAction[];
+  reason_code: CredentialRotationReasonCode | null;
+}
+
+export interface CredentialRotationEnvelope {
+  schema_version: typeof CREDENTIAL_ROTATION_SCHEMA_VERSION;
+  ok: true;
+  server_time: string;
+  metadata: CredentialRotationMetadata;
+  operation: CredentialRotationOperation | null;
+  allowed_actions: CredentialRotationStageAction[];
+  replayed?: boolean;
+}
+
+/** Request-scoped only: `new_value` and `step_up.code` exist in memory for one submit. */
+export interface CredentialRotationStageRequest {
+  request_id: string;
+  new_value: string;
+  expires_at: string;
+  step_up: CredentialRotationStepUp;
+}
+
+export interface CredentialRotationFinalizeRequest {
+  /** Route parameter; the body carries only the keys below. */
+  operation_id: string;
+  request_id: string;
+  downstream_verified: true;
+  step_up: CredentialRotationStepUp;
+}
+
+export interface CredentialRotationCancelRequest {
+  operation_id: string;
+  request_id: string;
+  step_up: CredentialRotationStepUp;
+}

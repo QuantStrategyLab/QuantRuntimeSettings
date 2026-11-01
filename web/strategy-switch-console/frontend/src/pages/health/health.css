@@ -70,8 +70,7 @@
   border-radius: 8px;
 }
 @media (max-width: 768px) {
-  .health-freshness .data-table th, .health-freshness .data-table td,
-  .health-credentials .data-table th, .health-credentials .data-table td { white-space: normal; overflow-wrap: anywhere; }
+  .health-freshness .data-table th, .health-freshness .data-table td { white-space: normal; overflow-wrap: anywhere; }
 }
 
 .health-cell.blocked { background: color-mix(in srgb, var(--status-warn) 20%, transparent); color: var(--status-warn); }
@@ -93,20 +92,71 @@
 /* Dense tables keep their columns and scroll inside the wrapper instead of
    squeezing five to seven columns into a phone width. */
 .health-freshness table.data-table { min-width: 620px; }
-.health-credentials table.data-table { min-width: 540px; }
-.health-freshness th:first-child, .health-freshness td:first-child,
-.health-credentials th:first-child, .health-credentials td:first-child {
+.health-freshness th:first-child, .health-freshness td:first-child {
   position: sticky;
   left: 0;
   z-index: 1;
   background: var(--surface);
 }
-.health-freshness thead th:first-child,
-.health-credentials thead th:first-child { z-index: 2; }
+.health-freshness thead th:first-child { z-index: 2; }
 
 @media (max-width: 600px) {
   .stat-strip > .kpi-card { padding: 12px; }
   .stat-strip .kpi-value { font-size: 20px; }
   .health-state-summary { align-items: flex-start; }
   .health-day-context { gap: 6px 10px; }
+}
+
+/* ---------- Credential rotation panel (#1034 flat) ----------
+ * Surface, hairline border, radius, spacing and every colour come from the
+ * canonical tokens; no literal colour, shadow or gradient appears here. */
+.credential-rotation { display: flex; flex-direction: column; gap: var(--gap-3); }
+
+.rotation-reminder { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
+
+.rotation-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--gap-4);
+  margin: 0;
+}
+.rotation-meta-item { display: flex; flex-direction: column; gap: var(--gap-1); min-width: 0; }
+.rotation-meta dt { font-size: 12px; color: var(--text-muted); }
+.rotation-meta dd { margin: 0; font-size: 14px; color: var(--text-primary); overflow-wrap: anywhere; }
+.rotation-meta dd[data-empty="true"] { color: var(--text-muted); }
+.rotation-stamp { font-family: var(--font-mono); font-size: 12px; }
+
+.rotation-state {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+/* Colour is never the only signal: each tone keeps its border and an icon badge. */
+.rotation-state[data-tone="warn"] { border-color: var(--border-strong); background: var(--warning-tint); color: var(--warning); }
+.rotation-state[data-tone="error"] { border-color: var(--border-strong); background: var(--danger-tint); color: var(--danger); }
+.rotation-state[data-tone="ok"] { border-color: var(--border-strong); background: var(--success-tint); color: var(--success); }
+.rotation-state-reason { color: var(--text-secondary); font-size: 12px; }
+
+.rotation-form { display: flex; flex-direction: column; gap: var(--gap-3); }
+.rotation-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--gap-3);
+}
+.rotation-form .field { margin-bottom: 0; }
+.rotation-actions { display: flex; gap: var(--gap-2); flex-wrap: wrap; }
+/* Touch targets in this panel stay at 44px even though the legacy base is 40px. */
+.rotation-actions .button { min-height: 44px; }
+.rotation-error { margin: 0; color: var(--danger); font-size: 13px; }
+
+@media (max-width: 600px) {
+  .rotation-meta, .rotation-fields { grid-template-columns: 1fr; }
+  .rotation-actions .button { flex: 1 1 100%; }
 }

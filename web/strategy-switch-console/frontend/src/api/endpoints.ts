@@ -1,5 +1,6 @@
 import { performanceScope } from "../lib/accountDirectory";
-import { getJson, postJson, readRevision } from "./client";
+import { AccessError, HttpError, getJson, postJson, readRevision } from "./client";
+import { MutationOutcomeUnknown } from "./cockpit";
 import type {
   AccountFactsResponse,
   AccountsResponse,
@@ -8,6 +9,16 @@ import type {
   CalendarResponse,
   CombinedDraftRequest,
   CombinedDraftResponse,
+  CredentialRotationCancelRequest,
+  CredentialRotationEnvelope,
+  CredentialRotationFinalizeRequest,
+  CredentialRotationMetadata,
+  CredentialRotationOperation,
+  CredentialRotationOperationAction,
+  CredentialRotationReasonCode,
+  CredentialRotationStageRequest,
+  CredentialRotationState,
+  CredentialRotationStepUp,
   DecisionHistoryResponse,
   ExecutionsResponse,
   HoldingsResponse,
@@ -22,6 +33,7 @@ import type {
   SummaryResponse,
   TodayRunSummary,
 } from "./contracts";
+import { CREDENTIAL_ROTATION_CREDENTIAL, CREDENTIAL_ROTATION_SCHEMA_VERSION } from "./contracts";
 
 export interface Session {
   authenticated: boolean;
@@ -221,4 +233,233 @@ export interface CredentialMaintenance {
 
 export function loadCredentialMaintenance(): Promise<CredentialMaintenance> {
   return getJson<CredentialMaintenance>("/api/credential-maintenance");
+}
+
+/* ---------- Credential rotation ----------
+ * `ibkr_flex` is the only supported credential, so the path is fixed and there
+ * is no credential, project or version parameter. Every read is validated
+ * against a key allowlist: an unexpected key is rejected, never stored. */
+
+export const ROTATION_CREDENTIAL_PATH = `/api/credential-rotation/${CREDENTIAL_ROTATION_CREDENTIAL}`;
+
+/** Timestamps must carry an explicit offset; a naive local time is not accepted. */
+const RFC3339_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+/** The bounded opaque id shape already used for request and operation identity. */
+const ROTATION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const ROTATION_STATES: CredentialRotationState[] = [
+  "adding_version", "staged", "finalizing", "finalized", "canceling", "canceled",
+  "add_unknown", "finalize_unknown", "cancel_unknown", "failed",
+];
+const ROTATION_REASONS: CredentialRotationReasonCode[] = [
+  "invalid_credential_rotation_request", "invalid_credential_expiry", "origin_required",
+  "cross_origin_rejected", "rotation_owner_required", "step_up_invalid", "step_up_rate_limited",
+  "credential_rotation_operation_not_found", "credential_rotation_request_conflict",
+  "credential_rotation_state_conflict", "credential_maintenance_revision_conflict",
+  "credential_rotation_unavailable",
+];
+/** Fixed codes the rotation routes may return; anything else is not rendered. */
+export const ROTATION_ERROR_CODES: readonly string[] = ROTATION_REASONS;
+
+const ROTATION_METADATA_KEYS = ["name", "last_rotated_at", "expires_at"];
+const ROTATION_OPERATION_KEYS = [
+  "operation_id", "state", "requested_expires_at", "created_at", "updated_at",
+  "allowed_actions", "reason_code",
+];
+const ROTATION_ENVELOPE_KEYS = [
+  "schema_version", "ok", "server_time", "metadata", "operation", "allowed_actions", "replayed",
+];
+/** A response carrying any of these is a contract violation, not a display problem. */
+const ROTATION_FORBIDDEN_KEYS = [
+  "value", "new_value", "masked_value", "old_value", "token", "secret", "code",
+  "step_up", "version", "version_name", "resource_name", "fingerprint", "digest",
+  "provider", "provider_response", "response", "body", "payload",
+];
+
+class RotationContractError extends Error {
+  constructor() { super("invalid_credential_rotation_response"); }
+}
+
+function asRecordValue(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new RotationContractError();
+  return value as Record<string, unknown>;
+}
+
+function assertNoForbiddenKey(raw: Record<string, unknown>): void {
+  for (const key of Object.keys(raw)) {
+    if (ROTATION_FORBIDDEN_KEYS.includes(key.toLowerCase())) throw new RotationContractError();
+  }
+}
+
+function requireKeys(raw: Record<string, unknown>, allowed: readonly string[]): void {
+  assertNoForbiddenKey(raw);
+  for (const key of Object.keys(raw)) {
+    if (!allowed.includes(key)) throw new RotationContractError();
+  }
+}
+
+function asRotationString(value: unknown, maxLength = 512): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength) throw new RotationContractError();
+  return value;
+}
+
+/** A timestamp is either an explicit-offset RFC 3339 value or genuinely absent. */
+export function asRotationTimestamp(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !RFC3339_PATTERN.test(value) || Number.isNaN(Date.parse(value))) {
+    throw new RotationContractError();
+  }
+  return value;
+}
+
+export function isRotationTimestamp(value: unknown): boolean {
+  try {
+    return asRotationTimestamp(value) !== null;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeMetadata(value: unknown): CredentialRotationMetadata {
+  const raw = asRecordValue(value);
+  requireKeys(raw, ROTATION_METADATA_KEYS);
+  return {
+    name: asRotationString(raw.name, 128),
+    last_rotated_at: asRotationTimestamp(raw.last_rotated_at),
+    expires_at: asRotationTimestamp(raw.expires_at),
+  };
+}
+
+function normalizeOperation(value: unknown): CredentialRotationOperation | null {
+  if (value === null) return null;
+  const raw = asRecordValue(value);
+  requireKeys(raw, ROTATION_OPERATION_KEYS);
+  const state = asRotationString(raw.state, 32);
+  if (!ROTATION_STATES.includes(state as CredentialRotationState)) throw new RotationContractError();
+  const reason = raw.reason_code;
+  if (reason !== null && (typeof reason !== "string" || !ROTATION_REASONS.includes(reason as CredentialRotationReasonCode))) {
+    throw new RotationContractError();
+  }
+  const actions = Array.isArray(raw.allowed_actions) ? raw.allowed_actions : [];
+  if (Array.isArray(raw.allowed_actions)
+    && !actions.every(action => action === "finalize" || action === "cancel")) throw new RotationContractError();
+  return {
+    operation_id: asRotationString(raw.operation_id, 128),
+    state: state as CredentialRotationState,
+    requested_expires_at: asRotationTimestamp(raw.requested_expires_at) ?? "",
+    created_at: asRotationTimestamp(raw.created_at) ?? "",
+    updated_at: asRotationTimestamp(raw.updated_at) ?? "",
+    allowed_actions: actions as CredentialRotationOperationAction[],
+    reason_code: (reason ?? null) as CredentialRotationReasonCode | null,
+  };
+}
+
+function normalizeEnvelope(value: unknown): CredentialRotationEnvelope {
+  const raw = asRecordValue(value);
+  requireKeys(raw, ROTATION_ENVELOPE_KEYS);
+  if (raw.ok !== true || raw.schema_version !== CREDENTIAL_ROTATION_SCHEMA_VERSION) throw new RotationContractError();
+  const actions = Array.isArray(raw.allowed_actions) ? raw.allowed_actions : null;
+  if (!actions || !actions.every(action => action === "stage")) throw new RotationContractError();
+  const replayed = raw.replayed;
+  if (replayed !== undefined && typeof replayed !== "boolean") throw new RotationContractError();
+  return {
+    schema_version: CREDENTIAL_ROTATION_SCHEMA_VERSION,
+    ok: true,
+    server_time: asRotationTimestamp(raw.server_time) ?? "",
+    metadata: normalizeMetadata(raw.metadata),
+    operation: normalizeOperation(raw.operation),
+    allowed_actions: actions as ["stage"],
+    ...(replayed === undefined ? {} : { replayed }),
+  };
+}
+
+/** Fixed codes this client raises itself, before a request leaves the browser. */
+const ROTATION_CLIENT_CODES: readonly string[] = [
+  "request_id_invalid", "credential_value_length_invalid", "step_up_method_invalid", "step_up_code_required",
+];
+
+/** Fixed-code lookup for the rotation routes: errors are a code source, never text to render. */
+export function rotationErrorCode(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  return [...ROTATION_ERROR_CODES, ...ROTATION_CLIENT_CODES].includes(error.message) ? error.message : null;
+}
+
+export function loadCredentialRotation(): Promise<CredentialRotationEnvelope> {
+  return getJson<unknown>(ROTATION_CREDENTIAL_PATH).then(normalizeEnvelope);
+}
+
+export function loadCredentialRotationOperation(operationId: string): Promise<CredentialRotationEnvelope> {
+  if (!ROTATION_ID_PATTERN.test(operationId)) return Promise.reject(new RotationContractError());
+  return getJson<unknown>(`${ROTATION_CREDENTIAL_PATH}/operations/${encodeURIComponent(operationId)}`)
+    .then(normalizeEnvelope);
+}
+
+function normalizeStepUp(stepUp: CredentialRotationStepUp): CredentialRotationStepUp {
+  if (stepUp.method !== "totp" && stepUp.method !== "recovery") throw new Error("step_up_method_invalid");
+  if (typeof stepUp.code !== "string" || stepUp.code.length === 0 || stepUp.code.length > 128) {
+    throw new Error("step_up_code_required");
+  }
+  return { method: stepUp.method, code: stepUp.code };
+}
+
+/** A transport failure after a possible write is an unknown outcome, never a retry. */
+async function postRotation(
+  path: string,
+  body: Record<string, unknown>,
+  requestId: string,
+  operationId: string | null,
+): Promise<CredentialRotationEnvelope> {
+  try {
+    return normalizeEnvelope(await postJson<unknown>(path, body));
+  } catch (error) {
+    if (error instanceof HttpError || error instanceof AccessError) throw error;
+    throw new MutationOutcomeUnknown(requestId, operationId);
+  }
+}
+
+/**
+ * Stage carries the new value for one request only. Nothing here retains it:
+ * it is serialised into the body and dropped when the call settles.
+ */
+export function stageCredentialRotation(request: CredentialRotationStageRequest): Promise<CredentialRotationEnvelope> {
+  if (!ROTATION_ID_PATTERN.test(request.request_id)) return Promise.reject(new Error("request_id_invalid"));
+  const bytes = new TextEncoder().encode(request.new_value).length;
+  if (bytes < 1 || bytes > 1024) return Promise.reject(new Error("credential_value_length_invalid"));
+  if (!isRotationTimestamp(request.expires_at)) return Promise.reject(new Error("invalid_credential_expiry"));
+  return postRotation(`${ROTATION_CREDENTIAL_PATH}/stage`, {
+    request_id: request.request_id,
+    new_value: request.new_value,
+    expires_at: request.expires_at,
+    step_up: normalizeStepUp(request.step_up),
+  }, request.request_id, null);
+}
+
+export function finalizeCredentialRotation(
+  request: CredentialRotationFinalizeRequest,
+): Promise<CredentialRotationEnvelope> {
+  if (!ROTATION_ID_PATTERN.test(request.operation_id)) return Promise.reject(new Error("operation_id_invalid"));
+  if (!ROTATION_ID_PATTERN.test(request.request_id)) return Promise.reject(new Error("request_id_invalid"));
+  if (request.downstream_verified !== true) return Promise.reject(new Error("downstream_verification_required"));
+  return postRotation(
+    `${ROTATION_CREDENTIAL_PATH}/operations/${encodeURIComponent(request.operation_id)}/finalize`,
+    {
+      request_id: request.request_id,
+      downstream_verified: true,
+      step_up: normalizeStepUp(request.step_up),
+    },
+    request.request_id,
+    request.operation_id,
+  );
+}
+
+export function cancelCredentialRotation(
+  request: CredentialRotationCancelRequest,
+): Promise<CredentialRotationEnvelope> {
+  if (!ROTATION_ID_PATTERN.test(request.operation_id)) return Promise.reject(new Error("operation_id_invalid"));
+  if (!ROTATION_ID_PATTERN.test(request.request_id)) return Promise.reject(new Error("request_id_invalid"));
+  return postRotation(
+    `${ROTATION_CREDENTIAL_PATH}/operations/${encodeURIComponent(request.operation_id)}/cancel`,
+    { request_id: request.request_id, step_up: normalizeStepUp(request.step_up) },
+    request.request_id,
+    request.operation_id,
+  );
 }
