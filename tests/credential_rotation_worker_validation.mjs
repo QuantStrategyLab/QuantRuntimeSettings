@@ -4,6 +4,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { build } from '../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js';
 import { __test } from '../web/strategy-switch-console/worker.js';
 import { totp, keyedDigest, factorCandidates, rotationConfig } from '../web/strategy-switch-console/secretRotationStepUp.js';
 const require = createRequire(new URL('../web/strategy-switch-console/package.json', import.meta.url));
@@ -25,6 +26,24 @@ const config = rotationConfig(bindings), step = Math.floor(at / 30000);
 for (const offset of [-1, 0, 1]) assert.equal((await factorCandidates(config, { method: 'totp', code: await totp(seed, step + offset) }, at)).length, 1);
 assert.equal((await factorCandidates(config, { method: 'totp', code: await totp(seed, step - 2) }, at)).length, 0);
 const persist = await mkdtemp(join(tmpdir(), 'qrs-rotation-'));
+const frontendBundle = join(persist, 'frontend.cjs');
+await build({
+  stdin: {
+    resolveDir: fileURLToPath(new URL('../web/strategy-switch-console/frontend/', import.meta.url)),
+    contents: `export * from './src/api/endpoints'; export * from './src/api/client';
+      export { loadAuditEvents, MutationOutcomeUnknown } from './src/api/cockpit';`,
+  },
+  bundle: true, platform: 'node', format: 'cjs', outfile: frontendBundle,
+  define: { 'import.meta.env': '{}' }, logLevel: 'silent',
+});
+const frontend = require(frontendBundle);
+const originalFetch = globalThis.fetch, originalWindow = globalThis.window;
+let invalidations = 0;
+globalThis.window = { dispatchEvent: () => { invalidations++; } };
+async function withResponse(value, status, callback) {
+  globalThis.fetch = async () => Response.json(value, { status });
+  try { return await callback(); } finally { globalThis.fetch = originalFetch; }
+}
 const scriptPath = fileURLToPath(new URL('../web/strategy-switch-console/worker.js', import.meta.url));
 const original = await readFile(scriptPath, 'utf8');
 const script = original.replace('session: readSession, command: runtimeInstanceCommand,', 'session: readSession, command: runtimeInstanceCommand, now: () => Date.now() + Number(request.headers.get("X-Synthetic-Offset") || 0),') + `
@@ -73,6 +92,17 @@ async function call(path = root, payload, cookie = owner, origin = 'https://cons
   const value = await response.json();
   for (const sentinel of ['synthetic-write-only-value','synthetic-private-provider-response',seed,key, ...codes]) assert.ok(!JSON.stringify(value).includes(sentinel), 'response must exclude sensitive synthetic input');
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  if (value.schema_version === 'qsl.credential_rotation.v1') {
+    assert.deepEqual(await withResponse(value, response.status, () => frontend.loadCredentialRotation()), value,
+      'actual backend envelope must survive the real frontend adapter');
+  }
+  if (value.schema_version === 'qsl.audit_events.v1') {
+    const parsed = await withResponse(value, response.status, () => frontend.loadAuditEvents());
+    assert.equal(parsed.status, 'ready');
+    assert.deepEqual(parsed.data.map(e => e.event_id), value.events.map(e => e.event_id || e.id));
+    for (const event of value.events.filter(e => e.event_id))
+      assert.equal(parsed.data.find(e => e.event_id === event.event_id).operation_id, event.operation_id);
+  }
   return { status: response.status, value };
 }
 const operationPath = op => root + '/operations/' + op;
@@ -99,7 +129,26 @@ try {
   assert.equal((await call(root + '/stage', { ...totpBody, new_value: 'synthetic-other' })).value.error, 'credential_rotation_request_conflict');
   assert.equal((await call(root + '/stage', body())).value.error, 'credential_rotation_state_conflict');
   assert.equal((await call(operationPath(op) + '/finalize', { request_id: 'synthetic-no-ack', downstream_verified: false, step_up: factor() })).status, 400);
-  assert.equal((await call(operationPath(op) + '/finalize', { request_id: 'synthetic-reused-totp', downstream_verified: true, step_up: totpBody.step_up })).value.error, 'step_up_invalid');
+  const rejected = await call(operationPath(op) + '/finalize', { request_id: 'synthetic-reused-totp', downstream_verified: true, step_up: totpBody.step_up });
+  assert.equal(rejected.value.error, 'step_up_invalid');
+  await assert.rejects(withResponse(rejected.value, rejected.status, () => frontend.finalizeCredentialRotation({
+    operation_id: op, request_id: 'synthetic-browser-request', downstream_verified: true, step_up: totpBody.step_up,
+  })), error => error instanceof frontend.HttpError && frontend.rotationErrorCode(error) === 'step_up_invalid');
+  assert.equal(invalidations, 0, 'wrong second factor must preserve login');
+  for (const suffix of ['/stage', '/operations/' + op + '/finalize', '/operations/' + op + '/cancel']) {
+    await assert.rejects(withResponse(rejected.value, 403, () => frontend.postJson(root + suffix, {})), frontend.HttpError);
+  }
+  for (const [path, status, errorBody] of [
+    [root + '/stage', 401, { ok: false, error: 'login required' }],
+    [root + '/stage', 403, { ok: false, error: 'rotation_owner_required' }],
+    [root + '/stage', 403, { ok: false, error: 'cross_origin_rejected' }],
+    ['/api/admin/config', 403, rejected.value],
+    [root + '/stage', 403, { ...rejected.value, extra: true }],
+  ]) {
+    const before = invalidations;
+    await assert.rejects(withResponse(errorBody, status, () => frontend.postJson(path, {})), frontend.AccessError);
+    assert.equal(invalidations, before + 1, 'real permission failures must invalidate login');
+  }
   const finish = { request_id: 'synthetic-finalize-1', downstream_verified: true, step_up: factor() };
   const finalized = await call(operationPath(op) + '/finalize', finish);
   assert.equal(finalized.value.operation.state, 'finalized'); assert.equal(finalized.value.metadata.expires_at, expiry); assert.equal(finalized.value.metadata.last_rotated_at, new Date(at).toISOString());
@@ -165,5 +214,27 @@ try {
   mf = new Miniflare({ ...options, durableObjectsPersist: false, bindings: { ...bindings, CREDENTIAL_ROTATION_OWNER: '' } });
   assert.equal((await call()).value.error, 'credential_rotation_unavailable');
   assert.ok(reads > 0);
+  for (const [state, reason_code] of [['failed', 'provider_failed'], ['add_unknown', 'proxy_unconfirmed'], ['finalize_unknown', 'maintenance_revision_conflict']]) {
+    const value = { ...staged.value, operation: { ...staged.value.operation, state, reason_code, allowed_actions: [] } };
+    assert.equal((await withResponse(value, 200, () => frontend.loadCredentialRotation())).operation.reason_code, reason_code);
+  }
+  for (const value of [
+    { ...staged.value, secret: 'synthetic-forbidden' },
+    { ...staged.value, operation: { ...staged.value.operation, reason_code: 'step_up_invalid' } },
+    { ...staged.value, server_time: null },
+    { ...staged.value, operation: { ...staged.value.operation, allowed_actions: null } },
+  ]) await assert.rejects(withResponse(value, 200, () => frontend.loadCredentialRotation()), /invalid_credential_rotation_response/);
+  for (const timestamp of ['2035-02-30T00:00:00Z', '2035-04-01T00:00:00.1234Z', '2035-04-01T25:00:00Z'])
+    assert.equal(frontend.isRotationTimestamp(timestamp), false);
+  for (const request_id of ['short', 'synthetic:invalid', '.synthetic'])
+    await assert.rejects(frontend.stageCredentialRotation({ ...initial, request_id }), /request_id_invalid/);
+  // Mixed legacy/rotation page preserves old links as well as rotation identity.
+  const mixed = { schema_version: 'qsl.audit_events.v1', events: [
+    ...audit.value.events,
+    { id: 'synthetic-legacy', action: 'synthetic', ref: '/api/operations/operation%3Asynthetic', subject: { kind: 'strategy_promotion', id: 'synthetic' } },
+  ] };
+  const mixedParsed = await withResponse(mixed, 200, () => frontend.loadAuditEvents());
+  assert.equal(mixedParsed.data.at(-1).operation_id, 'operation:synthetic');
+  assert.equal(new Set(mixedParsed.data.map(e => e.event_id)).size, mixedParsed.data.length);
   console.log('credential rotation Worker/DO validation passed');
-} finally { await mf.dispose(); await rm(persist, { recursive: true, force: true }); }
+} finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow; await mf.dispose(); await rm(persist, { recursive: true, force: true }); }
