@@ -29,3 +29,21 @@ The durable unique key is shared credential + canonical expiry + phase; revision
 真实到期日期和 claim ID 不进入 stdout、公开 CI artifact 或 issue；网页授权读取和实际 Telegram 正文在内存中使用日期。公开证据只保留固定 phase/delivery 枚举。源代码、测试和截图夹具使用与真实记录无关的合成日期。
 
 Actual expiry and claim IDs do not enter stdout, public CI artifacts or issues. Authorized website reads and the in-memory Telegram body contain the expiry; public evidence contains only fixed phase/delivery enums. Source, tests and screenshot fixtures use unrelated synthetic dates.
+
+## 只写轮换入口
+
+后端增加 `ibkr_flex` 的 stage / finalize / cancel 接口，供独立前端接入。
+每次写入都要求指定 owner 的管理员会话、同源请求和新的单次验证码。
+暂存只新增版本，旧版本仍启用，到期记录和上次完成轮换时间保持不变。
+owner 另行更新并验证全部下游后，才能提交 finalize 的确认声明；该声明
+不代表系统自动验证下游健康。确认完成时，后端在一个事务中更新操作、
+到期记录和 `last_rotated_at`，并检查暂存时捕获的 maintenance revision。
+取消只禁用本次暂存的新版本，不改变到期记录或完成时间。
+
+结果不明时保留 `add_unknown`、`finalize_unknown` 或 `cancel_unknown`，
+停止新的变更，通过读取操作状态核对。读取不会重复新增或禁用版本。
+如果远端已完成而本地元数据发生并发变更，保持 unknown，不覆盖较新的
+登记记录。只有确定完成的 finalize 才更新轮换元数据；原有人工登记
+仍仅代表管理员登记。30 / 14 / 7 天提醒及原有持久去重规则保持不变。
+请求值和验证码不存入 DO、审计或通知；浏览器不能读取值、版本名、
+指纹或原始服务端错误。本次实现不部署、不配置真实凭据、不发送通知。

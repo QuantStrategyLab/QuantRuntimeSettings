@@ -60,6 +60,10 @@ export function validate(name, data) {
     if (schema.pattern) assert.match(value, new RegExp(schema.pattern), path);
     for (const key of schema.required || [])
       assert.ok(Object.hasOwn(value, key), path + "." + key + ": required");
+    if (schema.additionalProperties === false && value && typeof value === 'object')
+      for (const key of Object.keys(value)) assert.ok(Object.hasOwn(schema.properties || {}, key), path + ': additionalProperties');
+    if (schema.minLength !== undefined) assert.ok(value.length >= schema.minLength, path + ': minLength');
+    if (schema.maxLength !== undefined) assert.ok(value.length <= schema.maxLength, path + ': maxLength');
     if (schema.properties)
       for (const [key, sub] of Object.entries(schema.properties))
         if (Object.hasOwn(value, key)) visit(sub, value[key], path + "." + key);
@@ -540,3 +544,24 @@ assert.equal(
   0,
   "facts still exclude a known paper account",
 );
+
+const rotationFixture = { schema_version: 'qsl.credential_rotation.v1', ok: true, server_time: '2035-01-01T00:00:00.000Z',
+  metadata: { name: 'IBKR Flex token', last_rotated_at: null, expires_at: null }, operation: null, allowed_actions: ['stage'] };
+validate('credential_rotation', rotationFixture);
+const operationFixture = { operation_id: 'synthetic-operation', state: 'staged', requested_expires_at: '2035-04-01T00:00:00.000Z',
+  created_at: rotationFixture.server_time, updated_at: rotationFixture.server_time, allowed_actions: ['finalize','cancel'], reason_code: null };
+validate('credential_rotation', { ...rotationFixture, operation: operationFixture });
+for (const key of ['value','new_value','masked_value','token','secret','version','resource_name','fingerprint','digest','provider']) {
+  assert.throws(() => validate('credential_rotation', { ...rotationFixture, [key]: 'synthetic-private' }));
+  assert.throws(() => validate('credential_rotation', { ...rotationFixture, metadata: { ...rotationFixture.metadata, [key]: 'synthetic-private' } }));
+  assert.throws(() => validate('credential_rotation', { ...rotationFixture, operation: { ...operationFixture, [key]: 'synthetic-private' } }));
+}
+assert.throws(() => validate('credential_rotation', { ...rotationFixture, operation: { ...operationFixture, state: 'success' } }));
+assert.throws(() => validate('credential_rotation', { ...rotationFixture, metadata: { ...rotationFixture.metadata, expires_at: 'invalid' } }));
+const rotationAuditFixture = { event_id: 'synthetic-event', occurred_at: rotationFixture.server_time, actor_alias: 'actor-synthetic',
+  action: 'credential_rotation_stage', subject: { kind: 'credential', id: 'ibkr_flex' }, operation_id: 'synthetic-operation', outcome: 'staged' };
+validate('credential_rotation_audit_event', rotationAuditFixture);
+assert.throws(() => validate('credential_rotation_audit_event', { ...rotationAuditFixture, fingerprint: 'synthetic-private' }));
+validate('credential_rotation_stage_request', { request_id: 'synthetic-request', new_value: 'synthetic-private', expires_at: '2035-04-01T00:00:00Z', step_up: { method: 'totp', code: '123456' } });
+assert.throws(() => validate('credential_rotation_finalize_request', { request_id: 'synthetic-request', downstream_verified: false, step_up: { method: 'totp', code: '123456' } }));
+console.log('credential rotation API contracts passed');

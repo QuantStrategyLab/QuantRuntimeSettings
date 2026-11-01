@@ -4,7 +4,7 @@ import { runtimeReadbackProjection } from "./application/console_api/runtime_rea
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { readRuntimeControlReceipt } from "./application/console_api/runtime_control_receipts.js";
-import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
+import { KvDirectory, currentStrategiesSignature, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
 import { sourceListFailure } from "./application/console_api/read_failures.js";
 import { strategyTargetExecution, accountExecutionEvidence } from "./application/console_api/strategy_execution.js";
 import { performanceResponse } from "./application/console_api/performance_routes.js";
@@ -21,6 +21,8 @@ import {
 import { RISK_TIER_POLICY_BINDINGS, riskTierBindingView, riskTierPolicyCatalog } from "./application/console_api/risk_tiers.js";
 import { recoveryMaterialPresentation, currentReconciliationObservationPresentation } from "./application/console_api/reconciliation_presentation.js";
 // deploy: 2026-06-30 — config driven by platform-config.json
+import { initializeSecretRotation, durableRotationCommand, credentialRotationResponse } from "./secretRotation.js";
+import { RotationError } from "./secretRotationStepUp.js";
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
 import { V2_ASSETS, V2_PAGE_HTML, V2_BUILD_ID } from "./v2_asset_map.js";
 import { CycleHealthError, canonicalCycleJson, cycleHealthSha256, normalizeCycleHealth, normalizeCycleInstant, compareCycleInstants, cycleCoverageComplete, cycleHealthAttemptKey, cycleHealthFaultCategory, cycleHealthFaultTime } from "./runtime_cycle_health.js";
@@ -876,6 +878,9 @@ export default {
       }
       if (url.pathname === "/api/strategy-profiles") return json(await strategyProfilesPayload(env));
       if (url.pathname === "/api/runtime-catalog") return await runtimeCatalogResponse(request, env);
+      if (url.pathname.startsWith("/api/credential-rotation/")) return await credentialRotationResponse(request, env, {
+        session: readSession, command: runtimeInstanceCommand,
+      });
       if (url.pathname === "/api/credential-maintenance" || url.pathname === "/api/internal/credential-maintenance" || url.pathname === "/api/internal/credential-maintenance/claim" || url.pathname === "/api/internal/credential-maintenance/ack") return await credentialMaintenanceResponse(request, env, url);
       if (url.pathname === "/api/config") return json(await configPayload(request, env, ctx));
       if (url.pathname === "/api/admin/runtime-instances") return await runtimeInstancesResponse(request, env);
@@ -2252,6 +2257,8 @@ export class RuntimeInstances {
     this.externalFlowEnabled = externalFlowEnabled(env);
     initializeExternalFlow(this.sql);
     initializeCredentialMaintenance(this.sql);
+    initializeSecretRotation(this.sql);
+    this.rotationEnv = env;
     // Native intervals remain in the existing private account read-model store.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS account_period_return (
       account_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL
@@ -4400,6 +4407,9 @@ export class RuntimeInstances {
       if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
       let command;
       try { command = await request.json(); } catch { throw new HttpError("invalid_runtime_instance_request", 400); }
+      if (typeof command?.action === "string" && command.action.startsWith("rotation_")) {
+        return json(await durableRotationCommand(this.storage, this.sql, this.rotationEnv, command));
+      }
       if (["credential_maintenance_read", "credential_maintenance_save", "credential_maintenance_claim", "credential_maintenance_ack"].includes(command?.action)) {
         return json(this.storage.transactionSync(() => credentialMaintenanceCommand(this.sql, command)));
       }
@@ -4525,7 +4535,7 @@ export class RuntimeInstances {
         return this.response(state);
       }));
     } catch (error) {
-      return json({ ok: false, error: error instanceof HttpError || error instanceof CycleHealthError || error instanceof CredentialMaintenanceError ? error.message : "runtime_instance_transaction_failed" }, error instanceof HttpError || error instanceof CycleHealthError || error instanceof CredentialMaintenanceError ? error.status : 409);
+      return json({ ok: false, error: error instanceof HttpError || error instanceof CycleHealthError || error instanceof CredentialMaintenanceError || error instanceof RotationError ? error.message : "runtime_instance_transaction_failed" }, error instanceof HttpError || error instanceof CycleHealthError || error instanceof CredentialMaintenanceError || error instanceof RotationError ? error.status : 409);
     }
   }
 
@@ -4692,6 +4702,10 @@ export class RuntimeInstances {
           SELECT 'account_settings_application', 'account_settings', platform || ':' || account_key, '',
             status, approved_by, strftime('%Y-%m-%dT%H:%M:%fZ', approved_at), request_key, status,
             'account_settings_application:' || request_key FROM account_setting_profile_application
+          UNION ALL
+          SELECT 'credential_rotation', 'credential', 'ibkr_flex', '', action, actor,
+            occurred_at, operation_id, outcome, 'credential_rotation:' || event_id
+          FROM credential_rotation_audit
         ) SELECT * FROM events WHERE occurred_at <= ?
           AND (? IS NULL OR occurred_at < ? OR (occurred_at = ? AND event_id > ?))
         ORDER BY occurred_at DESC, event_id ASC LIMIT ?`, snapshot,
@@ -6423,22 +6437,6 @@ let _memRefreshing = false;  // prevent concurrent background refreshes
 // stamped with new Date() (see accountExecutionEvidence callers), so whole-payload
 // byte equality can never hold; the comparison drops those stamps and keeps the
 // stored value untouched for readers.
-function currentStrategiesSignature(payload) {
-  const clone = JSON.parse(JSON.stringify(payload ?? null));
-  const visit = (node) => {
-    if (Array.isArray(node)) {
-      node.forEach(visit);
-      return;
-    }
-    if (!node || typeof node !== "object") return;
-    for (const [key, value] of Object.entries(node)) {
-      if (key === "execution_evidence" && value && typeof value === "object") delete value.observed_at;
-      else visit(value);
-    }
-  };
-  visit(clone);
-  return JSON.stringify(clone);
-}
 
 // readConfigJson reports a damaged value as `STRATEGY_SWITCH_CONFIG.<key> must be
 // valid JSON`. Only that shape is a cache miss; a KV read that failed for any other
@@ -6459,6 +6457,15 @@ async function readCurrentStrategiesCacheEntry(env) {
 }
 
 async function writeCurrentStrategiesCache(env, payload, ts) {
+  if (env.STRATEGY_SWITCH_RUNTIME_INSTANCES) {
+    try {
+      await directoryCommand(env, { action: "cache", payload, ts });
+      return;
+    } catch (error) {
+      // Receiver-first compatibility only; a real storage failure remains loud.
+      if (error.message !== "kv_directory_legacy_receiver" && error.message !== "kv_directory_invalid_request") throw error;
+    }
+  }
   const signature = currentStrategiesSignature(payload);
   // A damaged stored value must not wedge the cache; this is the only path that can
   // overwrite it, so the comparison reads through the same repair-aware helper.
@@ -13449,6 +13456,12 @@ async function auditEventsResponse(request, env, url) {
     const occurredAt = typeof row.occurred_at === "string" && Number.isFinite(Date.parse(row.occurred_at))
       ? row.occurred_at : null;
     if (!occurredAt) return json({ ok: false, error: "audit_projection_invalid" }, 503);
+    if (row.source === "credential_rotation") {
+      events.push({ id: row.event_id, event_id: row.event_id, occurred_at: occurredAt,
+        actor_alias: await actorAlias(row.actor || null), action: row.action,
+        subject: { kind: "credential", id: "ibkr_flex" }, operation_id: row.ref ?? null, outcome: row.status });
+      continue;
+    }
     const source = row.source === "decision" ? "durable_human_decision"
       : row.source === "promotion_application" ? "research_promotion_application"
         : row.source === "account_settings_application" ? "account_settings_application"
@@ -13523,7 +13536,7 @@ async function auditEventsResponse(request, env, url) {
     schema_version: AUDIT_EVENTS_SCHEMA_VERSION,
     server_time: serverTime,
     data_status: "ready",
-    events: pageEvents,
+    events: pageEvents.map(event => { if (!event.event_id) return event; const { id, ...safe } = event; return safe; }),
     next_cursor: unique.length > page.limit ? auditNextCursor(pageEvents.at(-1), page) : null,
     coverage: "durable_human_decisions_and_application_records_and_bounded_audit_log",
     policy: DECISION_POLICY,
@@ -18540,6 +18553,7 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  credentialRotationResponse, runtimeInstanceCommand,
   auditEventAction,
   effectiveAccountSettings,
   writeCurrentStrategiesCache,

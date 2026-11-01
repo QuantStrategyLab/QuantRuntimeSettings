@@ -48,6 +48,8 @@ export function credentialPhase(value, now = Date.now()) {
 
 export function initializeCredentialMaintenance(sql) {
   sql.exec("CREATE TABLE IF NOT EXISTS credential_maintenance_metadata (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, expires_at TEXT)");
+  if (!sql.exec("PRAGMA table_info(credential_maintenance_metadata)").toArray().some(row => row.name === "last_rotated_at"))
+    sql.exec("ALTER TABLE credential_maintenance_metadata ADD COLUMN last_rotated_at TEXT");
   sql.exec("CREATE TABLE IF NOT EXISTS credential_maintenance_delivery (delivery_key TEXT PRIMARY KEY, claim_id TEXT NOT NULL UNIQUE, metadata_revision INTEGER NOT NULL, state TEXT NOT NULL)");
 }
 const key = (p) => JSON.stringify([ID, p.expires_at, p.phase]);
@@ -102,4 +104,15 @@ export function credentialMaintenanceCommand(sql, command) {
     return { phase: current.phase, delivery: delivery.state === "reserved" ? body.outcome : delivery.state };
   }
   throw new CredentialMaintenanceError("unsupported_credential_maintenance_action");
+}
+
+// Called only within the rotation completion transaction. Reminder delivery keys
+// remain unchanged, including when an expiry returns to a previously used value.
+export function finalizeCredentialMaintenance(sql, expectedRevision, expiresAt, finalizedAt) {
+  const current = sql.exec('SELECT revision FROM credential_maintenance_metadata WHERE id = ?', ID).toArray()[0];
+  if ((current?.revision ?? 0) !== expectedRevision) throw new CredentialMaintenanceError('credential_maintenance_revision_conflict', 409);
+  const expiry = normalizeExpiryInstant(expiresAt);
+  sql.exec(`INSERT INTO credential_maintenance_metadata (id, revision, expires_at, last_rotated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, expires_at=excluded.expires_at, last_rotated_at=excluded.last_rotated_at`,
+  ID, expectedRevision + 1, expiry, finalizedAt);
 }

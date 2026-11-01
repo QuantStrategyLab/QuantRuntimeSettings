@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
+import { initializeSecretRotation } from "../web/strategy-switch-console/secretRotation.js";
 import { RuntimeInstances } from "../web/strategy-switch-console/worker.js";
 import { auditPageQuery, auditNextCursor } from "../web/strategy-switch-console/application/console_api/audit_pagination.js";
 
@@ -15,7 +16,9 @@ try {
   for (let index = 0; index < 1005; index++) insert.run(at, `demo-${String(index).padStart(4, "0")}`);
   db.prepare("INSERT INTO research_promotion_applications VALUES ('demo', 'recorded', ?, 'demo-promotion')").run(at);
   db.prepare("INSERT INTO account_setting_profile_application VALUES ('longbridge', 'demo', 'recorded', 'demo', ?, 'demo-account')").run(at);
-  const sql = { exec(query, ...parameters) { return { toArray: () => db.prepare(query).all(...parameters) }; } };
+  const sql = { exec(query, ...parameters) { const rows = db.prepare(query).all(...parameters); return { toArray: () => rows }; } };
+  initializeSecretRotation(sql);
+  sql.exec('INSERT INTO credential_rotation_audit VALUES (?, ?, ?, ?, ?, ?, ?)', 'synthetic-rotation', at, 'demo', 'credential_rotation_stage', 'synthetic-operation', 'staged', null);
   const read = page => RuntimeInstances.prototype.consoleReadCommand.call({ sql }, {
     action: "console_audit_events", actor: "demo", limit: page.limit + 1, snapshot: page.snapshot, before: page.before,
   }).rows;
@@ -30,16 +33,17 @@ try {
     page = auditPageQuery(new URL(`https://example.invalid/api/audit-events?limit=100&cursor=${cursor}`), now);
     if (index === 0) insert.run("2026-11-01T02:00:00.000Z", "newer");
   }
-  assert.equal(seen.length, 1007);
-  assert.equal(new Set(seen).size, 1007);
+  assert.equal(seen.length, 1008);
+  assert.equal(new Set(seen).size, 1008);
   assert.deepEqual(seen, [...seen].sort());
   assert.ok(seen.includes("research_promotion_application:demo-promotion"));
   assert.ok(seen.includes("account_settings_application:demo-account"));
+  assert.ok(seen.includes('credential_rotation:synthetic-rotation'));
   assert.ok(!seen.includes("durable_human_decision:newer"));
   const end = auditPageQuery(new URL("https://example.invalid/api/audit-events?cursor=" + auditNextCursor({ occurred_at: at, id: seen.at(-1) }, page)), now);
   assert.deepEqual(read(end), []);
   for (const value of ["1", "", "bad!", btoa(JSON.stringify({ v: 9, snapshot: at, at, id: "demo" }))]) {
     assert.throws(() => auditPageQuery(new URL(`https://example.invalid/api/audit-events?cursor=${value}`), now), /invalid_pagination/);
   }
-  console.log("Audit pagination validation passed: 1007 durable rows, three sources, ties, concurrent insert, terminal cursor");
+  console.log("Audit pagination validation passed: 1008 durable rows, four sources, ties, concurrent insert, terminal cursor");
 } finally { db.close(); }
