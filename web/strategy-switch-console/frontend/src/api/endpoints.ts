@@ -214,7 +214,7 @@ export function loadRuntimeDaily(date: string, platform?: string, accountKey?: s
 export interface CredentialMaintenance {
   id: string;
   expires_at: string | null;
-  phase: "unknown" | "not_due" | "30" | "7" | "1" | "expired";
+  phase: "unknown" | "not_due" | "30" | "14" | "7" | "expired";
   requires_action: boolean;
   delivery: string;
 }

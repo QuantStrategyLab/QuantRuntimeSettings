@@ -33,6 +33,10 @@ const preview = readFileSync(new URL('../web/strategy-switch-console/frontend/sr
 assert.match(preview, /item.kind !== "maintenance" && <small>/);
 assert.equal(typeof api.validCredentialMaintenance, 'function', 'both reads and ACKs validate the maintenance schema');
 assert.equal(api.validCredentialMaintenance(metadata), true);
+for (const phase of ['30', '14', '7', 'expired']) {
+  assert.equal(api.validCredentialMaintenance({ ...metadata, phase, expires_at: '2035-04-01T00:00:00.000Z' }), true, `phase ${phase} is accepted`);
+}
+assert.equal(api.validCredentialMaintenance({ ...metadata, phase: '1', expires_at: '2035-04-01T00:00:00.000Z' }), false, 'retired phase 1 is rejected');
 for (const invalid of [{}, { ...metadata, metadata_revision: true }, { ...metadata, id: 'other' }, { ...metadata, phase: 'not_due' }, { ...metadata, expires_at: '2035-02-30T00:00:00.000Z' }, { ...metadata, delivery: 'other' }]) assert.equal(api.validCredentialMaintenance(invalid), false);
 const prior = { ...metadata, metadata_revision: 4 };
 const expiry = '2035-04-01T08:00:00+08:00';
