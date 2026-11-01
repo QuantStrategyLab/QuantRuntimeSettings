@@ -1,12 +1,19 @@
 // Reconstruct the exact previously qualified production candidate offline.
 // The prerequisite fixed 54e and 946 evidence builders run in the same job.
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { verify946OnFixed54e } from './console_946_54e_patch.mjs';
 import { buildFreezeCandidate, assertFrozenPolicySource } from './console_958_freeze_candidate.mjs';
-import { DEFAULT_STRATEGY_PROFILES } from '../web/strategy-switch-console/strategy_profiles_asset.js';
+
+// Reconstruct the historical freeze policy from its immutable Git blob. The
+// current catalog restores Global ETF and is not the old candidate's policy.
+const policySource = execFileSync('git', ['cat-file', 'blob', '390c7be888059e95793f066ebf4a38ca7234b8f4'], {
+  cwd: new URL('..', import.meta.url),
+});
+const { DEFAULT_STRATEGY_PROFILES } = await import(`data:text/javascript;base64,${policySource.toString('base64')}`);
 
 const root = process.env.RUNNER_TEMP;
 if (!root) throw Error('RUNNER_TEMP is required');
