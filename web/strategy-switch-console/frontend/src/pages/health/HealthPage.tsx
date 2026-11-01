@@ -9,7 +9,8 @@ import {
   loadRuntimeDailyBindings,
   type CredentialMaintenance,
 } from "../../api/endpoints";
-import { loadAuditEvents, loadDigestStatus } from "../../api/cockpit";
+import { loadDigestStatus } from "../../api/cockpit";
+import { AuditHistory } from "../../components/AuditHistory";
 import { useLanguage, useT } from "../../i18n";
 import { useApi, type AsyncState } from "../../lib/hooks";
 import { formatDateTime } from "../../lib/format";
@@ -23,7 +24,7 @@ import {
   Skeleton,
   StatusBadge,
 } from "../../components/primitives";
-import { AuditTimeline, DigestStatus } from "../../components/cockpit";
+import { DigestStatus } from "../../components/cockpit";
 import { RunGrid } from "./RunGrid";
 import { runActivityCounts, runActivityLabelKey, runActivityState, todayFailures, weekendWithoutScheduledRuns } from "./status";
 import { groupAccounts } from "../../lib/accountDirectory";
@@ -275,15 +276,10 @@ export default function HealthPage() {
   const summary = useApi(() => loadTodayRuns(), [epoch]);
   const credential = useApi(() => loadCredentialMaintenance(), [epoch]);
   const digest = useApi(async () => loadDigestStatus(await loadNotificationLog(1), false), [epoch]);
-  const activity = useApi(() => loadAuditEvents(), [epoch]);
   const digestStatus = digest.phase === "loading" ? "loading" as const
     : digest.phase === "error" ? "error" as const
       : digest.data.status === "not_ready" ? "not_ready" as const : "ready" as const;
   const digestData = digest.phase === "ready" && digest.data.status === "ready" ? digest.data.data : null;
-  const activityStatus = activity.phase === "loading" ? "loading" as const
-    : activity.phase === "error" ? "error" as const
-      : activity.data.status === "not_ready" ? "not_ready" as const : "ready" as const;
-  const activityEvents = activity.phase === "ready" && activity.data.status === "ready" ? activity.data.data : null;
 
   return (
     <div className="page">
@@ -328,7 +324,7 @@ export default function HealthPage() {
 
       <section className="card health-activity">
         <h2 className="card-title">{t("overview.latest_activity")}</h2>
-        <AuditTimeline events={activityEvents} status={activityStatus} />
+        <AuditHistory key={epoch} />
       </section>
     </div>
   );

@@ -1,5 +1,19 @@
 /** Decision-cockpit copy. Internal identifiers stay in code, not in visible text. */
 export const zh: Record<string, string> = {
+  "cockpit.change_log.coverage": "包含持久化决定与应用记录，以及保留范围内的操作日志。",
+  "cockpit.runtime.title": "运行状态读回",
+  "cockpit.runtime.switch": "运行开关",
+  "cockpit.runtime.enabled": "已启用",
+  "cockpit.runtime.disabled": "已停用",
+  "cockpit.runtime.scheduler": "调度器",
+  "cockpit.runtime.scheduler.enabled": "已启用",
+  "cockpit.runtime.scheduler.paused": "已暂停",
+  "cockpit.runtime.scheduler.mixed": "状态不一致",
+  "cockpit.runtime.scheduler.missing": "未找到",
+  "cockpit.runtime.scheduler.unknown": "未知",
+  "cockpit.runtime.scheduler.not_applicable": "不适用",
+  "cockpit.runtime.boundary": "来自最近保存的部署观测；不代表交易授权、订单或成交。",
+
   "cockpit.synthetic": "示例数据",
   "cockpit.unknown": "未知",
   "cockpit.not_set": "未设置",
@@ -198,6 +212,20 @@ export const zh: Record<string, string> = {
   "cockpit.strip.note": "页面切换不会隐藏该操作。",
 };
 export const en: Record<string, string> = {
+  "cockpit.change_log.coverage": "Includes durable decisions and application records, plus retained activity logs.",
+  "cockpit.runtime.title": "Runtime readback",
+  "cockpit.runtime.switch": "Runtime switch",
+  "cockpit.runtime.enabled": "Enabled",
+  "cockpit.runtime.disabled": "Disabled",
+  "cockpit.runtime.scheduler": "Scheduler",
+  "cockpit.runtime.scheduler.enabled": "Enabled",
+  "cockpit.runtime.scheduler.paused": "Paused",
+  "cockpit.runtime.scheduler.mixed": "Mixed",
+  "cockpit.runtime.scheduler.missing": "Missing",
+  "cockpit.runtime.scheduler.unknown": "Unknown",
+  "cockpit.runtime.scheduler.not_applicable": "Not applicable",
+  "cockpit.runtime.boundary": "Last stored deployment observation; it does not establish trading authority, orders or fills.",
+
   "cockpit.synthetic": "Synthetic data",
   "cockpit.unknown": "Unknown",
   "cockpit.not_set": "Not set",

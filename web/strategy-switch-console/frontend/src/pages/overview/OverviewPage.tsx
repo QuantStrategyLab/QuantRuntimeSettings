@@ -29,8 +29,8 @@ import type { AsyncState } from "../../lib/hooks";
 import { latestAssetBalance } from "../../lib/performance";
 import { renderableStatus } from "../../lib/status";
 import { formatDateTime } from "../../lib/format";
-import { loadAuditEvents } from "../../api/cockpit";
-import { AuditTimeline, FreshnessBadge } from "../../components/cockpit";
+import { AuditHistory } from "../../components/AuditHistory";
+import { FreshnessBadge } from "../../components/cockpit";
 import { useNavigate, useScope } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
 import { useScopeLabel } from "../../lib/useScopeLabel";
@@ -591,11 +591,6 @@ export default function OverviewPage() {
   const inbox = useApi(() => loadInbox(epoch > 0), [epoch]);
   const todayRuns = useApi(() => loadTodayRuns(), [epoch]);
   const returns = useApi(() => loadPerformanceReturns(scope, RANGE), [scope, epoch]);
-  const activity = useApi(() => loadAuditEvents(), [epoch]);
-  const activityStatus = activity.phase === "loading" ? "loading" as const
-    : activity.phase === "error" ? "error" as const
-      : activity.data.status === "not_ready" ? "not_ready" as const : "ready" as const;
-  const activityEvents = activity.phase === "ready" && activity.data.status === "ready" ? activity.data.data : null;
 
   return (
     <div className="page">
@@ -622,7 +617,7 @@ export default function OverviewPage() {
         <div className="overview-card-head">
           <h2 className="card-title">{t("overview.latest_activity")}</h2>
         </div>
-        <AuditTimeline events={activityEvents} status={activityStatus} />
+        <AuditHistory key={epoch} />
       </section>
     </div>
   );

@@ -147,6 +147,21 @@ A Cloudflare Workers-based strategy switch console. The daily pages are the Reac
 
 **Dependency boundary:** The web app consumes generated assets (`config.js`, `strategy_profiles_asset.js`) and reads `platform-config.json` indirectly via the Worker API. It does **not** depend on Python scripts at runtime.
 
+The cockpit overview and health pages share `AuditHistory`, which follows the
+audit API's opaque `next_cursor` and deduplicates event IDs across pages. Refresh
+discards the old traversal; a failed continuation preserves loaded events and
+offers retry. Malformed or partial payloads cannot become a successful empty
+history. The adapter consumes `id`, `actor_alias`, structured `subject` and
+nullable string `revision` from `qsl.audit_events.v1`.
+
+The account overview reads `/api/runtime/readback?scope=platform:account-alias`.
+It displays the observed runtime switch, scheduler state and producer timestamp
+from `qsl.runtime_readback.v1`. Stale or unavailable observations remain unknown;
+configuration, decision receipts and application status do not substitute for
+runtime readback. These reads add no mutation or trading authority. Until the
+backend endpoints are available, 404/501 responses display unavailable and
+transport/server failures display a retryable read error.
+
 ---
 
 ## CI/CD: Independent Validation

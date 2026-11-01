@@ -151,10 +151,25 @@ export interface AuditEvent {
   actor: string | null;
   action: string;
   subject: string | null;
-  revision: number | null;
+  revision: string | number | null;
   decision_id: string | null;
   operation_id: string | null;
   outcome: string | null;
+}
+
+export interface AuditPage {
+  events: AuditEvent[];
+  next_cursor: string | null;
+  coverage: string;
+}
+
+export interface RuntimeReadback {
+  scope: string;
+  data_status: "ready" | "stale" | "unavailable";
+  observed_at: string | null;
+  runtime_enabled: boolean | null;
+  scheduler_state: "enabled" | "paused" | "mixed" | "missing" | "unknown" | "not_applicable";
+  strategy_profile: string | null;
 }
 
 export type CockpitRead<T> =
@@ -587,30 +602,68 @@ export async function loadDigestStatus(log: NotificationSendLog, synthetic = fal
   };
 }
 
-export async function loadAuditEvents(cursor: string | null = null, synthetic = false): Promise<CockpitRead<AuditEvent[]>> {
-  if (synthetic) return { status: "ready", synthetic: true, data: syntheticAudit() };
+export async function loadAuditEvents(cursor: string | null = null, synthetic = false): Promise<CockpitRead<AuditPage>> {
+  if (synthetic) return { status: "ready", synthetic: true, data: { events: syntheticAudit(), next_cursor: null, coverage: "synthetic" } };
   try {
     const params = new URLSearchParams({ limit: "25" });
-    if (cursor) params.set("cursor", cursor);
-    const payload = await getJson<unknown>(`/api/audit-events?${params}`);
-    const raw = asRecord(payload);
-    const items = Array.isArray(raw?.events) ? raw.events : Array.isArray(raw?.items) ? raw.items : [];
-    const events = items.flatMap((item): AuditEvent[] => {
+    if (cursor !== null) params.set("cursor", cursor);
+    const raw = asRecord(await getJson<unknown>(`/api/audit-events?${params}`));
+    if (raw?.schema_version !== "qsl.audit_events.v1" || raw.data_status !== "ready" || !Array.isArray(raw.events)
+      || !Array.isArray(raw.errors) || raw.errors.length || !asString(raw.coverage)
+      || !(raw.next_cursor === null || typeof raw.next_cursor === "string" && /^[A-Za-z0-9_-]{1,2048}$/.test(raw.next_cursor))
+      || raw.next_cursor !== null && (raw.events.length === 0 || raw.next_cursor === cursor)) throw Error("invalid_audit_page");
+    const events = raw.events.map((item): AuditEvent => {
       const event = asRecord(item);
-      if (!event) return [];
-      return [{
-        event_id: asString(event.event_id) ?? "",
-        occurred_at: asString(event.occurred_at) ?? "",
-        actor: asString(event.actor),
-        action: asString(event.action) ?? "unknown",
-        subject: asString(event.subject),
-        revision: asNumber(event.revision),
-        decision_id: asString(event.decision_id),
-        operation_id: asString(event.operation_id),
+      const subject = asRecord(event?.subject);
+      if (!event || !asString(event.id) || !asString(event.occurred_at) || !Number.isFinite(Date.parse(event.occurred_at as string))
+        || !asString(event.action) || !(event.actor_alias === null || typeof event.actor_alias === "string")
+        || !(event.revision === null || typeof event.revision === "string")
+        || !(event.outcome === null || typeof event.outcome === "string")
+        || !(event.subject === null || subject && asString(subject.kind) && asString(subject.id))) throw Error("invalid_audit_event");
+      return {
+        event_id: event.id as string,
+        occurred_at: event.occurred_at as string,
+        actor: asString(event.actor_alias),
+        action: event.action as string,
+        subject: subject ? `${subject.kind}: ${subject.id}` : null,
+        revision: asString(event.revision),
+        decision_id: null,
+        operation_id: null,
         outcome: asString(event.outcome),
-      }];
+      };
     });
-    return { status: "ready", data: events, synthetic: false };
+    if (new Set(events.map(event => event.event_id)).size !== events.length) throw Error("duplicate_audit_event");
+    return { status: "ready", data: { events, next_cursor: raw.next_cursor as string | null, coverage: raw.coverage as string }, synthetic: false };
+  } catch (error) {
+    if (notReady(error)) return { status: "not_ready" };
+    throw error;
+  }
+}
+
+/** A readback cannot infer effective state from configuration or an approval. */
+export async function loadRuntimeReadback(scope: string): Promise<CockpitRead<RuntimeReadback>> {
+  try {
+    const raw = asRecord(await getJson<unknown>(`/api/runtime/readback?${new URLSearchParams({ scope })}`));
+    const policy = asRecord(raw?.policy);
+    const states = ["enabled", "paused", "mixed", "missing", "unknown", "not_applicable"];
+    if (raw?.schema_version !== "qsl.runtime_readback.v1" || raw.scope !== scope
+      || !["ready", "stale", "unavailable"].includes(raw.data_status as string)
+      || policy?.read_only !== true || policy.no_order !== true || policy.execution_authority_granted !== false
+      || typeof raw.server_time !== "string" || !Number.isFinite(Date.parse(raw.server_time))
+      || raw.source !== "stored_runtime_target_lifecycle"
+      || !(raw.observed_at === null || typeof raw.observed_at === "string" && Number.isFinite(Date.parse(raw.observed_at)))
+      || !(raw.runtime_enabled === null || typeof raw.runtime_enabled === "boolean")
+      || !states.includes(raw.scheduler_state as string)
+      || !(raw.strategy_profile === null || typeof raw.strategy_profile === "string")
+      || raw.data_status === "ready" && (raw.observed_at === null || raw.runtime_enabled === null || Date.parse(raw.observed_at as string) > Date.parse(raw.server_time as string))
+      || raw.data_status !== "ready" && (raw.runtime_enabled !== null || raw.scheduler_state !== "unknown" || raw.strategy_profile !== null)) {
+      throw Error("invalid_runtime_readback");
+    }
+    return { status: "ready", synthetic: false, data: {
+      scope, data_status: raw.data_status as RuntimeReadback["data_status"],
+      observed_at: asString(raw.observed_at), runtime_enabled: raw.runtime_enabled as boolean | null,
+      scheduler_state: raw.scheduler_state as RuntimeReadback["scheduler_state"], strategy_profile: asString(raw.strategy_profile),
+    } };
   } catch (error) {
     if (notReady(error)) return { status: "not_ready" };
     throw error;
