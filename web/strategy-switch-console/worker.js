@@ -183,9 +183,10 @@ const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
 const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
-const CURRENT_STRATEGIES_CACHE_TTL_MS = 60_000;      // 60 sec — was 5 sec "active development" default; 5 sec drove ~600 KV writes/day at quota-critical traffic
-const CURRENT_STRATEGIES_STALE_TTL_MS = 600_000;       // 10 min — return stale + background refresh
-const CURRENT_STRATEGIES_KV_BUMP_MS = 600_000;       // 10 min — min interval for quota-limited ts-only cache refreshes
+const CURRENT_STRATEGIES_MEMO_TTL_MS = 60_000;      // 60 sec — a warm isolate re-checks GitHub after this
+const CURRENT_STRATEGIES_KV_FRESH_MS = 1_200_000;   // 20 min — a cold isolate serves the KV entry without any GitHub fan-out
+const CURRENT_STRATEGIES_STALE_TTL_MS = 3_600_000;  // 60 min — return stale plus background refresh before blocking on GitHub
+const CURRENT_STRATEGIES_KV_BUMP_MS = 1_200_000;    // 20 min — ceiling for ts-only rewrites when the content did not change
 const GITHUB_API_TIMEOUT_MS = 8000;
 const GITHUB_LOGIN_REQUEST_TIMEOUT_MS = 20000;
 const UX1_CALCULATOR_DEADLINE_MS = 30000;
@@ -6321,23 +6322,39 @@ let _memCurrentStrategies = null;
 let _memCurrentStrategiesTs = 0;
 let _memRefreshing = false;  // prevent concurrent background refreshes
 
-// KV free tier caps writes at 1,000/day account-wide, and every /api/config
-// request can drive a refresh, so the cache write is paid for only when the
-// payload changed or the stored entry needs its ts bumped to stay inside the
-// stale window that cold isolates serve from.
-let _lastKvCachePayloadJson = null;
+// KV free tier caps writes at 1,000/day account-wide and the */5 cron plus every
+// background refresh reaches this helper, so a write is paid for only when the
+// rendered content changed or the stored entry needs its ts bumped to stay inside
+// the fresh window that cold isolates serve from.
+// current_strategies_cache carries per-account execution_evidence.observed_at
+// stamped with new Date() (see accountExecutionEvidence callers), so whole-payload
+// byte equality can never hold; the comparison drops those stamps and keeps the
+// stored value untouched for readers.
+function currentStrategiesSignature(payload) {
+  const clone = JSON.parse(JSON.stringify(payload ?? null));
+  const visit = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "execution_evidence" && value && typeof value === "object") delete value.observed_at;
+      else visit(value);
+    }
+  };
+  visit(clone);
+  return JSON.stringify(clone);
+}
 
 async function writeCurrentStrategiesCache(env, payload, ts) {
-  const payloadJson = JSON.stringify(payload);
-  if (payloadJson !== _lastKvCachePayloadJson) {
-    await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, { ts, data: payload });
-    _lastKvCachePayloadJson = payloadJson;
+  const signature = currentStrategiesSignature(payload);
+  const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+  if (cached?.data && currentStrategiesSignature(cached.data) === signature
+      && cached.ts && ts - cached.ts < CURRENT_STRATEGIES_KV_BUMP_MS) {
     return;
   }
-  const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
-  if (cached?.ts && ts - cached.ts < CURRENT_STRATEGIES_KV_BUMP_MS) return;
   await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, { ts, data: payload });
-  _lastKvCachePayloadJson = payloadJson;
 }
 
 async function configPayload(request, env, ctx) {
@@ -6367,7 +6384,7 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
   // 1) In-memory cache
   if (_memCurrentStrategies) {
     const age = Date.now() - _memCurrentStrategiesTs;
-    if (age < CURRENT_STRATEGIES_CACHE_TTL_MS) {
+    if (age < CURRENT_STRATEGIES_MEMO_TTL_MS) {
       currentStrategies = _memCurrentStrategies;
       cacheFresh = true;
     } else if (age < CURRENT_STRATEGIES_STALE_TTL_MS) {
@@ -6381,7 +6398,7 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
     const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
     if (cached?.ts && cached.data) {
       const age = Date.now() - cached.ts;
-      if (age < CURRENT_STRATEGIES_CACHE_TTL_MS) {
+      if (age < CURRENT_STRATEGIES_KV_FRESH_MS) {
         currentStrategies = cached.data;
         cacheFresh = true;
       } else if (age < CURRENT_STRATEGIES_STALE_TTL_MS) {
@@ -17648,6 +17665,8 @@ function escapeHtml(value) {
 
 export const __test = {
   effectiveAccountSettings,
+  writeCurrentStrategiesCache,
+  currentStrategiesSignature,
   dispatchAccountDiagnosis,
   humanDecisionReceipt,
   researchPromotionMaterialKey,
