@@ -294,39 +294,9 @@ def missing_delivery_requirements() -> list[str]:
 
 
 def send_telegram_message(*, token: str, chat_id: str, text: str) -> bool:
-    body = urllib.parse.urlencode(
-        {
-            "chat_id": chat_id,
-            "text": text,
-            "disable_web_page_preview": "true",
-        }
-    ).encode("utf-8")
-    # Token only in URL path for Telegram Bot API; never print it.
-    request = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=body,
-        method="POST",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:200]
-        print(f"Telegram send failed HTTP {exc.code}: {detail}", file=sys.stderr)
-        return False
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        print(f"Telegram send failed: {type(exc).__name__}", file=sys.stderr)
-        return False
-    result = payload.get('result')
-    chat = result.get('chat') if isinstance(result, dict) else None
-    if payload.get('ok') is not True or not isinstance(chat, dict):
-        return False
-    if type(result.get('message_id')) is not int or result['message_id'] <= 0:
-        return False
-    if type(chat.get('id')) is not int:
-        return False
-    return ('@' + str(chat.get('username', ''))).casefold() == chat_id.casefold() if chat_id.startswith('@') else str(chat['id']) == str(chat_id)
+    from notification_transport import send_intent
+    receipt = send_intent(text, token=token, chat_id=chat_id)
+    return receipt["ok"] and receipt["recipient_confirmed"]
 
 
 def _receipt_base(*, dry_run: bool, route: dict[str, Any]) -> dict[str, Any]:
@@ -359,6 +329,8 @@ def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from notification_snapshot.log_redaction import install_log_redaction
+    install_log_redaction()
     parser = argparse.ArgumentParser(
         description="Render and optionally send QuantSentinel daily digest."
     )

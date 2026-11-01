@@ -286,18 +286,17 @@ def telegram_sender(token, recipient):
         raise ValueError('digest_recipient_configuration_required')
     opener = urllib.request.build_opener(NoRedirect())
     def send(text):
-        body = urllib.parse.urlencode({'chat_id': recipient, 'text': text}).encode()
-        request = urllib.request.Request('https://api.telegram.org/bot' + token + '/sendMessage', data=body)
-        with opener.open(request, timeout=20) as response:
-            value = json.load(response)
-        result = value.get('result') or {}
-        if value.get('ok') is not True or str((result.get('chat') or {}).get('id')) != recipient:
+        from notification_transport import send_intent
+        receipt = send_intent(text, token=token, chat_id=recipient, opener=opener.open, timeout=20)
+        if not receipt["ok"] or not receipt["recipient_confirmed"]:
             raise ValueError('digest_ack_invalid')
-        return result.get('message_id')
+        return receipt["message_id"]
     return send
 
 
 def main():
+    from notification_snapshot.log_redaction import install_log_redaction
+    install_log_redaction(wrap_streams=True)
     from http.server import BaseHTTPRequestHandler, HTTPServer
     configuration = Configuration.from_environment()
     store = GCSDeliveryStore(os.environ['DIGEST_CANDIDATES_GCS_URI'], os.environ['DIGEST_DELIVERIES_GCS_URI'],

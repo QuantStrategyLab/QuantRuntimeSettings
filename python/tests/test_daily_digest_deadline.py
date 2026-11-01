@@ -313,6 +313,7 @@ class SenderTests(unittest.TestCase):
     def test_normal_transport_requires_valid_message_and_keeps_frozen_timeout(self):
         for payload, expected in [({'ok': True}, False), ({'ok': True, 'result': {'message_id': 1, 'chat': {'id': 12345}}}, True)]:
             response = mock.MagicMock()
+            response.__enter__.return_value.status = 200
             response.__enter__.return_value.read.return_value = json.dumps(payload).encode()
             with mock.patch.object(sender.urllib.request, 'urlopen', return_value=response) as open_request:
                 self.assertEqual(sender.send_telegram_message(token='synthetic', chat_id='12345', text='synthetic'), expected)

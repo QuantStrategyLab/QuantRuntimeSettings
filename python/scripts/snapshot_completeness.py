@@ -307,10 +307,17 @@ def send_notification(env, text):
     token, chat = env.get("TELEGRAM_TOKEN"), env.get("GLOBAL_TELEGRAM_CHAT_ID")
     if not token or not chat:
         raise AuditError("notification_configuration_missing")
-    response = request_json(f"https://api.telegram.org/bot{token}/sendMessage", method="POST",
-                            headers={"Content-Type": "application/json"},
-                            data=json.dumps({"chat_id": chat, "text": text[:3900]}).encode())
-    if response.get("ok") is not True:
+    import io
+    from notification_transport import send_intent
+
+    def opener(request, **_kwargs):
+        value = request_json(request.full_url, method="POST",
+                             headers={"Content-Type": "application/json"}, data=request.data)
+        response = io.BytesIO(json.dumps(value).encode())
+        response.status = 200
+        return response
+
+    if not send_intent(text[:3900], token=token, chat_id=chat, opener=opener)["ok"]:
         raise AuditError("notification_failed")
 
 
@@ -331,6 +338,8 @@ def run(config, io, now):
 
 
 def main():
+    from notification_snapshot.log_redaction import install_log_redaction
+    install_log_redaction()
     cloud = bool(os.environ.get("CLOUD_RUN_JOB"))
     notification_attempted = False
     try:
