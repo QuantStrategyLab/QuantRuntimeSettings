@@ -142,7 +142,10 @@ try {
   const [overview, strategies, accountDetail, riskPreference, health] = sources;
   assert.match(overview, /function DecisionQueue/);
   assert.match(overview, /queue_incomplete/, "a partial queue hides reassuring counts");
-  assert.match(overview, /loadAuditEvents/);
+  assert.match(overview, /AuditHistory/);
+  const activity = await readFile(join(root, "src/components/AuditHistory.tsx"), "utf8");
+  assert.match(activity, /loadAuditEvents\(cursor\)/);
+  assert.match(activity, /next_cursor/);
   assert.match(strategies, /loadLifecycles/);
   assert.match(strategies, /LifecycleStepper/);
   assert.match(strategies, /binding\.present/, "absent lifecycle records stay absent");
@@ -152,7 +155,7 @@ try {
   assert.doesNotMatch(riskPreference, /<select/, "the tier picker is no longer a bare select");
   assert.match(health, /loadDigestStatus/);
   assert.match(health, /DigestStatus/);
-  assert.match(health, /AuditTimeline/);
+  assert.match(health, /AuditHistory/);
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

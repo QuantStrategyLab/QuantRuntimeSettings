@@ -88,7 +88,7 @@ try {
           export const invalidatePrivateSession = () => {};
           export const getJson = async path => {
             globalThis.__calls.push('getJson:' + path);
-            if (path.startsWith('/api/audit-events')) return { events: [] };
+            if (path.startsWith('/api/audit-events')) return { schema_version: 'qsl.audit_events.v1', data_status: 'ready', events: [], next_cursor: null, coverage: 'synthetic', errors: [] };
             throw new HttpError(404);
           };
           export const postJson = async () => { throw new HttpError(404); };`,

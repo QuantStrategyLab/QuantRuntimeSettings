@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import { loadSettingsDiff } from "../../api/endpoints";
 import { loadPolicyBinding } from "../../api/cockpit";
+import { RuntimeReadbackPanel } from "../../components/RuntimeReadbackPanel";
 import { EffectivePolicyPanel } from "../../components/cockpit";
 import { factEnvironment, factForAccount, userDeclarationOf } from "../../lib/accountFacts";
 import { useNavigate } from "../../app/context";
@@ -188,6 +189,7 @@ export function AccountDetail({
           </section>
         )}
         {active === "overview" && <RiskPreference platform={account.platform} accountKey={account.account_alias} />}
+        {active === "overview" && <RuntimeReadbackPanel key={`${account.platform}:${account.account_alias}`} scope={`${account.platform}:${account.account_alias}`} />}
         {active === "overview" && <PolicyReadback platform={account.platform} accountKey={account.account_alias} />}
         {active === "overview" && <AccountDeclaration platform={account.platform} accountKey={account.account_alias} onSaved={onDeclarationSaved} />}
         {active === "strategy" && (
