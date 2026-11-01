@@ -10,7 +10,7 @@ import time as clock
 import urllib.parse
 import urllib.request
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import daily_digest_aggregator as aggregator
 import merge_digest_candidates as candidate_contract
 import notification_candidate_adapter as adapter
-from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable
+from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
 from display_names import display_name
 from unified_daily_digest import _safe_display_text, render
 
@@ -36,9 +36,21 @@ class Configuration:
     cutover_date: str
     enabled: bool = False
     locale: str = 'zh'
+    candidate_uris: dict = field(default_factory=dict)
 
     def __post_init__(self):
         adapter.validate_expected(self.expected)
+        platforms = {row['platform_id'] for row in self.expected}
+        if not isinstance(self.candidate_uris, dict) or any(
+                platform not in platforms for platform in self.candidate_uris):
+            raise ValueError('digest_candidate_sources_invalid')
+        for uri in self.candidate_uris.values():
+            try:
+                if not isinstance(uri, str):
+                    raise ValueError()
+                location(uri)
+            except ValueError:
+                raise ValueError('digest_candidate_sources_invalid') from None
         identities, objects = set(), set()
         for row in self.expected:
             if not SLOT.fullmatch(row.get('candidate_slot', '')):
@@ -66,10 +78,14 @@ class Configuration:
         flag = os.environ.get('DIGEST_DELIVERY_ENABLED', 'false')
         if flag not in {'true', 'false'}:
             raise ValueError('digest_delivery_flag_invalid')
+        try:
+            candidate_uris = json.loads(os.environ.get('DIGEST_CANDIDATES_BY_PLATFORM_JSON', '{}'))
+        except ValueError:
+            raise ValueError('digest_candidate_sources_invalid') from None
         return cls(json.loads(os.environ['DIGEST_EXPECTED_TARGETS_JSON']),
                    os.environ['DIGEST_SCHEDULER_JOB_NAME'], os.environ['DIGEST_RECIPIENT_SCOPE'],
                    os.environ['DIGEST_CUTOVER_REPORT_DATE'], flag == 'true',
-                   os.environ.get('QSL_NOTIFY_LANG', 'zh'))
+                   os.environ.get('QSL_NOTIFY_LANG', 'zh'), candidate_uris)
 
 
 def utc_now():
@@ -284,7 +300,8 @@ def telegram_sender(token, recipient):
 def main():
     from http.server import BaseHTTPRequestHandler, HTTPServer
     configuration = Configuration.from_environment()
-    store = GCSDeliveryStore(os.environ['DIGEST_CANDIDATES_GCS_URI'], os.environ['DIGEST_DELIVERIES_GCS_URI'])
+    store = GCSDeliveryStore(os.environ['DIGEST_CANDIDATES_GCS_URI'], os.environ['DIGEST_DELIVERIES_GCS_URI'],
+                             candidates_by_platform=configuration.candidate_uris)
     send = telegram_sender(os.environ['TELEGRAM_TOKEN'], os.environ['QSL_GLOBAL_TELEGRAM_CHAT_ID'])
 
     class Handler(BaseHTTPRequestHandler):
