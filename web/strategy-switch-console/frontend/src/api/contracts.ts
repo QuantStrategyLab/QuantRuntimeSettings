@@ -899,8 +899,12 @@ export type CredentialRotationState =
   | "canceling" | "canceled"
   | "add_unknown" | "finalize_unknown" | "cancel_unknown" | "failed";
 
-/** Fixed codes only; free-text provider or upstream messages are never a member. */
+/** Recorded operation reasons are distinct from HTTP request errors. */
 export type CredentialRotationReasonCode =
+  | "proxy_unconfirmed" | "maintenance_revision_conflict" | "provider_failed";
+
+/** Fixed codes only; free-text provider or upstream messages are never a member. */
+export type CredentialRotationErrorCode =
   | "invalid_credential_rotation_request"
   | "invalid_credential_expiry"
   | "origin_required"

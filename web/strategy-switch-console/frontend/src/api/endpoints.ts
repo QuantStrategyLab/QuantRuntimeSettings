@@ -11,6 +11,7 @@ import type {
   CombinedDraftResponse,
   CredentialRotationCancelRequest,
   CredentialRotationEnvelope,
+  CredentialRotationErrorCode,
   CredentialRotationFinalizeRequest,
   CredentialRotationMetadata,
   CredentialRotationOperation,
@@ -243,14 +244,17 @@ export function loadCredentialMaintenance(): Promise<CredentialMaintenance> {
 export const ROTATION_CREDENTIAL_PATH = `/api/credential-rotation/${CREDENTIAL_ROTATION_CREDENTIAL}`;
 
 /** Timestamps must carry an explicit offset; a naive local time is not accepted. */
-const RFC3339_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+const RFC3339_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 /** The bounded opaque id shape already used for request and operation identity. */
-const ROTATION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const ROTATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
 const ROTATION_STATES: CredentialRotationState[] = [
   "adding_version", "staged", "finalizing", "finalized", "canceling", "canceled",
   "add_unknown", "finalize_unknown", "cancel_unknown", "failed",
 ];
 const ROTATION_REASONS: CredentialRotationReasonCode[] = [
+  "proxy_unconfirmed", "maintenance_revision_conflict", "provider_failed",
+];
+const ROTATION_ERRORS: CredentialRotationErrorCode[] = [
   "invalid_credential_rotation_request", "invalid_credential_expiry", "origin_required",
   "cross_origin_rejected", "rotation_owner_required", "step_up_invalid", "step_up_rate_limited",
   "credential_rotation_operation_not_found", "credential_rotation_request_conflict",
@@ -258,7 +262,7 @@ const ROTATION_REASONS: CredentialRotationReasonCode[] = [
   "credential_rotation_unavailable",
 ];
 /** Fixed codes the rotation routes may return; anything else is not rendered. */
-export const ROTATION_ERROR_CODES: readonly string[] = ROTATION_REASONS;
+export const ROTATION_ERROR_CODES: readonly string[] = ROTATION_ERRORS;
 
 const ROTATION_METADATA_KEYS = ["name", "last_rotated_at", "expires_at"];
 const ROTATION_OPERATION_KEYS = [
@@ -290,8 +294,9 @@ function assertNoForbiddenKey(raw: Record<string, unknown>): void {
   }
 }
 
-function requireKeys(raw: Record<string, unknown>, allowed: readonly string[]): void {
+function requireKeys(raw: Record<string, unknown>, allowed: readonly string[], optional: readonly string[] = []): void {
   assertNoForbiddenKey(raw);
+  if (allowed.some(key => !optional.includes(key) && !Object.hasOwn(raw, key))) throw new RotationContractError();
   for (const key of Object.keys(raw)) {
     if (!allowed.includes(key)) throw new RotationContractError();
   }
@@ -308,7 +313,23 @@ export function asRotationTimestamp(value: unknown): string | null {
   if (typeof value !== "string" || !RFC3339_PATTERN.test(value) || Number.isNaN(Date.parse(value))) {
     throw new RotationContractError();
   }
+  const [date, time] = value.split("T");
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute, second] = time.slice(0, 8).split(":").map(Number);
+  const zone = value.endsWith("Z") ? null : value.slice(-6);
+  if (year < 1970 || month < 1 || month > 12 || day < 1
+    || day > new Date(Date.UTC(year, month, 0)).getUTCDate()
+    || hour > 23 || minute > 59 || second > 59
+    || (zone && (Number(zone.slice(1, 3)) > 23 || Number(zone.slice(4)) > 59))) {
+    throw new RotationContractError();
+  }
   return value;
+}
+
+function requiredRotationTimestamp(value: unknown): string {
+  const result = asRotationTimestamp(value);
+  if (result === null) throw new RotationContractError();
+  return result;
 }
 
 export function isRotationTimestamp(value: unknown): boolean {
@@ -339,15 +360,15 @@ function normalizeOperation(value: unknown): CredentialRotationOperation | null 
   if (reason !== null && (typeof reason !== "string" || !ROTATION_REASONS.includes(reason as CredentialRotationReasonCode))) {
     throw new RotationContractError();
   }
-  const actions = Array.isArray(raw.allowed_actions) ? raw.allowed_actions : [];
-  if (Array.isArray(raw.allowed_actions)
-    && !actions.every(action => action === "finalize" || action === "cancel")) throw new RotationContractError();
+  const actions = raw.allowed_actions;
+  if (!Array.isArray(actions) || !actions.every(action => action === "finalize" || action === "cancel")) throw new RotationContractError();
+  if (typeof raw.operation_id !== "string" || !ROTATION_ID_PATTERN.test(raw.operation_id)) throw new RotationContractError();
   return {
     operation_id: asRotationString(raw.operation_id, 128),
     state: state as CredentialRotationState,
-    requested_expires_at: asRotationTimestamp(raw.requested_expires_at) ?? "",
-    created_at: asRotationTimestamp(raw.created_at) ?? "",
-    updated_at: asRotationTimestamp(raw.updated_at) ?? "",
+    requested_expires_at: requiredRotationTimestamp(raw.requested_expires_at),
+    created_at: requiredRotationTimestamp(raw.created_at),
+    updated_at: requiredRotationTimestamp(raw.updated_at),
     allowed_actions: actions as CredentialRotationOperationAction[],
     reason_code: (reason ?? null) as CredentialRotationReasonCode | null,
   };
@@ -355,7 +376,7 @@ function normalizeOperation(value: unknown): CredentialRotationOperation | null 
 
 function normalizeEnvelope(value: unknown): CredentialRotationEnvelope {
   const raw = asRecordValue(value);
-  requireKeys(raw, ROTATION_ENVELOPE_KEYS);
+  requireKeys(raw, ROTATION_ENVELOPE_KEYS, ["replayed"]);
   if (raw.ok !== true || raw.schema_version !== CREDENTIAL_ROTATION_SCHEMA_VERSION) throw new RotationContractError();
   const actions = Array.isArray(raw.allowed_actions) ? raw.allowed_actions : null;
   if (!actions || !actions.every(action => action === "stage")) throw new RotationContractError();
@@ -364,7 +385,7 @@ function normalizeEnvelope(value: unknown): CredentialRotationEnvelope {
   return {
     schema_version: CREDENTIAL_ROTATION_SCHEMA_VERSION,
     ok: true,
-    server_time: asRotationTimestamp(raw.server_time) ?? "",
+    server_time: requiredRotationTimestamp(raw.server_time),
     metadata: normalizeMetadata(raw.metadata),
     operation: normalizeOperation(raw.operation),
     allowed_actions: actions as ["stage"],
@@ -374,13 +395,17 @@ function normalizeEnvelope(value: unknown): CredentialRotationEnvelope {
 
 /** Fixed codes this client raises itself, before a request leaves the browser. */
 const ROTATION_CLIENT_CODES: readonly string[] = [
-  "request_id_invalid", "credential_value_length_invalid", "step_up_method_invalid", "step_up_code_required",
+  "request_id_invalid", "operation_id_invalid", "credential_value_length_invalid",
+  "step_up_method_invalid", "step_up_code_required", "downstream_verification_required",
 ];
 
 /** Fixed-code lookup for the rotation routes: errors are a code source, never text to render. */
 export function rotationErrorCode(error: unknown): string | null {
-  if (!(error instanceof Error)) return null;
-  return [...ROTATION_ERROR_CODES, ...ROTATION_CLIENT_CODES].includes(error.message) ? error.message : null;
+  const code = error instanceof AccessError
+    ? error.code
+    : error instanceof Error ? error.message : null;
+  if (code === null) return null;
+  return [...ROTATION_ERROR_CODES, ...ROTATION_CLIENT_CODES].includes(code) ? code : null;
 }
 
 export function loadCredentialRotation(): Promise<CredentialRotationEnvelope> {

@@ -63,7 +63,8 @@ const DENIED_CODES = [
 /** Rejected before or without any write: the form or the operator needs to change. */
 const INVALID_INPUT_CODES = [
   "invalid_credential_rotation_request", "invalid_credential_expiry",
-  "request_id_invalid", "credential_value_length_invalid", "step_up_method_invalid", "step_up_code_required",
+  "request_id_invalid", "operation_id_invalid", "credential_value_length_invalid",
+  "step_up_method_invalid", "step_up_code_required", "downstream_verification_required",
 ];
 
 export interface StepUpForm {
@@ -123,8 +124,8 @@ export function createRotationRequestIds(): RotationRequestIds {
 export type RotationOutcome =
   | { kind: "envelope"; envelope: CredentialRotationEnvelope }
   | { kind: "superseded" }
-  | { kind: "invalid" }
-  | { kind: "unavailable" }
+  | { kind: "invalid"; code?: string }
+  | { kind: "unavailable"; code?: string }
   | { kind: "unconfirmed" };
 
 /**
@@ -150,16 +151,18 @@ async function runRotation(
     requests.release(slot);
     return { kind: "envelope", envelope };
   } catch (error) {
-    // The shared client turns 401/403 into AccessError; a 403 is a refusal that
-    // reached no mutation, a 401 ends the session and leaves the outcome unknown.
-    if (error instanceof AccessError && error.status === 403) {
-      if (isCurrent()) requests.release(slot);
-      return { kind: "unavailable" };
-    }
+    // The shared client invalidates the session on 401 and on every 403 except a
+    // rejected second factor, which stays an HttpError with its own fixed code.
     const code = rotationErrorCode(error);
-    if (code && (DENIED_CODES.includes(code) || INVALID_INPUT_CODES.includes(code))) {
+    const refused = (error instanceof AccessError && error.status === 403)
+      || (code !== null && DENIED_CODES.includes(code));
+    if (refused) {
       if (isCurrent()) requests.release(slot);
-      return { kind: DENIED_CODES.includes(code) ? "unavailable" : "invalid" };
+      return code ? { kind: "unavailable", code } : { kind: "unavailable" };
+    }
+    if (code !== null && INVALID_INPUT_CODES.includes(code)) {
+      if (isCurrent()) requests.release(slot);
+      return { kind: "invalid", code };
     }
     if (isCurrent()) requests.block(slot);
     return { kind: "unconfirmed" };
@@ -213,8 +216,12 @@ export function submitCancel(options: {
     cancelCredentialRotation({ operation_id: options.operationId, request_id: requestId, step_up: { method, code } }));
 }
 
-/** `HttpError` is read for its fixed code only; payload and upstream text are never used. */
+/** `HttpError` and `AccessError` are read for their fixed code only; payload and upstream text are never used. */
 export function outcomeErrorKey(outcome: RotationOutcome): string | null {
+  const code = "code" in outcome ? outcome.code : undefined;
+  // Every distinct fixed code resolves to its own copy; the generic keys stay as
+  // the fallback for a stop raised before any code exists.
+  if (code) return `reason.${code}`;
   if (outcome.kind === "invalid") return "health.rotation.validation";
   if (outcome.kind === "unavailable") return "health.rotation.unavailable";
   if (outcome.kind === "unconfirmed") return "health.rotation.request_failed";

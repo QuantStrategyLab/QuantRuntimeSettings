@@ -34,14 +34,14 @@ const envelope = (overrides = {}) => ({
   ...overrides,
 });
 
-const operation = (state, allowed_actions = []) => ({
+const operation = (state, allowed_actions = [], reason_code = null) => ({
   operation_id: "op-synthetic-1",
   state,
   requested_expires_at: "2027-02-01T00:00:00+08:00",
   created_at: "2026-11-02T09:55:00Z",
   updated_at: "2026-11-02T09:56:00Z",
   allowed_actions,
-  reason_code: null,
+  reason_code,
 });
 
 const reminder = (phase = "30") => ({
@@ -59,7 +59,7 @@ try {
       contents: `
         import { createElement as h } from 'react';
         import { renderToStaticMarkup } from 'react-dom/server';
-        import { I18nProvider } from './src/i18n';
+        import { I18nProvider, translate } from './src/i18n';
         import Panel, {
           createRotationRequestIds, emptyStageForm, outcomeErrorKey, rotationActions,
           stageFormIncomplete, stepUpIncomplete, submitCancel, submitFinalize, submitStage,
@@ -69,11 +69,13 @@ try {
           loadCredentialRotationOperation, rotationErrorCode, stageCredentialRotation,
         } from './src/api/endpoints';
         import { readRevision } from './src/api/client';
+        import { loadAuditEvents } from './src/api/cockpit';
         export {
           createRotationRequestIds, emptyStageForm, outcomeErrorKey, rotationActions, stageFormIncomplete,
           stepUpIncomplete, submitCancel, submitFinalize, submitStage, cancelCredentialRotation,
           finalizeCredentialRotation, isRotationTimestamp, loadCredentialRotation,
-          loadCredentialRotationOperation, rotationErrorCode, stageCredentialRotation, readRevision,
+          loadCredentialRotationOperation, rotationErrorCode, stageCredentialRotation, readRevision, translate,
+          loadAuditEvents,
         };
         export const render = (language, props) =>
           renderToStaticMarkup(h(I18nProvider, { language }, h(Panel, props)));
@@ -120,6 +122,15 @@ try {
     })],
     ["finalized", envelope({ operation: operation("finalized"), allowed_actions: ["stage"] })],
     ["canceled", envelope({ operation: operation("canceled"), allowed_actions: [] })],
+    ["staged with unconfirmed provider", envelope({
+      operation: operation("staged", ["finalize", "cancel"], "proxy_unconfirmed"), allowed_actions: [],
+    })],
+    ["finalize_unknown with revision conflict", envelope({
+      operation: operation("finalize_unknown", [], "maintenance_revision_conflict"), allowed_actions: [],
+    })],
+    ["failed with provider failure", envelope({
+      operation: operation("failed", [], "provider_failed"), allowed_actions: [],
+    })],
     ["read only", envelope({ allowed_actions: [] })],
   ];
 
@@ -184,6 +195,28 @@ try {
           assert.ok(!markup.includes(`>${label}<`), `${name}/${language}: ${label} must not be offered`);
         }
       }
+    }
+  }
+
+  // A recorded operation reason renders as its own localized phrase, never the code.
+  const REASON_COPY = {
+    zh: {
+      proxy_unconfirmed: "上游未确认结果",
+      maintenance_revision_conflict: "维护信息版本冲突",
+      provider_failed: "上游操作失败",
+    },
+    en: {
+      proxy_unconfirmed: "Provider outcome unconfirmed",
+      maintenance_revision_conflict: "Maintenance revision conflict",
+      provider_failed: "Provider operation failed",
+    },
+  };
+  for (const reason of Object.keys(REASON_COPY.en)) {
+    for (const language of ["zh", "en"]) {
+      const rendered = visible(ui.render(language, panelProps(ready(envelope({
+        operation: operation("finalize_unknown", [], reason), allowed_actions: [],
+      })))));
+      assert.ok(rendered.includes(REASON_COPY[language][reason]), `${reason}/${language}: recorded reason is localized`);
     }
   }
 
@@ -306,8 +339,10 @@ try {
     assert.equal(stageBody.new_value, SENTINELS[0], "the value is sent, never stored");
     assert.equal(typeof stageBody.request_id, "string");
 
-    /* a fixed denial confirms no write: the slot frees and the retry is a new logical write */
+    /* a rejected second factor writes nothing, and the current login stays valid */
     calls = [];
+    const eventsBeforeStepUp = sessionEvents.length;
+    const revisionBeforeStepUp = ui.readRevision();
     globalThis.fetch = route([["/stage", jsonResponse({ ok: false, error: "step_up_invalid" }, 403)]]);
     const replayRequests = ui.createRotationRequestIds();
     const heldId = replayRequests.acquire("stage");
@@ -316,17 +351,64 @@ try {
       form: stageForm, slot: "stage", requests: replayRequests, isCurrent: () => true, clearSecrets: () => {},
     });
     assert.equal(firstDenial.kind, "unavailable", "a fixed denial reads as not allowed");
-    assert.equal(ui.outcomeErrorKey(firstDenial), "health.rotation.unavailable");
+    assert.equal(firstDenial.code, "step_up_invalid", "the fixed code survives the shared client");
+    assert.equal(ui.outcomeErrorKey(firstDenial), "reason.step_up_invalid", "a rejected code has its own copy");
+    assert.equal(sessionEvents.length, eventsBeforeStepUp, "a rejected code never invalidates the session");
+    assert.equal(ui.readRevision(), revisionBeforeStepUp, "a rejected code records no write");
     assert.equal(JSON.parse(calls[0].init.body).request_id, heldId);
     assert.equal(replayRequests.isBlocked("stage"), false, "a denial that wrote nothing is replayable");
     const secondDenial = await ui.submitStage({
       form: stageForm, slot: "stage", requests: replayRequests, isCurrent: () => true, clearSecrets: () => {},
     });
     assert.equal(secondDenial.kind, "unavailable");
+    assert.equal(sessionEvents.length, eventsBeforeStepUp, "still no session loss on the retry");
     assert.equal(calls.length, 2);
     assert.notEqual(JSON.parse(calls[1].init.body).request_id, heldId,
       "a retry after a confirmed no-write is a new logical write, so the server never sees a reused id");
     assert.equal(replayRequests.peek("stage"), null, "the released slot mints a fresh id next time");
+
+    /* the remaining 403 codes each get their own message, and still invalidate the session */
+    const FORBIDDEN_CODES = ["origin_required", "cross_origin_rejected", "rotation_owner_required", "step_up_invalid"];
+    const deniedKeys = [];
+    for (const code of FORBIDDEN_CODES.filter(entry => entry !== "step_up_invalid")) {
+      calls = [];
+      const eventsBefore = sessionEvents.length;
+      globalThis.fetch = route([["/stage", jsonResponse({ ok: false, error: code }, 403)]]);
+      const refused = await ui.submitStage({
+        form: stageForm, slot: "stage", requests: ui.createRotationRequestIds(),
+        isCurrent: () => true, clearSecrets: () => {},
+      });
+      assert.equal(refused.kind, "unavailable", `${code}: a refusal is never an unknown outcome`);
+      assert.equal(refused.code, code, `${code}: the code is preserved`);
+      assert.equal(ui.outcomeErrorKey(refused), `reason.${code}`, `${code}: its own copy`);
+      assert.equal(sessionEvents.length, eventsBefore + 1, `${code}: other 403 still invalidates the session`);
+      deniedKeys.push(ui.outcomeErrorKey(refused));
+    }
+    assert.equal(new Set([...deniedKeys, "reason.step_up_invalid"]).size, 4,
+      "each distinct 403 code maps to a different message key");
+
+    // Each of the four codes resolves to vetted copy in both languages, never a fallback.
+    for (const language of ["zh", "en"]) {
+      const texts = FORBIDDEN_CODES.map(code => ui.translate(language, `reason.${code}`));
+      texts.forEach((text, index) => {
+        assert.ok(text.length > 8, `${FORBIDDEN_CODES[index]}/${language}: message is written out`);
+        assert.notEqual(text, ui.translate(language, "reason.unknown"),
+          `${FORBIDDEN_CODES[index]}/${language}: not left on the unknown fallback`);
+      });
+      assert.equal(new Set(texts).size, 4, `${language}: the four 403 messages are distinct`);
+    }
+
+    /* a refusal payload that is not the exact two-field JSON never escapes the session rule */
+    calls = [];
+    const eventsBeforeShape = sessionEvents.length;
+    globalThis.fetch = route([["/stage", jsonResponse({ ok: false, error: "step_up_invalid", detail: "synthetic" }, 403)]]);
+    const malformedDenial = await ui.submitStage({
+      form: stageForm, slot: "stage", requests: ui.createRotationRequestIds(), isCurrent: () => true, clearSecrets: () => {},
+    });
+    assert.equal(malformedDenial.kind, "unavailable", "an unexpected payload is still a refusal");
+    assert.equal(malformedDenial.code, undefined, "no code is read from a payload outside the contract");
+    assert.equal(ui.outcomeErrorKey(malformedDenial), "health.rotation.unavailable");
+    assert.equal(sessionEvents.length, eventsBeforeShape + 1, "only the exact error JSON keeps the session");
 
     /* a fixed 400 keeps the field error, a fixed 409 reads as not allowed */
     calls = [];
@@ -472,20 +554,73 @@ try {
   await reject(envelope({ provider_response: SENTINELS[5] }), "a provider response is rejected");
   await reject(envelope({ metadata: { ...envelope().metadata, expires_at: "2026-11-25 09:00" } }), "a naive expiry is rejected");
   await reject(envelope({ operation: operation("staged", ["stage"]) }), "an unexpected action is rejected");
+  await reject(envelope({ operation: operation("staged", ["finalize", "cancel"], "step_up_invalid") }),
+    "an HTTP error code is never a recorded operation reason");
+  await reject(envelope({ operation: { ...operation("staged"), allowed_actions: undefined } }),
+    "an operation without allowed_actions is rejected");
+  await reject(envelope({ operation: { ...operation("staged"), created_at: null } }),
+    "a required operation timestamp is never read as empty");
+  await reject(envelope({ operation: { ...operation("staged"), operation_id: "short" } }), "a too-short operation id is rejected");
   await reject(envelope({ operation: { ...operation("mystery_state") } }), "an unknown state is rejected");
+  await reject({ ...envelope(), server_time: undefined }, "an envelope without server_time is rejected");
+  await reject({ ...envelope(), metadata: { name: "IBKR Flex token", expires_at: null } }, "a metadata key cannot go missing");
+  await reject(envelope({ metadata: { ...envelope().metadata, expires_at: "2026-11-25T09:00:00.1234Z" } }),
+    "more than three fractional digits is not a contract instant");
+  await reject(envelope({ metadata: { ...envelope().metadata, expires_at: "2026-02-30T09:00:00Z" } }), "a nonexistent day is rejected");
+  await reject(envelope({ metadata: { ...envelope().metadata, expires_at: "1969-01-01T00:00:00Z" } }), "a year below 1970 is rejected");
+  await reject(envelope({ metadata: { ...envelope().metadata, expires_at: "2026-11-25T09:00:00+24:00" } }), "an impossible offset is rejected");
   await reject({ ...envelope(), schema_version: "qsl.credential_rotation.v2" }, "a foreign schema is rejected");
   await reject({ ...envelope(), ok: false }, "a non-ok envelope is rejected");
+
+  // The recorded-reason vocabulary round-trips, and the bounded id shape is enforced.
+  const reasonRead = async (reason_code) => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () => jsonResponse(envelope({
+      operation: { ...operation("finalize_unknown"), reason_code },
+    }));
+    try {
+      return (await ui.loadCredentialRotation()).operation.reason_code;
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  };
+  for (const reason of ["proxy_unconfirmed", "maintenance_revision_conflict", "provider_failed", null]) {
+    assert.equal(await reasonRead(reason), reason, `${reason}: a recorded reason is kept`);
+  }
+  for (const badId of ["short", "-leading-hyphen", "has.dots.inside", "with space inside", "a".repeat(129)]) {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () => jsonResponse(envelope());
+    try {
+      await assert.rejects(() => ui.loadCredentialRotationOperation(badId), /invalid_credential_rotation_response/,
+        `${badId}: outside the bounded id shape`);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  }
+  assert.equal(ui.rotationErrorCode(new Error("operation_id_invalid")), "operation_id_invalid");
+  assert.equal(ui.rotationErrorCode(new Error("downstream_verification_required")), "downstream_verification_required");
 
   assert.equal(ui.isRotationTimestamp("2027-02-01T00:00:00+08:00"), true);
   assert.equal(ui.isRotationTimestamp("2027-02-01T00:00:00Z"), true);
   assert.equal(ui.isRotationTimestamp("2027-02-01T00:00:00"), false, "an offset-less expiry is not accepted");
   assert.equal(ui.stageFormIncomplete({ ...ui.emptyStageForm(), expires_at: "2027-02-01T00:00:00+08:00" }), true);
   assert.equal(ui.stepUpIncomplete({ method: "totp", code: "" }), true);
-  // Every fixed refusal maps to one localized label; the code itself is never rendered.
+  // Each fixed code maps to its own localized label; the code itself is never rendered.
+  const refusalKeys = new Set();
   for (const code of ["rotation_owner_required", "step_up_invalid", "origin_required", "cross_origin_rejected",
-    "step_up_rate_limited", "credential_rotation_state_conflict", "credential_rotation_unavailable"]) {
+    "step_up_rate_limited", "credential_rotation_state_conflict", "credential_rotation_unavailable",
+    "credential_rotation_request_conflict", "credential_maintenance_revision_conflict",
+    "credential_rotation_operation_not_found"]) {
     assert.equal(ui.rotationErrorCode(new Error(code)), code, `${code} is a fixed code`);
-    assert.equal(ui.outcomeErrorKey({ kind: "unavailable" }), "health.rotation.unavailable", `${code} maps to a fixed label`);
+    assert.equal(ui.outcomeErrorKey({ kind: "unavailable", code }), `reason.${code}`, `${code} maps to its own label`);
+    refusalKeys.add(ui.outcomeErrorKey({ kind: "unavailable", code }));
+  }
+  assert.equal(refusalKeys.size, 10, "no two fixed codes share a label");
+  for (const language of ["zh", "en"]) {
+    for (const key of refusalKeys) {
+      assert.notEqual(ui.translate(language, key), ui.translate(language, "reason.unknown"),
+        `${key}/${language}: carries its own copy`);
+    }
   }
   for (const message of ["provider said no", "Internal Server Error", "", null, undefined]) {
     assert.equal(ui.rotationErrorCode(message ? new Error(message) : message), null, `${message} is not a fixed code`);
@@ -501,6 +636,65 @@ try {
     const gated = ui.rotationActions(envelope({ operation: operation(state, ["finalize", "cancel"]), allowed_actions: ["stage"] }), false);
     assert.equal(gated.unknown, true);
     assert.equal(gated.stage || gated.finalize || gated.cancel, false, `${state} offers no write`);
+  }
+
+  /* ---------- 5b. Audit keeps rotation ids beside the legacy id/ref branch ---------- */
+
+  const auditPayload = events => ({
+    schema_version: "qsl.audit_events.v1",
+    server_time: "2026-11-02T10:00:00Z",
+    data_status: "ready",
+    events,
+    next_cursor: null,
+    coverage: "durable_human_decisions_and_application_records_and_bounded_audit_log",
+    policy: {
+      no_order: true, execution_authority_granted: false, current_evidence_required: true,
+      human_confirmation_required: true, notice: "只记录人工决定意图；不会下单、变更资金或启用实盘。",
+    },
+    errors: [],
+  });
+  const realFetchAudit = globalThis.fetch;
+  globalThis.fetch = async () => jsonResponse(auditPayload([
+    {
+      event_id: "rotation-event-synthetic-1", occurred_at: "2026-11-02T09:56:00Z", actor_alias: "owner",
+      action: "credential_rotation_stage", subject: { kind: "credential", id: "ibkr_flex" },
+      operation_id: "op-synthetic-1", outcome: "staged",
+    },
+    {
+      event_id: "rotation-event-synthetic-2", occurred_at: "2026-11-02T09:57:00Z", actor_alias: null,
+      action: "credential_rotation_denied", subject: { kind: "credential", id: "ibkr_flex" },
+      operation_id: null, outcome: "denied",
+    },
+    {
+      id: "legacy-event-1", source: "bounded_audit_log", occurred_at: "2026-11-02T09:58:00Z",
+      action: "switch_applied", actor_alias: "owner", subject: { kind: "runtime_target", id: "t-1" },
+      revision: null, outcome: null, ref: "/api/operations/op-synthetic-2",
+    },
+  ]));
+  let audited;
+  try {
+    audited = (await ui.loadAuditEvents()).data;
+  } finally {
+    globalThis.fetch = realFetchAudit;
+  }
+  assert.equal(audited[0].event_id, "rotation-event-synthetic-1", "a rotation event keeps its own opaque id");
+  assert.equal(audited[0].operation_id, "op-synthetic-1", "a rotation event keeps its operation id");
+  assert.equal(audited[0].subject.kind, "credential", "the credential subject kind survives");
+  assert.equal(audited[1].operation_id, null, "a denial may carry no operation id");
+  assert.equal(audited[2].event_id, "legacy-event-1", "the legacy id branch still resolves");
+  assert.equal(audited[2].operation_id, "op-synthetic-2", "the legacy ref branch still resolves");
+  for (const language of ["zh", "en"]) {
+    for (const action of ["credential_rotation_stage", "credential_rotation_finalize",
+      "credential_rotation_cancel", "credential_rotation_denied"]) {
+      assert.notEqual(ui.translate(language, `cockpit.change_log.action.${action}`),
+        ui.translate(language, "cockpit.change_log.action.other"), `${action}/${language}: carries its own label`);
+    }
+    for (const outcome of ["staged", "finalized", "canceled", "add_unknown", "finalize_unknown", "cancel_unknown", "denied"]) {
+      assert.notEqual(ui.translate(language, `cockpit.change_log.outcome.${outcome}`),
+        ui.translate(language, "cockpit.change_log.outcome.unknown"), `outcome ${outcome}/${language}: carries its own label`);
+    }
+    assert.notEqual(ui.translate(language, "cockpit.change_log.subject_kind.credential"),
+      ui.translate(language, "cockpit.change_log.subject_kind.other"), `credential subject/${language}: carries its own label`);
   }
 
   /* ---------- 6. Flat-design rules ---------- */
