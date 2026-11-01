@@ -36,6 +36,11 @@ SETTING_KEYS = {
     'placement', 'logpush', 'observability', 'tail_consumers', 'tags',
     'cache_options', 'streaming_tail_consumers',
 }
+# Cloudflare script/version annotations, not Worker tags or runtime settings.
+# Message/tag limits are UTF-8 bytes; triggered_by is server-provided provenance.
+ANNOTATION_BYTE_LIMITS = {
+    'workers/message': 1000, 'workers/tag': 100, 'workers/triggered_by': None,
+}
 
 
 class Unreadable(Exception):
@@ -185,12 +190,13 @@ def snapshot(reader, name):
 def compare(config, live):
     rows = []
 
-    def row(item, expected=MISSING, actual=MISSING, reason=None, *, field=MISSING):
-        status = 'unreadable' if reason else ('match' if expected == actual else 'mismatch')
+    def row(item, expected=MISSING, actual=MISSING, reason=None, *, field=MISSING, metadata=False):
+        status = 'unreadable' if reason else ('match' if metadata or expected == actual else 'mismatch')
         rows.append({'item': item, 'status': status,
                      'rendered': 'absent' if expected is MISSING else '<redacted>',
                      'live': 'absent' if actual is MISSING else '<redacted>',
                      **({'reason': reason} if reason else {}),
+                     **({'classification': 'deployment_metadata'} if metadata else {}),
                      **({'field': field if isinstance(field, str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,64}', field)
                          else '<unsupported-field>'} if field is not MISSING else {})})
 
@@ -317,7 +323,44 @@ def compare(config, live):
             row('settings.' + key, expected, actual, 'undeclared_effective_setting')
         else:
             row('settings.' + key, expected, actual)
-    for index, key in enumerate(sorted(set(settings) - SETTING_KEYS - {'bindings'})):
+    annotations = settings.get('annotations', MISSING)
+    if annotations is MISSING or annotations == {}:
+        row('settings.annotations', actual=annotations, metadata=True)
+    elif not isinstance(annotations, dict):
+        row('settings.annotations', actual=annotations, reason='unsupported_annotations_shape')
+    else:
+        # Version tags can be consumed by Worker code via version_metadata.
+        # Do not classify them as harmless without both binding inventories.
+        inventories = (settings.get('bindings'), live.get('version_bindings'))
+        metadata_unexposed = all(
+            isinstance(inventory, list) and all(
+                isinstance(binding, dict) and isinstance(binding.get('name'), str)
+                and isinstance(binding.get('type'), str) and binding['type'] != 'version_metadata'
+                for binding in inventory)
+            for inventory in inventories)
+        for index, key in enumerate(sorted(annotations)):
+            actual = annotations[key]
+            if key not in ANNOTATION_BYTE_LIMITS:
+                # Unknown keys can themselves contain private data. Never echo
+                # them, including workers/alias, which can affect version URLs.
+                row(f'settings.annotations.unsupported[{index}]', actual=actual,
+                    reason='unsupported_annotation_key')
+                continue
+            limit = ANNOTATION_BYTE_LIMITS[key]
+            valid = isinstance(actual, str)
+            if valid:
+                try:
+                    size = len(actual.encode('utf-8'))
+                    valid = limit is None or size <= limit
+                except UnicodeError:
+                    valid = False
+            reason = None
+            if not valid:
+                reason = 'unsupported_annotation_value'
+            elif key == 'workers/tag' and not metadata_unexposed:
+                reason = 'annotation_runtime_dependency'
+            row('settings.annotations.' + key, actual=actual, reason=reason, metadata=reason is None)
+    for index, key in enumerate(sorted(set(settings) - SETTING_KEYS - {'bindings', 'annotations'})):
         row(f'settings.unsupported[{index}]', reason='unsupported_live_setting', field=key)
     migrations = config.get('migrations', [])
     if len(migrations) != 1 or set(migrations[0]) != {'tag', 'new_sqlite_classes'}:
