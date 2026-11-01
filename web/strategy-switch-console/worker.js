@@ -1,3 +1,4 @@
+import { binanceDetailCommand } from "./binance_detail_archive.js";
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { readRuntimeControlReceipt } from "./application/console_api/runtime_control_receipts.js";
@@ -483,6 +484,7 @@ const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_period_return_put", "account_period_return_read", "account_daily_native_return_research_read",
   "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read", "account_facts_history_put",
   "binance_wallet_history_put", "binance_wallet_history_read",
+  "binance_detail_put", "binance_detail_read",
 ]);
 const MARKET_BENCHMARK_DO_ACTIONS = new Set([
   "market_benchmark_put", "market_benchmark_read", "market_benchmark_revise",
@@ -939,6 +941,9 @@ export default {
       }
       if (url.pathname === "/api/binance-private-scope" && request.method === "GET") {
         return await binancePrivateScopeResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/binance-account-facts/archive" && request.method === "GET") {
+        return await binanceDetailArchiveResponse(request, env, url);
       }
       if (url.pathname === "/api/internal/binance-account-facts" && request.method === "GET") {
         return await binanceAccountFactsReadinessResponse(request, env);
@@ -2805,6 +2810,7 @@ export class RuntimeInstances {
   accountFactsCommand(command) {
     if (!command || typeof command.action !== "string") throw new HttpError("unsupported_account_facts_action", 400);
     if (command.action === "account_daily_native_return_research_read") return this.researchNativeDailyReturns(command);
+    if (["binance_detail_put", "binance_detail_read"].includes(command.action)) return binanceDetailCommand(this.sql, command);
     if (command.action === "binance_wallet_history_put" || command.action === "binance_wallet_history_read") {
       return this.binanceWalletHistoryCommand(command);
     }
@@ -8506,6 +8512,10 @@ async function syncBinanceAccountFactsResponse(request, env) {
       unchanged = incomingTime === previousTime;
     }
     try {
+      const detail = await runtimeInstanceCommand(env, {
+        action: "binance_detail_put", binding, report, date: report.observed_finished_at.slice(0, 10),
+      });
+      if (detail.readback_verified !== true) throw new Error("binance_detail_readback_failed");
       const history = binanceWalletHistoryEntry(report, binding);
       await runtimeInstanceCommand(env, {
         action: "binance_wallet_history_put",
@@ -8526,6 +8536,21 @@ async function syncBinanceAccountFactsResponse(request, env) {
   } catch (error) {
     if (error?.status === 413) return json({ ok: false, error: "binance_account_facts_payload_too_large" }, 413);
     return binanceFactsErrorResponse(error);
+  }
+}
+
+async function binanceDetailArchiveResponse(request, env, url) {
+  const authError = binanceFactsSyncAuthorizationResponse(request, env);
+  if (authError) return authError;
+  try {
+    const binding = await trustedBinanceFactsBinding(env);
+    if (!binding) throw new Error("binding_missing");
+    const result = await runtimeInstanceCommand(env, {
+      action: "binance_detail_read", binding, date: url.searchParams.get("date"),
+    });
+    return json(result, result.report ? 200 : 404);
+  } catch {
+    return json({ ok: false, error: "binance_detail_archive_unavailable" }, 503);
   }
 }
 
