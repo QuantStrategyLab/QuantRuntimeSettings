@@ -10,6 +10,7 @@ import * as accounts from "./pages/accounts";
 import * as strategies from "./pages/strategies";
 import * as health from "./pages/health";
 import * as facts from "./pages/facts";
+import * as cockpit from "./pages/cockpit";
 
 const zh: Record<string, string> = {
   ...zhCN,
@@ -20,6 +21,7 @@ const zh: Record<string, string> = {
   ...strategies.zh,
   ...health.zh,
   ...facts.zh,
+  ...cockpit.zh,
 };
 const enMessages: Record<string, string> = {
   ...en,
@@ -30,6 +32,7 @@ const enMessages: Record<string, string> = {
   ...strategies.en,
   ...health.en,
   ...facts.en,
+  ...cockpit.en,
 };
 
 for (const key of Object.keys(zh)) {
@@ -43,15 +46,60 @@ for (const key of Object.keys(enMessages)) {
 export type MessageKey = CoreMessageKey | (string & {});
 
 export type TranslateParams = Record<string, string | number>;
-export type Translate = (key: MessageKey, params?: TranslateParams) => string;
+export type Translate = (key: MessageKey, params?: TranslateParams, fallbackKey?: MessageKey) => string;
 
-export function translate(language: Language, key: MessageKey, params: TranslateParams = {}): string {
-  const table = language === "zh" ? zh : enMessages;
-  const fallbackKey = key.startsWith("state.") ? "state.unknown_status"
-    : key.startsWith("reason.") ? "reason.unknown"
-    : key.startsWith("research.state.") ? "state.unknown_status" : null;
-  const template = table[key] ?? (language === "zh" ? enMessages[key] : zh[key])
-    ?? (fallbackKey ? table[fallbackKey] : key);
+const lookup = (table: Record<string, string>, key: string): string | undefined =>
+  Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+
+/** True when the key has its own vetted copy (parity guarantees both languages). */
+export function hasTranslation(key: string): boolean {
+  return lookup(zh, key) !== undefined;
+}
+
+/** Ordered longest-prefix-first namespace fallbacks; unclassified keys end at common.unknown. */
+const NAMESPACE_FALLBACKS: readonly [prefix: string, fallbackKey: string][] = [
+  ["research.state.", "state.unknown_status"],
+  ["state.", "state.unknown_status"],
+  ["reason.", "reason.unknown"],
+  ["decisions.action.", "decisions.action.unknown"],
+  ["strategies.execution.", "strategies.execution.unknown"],
+  ["research.source.", "research.source.other"],
+  ["initial_enrollment.fact.", "initial_enrollment.fact.other"],
+  ["initial_enrollment.", "initial_enrollment.value.unknown"],
+  ["accounts.field.", "accounts.field.other"],
+  ["cockpit.change_log.action.", "cockpit.change_log.action.other"],
+  ["cockpit.change_log.outcome.", "cockpit.change_log.outcome.unknown"],
+  ["cockpit.change_log.subject_kind.", "cockpit.change_log.subject_kind.other"],
+  ["cockpit.policy.limit.", "cockpit.policy.limit.other"],
+  ["cockpit.policy.source.", "cockpit.policy.source.unknown"],
+  ["cockpit.policy.restriction.reason.", "cockpit.policy.restriction.reason.unknown"],
+  ["cockpit.lifecycle.regime_effect.", "cockpit.lifecycle.regime_effect.unknown"],
+  ["cockpit.operation.reason.", "cockpit.operation.reason.unknown"],
+];
+
+export function translate(
+  language: Language,
+  key: MessageKey,
+  params: TranslateParams = {},
+  fallbackKey?: MessageKey,
+): string {
+  const tables = language === "zh" ? [zh, enMessages] : [enMessages, zh];
+  const namespaceFallback = (candidate: string): string | undefined =>
+    NAMESPACE_FALLBACKS.find(([prefix]) => candidate.startsWith(prefix))?.[1];
+  const candidates: string[] = [key];
+  if (fallbackKey) candidates.push(fallbackKey);
+  for (const candidate of [key, fallbackKey]) {
+    if (!candidate) continue;
+    const routed = namespaceFallback(candidate);
+    if (routed && !candidates.includes(routed)) candidates.push(routed);
+  }
+  candidates.push("common.unknown");
+  let template: string | undefined;
+  for (const candidate of candidates) {
+    template = tables.map(table => lookup(table, candidate)).find(value => value !== undefined);
+    if (template !== undefined) break;
+  }
+  if (template === undefined) template = lookup(tables[0], "common.unknown") ?? "Unknown";
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
     name in params ? String(params[name]) : match,
   );
@@ -69,5 +117,5 @@ export function useLanguage(): Language {
 
 export function useT(): Translate {
   const language = useLanguage();
-  return (key, params) => translate(language, key, params);
+  return (key, params, fallbackKey) => translate(language, key, params, fallbackKey);
 }

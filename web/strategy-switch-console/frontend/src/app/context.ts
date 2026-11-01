@@ -52,7 +52,7 @@ export function useScope(): ScopeContextValue {
   return useContext(ScopeContext);
 }
 
-export type Navigate = (patch: { page?: import("./router").PageId; scope?: string; account?: string | null; tab?: string | null }) => void;
+export type Navigate = (patch: { page?: import("./router").PageId; scope?: string; account?: string | null; tab?: string | null; decision?: string | null }) => void;
 
 export const NavigateContext = createContext<Navigate>(() => {});
 

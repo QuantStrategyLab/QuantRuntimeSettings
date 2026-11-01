@@ -97,17 +97,17 @@ function displaySurface(raw: unknown): DisplaySurface {
   return { status: "unknown", items: null, scope };
 }
 
-function humanizeKey(key: string): string {
-  const text = key.replace(/_/g, " ").replace(/\s+/g, " ").trim();
-  return text || key;
+/** Known source fields have locale copy; unknown fields use the shared fallback. */
+function factLabel(key: string, t: Translate): string {
+  return t(`initial_enrollment.fact.${key}`, {}, "initial_enrollment.fact.other");
 }
 
-/** Known source fields have locale copy; an unknown source field is only
- * humanized, never rendered as a JSON fragment. */
-function factLabel(key: string, t: Translate): string {
-  const messageKey = `initial_enrollment.fact.${key}`;
-  const translated = t(messageKey);
-  return translated === messageKey ? humanizeKey(key) : translated;
+const ENUM_FACT_FIELDS = ["action", "side", "status", "order_type", "right", "sec_type"] as const;
+
+function enumValue(field: string, value: string, t: Translate): string {
+  return (ENUM_FACT_FIELDS as readonly string[]).includes(field)
+    ? t(`initial_enrollment.enum.${field}.${value}`, {}, "initial_enrollment.value.unknown")
+    : value;
 }
 
 function scopeValue(field: ScopeField, value: string | null, t: Translate): string {
@@ -115,19 +115,18 @@ function scopeValue(field: ScopeField, value: string | null, t: Translate): stri
   if (field === "truncated") {
     if (value === "true") return t("initial_enrollment.value.true");
     if (value === "false") return t("initial_enrollment.value.false");
+    return t("initial_enrollment.value.unknown");
   }
-  if (field === "gateway_availability" && value === "current_broker_day") return t("initial_enrollment.current_broker_day");
-  if (field === "kind") {
-    const messageKey = `initial_enrollment.scope_kind.${value}`;
-    const translated = t(messageKey);
-    if (translated !== messageKey) return translated;
+  if (field === "gateway_availability") {
+    return value === "current_broker_day" ? t("initial_enrollment.current_broker_day") : t("initial_enrollment.value.unknown");
   }
+  if (field === "kind") return t(`initial_enrollment.scope_kind.${value}`, {}, "initial_enrollment.value.unknown");
   return value;
 }
 
-function FactValue({ value, t }: { value: InitialEnrollmentFactValue; t: Translate }) {
+function FactValue({ value, t, field }: { value: InitialEnrollmentFactValue; t: Translate; field?: string }) {
   if (value === null) return <>{t("common.unknown")}</>;
-  if (typeof value === "string") return <>{value || t("common.na")}</>;
+  if (typeof value === "string") return <>{value ? enumValue(field ?? "", value, t) : t("common.na")}</>;
   if (typeof value === "number") {
     return <>{Number.isFinite(value) ? String(value) : t("common.unknown")}</>;
   }
@@ -139,7 +138,7 @@ function FactValue({ value, t }: { value: InitialEnrollmentFactValue; t: Transla
     return (
       <ul className="initial-enrollment-list">
         {value.map((nested, index) => (
-          <li key={index}><FactValue value={nested} t={t} /></li>
+          <li key={index}><FactValue value={nested} t={t} field={field} /></li>
         ))}
       </ul>
     );
@@ -149,9 +148,9 @@ function FactValue({ value, t }: { value: InitialEnrollmentFactValue; t: Transla
   return (
     <dl className="initial-enrollment-fields">
       {entries.map(([key, nested]) => (
-        <div key={key}>
+        <div key={key} data-fact-key={key}>
           <dt>{factLabel(key, t)}</dt>
-          <dd><FactValue value={nested} t={t} /></dd>
+          <dd><FactValue value={nested} t={t} field={key} /></dd>
         </div>
       ))}
     </dl>

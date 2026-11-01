@@ -31,7 +31,11 @@ import { DiffTable } from "../../components/DiffTable";
 import { Timeline } from "../../components/Timeline";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { useToast } from "../../components/Toast";
-import { resolveAccountChoice } from "./helpers";
+import { expiryState, isRiskTier, loadOperation, normalizeEvidenceSummary } from "../../api/cockpit";
+import type { EvidenceSummary as EvidenceSummaryData } from "../../api/cockpit";
+import { ApplicationStatus, EvidenceSummary, ExpiryIndicator, tierLabel } from "../../components/cockpit";
+import { decisionActionAllowed, promotionDecisionBody, resolveAccountChoice } from "./helpers";
+import { fieldLabel } from "../accounts/helpers";
 import { sourceConsequenceKey, sourceLabelKey } from "./sources";
 import { InitialEnrollmentFacts } from "./InitialEnrollmentFacts";
 import { ReconciliationMaterials } from "./ReconciliationMaterials";
@@ -48,6 +52,14 @@ interface AccountChoice {
   label: string;
   mode: string;
 }
+
+/** Fields the expanded inbox may add; absent fields keep the legacy behaviour. */
+type ExpandedInboxItem = InboxItem & {
+  revision?: string | null;
+  allowed_actions?: unknown[];
+  operation_reference?: { id?: string | null } | null;
+  evidence_summary?: Record<string, unknown> | null;
+};
 
 const CATEGORY_TABS: Category[] = [
   "reconciliation_recovery",
@@ -124,6 +136,35 @@ function accountOptionsOf(application: Record<string, any> | null | undefined, p
       label: typeof account.label === "string" && account.label.trim() ? account.label : String(account.key),
       mode: String(account.broker_environment || ""),
     }));
+}
+
+/**
+ * The promotion request must carry the tier and policy revision the server
+ * bound to this ticket. A missing binding blocks the request; the client never
+ * substitutes a default tier.
+ */
+function promotionRiskBinding(
+  application: Record<string, any> | null,
+  ticket: Record<string, any>,
+): { risk_profile: string; policy_revision: string | null } | null {
+  const sources = [
+    application?.risk_policy_binding,
+    application?.confirmation,
+    ticket.risk_policy_binding,
+    ticket,
+  ];
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    const tier = typeof source.selected_tier === "string" ? source.selected_tier
+      : typeof source.risk_profile === "string" ? source.risk_profile : null;
+    if (!tier || !isRiskTier(tier)) continue;
+    const revision = typeof source.policy_revision === "string" && source.policy_revision
+      ? source.policy_revision
+      : typeof source.approved_policy_revision === "string" && source.approved_policy_revision
+        ? source.approved_policy_revision : null;
+    return { risk_profile: tier, policy_revision: revision };
+  }
+  return null;
 }
 
 function freshnessKey(status: string | null | undefined): string {
@@ -227,9 +268,28 @@ function HistoryPanel({ epoch, category }: { epoch: number; category: CategoryFi
   );
 }
 
+/* ---------- operation trace (only when the queue supplies an operation id) ---------- */
+
+function DecisionOperation({ operationId }: { operationId: string }) {
+  const t = useT();
+  const [epoch, setEpoch] = useState(0);
+  const read = useApi(() => loadOperation(operationId, false), [operationId, epoch]);
+  const status = read.phase === "loading" ? "loading" as const
+    : read.phase === "error" ? "error" as const
+      : read.data.status === "not_ready" ? "not_ready" as const : "ready" as const;
+  const operation = read.phase === "ready" && read.data.status === "ready" ? read.data.data : null;
+  const synthetic = read.phase === "ready" && read.data.status === "ready" && read.data.synthetic;
+  return (
+    <div className="cockpit-operation">
+      {synthetic && <Badge tone="accent">{t("cockpit.synthetic")}</Badge>}
+      <ApplicationStatus operation={operation} status={status} onRefresh={() => setEpoch(value => value + 1)} />
+    </div>
+  );
+}
+
 /* ---------- page ---------- */
 
-export default function DecisionsPage() {
+export default function DecisionsPage({ decision }: { decision: string | null }) {
   const t = useT();
   const names = useDisplayNames();
   const language = useLanguage();
@@ -247,6 +307,12 @@ export default function DecisionsPage() {
   const inbox = useApi(() => loadInbox(epoch > 0), [epoch]);
   const session = useApi(() => loadSession(), []);
   const admin = session.phase === "ready" && session.data.admin === true;
+  // Expiry interpolation starts when this decision bundle arrives, never at an
+  // arbitrary later render, so the browser cannot extend server validity.
+  const inboxData = inbox.phase === "ready" ? inbox.data : null;
+  const receivedAt = useMemo(() => new Date().toISOString(), [inboxData]);
+  // server_time is envelope-level on qsl.decision_inbox.v1, never per item.
+  const inboxServerTime = inboxData?.server_time ?? null;
 
   const humanDecisions = useRef(createHumanDecisionController());
   const applyLocks = useRef(createRequestLock());
@@ -274,9 +340,31 @@ export default function DecisionsPage() {
     ? names.account(item.account_alias, item.platform)
     : t("decisions.account_unbound");
 
+  // A deep link is applied once: re-using the param after the user navigates
+  // inside the queue must not reset the filters again.
+  const consumedDeepLink = useRef<string | null>(null);
+
+  const selectItem = useCallback((id: string | null) => {
+    setSelectedId(id);
+    consumedDeepLink.current = id;
+    // Selecting is a URL change only when the URL does not already say so.
+    if (id !== decision) navigate({ decision: id });
+  }, [navigate, decision]);
+
   useEffect(() => {
-    if (inbox.phase === "ready" && selectedId && !visibleItems.some(item => item.id === selectedId)) setSelectedId(null);
-  }, [inbox.phase, selectedId, visibleItems]);
+    if (inbox.phase === "ready" && selectedId && !visibleItems.some(item => item.id === selectedId)) selectItem(null);
+  }, [inbox.phase, selectedId, visibleItems, selectItem]);
+
+  // A deep link arrives before the inbox does and may point at a decision the
+  // current filters hide, so the target tab is restored when it resolves.
+  useEffect(() => {
+    if (!decision || consumedDeepLink.current === decision || inbox.phase !== "ready") return;
+    if (!items.some(item => item.id === decision)) return;
+    consumedDeepLink.current = decision;
+    setView("pending");
+    setCategory("all");
+    setSelectedId(decision);
+  }, [decision, inbox.phase, items]);
 
   // Account options for promotion categories come from the legacy ticket payload.
   const needsPromotions = Boolean(
@@ -293,12 +381,29 @@ export default function DecisionsPage() {
     if (!Array.isArray(applications)) return null;
     return applications.find(entry => entry?.ticket_id === subjectIdOf(selected)) || null;
   }, [selected, promotions]);
+  const selectedTicket = useMemo(() => {
+    if (!selected || promotions.phase !== "ready" || !promotions.data) return null;
+    const tickets = (promotions.data as Record<string, any>).tickets;
+    if (!Array.isArray(tickets)) return null;
+    return tickets.find(entry => entry?.ticket_id === subjectIdOf(selected)) || null;
+  }, [selected, promotions]);
+  const selectedRiskBinding = useMemo(
+    () => (selectedTicket ? promotionRiskBinding(selectedApplication, selectedTicket) : null),
+    [selectedApplication, selectedTicket],
+  );
 
   const notice = (kind: "info" | "success" | "error", key: string) => toast({ kind, text: t(key) });
 
   const intentError = (error: unknown) => {
     if (error instanceof AccessError) return;
-    notice("error", error instanceof HttpError && error.status === 409 ? "error.conflict" : "error.generic");
+    if ((error as { message?: string })?.message === "session_invalidated") return;
+    if (error instanceof HttpError) {
+      notice("error", error.status === 409 ? "error.conflict" : "error.generic");
+    } else {
+      // A transport failure cannot prove the write did not commit. Keep the
+      // original request identity by refusing to resubmit until a reread.
+      notice("error", "decisions.outcome_unknown");
+    }
     // A failed response cannot prove the write did not commit; re-read the inbox.
     refresh();
   };
@@ -312,6 +417,7 @@ export default function DecisionsPage() {
     let body: Record<string, unknown>;
     let path: string;
     let targetAccount: AccountChoice | null = null;
+    let riskBinding: { risk_profile: string; policy_revision: string | null } | null = null;
     try {
       if (kind === "owner") {
         const payload = await getJson<Record<string, any>>("/api/owner-decisions");
@@ -370,17 +476,26 @@ export default function DecisionsPage() {
           }
           account = resolved;
           targetAccount = resolved;
+          if (item.category === "strategy_promotion") {
+            riskBinding = promotionRiskBinding(application, ticket);
+            if (!riskBinding) {
+              // Without the server-bound tier and policy revision there is
+              // nothing safe to submit; the client never invents a default.
+              notice("error", "decisions.policy_unbound");
+              return;
+            }
+          }
         }
         source = ticket;
-        body = {
-          ticket_id: ticket.ticket_id,
-          decision: action === "adopt" ? "accept" : "reject",
-          confirmation: account ? { target_platform: account.platform, execution_mode: account.mode, risk_profile: "CAPITAL_PRESERVATION" } : null,
-          ...(account ? { selected_account: { platform: account.platform, key: account.key } } : {}),
-          expected_proposed_params: ticket.proposed_params || {},
-          expected_strategy_profile: ticket.strategy_profile,
-          expected_domain: ticket.domain,
-        };
+        body = promotionDecisionBody({
+          ticketId: ticket.ticket_id,
+          accept: action === "adopt",
+          account,
+          riskProfile: riskBinding?.risk_profile ?? null,
+          proposedParams: ticket.proposed_params,
+          strategyProfile: ticket.strategy_profile,
+          domain: ticket.domain,
+        });
         path = "/api/research-promotion-decisions";
       }
     } catch (error) {
@@ -410,8 +525,15 @@ export default function DecisionsPage() {
       refresh();
       return;
     }
-    if (!await confirmDecision(item, action, false, targetAccount)) return;
-    if (sessionEpoch !== humanDecisions.current.epoch() || isExpired(item)) return;
+    if (!await confirmDecision(item, action, false, targetAccount, riskBinding)) return;
+    if (sessionEpoch !== humanDecisions.current.epoch()) return;
+    if (inboxServerTime && item.expires_at
+      && expiryState(item.expires_at, inboxServerTime, receivedAt, Date.now()).state === "expired") {
+      notice("info", "decisions.intent_not_pending");
+      refresh();
+      return;
+    }
+    if (isExpired(item)) return;
     const op = humanDecisions.current.start(expected);
     if (!op) return; // same decision already in flight
     const busyKey = `intent:${item.id}`;
@@ -440,6 +562,13 @@ export default function DecisionsPage() {
     const subject = subjectIdOf(item);
     const lockKey = `apply:${subject}`;
     if (!applyLocks.current.acquire(lockKey)) return;
+    if (inboxServerTime && item.expires_at
+      && expiryState(item.expires_at, inboxServerTime, receivedAt, Date.now()).state === "expired") {
+      applyLocks.current.release(lockKey);
+      notice("info", "decisions.intent_not_pending");
+      refresh();
+      return;
+    }
     setBusy(current => ({ ...current, [lockKey]: true }));
     let submitted = false;
     try {
@@ -468,18 +597,37 @@ export default function DecisionsPage() {
     }
   };
 
-  const confirmDecision = (item: InboxItem, action: Action, paperAdopt: boolean, account: AccountChoice | null) => confirm({
-    title: t(action === "adopt" ? "decisions.confirm_adopt_title" : "decisions.confirm_decline_title"),
-    target: account ? `${itemTitle(item, t)} · ${account.label} (${account.platform} / ${account.key} / ${account.mode})` : itemTitle(item, t),
-    summary: t(paperAdopt ? "decisions.apply_note" : "decisions.confirm_body"),
-    body: <DiffTable rows={item.diff.map(row => ({ ...row, label: t(row.label_key) === row.label_key ? row.field : t(row.label_key), affectsLive: row.affects_live }))} />,
-    consequence: t("decisions.intent_note"),
-    tone: action === "adopt" ? "normal" : "danger",
-    confirmLabel: t(action === "adopt" ? "decisions.confirm_adopt_label" : "decisions.confirm_decline_label"),
-  });
+  const confirmDecision = (
+    item: InboxItem,
+    action: Action,
+    paperAdopt: boolean,
+    account: AccountChoice | null,
+    risk: { risk_profile: string; policy_revision: string | null } | null,
+  ) => {
+    const riskText = risk
+      ? ` · ${tierLabel(risk.risk_profile, t)}${risk.policy_revision ? ` · ${t("cockpit.policy.revision", { value: risk.policy_revision })}` : ""}`
+      : "";
+    const target = account
+      ? `${itemTitle(item, t)} · ${account.label} (${names.platform(account.platform)} / ${account.key} / ${t(`strategies.execution.${account.mode}`, {}, "strategies.execution.unknown")})${riskText}`
+      : `${itemTitle(item, t)}${riskText}`;
+    return confirm({
+      title: t(action === "adopt" ? "decisions.confirm_adopt_title" : "decisions.confirm_decline_title"),
+      target,
+      summary: t(paperAdopt ? "decisions.apply_note" : "decisions.confirm_body"),
+      body: <DiffTable rows={item.diff.map(row => ({ ...row, label: fieldLabel(t, row), affectsLive: row.affects_live }))} />,
+      consequence: t("decisions.intent_note"),
+      tone: action === "adopt" ? "normal" : "danger",
+      confirmLabel: t(action === "adopt" ? "decisions.confirm_adopt_label" : "decisions.confirm_decline_label"),
+      expiresAt: inboxServerTime ? item.expires_at : null,
+      serverTime: inboxServerTime,
+      receivedAt,
+      onExpiry: refresh,
+    });
+  };
 
   const onDecide = async (item: InboxItem, action: Action) => {
     if (!admin || item.status !== "pending" || isExpired(item)) return;
+    if (!decisionActionAllowed(item, action)) return;
     const lockKey = `confirm:${item.id}`;
     if (!applyLocks.current.acquire(lockKey)) return;
     const busyKey = `intent:${item.id}`;
@@ -493,7 +641,7 @@ export default function DecisionsPage() {
         return;
       }
       if (paperAdopt && choice) {
-        if (await confirmDecision(item, action, true, choice)) await applyPaper(item, choice.id);
+        if (await confirmDecision(item, action, true, choice, null)) await applyPaper(item, choice.id);
       } else {
         await recordIntent(item, action, choice?.id ?? null);
       }
@@ -505,8 +653,7 @@ export default function DecisionsPage() {
 
   function itemTitle(item: InboxItem, translate: ReturnType<typeof useT>): string {
     if (isInitialEnrollmentItem(item)) return translate("decisions.initial_enrollment_title");
-    const translated = translate(item.title_key);
-    return translated === item.title_key ? item.short_id : translated;
+    return translate(item.title_key, {}, "decisions.unknown_title");
   }
 
   /* ---------- render ---------- */
@@ -522,8 +669,7 @@ export default function DecisionsPage() {
     const expired = isExpired(item);
     const pending = item.status === "pending" && !expired;
     const diffRows = item.diff.map(row => {
-      const label = t(row.label_key);
-      return { field: row.field, label: label === row.label_key ? row.field : label, before: row.before, after: row.after, affectsLive: row.affects_live };
+      return { field: row.field, label: fieldLabel(t, row), before: row.before, after: row.after, affectsLive: row.affects_live };
     });
     const busyIntent = Boolean(busy[`intent:${item.id}`]);
     const busyApply = Boolean(busy[`apply:${subjectIdOf(item)}`]);
@@ -539,6 +685,21 @@ export default function DecisionsPage() {
     const strategyRow = item.diff.find(row => row.field === "strategy");
     const reviewedStrategy = item.presentation?.strategy_profile
       || (strategyRow && typeof strategyRow.after === "string" ? strategyRow.after : null);
+    const expanded = item as ExpandedInboxItem;
+    const approveAllowed = decisionActionAllowed(item, "adopt");
+    const rejectAllowed = decisionActionAllowed(item, "decline");
+    // The review envelope's evidence_summary wins over the coarse inbox freshness.
+    const support: EvidenceSummaryData | null = normalizeEvidenceSummary(expanded.evidence_summary) ?? (item.evidence_freshness ? {
+      evidence_id: null,
+      label_key: null,
+      observed_at: item.evidence_freshness.as_of,
+      valid_until: null,
+      state: item.evidence_freshness.status === "stale" ? "stale"
+        : item.evidence_freshness.status === "fresh" || item.evidence_freshness.status === "ready" ? "current"
+          : "unavailable",
+      qualification: "unknown",
+      limitations: [],
+    } : null);
 
     let actions: ReactNode = null;
     if (pending && admin && !(initialEnrollmentMode && enrollmentBlocked)) {
@@ -580,7 +741,7 @@ export default function DecisionsPage() {
                     <button
                       type="button"
                       className="button button-primary"
-                      disabled={anyBusy || !ready || applyLocks.current.isLocked(`apply:${subjectIdOf(item)}`)}
+                      disabled={anyBusy || !ready || !approveAllowed || applyLocks.current.isLocked(`apply:${subjectIdOf(item)}`)}
                       onClick={() => void onDecide(item, "adopt")}
                     >
                       {busyApply ? t("decisions.submitting") : t("decisions.adopt_intent")}
@@ -589,7 +750,7 @@ export default function DecisionsPage() {
                   <button
                     type="button"
                     className="button button-secondary"
-                    disabled={anyBusy}
+                    disabled={anyBusy || !rejectAllowed}
                     onClick={() => void onDecide(item, "decline")}
                   >
                     {busyIntent ? t("decisions.submitting") : t("decisions.decline_intent")}
@@ -603,6 +764,7 @@ export default function DecisionsPage() {
       } else {
         const options = item.category === "strategy_promotion" ? accountOptionsOf(selectedApplication, false) : [];
         const chosen = resolveAccountChoice(options, accountChoice[item.id])?.id ?? "";
+        const promotionUnbound = item.category === "strategy_promotion" && !selectedRiskBinding;
         actions = (
           <>
             {options.length > 1 && (
@@ -623,7 +785,7 @@ export default function DecisionsPage() {
               <button
                 type="button"
                 className="button button-primary"
-                disabled={anyBusy || (item.category === "strategy_promotion" && !chosen)}
+                disabled={anyBusy || !approveAllowed || (item.category === "strategy_promotion" && (!chosen || promotionUnbound))}
                 onClick={() => void onDecide(item, "adopt")}
               >
                 {busyIntent ? t("decisions.submitting") : t("decisions.adopt_intent")}
@@ -631,11 +793,13 @@ export default function DecisionsPage() {
               <button
                 type="button"
                 className="button button-secondary"
-                disabled={anyBusy}
+                disabled={anyBusy || !rejectAllowed}
                 onClick={() => void onDecide(item, "decline")}
               >
                 {busyIntent ? t("decisions.submitting") : t("decisions.decline_intent")}
               </button>
+              {!approveAllowed && <p className="decision-note">{t("cockpit.blocker.not_allowed")}</p>}
+              {promotionUnbound && <p className="decision-note">{t("decisions.policy_unbound")}</p>}
               <p className="decision-note">{t("decisions.intent_note")}</p>
             </div>
           </>
@@ -646,7 +810,7 @@ export default function DecisionsPage() {
     return (
       <div className="card inbox-detail">
         <div className="decision-detail-head">
-          <button type="button" className="button button-secondary inbox-back" onClick={() => setSelectedId(null)}>
+          <button type="button" className="button button-secondary inbox-back" onClick={() => selectItem(null)}>
             {t("common.back")}
           </button>
           <div className="decision-badges">
@@ -687,6 +851,16 @@ export default function DecisionsPage() {
             <DiffTable rows={diffRows} />
           </>
         )}
+        {inboxServerTime && item.expires_at && (
+          <ExpiryIndicator
+            expiresAt={item.expires_at}
+            serverTime={inboxServerTime}
+            receivedAt={receivedAt}
+            onBoundary={() => { selectItem(null); refresh(); }}
+          />
+        )}
+        {support && <EvidenceSummary evidence={support} />}
+        {expanded.operation_reference?.id && <DecisionOperation operationId={expanded.operation_reference.id} />}
         {initialEnrollmentMode && (
           <InitialEnrollmentFacts
             account={item.account_alias ? names.account(item.account_alias, item.platform) : null}
@@ -743,7 +917,7 @@ export default function DecisionsPage() {
           <EmptyState title={t("decisions.empty_pending")} />
         ) : (
           <div className={`inbox${selected ? " detail-open" : " list-only"}`}>
-            <div className="inbox-list" role="list">
+            <div className="inbox-list">
               {visibleItems.map(item => {
                 const expired = isExpired(item);
                 const fresh = relativeFreshness(item.created_at, language);
@@ -752,9 +926,9 @@ export default function DecisionsPage() {
                   <button
                     key={item.id}
                     type="button"
-                    role="listitem"
+                    aria-current={selected?.id === item.id ? "true" : undefined}
                     className={`inbox-item${selected?.id === item.id ? " active" : ""}${expired ? " is-expired" : ""}`}
-                    onClick={() => setSelectedId(item.id)}
+                    onClick={() => selectItem(item.id)}
                   >
                     <span className={`priority-dot priority-${item.priority}`} aria-hidden="true" />
                     <span className="item-main">

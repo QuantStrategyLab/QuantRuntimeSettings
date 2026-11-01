@@ -7,6 +7,8 @@ export interface Route {
   scope: string;
   account: string | null;
   tab: string | null;
+  /** Decision id the reader deep-linked to; `null` means the queue default view. */
+  decision: string | null;
 }
 
 const PAGES: PageId[] = ["overview", "performance", "decisions", "accounts", "strategies", "health"];
@@ -26,6 +28,7 @@ export function parseRoute(search: string): Route {
     scope: params.get("scope") || DEFAULT_SCOPE,
     account: params.get("account"),
     tab: params.get("tab"),
+    decision: params.get("decision"),
   };
 }
 
@@ -35,6 +38,7 @@ export function routeToSearch(route: Route): string {
   if (route.scope !== DEFAULT_SCOPE) params.set("scope", route.scope);
   if (route.account) params.set("account", route.account);
   if (route.tab) params.set("tab", route.tab);
+  if (route.page === "decisions" && route.decision) params.set("decision", route.decision);
   const query = params.toString();
   return query ? `?${query}` : "";
 }
