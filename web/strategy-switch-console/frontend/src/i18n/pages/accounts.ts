@@ -50,6 +50,7 @@ export const zh: Record<string, string> = {
   "accounts.field.reserved_cash_ratio": "预留现金比例",
   "accounts.field.income_layer_enabled": "收入层",
   "accounts.field.option_overlay_enabled": "期权层",
+  "accounts.field.other": "其他参数",
 
   "accounts.bool.on": "开启",
   "accounts.bool.off": "关闭",
@@ -160,6 +161,7 @@ export const en: Record<string, string> = {
   "accounts.field.reserved_cash_ratio": "Reserved cash ratio",
   "accounts.field.income_layer_enabled": "Income layer",
   "accounts.field.option_overlay_enabled": "Option overlay",
+  "accounts.field.other": "Other parameter",
 
   "accounts.bool.on": "On",
   "accounts.bool.off": "Off",

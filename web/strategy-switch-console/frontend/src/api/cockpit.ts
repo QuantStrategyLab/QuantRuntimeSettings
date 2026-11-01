@@ -149,12 +149,17 @@ export interface DigestStatus {
   targets: DigestTargetCount[];
 }
 
+export interface AuditSubject {
+  kind: string;
+  id: string;
+}
+
 export interface AuditEvent {
   event_id: string;
   occurred_at: string;
   actor: string | null;
   action: string;
-  subject: string | null;
+  subject: AuditSubject | null;
   revision: number | null;
   decision_id: string | null;
   operation_id: string | null;
@@ -324,6 +329,22 @@ function asString(value: unknown): string | null {
 
 function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** Audit subjects stay structured: kind is translated and id labeled separately at render. */
+function asAuditSubject(value: unknown): AuditSubject | null {
+  const raw = asRecord(value);
+  if (raw) {
+    const kind = asString(raw.kind);
+    const id = asString(raw.id);
+    if (kind === null && id === null) return null;
+    return { kind: kind ?? "unknown", id: id ?? "" };
+  }
+  const text = asString(value);
+  if (text === null) return null;
+  const separator = text.indexOf(":");
+  if (separator < 0) return { kind: "unknown", id: text };
+  return { kind: text.slice(0, separator).trim() || "unknown", id: text.slice(separator + 1).trim() };
 }
 
 function normalizeEvidence(value: unknown): EvidenceSummary | null {
@@ -737,7 +758,7 @@ export async function loadAuditEvents(cursor: string | null = null, synthetic = 
         occurred_at: asString(event.occurred_at) ?? "",
         actor: asString(event.actor),
         action: asString(event.action) ?? "unknown",
-        subject: asString(event.subject),
+        subject: asAuditSubject(event.subject),
         revision: asNumber(event.revision),
         decision_id: asString(event.decision_id),
         operation_id: asString(event.operation_id),
@@ -902,7 +923,7 @@ function syntheticDigest(): DigestStatus {
 
 function syntheticAudit(): AuditEvent[] {
   return [
-    { event_id: "synthetic-event-1", occurred_at: "2026-11-01T10:00:00Z", actor: "owner", action: "approval_recorded", subject: "synthetic-decision-001", revision: 3, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "recorded" },
-    { event_id: "synthetic-event-2", occurred_at: "2026-11-01T10:00:05Z", actor: "platform", action: "application_dispatched", subject: "demo-target", revision: 3, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "applying" },
+    { event_id: "synthetic-event-1", occurred_at: "2026-11-01T10:00:00Z", actor: "owner", action: "approval_recorded", subject: { kind: "owner_decision", id: "synthetic-decision-001" }, revision: 3, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "recorded" },
+    { event_id: "synthetic-event-2", occurred_at: "2026-11-01T10:00:05Z", actor: "platform", action: "application_dispatched", subject: { kind: "paper_account_application", id: "demo-target" }, revision: 3, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "applying" },
   ];
 }

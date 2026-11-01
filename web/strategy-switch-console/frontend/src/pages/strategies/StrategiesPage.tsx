@@ -347,13 +347,9 @@ function ResearchTab({ refreshEpoch }: { refreshEpoch: number }) {
               <span className="research-item-title">{entry.subject.identifier}</span>
             </div>
             {entry.observations.map((observation, observationIndex) => {
-              const sourceLabels = observation.source_ids.map(id => {
-                const key = `research.source.${id}`;
-                const label = t(key);
-                return label === key ? id : label;
-              });
+              const sourceLabels = observation.source_ids.map(id => t(`research.source.${id}`));
               return (
-                <div className="section-stack" key={observationIndex}>
+                <div className="section-stack" key={observationIndex} data-source-ids={observation.source_ids.join(",")}>
                   <div className="catalog-meta">
                     <Badge
                       tone={observation.freshness.status === "stale" ? "warn" : "accent"}
