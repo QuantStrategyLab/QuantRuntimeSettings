@@ -768,15 +768,19 @@ export async function loadAuditEvents(cursor: string | null = null, synthetic = 
       const refMatch = /^\/api\/(decisions|operations)\/([^/?#]+)/.exec(asString(event.ref) ?? "");
       const refId = refMatch ? decodeRefSegment(refMatch[2]) : null;
       const revision = asString(event.revision);
+      const subject = asAuditSubject(event.subject);
+      const rotation = subject?.kind === "credential" && subject.id === "ibkr_flex"
+        && ["credential_rotation_stage", "credential_rotation_finalize", "credential_rotation_cancel", "credential_rotation_denied"]
+          .includes(asString(event.action) ?? "") && typeof event.event_id === "string";
       return [{
-        event_id: asString(event.id) ?? "",
+        event_id: asString(rotation ? event.event_id : event.id) ?? "",
         occurred_at: asString(event.occurred_at) ?? "",
         actor: asString(event.actor_alias),
         action: asString(event.action) ?? "unknown",
-        subject: asAuditSubject(event.subject),
+        subject,
         revision,
         decision_id: refMatch?.[1] === "decisions" ? refId : null,
-        operation_id: refMatch?.[1] === "operations" ? refId : null,
+        operation_id: rotation ? asString(event.operation_id) : refMatch?.[1] === "operations" ? refId : null,
         outcome: asString(event.outcome),
       }];
     });

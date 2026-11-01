@@ -177,6 +177,9 @@ jobs:
           jq empty web/strategy-switch-console/strategy-profiles.example.json
           node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
           node tests/frozen_strategy_selection_validation.mjs
+          node tests/credential_rotation_worker_validation.mjs
+          node tests/credential_rotation_proxy_client_validation.mjs
+          node tests/secret_rotation_proxy_validation.mjs
           node tests/credential_maintenance_worker_validation.mjs
           node --experimental-strip-types tests/credential_maintenance_presentation_validation.mjs
           node tests/runtime_daily_worker_validation.mjs
