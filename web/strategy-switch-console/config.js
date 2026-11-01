@@ -162,7 +162,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
   "data_status": "catalog_only",
   "source": {
     "path": "platform-config.json",
-    "content_sha256": "sha256:aff12367a16bbe7ed8b53fb12481ab3abbfa14a7fb048ff51215f75867719dab",
+    "content_sha256": "sha256:b9952fdc4f8c52f9804ae6bee3180951b1ad452ec1bcefc56e223e2028b2cfca",
     "catalog_as_of": "2026-08-19"
   },
   "policy": {
@@ -186,12 +186,12 @@ export const RUNTIME_CATALOG_PROJECTION = {
   },
   "summary": {
     "strategy_profile_count": 27,
-    "runtime_enabled_count": 4,
-    "live_switchable_count": 4,
+    "runtime_enabled_count": 5,
+    "live_switchable_count": 5,
     "lifecycle_stage_counts": {
       "live_candidate": 1,
-      "research_active": 18,
-      "runtime_enabled": 4,
+      "research_active": 17,
+      "runtime_enabled": 5,
       "shadow_active": 4
     }
   },
@@ -280,14 +280,16 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "label_en": "Global ETF Rotation",
       "label_zh": "全球ETF轮动",
       "domain": "us_equity",
-      "lifecycle_stage": "research_active",
-      "runtime_enabled": false,
-      "frozen": true,
-      "can_switch_live": false,
+      "lifecycle_stage": "runtime_enabled",
+      "runtime_enabled": true,
+      "frozen": false,
+      "can_switch_live": true,
       "allowed_execution_modes": [
-        "dry_run"
+        "paper",
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+      "blocked_live_reason": ""
     },
     {
       "profile": "russell_top50_leader_rotation",

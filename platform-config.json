@@ -697,17 +697,19 @@
       }
     },
     "global_etf_rotation": {
-      "frozen": true,
+      "frozen": false,
       "label": "全球ETF轮动",
       "label_en": "Global ETF Rotation",
       "domain": "us_equity",
-      "runtime_enabled": false,
-      "lifecycle_stage": "research_active",
-      "can_switch_live": false,
+      "runtime_enabled": true,
+      "lifecycle_stage": "runtime_enabled",
+      "can_switch_live": true,
       "allowed_execution_modes": [
-        "dry_run"
+        "paper",
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "research_backtest_only_requires_evidence_package",
+      "blocked_live_reason": null,
       "live_continuity": {
         "eligible": true,
         "allowed_platforms": [
