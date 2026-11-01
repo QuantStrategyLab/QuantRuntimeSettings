@@ -181,6 +181,19 @@ export const zh: Record<string, string> = {
   "initial_enrollment.enum.right.P": "看跌",
   "initial_enrollment.enum.sec_type.STK": "股票",
   "initial_enrollment.enum.sec_type.OPT": "期权",
+  "decisions.credential_expiry.title": "IBKR Flex 凭证到期提醒",
+  "decisions.credential_expiry.expires_at": "到期 {value}",
+  "decisions.credential_expiry.expiry_unknown": "到期时间未知",
+  "decisions.credential_expiry.days": "剩余 {count} 天",
+  "decisions.credential_expiry.days_unknown": "剩余天数未知",
+  "decisions.credential_expiry.expired": "已过期",
+  "decisions.credential_expiry.manual_notice": "请在 IBKR 更新 Flex 报表凭证后，前往健康页登记新的到期时间。",
+  "decisions.credential_expiry.severity.none": "正常",
+  "decisions.credential_expiry.severity.unknown": "未知",
+  "decisions.credential_expiry.severity.notice": "30 天内到期",
+  "decisions.credential_expiry.severity.warning": "14 天内到期",
+  "decisions.credential_expiry.severity.urgent": "7 天内到期",
+  "decisions.credential_expiry.severity.expired": "已过期",
 
 };
 export const en: Record<string, string> = {
@@ -365,5 +378,18 @@ export const en: Record<string, string> = {
   "initial_enrollment.enum.right.P": "Put",
   "initial_enrollment.enum.sec_type.STK": "Stock",
   "initial_enrollment.enum.sec_type.OPT": "Option",
+  "decisions.credential_expiry.title": "IBKR Flex credential expiry",
+  "decisions.credential_expiry.expires_at": "Expires {value}",
+  "decisions.credential_expiry.expiry_unknown": "Expiry unknown",
+  "decisions.credential_expiry.days": "{count} days remaining",
+  "decisions.credential_expiry.days_unknown": "Days remaining unknown",
+  "decisions.credential_expiry.expired": "Expired",
+  "decisions.credential_expiry.manual_notice": "Renew the Flex report credential in IBKR, then record the new expiry on the Health page.",
+  "decisions.credential_expiry.severity.none": "Normal",
+  "decisions.credential_expiry.severity.unknown": "Unknown",
+  "decisions.credential_expiry.severity.notice": "Expires within 30 days",
+  "decisions.credential_expiry.severity.warning": "Expires within 14 days",
+  "decisions.credential_expiry.severity.urgent": "Expires within 7 days",
+  "decisions.credential_expiry.severity.expired": "Expired",
 
 };

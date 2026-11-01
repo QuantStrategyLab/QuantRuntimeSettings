@@ -563,6 +563,91 @@ try {
   assert.match(health, /loadDigestStatus/);
   assert.match(health, /DigestStatus/);
   assert.match(health, /AuditTimeline/);
+
+  // --- IBKR Flex credential expiry reminders (to-do / health UI) ---
+  // Synthetic severity and day counts only; nothing here reads the wall clock.
+  const credOutfile = join(directory, "credential.cjs");
+  await build({
+    stdin: {
+      resolveDir: root,
+      contents: `
+        import { createElement as h } from 'react';
+        import { renderToStaticMarkup } from 'react-dom/server';
+        import { I18nProvider } from './src/i18n';
+        import { CredentialExpiry, readCredentialExpiry, isExpiredRow, SEVERITY_TONE } from './src/pages/decisions/CredentialExpiry';
+        export { readCredentialExpiry, isExpiredRow, SEVERITY_TONE };
+        const wrap = (language, node) => renderToStaticMarkup(h(I18nProvider, { language }, node));
+        export const detail = (language, expiry) => wrap(language, h(CredentialExpiry, { expiry }));
+      `,
+    },
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    outfile: credOutfile,
+    jsx: "automatic",
+    loader: { ".css": "empty" },
+    define: { "import.meta.env": "{}" },
+    logLevel: "silent",
+  });
+  const cred = createRequire(import.meta.url)(credOutfile);
+
+  // Severity palette matches the Health page tones: 30/14/7 all read warn, only expired is error.
+  assert.deepEqual(cred.SEVERITY_TONE, {
+    none: "ok", notice: "warn", warning: "warn", urgent: "warn", expired: "error", unknown: "unknown",
+  });
+
+  // readCredentialExpiry reduces anything older or malformed to an honest unknown.
+  assert.deepEqual(cred.readCredentialExpiry(null), { expires_at: null, days_remaining: null, severity: "unknown" });
+  assert.deepEqual(cred.readCredentialExpiry({ severity: "urgent", days_remaining: 5, expires_at: "2026-11-20T00:00:00Z" }),
+    { expires_at: "2026-11-20T00:00:00Z", days_remaining: 5, severity: "urgent" });
+  assert.equal(cred.readCredentialExpiry({ severity: "mystery", days_remaining: -2, expires_at: "not-a-date" }).severity,
+    "unknown", "an unknown enum value never escalates");
+  assert.equal(cred.readCredentialExpiry({ severity: "notice", days_remaining: 1.5 }).days_remaining, null,
+    "a non-integer day count is not trusted");
+  assert.equal(cred.readCredentialExpiry({ severity: "notice", days_remaining: 30 }).days_remaining, 30);
+
+  // isExpiredRow keys off server fields only; the browser clock never flips a row.
+  assert.equal(cred.isExpiredRow({ status: "pending", category: "credential_maintenance",
+    credential_expiry: { expires_at: "2020-01-01T00:00:00Z", days_remaining: 20, severity: "notice" } }),
+    false, "a past expires_at with a notice severity is not an expired row");
+  assert.equal(cred.isExpiredRow({ status: "pending", category: "credential_maintenance",
+    credential_expiry: { expires_at: "2020-01-01T00:00:00Z", days_remaining: 0, severity: "expired" } }),
+    true, "only a server-expired credential escalates the row");
+  assert.equal(cred.isExpiredRow({ status: "expired", category: "strategy_promotion" }), true);
+  assert.equal(cred.isExpiredRow({ status: "pending", category: "strategy_promotion", expires_at: "2020-01-01T00:00:00Z" }),
+    false, "lapsed approvals rely on the server status, never the browser clock");
+
+  // The detail block renders localized severity + days + guidance in both languages.
+  const urgentEn = cred.detail("en", { expires_at: "2026-11-20T00:00:00Z", days_remaining: 5, severity: "urgent" });
+  assert.match(urgentEn, /badge-warn/);
+  assert.match(urgentEn, /data-severity="urgent"/);
+  assert.match(urgentEn, /5 days remaining/);
+  assert.match(urgentEn, /Expires within 7 days/);
+  assert.doesNotMatch(urgentEn, /credential_expiry\./, "severity copy is localized, never a raw key");
+  const expiredZh = cred.detail("zh", { expires_at: "2026-10-01T00:00:00Z", days_remaining: 0, severity: "expired" });
+  assert.match(expiredZh, /badge-error/);
+  assert.match(expiredZh, /已过期/);
+  assert.match(expiredZh, /到期/);
+  assert.doesNotMatch(expiredZh, /credential_expiry\./, "no raw i18n key leaks in Chinese either");
+
+  // Design-rule guard (#1034): the reminder block is flat, hairline, token-only.
+  const css = await readFile(new URL("../web/strategy-switch-console/frontend/src/pages/decisions/decisions.css", import.meta.url), "utf8");
+  const cssStart = css.indexOf(".credential-expiry {");
+  const cssEnd = css.indexOf("}", css.indexOf('[data-severity="expired"] .credential-expiry-days')) + 1;
+  const reminder = css.slice(cssStart, cssEnd);
+  assert.ok(cssStart >= 0 && cssEnd > cssStart, "the credential reminder styles are present");
+  assert.match(reminder, /border:\s*0\.5px solid var\(--border-divider\)/, "0.5px hairline border");
+  assert.doesNotMatch(reminder, /border-left/, "no 3px left colour bar");
+  assert.doesNotMatch(reminder, /opacity/, "no opacity dimming hack");
+  assert.doesNotMatch(reminder, /box-shadow|gradient/, "flat: no shadow or gradient");
+  assert.doesNotMatch(reminder, /#[0-9a-fA-F]{3,8}/, "colors come from tokens, never hardcoded hex");
+  assert.match(reminder, /var\(--(surface-subtle|text-primary|text-secondary|status-attention|status-blocked)\)/);
+
+  const component = await readFile(new URL("../web/strategy-switch-console/frontend/src/pages/decisions/CredentialExpiry.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(component, /Date\.now\(\)/, "the browser never reads its own clock for credential expiry");
+  const page = await readFile(new URL("../web/strategy-switch-console/frontend/src/pages/decisions/DecisionsPage.tsx", import.meta.url), "utf8");
+  assert.match(page, /isExpiredRow/);
+  assert.doesNotMatch(page, /expires_at \? Date\.parse\(item\.expires_at\)/, "the old browser-clock isExpired is gone");
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

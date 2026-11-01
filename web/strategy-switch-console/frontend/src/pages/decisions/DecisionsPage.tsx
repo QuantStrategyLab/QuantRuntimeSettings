@@ -39,6 +39,7 @@ import { fieldLabel } from "../accounts/helpers";
 import { sourceConsequenceKey, sourceLabelKey } from "./sources";
 import { InitialEnrollmentFacts } from "./InitialEnrollmentFacts";
 import { ReconciliationMaterials } from "./ReconciliationMaterials";
+import { CredentialExpiry, isExpiredRow, readCredentialExpiry, SEVERITY_TONE } from "./CredentialExpiry";
 import "./decisions.css";
 
 type View = "pending" | "decided";
@@ -94,12 +95,6 @@ function subjectIdOf(item: InboxItem): string {
   if (binding && typeof binding.subject_id === "string" && binding.subject_id) return binding.subject_id;
   const index = item.id.indexOf(":");
   return index >= 0 ? item.id.slice(index + 1) : item.id;
-}
-
-function isExpired(item: InboxItem): boolean {
-  if (item.status === "expired") return true;
-  const expires = item.expires_at ? Date.parse(item.expires_at) : NaN;
-  return Number.isFinite(expires) && expires < Date.now();
 }
 
 /** First enrollment shares the recovery transport but has different review copy. */
@@ -368,7 +363,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
 
   // Account options for promotion categories come from the legacy ticket payload.
   const needsPromotions = Boolean(
-    selected && selected.status === "pending" && !isExpired(selected)
+    selected && selected.status === "pending" && !isExpiredRow(selected)
       && (selected.category === "strategy_promotion" || selected.category === "paper_account_application"),
   );
   const promotions = useApi(
@@ -533,7 +528,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
       refresh();
       return;
     }
-    if (isExpired(item)) return;
+    if (isExpiredRow(item)) return;
     const op = humanDecisions.current.start(expected);
     if (!op) return; // same decision already in flight
     const busyKey = `intent:${item.id}`;
@@ -626,7 +621,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
   };
 
   const onDecide = async (item: InboxItem, action: Action) => {
-    if (!admin || item.status !== "pending" || isExpired(item)) return;
+    if (!admin || item.status !== "pending" || isExpiredRow(item)) return;
     if (!decisionActionAllowed(item, action)) return;
     const lockKey = `confirm:${item.id}`;
     if (!applyLocks.current.acquire(lockKey)) return;
@@ -653,6 +648,8 @@ export default function DecisionsPage({ decision }: { decision: string | null })
 
   function itemTitle(item: InboxItem, translate: ReturnType<typeof useT>): string {
     if (isInitialEnrollmentItem(item)) return translate("decisions.initial_enrollment_title");
+    // The shared inbox title key stays generic; the cockpit names this to-do explicitly.
+    if (item.category === "credential_maintenance") return translate("decisions.credential_expiry.title");
     return translate(item.title_key, {}, "decisions.unknown_title");
   }
 
@@ -666,7 +663,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
   const renderDetail = () => {
     if (!selected) return null;
     const item = selected;
-    const expired = isExpired(item);
+    const expired = isExpiredRow(item);
     const pending = item.status === "pending" && !expired;
     const diffRows = item.diff.map(row => {
       return { field: row.field, label: fieldLabel(t, row), before: row.before, after: row.after, affectsLive: row.affects_live };
@@ -676,6 +673,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     const anyBusy = busyIntent || busyApply;
     const enrollment = item.initial_enrollment ?? null;
     const initialEnrollmentMode = isInitialEnrollmentItem(item);
+    const isCredential = item.category === "credential_maintenance";
     const enrollmentBlocked = initialEnrollmentMode && (!enrollment
       || enrollment.readiness !== "awaiting_human_confirmation"
       || !Array.isArray(enrollment.blocker_codes) || enrollment.blocker_codes.length > 0
@@ -702,7 +700,8 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     } : null);
 
     let actions: ReactNode = null;
-    if (pending && admin && !(initialEnrollmentMode && enrollmentBlocked)) {
+    // An expired credential stays an actionable maintenance reminder, not a lapsed approval.
+    if (admin && (pending || isCredential) && !(initialEnrollmentMode && enrollmentBlocked)) {
       if (item.category === "credential_maintenance") {
         actions = (
           <button type="button" className="button button-secondary" onClick={() => navigate({ page: "health" })}>
@@ -833,7 +832,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
             {item.created_at && (
               <span>{t("decisions.created_at", { value: formatDateTime(item.created_at, language).text })}</span>
             )}
-            {item.expires_at && (
+            {item.expires_at && !isCredential && (
               <span>{t("decisions.expires_at", { value: formatDateTime(item.expires_at, language).text })}</span>
             )}
             {item.evidence_freshness && (
@@ -845,13 +844,14 @@ export default function DecisionsPage({ decision }: { decision: string | null })
             {showsStaleHint(item) && <span className="decision-stale-hint">{t("decisions.stale_hint")}</span>}
           </div>
         </div>
+        {isCredential && <CredentialExpiry expiry={item.credential_expiry} />}
         {diffRows.length > 0 && (
           <>
             <h3 className="decision-section-title">{t("decisions.diff_title")}</h3>
             <DiffTable rows={diffRows} />
           </>
         )}
-        {inboxServerTime && item.expires_at && (
+        {inboxServerTime && item.expires_at && !isCredential && (
           <ExpiryIndicator
             expiresAt={item.expires_at}
             serverTime={inboxServerTime}
@@ -919,7 +919,12 @@ export default function DecisionsPage({ decision }: { decision: string | null })
           <div className={`inbox${selected ? " detail-open" : " list-only"}`}>
             <div className="inbox-list">
               {visibleItems.map(item => {
-                const expired = isExpired(item);
+                const expired = isExpiredRow(item);
+                // A credential reminder keeps its severity chip and is never dimmed: an
+                // expired credential is an active alert, not a lapsed approval.
+                const credential = item.category === "credential_maintenance"
+                  ? readCredentialExpiry(item.credential_expiry)
+                  : null;
                 const fresh = relativeFreshness(item.created_at, language);
                 const hintKey = staleHintKey(item);
                 return (
@@ -927,7 +932,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
                     key={item.id}
                     type="button"
                     aria-current={selected?.id === item.id ? "true" : undefined}
-                    className={`inbox-item${selected?.id === item.id ? " active" : ""}${expired ? " is-expired" : ""}`}
+                    className={`inbox-item${selected?.id === item.id ? " active" : ""}${expired && !credential ? " is-expired" : ""}`}
                     onClick={() => selectItem(item.id)}
                   >
                     <span className={`priority-dot priority-${item.priority}`} aria-hidden="true" />
@@ -950,9 +955,15 @@ export default function DecisionsPage({ decision }: { decision: string | null })
                         </span>
                       )}
                     </span>
-                    <Badge tone={expired ? "unknown" : "warn"}>
-                      {t(`decisions.status.${expired ? "expired" : item.status}`)}
-                    </Badge>
+                    {credential ? (
+                      <Badge tone={SEVERITY_TONE[credential.severity]}>
+                        {t(`decisions.credential_expiry.severity.${credential.severity}`)}
+                      </Badge>
+                    ) : (
+                      <Badge tone={expired ? "unknown" : "warn"}>
+                        {t(`decisions.status.${expired ? "expired" : item.status}`)}
+                      </Badge>
+                    )}
                   </button>
                 );
               })}
