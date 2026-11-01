@@ -23,6 +23,7 @@ try {
         import { loadAuditEvents } from './src/api/cockpit';
         export { translate, loadAuditEvents };
         export const tr = (language, key, fallback) => translate(language, key, {}, fallback);
+        export const trp = (language, key, count) => translate(language, key, { count });
         const RegimeText = ({ value }) => { const t = useT(); return h('p', { className: 'regime-text' }, regimeLabel(value, t)); };
         export const regime = (language, value) => renderToStaticMarkup(h(I18nProvider, { language }, h(RegimeText, { value })));
         const events = [
@@ -94,6 +95,11 @@ try {
   // An unenumerated severity key falls back to localized copy, never the dotted key.
   assert.equal(ui.tr("en", "decisions.credential_expiry.severity.not_due"), "Unknown");
   assert.equal(ui.tr("zh", "decisions.credential_expiry.severity.not_due"), "未知");
+  // Count plurals resolve through `.one`/`.other` siblings before the base key.
+  assert.equal(ui.trp("en", "decisions.credential_expiry.days", 1), "Expires in 1 day");
+  assert.equal(ui.trp("en", "decisions.credential_expiry.days", 14), "Expires in 14 days");
+  assert.equal(ui.trp("zh", "decisions.credential_expiry.days", 1), "1 天后到期");
+  assert.equal(ui.trp("zh", "decisions.credential_expiry.days", 14), "14 天后到期");
 
   // P04: regime effects render through copy only.
   const regimeZhKnown = visible(ui.regime("zh", "risk_reduction_only"));

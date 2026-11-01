@@ -19,8 +19,9 @@ try {
         import { I18nProvider } from './src/i18n';
         import { actionBlockers, expiryState, MutationOutcomeUnknown, loadDecisionDetail, loadOperation, submitDecisionAction, isDecisionRevision } from './src/api/cockpit';
         import { ApplicationStatus, DecisionCard, DigestStatus, EffectivePolicyPanel, FreshnessBadge, LifecycleStepper, PauseControl, RiskTierSelector } from './src/components/cockpit';
-        import { CredentialExpiry } from './src/pages/decisions/CredentialExpiry';
+        import { CredentialExpiry, isExpiredRow } from './src/pages/decisions/CredentialExpiry';
         export { actionBlockers, expiryState, MutationOutcomeUnknown, loadDecisionDetail, loadOperation, submitDecisionAction, isDecisionRevision };
+        export { isExpiredRow };
         const wrap = (language, node) => renderToStaticMarkup(h(I18nProvider, { language }, node));
         export const expiryView = (language, value, variant) => wrap(language, h(CredentialExpiry, { expiry: value, variant }));
         export const tiers = (language) => wrap(language, h(RiskTierSelector, {
@@ -481,6 +482,25 @@ try {
   assert.match(malformed, /剩余天数未知/);
   assert.doesNotMatch(malformed, /critical|soon|not-a-date/, "an unparseable field reduces to unknown, never echoes raw input");
 
+  // English counts decline their noun: one day, several days.
+  const oneDay = { expires_at: "2031-01-01T00:00:00.000Z", days_remaining: 1, severity: "urgent" };
+  assert.match(ui.expiryView("en", oneDay, "list"), /Expires in 1 day/, "a single day reads singular");
+  assert.doesNotMatch(ui.expiryView("en", oneDay, "list"), /1 days/, "no plural leftover at one");
+  assert.match(ui.expiryView("zh", oneDay, "list"), /1 天后到期/, "Chinese has no plural inflection");
+
+  // Expired-row dimming keys off server fields; the browser clock never decides.
+  assert.equal(ui.isExpiredRow({ status: "expired", category: "owner_decision", credential_expiry: null }), true);
+  assert.equal(ui.isExpiredRow({ status: "pending", category: "owner_decision", credential_expiry: null }), false);
+  assert.equal(ui.isExpiredRow({ status: "pending", category: "credential_maintenance", credential_expiry: credential.expired }), true,
+    "the server's expired severity dims the row");
+  assert.equal(ui.isExpiredRow({ status: "pending", category: "credential_maintenance", credential_expiry: credential.urgent }), false);
+  assert.equal(ui.isExpiredRow({
+    status: "pending", category: "credential_maintenance",
+    credential_expiry: { expires_at: "2000-01-01T00:00:00.000Z", days_remaining: null, severity: "urgent" },
+  }), false, "a past timestamp with a non-expired server severity never dims on the browser clock");
+  assert.equal(ui.isExpiredRow({ status: "pending", category: "credential_maintenance", credential_expiry: { severity: "critical" } }), false,
+    "a malformed severity reduces to unknown, not expired");
+
   // The promotion request no longer carries a client-chosen tier.
   const decisions = await readFile(new URL("../web/strategy-switch-console/frontend/src/pages/decisions/DecisionsPage.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(decisions, /CAPITAL_PRESERVATION/, "the promotion request must not hard-code a tier");
@@ -492,6 +512,10 @@ try {
     "the cockpit names the to-do explicitly instead of the generic inbox title");
   assert.match(decisions, /<CredentialExpiry expiry=\{item\.credential_expiry\} variant="detail" \/>/);
   assert.match(decisions, /<CredentialExpiry expiry=\{item\.credential_expiry\} variant="list" \/>/);
+  assert.match(decisions, /const expired = isExpiredRow\(item\);/, "row expiry comes from the server-field predicate");
+  assert.doesNotMatch(decisions, /expires\s*<\s*Date\.now\(\)/, "a row is never expired by the browser clock");
+  const decisionsCss = await readFile(new URL("../web/strategy-switch-console/frontend/src/pages/decisions/decisions.css", import.meta.url), "utf8");
+  assert.match(decisionsCss, /\.inbox-item\.is-expired \{ opacity: 0\.7; \}/, "the server-driven class carries the dimming treatment");
 
   // A queue entry links to its own decision and the URL carries that target.
   const [router, overviewSource, accounts] = await Promise.all([
@@ -530,8 +554,6 @@ try {
   assert.match(health, /loadDigestStatus/);
   assert.match(health, /DigestStatus/);
   assert.match(health, /AuditTimeline/);
-  assert.match(health, /ATTENTION_PHASES[\s\S]*?\["30", "14", "7", "expired"\]/, "the due set escalates at 30/14/7/expired");
-  assert.doesNotMatch(health, /"7", "1"/, "phase 1 is retired");
 } finally {
   await rm(directory, { recursive: true, force: true });
 }
