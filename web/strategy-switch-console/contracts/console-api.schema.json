@@ -2435,7 +2435,10 @@
                 ]
               },
               "unrealized_pnl_percent": {
-                "type": ["number", "null"]
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "unavailable_reason": {
                 "type": [
@@ -2866,7 +2869,10 @@
                   "type": "object",
                   "properties": {
                     "id": {
-                      "type": ["string", "null"]
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "started_at": {
                       "type": [
@@ -2924,13 +2930,30 @@
                 ]
               },
               "read_error_count": {
-                "type": ["integer", "null"],
+                "type": [
+                  "integer",
+                  "null"
+                ],
                 "minimum": 0
               },
               "read_error_codes": {
-                "type": ["array", "null"],
+                "type": [
+                  "array",
+                  "null"
+                ],
                 "items": {
-                  "enum": ["coverage_unconfirmed", "report_read_error", "report_rejected", "read_failed", "read_truncated", "list_failed", "listing_truncated", "schedule_unverified", "target_disabled", "source_read_error"]
+                  "enum": [
+                    "coverage_unconfirmed",
+                    "report_read_error",
+                    "report_rejected",
+                    "read_failed",
+                    "read_truncated",
+                    "list_failed",
+                    "listing_truncated",
+                    "schedule_unverified",
+                    "target_disabled",
+                    "source_read_error"
+                  ]
                 }
               },
               "run_status_reason": {
@@ -3703,7 +3726,10 @@
           "type": "number"
         },
         "daily_return_percent": {
-          "type": ["number", "null"]
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "externalFlow": {
           "type": [
@@ -4436,66 +4462,73 @@
         "events": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "source": {
-                "enum": [
-                  "durable_human_decision",
-                  "research_promotion_application",
-                  "account_settings_application",
-                  "bounded_audit_log"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "enum": [
+                      "durable_human_decision",
+                      "research_promotion_application",
+                      "account_settings_application",
+                      "bounded_audit_log"
+                    ]
+                  },
+                  "occurred_at": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "type": "string"
+                  },
+                  "actor_alias": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "subject": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "revision": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "outcome": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "ref": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "source",
+                  "occurred_at",
+                  "action",
+                  "actor_alias",
+                  "subject",
+                  "revision",
+                  "outcome",
+                  "ref"
                 ]
               },
-              "occurred_at": {
-                "type": "string"
-              },
-              "action": {
-                "type": "string"
-              },
-              "actor_alias": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "subject": {
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              "revision": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "outcome": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "ref": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+              {
+                "$ref": "#/$defs/credential_rotation_audit_event"
               }
-            },
-            "required": [
-              "id",
-              "source",
-              "occurred_at",
-              "action",
-              "actor_alias",
-              "subject",
-              "revision",
-              "outcome",
-              "ref"
             ]
           }
         },
@@ -4718,6 +4751,336 @@
         "source",
         "reason",
         "policy"
+      ]
+    },
+    "credential_rotation_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "IBKR Flex token"
+        },
+        "last_rotated_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "last_rotated_at",
+        "expires_at"
+      ]
+    },
+    "credential_rotation_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$"
+        },
+        "state": {
+          "enum": [
+            "adding_version",
+            "staged",
+            "finalizing",
+            "finalized",
+            "canceling",
+            "canceled",
+            "add_unknown",
+            "finalize_unknown",
+            "cancel_unknown",
+            "failed"
+          ]
+        },
+        "requested_expires_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "created_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "updated_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "allowed_actions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "finalize",
+              "cancel"
+            ]
+          }
+        },
+        "reason_code": {
+          "enum": [
+            null,
+            "proxy_unconfirmed",
+            "maintenance_revision_conflict",
+            "provider_failed"
+          ]
+        }
+      },
+      "required": [
+        "operation_id",
+        "state",
+        "requested_expires_at",
+        "created_at",
+        "updated_at",
+        "allowed_actions",
+        "reason_code"
+      ]
+    },
+    "credential_rotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "qsl.credential_rotation.v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "server_time": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "metadata": {
+          "$ref": "#/$defs/credential_rotation_metadata"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/credential_rotation_operation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "allowed_actions": {
+          "type": "array",
+          "items": {
+            "const": "stage"
+          }
+        },
+        "replayed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "ok",
+        "server_time",
+        "metadata",
+        "operation",
+        "allowed_actions"
+      ]
+    },
+    "credential_rotation_step_up": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "enum": [
+            "totp",
+            "recovery"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "method",
+        "code"
+      ]
+    },
+    "credential_rotation_stage_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$"
+        },
+        "step_up": {
+          "$ref": "#/$defs/credential_rotation_step_up"
+        },
+        "new_value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "expires_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "step_up",
+        "new_value",
+        "expires_at"
+      ]
+    },
+    "credential_rotation_finalize_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$"
+        },
+        "step_up": {
+          "$ref": "#/$defs/credential_rotation_step_up"
+        },
+        "downstream_verified": {
+          "const": true
+        }
+      },
+      "required": [
+        "request_id",
+        "step_up",
+        "downstream_verified"
+      ]
+    },
+    "credential_rotation_cancel_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$"
+        },
+        "step_up": {
+          "$ref": "#/$defs/credential_rotation_step_up"
+        }
+      },
+      "required": [
+        "request_id",
+        "step_up"
+      ]
+    },
+    "credential_rotation_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "enum": [
+            "invalid_credential_rotation_request",
+            "invalid_credential_expiry",
+            "login required",
+            "origin_required",
+            "cross_origin_rejected",
+            "rotation_owner_required",
+            "step_up_invalid",
+            "credential_rotation_operation_not_found",
+            "credential_rotation_request_conflict",
+            "credential_rotation_state_conflict",
+            "credential_maintenance_revision_conflict",
+            "step_up_rate_limited",
+            "credential_rotation_unavailable"
+          ]
+        }
+      },
+      "required": [
+        "ok",
+        "error"
+      ]
+    },
+    "credential_rotation_audit_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "type": "string"
+        },
+        "occurred_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "actor_alias": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action": {
+          "enum": [
+            "credential_rotation_stage",
+            "credential_rotation_finalize",
+            "credential_rotation_cancel",
+            "credential_rotation_denied"
+          ]
+        },
+        "subject": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "credential"
+            },
+            "id": {
+              "const": "ibkr_flex"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        "operation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "staged",
+            "finalized",
+            "canceled",
+            "add_unknown",
+            "finalize_unknown",
+            "cancel_unknown",
+            "failed",
+            "denied"
+          ]
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "actor_alias",
+        "action",
+        "subject",
+        "operation_id",
+        "outcome"
       ]
     }
   }

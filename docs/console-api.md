@@ -605,3 +605,73 @@ only after a successful empty row read. Identity mismatch and read failure give
 null counts; read failure returns HTTP 503. No amounts, account identity, record
 references or raw rows are returned. The projection reads v1 and v2 metadata even
 when computation is disabled and does not enable it or change history calculations.
+
+## Write-only credential rotation
+
+Only `ibkr_flex` is supported. All responses are JSON with `Cache-Control:
+no-store`. A valid console session may read metadata; only the separately
+configured exact owner with an admin session can mutate. Every mutation also
+requires the exact same Origin and a fresh, single-use TOTP or recovery code.
+Unknown fields and bodies over 4 KiB are rejected. Values are 1–1024 UTF-8 bytes,
+without trimming. No value, version identifier, fingerprint, or provider response
+is returned. See `contracts/console-api.schema.json` for strict schemas.
+
+| Method | Path | Request |
+| --- | --- | --- |
+| GET | `/api/credential-rotation/ibkr_flex` | None |
+| POST | `/api/credential-rotation/ibkr_flex/stage` | `request_id`, `new_value`, `expires_at`, `step_up` |
+| GET | `/api/credential-rotation/ibkr_flex/operations/{operation_id}` | None |
+| POST | `/api/credential-rotation/ibkr_flex/operations/{operation_id}/finalize` | `request_id`, `downstream_verified: true`, `step_up` |
+| POST | `/api/credential-rotation/ibkr_flex/operations/{operation_id}/cancel` | `request_id`, `step_up` |
+
+`step_up` is `{method: "totp" | "recovery", code: string}`. IDs are 8–128
+characters from the existing bounded opaque-ID alphabet. Expiry must be a strict
+timezone-aware instant later than stage time and is stored in UTC. Readers see
+only `name`, `last_rotated_at`, and `expires_at` as credential metadata. Operations
+contain `operation_id`, `state`, `requested_expires_at`, `created_at`, `updated_at`,
+`allowed_actions`, and a fixed `reason_code`. The envelope has
+`schema_version: "qsl.credential_rotation.v1"`, `ok`, `server_time`, `metadata`,
+`operation`, `allowed_actions`, and optional `replayed`.
+
+Stage creates `adding_version`, then `staged` or `add_unknown`. It preserves the
+old version and maintenance metadata. Finalize requires the owner's downstream
+attestation and becomes `finalizing`, then `finalized` or `finalize_unknown`.
+Only confirmed finalize updates expiry and last-rotated in the same SQLite
+transaction as the operation, using the captured maintenance revision. Cancel
+becomes `canceling`, then `canceled` or `cancel_unknown`, and preserves metadata.
+A confirmed pre-write rejection can become `failed`. Unknown results block all
+new writes. GET performs metadata-only reconciliation; it never repeats a
+mutation or infers stage success from a version count. If add succeeded but its
+version reference could not be persisted, the result remains unknown for manual
+operational investigation. A maintenance revision conflict after remote finalize
+also remains unknown; newer maintenance data is never overwritten.
+
+Identical request-ID/body replays return the recorded result before checking a
+consumed factor. Changed bodies conflict. Five failed factors within five
+minutes throttle the exact owner. TOTP uses six digits, 30-second steps and a
+one-step clock window; all matching steps are consumed atomically. Recovery
+verifiers use HMAC-SHA-256 over `recovery:` followed by the code, keyed by the
+separate fingerprint key. Provisioning factors and keys is a separate owner
+operation, with no enrollment or reset API here.
+
+Failures contain only `{ok: false, error: <fixed code>}`: 400
+`invalid_credential_rotation_request` or `invalid_credential_expiry`; 401 existing
+`login required`; 403 `origin_required`, `cross_origin_rejected`,
+`rotation_owner_required`, or `step_up_invalid`; 404
+`credential_rotation_operation_not_found`; 409
+`credential_rotation_request_conflict`, `credential_rotation_state_conflict`, or
+`credential_maintenance_revision_conflict`; 429 `step_up_rate_limited`; 503
+`credential_rotation_unavailable`. Recorded unknown outcomes return HTTP 200,
+with the state indicating uncertainty. Reason codes are `proxy_unconfirmed`,
+`maintenance_revision_conflict`, `provider_failed`, or null.
+
+Rotation audit events join the existing sorted pagination stream. Their exact
+fields are `event_id`, `occurred_at`, `actor_alias`, `action`, `subject`,
+`operation_id`, and `outcome`; denied events may have a null operation ID. The
+subject is `{kind: "credential", id: "ibkr_flex"}`. Actions use
+`credential_rotation_stage`, `credential_rotation_finalize`,
+`credential_rotation_cancel`, and `credential_rotation_denied`. Outcomes use the
+corresponding confirmed/unknown state, `failed`, or `denied`. Internal denial
+reasons are not projected. No notification is sent by these endpoints; any later
+notification integration must occur after audit commit and use only these fixed
+fields, without retrying the secret mutation.

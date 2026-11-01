@@ -65,3 +65,42 @@ qsl-{platform}-{env}-{purpose}     # Secret Manager 友好名
 Environment 注入的 `TELEGRAM_TOKEN` / `TG_TOKEN` **会遮蔽** GCP Secret Manager 路径（发送器不再调用 gcloud）。组织级与 Environment 级同名 secret 的最终胜出方以 GitHub Actions / Cloud Run 实际注入为准；公开仓只提供 `--route-check` 匹配元数据（`token_source_kind` / `chat_source_kind` / `warnings`），不打印值。
 
 别名退役条件与「重复发送风险待证」清单见通知文档同节；退役前须有 route-check 证据，禁止在聊天中粘贴 token 或 chat id。
+
+## IBKR Flex 只写轮换后端
+
+浏览器仅访问同源 Worker。Worker 在现有 RuntimeInstances SQLite 中
+验证指定 owner、单次 TOTP / 恢复码和请求幂等性，串行记录轮换状态。
+新值只经过请求内存和固定代理 stage 路由，不进入 DO、KV、Firestore、
+审计、通知或响应。Worker 到专用 Cloud Run 代理使用 HMAC-SHA-256，
+绑定方法、路径、时间、随机 nonce、操作 / 请求 ID 和请求体摘要。
+代理拒绝重定向、过期签名和重放冲突；Firestore 事务在 Secret Manager
+写入前持久记录 nonce 与带密钥的幂等比较值，不保存值或独立值摘要。
+
+代理仅允许固定目标的 add / list / get metadata / disable，使用运行时
+身份在内存中取得 metadata-server 令牌，没有 access / destroy / enable /
+任意资源 / IAM 接口。旧版本和新版本的内部引用只保存在代理操作状态中。
+暂存前要求恰有一个启用版本；完成和取消前重新核对捕获的版本集合，
+有其他变更时保持 unknown。代理不会根据版本数量推断暂存成功。
+专用项目、`us-central1`、缩容至零的建议保留，目标 secret 和复制配置
+保持原样。Dockerfile 只是后续部署定义，本次不创建或部署资源。
+
+Worker 的受保护配置名：`CREDENTIAL_ROTATION_OWNER`（单个小写 login）、
+`CREDENTIAL_ROTATION_TOTP_SEED`（Base32）、
+`CREDENTIAL_ROTATION_RECOVERY_VERIFIERS`（HMAC verifier JSON 数组）、
+`CREDENTIAL_ROTATION_FINGERPRINT_KEY`、`CREDENTIAL_ROTATION_PROXY_URL`、
+`CREDENTIAL_ROTATION_HMAC_KEY_ID` 和 `CREDENTIAL_ROTATION_HMAC_KEY`。
+缺失或格式不明确时拒绝变更。不能将真实配置写入源码或测试。
+恢复 verifier 的算法见 [API 文档](console-api.md#write-only-credential-rotation)。
+
+代理读取 `ROTATION_HMAC_KEYS`（active key ID 到 key 的 JSON 对象）、
+`ROTATION_FIRESTORE_DATABASE`（固定数据库资源）、`ROTATION_TARGET_SECRET`
+（固定目标资源）和 `PORT`。这些配置只能由另行授权的运维流程提供。
+Firestore `nonces` 的 `expires_at` 保留十分钟，超过五分钟签名窗口；
+operation / request 记录在核对完成之前没有自动 TTL，也没有内存降级路径。
+Worker 使用 `redirect: error`；workerd 不支持该值时，在发请求前选用
+`manual` 并拒绝所有 3xx，不发起第二次请求。代理使用 Node 内置模块，
+无新增运行时依赖。维护提醒继续复用现有流程，本轮换端点不发送通知。
+
+实现依据：[TOTP RFC 6238](https://www.rfc-editor.org/rfc/rfc6238)、
+[Secret Manager REST](https://docs.cloud.google.com/secret-manager/docs/reference/rest/v1/projects.secrets.versions)、
+[Firestore REST transactions](https://docs.cloud.google.com/firestore/docs/reference/rest/v1/projects.databases.documents/beginTransaction)。
