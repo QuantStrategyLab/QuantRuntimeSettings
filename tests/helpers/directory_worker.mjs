@@ -1,11 +1,20 @@
 // Existing business fixtures model discovery directly. Real manifest lifecycle,
 // persistence and concurrency are exercised by kv_directory_validation.mjs.
 import worker, { __test as originalTest } from "../../web/strategy-switch-console/worker.js";
-import { installDirectoryTestAdapter } from "../../web/strategy-switch-console/kv_directory.js";
+import { KvDirectory, installDirectoryTestAdapter } from "../../web/strategy-switch-console/kv_directory.js";
 
+const cacheWriters = new WeakMap();
 function prepare(env) {
   installDirectoryTestAdapter(env, async command => {
     const store = env.STRATEGY_SWITCH_CONFIG;
+    if (command.action === "cache") {
+      if (!cacheWriters.has(store)) {
+        const values = new Map();
+        cacheWriters.set(store, new KvDirectory({ async get(k) { return values.get(k); },
+          async put(k, v) { values.set(k, structuredClone(v)); } }, store));
+      }
+      return cacheWriters.get(store).command(command);
+    }
     if (command.action === "put") {
       await store.put(command.key, command.value);
       return { ok: true };

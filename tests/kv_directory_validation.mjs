@@ -74,6 +74,114 @@ assert.equal(pages, 2);
 assert.equal((await paged.command({ action: "read", prefix: "control_plane_source:", limit: 100 })).keys.length, 3,
   "a publisher between migration pages is retained");
 
+// A reconciliation re-scan of a complete directory keeps serving the last
+// completed snapshot while it pages, and skips KV mirror writes on pages
+// where nothing mirror-visible changed.
+const reconcileValues = new Map(), reconcileState = new Map();
+let reconcileLists = 0, reconcileMirrorPuts = 0, reconcilePaged = false;
+const reconcileTime = { value: 1_800_000_000_000 };
+const reconcile = new KvDirectory({
+  async get(key) { return structuredClone(reconcileState.get(key)); },
+  async put(key, value) { reconcileState.set(key, structuredClone(value)); },
+}, {
+  async get(key) { return reconcileValues.get(key) ?? null; },
+  async put(key, value) { reconcileMirrorPuts++; reconcileValues.set(key, value); },
+  async list(options) {
+    reconcileLists++;
+    if (!reconcilePaged) return { keys: [{ name: "control_plane_source:known" },
+      { name: "control_plane_source:out-of-band" }], list_complete: true };
+    if (!options.cursor) return { keys: [{ name: "control_plane_source:late" }],
+      list_complete: false, cursor: "page-2" };
+    if (options.cursor === "page-2") return { keys: [{ name: "control_plane_source:known" }],
+      list_complete: false, cursor: "page-3" };
+    return { keys: [], list_complete: true };
+  },
+}, {}, () => reconcileTime.value);
+for (let i = 0; i < 3; i++) await reconcile.command({ action: "put", key: `control_plane_source:known-${i}`, value: "{}" });
+assert.equal((await reconcile.command({ action: "maintain" })).complete, true);
+const migrationScannedAt = (await reconcile.command({ action: "status" })).data_as_of;
+const reconcileMirrorPutsAfterMigration = reconcileMirrorPuts;
+reconcilePaged = true;
+reconcileTime.value += 86_401_000; // past the configured reconcile interval
+assert.equal((await reconcile.command({ action: "maintain" })).ok, true, "page 1 of a re-scan succeeds");
+assert.equal((await reconcile.command({ action: "read", prefix: "control_plane_source:", limit: 100 })).ok, true,
+  "reads keep working between re-scan pages");
+assert.equal((await reconcile.command({ action: "read", prefix: "control_plane_source:", limit: 100 })).keys.length, 6,
+  "the served snapshot includes keys discovered by the page in flight");
+assert.equal(reconcileMirrorPuts, reconcileMirrorPutsAfterMigration + 1,
+  "a page that discovers new keys mirrors them immediately");
+assert.equal((await reconcile.command({ action: "status" })).in_progress, true,
+  "a completed snapshot with a pending reconciliation cursor is still in progress");
+const listsAfterFirstPage = reconcileLists;
+assert.deepEqual(await reconcile.command({ action: "maintain" }),
+  { ok: true, complete: true, count: 6, scanned_at: migrationScannedAt, cached: true },
+  "a second invocation inside the page delay reuses the in-flight snapshot");
+assert.equal(reconcileLists, listsAfterFirstPage, "the page-delay window must not list again");
+reconcileTime.value += 61_000;
+await reconcile.command({ action: "maintain" });
+assert.equal(reconcileMirrorPuts, reconcileMirrorPutsAfterMigration + 1,
+  "a page that adds no mirror-visible change must not rewrite the mirror");
+reconcileTime.value += 61_000;
+assert.equal((await reconcile.command({ action: "maintain" })).ok, true);
+assert.equal((await reconcile.command({ action: "status" })).complete, true);
+assert.equal((await reconcile.command({ action: "status" })).data_as_of, reconcileTime.value,
+  "the re-scan stamps scanned_at only when the last page completes");
+assert.equal(reconcileMirrorPuts, reconcileMirrorPutsAfterMigration + 2,
+  "the completion page mirrors the new scanned_at exactly once");
+
+// One synthetic day of five-minute cron ticks spends one List and mirror write.
+const dailyState = new Map(); let dailyLists = 0, dailyPuts = 0;
+let dailyNow = Date.parse("2026-11-01T00:02:00Z");
+const dailyStorage = { async get(k) { return structuredClone(dailyState.get(k)); },
+  async put(k, v) { dailyState.set(k, structuredClone(v)); } };
+const dailyKv = { async get() { return null; }, async put() { dailyPuts++; },
+  async list() { dailyLists++; return { keys: [], list_complete: true }; } };
+for (let tick = 0; tick < 288; tick++) {
+  await new KvDirectory(dailyStorage, dailyKv, {}, () => dailyNow).command({ action: "maintain" });
+  dailyNow += 300_000;
+}
+assert.equal(dailyLists, 1, "default reconciliation cuts daily lists from four to one");
+assert.equal(dailyPuts, 1, "default reconciliation cuts daily mirror writes from four to one");
+// Explicit refreshes and object restarts share a persisted 100-attempt UTC budget.
+for (let tick = 0; tick < 120; tick++) {
+  dailyNow = Date.parse("2026-11-01T01:00:00Z") + tick * 61_000;
+  await new KvDirectory(dailyStorage, dailyKv, {}, () => dailyNow).command({ action: "maintain", refresh: true });
+}
+assert.equal(dailyLists, 100, "manual refresh cannot exhaust the account's 1000-list allowance");
+const budgetStatus = await new KvDirectory(dailyStorage, dailyKv, {}, () => dailyNow).command({ action: "status" });
+assert.equal(budgetStatus.last_error.code, "kv_directory_list_budget_exceeded");
+assert.equal(budgetStatus.retry_at, Date.parse("2026-11-02T00:01:00Z"));
+dailyNow = budgetStatus.retry_at;
+assert.equal((await new KvDirectory(dailyStorage, dailyKv, {}, () => dailyNow).command({ action: "maintain" })).ok, true);
+assert.equal(dailyLists, 101, "the UTC reset opens a new budget");
+
+// A failed re-scan keeps the loud failure contract: the directory reports
+// the error, refuses reads and stays on the daily quota cooldown.
+const quotaReconcileValues = new Map(), quotaReconcileState = new Map();
+let quotaReconcileLists = 0, quotaReconcileFailing = false;
+const quotaReconcileTime = { value: 1_800_000_000_000 };
+const quotaReconcile = new KvDirectory({
+  async get(key) { return structuredClone(quotaReconcileState.get(key)); },
+  async put(key, value) { quotaReconcileState.set(key, structuredClone(value)); },
+}, {
+  async get(key) { return quotaReconcileValues.get(key) ?? null; },
+  async put(key, value) { quotaReconcileValues.set(key, value); },
+  async list() { quotaReconcileLists++; if (quotaReconcileFailing) throw Error("KV list() limit exceeded for the day.");
+    return { keys: [...quotaReconcileValues.keys()].map(name => ({ name })), list_complete: true }; },
+}, {}, () => quotaReconcileTime.value);
+await quotaReconcile.command({ action: "put", key: "research_promotion_ticket:seeded", value: "{}" });
+assert.equal((await quotaReconcile.command({ action: "maintain" })).complete, true);
+quotaReconcileTime.value += 86_401_000; quotaReconcileFailing = true;
+assert.equal((await quotaReconcile.command({ action: "maintain" })).error, "kv_list_daily_limit_exceeded");
+assert.equal((await quotaReconcile.command({ action: "read", prefix: "research_promotion_ticket:", limit: 100 })).ok, false,
+  "a failed re-scan still refuses reads until the cooldown opens");
+const quotaReconcileStatus = await quotaReconcile.command({ action: "status" });
+assert.equal(quotaReconcileStatus.complete, false);
+assert.equal(quotaReconcileStatus.last_error.code, "kv_list_daily_limit_exceeded");
+const quotaReconcileListsAfterFailure = quotaReconcileLists;
+for (let i = 0; i < 100; i++) await quotaReconcile.command({ action: "maintain" });
+assert.equal(quotaReconcileLists, quotaReconcileListsAfterFailure, "the daily quota cooldown spans repeated cron ticks");
+
 const redacted = new KvDirectory({ async get() { return { keys: ["control_plane_source:private-subject"],
   complete: false, cursor: "private-cursor", retry_at: 0, error: "private-provider-error",
   last_error: { code: "private-token-detail", at: time }, owner: "private-owner" }; },
@@ -157,3 +265,54 @@ assert.equal((await worker.fetch(new Request("https://fixture.invalid/api/admin/
 const source = await readFile(new URL("../web/strategy-switch-console/worker.js", import.meta.url), "utf8");
 assert.doesNotMatch(source, /store\.list\(/, "every production read path must use the manifest");
 console.log("kv_directory_validation: PASS (100 cold reads/100 cooldown ticks/100 warm reads)");
+
+// Cold isolates and object restarts share the cache writer's semantic comparison.
+const cacheMetadata = new Map(), cacheValues = new Map(); let cachePuts = 0;
+const cacheStorage = { async get(k) { return structuredClone(cacheMetadata.get(k)); },
+  async put(k, v) { cacheMetadata.set(k, structuredClone(v)); } };
+const cacheKv = { async get(k) { return cacheValues.get(k) ?? null; },
+  async put(k, v) { cachePuts++; cacheValues.set(k, v); } };
+const cachePayload = stamp => ({ account: { execution_evidence: { observed_at: stamp }, balance: 10 } });
+let cacheDirectory = new KvDirectory(cacheStorage, cacheKv);
+await Promise.all(Array.from({ length: 100 }, (_, i) => cacheDirectory.command({
+  action: "cache", payload: cachePayload(String(i)), ts: 1_800_000_000_000 + i })));
+assert.equal(cachePuts, 1, "100 concurrent cold refreshes write once instead of 100 times");
+cacheDirectory = new KvDirectory(cacheStorage, cacheKv);
+await cacheDirectory.command({ action: "cache", payload: cachePayload("restart"), ts: 1_800_000_300_000 });
+assert.equal(cachePuts, 1, "cache write dedup survives object restart");
+await cacheDirectory.command({ action: "cache", payload: cachePayload("bump"), ts: 1_800_000_900_000 });
+assert.equal(cachePuts, 2, "the existing 15-minute keep-alive ceiling is preserved");
+await cacheDirectory.command({ action: "cache", payload: { changed: true }, ts: 1_800_000_900_001 });
+assert.equal(cachePuts, 3, "real content changes still write immediately");
+cacheKv.put = async () => { throw Error("synthetic_store_unavailable"); };
+await assert.rejects(cacheDirectory.command({ action: "cache", payload: { changed: false }, ts: 1_800_000_900_002 }), /synthetic_store_unavailable/);
+cacheKv.put = async (k, v) => { cachePuts++; cacheValues.set(k, v); };
+await cacheDirectory.command({ action: "cache", payload: { changed: false }, ts: 1_800_000_900_003 });
+assert.equal(cachePuts, 4, "a failed write does not advance the successful-write signature");
+console.log("kv_operation_budget: PASS (288 ticks: 1 List/1 mirror put; 100 cold refreshes: 1 cache put)");
+
+// Exercise the production Worker -> private directory command bridge as well.
+const bridgeState = new Map(); let bridgeWrites = 0;
+const bridgeKv = { async get() { return null; }, async put() { bridgeWrites++; } };
+const bridgeDirectory = new KvDirectory({ async get(k) { return bridgeState.get(k); },
+  async put(k, v) { bridgeState.set(k, structuredClone(v)); } }, bridgeKv);
+const bridgeEnv = { STRATEGY_SWITCH_CONFIG: bridgeKv, STRATEGY_SWITCH_RUNTIME_INSTANCES: {
+  idFromName: name => name, get: name => ({ async fetch(_url, init) {
+    assert.equal(name, "console-kv-directory-v1");
+    const result = await bridgeDirectory.command(JSON.parse(init.body));
+    return Response.json(result);
+  } }),
+} };
+await Promise.all(Array.from({ length: 20 }, (_, i) => __test.writeCurrentStrategiesCache(
+  bridgeEnv, cachePayload(String(i)), 1_800_000_000_000 + i)));
+assert.equal(bridgeWrites, 1, "production Worker cache writes actually use the serialized owner");
+const legacyCache = new Map(); let legacyCacheWrites = 0;
+const legacyCacheEnv = { STRATEGY_SWITCH_CONFIG: {
+  async get(k) { return legacyCache.get(k) ?? null; },
+  async put(k, v) { legacyCacheWrites++; legacyCache.set(k, v); },
+}, STRATEGY_SWITCH_RUNTIME_INSTANCES: { idFromName: x => x, get: () => ({ async fetch() {
+  return Response.json({ error: "runtime_instance_actor_required" }, { status: 400 });
+} }) } };
+await __test.writeCurrentStrategiesCache(legacyCacheEnv, cachePayload("old receiver"), 1_800_000_000_000);
+await __test.writeCurrentStrategiesCache(legacyCacheEnv, cachePayload("retry"), 1_800_000_000_001);
+assert.equal(legacyCacheWrites, 1, "older private receivers retain the existing KV comparison");
