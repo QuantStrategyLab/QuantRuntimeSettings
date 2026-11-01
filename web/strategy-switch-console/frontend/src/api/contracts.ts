@@ -128,6 +128,8 @@ export interface InboxResponse {
   error_state?: InboxErrorState | null;
   directory?: DirectoryStatus | null;
   status: "ok" | "partial" | "read_failed";
+  /** Envelope-level server clock; individual inbox items never carry it. */
+  server_time: string;
   sources: {
     source: string;
     status: "ok" | "stale" | "unavailable" | "read_failed";
@@ -136,6 +138,7 @@ export interface InboxResponse {
     failure_reason?: "unauthorized" | "unknown" | "kv_list_daily_limit_exceeded" | "kv_directory_uninitialized" | "kv_directory_unavailable" | "kv_directory_truncated" | "kv_directory_migration_pending" | "kv_directory_migration_failed" | "kv_directory_record_unavailable";
   }[];
   items: InboxItem[];
+  next_cursor: string | null;
   coverage: string;
   no_order: true;
   execution_authority_granted: false;

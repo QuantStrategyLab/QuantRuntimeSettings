@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
+import { expiryState } from "../api/cockpit";
 import { useT } from "../i18n";
 
 export interface ConfirmRequest {
@@ -14,6 +15,12 @@ export interface ConfirmRequest {
   /** Require typing this exact value (e.g. account alias) before confirming. */
   typeToConfirm?: { label: string; expected: string; mismatch: string };
   body?: ReactNode;
+  /** Server-bound validity. Pass only when the server clock is known. */
+  expiresAt?: string | null;
+  serverTime?: string | null;
+  receivedAt?: string;
+  /** Called once when the open dialog crosses the server expiry boundary. */
+  onExpiry?: () => void;
 }
 
 /** Unified confirmation dialog; supports acknowledgement checkbox and type-to-confirm. */
@@ -23,14 +30,35 @@ export function ConfirmationDialog({ request, onResolve }: { request: ConfirmReq
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [acked, setAcked] = useState(false);
   const [typed, setTyped] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  const expiryFired = useRef(false);
 
   useEffect(() => {
     cancelRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    if (!request.expiresAt) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [request.expiresAt]);
+
+  // Only a server-derived expiry is enforced. Without a server clock the
+  // dialog keeps the existing read-time validity check instead of guessing.
+  const expiry = request.expiresAt
+    ? expiryState(request.expiresAt, request.serverTime ?? null, request.receivedAt ?? new Date().toISOString(), now)
+    : ({ state: "none" } as const);
+  const expired = expiry.state === "expired";
+  useEffect(() => {
+    if (!expired || expiryFired.current) return;
+    expiryFired.current = true;
+    request.onExpiry?.();
+  }, [expired, request]);
+
   const typeOk = !request.typeToConfirm || typed.trim() === request.typeToConfirm.expected;
   const ackOk = !request.ackLabel || acked;
-  const canConfirm = typeOk && ackOk;
+  const canConfirm = typeOk && ackOk && !expired;
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
@@ -74,6 +102,13 @@ export function ConfirmationDialog({ request, onResolve }: { request: ConfirmReq
         {request.summary && <div className="dialog-summary">{request.summary}</div>}
         {request.body}
         {request.consequence && <p className={`dialog-consequence ${request.tone === "danger" ? "danger" : ""}`}>{request.consequence}</p>}
+        {request.expiresAt && (
+          <p className={`dialog-consequence ${expired ? "danger" : ""}`} role={expired ? "alert" : undefined}>
+            {expired
+              ? <>{t("cockpit.expiry.expired")} · {t("cockpit.expiry.boundary")}</>
+              : t("cockpit.expiry.at", { value: request.expiresAt })}
+          </p>
+        )}
         {request.ackLabel && (
           <label className="checkbox-row">
             <input type="checkbox" checked={acked} onChange={event => setAcked(event.target.checked)} />

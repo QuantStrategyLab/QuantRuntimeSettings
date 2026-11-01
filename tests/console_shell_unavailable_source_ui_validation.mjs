@@ -34,7 +34,7 @@ try {
   // --- To-do badge ----------------------------------------------------------
   const unknownEn = ui.shell("en", null, "read_failed");
   assert.match(unknownEn, /nav-badge-unknown/, "an unreadable inbox marks the to-do item");
-  assert.match(unknownEn, /aria-label="To-dos · To-do count unavailable"/,
+  assert.match(unknownEn, /aria-label="Decisions · To-do count unavailable"/,
     "the unknown marker is announced, because the button label replaces its contents");
   assert.match(ui.shell("zh", null, "read_failed"), /待办数量不可读/, "zh: the unknown marker is localized");
   assert.doesNotMatch(ui.shell("en", null, "ok"), /nav-badge/, "a readable inbox with nothing pending stays blank");
