@@ -110,5 +110,39 @@ try {
   assert.ok(html.includes(`class="decision-ref">${language==='zh'?'编号':'Ref'} IN-TEST`),`${language}: that one occurrence is the header ref`);
   assert.doesNotMatch(html,/class="reconciliation-ref"/,`${language}: the material row reuses the header ref instead of repeating the number`);
  }
+ // Leak regressions M02-M04/M07: enrollment enums, unknown fact fields, scope enums and
+ // diff field names render only vetted bilingual copy; raw machine values never reach visible text or title.
+ // (M02 execution-mode copy and its unknown fallback are exercised via translate in console_frontend_i18n_validation.mjs.)
+ const strip=(h)=>h.replace(/ data-[a-z-]+="[^"]*"/g,'');
+ const positionsItem={symbol:'AAPL',action:'BUY',quantity:'10',status:'WeirdState',order_type:'LMT',sec_type:'STK',right:'CALL',currency:'USD'};
+ const openOrderItem={status:'Submitted',action:'SELL',side:'SELL',order_type:'MKT',price:'3.5'};
+ const filledItem={status:'Filled',legs:[{right:'P',sec_type:'OPT'}]};
+ const facts2={observed_at:'2026-10-29T00:00:00Z',surfaces:Object.fromEntries(names.map((n,i)=>[n,{status:'complete',
+   items:n==='positions'?[positionsItem,openOrderItem,filledItem]:[],
+   scope:n==='positions'?{kind:'mystery_kind',currency:'USD',window_start:'2026-10-01T00:00:00Z',window_end:null,limit_per_namespace:'50',gateway_availability:'weird',truncated:'maybe'}:{kind:kinds[i],currency:null,window_start:null,window_end:null,limit_per_namespace:null,gateway_availability:null,truncated:null}}]))};
+ const leakItem={...item,diff:[
+   {field:'some_field',label_key:'unknown.label.key',before:'1',after:'2',affects_live:false},
+   {field:'dca_mode',label_key:'accounts.field.dca_mode',before:'fixed',after:'smart',affects_live:false},
+  ],initial_enrollment:{...item.initial_enrollment,facts:facts2}};
+ for (const language of ['zh','en']) {
+  const html=strip(ui.renderLang(leakItem,language));
+  const known=language==='zh'
+   ? ['买入','卖出','已提交','已成交','限价','市价','股票','期权','看涨','看跌']
+   : ['Buy','Sell','Submitted','Filled','Limit','Market','Stock','Option','Call','Put'];
+  for (const label of known) assert.ok(html.includes(`>${label}<`),`${language}: enum value renders as ${label}`);
+  assert.ok(html.includes(`>${language==='zh'?'未知':'Unknown'}<`),`${language}: unknown enum falls back to safe copy`);
+  assert.ok(html.includes(language==='zh'?'其他参数':'Other parameter'),`${language}: unknown diff field is labeled`);
+  assert.ok(html.includes(language==='zh'?'定投模式':'DCA mode'),`${language}: known diff field keeps its label`);
+  const forbidden=language==='zh'
+   ? ['>BUY<','>SELL<','>Submitted<','>Filled<','>LMT<','>MKT<','>STK<','>OPT<','>CALL<','>P<','>WeirdState<','mystery_kind','>weird<','>maybe<','some_field','unknown.label.key','>current_broker_day<']
+   : ['>BUY<','>SELL<','>LMT<','>MKT<','>STK<','>OPT<','>CALL<','>P<','>WeirdState<','mystery_kind','>weird<','>maybe<','some_field','unknown.label.key'];
+  for (const raw of forbidden) assert.ok(!html.includes(raw),`${language}: raw value ${raw} never appears in visible markup`);
+  assert.doesNotMatch(html,/title="[^"]*(some_field|unknown\.label\.key|BUY|SELL|LMT|STK|CALL)/,`${language}: no raw value hides in a title attribute`);
+  // Allowed business values survive verbatim.
+  assert.ok(html.includes('>AAPL<'),`${language}: symbol stays verbatim`);
+  assert.ok(html.includes('>USD<'),`${language}: currency stays verbatim`);
+  assert.ok(html.includes('>2026-10-01T00:00:00Z<'),`${language}: window timestamp stays verbatim`);
+  assert.ok(html.includes('>50<'),`${language}: numeric limit stays verbatim`);
+ }
  console.log('initial_enrollment_ui_validation: PASS');
 } finally {await rm(dir,{recursive:true,force:true});}

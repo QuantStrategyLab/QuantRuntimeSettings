@@ -32,9 +32,19 @@ try {
           effective_tier: 'BALANCED_COMPOUNDING', effective_policy_id: 'demo-balanced-v3',
           effective_policy_revision: 'r7', effective_observed_at: '2026-11-01T09:10:00Z',
           temporary_restriction: { active: true, reason: 'Reduction only', until: null },
-          values: [{ key: 'max_gross_exposure', label_key: null, value: 45, unit: 'percent', status: 'known', source: 'server' }],
+          values: [
+            { key: 'max_gross_exposure', label_key: null, value: 45, unit: 'percent', status: 'known', source: 'server' },
+            { key: 'cash_floor', label_key: null, value: 100, unit: 'USD', status: 'known', source: 'mystery' },
+            { key: 'mystery_limit', label_key: 'some.label.key', value: 2, unit: null, status: 'known', source: 'server' },
+          ],
         };
         export const policy = (language) => wrap(language, h(EffectivePolicyPanel, { binding }));
+        export const policyKnownCode = (language) => wrap(language, h(EffectivePolicyPanel, {
+          binding: { ...binding, temporary_restriction: { active: true, reason: 'reduction_only', until: null } },
+        }));
+        export const policyNoReason = (language) => wrap(language, h(EffectivePolicyPanel, {
+          binding: { ...binding, temporary_restriction: { active: true, reason: null, until: null } },
+        }));
         const base = {
           operation_id: 'op-1', request_id: 'req-1', decision_id: 'decision-1', decision_revision: 3,
           action: 'approve', title_key: null, account_alias: null, platform: null, release_id: null,
@@ -79,6 +89,18 @@ try {
         }));
         export const pauseBlocked = (language) => wrap(language, h(PauseControl, {
           operatingState: 'running', canPause: false, canResume: true, pending: false, reason: 'Platform does not allow pausing here',
+        }));
+        export const pauseKnownCode = (language) => wrap(language, h(PauseControl, {
+          operatingState: 'running', canPause: false, canResume: true, pending: false, reason: 'runtime_control_pending',
+        }));
+        export const failedKnownReason = (language) => wrap(language, h(ApplicationStatus, {
+          operation: { ...base, state: 'failed', failure_reason: 'runtime_control_pending' }, status: 'ready',
+        }));
+        export const failedFreeText = (language) => wrap(language, h(ApplicationStatus, {
+          operation: { ...base, state: 'failed', failure_reason: 'platform exploded at 03:00' }, status: 'ready',
+        }));
+        export const unknownFreeText = (language) => wrap(language, h(ApplicationStatus, {
+          operation: { ...base, state: 'unknown', applied_at: null, unknown_reason: 'weird thing happened' }, status: 'ready',
         }));
         export const confirmed = (language) => wrap(language, h(ApplicationStatus, {
           operation: { ...base, runtime_confirmed_at: '2026-11-01T10:05:00Z', runtime_state: 'running' }, status: 'ready',
@@ -323,7 +345,30 @@ try {
   const policyEn = ui.policy("en");
   assert.match(policyEn, /Growth compounding/, "the selected preference is shown");
   assert.match(policyEn, /Balanced compounding/, "the observed policy is not overwritten by the selection");
-  assert.match(policyEn, /Reduction only/, "a temporary restriction is shown separately");
+  assert.match(policyEn, /Risk reduction only/, "the legacy restriction string shows its bilingual product label");
+  assert.doesNotMatch(policyEn.replace(/ data-[a-z-]+="[^"]*"/g, ''), /Reduction only/, "the raw restriction string is suppressed");
+  assert.match(ui.policyKnownCode("zh"), /仅允许降低风险/);
+  assert.match(ui.policyKnownCode("en"), /Risk reduction only/);
+  assert.match(ui.policyNoReason("zh"), /已启用临时限制，原因未知/);
+  assert.match(ui.policyNoReason("en"), /Temporary restriction active; reason unknown/);
+  // P03: limit keys, sources and units are copy-driven; unknowns never render raw.
+  const policyVisible = policyEn.replace(/ data-[a-z-]+="[^"]*"/g, '');
+  assert.match(policyEn, /Maximum gross exposure/);
+  assert.match(policyEn, /45%/, "percent renders as the symbol in both languages");
+  assert.match(policyEn, /Cash floor/);
+  assert.match(policyEn, /Other limit/);
+  assert.match(policyEn, /Source: Server/);
+  assert.match(policyEn, /Unknown source/);
+  assert.doesNotMatch(policyVisible, /max_gross_exposure|cash_floor|mystery_limit|some\.label\.key|45 percent|percent|USD/,
+    "raw limit keys, dotted label keys and unknown units never reach visible text");
+  assert.doesNotMatch(policyVisible, /Source: mystery|Source: server|Source: null/);
+  const policyZh = ui.policy("zh");
+  assert.match(policyZh, /最大总敞口/);
+  assert.match(policyZh, /现金下限/);
+  assert.match(policyZh, /其他限制/);
+  assert.match(policyZh, /来源：服务端/);
+  assert.match(policyZh, /来源未知/);
+  assert.match(ui.policy("zh"), /临时限制/);
   assert.match(policyEn, /Policy mapping unavailable/, "a missing approved mapping stays unavailable");
 
   // Applied is not runtime-confirmed, and the caveat follows the server capability flag.
@@ -363,8 +408,19 @@ try {
   assert.match(ui.pause("zh"), /暂停不会平仓/);
   assert.doesNotMatch(ui.pause("en"), /aria-describedby/, "an enabled control needs no reason link");
   const pauseBlocked = ui.pauseBlocked("en");
-  assert.match(pauseBlocked, /Platform does not allow pausing here/);
+  assert.match(pauseBlocked, /This action is not supported right now\./, "free-form pause reasons fall back to the safe copy");
+  assert.doesNotMatch(pauseBlocked, /Platform does not allow pausing here/);
   assert.match(pauseBlocked, /aria-describedby=/);
+  assert.match(ui.pauseBlocked("zh"), /当前不支持该操作/);
+  assert.match(ui.pauseKnownCode("en"), /The previous action is awaiting confirmation/, "known pause reason codes keep their copy");
+  assert.match(ui.pauseKnownCode("zh"), /上次操作仍待确认/);
+  // P06: application reasons render through copy; free-form failure text is suppressed.
+  assert.match(ui.failedKnownReason("en"), /The previous action is awaiting confirmation/);
+  const failedTextEn = ui.failedFreeText("en");
+  assert.match(failedTextEn, /Operation outcome pending confirmation/);
+  assert.doesNotMatch(failedTextEn, /platform exploded/);
+  assert.match(ui.failedFreeText("zh"), /操作结果待确认/);
+  assert.doesNotMatch(ui.unknownFreeText("en"), /weird thing happened/);
 
   // Accepted delivery is not delivered, and coverage stays visible.
   const digest = ui.digestAccepted("en");
