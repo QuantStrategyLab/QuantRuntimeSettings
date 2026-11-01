@@ -2,6 +2,11 @@ name = "qsl-strategy-switch-console"
 main = "worker.js"
 compatibility_date = "2026-06-08"
 workers_dev = true
+# Preserve the no-placement state (Wrangler omits placement for mode=off).
+placement = { mode = "off" }
+# No environment grouping; Wrangler preserves the empty live tag inventory.
+# Top-level tags is not a supported Wrangler option.
+# Keep observability omitted so logging remains disabled.
 
 # Set these with `wrangler secret put ...` instead of committing values:
 # - GITHUB_CLIENT_ID

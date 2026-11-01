@@ -11,6 +11,8 @@ const require = createRequire(
   new URL("../web/strategy-switch-console/package.json", import.meta.url),
 );
 const { Miniflare } = require("miniflare");
+// Decision inbox payloads carry a per-request server_time; compare them without it.
+const withoutServerTime = ({ server_time: _serverTime, ...rest }) => rest;
 const account = {
   key: "synthetic-alpha",
   label: "Synthetic alpha",
@@ -239,7 +241,11 @@ try {
   assert.deepEqual(combined.body.accounts, accounts.body, "combined accounts retain the existing body");
   validate("accounts", combined.body.accounts);
   validate("inbox", combined.body.inbox);
-  assert.deepEqual(combined.body.inbox, (await call("/api/decisions-inbox", { cookie: reader })).body);
+  assert.deepEqual(
+    withoutServerTime(combined.body.inbox),
+    withoutServerTime((await call("/api/decisions-inbox", { cookie: reader })).body),
+    "combined inbox matches the standalone inbox body apart from server_time",
+  );
   assert.equal((await call("/api/accounts?include=decisions-inbox", { cookie: null })).status, 401);
   assert.equal((await call("/api/accounts?include=decisions-inbox", { method: "POST", body: {} })).status, 405);
   for (const query of ["include=", "include=other", "include=decisions-inbox&include=decisions-inbox",
@@ -383,7 +389,10 @@ try {
   resetCounts();
   const result = await read("/api/accounts?include=decisions-inbox");
   assert.equal(result.status, 200);
-  assert.deepEqual(result.body, { accounts: oldAccounts.body, inbox: oldInbox.body });
+  assert.deepEqual(
+    { accounts: result.body.accounts, inbox: withoutServerTime(result.body.inbox) },
+    { accounts: oldAccounts.body, inbox: withoutServerTime(oldInbox.body) },
+  );
   assert.deepEqual(counts, { metadata: 1, owner: 1, promotion: 1, recovery: 1, credential: 1, outbound: 0 });
   generation = 7;
   assert.equal((await read("/api/accounts?include=decisions-inbox")).body.accounts.accounts[0].pending_draft_count, 7,
@@ -422,8 +431,11 @@ try {
   credentialForbidden = true;
   const forbiddenSource = await read("/api/accounts?include=decisions-inbox");
   assert.equal(forbiddenSource.body.inbox.status, "read_failed");
-  assert.deepEqual(forbiddenSource.body.inbox, (await read("/api/decisions-inbox")).body,
-    "a nested source 403 retains the original inbox classification");
+  assert.deepEqual(
+    withoutServerTime(forbiddenSource.body.inbox),
+    withoutServerTime((await read("/api/decisions-inbox")).body),
+    "a nested source 403 retains the original inbox classification",
+  );
   credentialForbidden = false;
   const beforeDenied = { ...counts };
   assert.equal((await read("/api/accounts?include=decisions-inbox", {

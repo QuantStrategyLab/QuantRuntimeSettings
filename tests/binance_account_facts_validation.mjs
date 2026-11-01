@@ -353,6 +353,33 @@ const accepted = await post(report);
 assert.equal(accepted.status, 200, JSON.stringify(await accepted.clone().json()));
 assert.equal((await accepted.json()).status, 'published');
 assert.equal(puts.length, 1);
+const detailGet = (date, token = env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN) => worker.fetch(new Request(
+  `https://console.example/api/internal/binance-account-facts/archive?date=${date}`,
+  { headers: { Authorization: `Bearer ${token}` } }), env);
+const reportDay = report.observed_finished_at.slice(0, 10);
+assert.equal((await detailGet(reportDay, 'wrong-purpose')).status, 401);
+assert.deepEqual((await (await detailGet(reportDay)).json()).report, report,
+  'daily archive preserves native asset detail, source identity and observation times');
+const oldReport = structuredClone(report);
+for (const field of ['observed_started_at', 'spot_observed_at', 'earn_observed_at', 'observed_finished_at']) {
+  oldReport[field] = new Date(Date.parse(report[field]) - 5 * 86400000).toISOString();
+}
+const detailCommand = async (body) => runtimeStub.fetch('https://runtime-instances/', {
+  method: 'POST', body: JSON.stringify(body),
+});
+const oldDay = oldReport.observed_finished_at.slice(0, 10);
+assert.equal((await detailCommand({ action: 'binance_detail_put', binding, date: oldDay, report: oldReport })).status, 200);
+values.delete(`${BINANCE_FACTS_KEY}:${binding.source_binding.id}`);
+assert.deepEqual((await (await detailGet(oldDay)).json()).report, oldReport,
+  'daily native detail survives latest-cache expiry and is readable beyond two days');
+values.set(`${BINANCE_FACTS_KEY}:${binding.source_binding.id}`, JSON.stringify(report));
+const conflictDetail = structuredClone(oldReport);
+conflictDetail.assets[0].quantity = '15.5';
+conflictDetail.assets[0].spot_free = '4.1';
+assert.ok((await detailCommand({ action: 'binance_detail_put', binding, date: oldDay, report: conflictDetail })).status >= 400);
+assert.ok((await detailCommand({ action: 'binance_detail_put', binding, date: reportDay, report: oldReport })).status >= 400);
+assert.deepEqual((await (await detailGet(oldDay)).json()).report, oldReport, 'conflict never overwrites archived facts');
+assert.equal((await detailGet('2020-01-01')).status, 404);
 assert.equal(puts[0].key, `${BINANCE_FACTS_KEY}:${binding.source_binding.id}`);
 assert.equal((await (await post(report)).json()).status, 'unchanged');
 assert.equal(puts.length, 1);
@@ -510,7 +537,7 @@ const conflicting = structuredClone(report); conflicting.assets[0].spot_free = '
 assert.equal((await post(conflicting)).status, 409);
 assert.equal(puts.length, 2);
 const invalidReceiverCases = invalid.map((item, index) => index === 12
-  ? { ...item, observed_finished_at: new Date(Date.now() + 61_000).toISOString() }
+  ? { ...item, observed_finished_at: new Date(Date.now() + 120_000).toISOString() }
   : item);
 for (const [index, bad] of invalidReceiverCases.entries()) {
   assert.notEqual((await post(bad)).status, 200, `invalid report case ${index} must not be accepted`);

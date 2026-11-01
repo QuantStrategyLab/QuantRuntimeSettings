@@ -98,6 +98,35 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertNotRegex(self.sent[0], r"[\u4e00-\u9fff]")
         self.assertEqual(list(self.store.records), ["synthetic/2026-10-16.json"])
 
+    def test_candidate_source_map_is_optional_and_validated_at_startup(self):
+        env = {'DIGEST_EXPECTED_TARGETS_JSON': json.dumps(EXPECTED),
+               'DIGEST_SCHEDULER_JOB_NAME': JOB, 'DIGEST_RECIPIENT_SCOPE': 'synthetic',
+               'DIGEST_CUTOVER_REPORT_DATE': '2026-10-16'}
+        with patch.dict(os.environ, env):
+            self.assertEqual(app.Configuration.from_environment().candidate_uris, {})
+            source = {ROW['platform_id']: 'gs://synthetic-isolated/candidates'}
+            with patch.dict(os.environ, DIGEST_CANDIDATES_BY_PLATFORM_JSON=json.dumps(source)):
+                self.assertEqual(app.Configuration.from_environment().candidate_uris, source)
+            for raw in ('', '{private', 'null', '[]', 'true',
+                        '{"unknown": "gs://synthetic/candidates"}',
+                        json.dumps({ROW['platform_id']: None}),
+                        json.dumps({ROW['platform_id']: 'gs://synthetic'}),
+                        json.dumps({ROW['platform_id']: 'gs://synthetic/a/../b'})):
+                with (self.subTest(raw=raw), patch.dict(os.environ, DIGEST_CANDIDATES_BY_PLATFORM_JSON=raw),
+                      self.assertRaisesRegex(ValueError, '^digest_candidate_sources_invalid$')):
+                    app.Configuration.from_environment()
+
+    def test_candidate_source_change_preserves_preview_and_delivery_reservation(self):
+        from dataclasses import replace
+        self.run_request(configuration=self.enable())
+        isolated = replace(self.enable(), candidate_uris={ROW['platform_id']: 'gs://synthetic-isolated/candidates'})
+        _, preview = self.run_request(preview=True, configuration=isolated)
+        self.assertEqual(preview['delivery'], 'preview')
+        _, repeated = self.run_request(configuration=isolated)
+        self.assertEqual(repeated['delivery'], 'duplicate')
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(list(self.store.records), ['synthetic/2026-10-16.json'])
+
     def test_preview_never_reserves_or_sends_and_returns_no_financial_body(self):
         self.store.rows[next(iter(self.store.rows))]['runs'][0] = dict(ROW, equity_usd=123456)
         status, result = self.run_request(preview=True)

@@ -1,3 +1,4 @@
+import { binanceDetailCommand } from "./binance_detail_archive.js";
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { readRuntimeControlReceipt } from "./application/console_api/runtime_control_receipts.js";
@@ -7,7 +8,15 @@ import { strategyTargetExecution, accountExecutionEvidence } from "./application
 import { performanceResponse } from "./application/console_api/performance_routes.js";
 import { consoleApiResponse } from "./application/console_api/routes.js";
 import { runControls } from "./application/console_api/run_controls.js";
-import { decorateQueue, decisionFields } from "./application/console_api/presentation.js";
+import { decorateQueue, decisionFields, actorAlias, pageQuery, shortId } from "./application/console_api/presentation.js";
+import { inbox } from "./application/console_api/inbox.js";
+import {
+  DECISION_ACTIONS, DECISION_REVIEW_SCHEMA_VERSION, decisionCategoryPart, decisionCurrentEligibility,
+  decisionExpiry, decisionExpiryState, decisionKind, decisionOperationId, decisionOperationReference,
+  decisionOperationSha256, decisionRevision, decisionWriteCategory,
+  operationIdFor, operationStatusFromApplication,
+} from "./application/console_api/decision_contract.js";
+import { RISK_TIER_POLICY_BINDINGS, riskTierBindingView, riskTierPolicyCatalog } from "./application/console_api/risk_tiers.js";
 import { recoveryMaterialPresentation, currentReconciliationObservationPresentation } from "./application/console_api/reconciliation_presentation.js";
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
@@ -179,13 +188,22 @@ const RISK_PROFILE_IDS = {
   GROWTH_COMPOUNDING: "growth_compounding_v1",
 };
 const RISK_PROFILE_PREFERENCES = Object.keys(RISK_PROFILE_IDS);
+const DECISION_ACTION_SCHEMA_VERSION = "qsl.decision_action_result.v1";
+const OPERATION_SCHEMA_VERSION = "qsl.operation.v1";
+const AUDIT_EVENTS_SCHEMA_VERSION = "qsl.audit_events.v1";
+const DECISION_ACTION_MAX_BODY_BYTES = 8 * 1024;
+const AUDIT_EVENTS_MAX_ROWS = 1000;
 const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
 const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
-const CURRENT_STRATEGIES_CACHE_TTL_MS = 60_000;      // 60 sec — was 5 sec "active development" default; 5 sec drove ~600 KV writes/day at quota-critical traffic
-const CURRENT_STRATEGIES_STALE_TTL_MS = 600_000;       // 10 min — return stale + background refresh
-const CURRENT_STRATEGIES_KV_BUMP_MS = 600_000;       // 10 min — min interval for quota-limited ts-only cache refreshes
+// The keep-alive bump stays below the KV fresh window so one missed cron tick
+// (the schedule is */5) still leaves the entry inside it; a cold isolate then
+// never has to fan out to GitHub just because the stamp aged out.
+const CURRENT_STRATEGIES_MEMO_TTL_MS = 60_000;      // 60 sec — a warm isolate re-checks GitHub after this
+const CURRENT_STRATEGIES_KV_FRESH_MS = 1_800_000;   // 30 min — a cold isolate serves the KV entry without any GitHub fan-out
+const CURRENT_STRATEGIES_STALE_TTL_MS = 3_600_000;  // 60 min — return stale plus background refresh before blocking on GitHub
+const CURRENT_STRATEGIES_KV_BUMP_MS = 900_000;      // 15 min — ceiling for ts-only rewrites when the content did not change
 const GITHUB_API_TIMEOUT_MS = 8000;
 const GITHUB_LOGIN_REQUEST_TIMEOUT_MS = 20000;
 const UX1_CALCULATOR_DEADLINE_MS = 30000;
@@ -483,6 +501,7 @@ const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_period_return_put", "account_period_return_read", "account_daily_native_return_research_read",
   "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read", "account_facts_history_put",
   "binance_wallet_history_put", "binance_wallet_history_read",
+  "binance_detail_put", "binance_detail_read",
 ]);
 const MARKET_BENCHMARK_DO_ACTIONS = new Set([
   "market_benchmark_put", "market_benchmark_read", "market_benchmark_revise",
@@ -922,6 +941,22 @@ export default {
       if (url.pathname === "/api/owner-decisions" && request.method === "POST") {
         return await recordOwnerDecisionResponse(request, env);
       }
+      if (url.pathname.startsWith("/api/decisions/")) {
+        const rest = url.pathname.slice("/api/decisions/".length);
+        if (rest.endsWith("/actions")) {
+          if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
+          return await decisionActionResponse(request, env, rest.slice(0, -"/actions".length));
+        }
+        return await decisionReviewResponse(request, env, rest);
+      }
+      if (url.pathname.startsWith("/api/operations/")) {
+        if (request.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
+        return await operationResponse(request, env, url.pathname.slice("/api/operations/".length));
+      }
+      if (url.pathname === "/api/audit-events") {
+        if (request.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
+        return await auditEventsResponse(request, env, url);
+      }
       if (url.pathname === "/api/internal/sync-reconciliation-recovery-source" && request.method === "POST") {
         return await syncReconciliationRecoverySourceResponse(request, env);
       }
@@ -939,6 +974,9 @@ export default {
       }
       if (url.pathname === "/api/binance-private-scope" && request.method === "GET") {
         return await binancePrivateScopeResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/binance-account-facts/archive" && request.method === "GET") {
+        return await binanceDetailArchiveResponse(request, env, url);
       }
       if (url.pathname === "/api/internal/binance-account-facts" && request.method === "GET") {
         return await binanceAccountFactsReadinessResponse(request, env);
@@ -2805,6 +2843,7 @@ export class RuntimeInstances {
   accountFactsCommand(command) {
     if (!command || typeof command.action !== "string") throw new HttpError("unsupported_account_facts_action", 400);
     if (command.action === "account_daily_native_return_research_read") return this.researchNativeDailyReturns(command);
+    if (["binance_detail_put", "binance_detail_read"].includes(command.action)) return binanceDetailCommand(this.sql, command);
     if (command.action === "binance_wallet_history_put" || command.action === "binance_wallet_history_read") {
       return this.binanceWalletHistoryCommand(command);
     }
@@ -3668,6 +3707,10 @@ export class RuntimeInstances {
     if (binding.no_order !== true || binding.execution_authority_granted !== false) throw new HttpError("risk_profile_execution_authority_rejected", 400);
     if (binding.scope_id !== riskProfileScopeId(binding.platform, binding.target_name)) throw new HttpError("invalid_risk_profile_binding", 400);
     if (!RISK_PROFILE_PREFERENCES.includes(binding.profile_selection?.risk_preference)) throw new HttpError("invalid_risk_profile_binding", 400);
+    const policy = RISK_TIER_POLICY_BINDINGS[binding.profile_selection?.risk_preference];
+    if (!policy || binding.profile_selection?.profile_id !== policy.profile_id) {
+      throw new HttpError("risk_profile_policy_binding_invalid", 409);
+    }
     if (!riskProfileBindingTargets(accountOptions).some((target) => target.platform === binding.platform && target.target_name === binding.target_name)) {
       throw new HttpError("risk_profile_binding_target_not_configured", 409);
     }
@@ -4357,7 +4400,7 @@ export class RuntimeInstances {
       if (ACCOUNT_DIAGNOSIS_DO_ACTIONS.has(command?.action)) {
         return json(await this.accountDiagnosisCommand(command));
       }
-      if (["console_decision_history", "console_settings_history", "console_account_metadata"].includes(command?.action)) {
+      if (["console_decision_history", "console_settings_history", "console_account_metadata", "console_audit_events"].includes(command?.action)) {
         return json(this.consoleReadCommand(command));
       }
       if (HUMAN_DECISION_DO_ACTIONS.has(command?.action)) {
@@ -4624,6 +4667,22 @@ export class RuntimeInstances {
 
   consoleReadCommand(command) {
     if (!command.actor) throw new HttpError("runtime_instance_actor_required", 400);
+    if (command.action === "console_audit_events") {
+      const limit = command.limit;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > AUDIT_EVENTS_MAX_ROWS) throw new HttpError("invalid_pagination", 400);
+      return { rows: this.sql.exec(`
+        SELECT 'decision' AS source, kind AS kind, subject_id AS subject_id, material_key AS revision,
+          action AS action, actor AS actor, decided_at AS occurred_at, request_key AS ref, 'decided' AS status
+        FROM human_decision_record
+        UNION ALL
+        SELECT 'promotion_application', 'promotion', ticket_id, '', status, '', updated_at, application_id, status
+        FROM research_promotion_applications
+        UNION ALL
+        SELECT 'account_settings_application', 'account_settings', platform || ':' || account_key, '',
+          status, approved_by, approved_at, request_key, status
+        FROM account_setting_profile_application
+        ORDER BY occurred_at DESC, ref DESC LIMIT ?`, limit).toArray() };
+    }
     if (command.action === "console_decision_history") {
       const { limit, offset } = command;
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0 || offset > 100000) throw new HttpError("invalid_pagination", 400);
@@ -4894,7 +4953,7 @@ export class RuntimeInstances {
     if (row.legacy_state === "blocked") throw new HttpError("human_decision_legacy_blocked", 409);
     if (row.material_key !== materialKey) throw new HttpError("human_decision_material_conflict", 409);
     if (Number(row.eligible) !== 1) throw new HttpError("human_decision_material_ineligible", 409);
-    if (row.expires_at_ms != null && Number(command.now_ms) > Number(row.expires_at_ms)) {
+    if (row.expires_at_ms != null && Number(command.now_ms) >= Number(row.expires_at_ms)) {
       throw new HttpError("human_decision_material_expired", 409);
     }
     if (kind === "promotion" && command.review_binding !== undefined
@@ -4951,7 +5010,10 @@ export class RuntimeInstances {
 
   readHumanDecision(command, kind) {
     const subjectId = String(command.subject_id || "");
+    const now = Number.isFinite(Number(command.now_ms)) ? Number(command.now_ms) : Date.now();
     const row = this.humanDecisionMaterialRow(kind, subjectId);
+    const expiry = (material) => material.expires_at_ms == null ? null : new Date(Number(material.expires_at_ms)).toISOString();
+    const expired = (material) => material.expires_at_ms != null && now >= Number(material.expires_at_ms);
     // Historical receipt lookup deliberately does not substitute the current material.
     // It grants no eligibility or authority to act on the current material.
     if (command.exact_material_key !== undefined) {
@@ -4966,19 +5028,23 @@ export class RuntimeInstances {
         decision: terminal ? this.humanDecisionRecordPayload(terminal) : null,
         current_material: row ? {
           matches: row.material_key === materialKey,
-          eligible: Number(row.eligible) === 1 && (row.expires_at_ms == null || Number(command.now_ms) <= Number(row.expires_at_ms)),
+          eligible: Number(row.eligible) === 1 && !expired(row),
+          expired: expired(row),
+          expires_at: expiry(row),
           blocked: row.legacy_state === "blocked",
           ...(kind === "promotion" ? { review_binding: promotionMaterialReviewBinding(row) } : {}),
         } : null,
       };
     }
-    if (!row) return { ok: true, migrated: false, blocked: false, eligible: false, material_key: null, decision: null };
+    if (!row) return { ok: true, migrated: false, blocked: false, eligible: false, expired: false, expires_at: null, material_key: null, decision: null };
     const terminal = this.humanDecisionTerminalRow(kind, subjectId, row.material_key);
     return {
       ok: true,
       migrated: true,
       blocked: row.legacy_state === "blocked",
-      eligible: Number(row.eligible) === 1,
+      eligible: Number(row.eligible) === 1 && !expired(row),
+      expired: expired(row),
+      expires_at: expiry(row),
       material_key: row.material_key,
       ...(kind === "promotion" ? { review_binding: promotionMaterialReviewBinding(row) } : {}),
       decision: terminal ? this.humanDecisionRecordPayload(terminal) : null,
@@ -5423,6 +5489,13 @@ async function riskProfileBindingsResponse(request, env) {
     ok: true,
     revision: bindingState.revision,
     bindings: bindingState.bindings,
+    tier_bindings: bindingState.bindings.map((binding) => riskTierBindingView({
+      scope_id: binding.scope_id,
+      platform: binding.platform,
+      target_name: binding.target_name,
+      binding,
+      revision: bindingState.revision,
+    })),
     configured_targets: riskProfileBindingTargets(bindingState.account_options || {}),
     no_order: true,
     execution_authority_granted: false,
@@ -5593,6 +5666,13 @@ function accountSettingsPayload(observed, effective, admin, extras = {}) {
       scope_id: observed.risk.scope_id,
       preference: observed.risk.preference,
     },
+    tier_binding: riskTierBindingView({
+      scope_id: observed.risk.scope_id,
+      platform: observed.platform,
+      target_name: observed.identity?.target_name || null,
+      binding: observed.risk.binding || null,
+      revision: observed.risk.revision,
+    }),
     operations: accountSettingsOperations(admin, optionSupported),
     adopted: false,
     no_order: true,
@@ -6321,23 +6401,70 @@ let _memCurrentStrategies = null;
 let _memCurrentStrategiesTs = 0;
 let _memRefreshing = false;  // prevent concurrent background refreshes
 
-// KV free tier caps writes at 1,000/day account-wide, and every /api/config
-// request can drive a refresh, so the cache write is paid for only when the
-// payload changed or the stored entry needs its ts bumped to stay inside the
-// stale window that cold isolates serve from.
-let _lastKvCachePayloadJson = null;
+// KV free tier caps writes at 1,000/day account-wide and the */5 cron plus every
+// background refresh reaches this helper, so a write is paid for only when the
+// rendered content changed or the stored entry needs its ts bumped to stay inside
+// the fresh window that cold isolates serve from.
+// current_strategies_cache carries per-account execution_evidence.observed_at
+// stamped with new Date() (see accountExecutionEvidence callers), so whole-payload
+// byte equality can never hold; the comparison drops those stamps and keeps the
+// stored value untouched for readers.
+function currentStrategiesSignature(payload) {
+  const clone = JSON.parse(JSON.stringify(payload ?? null));
+  const visit = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "execution_evidence" && value && typeof value === "object") delete value.observed_at;
+      else visit(value);
+    }
+  };
+  visit(clone);
+  return JSON.stringify(clone);
+}
+
+// readConfigJson reports a damaged value as `STRATEGY_SWITCH_CONFIG.<key> must be
+// valid JSON`. Only that shape is a cache miss; a KV read that failed for any other
+// reason is an outage and has to reach the caller instead of being mistaken for an
+// empty cache — the difference is what keeps cold isolates from fanning out to
+// GitHub on every request while the store is unhealthy.
+function isConfigJsonParseError(error) {
+  return /^STRATEGY_SWITCH_CONFIG\.[^\s]+ must be valid JSON$/.test(String(error?.message || ""));
+}
+
+async function readCurrentStrategiesCacheEntry(env) {
+  try {
+    return await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+  } catch (error) {
+    if (!isConfigJsonParseError(error)) throw error;
+    return null;
+  }
+}
 
 async function writeCurrentStrategiesCache(env, payload, ts) {
-  const payloadJson = JSON.stringify(payload);
-  if (payloadJson !== _lastKvCachePayloadJson) {
-    await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, { ts, data: payload });
-    _lastKvCachePayloadJson = payloadJson;
+  const signature = currentStrategiesSignature(payload);
+  // A damaged stored value must not wedge the cache; this is the only path that can
+  // overwrite it, so the comparison reads through the same repair-aware helper.
+  const cached = await readCurrentStrategiesCacheEntry(env);
+  if (cached?.data && currentStrategiesSignature(cached.data) === signature
+      && cached.ts && ts - cached.ts < CURRENT_STRATEGIES_KV_BUMP_MS) {
     return;
   }
-  const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
-  if (cached?.ts && ts - cached.ts < CURRENT_STRATEGIES_KV_BUMP_MS) return;
   await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, { ts, data: payload });
-  _lastKvCachePayloadJson = payloadJson;
+}
+
+// loadCurrentStrategiesSafely answers with evidence-only account entries whenever
+// GitHub timed out or threw, so a payload whose every account is exactly that
+// shape carries no strategy information and must not be served as fresh.
+function isDegradedCurrentStrategies(payload) {
+  const accounts = Object.values(payload || {}).flatMap(options => Object.values(options || {}));
+  if (!accounts.length) return false;
+  return accounts.every(account => account && typeof account === "object"
+    && Object.keys(account).length === 1
+    && account.execution_evidence?.status === "read_failed");
 }
 
 async function configPayload(request, env, ctx) {
@@ -6367,7 +6494,7 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
   // 1) In-memory cache
   if (_memCurrentStrategies) {
     const age = Date.now() - _memCurrentStrategiesTs;
-    if (age < CURRENT_STRATEGIES_CACHE_TTL_MS) {
+    if (age < CURRENT_STRATEGIES_MEMO_TTL_MS) {
       currentStrategies = _memCurrentStrategies;
       cacheFresh = true;
     } else if (age < CURRENT_STRATEGIES_STALE_TTL_MS) {
@@ -6378,10 +6505,13 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
 
   // 2) KV cache
   if (!currentStrategies && hasConfigStore(env)) {
-    const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+    const cached = await readCurrentStrategiesCacheEntry(env);
     if (cached?.ts && cached.data) {
       const age = Date.now() - cached.ts;
-      if (age < CURRENT_STRATEGIES_CACHE_TTL_MS) {
+      // A degraded entry stays inside the freshness window but is never *fresh*:
+      // the next request must revalidate instead of serving a read_failed payload
+      // for the whole 30 minutes.
+      if (age < CURRENT_STRATEGIES_KV_FRESH_MS && !isDegradedCurrentStrategies(cached.data)) {
         currentStrategies = cached.data;
         cacheFresh = true;
       } else if (age < CURRENT_STRATEGIES_STALE_TTL_MS) {
@@ -7661,10 +7791,35 @@ function humanDecisionTimestamp(value) {
   return String(value || new Date().toISOString()).replace(/\.\d{3}Z$/, "Z");
 }
 
+// Actionable material expires when the evidence that produced it would itself be
+// stale. A missing or future-dated anchor yields null, which callers treat as
+// "not actionable" rather than inventing authority.
+function controlPlaneDecisionExpiryAt(snapshot, ttlSeconds, now = Date.now()) {
+  const timestamps = [snapshot?.generated_at, snapshot?.computed_at]
+    .filter(Boolean)
+    .map((value) => Date.parse(value))
+    .filter((value) => Number.isFinite(value));
+  if (!timestamps.length) return null;
+  const observedAt = Math.min(...timestamps);
+  if (observedAt > now + 5 * 60 * 1000) return null;
+  return observedAt + ttlSeconds * 1000;
+}
+
+function reconciliationRecoveryDecisionExpiryAt(recovery, source, ttlSeconds, now = Date.now()) {
+  const sourceExpiry = controlPlaneDecisionExpiryAt(source, ttlSeconds, now);
+  if (sourceExpiry == null) return null;
+  const observedAt = Date.parse(recovery.mode === "initial_enrollment"
+    ? recovery.candidate?.last_observed_at
+    : recovery.last_observed_at);
+  if (!Number.isFinite(observedAt) || observedAt > now + 5 * 60 * 1000) return null;
+  return Math.min(sourceExpiry, observedAt + ttlSeconds * 1000);
+}
+
 async function publishHumanOwnerMaterials(env, snapshot, sourceId) {
   const ownerCandidates = (snapshot.candidates || []).filter(isOwnerDecisionCandidate);
   if (!ownerCandidates.length && !hasRuntimeInstanceStore(env)) return { ok: true, skipped: true };
   if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const expiresAtMs = controlPlaneDecisionExpiryAt(snapshot, controlPlaneStaleTtlSeconds(env));
   const grouped = new Map();
   for (const candidate of ownerCandidates) {
     const list = grouped.get(candidate.candidate_id) || [];
@@ -7706,7 +7861,7 @@ async function publishHumanOwnerMaterials(env, snapshot, sourceId) {
       material_key: materialKey,
       summary_json: JSON.stringify({ candidate_id: subjectId }),
       eligible: list.length === 1 && candidate.freshness?.status === "fresh",
-      expires_at_ms: null,
+      expires_at_ms: expiresAtMs,
       legacy,
     });
   }
@@ -7783,7 +7938,7 @@ async function publishHumanRecoveryMaterials(env, source) {
       material_key: materialKey,
       summary_json: JSON.stringify({ recovery_id: subjectId }),
       eligible: list.length === 1 && recoveryMaterialEligible(recovery, sourceFreshness, evidenceFreshness),
-      expires_at_ms: null,
+      expires_at_ms: reconciliationRecoveryDecisionExpiryAt(recovery, source, ttlSeconds, now),
       legacy,
     });
   }
@@ -7844,7 +7999,7 @@ async function publishHumanPromotionMaterial(env, ticket, existing) {
         review_binding: await researchPromotionReviewBinding(ticket),
       }),
       eligible: true,
-      expires_at_ms: null,
+      expires_at_ms: Date.now() + controlPlaneStaleTtlSeconds(env) * 1000,
       legacy,
     }],
   });
@@ -7957,6 +8112,24 @@ async function exactHumanDecisionResponse(request, env, session, kind) {
 async function readHumanDecisionAuthority(env, kind, subjectId) {
   if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
   return runtimeInstanceCommand(env, { action: `${kind}_read`, actor: `${kind}-decision-read`, subject_id: subjectId });
+}
+
+// A safe projection of durable material authority. It carries only digests and
+// server-side expiry; raw provider payloads and credentials never enter a read model.
+function humanDecisionAuthorityView(authority) {
+  if (!authority || typeof authority !== "object") return null;
+  const materialKey = /^[0-9a-f]{64}$/.test(authority.material_key || "") ? authority.material_key : null;
+  const expiresAt = typeof authority.expires_at === "string" && Number.isFinite(Date.parse(authority.expires_at))
+    ? authority.expires_at
+    : null;
+  return {
+    material_sha256: materialKey,
+    expires_at: expiresAt,
+    eligible: typeof authority.eligible === "boolean" ? authority.eligible : null,
+    blocked: authority.blocked === true,
+    unavailable: authority.migrated === false,
+    source: "durable_human_decision_material",
+  };
 }
 
 function overlayPromotionDecision(ticket, authority) {
@@ -8230,24 +8403,25 @@ async function readOwnerDecisionIntent(env, candidateId, materialKey) {
   try {
     authority = await readHumanDecisionAuthority(env, "owner", candidateId);
   } catch (error) {
-    return { intent: null, error: error.message || "runtime_instances_unavailable" };
+    return { intent: null, authority: null, error: error.message || "runtime_instances_unavailable" };
   }
-  if (authority.blocked) return { intent: null, error: "owner_decision_legacy_blocked" };
+  const authorityView = humanDecisionAuthorityView(authority);
+  if (authority.blocked) return { intent: null, authority: authorityView, error: "owner_decision_legacy_blocked" };
   if (authority.decision && authority.material_key === materialKey && authority.decision.payload?.no_order === true && authority.decision.payload?.execution_authority_granted === false) {
-    return { intent: authority.decision.payload, error: null };
+    return { intent: authority.decision.payload, authority: authorityView, error: null };
   }
   if (authority.migrated === false) {
     try {
       const stored = await readConfigJson(env, ownerDecisionCurrentKey(candidateId));
-      if (!stored) return { intent: null, error: null };
+      if (!stored) return { intent: null, authority: authorityView, error: null };
       const intent = await normalizeOwnerDecisionIntent(stored, ownerDecisionCurrentKey(candidateId));
-      if (materialKey && intent.candidate_evidence_sha256 !== materialKey) return { intent: null, error: null };
-      return { intent, error: null, read_only: true };
+      if (materialKey && intent.candidate_evidence_sha256 !== materialKey) return { intent: null, authority: authorityView, error: null };
+      return { intent, authority: authorityView, error: null, read_only: true };
     } catch {
-      return { intent: null, error: "owner_decision_intent_invalid" };
+      return { intent: null, authority: authorityView, error: "owner_decision_intent_invalid" };
     }
   }
-  return { intent: null, error: null };
+  return { intent: null, authority: authorityView, error: null };
 }
 
 function ownerDecisionArchiveKey(candidateId, decisionSha256) {
@@ -8506,6 +8680,10 @@ async function syncBinanceAccountFactsResponse(request, env) {
       unchanged = incomingTime === previousTime;
     }
     try {
+      const detail = await runtimeInstanceCommand(env, {
+        action: "binance_detail_put", binding, report, date: report.observed_finished_at.slice(0, 10),
+      });
+      if (detail.readback_verified !== true) throw new Error("binance_detail_readback_failed");
       const history = binanceWalletHistoryEntry(report, binding);
       await runtimeInstanceCommand(env, {
         action: "binance_wallet_history_put",
@@ -8526,6 +8704,21 @@ async function syncBinanceAccountFactsResponse(request, env) {
   } catch (error) {
     if (error?.status === 413) return json({ ok: false, error: "binance_account_facts_payload_too_large" }, 413);
     return binanceFactsErrorResponse(error);
+  }
+}
+
+async function binanceDetailArchiveResponse(request, env, url) {
+  const authError = binanceFactsSyncAuthorizationResponse(request, env);
+  if (authError) return authError;
+  try {
+    const binding = await trustedBinanceFactsBinding(env);
+    if (!binding) throw new Error("binding_missing");
+    const result = await runtimeInstanceCommand(env, {
+      action: "binance_detail_read", binding, date: url.searchParams.get("date"),
+    });
+    return json(result, result.report ? 200 : 404);
+  } catch {
+    return json({ ok: false, error: "binance_detail_archive_unavailable" }, 503);
   }
 }
 
@@ -8786,37 +8979,40 @@ async function readReconciliationRecoveryConfirmation(env, recoveryId) {
   try {
     authority = await readHumanDecisionAuthority(env, "recovery", recoveryId);
   } catch (error) {
-    return { confirmation: null, error: error.message || "runtime_instances_unavailable" };
+    return { confirmation: null, rejection: null, authority: null, error: error.message || "runtime_instances_unavailable" };
   }
+  const authorityView = humanDecisionAuthorityView(authority);
   if (authority.migrated === false) {
     try {
       const stored = await readConfigJson(env, reconciliationRecoveryConfirmationCurrentKey(recoveryId));
-      if (!stored) return { confirmation: null, error: null };
+      if (!stored) return { confirmation: null, rejection: null, authority: authorityView, error: null };
       return {
         confirmation: await normalizeReconciliationRecoveryConfirmation(
           stored,
           reconciliationRecoveryConfirmationCurrentKey(recoveryId),
         ),
+        rejection: null,
+        authority: authorityView,
         error: null,
         read_only: true,
       };
     } catch {
-      return { confirmation: null, error: "reconciliation_recovery_confirmation_invalid" };
+      return { confirmation: null, rejection: null, authority: authorityView, error: "reconciliation_recovery_confirmation_invalid" };
     }
   }
-  if (authority.blocked) return { confirmation: null, rejection: null, error: "reconciliation_recovery_legacy_blocked" };
-  if (authority.eligible !== true) return { confirmation: null, rejection: null, error: null };
+  if (authority.blocked) return { confirmation: null, rejection: null, authority: authorityView, error: "reconciliation_recovery_legacy_blocked" };
+  if (authority.eligible !== true) return { confirmation: null, rejection: null, authority: authorityView, error: null };
   if (authority.decision?.action === "reject") {
     const payload = authority.decision.payload;
     if (payload?.decision === "reject" && payload?.no_order === true && payload?.execution_authority_granted === false) {
-      return { confirmation: null, rejection: payload, error: null };
+      return { confirmation: null, rejection: payload, authority: authorityView, error: null };
     }
-    return { confirmation: null, rejection: null, error: null };
+    return { confirmation: null, rejection: null, authority: authorityView, error: null };
   }
   if (authority.decision?.action === "approve" && authority.decision.payload?.no_order === true && authority.decision.payload?.execution_authority_granted === false) {
-    return { confirmation: authority.decision.payload, rejection: null, error: null };
+    return { confirmation: authority.decision.payload, rejection: null, authority: authorityView, error: null };
   }
-  return { confirmation: null, rejection: null, error: null };
+  return { confirmation: null, rejection: null, authority: authorityView, error: null };
 }
 
 async function recordInitialEnrollmentDecision(env, session, requested, recovery) {
@@ -9013,6 +9209,7 @@ async function aggregateReconciliationRecoverySources(env) {
         presentation.label = { zh: "首次登记确认", en: "Initial enrollment" };
         presentation.material_kind = "initial_enrollment";
         recoveries.push({ source_id: source.source_id, freshness, recovery: view, confirmation, rejection, presentation,
+          decision_authority: result.authority || null,
           decision_binding: { kind: "recovery", subject_id: view.recovery_id, material_sha256: await recoveryDecisionMaterialKey(recovery) } });
         continue;
       }
@@ -9028,6 +9225,7 @@ async function aggregateReconciliationRecoverySources(env) {
         : null;
       recoveries.push({ source_id: source.source_id, freshness, recovery, confirmation, rejection,
         presentation: recoveryMaterialPresentation({ source, recovery, confirmation, rejection, decisionError: result.error }),
+        decision_authority: result.authority || null,
         decision_binding: { kind: "recovery", subject_id: recovery.recovery_id, material_sha256: await recoveryDecisionMaterialKey(recovery) },
       });
     }
@@ -12533,6 +12731,10 @@ async function listResearchPromotionTickets(env) {
       const authority = await readHumanDecisionAuthority(env, "promotion", record.ticket_id);
       const ticket = attachPromotionQueueReadMetadata(record, overlayPromotionDecision(record, authority), authority);
       if (ticket.live_authority_granted) continue;
+      if (ticket.state === "awaiting_human") {
+        // Project the same durable observation used by the decision metadata.
+        ticket.decision_authority = humanDecisionAuthorityView(authority);
+      }
       tickets.push(ticket);
     } catch (error) {
       if (error instanceof HttpError && error.status === 503) throw error;
@@ -12635,6 +12837,654 @@ async function researchPromotionTicketsResponse(request, env) {
       notice: "网页只记录晋级人工意图；确认不授予实盘权限，也不下单。",
     },
     errors: invalidTickets.length ? [RESEARCH_PROMOTION_REVIEW_INVALID] : [],
+  });
+}
+
+const DECISION_POLICY = Object.freeze({
+  no_order: true,
+  execution_authority_granted: false,
+  current_evidence_required: true,
+  human_confirmation_required: true,
+  notice: "只记录人工决定意图；不会下单、变更资金或启用实盘。",
+});
+
+function decisionInboxSources() {
+  return {
+    owner: ownerDecisionQueueResponse,
+    promotion: researchPromotionTicketsResponse,
+    recovery: reconciliationRecoveryResponse,
+    credential: (request, env) => credentialMaintenanceResponse(
+      request, env, new URL("/api/credential-maintenance", request.url),
+    ),
+  };
+}
+
+function decodeDecisionApiId(raw) {
+  let id;
+  try {
+    id = decodeURIComponent(String(raw || ""));
+  } catch {
+    return null;
+  }
+  const parts = decisionCategoryPart(id);
+  if (parts) return { id, category: parts.category, subject_id: parts.subject_id };
+  const legacyCredential = /^credential:(.+)$/.exec(id);
+  if (!legacyCredential || legacyCredential[1].length > 256 || /[\u0000-\u001f\u007f]/.test(legacyCredential[1])) return null;
+  return { id, category: "credential_maintenance", subject_id: legacyCredential[1] };
+}
+
+function decodeOperationApiId(raw) {
+  let id;
+  try {
+    id = decodeURIComponent(String(raw || ""));
+  } catch {
+    return null;
+  }
+  const match = /^operation:(owner_decision|strategy_promotion|paper_account_application|reconciliation_recovery|credential_maintenance):(.+)$/.exec(id);
+  if (!match || match[2].length > 256 || /[\u0000-\u001f\u007f]/.test(match[2])) return null;
+  return { id, category: match[1], subject_id: match[2] };
+}
+
+const DECISION_SOURCE_BY_CATEGORY = Object.freeze({
+  owner_decision: "owner",
+  strategy_promotion: "promotion",
+  paper_account_application: "promotion",
+  reconciliation_recovery: "recovery",
+  credential_maintenance: "credential",
+});
+
+/**
+ * Absence is only proven when the owning source was read. A failed or
+ * unavailable source stays a 503 so a missing id never masks a broken read.
+ */
+function decisionSourceUnreadable(queue, category) {
+  const name = DECISION_SOURCE_BY_CATEGORY[category];
+  const source = (queue?.sources || []).find((entry) => entry.source === name);
+  if (!source) return true;
+  return ["read_failed", "unavailable"].includes(source.status);
+}
+
+// The durable record keeps the operation id in its request key. The id names the
+// recorded intent; a legacy fingerprint key carries no client operation id.
+function recordedDecisionOperationId(record) {
+  const match = /^id:(?:owner|promotion|recovery):(.+)$/.exec(
+    typeof record?.request_key === "string" ? record.request_key : "",
+  );
+  return match ? match[1] : null;
+}
+
+// The recorded intent's canonical target: accepted selection for promotion, action elsewhere.
+function decisionIntentTargetJson(category, action, selection) {
+  if (category === "strategy_promotion" || category === "paper_account_application") {
+    const accepted = action === "accept" ? selection : null;
+    return canonicalResearchTaskJson({
+      selected_account: accepted?.selected_account ?? null,
+      confirmation: accepted?.confirmation ?? null,
+    });
+  }
+  return canonicalResearchTaskJson({ decision: action });
+}
+
+// A terminal item synthesized from the durable record. It keeps the original
+// decision id resolvable after the pending projection drops or recategorizes it.
+function durableDecisionItem(record, parsed, kind, aliasItem = null) {
+  const material = /^[0-9a-f]{64}$/.test(record.material_key || "") ? record.material_key : null;
+  const reviewSha = /^[0-9a-f]{64}$/.test(record.payload?.review_binding?.review_sha256 || "")
+    ? record.payload.review_binding.review_sha256 : null;
+  const binding = {
+    kind,
+    subject_id: record.subject_id,
+    material_sha256: material,
+    ...(reviewSha ? { review_binding: { schema_version: "qsl_promotion_review_binding.v2", review_sha256: reviewSha } } : {}),
+  };
+  return {
+    id: parsed.id,
+    short_id: shortId(parsed.id),
+    decision_id: parsed.id,
+    category: parsed.category,
+    title_key: `decisions.${parsed.category}`,
+    revision: decisionRevision(binding, parsed.id),
+    actionable: false,
+    blocking_reason_codes: ["decision_already_decided"],
+    allowed_actions: [],
+    request_id_required: false,
+    action_endpoint: null,
+    decision_state: {
+      status: "decided",
+      action: record.action,
+      decided_at: typeof record.decided_at === "string" ? record.decided_at : null,
+    },
+    decision_binding: binding,
+    operation_reference: aliasItem?.operation_reference
+      || decisionOperationReference({}, parsed.category, parsed.subject_id),
+    source: "durable_human_decision_record",
+  };
+}
+
+async function loadDecisionById(request, env, parsed) {
+  // Detail and action routes address one decision by id. Reading the unpaged
+  // projection keeps them independent of the presentation page a client last saw.
+  const queue = await inbox(request, env, decisionInboxSources(), { paginate: false });
+  const item = queue.items.find((entry) => entry.id === parsed.id) || null;
+  if (item) return { queue, item, authorityRaw: undefined };
+  // A terminal record outlives the pending projection: accepted paper tickets are
+  // recategorized and rejected tickets leave the queue, so resolve them durably.
+  const kind = decisionKind(parsed.category);
+  if (!kind || !hasRuntimeInstanceStore(env)) return { queue, item: null, authorityRaw: undefined };
+  let authorityRaw;
+  try {
+    authorityRaw = await readHumanDecisionAuthority(env, kind, parsed.subject_id);
+  } catch {
+    throw new HttpError("decision_authority_unavailable", 503);
+  }
+  const record = authorityRaw?.migrated === false ? null : authorityRaw?.decision;
+  if (!record || record.kind !== kind || record.subject_id !== parsed.subject_id)
+    return { queue, item: null, authorityRaw };
+  const alias = queue.items.find((entry) => entry.decision_binding?.subject_id === parsed.subject_id
+    && entry.decision_binding?.kind === kind);
+  return { queue, item: durableDecisionItem(record, parsed, kind, alias || null), authorityRaw };
+}
+
+async function readDecisionAuthorityOrNull(env, kind, subjectId) {
+  if (!kind) return null;
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  return readHumanDecisionAuthority(env, kind, subjectId);
+}
+
+async function decisionReviewResponse(request, env, rawId) {
+  if (request.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required", error_state: "unauthorized" }, 401);
+  const parsed = decodeDecisionApiId(rawId);
+  if (!parsed) return json({ ok: false, error: "decision_id_invalid" }, 400);
+  const { queue, item, authorityRaw: loadedAuthority } = await loadDecisionById(request, env, parsed);
+  if (!item) {
+    if (decisionSourceUnreadable(queue, parsed.category))
+      return json({ ok: false, error: "decision_source_unavailable", error_state: queue.error_state || null }, 503);
+    return json({ ok: false, error: "decision_not_found" }, 404);
+  }
+  const kind = decisionKind(parsed.category);
+  let authorityRaw;
+  try {
+    authorityRaw = loadedAuthority !== undefined
+      ? loadedAuthority
+      : await readDecisionAuthorityOrNull(env, kind, parsed.subject_id);
+  } catch {
+    return json({ ok: false, error: "decision_authority_unavailable" }, 503);
+  }
+  const authority = authorityRaw ? humanDecisionAuthorityView(authorityRaw) : null;
+  const now = Date.now();
+  let receipt = null;
+  const errors = [];
+  if (authorityRaw?.decision) {
+    try {
+      receipt = await humanDecisionReceipt(authorityRaw.decision, {
+        kind,
+        subject_id: parsed.subject_id,
+        material_sha256: authorityRaw.decision.material_key,
+      });
+    } catch {
+      errors.push("decision_receipt_unavailable");
+    }
+  }
+  if (authorityRaw?.migrated === false) errors.push("decision_authority_unavailable");
+  if (queue.status !== "ok") errors.push("decision_source_partial");
+  return json({
+    schema_version: DECISION_REVIEW_SCHEMA_VERSION,
+    server_time: new Date(now).toISOString(),
+    data_status: errors.length ? "partial" : "ready",
+    decision_id: item.id,
+    decision: item,
+    current_eligibility: decisionCurrentEligibility(item, authority, now),
+    decision_authority: authority,
+    decision_receipt: receipt,
+    operation: item.operation_reference,
+    policy: DECISION_POLICY,
+    tier_policies: riskTierPolicyCatalog(),
+    errors: [...new Set(errors)],
+  });
+}
+
+function decisionSelection(raw) {
+  const selection = raw?.selection;
+  if (!selection || Array.isArray(selection) || typeof selection !== "object") return null;
+  return {
+    confirmation: selection.confirmation && typeof selection.confirmation === "object" && !Array.isArray(selection.confirmation)
+      ? selection.confirmation : null,
+    selected_account: selection.selected_account && typeof selection.selected_account === "object" && !Array.isArray(selection.selected_account)
+      ? selection.selected_account : null,
+  };
+}
+
+async function decisionActionResponse(request, env, rawId) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required", error_state: "unauthorized" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  const parsed = decodeDecisionApiId(rawId);
+  if (!parsed) return json({ ok: false, error: "decision_id_invalid" }, 400);
+  const supported = DECISION_ACTIONS[parsed.category] || [];
+  const kind = decisionKind(parsed.category);
+  if (!kind || !supported.length) return json({ ok: false, error: "decision_not_actionable" }, 409);
+
+  let raw;
+  try {
+    raw = await readBoundedJson(request, DECISION_ACTION_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid decision action" }, error.status || 400);
+  }
+  if (!raw || Array.isArray(raw) || typeof raw !== "object")
+    return json({ ok: false, error: "decision_action_request_invalid" }, 400);
+  if (Object.keys(raw).some((key) => !["action", "expected_revision", "expected_expires_at", "request_id", "operation_id", "selection"].includes(key)))
+    return json({ ok: false, error: "decision_action_request_invalid" }, 400);
+  const action = typeof raw.action === "string" ? raw.action.trim() : "";
+  if (!supported.includes(action))
+    return json({ ok: false, error: "decision_action_invalid" }, 400);
+  if (typeof raw.expected_revision !== "string" || !/^rev[0-9]-[0-9a-z-]{1,64}$/.test(raw.expected_revision))
+    return json({ ok: false, error: "decision_revision_required" }, 400);
+  const requestId = typeof raw.request_id === "string" ? raw.request_id.trim() : "";
+  // The operation id names the intent. It is the durable idempotency key, so a
+  // retry with the same id replays and a new intent needs a new id.
+  const operationId = decisionOperationId(raw);
+  if (!operationId) {
+    if (requestId && !/^[A-Za-z0-9._:-]{1,128}$/.test(requestId))
+      return json({ ok: false, error: "invalid request_id" }, 400);
+    return json({ ok: false, error: "decision_operation_id_invalid" }, 400);
+  }
+  const operationSha256 = await decisionOperationSha256(parsed.id, raw);
+  const selection = decisionSelection(raw);
+  if ((parsed.category === "strategy_promotion" || parsed.category === "paper_account_application")
+    && action === "accept" && (!selection?.confirmation || !selection?.selected_account))
+    return json({ ok: false, error: "decision_selection_required" }, 400);
+
+  const { queue, item } = await loadDecisionById(request, env, parsed);
+  if (!item) {
+    if (decisionSourceUnreadable(queue, parsed.category))
+      return json({ ok: false, error: "decision_source_unavailable", error_state: queue.error_state || null }, 503);
+    return json({ ok: false, error: "decision_not_found" }, 404);
+  }
+  const now = Date.now();
+  const serverTime = new Date(now).toISOString();
+  let authorityRaw;
+  try {
+    authorityRaw = await readHumanDecisionAuthority(env, kind, parsed.subject_id);
+  } catch {
+    return json({ ok: false, error: "decision_authority_unavailable", server_time: serverTime }, 503);
+  }
+  const authority = humanDecisionAuthorityView(authorityRaw);
+  const materialKey = item.decision_binding?.material_sha256 || null;
+  const existing = authorityRaw?.decision;
+  if (existing && materialKey && existing.material_key === materialKey) {
+    // The durable request key keeps the operation id that produced the record.
+    const recordedOperationId = recordedDecisionOperationId(existing);
+    // A retry replays only when the recorded operation id and the complete
+    // canonical intent match. Any other intent on the same material conflicts,
+    // whether it reuses the id or presents a new one with the same action.
+    let recordedTarget = null;
+    try {
+      recordedTarget = canonicalResearchTaskJson(JSON.parse(existing.target_json || "{}"));
+    } catch {
+      recordedTarget = null;
+    }
+    const intentMatches = recordedOperationId !== null && recordedOperationId === operationId
+      && recordedTarget !== null
+      && recordedTarget === decisionIntentTargetJson(parsed.category, action, selection);
+    if (existing.kind !== kind || existing.subject_id !== parsed.subject_id || existing.action !== action
+      || !intentMatches) {
+      return json({
+        ok: false,
+        error: "decision_operation_conflict",
+        decision_id: item.id,
+        operation_id: operationId,
+        recorded_operation_id: recordedOperationId,
+        server_time: serverTime,
+      }, 409);
+    }
+    const receipt = await humanDecisionReceipt(existing, {
+      kind, subject_id: parsed.subject_id, material_sha256: materialKey,
+    });
+    return json({
+      schema_version: DECISION_ACTION_SCHEMA_VERSION,
+      ok: true,
+      replayed: true,
+      decision_id: item.id,
+      revision: item.revision,
+      action,
+      operation_id: operationId,
+      operation_sha256: operationSha256,
+      decision_receipt: receipt,
+      decided_at: existing.decided_at,
+      decision_state: { status: "decided", action, decided_at: existing.decided_at },
+      operation: item.operation_reference,
+      policy: DECISION_POLICY,
+      server_time: serverTime,
+    });
+  }
+  if (raw.expected_revision !== item.revision)
+    return json({ ok: false, error: "decision_revision_conflict", decision_id: item.id, server_time: serverTime }, 409);
+  if (raw.expected_expires_at !== undefined && raw.expected_expires_at !== item.expires_at)
+    return json({ ok: false, error: "decision_expiry_changed", decision_id: item.id, server_time: serverTime }, 409);
+  if (decisionExpiryState(item.expires_at, now) !== "active")
+    return json({ ok: false, error: "decision_expired", decision_id: item.id, server_time: serverTime }, 409);
+  if (decisionExpiryState(authority?.expires_at, now) !== "active")
+    return json({ ok: false, error: "decision_expired", decision_id: item.id, server_time: serverTime }, 409);
+  if (authority?.blocked === true)
+    return json({ ok: false, error: "decision_legacy_blocked", decision_id: item.id, server_time: serverTime }, 409);
+  if (authority?.eligible === false)
+    return json({ ok: false, error: "decision_material_ineligible", decision_id: item.id, server_time: serverTime }, 409);
+  if (item.actionable !== true)
+    return json({
+      ok: false, error: "decision_not_actionable", decision_id: item.id,
+      blocking_reason_codes: item.blocking_reason_codes || [], server_time: serverTime,
+    }, 409);
+  if (!(item.allowed_actions || []).some((entry) => entry.action === action))
+    return json({ ok: false, error: "decision_action_not_allowed", decision_id: item.id, server_time: serverTime }, 409);
+  if (!materialKey)
+    return json({ ok: false, error: "decision_evidence_unavailable", decision_id: item.id, server_time: serverTime }, 409);
+
+  let targetPath;
+  let innerBody;
+  if (parsed.category === "owner_decision") {
+    targetPath = "/api/owner-decisions";
+    innerBody = {
+      candidate_id: parsed.subject_id,
+      decision: action,
+      candidate_evidence_sha256: materialKey,
+      request_id: operationId,
+    };
+  } else if (parsed.category === "reconciliation_recovery") {
+    targetPath = "/api/reconciliation-recovery-confirmations";
+    if (item.initial_enrollment) {
+      innerBody = {
+        mode: "initial_enrollment",
+        recovery_id: parsed.subject_id,
+        candidate_sha256: item.initial_enrollment.candidate_sha256,
+        facts_sha256: item.initial_enrollment.facts_sha256,
+        decision: action,
+        request_id: operationId,
+      };
+    } else {
+      innerBody = {
+        recovery_id: parsed.subject_id,
+        candidate_sha256: item.evidence_summary?.candidate_sha256,
+        dual_review_binding_sha256: item.evidence_summary?.dual_review_binding_sha256,
+        decision: action,
+        request_id: operationId,
+      };
+    }
+  } else {
+    targetPath = "/api/research-promotion-decisions";
+    let ticket;
+    try {
+      ticket = await loadStoredResearchPromotionTicket(env, parsed.subject_id);
+    } catch (error) {
+      return json({
+        ok: false, error: error.message || "research promotion ticket unavailable",
+        decision_id: item.id, server_time: serverTime,
+      }, error.status || 503);
+    }
+    innerBody = {
+      ticket_id: parsed.subject_id,
+      decision: action,
+      expected_proposed_params: ticket.proposed_params,
+      expected_material_sha256: materialKey,
+      ...(item.decision_binding?.review_binding?.review_sha256
+        ? { expected_review_sha256: item.decision_binding.review_binding.review_sha256 } : {}),
+      ...(action === "accept" && selection ? {
+        confirmation: selection.confirmation,
+        selected_account: selection.selected_account,
+      } : {}),
+      request_id: operationId,
+    };
+  }
+
+  const innerResponse = await ({
+    "/api/owner-decisions": recordOwnerDecisionResponse,
+    "/api/reconciliation-recovery-confirmations": recordReconciliationRecoveryConfirmationResponse,
+    "/api/research-promotion-decisions": recordResearchPromotionDecisionResponse,
+  })[targetPath](new Request(new URL(targetPath, request.url), {
+    method: "POST",
+    headers: new Headers(request.headers),
+    body: JSON.stringify(innerBody),
+  }), env);
+  let payload = null;
+  try {
+    payload = await innerResponse.json();
+  } catch {
+    payload = null;
+  }
+  if (!innerResponse.ok || payload?.ok !== true) {
+    return json({
+      ...(payload && typeof payload === "object" ? payload : { ok: false, error: "decision_action_unavailable" }),
+      schema_version: DECISION_ACTION_SCHEMA_VERSION,
+      decision_id: item.id,
+      action,
+      server_time: serverTime,
+    }, innerResponse.status || 503);
+  }
+  const decidedAt = payload.intent?.decided_at
+    || payload.confirmation?.confirmed_at
+    || payload.ticket?.human_decided_at
+    || null;
+  return json({
+    schema_version: DECISION_ACTION_SCHEMA_VERSION,
+    ok: true,
+    replayed: payload.replayed === true,
+    decision_id: item.id,
+    revision: item.revision,
+    action,
+    operation_id: operationId,
+    operation_sha256: operationSha256,
+    decision_receipt: payload.decision_receipt || null,
+    decided_at: decidedAt,
+    decision_state: { status: "decided", action, decided_at: decidedAt },
+    operation: item.operation_reference,
+    policy: DECISION_POLICY,
+    server_time: serverTime,
+  });
+}
+
+function operationDecisionStatus(category, decision, application) {
+  const promoted = category === "strategy_promotion" || category === "paper_account_application";
+  if (promoted && application) {
+    return { status: operationStatusFromApplication(application), reason_code: application.reason_code || null };
+  }
+  if (!decision) return { status: "unaccepted", reason_code: "decision_pending" };
+  // The operation records the human decision; it never implies activation.
+  if (promoted) return decision.action === "accept"
+    ? { status: "accepted", reason_code: "application_not_created" }
+    : { status: "failed", reason_code: "decision_rejected" };
+  return { status: "accepted", reason_code: "operation_not_connected" };
+}
+
+async function operationResponse(request, env, rawId) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required", error_state: "unauthorized" }, 401);
+  const parsed = decodeOperationApiId(rawId);
+  if (!parsed) return json({ ok: false, error: "operation_not_found" }, 404);
+  const now = Date.now();
+  const serverTime = new Date(now).toISOString();
+  const kind = decisionKind(parsed.category);
+  if (kind && !hasRuntimeInstanceStore(env))
+    return json({ ok: false, error: "runtime_instances_not_bound", server_time: serverTime }, 503);
+
+  let authorityRaw = null;
+  let ticket = null;
+  if (kind) {
+    try {
+      if (parsed.category === "strategy_promotion" || parsed.category === "paper_account_application") {
+        ticket = await loadStoredResearchPromotionTicket(env, parsed.subject_id);
+      }
+      authorityRaw = await readHumanDecisionAuthority(env, kind, parsed.subject_id);
+    } catch (error) {
+      return json({
+        ok: false, error: error.message || "operation_unavailable",
+        operation_id: parsed.id, server_time: serverTime,
+      }, error.status || 503);
+    }
+  }
+  let application = null;
+  if (kind === "promotion") {
+    try {
+      const stored = await runtimeInstanceCommand(env, {
+        action: "application_latest", actor: session.login, ticket_id: parsed.subject_id,
+      });
+      application = stored.application || null;
+    } catch {
+      return json({ ok: false, error: "operation_unavailable", operation_id: parsed.id, server_time: serverTime }, 503);
+    }
+  }
+  const decision = authorityRaw?.decision || null;
+  const status = operationDecisionStatus(parsed.category, decision, application);
+  const publicApplication = application ? publicResearchPromotionApplication(application) : null;
+  return json({
+    schema_version: OPERATION_SCHEMA_VERSION,
+    server_time: serverTime,
+    data_status: "ready",
+    operation: {
+      id: parsed.id,
+      decision_id: `${parsed.category}:${parsed.subject_id}`,
+      kind: kind || parsed.category,
+      subject_id: parsed.subject_id,
+      status: status.status,
+      reason_code: status.reason_code,
+      activation_status: "not_connected",
+      updated_at: publicApplication?.updated_at || decision?.decided_at || ticket?.updated_at || null,
+      dispatch: publicApplication ? {
+        status: publicApplication.dispatch_state || "unknown",
+        workflow_run_id: publicApplication.workflow_run_id || null,
+        updated_at: publicApplication.updated_at || null,
+      } : null,
+      application: publicApplication,
+    },
+    decision: decision ? {
+      material_sha256: /^[0-9a-f]{64}$/.test(decision.material_key || "") ? decision.material_key : null,
+      action: decision.action,
+      decided_at: decision.decided_at,
+    } : null,
+    policy: DECISION_POLICY,
+    errors: [],
+  });
+}
+
+// Event type by normalized projection source. Comparing the normalized source
+// keeps a promotion application from being reported as an account-settings approval.
+function auditEventAction(source, kind) {
+  if (source === "durable_human_decision") return `record_${kind}_decision`;
+  if (source === "research_promotion_application") return "research_promotion_application";
+  if (source === "account_settings_application") return "account_settings_approval";
+  return null;
+}
+
+function auditEventSubjectId(row) {
+  if (typeof row.ticket_id === "string" && row.ticket_id) return { kind: "strategy_promotion", id: row.ticket_id };
+  if (typeof row.recovery_id === "string" && row.recovery_id) return { kind: "reconciliation_recovery", id: row.recovery_id };
+  if (typeof row.candidate_id === "string" && row.candidate_id) return { kind: "owner_decision", id: row.candidate_id };
+  if (typeof row.platform === "string" && typeof row.key === "string") return { kind: "account_settings", id: `${row.platform}:${row.key}` };
+  return null;
+}
+
+async function auditEventsResponse(request, env, url) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required", error_state: "unauthorized" }, 401);
+  let page;
+  try {
+    page = pageQuery(url);
+  } catch {
+    return json({ ok: false, error: "invalid_pagination" }, 400);
+  }
+  const now = Date.now();
+  const serverTime = new Date(now).toISOString();
+  if (!hasRuntimeInstanceStore(env))
+    return json({ ok: false, error: "runtime_instances_not_bound", server_time: serverTime }, 503);
+  let rows;
+  try {
+    const result = await runtimeInstanceCommand(env, {
+      action: "console_audit_events", actor: session.login, limit: AUDIT_EVENTS_MAX_ROWS,
+    });
+    rows = Array.isArray(result.rows) ? result.rows : [];
+  } catch {
+    return json({ ok: false, error: "audit_projection_unavailable", server_time: serverTime }, 503);
+  }
+  const events = [];
+  for (const row of rows) {
+    const occurredAt = typeof row.occurred_at === "string" && Number.isFinite(Date.parse(row.occurred_at))
+      ? row.occurred_at : null;
+    if (!occurredAt) continue;
+    const source = row.source === "decision" ? "durable_human_decision"
+      : row.source === "promotion_application" ? "research_promotion_application"
+        : row.source === "account_settings_application" ? "account_settings_application"
+          : null;
+    if (!source) continue;
+    const subject = source === "durable_human_decision"
+      ? { kind: `${row.kind}_decision`, id: row.subject_id }
+      : source === "research_promotion_application"
+        ? { kind: "strategy_promotion", id: row.subject_id }
+        : { kind: "account_settings", id: row.subject_id };
+    if (!subject.id || subject.id.length > 256) continue;
+    const revision = /^[0-9a-f]{64}$/.test(row.revision || "") ? row.revision : null;
+    events.push({
+      id: `${source}:${row.ref}`,
+      source,
+      occurred_at: occurredAt,
+      action: auditEventAction(source, row.kind),
+      actor_alias: await actorAlias(row.actor || null),
+      subject,
+      revision,
+      outcome: typeof row.status === "string" && row.status.length <= 40 ? row.status : null,
+      ref: source === "durable_human_decision"
+        ? `/api/decisions/${encodeURIComponent(`${row.kind === "promotion" ? "strategy_promotion" : row.kind === "owner" ? "owner_decision" : "reconciliation_recovery"}:${row.subject_id}`)}`
+        : source === "research_promotion_application"
+          ? `/api/operations/${encodeURIComponent(`operation:strategy_promotion:${row.subject_id}`)}`
+          : null,
+    });
+  }
+  let dataStatus = "ready";
+  const errors = [];
+  try {
+    const log = await loadAuditLog(env);
+    const aliases = await Promise.all(log.map((row) =>
+      actorAlias(typeof row?.login === "string" ? row.login : null)));
+    log.forEach((row, index) => {
+      if (!row || typeof row !== "object") return;
+      const occurredAt = typeof row.ts === "string" && Number.isFinite(Date.parse(row.ts)) ? row.ts : null;
+      const action = typeof row.action === "string" && row.action.length <= 64 ? row.action : null;
+      if (!occurredAt || !action) return;
+      const subject = auditEventSubjectId(row);
+      events.push({
+        id: `bounded_audit_log:${occurredAt}:${action}:${subject?.id || index}`,
+        source: "bounded_audit_log",
+        occurred_at: occurredAt,
+        action,
+        actor_alias: aliases[index] || null,
+        subject,
+        revision: null,
+        outcome: "recorded",
+        ref: null,
+      });
+    });
+  } catch {
+    dataStatus = "partial";
+    errors.push("audit_log_unavailable");
+  }
+  const seen = new Set();
+  const unique = events
+    .filter((event) => {
+      if (seen.has(event.id)) return false;
+      seen.add(event.id);
+      return true;
+    })
+    .sort((left, right) => right.occurred_at.localeCompare(left.occurred_at) || left.id.localeCompare(right.id));
+  const pageEvents = unique.slice(page.offset, page.offset + page.limit);
+  return json({
+    schema_version: AUDIT_EVENTS_SCHEMA_VERSION,
+    server_time: serverTime,
+    data_status: dataStatus,
+    events: pageEvents,
+    next_cursor: unique.length > page.offset + page.limit ? String(page.offset + page.limit) : null,
+    coverage: "durable_human_decisions_and_application_records_and_bounded_audit_log",
+    policy: DECISION_POLICY,
+    errors,
   });
 }
 
@@ -17647,7 +18497,15 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  auditEventAction,
   effectiveAccountSettings,
+  writeCurrentStrategiesCache,
+  readCurrentStrategiesCacheEntry,
+  isConfigJsonParseError,
+  currentStrategiesSignature,
+  isDegradedCurrentStrategies,
+  currentStrategiesKvBumpMs: CURRENT_STRATEGIES_KV_BUMP_MS,
+  currentStrategiesKvFreshMs: CURRENT_STRATEGIES_KV_FRESH_MS,
   dispatchAccountDiagnosis,
   humanDecisionReceipt,
   researchPromotionMaterialKey,

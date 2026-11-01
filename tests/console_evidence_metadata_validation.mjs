@@ -129,6 +129,17 @@ assert.equal(JSON.stringify(queue).includes("never-public"), false);
 assert.equal(fixture.commands.filter(command => command?.action === "promotion_read").length, 1, "the existing authority observation is reused exactly once");
 assert.equal(fixture.reads.filter(name => name === `research_promotion_ticket:${ticket.ticket_id}`).length, 1);
 assert.equal(fixture.writes(), 0);
+const materialKey = "a".repeat(64);
+const expiresAt = "2026-11-02T00:00:00Z";
+const authorityFixture = readFixture({ migrated: true, eligible: true, blocked: false, material_key: materialKey, expires_at: expiresAt, decision: null });
+const authorityQueue = await (await queueRead(authorityFixture, "synthetic-reader")).json();
+assert.deepEqual(authorityQueue.tickets[0].decision_authority, {
+  material_sha256: materialKey, expires_at: expiresAt, eligible: true, blocked: false,
+  unavailable: false, source: "durable_human_decision_material",
+}, "the public authority view retains the original durable observation");
+assert.deepEqual(authorityQueue.applications[0].decision_authority, authorityQueue.tickets[0].decision_authority);
+assert.equal(authorityFixture.commands.filter(command => command?.action === "promotion_read").length, 1);
+assert.equal(authorityFixture.writes(), 0);
 for (const login of [null, "synthetic-denied"]) {
   const denied = readFixture({ migrated: true, eligible: true, blocked: false });
   assert.equal((await queueRead(denied, login)).status, 401);
