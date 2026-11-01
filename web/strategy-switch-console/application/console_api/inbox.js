@@ -38,8 +38,13 @@ export function inboxPage(url) {
   return { limit, offset };
 }
 
-export async function inbox(request, env, deps) {
-  const { limit, offset } = inboxPage(new URL(request.url));
+/**
+ * Read the inbox projection. List routes take one bounded page; by-id detail
+ * and action lookups pass `paginate: false` because a decision id is not
+ * guaranteed to be on the first page.
+ */
+export async function inbox(request, env, deps, { paginate = true } = {}) {
+  const page = paginate ? inboxPage(new URL(request.url)) : null;
   const definitions = [
     ["owner", "owner_decision", "candidates"],
     ["promotion", "strategy_promotion", "tickets"],
@@ -115,7 +120,7 @@ export async function inbox(request, env, deps) {
       (a.created_at || "").localeCompare(b.created_at || "") ||
       String(a.id ?? "").localeCompare(String(b.id ?? "")),
   );
-  const items = ordered.slice(offset, offset + limit);
+  const items = page ? ordered.slice(page.offset, page.offset + page.limit) : ordered;
   return {
     schema_version: "qsl.decision_inbox.v1",
     server_time: new Date().toISOString(),
@@ -131,7 +136,7 @@ export async function inbox(request, env, deps) {
       ...(failure_reason ? { failure_reason, error_state } : {}) })),
     items,
     next_cursor:
-      ordered.length > offset + limit ? inboxCursor(offset + limit) : null,
+      page && ordered.length > page.offset + page.limit ? inboxCursor(page.offset + page.limit) : null,
     coverage: "existing_decision_sources",
     tier_policies: riskTierPolicyCatalog(),
     no_order: true,

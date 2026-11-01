@@ -7,6 +7,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { __test } from "./helpers/directory_worker.mjs";
 import { validate } from "./console_api_contract_validation.mjs";
+import { decisionOperationSha256 } from "../web/strategy-switch-console/application/console_api/decision_contract.js";
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
@@ -30,6 +31,35 @@ const bindings = {
   STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: JSON.stringify(profiles),
 };
 const adminCookie = `qsl_switch_session=${await __test.makeSession("cockpit-admin", [], bindings)}`;
+
+// The operation digest binds the selected account and execution mode. Two
+// selections that only differ in account or paper/live must not share a digest.
+const selectionDigest = (selection) => decisionOperationSha256("strategy_promotion:cockpit-digest", { action: "accept", selection });
+const liveSelection = {
+  confirmation: { target_platform: "longbridge", execution_mode: "live", risk_profile: "CAPITAL_PRESERVATION" },
+  selected_account: { platform: "longbridge", key: "paper" },
+};
+const paperSelection = {
+  confirmation: { target_platform: "longbridge", execution_mode: "paper", risk_profile: "CAPITAL_PRESERVATION" },
+  selected_account: { platform: "longbridge", key: "paper" },
+};
+const otherAccountSelection = {
+  confirmation: { target_platform: "longbridge", execution_mode: "live", risk_profile: "CAPITAL_PRESERVATION" },
+  selected_account: { platform: "longbridge", key: "live" },
+};
+const liveDigest = await selectionDigest(liveSelection);
+assert.match(liveDigest, /^[0-9a-f]{64}$/);
+assert.notEqual(await selectionDigest(paperSelection), liveDigest, "paper and live must not share an operation digest");
+assert.notEqual(await selectionDigest(otherAccountSelection), liveDigest, "different accounts must not share an operation digest");
+assert.equal(
+  await selectionDigest({
+    selected_account: { key: "paper", platform: "longbridge" },
+    confirmation: { risk_profile: "CAPITAL_PRESERVATION", execution_mode: "live", target_platform: "longbridge" },
+  }),
+  liveDigest,
+  "the digest must not depend on property order",
+);
+
 const options = {
   cf: false,
   modules: true,
@@ -361,6 +391,31 @@ assert.deepEqual(
 assert.equal((await call("/api/decisions-inbox?limit=0")).status, 400);
 assert.equal((await call("/api/decisions-inbox?limit=101")).status, 400);
 assert.equal((await call("/api/decisions-inbox?cursor=not-a-cursor!")).status, 400);
+
+// By-id detail and action lookups address the unpaged projection, so a decision
+// that falls beyond the default first page is still reviewable and actionable.
+const bulkIds = Array.from({ length: 26 }, (_, index) => `cockpit-bulk-${String(index + 1).padStart(2, "0")}`);
+const bulkBase = ownerSnapshot(bulkIds[0]);
+const bulkSnapshot = {
+  ...bulkBase,
+  summary: { ...bulkBase.summary, candidate_count: bulkIds.length, owner_decision_required: bulkIds.length },
+  candidates: bulkIds.map((candidateId) => ({ ...bulkBase.candidates[0], candidate_id: candidateId })),
+};
+assert.equal((await syncControl(bulkSnapshot)).status, 200);
+const beyondId = `owner_decision:${bulkIds[bulkIds.length - 1]}`;
+const defaultPage = await call("/api/decisions-inbox");
+assert.equal(defaultPage.body.items.length, 25);
+assert.ok(!defaultPage.body.items.some((item) => item.id === beyondId), "the fixture decision is beyond the default page");
+const unpagedInbox = await call("/api/decisions-inbox?limit=100");
+assert.ok(unpagedInbox.body.items.some((item) => item.id === beyondId), "the fixture decision exists in the full projection");
+const beyondReview = await call(`/api/decisions/${encodeURIComponent(beyondId)}`);
+assert.equal(beyondReview.status, 200);
+assert.equal(beyondReview.body.decision_id, beyondId);
+const beyondAction = await call(`/api/decisions/${encodeURIComponent(beyondId)}/actions`, { method: "POST", body: {
+  action: "keep_parked", expected_revision: "rev0-00000000", operation_id: "cockpit-bulk-operation",
+} });
+assert.equal(beyondAction.status, 409, "the action route reaches revision validation instead of reporting a missing decision");
+assert.equal(beyondAction.body.error, "decision_revision_conflict");
 
 await mf.dispose();
 console.log("decision_cockpit_api_validation: PASS");

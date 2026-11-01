@@ -12806,7 +12806,9 @@ function decisionSourceUnreadable(queue, category) {
 }
 
 async function loadDecisionFromInbox(request, env, id) {
-  const queue = await inbox(request, env, decisionInboxSources());
+  // Detail and action routes address one decision by id. Reading the unpaged
+  // projection keeps them independent of the presentation page a client last saw.
+  const queue = await inbox(request, env, decisionInboxSources(), { paginate: false });
   return { queue, item: queue.items.find((item) => item.id === id) || null };
 }
 

@@ -249,13 +249,36 @@ export function decisionOperationId(body) {
   return DECISION_OPERATION_ID_PATTERN.test(id) ? id : null;
 }
 
+/**
+ * The durable record binds exactly these selection fields. The operation digest
+ * serialises the same projection so an account or paper/live switch always
+ * changes the intent identity instead of collapsing to "[object Object]".
+ */
+const SELECTION_CANONICAL_FIELDS = Object.freeze({
+  confirmation: Object.freeze(["target_platform", "execution_mode", "risk_profile"]),
+  selected_account: Object.freeze(["platform", "key"]),
+});
+
+function canonicalSelectionPart(value, fields) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return fields.map((field) => (typeof value[field] === "string" ? value[field] : null));
+}
+
+function canonicalSelection(selection) {
+  if (!selection || typeof selection !== "object" || Array.isArray(selection)) return null;
+  // Fixed key order: the digest must not depend on property insertion order.
+  return {
+    confirmation: canonicalSelectionPart(selection.confirmation, SELECTION_CANONICAL_FIELDS.confirmation),
+    selected_account: canonicalSelectionPart(selection.selected_account, SELECTION_CANONICAL_FIELDS.selected_account),
+  };
+}
+
 /** Digest of the action intent, so a reused operation id is told apart from a retry. */
 export async function decisionOperationSha256(decisionId, body) {
-  const selection = body?.selection && typeof body.selection === "object" ? body.selection : null;
   const canonical = JSON.stringify([
     String(decisionId || ""),
     String(body?.action || ""),
-    selection ? [String(selection.confirmation || ""), String(selection.selected_account || "")] : null,
+    canonicalSelection(body?.selection),
   ]);
   const bytes = new Uint8Array(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)),
