@@ -86,7 +86,11 @@ export function translate(
   const tables = language === "zh" ? [zh, enMessages] : [enMessages, zh];
   const namespaceFallback = (candidate: string): string | undefined =>
     NAMESPACE_FALLBACKS.find(([prefix]) => candidate.startsWith(prefix))?.[1];
-  const candidates: string[] = [key];
+  // Count-gated plurals resolve through `.one`/`.other` siblings before the base key.
+  const plural = typeof params.count === "number" ? (params.count === 1 ? "one" : "other") : null;
+  const candidates: string[] = [];
+  if (plural) candidates.push(`${key}.${plural}`);
+  candidates.push(key);
   if (fallbackKey) candidates.push(fallbackKey);
   for (const candidate of [key, fallbackKey]) {
     if (!candidate) continue;
