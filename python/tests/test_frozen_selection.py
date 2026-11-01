@@ -21,15 +21,11 @@ runtime = load('runtime_settings')
 class FrozenSelectionTest(unittest.TestCase):
     def test_full_target_validation_rejects_retired_profile_spellings(self):
         cases = (
-            ('examples/targets/ibkr/us_combo.example.json', 'global_etf_rotation'),
             ('python/tests/fixtures/retired_hk_combo_target.json', 'hk_global_etf_tactical_rotation'),
             ('python/tests/fixtures/retired_cn_combo_target.json', 'cn_industry_etf_rotation'),
         )
         for filename, canonical in cases:
             profiles = [canonical, canonical.replace('_', '-'), canonical.upper().replace('_', '-')]
-            if canonical == 'global_etf_rotation':
-                profiles.extend(('global_macro_etf_rotation', 'global-macro-etf-rotation',
-                                 'global_etf_confidence_vol_gate', 'global-etf-confidence-vol-gate'))
             for profile in profiles:
                 with self.subTest(profile=profile):
                     target = json.loads((ROOT / filename).read_text())
@@ -40,7 +36,7 @@ class FrozenSelectionTest(unittest.TestCase):
                     self.assertEqual(target, original)
 
     def test_core_profile_spellings_keep_existing_dry_run_policy(self):
-        cores = ('tqqq_growth_income', 'soxl_soxx_trend_income',
+        cores = ('global_etf_rotation', 'tqqq_growth_income', 'soxl_soxx_trend_income',
                  'russell_top50_leader_rotation', 'ibit_smart_dca', 'nasdaq_sp500_smart_dca')
         for canonical in cores:
             for profile in (canonical, canonical.replace('_', '-')):
@@ -49,6 +45,24 @@ class FrozenSelectionTest(unittest.TestCase):
                     runtime.validate_runtime_target_strategy_policy(
                         {'platform_id': 'ibkr', 'strategy_profile': profile, 'execution_mode': 'dry_run'}, errors)
                     self.assertEqual(errors, [])
+
+    def test_global_etf_new_targets_accept_live_without_legacy_continuity(self):
+        profiles = ('global_etf_rotation', 'global-etf-rotation',
+                    'global_macro_etf_rotation', 'global-etf-confidence-vol-gate')
+        for platform in ('ibkr', 'longbridge', 'schwab', 'firstrade'):
+            for profile in profiles:
+                for mode in ('live', 'dry_run'):
+                    with self.subTest(platform=platform, profile=profile, mode=mode):
+                        target = {'platform_id': platform, 'strategy_profile': profile, 'execution_mode': mode}
+                        original = copy.deepcopy(target)
+                        errors = []
+                        runtime.validate_runtime_target_strategy_policy(target, errors)
+                        self.assertEqual(errors, [])
+                        self.assertEqual(target, original)
+        errors = []
+        runtime.validate_runtime_target_strategy_policy(
+            {'platform_id': 'binance', 'strategy_profile': 'global_etf_rotation', 'execution_mode': 'live'}, errors)
+        self.assertTrue(any('domain us_equity is not supported' in error for error in errors))
 
     def test_display_alias_cannot_skip_strategy_policy(self):
         errors = []
@@ -79,7 +93,7 @@ class FrozenSelectionTest(unittest.TestCase):
         config = build.load_config()
         entries = {p['profile']: p for p in build.strategy_to_json_compat(config['strategies'])}
         frozen = {p for p, item in config['strategies'].items() if item.get('frozen') is True}
-        self.assertEqual(len(frozen), 14)
+        self.assertEqual(len(frozen), 13)
         self.assertTrue(all(entries[p]['frozen'] is True for p in frozen))
         self.assertTrue(all(not entries[p].get('frozen', False) for p in ('tqqq_growth_income', 'soxl_soxx_trend_income', 'russell_top50_leader_rotation', 'ibit_smart_dca', 'nasdaq_sp500_smart_dca', 'us_equity_combo', 'crypto_btc_dca')))
         config['strategies']['global_etf_rotation']['frozen'] = 'true'
@@ -87,6 +101,8 @@ class FrozenSelectionTest(unittest.TestCase):
 
     def test_new_frozen_selection_and_valid_risk_reducing_continuity(self):
         config = build.load_config()
+        # Synthetic freeze keeps coverage of the independent safety policy.
+        config['strategies']['global_etf_rotation']['frozen'] = True
         with patch.object(runtime, 'load_platform_config', return_value=config):
             for profile in ('global_etf_rotation', 'global_macro_etf_rotation', 'global_etf_confidence_vol_gate'):
                 for mode in ('dry_run', 'paper', 'live'):
