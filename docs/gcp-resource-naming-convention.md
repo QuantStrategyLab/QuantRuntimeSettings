@@ -17,8 +17,8 @@ and project numbers stay in protected configuration, not in this repository.
 - Use one short platform code everywhere (see the table below). Do not mix
   `ibkr` / `interactive-brokers`, `schwab` / `charles-schwab`,
   `longbridge` / `longport` / `lb` for the same platform.
-- Accounts are referred to by alias `a1`..`a4`. The alias-to-account mapping is
-  kept privately and is never committed.
+- Accounts are referred to by alias `a1`..`a4`. See [Account aliases](#account-aliases);
+  only the last two digits of an account number are ever written in the repository.
 - Temporary or one-off resources carry the label `expires=<yyyymmdd>` instead of
   a date in the name, and are removed when no longer needed.
 
@@ -79,6 +79,20 @@ Numbers, dates and ownership metadata go in labels, not names.
 
 Labels must not contain account numbers, project numbers or credentials. If a
 number is unavoidable, use the last two digits only.
+
+### Account aliases
+
+The alias is the only account identifier allowed in resource names and labels.
+The table lists the last two digits of each IBKR account number, which match the
+order used by the IBKR Flex configuration. Full account numbers stay in
+protected configuration and are never committed.
+
+| Alias | Account (last two digits) |
+| --- | --- |
+| `a1` | `61` |
+| `a2` | `60` |
+| `a3` | `07` |
+| `a4` | `62` |
 
 ## Google-managed names (allowlist)
 
