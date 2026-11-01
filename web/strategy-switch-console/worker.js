@@ -4,7 +4,7 @@ import { runtimeReadbackProjection } from "./application/console_api/runtime_rea
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { readRuntimeControlReceipt } from "./application/console_api/runtime_control_receipts.js";
-import { KvDirectory, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
+import { KvDirectory, currentStrategiesSignature, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "./kv_directory.js";
 import { sourceListFailure } from "./application/console_api/read_failures.js";
 import { strategyTargetExecution, accountExecutionEvidence } from "./application/console_api/strategy_execution.js";
 import { performanceResponse } from "./application/console_api/performance_routes.js";
@@ -6423,22 +6423,6 @@ let _memRefreshing = false;  // prevent concurrent background refreshes
 // stamped with new Date() (see accountExecutionEvidence callers), so whole-payload
 // byte equality can never hold; the comparison drops those stamps and keeps the
 // stored value untouched for readers.
-function currentStrategiesSignature(payload) {
-  const clone = structuredClone(payload ?? null);
-  const visit = (node) => {
-    if (Array.isArray(node)) {
-      node.forEach(visit);
-      return;
-    }
-    if (!node || typeof node !== "object") return;
-    for (const [key, value] of Object.entries(node)) {
-      if (key === "execution_evidence" && value && typeof value === "object") delete value.observed_at;
-      else visit(value);
-    }
-  };
-  visit(clone);
-  return JSON.stringify(clone);
-}
 
 // readConfigJson reports a damaged value as `STRATEGY_SWITCH_CONFIG.<key> must be
 // valid JSON`. Only that shape is a cache miss; a KV read that failed for any other
@@ -6459,6 +6443,15 @@ async function readCurrentStrategiesCacheEntry(env) {
 }
 
 async function writeCurrentStrategiesCache(env, payload, ts) {
+  if (env.STRATEGY_SWITCH_RUNTIME_INSTANCES) {
+    try {
+      await directoryCommand(env, { action: "cache", payload, ts });
+      return;
+    } catch (error) {
+      // Receiver-first compatibility only; a real storage failure remains loud.
+      if (error.message !== "kv_directory_legacy_receiver" && error.message !== "kv_directory_invalid_request") throw error;
+    }
+  }
   const signature = currentStrategiesSignature(payload);
   // A damaged stored value must not wedge the cache; this is the only path that can
   // overwrite it, so the comparison reads through the same repair-aware helper.

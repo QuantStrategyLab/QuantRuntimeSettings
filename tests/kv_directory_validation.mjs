@@ -102,7 +102,7 @@ assert.equal((await reconcile.command({ action: "maintain" })).complete, true);
 const migrationScannedAt = (await reconcile.command({ action: "status" })).data_as_of;
 const reconcileMirrorPutsAfterMigration = reconcileMirrorPuts;
 reconcilePaged = true;
-reconcileTime.value += 21_601_000; // past the configured reconcile interval
+reconcileTime.value += 86_401_000; // past the configured reconcile interval
 assert.equal((await reconcile.command({ action: "maintain" })).ok, true, "page 1 of a re-scan succeeds");
 assert.equal((await reconcile.command({ action: "read", prefix: "control_plane_source:", limit: 100 })).ok, true,
   "reads keep working between re-scan pages");
@@ -110,6 +110,8 @@ assert.equal((await reconcile.command({ action: "read", prefix: "control_plane_s
   "the served snapshot includes keys discovered by the page in flight");
 assert.equal(reconcileMirrorPuts, reconcileMirrorPutsAfterMigration + 1,
   "a page that discovers new keys mirrors them immediately");
+assert.equal((await reconcile.command({ action: "status" })).in_progress, true,
+  "a completed snapshot with a pending reconciliation cursor is still in progress");
 const listsAfterFirstPage = reconcileLists;
 assert.deepEqual(await reconcile.command({ action: "maintain" }),
   { ok: true, complete: true, count: 6, scanned_at: migrationScannedAt, cached: true },
@@ -127,6 +129,32 @@ assert.equal((await reconcile.command({ action: "status" })).data_as_of, reconci
 assert.equal(reconcileMirrorPuts, reconcileMirrorPutsAfterMigration + 2,
   "the completion page mirrors the new scanned_at exactly once");
 
+// One synthetic day of five-minute cron ticks spends one List and mirror write.
+const dailyState = new Map(); let dailyLists = 0, dailyPuts = 0;
+let dailyNow = Date.parse("2026-11-01T00:02:00Z");
+const dailyStorage = { async get(k) { return structuredClone(dailyState.get(k)); },
+  async put(k, v) { dailyState.set(k, structuredClone(v)); } };
+const dailyKv = { async get() { return null; }, async put() { dailyPuts++; },
+  async list() { dailyLists++; return { keys: [], list_complete: true }; } };
+for (let tick = 0; tick < 288; tick++) {
+  await new KvDirectory(dailyStorage, dailyKv, {}, () => dailyNow).command({ action: "maintain" });
+  dailyNow += 300_000;
+}
+assert.equal(dailyLists, 1, "default reconciliation cuts daily lists from four to one");
+assert.equal(dailyPuts, 1, "default reconciliation cuts daily mirror writes from four to one");
+// Explicit refreshes and object restarts share a persisted 100-attempt UTC budget.
+for (let tick = 0; tick < 120; tick++) {
+  dailyNow = Date.parse("2026-11-01T01:00:00Z") + tick * 61_000;
+  await new KvDirectory(dailyStorage, dailyKv, {}, () => dailyNow).command({ action: "maintain", refresh: true });
+}
+assert.equal(dailyLists, 100, "manual refresh cannot exhaust the account's 1000-list allowance");
+const budgetStatus = await new KvDirectory(dailyStorage, dailyKv, {}, () => dailyNow).command({ action: "status" });
+assert.equal(budgetStatus.last_error.code, "kv_directory_list_budget_exceeded");
+assert.equal(budgetStatus.retry_at, Date.parse("2026-11-02T00:01:00Z"));
+dailyNow = budgetStatus.retry_at;
+assert.equal((await new KvDirectory(dailyStorage, dailyKv, {}, () => dailyNow).command({ action: "maintain" })).ok, true);
+assert.equal(dailyLists, 101, "the UTC reset opens a new budget");
+
 // A failed re-scan keeps the loud failure contract: the directory reports
 // the error, refuses reads and stays on the daily quota cooldown.
 const quotaReconcileValues = new Map(), quotaReconcileState = new Map();
@@ -143,7 +171,7 @@ const quotaReconcile = new KvDirectory({
 }, {}, () => quotaReconcileTime.value);
 await quotaReconcile.command({ action: "put", key: "research_promotion_ticket:seeded", value: "{}" });
 assert.equal((await quotaReconcile.command({ action: "maintain" })).complete, true);
-quotaReconcileTime.value += 21_601_000; quotaReconcileFailing = true;
+quotaReconcileTime.value += 86_401_000; quotaReconcileFailing = true;
 assert.equal((await quotaReconcile.command({ action: "maintain" })).error, "kv_list_daily_limit_exceeded");
 assert.equal((await quotaReconcile.command({ action: "read", prefix: "research_promotion_ticket:", limit: 100 })).ok, false,
   "a failed re-scan still refuses reads until the cooldown opens");
@@ -237,3 +265,28 @@ assert.equal((await worker.fetch(new Request("https://fixture.invalid/api/admin/
 const source = await readFile(new URL("../web/strategy-switch-console/worker.js", import.meta.url), "utf8");
 assert.doesNotMatch(source, /store\.list\(/, "every production read path must use the manifest");
 console.log("kv_directory_validation: PASS (100 cold reads/100 cooldown ticks/100 warm reads)");
+
+// Cold isolates and object restarts share the cache writer's semantic comparison.
+const cacheMetadata = new Map(), cacheValues = new Map(); let cachePuts = 0;
+const cacheStorage = { async get(k) { return structuredClone(cacheMetadata.get(k)); },
+  async put(k, v) { cacheMetadata.set(k, structuredClone(v)); } };
+const cacheKv = { async get(k) { return cacheValues.get(k) ?? null; },
+  async put(k, v) { cachePuts++; cacheValues.set(k, v); } };
+const cachePayload = stamp => ({ account: { execution_evidence: { observed_at: stamp }, balance: 10 } });
+let cacheDirectory = new KvDirectory(cacheStorage, cacheKv);
+await Promise.all(Array.from({ length: 100 }, (_, i) => cacheDirectory.command({
+  action: "cache", payload: cachePayload(String(i)), ts: 1_800_000_000_000 + i })));
+assert.equal(cachePuts, 1, "100 concurrent cold refreshes write once instead of 100 times");
+cacheDirectory = new KvDirectory(cacheStorage, cacheKv);
+await cacheDirectory.command({ action: "cache", payload: cachePayload("restart"), ts: 1_800_000_300_000 });
+assert.equal(cachePuts, 1, "cache write dedup survives object restart");
+await cacheDirectory.command({ action: "cache", payload: cachePayload("bump"), ts: 1_800_000_900_000 });
+assert.equal(cachePuts, 2, "the existing 15-minute keep-alive ceiling is preserved");
+await cacheDirectory.command({ action: "cache", payload: { changed: true }, ts: 1_800_000_900_001 });
+assert.equal(cachePuts, 3, "real content changes still write immediately");
+cacheKv.put = async () => { throw Error("synthetic_store_unavailable"); };
+await assert.rejects(cacheDirectory.command({ action: "cache", payload: { changed: false }, ts: 1_800_000_900_002 }), /synthetic_store_unavailable/);
+cacheKv.put = async (k, v) => { cachePuts++; cacheValues.set(k, v); };
+await cacheDirectory.command({ action: "cache", payload: { changed: false }, ts: 1_800_000_900_003 });
+assert.equal(cachePuts, 4, "a failed write does not advance the successful-write signature");
+console.log("kv_operation_budget: PASS (288 ticks: 1 List/1 mirror put; 100 cold refreshes: 1 cache put)");
