@@ -427,7 +427,7 @@ class ConsolidationCandidateTests(unittest.TestCase):
         import hashlib
         root = Path(aggregator.__file__).parent / "notification_snapshot"
         source = json.loads((root / "source.json").read_text())
-        self.assertEqual(source["commit"], "2b04882058666ebc81d1650d93fa2105ec4ba3d8")
+        self.assertEqual(source["commit"], "59469a16b4ff7c5a1055caab21a1bd7a21dc0ea5")
         for name, expected in source["files"].items():
             self.assertEqual(hashlib.sha256((root / name).read_bytes()).hexdigest(), expected)
 

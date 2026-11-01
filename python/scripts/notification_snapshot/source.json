@@ -1,9 +1,13 @@
 {
   "repository": "QuantStrategyLab/QuantPlatformKit",
-  "commit": "2b04882058666ebc81d1650d93fa2105ec4ba3d8",
+  "commit": "59469a16b4ff7c5a1055caab21a1bd7a21dc0ea5",
   "branch": "main",
   "files": {
     "unified_contract.py": "a5a9138063940a74d4bb3575166bdd1c21b95c1afb4a13db67c6cf33e53bcfba",
-    "digest_routing.py": "271885fc4898d48e8882b8788eba07cb460d1048515ab3766f1353226d317654"
+    "digest_routing.py": "271885fc4898d48e8882b8788eba07cb460d1048515ab3766f1353226d317654",
+    "_redaction.py": "8a3fe4db916ca5cdc8c185c17e683dccc925da3a9053fcf4aca53ee0f986c509",
+    "intent.py": "c6d2602c061b3fd6ce918c83f321489c8d3fc8ced5e898adc93db1d70b543960",
+    "telegram.py": "5fac7bd824abbb1f836c4a113a86484abd7b5b4c92508204093a042b4216dd27",
+    "log_redaction.py": "8bfeb97252d0c461845c43d58a57ef7f1baf754e696dd9deb689c93c7de1fb52"
   }
 }

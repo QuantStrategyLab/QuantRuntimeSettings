@@ -168,3 +168,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). AI assistants and maintainers follow [AG
 See [LICENSE](LICENSE).
 
 显示与通知名称配置：[说明](docs/display-names.md)。
+
+Digest Telegram sends and entrypoint redaction use the existing QPK source-snapshot
+pin in `python/scripts/notification_snapshot/source.json`. Snapshot files retain
+upstream bytes and per-file hashes. Credentials remain outside notification intents
+and persisted receipts; strict digest delivery still verifies the recipient and
+positive message ID. Existing in-memory credential resolution uses QPK compatibility
+transport without changing the process environment.

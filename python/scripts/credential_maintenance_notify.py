@@ -133,17 +133,14 @@ def can_combine_reminder(*, text, chat_id):
     return isinstance(text, str) and len(text.encode('utf-16-le')) // 2 <= 4096 and isinstance(chat_id, str) and bool(re.fullmatch(r'-?[1-9][0-9]*|@[A-Za-z0-9_]{5,32}', chat_id))
 
 def send_strict_telegram(*, token, chat_id, text):
-    """Strict receipt for the combined digest; no retries, redirects or raw errors."""
-    try:
-        request = urllib.request.Request(f'https://api.telegram.org/bot{token}/sendMessage',
-            data=urllib.parse.urlencode({'chat_id': chat_id, 'text': text, 'disable_web_page_preview': 'true'}).encode(),
-            method='POST', headers={'Content-Type': 'application/x-www-form-urlencoded'})
+    """Strict shared sender; preserve no-redirect and recipient confirmation."""
+    from notification_transport import send_intent
+    import io
+    def opener(request, **_kwargs):
         value = _json(request)
-        result = value.get('result')
-        if value.get('ok') is not True or not isinstance(result, dict): return False
-        message_id = result.get('message_id'); chat = result.get('chat')
-        if type(message_id) is not int or message_id <= 0 or not isinstance(chat, dict) or type(chat.get('id')) is not int: return False
-        if chat_id.startswith('@'):
-            return isinstance(chat.get('username'), str) and ('@' + chat['username']).casefold() == chat_id.casefold()
-        return str(chat['id']) == str(chat_id)
-    except Exception: return False
+        response = io.BytesIO(json.dumps(value).encode())
+        response.status = 200
+        return response
+    receipt = send_intent(text, token=token, chat_id=chat_id,
+                          opener=opener, timeout=20)
+    return receipt["ok"] and receipt["recipient_confirmed"]
