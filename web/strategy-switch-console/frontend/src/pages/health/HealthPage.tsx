@@ -33,12 +33,12 @@ import "./health.css";
 type SummaryAccount = TodayRunSummary["accounts"][number];
 type CredentialPhase = CredentialMaintenance["phase"];
 
-const ATTENTION_PHASES: readonly CredentialPhase[] = ["30", "7", "1", "expired"];
+const ATTENTION_PHASES: readonly CredentialPhase[] = ["30", "14", "7", "expired"];
 
 const PHASE_TONE: Record<CredentialPhase, "ok" | "warn" | "error" | "unknown"> = {
   expired: "error",
-  "1": "error",
   "7": "warn",
+  "14": "warn",
   "30": "warn",
   not_due: "ok",
   unknown: "unknown",

@@ -498,6 +498,40 @@
                   }
                 ]
               },
+              "credential_expiry": {
+                "type": "object",
+                "description": "Credential renewal reminder only; never a token or private source value.",
+                "properties": {
+                  "expires_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "days_remaining": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "severity": {
+                    "enum": [
+                      "none",
+                      "unknown",
+                      "notice",
+                      "warning",
+                      "urgent",
+                      "expired"
+                    ]
+                  }
+                },
+                "required": [
+                  "expires_at",
+                  "days_remaining",
+                  "severity"
+                ],
+                "additionalProperties": false
+              },
               "presentation": {
                 "$ref": "#/$defs/recovery_material_presentation"
               }
@@ -4594,6 +4628,96 @@
         "effective_derived_from_approved",
         "no_order",
         "execution_authority_granted"
+      ]
+    },
+    "runtime_readback": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "qsl.runtime_readback.v1"
+        },
+        "server_time": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "data_status": {
+          "enum": [
+            "ready",
+            "stale",
+            "unavailable"
+          ]
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtime_enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "scheduler_state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "mixed",
+            "missing",
+            "unknown",
+            "not_applicable"
+          ]
+        },
+        "strategy_profile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "const": "stored_runtime_target_lifecycle"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policy": {
+          "type": "object",
+          "properties": {
+            "read_only": {
+              "const": true
+            },
+            "no_order": {
+              "const": true
+            },
+            "execution_authority_granted": {
+              "const": false
+            }
+          },
+          "required": [
+            "read_only",
+            "no_order",
+            "execution_authority_granted"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "server_time",
+        "scope",
+        "data_status",
+        "observed_at",
+        "runtime_enabled",
+        "scheduler_state",
+        "strategy_profile",
+        "source",
+        "reason",
+        "policy"
       ]
     }
   }

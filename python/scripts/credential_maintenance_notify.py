@@ -12,7 +12,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Mapping
 
-DUE = {'30', '7', '1', 'expired'}
+DUE = {'30', '14', '7', 'expired'}
 READ_STATUSES = {'not_attempted', 'ready', 'failed', 'invalid', 'http_401', 'http_403', 'http_403_challenge', 'http_503'}
 PHASES = DUE | {'unknown', 'not_due'}
 DELIVERIES = {'unknown', 'not_reserved', 'reserved', 'delivered'}

@@ -99,7 +99,7 @@ export type { RuntimeDailySnapshot } from "./presentation";
 export type Source<T> = { value: T | null; error: string | null };
 export type CredentialMaintenance = {
   id: "ibkr_flex"; metadata_source: "operator_provided"; metadata_revision: number;
-  expires_at: string | null; phase: "unknown" | "not_due" | "30" | "7" | "1" | "expired";
+  expires_at: string | null; phase: "unknown" | "not_due" | "30" | "14" | "7" | "expired";
   requires_action: boolean; delivery: "not_reserved" | "reserved" | "delivered" | "unknown";
 };
 function canonicalCredentialExpiry(value: unknown): string | null {
@@ -114,7 +114,7 @@ export function validCredentialMaintenance(value: unknown): value is CredentialM
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const p = value as CredentialMaintenance;
   if (p.id !== "ibkr_flex" || p.metadata_source !== "operator_provided" || !Number.isSafeInteger(p.metadata_revision) || p.metadata_revision < 0 ||
-      !["unknown", "not_due", "30", "7", "1", "expired"].includes(p.phase) || !["not_reserved", "reserved", "delivered", "unknown"].includes(p.delivery) || p.requires_action !== (p.phase !== "not_due")) return false;
+      !["unknown", "not_due", "30", "14", "7", "expired"].includes(p.phase) || !["not_reserved", "reserved", "delivered", "unknown"].includes(p.delivery) || p.requires_action !== (p.phase !== "not_due")) return false;
   if (p.phase === "unknown") return p.expires_at === null && p.delivery === "not_reserved";
   return typeof p.expires_at === "string" && canonicalCredentialExpiry(p.expires_at) === p.expires_at && (p.phase !== "not_due" || p.delivery === "not_reserved");
 }

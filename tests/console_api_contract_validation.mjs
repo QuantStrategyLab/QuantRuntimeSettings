@@ -6,6 +6,7 @@ import {
   inbox,
 } from "../web/strategy-switch-console/application/console_api/routes.js";
 import {
+  canonicalItem,
   decisionFields,
   actorAlias,
   decisionHistoryRows,
@@ -234,6 +235,60 @@ validate("inbox", result);
 assert.equal(result.items.length, 1);
 assert.equal(result.items[0].id, "credential:synthetic-expiry");
 assert.equal(result.items[0].priority, "medium");
+assert.deepEqual(result.items[0].credential_expiry, {
+  expires_at: null,
+  days_remaining: null,
+  severity: "unknown",
+});
+const syntheticCredential = {
+  id: "synthetic-expiry",
+  requires_action: true,
+  phase: "14",
+  expires_at: "2035-04-01T00:00:00.000Z",
+  days_remaining: 14,
+  severity: "warning",
+  delivery: "not_reserved",
+  token: "synthetic-token-sentinel",
+  query_id: "synthetic-query-sentinel",
+  credential_fingerprint: "synthetic-fingerprint-sentinel",
+  watchdog: "synthetic-watchdog-sentinel",
+};
+result = await inbox(
+  new Request("https://console.example/api/decisions-inbox"),
+  {},
+  { ...deps, credential: async () => json(syntheticCredential) },
+);
+validate("inbox", result);
+assert.equal(result.items.length, 1);
+assert.deepEqual(result.items[0].credential_expiry, {
+  expires_at: "2035-04-01T00:00:00.000Z",
+  days_remaining: 14,
+  severity: "warning",
+});
+assert.deepEqual(Object.keys(result.items[0].credential_expiry).sort(), [
+  "days_remaining",
+  "expires_at",
+  "severity",
+]);
+const serializedCredential = JSON.stringify(result.items[0]);
+for (const sentinel of ["synthetic-token-sentinel", "synthetic-query-sentinel", "synthetic-fingerprint-sentinel", "synthetic-watchdog-sentinel"]) {
+  assert.equal(serializedCredential.includes(sentinel), false, "only the allowlisted reminder metadata is projected");
+}
+assert.equal(result.items[0].priority, "medium");
+assert.throws(
+  () => validate("inbox", {
+    ...result,
+    items: [{
+      ...result.items[0],
+      credential_expiry: { expires_at: null, days_remaining: null, severity: "critical" },
+    }],
+  }),
+  /credential_expiry\.severity: enum/,
+);
+const { credential_expiry: _credentialExpiry, ...withoutCredentialExpiry } = result.items[0];
+validate("inbox", { ...result, items: [withoutCredentialExpiry] });
+assert.equal(Object.hasOwn(canonicalItem({ candidate_id: "synthetic-owner" }, "owner_decision"), "credential_expiry"), false,
+  "non-credential items do not gain the reminder object");
 result = await inbox(
   new Request("https://console.example/api/decisions-inbox"),
   {},

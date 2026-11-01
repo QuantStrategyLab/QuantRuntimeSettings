@@ -1,4 +1,6 @@
 import { binanceDetailCommand } from "./binance_detail_archive.js";
+import { auditPageQuery, auditEventInPage, auditEventOrder, auditNextCursor } from "./application/console_api/audit_pagination.js";
+import { runtimeReadbackProjection } from "./application/console_api/runtime_readback.js";
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { readRuntimeControlReceipt } from "./application/console_api/runtime_control_receipts.js";
@@ -192,7 +194,7 @@ const DECISION_ACTION_SCHEMA_VERSION = "qsl.decision_action_result.v1";
 const OPERATION_SCHEMA_VERSION = "qsl.operation.v1";
 const AUDIT_EVENTS_SCHEMA_VERSION = "qsl.audit_events.v1";
 const DECISION_ACTION_MAX_BODY_BYTES = 8 * 1024;
-const AUDIT_EVENTS_MAX_ROWS = 1000;
+const AUDIT_EVENTS_MAX_ROWS = 101;
 const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
@@ -952,6 +954,10 @@ export default {
       if (url.pathname.startsWith("/api/operations/")) {
         if (request.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
         return await operationResponse(request, env, url.pathname.slice("/api/operations/".length));
+      }
+      if (url.pathname === "/api/runtime/readback") {
+        if (request.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
+        return await runtimeReadbackResponse(request, env, url);
       }
       if (url.pathname === "/api/audit-events") {
         if (request.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
@@ -4670,18 +4676,26 @@ export class RuntimeInstances {
     if (command.action === "console_audit_events") {
       const limit = command.limit;
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > AUDIT_EVENTS_MAX_ROWS) throw new HttpError("invalid_pagination", 400);
+      const { snapshot, before } = command;
+      // Normalize time once, and use the same binary id tie-break as the HTTP merge.
       return { rows: this.sql.exec(`
-        SELECT 'decision' AS source, kind AS kind, subject_id AS subject_id, material_key AS revision,
-          action AS action, actor AS actor, decided_at AS occurred_at, request_key AS ref, 'decided' AS status
-        FROM human_decision_record
-        UNION ALL
-        SELECT 'promotion_application', 'promotion', ticket_id, '', status, '', updated_at, application_id, status
-        FROM research_promotion_applications
-        UNION ALL
-        SELECT 'account_settings_application', 'account_settings', platform || ':' || account_key, '',
-          status, approved_by, approved_at, request_key, status
-        FROM account_setting_profile_application
-        ORDER BY occurred_at DESC, ref DESC LIMIT ?`, limit).toArray() };
+        WITH events AS (
+          SELECT 'decision' AS source, kind, subject_id, material_key AS revision,
+            action, actor, strftime('%Y-%m-%dT%H:%M:%fZ', decided_at) AS occurred_at,
+            request_key AS ref, 'decided' AS status, 'durable_human_decision:' || request_key AS event_id
+          FROM human_decision_record
+          UNION ALL
+          SELECT 'promotion_application', 'promotion', ticket_id, '', status, '',
+            strftime('%Y-%m-%dT%H:%M:%fZ', updated_at), application_id, status,
+            'research_promotion_application:' || application_id FROM research_promotion_applications
+          UNION ALL
+          SELECT 'account_settings_application', 'account_settings', platform || ':' || account_key, '',
+            status, approved_by, strftime('%Y-%m-%dT%H:%M:%fZ', approved_at), request_key, status,
+            'account_settings_application:' || request_key FROM account_setting_profile_application
+        ) SELECT * FROM events WHERE occurred_at <= ?
+          AND (? IS NULL OR occurred_at < ? OR (occurred_at = ? AND event_id > ?))
+        ORDER BY occurred_at DESC, event_id ASC LIMIT ?`, snapshot,
+        before?.at ?? null, before?.at ?? null, before?.at ?? null, before?.id ?? null, limit).toArray() };
     }
     if (command.action === "console_decision_history") {
       const { limit, offset } = command;
@@ -10247,6 +10261,29 @@ async function syncRuntimeTargetLifecycleSourceResponse(request, env) {
   });
 }
 
+async function runtimeReadbackResponse(request, env, url) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required", error_state: "unauthorized" }, 401);
+  if ([...url.searchParams.keys()].some(key => key !== "scope") || url.searchParams.getAll("scope").length !== 1
+    || !/^[a-z0-9_-]+:[a-zA-Z0-9_.-]+$/.test(url.searchParams.get("scope") || ""))
+    return json({ ok: false, error: "invalid_runtime_scope" }, 400);
+  const scope = url.searchParams.get("scope");
+  try {
+    const config = await loadAccountOptionsConfig(env);
+    const accounts = Object.entries(config.options || {}).flatMap(([platform, rows]) => rows.map(row => ({ ...row, platform })));
+    const matches = accounts.filter(row => `${row.platform}:${row.key}` === scope);
+    if (!matches.length) return json({ ok: false, error: "runtime_scope_not_found" }, 404);
+    if (matches.length !== 1) return json({ ok: false, error: "runtime_binding_conflict" }, 409);
+    if (!hasConfigStore(env)) return json({ ok: false, error: "runtime_readback_unavailable" }, 503);
+    const snapshot = await aggregateRuntimeTargetLifecycleSources(env);
+    if (snapshot.errors?.some(code => /source_list_unavailable|source_invalid/.test(code)))
+      return json({ ok: false, error: "runtime_readback_failed" }, 503);
+    return json(runtimeReadbackProjection(matches[0], accounts, snapshot));
+  } catch {
+    return json({ ok: false, error: "runtime_readback_failed" }, 503);
+  }
+}
+
 async function runtimeTargetLifecycleResponse(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
@@ -13389,7 +13426,7 @@ async function auditEventsResponse(request, env, url) {
   if (!session?.allowed) return json({ ok: false, error: "login required", error_state: "unauthorized" }, 401);
   let page;
   try {
-    page = pageQuery(url);
+    page = auditPageQuery(url);
   } catch {
     return json({ ok: false, error: "invalid_pagination" }, 400);
   }
@@ -13400,9 +13437,10 @@ async function auditEventsResponse(request, env, url) {
   let rows;
   try {
     const result = await runtimeInstanceCommand(env, {
-      action: "console_audit_events", actor: session.login, limit: AUDIT_EVENTS_MAX_ROWS,
+      action: "console_audit_events", actor: session.login, limit: page.limit + 1, snapshot: page.snapshot, before: page.before,
     });
-    rows = Array.isArray(result.rows) ? result.rows : [];
+    if (!Array.isArray(result.rows)) throw Error("invalid_audit_rows");
+    rows = result.rows;
   } catch {
     return json({ ok: false, error: "audit_projection_unavailable", server_time: serverTime }, 503);
   }
@@ -13410,18 +13448,18 @@ async function auditEventsResponse(request, env, url) {
   for (const row of rows) {
     const occurredAt = typeof row.occurred_at === "string" && Number.isFinite(Date.parse(row.occurred_at))
       ? row.occurred_at : null;
-    if (!occurredAt) continue;
+    if (!occurredAt) return json({ ok: false, error: "audit_projection_invalid" }, 503);
     const source = row.source === "decision" ? "durable_human_decision"
       : row.source === "promotion_application" ? "research_promotion_application"
         : row.source === "account_settings_application" ? "account_settings_application"
           : null;
-    if (!source) continue;
+    if (!source) return json({ ok: false, error: "audit_projection_invalid" }, 503);
     const subject = source === "durable_human_decision"
       ? { kind: `${row.kind}_decision`, id: row.subject_id }
       : source === "research_promotion_application"
         ? { kind: "strategy_promotion", id: row.subject_id }
         : { kind: "account_settings", id: row.subject_id };
-    if (!subject.id || subject.id.length > 256) continue;
+    if (typeof subject.id !== "string" || !subject.id || subject.id.length > 256) return json({ ok: false, error: "audit_projection_invalid" }, 503);
     const revision = /^[0-9a-f]{64}$/.test(row.revision || "") ? row.revision : null;
     events.push({
       id: `${source}:${row.ref}`,
@@ -13439,22 +13477,27 @@ async function auditEventsResponse(request, env, url) {
           : null,
     });
   }
-  let dataStatus = "ready";
-  const errors = [];
   try {
-    const log = await loadAuditLog(env);
+    if (!hasConfigStore(env)) throw Error("audit_log_unavailable");
+    const storedLog = await readConfigJson(env, AUDIT_LOG_KEY);
+    if (storedLog !== null && !Array.isArray(storedLog)) throw Error("audit_log_invalid");
+    const log = storedLog || [];
+    const ids = await Promise.all(log.map(row => cycleHealthSha256(row)));
+    const occurrences = new Map();
     const aliases = await Promise.all(log.map((row) =>
       actorAlias(typeof row?.login === "string" ? row.login : null)));
     log.forEach((row, index) => {
-      if (!row || typeof row !== "object") return;
+      if (!row || typeof row !== "object" || Array.isArray(row)) throw Error("audit_log_invalid");
       const occurredAt = typeof row.ts === "string" && Number.isFinite(Date.parse(row.ts)) ? row.ts : null;
       const action = typeof row.action === "string" && row.action.length <= 64 ? row.action : null;
-      if (!occurredAt || !action) return;
+      if (!occurredAt || !action) throw Error("audit_log_invalid");
       const subject = auditEventSubjectId(row);
+      const occurrence = occurrences.get(ids[index]) || 0;
+      occurrences.set(ids[index], occurrence + 1);
       events.push({
-        id: `bounded_audit_log:${occurredAt}:${action}:${subject?.id || index}`,
+        id: `bounded_audit_log:${ids[index]}:${occurrence}`,
         source: "bounded_audit_log",
-        occurred_at: occurredAt,
+        occurred_at: new Date(occurredAt).toISOString(),
         action,
         actor_alias: aliases[index] || null,
         subject,
@@ -13464,8 +13507,7 @@ async function auditEventsResponse(request, env, url) {
       });
     });
   } catch {
-    dataStatus = "partial";
-    errors.push("audit_log_unavailable");
+    return json({ ok: false, error: "audit_log_unavailable", server_time: serverTime }, 503);
   }
   const seen = new Set();
   const unique = events
@@ -13474,17 +13516,18 @@ async function auditEventsResponse(request, env, url) {
       seen.add(event.id);
       return true;
     })
-    .sort((left, right) => right.occurred_at.localeCompare(left.occurred_at) || left.id.localeCompare(right.id));
-  const pageEvents = unique.slice(page.offset, page.offset + page.limit);
+    .filter(event => auditEventInPage(event, page))
+    .sort(auditEventOrder);
+  const pageEvents = unique.slice(0, page.limit);
   return json({
     schema_version: AUDIT_EVENTS_SCHEMA_VERSION,
     server_time: serverTime,
-    data_status: dataStatus,
+    data_status: "ready",
     events: pageEvents,
-    next_cursor: unique.length > page.offset + page.limit ? String(page.offset + page.limit) : null,
+    next_cursor: unique.length > page.limit ? auditNextCursor(pageEvents.at(-1), page) : null,
     coverage: "durable_human_decisions_and_application_records_and_bounded_audit_log",
     policy: DECISION_POLICY,
-    errors,
+    errors: [],
   });
 }
 
