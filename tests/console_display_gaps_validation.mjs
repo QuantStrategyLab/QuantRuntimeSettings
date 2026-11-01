@@ -43,8 +43,16 @@ try {
     define: { "import.meta.env": "{}" }, plugins: [{ name: "controlled-read", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents:
         "export const useApi = () => globalThis.__displayState;", loader: "js" }));
-      b.onLoad({ filter: /\/api\/client\.ts$/ }, () => ({ contents:
-        "export async function getJson() { if (globalThis.__displayError) throw Error('synthetic_read_failure'); return globalThis.__displayPayload; } export const readRevision = () => 0; export const postJson = () => { throw Error('writes_forbidden'); };", loader: "js" }));
+      b.onLoad({ filter: /\/api\/client\.ts$/ }, () => ({ contents: `
+        export class AccessError extends Error {
+          constructor(status) { super(status === 401 ? 'session_expired' : 'access_denied'); this.status = status; }
+        }
+        export class HttpError extends Error {
+          constructor(status, payload) { super(payload?.error || 'http_' + status); this.status = status; this.payload = payload; }
+        }
+        export async function getJson() { if (globalThis.__displayError) throw Error('synthetic_read_failure'); return globalThis.__displayPayload; }
+        export const readRevision = () => 0;
+        export const postJson = () => { throw Error('writes_forbidden'); };`, loader: "js" }));
       for (const [file, exports] of [["StrategiesPage", "CatalogTab, ResearchTab, parseResearchLeads, loadResearchLeads"],
         ["HealthPage", "StatStrip, CredentialsCard"], ["RunGrid", "DayDetail"]]) {
         b.onLoad({ filter: new RegExp(`/${file}\\.tsx$`) }, async ({ path }) => ({
