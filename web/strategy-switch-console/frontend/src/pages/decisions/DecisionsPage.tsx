@@ -31,10 +31,10 @@ import { DiffTable } from "../../components/DiffTable";
 import { Timeline } from "../../components/Timeline";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { useToast } from "../../components/Toast";
-import { expiryState, isRiskTier, loadOperation } from "../../api/cockpit";
+import { expiryState, isRiskTier, loadOperation, normalizeEvidenceSummary } from "../../api/cockpit";
 import type { EvidenceSummary as EvidenceSummaryData } from "../../api/cockpit";
 import { ApplicationStatus, EvidenceSummary, ExpiryIndicator, tierLabel } from "../../components/cockpit";
-import { resolveAccountChoice } from "./helpers";
+import { decisionActionAllowed, promotionDecisionBody, resolveAccountChoice } from "./helpers";
 import { sourceConsequenceKey, sourceLabelKey } from "./sources";
 import { InitialEnrollmentFacts } from "./InitialEnrollmentFacts";
 import { ReconciliationMaterials } from "./ReconciliationMaterials";
@@ -54,11 +54,10 @@ interface AccountChoice {
 
 /** Fields the expanded inbox may add; absent fields keep the legacy behaviour. */
 type ExpandedInboxItem = InboxItem & {
-  revision?: number;
-  allowed_actions?: string[];
-  server_time?: string | null;
-  operation_id?: string | null;
-  evidence?: EvidenceSummaryData | null;
+  revision?: string | null;
+  allowed_actions?: unknown[];
+  operation_reference?: { id?: string | null } | null;
+  evidence_summary?: Record<string, unknown> | null;
 };
 
 const CATEGORY_TABS: Category[] = [
@@ -311,6 +310,8 @@ export default function DecisionsPage({ decision }: { decision: string | null })
   // arbitrary later render, so the browser cannot extend server validity.
   const inboxData = inbox.phase === "ready" ? inbox.data : null;
   const receivedAt = useMemo(() => new Date().toISOString(), [inboxData]);
+  // server_time is envelope-level on qsl.decision_inbox.v1, never per item.
+  const inboxServerTime = inboxData?.server_time ?? null;
 
   const humanDecisions = useRef(createHumanDecisionController());
   const applyLocks = useRef(createRequestLock());
@@ -485,21 +486,15 @@ export default function DecisionsPage({ decision }: { decision: string | null })
           }
         }
         source = ticket;
-        body = {
-          ticket_id: ticket.ticket_id,
-          decision: action === "adopt" ? "accept" : "reject",
-          confirmation: account && riskBinding ? {
-            target_platform: account.platform,
-            execution_mode: account.mode,
-            risk_profile: riskBinding.risk_profile,
-            ...(riskBinding.policy_revision ? { policy_revision: riskBinding.policy_revision } : {}),
-          } : null,
-          ...(riskBinding?.policy_revision ? { expected_policy_revision: riskBinding.policy_revision } : {}),
-          ...(account ? { selected_account: { platform: account.platform, key: account.key } } : {}),
-          expected_proposed_params: ticket.proposed_params || {},
-          expected_strategy_profile: ticket.strategy_profile,
-          expected_domain: ticket.domain,
-        };
+        body = promotionDecisionBody({
+          ticketId: ticket.ticket_id,
+          accept: action === "adopt",
+          account,
+          riskProfile: riskBinding?.risk_profile ?? null,
+          proposedParams: ticket.proposed_params,
+          strategyProfile: ticket.strategy_profile,
+          domain: ticket.domain,
+        });
         path = "/api/research-promotion-decisions";
       }
     } catch (error) {
@@ -531,9 +526,8 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     }
     if (!await confirmDecision(item, action, false, targetAccount, riskBinding)) return;
     if (sessionEpoch !== humanDecisions.current.epoch()) return;
-    const expanded = item as ExpandedInboxItem;
-    if (expanded.server_time && item.expires_at
-      && expiryState(item.expires_at, expanded.server_time, receivedAt, Date.now()).state === "expired") {
+    if (inboxServerTime && item.expires_at
+      && expiryState(item.expires_at, inboxServerTime, receivedAt, Date.now()).state === "expired") {
       notice("info", "decisions.intent_not_pending");
       refresh();
       return;
@@ -567,9 +561,8 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     const subject = subjectIdOf(item);
     const lockKey = `apply:${subject}`;
     if (!applyLocks.current.acquire(lockKey)) return;
-    const expanded = item as ExpandedInboxItem;
-    if (expanded.server_time && item.expires_at
-      && expiryState(item.expires_at, expanded.server_time, receivedAt, Date.now()).state === "expired") {
+    if (inboxServerTime && item.expires_at
+      && expiryState(item.expires_at, inboxServerTime, receivedAt, Date.now()).state === "expired") {
       applyLocks.current.release(lockKey);
       notice("info", "decisions.intent_not_pending");
       refresh();
@@ -610,9 +603,6 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     account: AccountChoice | null,
     risk: { risk_profile: string; policy_revision: string | null } | null,
   ) => {
-    const expanded = item as ExpandedInboxItem;
-    // The confirmation names the exact server-bound tier and policy revision
-    // from the same fresh read that recordIntent submits.
     const riskText = risk
       ? ` · ${tierLabel(risk.risk_profile, t)}${risk.policy_revision ? ` · ${t("cockpit.policy.revision", { value: risk.policy_revision })}` : ""}`
       : "";
@@ -627,8 +617,8 @@ export default function DecisionsPage({ decision }: { decision: string | null })
       consequence: t("decisions.intent_note"),
       tone: action === "adopt" ? "normal" : "danger",
       confirmLabel: t(action === "adopt" ? "decisions.confirm_adopt_label" : "decisions.confirm_decline_label"),
-      expiresAt: expanded.server_time ? item.expires_at : null,
-      serverTime: expanded.server_time ?? null,
+      expiresAt: inboxServerTime ? item.expires_at : null,
+      serverTime: inboxServerTime,
       receivedAt,
       onExpiry: refresh,
     });
@@ -636,8 +626,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
 
   const onDecide = async (item: InboxItem, action: Action) => {
     if (!admin || item.status !== "pending" || isExpired(item)) return;
-    const allowed = (item as ExpandedInboxItem).allowed_actions;
-    if (allowed && !allowed.includes(action === "adopt" ? "approve" : "reject")) return;
+    if (!decisionActionAllowed(item, action)) return;
     const lockKey = `confirm:${item.id}`;
     if (!applyLocks.current.acquire(lockKey)) return;
     const busyKey = `intent:${item.id}`;
@@ -698,10 +687,10 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     const reviewedStrategy = item.presentation?.strategy_profile
       || (strategyRow && typeof strategyRow.after === "string" ? strategyRow.after : null);
     const expanded = item as ExpandedInboxItem;
-    const allowed = expanded.allowed_actions;
-    const approveAllowed = !allowed || allowed.includes("approve");
-    const rejectAllowed = !allowed || allowed.includes("reject");
-    const support: EvidenceSummaryData | null = expanded.evidence ?? (item.evidence_freshness ? {
+    const approveAllowed = decisionActionAllowed(item, "adopt");
+    const rejectAllowed = decisionActionAllowed(item, "decline");
+    // The review envelope's evidence_summary wins over the coarse inbox freshness.
+    const support: EvidenceSummaryData | null = normalizeEvidenceSummary(expanded.evidence_summary) ?? (item.evidence_freshness ? {
       evidence_id: null,
       label_key: null,
       observed_at: item.evidence_freshness.as_of,
@@ -863,16 +852,16 @@ export default function DecisionsPage({ decision }: { decision: string | null })
             <DiffTable rows={diffRows} />
           </>
         )}
-        {expanded.server_time && item.expires_at && (
+        {inboxServerTime && item.expires_at && (
           <ExpiryIndicator
             expiresAt={item.expires_at}
-            serverTime={expanded.server_time}
+            serverTime={inboxServerTime}
             receivedAt={receivedAt}
             onBoundary={() => { selectItem(null); refresh(); }}
           />
         )}
         {support && <EvidenceSummary evidence={support} />}
-        {expanded.operation_id && <DecisionOperation operationId={expanded.operation_id} />}
+        {expanded.operation_reference?.id && <DecisionOperation operationId={expanded.operation_reference.id} />}
         {initialEnrollmentMode && (
           <InitialEnrollmentFacts
             account={item.account_alias ? names.account(item.account_alias, item.platform) : null}

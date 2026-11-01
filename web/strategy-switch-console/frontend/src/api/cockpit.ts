@@ -155,7 +155,8 @@ export interface AuditEvent {
   actor: string | null;
   action: string;
   subject: string | null;
-  revision: number | null;
+  /** Opaque server revision digest (`^[0-9a-f]{64}$`), never a counter. */
+  revision: string | null;
   decision_id: string | null;
   operation_id: string | null;
   outcome: string | null;
@@ -207,6 +208,7 @@ export interface DecisionActionResponse {
 /** Server-side revision format: `^rev[0-9]-[0-9a-z-]{1,64}$`, never a number. */
 export const DECISION_REVIEW_SCHEMA_VERSION = "qsl.decision_review.v1";
 export const OPERATION_SCHEMA_VERSION = "qsl.operation.v1";
+export const AUDIT_EVENTS_SCHEMA_VERSION = "qsl.audit_events.v1";
 export const DECISION_REVISION_PATTERN = /^rev[0-9]-[0-9a-z-]{1,64}$/;
 /** Server-side id format for request_id / operation_id. */
 export const DECISION_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -420,11 +422,11 @@ function normalizeOperation(
 }
 
 /** Backend `evidence_summary`; absent freshness or shadow never becomes qualified. */
-function normalizeEvidenceSummary(value: unknown): EvidenceSummary | null {
+export function normalizeEvidenceSummary(value: unknown): EvidenceSummary | null {
   const raw = asRecord(value);
   if (!raw) return null;
   const freshness = asString(raw.freshness);
-  const state: EvidenceState = freshness === "current" || freshness === "ok" ? "current"
+  const state: EvidenceState = freshness === "current" || freshness === "ok" || freshness === "ready" || freshness === "fresh" ? "current"
     : freshness === "stale" ? "stale"
       : freshness === "expired" ? "expired"
         : freshness === "missing" ? "missing" : "unavailable";
@@ -721,6 +723,15 @@ export async function loadDigestStatus(log: NotificationSendLog, synthetic = fal
   };
 }
 
+/** Audit `ref` segments are URL-encoded decision/operation ids; a bad escape stays null. */
+function decodeRefSegment(segment: string): string | null {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+}
+
 export async function loadAuditEvents(cursor: string | null = null, synthetic = false): Promise<CockpitRead<AuditEvent[]>> {
   if (synthetic) return { status: "ready", synthetic: true, data: syntheticAudit() };
   try {
@@ -728,19 +739,25 @@ export async function loadAuditEvents(cursor: string | null = null, synthetic = 
     if (cursor) params.set("cursor", cursor);
     const payload = await getJson<unknown>(`/api/audit-events?${params}`);
     const raw = asRecord(payload);
-    const items = Array.isArray(raw?.events) ? raw.events : Array.isArray(raw?.items) ? raw.items : [];
+    if (asString(raw?.schema_version) !== AUDIT_EVENTS_SCHEMA_VERSION) return { status: "not_ready" };
+    const items = Array.isArray(raw?.events) ? raw.events : [];
     const events = items.flatMap((item): AuditEvent[] => {
       const event = asRecord(item);
       if (!event) return [];
+      const subject = asRecord(event.subject);
+      const subjectId = asString(subject?.id);
+      const refMatch = /^\/api\/(decisions|operations)\/([^/?#]+)/.exec(asString(event.ref) ?? "");
+      const refId = refMatch ? decodeRefSegment(refMatch[2]) : null;
+      const revision = asString(event.revision);
       return [{
-        event_id: asString(event.event_id) ?? "",
+        event_id: asString(event.id) ?? "",
         occurred_at: asString(event.occurred_at) ?? "",
-        actor: asString(event.actor),
+        actor: asString(event.actor_alias),
         action: asString(event.action) ?? "unknown",
-        subject: asString(event.subject),
-        revision: asNumber(event.revision),
-        decision_id: asString(event.decision_id),
-        operation_id: asString(event.operation_id),
+        subject: subject && subjectId ? `${asString(subject.kind) ?? "unknown"}:${subjectId}` : null,
+        revision,
+        decision_id: refMatch?.[1] === "decisions" ? refId : null,
+        operation_id: refMatch?.[1] === "operations" ? refId : null,
         outcome: asString(event.outcome),
       }];
     });
@@ -901,8 +918,9 @@ function syntheticDigest(): DigestStatus {
 }
 
 function syntheticAudit(): AuditEvent[] {
+  const revision = "0".repeat(63) + "1";
   return [
-    { event_id: "synthetic-event-1", occurred_at: "2026-11-01T10:00:00Z", actor: "owner", action: "approval_recorded", subject: "synthetic-decision-001", revision: 3, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "recorded" },
-    { event_id: "synthetic-event-2", occurred_at: "2026-11-01T10:00:05Z", actor: "platform", action: "application_dispatched", subject: "demo-target", revision: 3, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "applying" },
+    { event_id: "synthetic-event-1", occurred_at: "2026-11-01T10:00:00Z", actor: "owner", action: "approval_recorded", subject: "synthetic-decision-001", revision, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "recorded" },
+    { event_id: "synthetic-event-2", occurred_at: "2026-11-01T10:00:05Z", actor: "platform", action: "application_dispatched", subject: "demo-target", revision, decision_id: "synthetic-decision-001", operation_id: "synthetic-operation-1", outcome: "applying" },
   ];
 }
