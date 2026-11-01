@@ -8,14 +8,23 @@ and types are checked against the independent secret inventory.
 """
 import json
 import os
-from pathlib import Path
 import re
 import sys
 import tomllib
 import urllib.error
 import urllib.request
+from datetime import datetime
+from pathlib import Path
 
 MISSING = object()
+# Only these literals may leave exception handling; never echo exception text.
+SAFE_REASONS = {
+    'configuration', 'redirect', 'http', 'content_type', 'response_limit', 'json',
+    'envelope', 'pagination', 'result', 'deployment_shape',
+    'deployment_timestamp', 'deployment_ambiguous', 'active_not_single',
+    'version', 'runtime',
+}
+UUID_PATTERN = r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'
 KNOWN_CONFIG = {
     'name', 'main', 'account_id', 'compatibility_date', 'compatibility_flags',
     'workers_dev', 'preview_urls', 'vars', 'kv_namespaces', 'durable_objects',
@@ -60,33 +69,91 @@ class Reader:
                 raw = response.read(2 * 1024 * 1024 + 1)
                 if len(raw) > 2 * 1024 * 1024:
                     raise Unreadable('response_limit')
-                body = json.loads(raw)
+                try:
+                    body = json.loads(raw)
+                except (ValueError, UnicodeError):
+                    raise Unreadable('json') from None
         except urllib.error.HTTPError as exc:
             self.status = exc.code
             raise Unreadable('http') from None
         if not isinstance(body, dict) or body.get('success') is not True or body.get('errors') not in (None, []):
             raise Unreadable('envelope')
-        # Never accept a truncated listing as a complete inventory.
-        info = body.get('result_info', {})
-        if not isinstance(info, dict) or info.get('cursor') or info.get('cursors', {}).get('after'):
-            raise Unreadable('pagination')
-        if info.get('total_pages', 1) > 1 or info.get('total_count', 0) > info.get('count', 0):
-            raise Unreadable('pagination')
         if 'result' not in body:
             raise Unreadable('result')
-        return body['result']
+        result = body['result']
+        # List Deployments is newest-first: its first page identifies active
+        # traffic even when older history spans more pages. This exception is
+        # scoped to the documented endpoint and result shape, never inventories.
+        latest = (stage == 'deployment'
+                  and re.fullmatch(r'workers/scripts/[a-z0-9-]+/deployments', path)
+                  and isinstance(result, dict) and set(result) == {'deployments'})
+        check_pagination(body.get('result_info', {}), latest=bool(latest))
+        return result
+
+
+def check_pagination(info, *, latest=False):
+    if info is None and latest:
+        # No history metadata is needed to identify the first-page deployment.
+        return
+    if not isinstance(info, dict) or set(info) - {
+            'cursor', 'cursors', 'page', 'per_page', 'count', 'total_count', 'total_pages'}:
+        raise Unreadable('pagination')
+    cursors = info.get('cursors', {})
+    if info.get('cursor') or not isinstance(cursors, dict) or any(cursors.values()):
+        raise Unreadable('pagination')
+    for key in ('page', 'per_page', 'count', 'total_count', 'total_pages'):
+        if key in info and (type(info[key]) is not int or info[key] < 0):
+            raise Unreadable('pagination')
+    if ('per_page' in info and info['per_page'] < 1
+            or 'total_pages' in info and info['total_pages'] < 1
+            or 'count' in info and 'total_count' in info and info['count'] > info['total_count']):
+        raise Unreadable('pagination')
+    if latest:
+        # Reject a later/unknown page if the metadata describes partial history.
+        partial = (info.get('total_pages', 1) > 1
+                   or info.get('total_count', 0) > info.get('count', 0))
+        if info.get('page', 1) != 1 or partial and info.get('page') != 1:
+            raise Unreadable('pagination')
+    elif (info.get('page', 1) not in (0, 1) or info.get('total_pages', 1) > 1
+          or info.get('total_count', 0) > info.get('count', 0)):
+        # Binding/secret/route inventories still require complete listings.
+        raise Unreadable('pagination')
 
 
 def active(deployments):
-    items = deployments.get('deployments') if isinstance(deployments, dict) else None
-    if not isinstance(items, list) or not items:
-        raise Unreadable('deployment')
-    entry = items[0]
+    # `deployments` is documented and used by pinned Wrangler. `items` is
+    # accepted for a complete alternate listing, never conflicting list keys or
+    # an unverified `latest` hint. Unknown selection metadata fails closed.
+    if not isinstance(deployments, dict) or set(deployments) not in ({'deployments'}, {'items'}):
+        raise Unreadable('deployment_shape')
+    items = next(iter(deployments.values()))
+    if not isinstance(items, list) or not items or any(not isinstance(item, dict) for item in items):
+        raise Unreadable('deployment_shape')
+    if len(items) > 1 or 'created_on' in items[0]:
+        times = []
+        for item in items:
+            timestamp = item.get('created_on')
+            try:
+                stamp = datetime.fromisoformat(timestamp) if isinstance(timestamp, str) else None
+                if stamp is None or stamp.tzinfo is None:
+                    raise ValueError
+            except ValueError:
+                raise Unreadable('deployment_timestamp') from None
+            times.append(stamp)
+        newest = max(times)
+        if times.count(newest) != 1 or len(items) > 1 and (
+                len({item.get('id') for item in items if isinstance(item.get('id'), str)}) != len(items)):
+            raise Unreadable('deployment_ambiguous')
+        entry = items[times.index(newest)]
+    else:
+        entry = items[0]
     versions = entry.get('versions')
-    if (entry.get('strategy') != 'percentage' or not entry.get('id')
+    if (entry.get('strategy') != 'percentage'
+            or not isinstance(entry.get('id'), str) or not re.fullmatch(UUID_PATTERN, entry['id'])
             or not isinstance(versions, list) or len(versions) != 1
-            or versions[0].get('percentage') != 100
-            or not re.fullmatch(r'[0-9a-f-]{36}', versions[0].get('version_id', ''))):
+            or not isinstance(versions[0], dict) or versions[0].get('percentage') != 100
+            or not isinstance(versions[0].get('version_id'), str)
+            or not re.fullmatch(UUID_PATTERN, versions[0]['version_id'])):
         raise Unreadable('active_not_single')
     return entry['id'], versions[0]['version_id']
 
@@ -300,11 +367,16 @@ def main():
             raise Unreadable('configuration')
         reader = Reader(account, token)
         rows = run(config, reader)
-    except Exception:
+    except Exception as exc:
         # Exception messages, request URLs, TOML parse errors and response bodies
-        # can contain private data. Only our fixed stage and HTTP status escape.
+        # can contain private data. Only allowlisted literals and HTTP status escape.
+        reason = 'request_or_schema_unreadable'
+        if isinstance(exc, Unreadable) and len(exc.args) == 1 and isinstance(exc.args[0], str) and exc.args[0] in SAFE_REASONS:
+            code = exc.args[0]
+            reason = ('deployment_schema:' + code if reader and reader.stage == 'deployment'
+                      and code != 'http' else code)
         rows = [{'item': reader.stage if reader else 'configuration', 'status': 'unreadable',
-                 'reason': 'request_or_schema_unreadable', 'http_status': reader.status if reader else None}]
+                 'reason': reason, 'http_status': reader.status if reader else None}]
     passed = bool(rows) and all(row['status'] == 'match' for row in rows)
     report = {'read_only': True, 'writes': 0, 'all_match': passed, 'items': rows}
     print(json.dumps(report, ensure_ascii=True, indent=2))

@@ -321,6 +321,26 @@ unreadable and are retained by ordinary deployment; they are never compared
 against GitHub secret values. Remote-only binding names are also redacted.
 Unknown fields, unsupported template shapes, incomplete inventories, read errors,
 multiple active versions or changed observations produce a nonzero exit code.
+Deployment selection accepts a `deployments` list or a complete `items` list.
+When timestamps are present, it selects the unique newest timezone-aware
+`created_on`; missing/malformed ordering data, duplicate IDs, tied newest times
+or conflicting list keys block comparison. A single entry may omit its timestamp.
+The documented List Deployments endpoint returns the active deployment on its
+first page, so additional history pages do not imply an incomplete inventory.
+Only that endpoint's `deployments` shape may use first-page history metadata
+(or absent/null metadata); cursors and non-first pages still block comparison.
+All binding, namespace, secret, route and domain inventories must remain complete.
+See the [Cloudflare endpoint schema](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/)
+and [pinned Wrangler parser](https://github.com/cloudflare/workers-sdk/blob/wrangler%404.106.0/packages/deploy-helpers/src/deploy/helpers/versions-api.ts).
+
+Read failures retain `status=unreadable`, HTTP status and a nonzero exit code.
+Deployment errors use fixed `deployment_schema:` reason codes: `content_type`,
+`response_limit`, `json`, `envelope`, `pagination`, `result`, `deployment_shape`,
+`deployment_timestamp`, `deployment_ambiguous`, `active_not_single` or `redirect`.
+HTTP errors use `http`; unexpected exceptions retain
+`request_or_schema_unreadable`. Reasons never contain response bodies, URLs,
+provider messages, identifiers or exception text.
+
 Undeclared provider settings are reported as unknown unless the pinned Wrangler
 version has a verified preservation rule; absence is not an invented default.
 An omitted `preview_urls` retains the readable live boolean, rather than copying
