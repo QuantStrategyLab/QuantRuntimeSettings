@@ -28,10 +28,9 @@ export function profileOptions(config: ConsoleConfig | null, language: Language)
     .map(item => ({ profile: item.profile, label: strategyName(item.profile, language, language === "zh" ? item.label_zh : item.label_en) }));
 }
 
-/** Backend label_key first; fall back to the page dictionary when the key is not translated. */
-export function fieldLabel(t: Translate, row: Pick<SettingsDiffRow, "label_key" | "field">): string {
-  const translated = t(row.label_key);
-  return translated === row.label_key ? t(`accounts.field.${row.field}`) : translated;
+/** Backend label_key first; unknown keys fall back to the account-field copy, never the raw field. */
+export function fieldLabel(t: Translate, row: { label_key: string; field: string }): string {
+  return t(row.label_key, {}, `accounts.field.${row.field}`);
 }
 
 export function sectionLabel(t: Translate, section: SettingsSection): string {
