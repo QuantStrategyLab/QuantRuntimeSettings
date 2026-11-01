@@ -108,10 +108,10 @@ try {
   const realFetch = globalThis.fetch;
   try {
     const jsonResponse = (payload) => ({ status: 200, ok: true, json: async () => payload });
-    globalThis.fetch = async () => jsonResponse({ events: [
-      { event_id: "e1", occurred_at: "2026-11-01T10:00:00Z", action: "approval_recorded", subject: { kind: "strategy_promotion", id: "p-1" }, outcome: "applied", revision: 2 },
-      { event_id: "e2", occurred_at: "2026-11-01T10:00:01Z", action: "approval_recorded", subject: "owner_decision: d-9", outcome: null, revision: null },
-      { event_id: "e3", occurred_at: "2026-11-01T10:00:02Z", action: "approval_recorded", subject: "plain-id", outcome: null, revision: null },
+    globalThis.fetch = async () => jsonResponse({ schema_version: "qsl.audit_events.v1", events: [
+      { id: "e1", occurred_at: "2026-11-01T10:00:00Z", action: "approval_recorded", subject: { kind: "strategy_promotion", id: "p-1" }, outcome: "applied", revision: "a".repeat(64), ref: "/api/decisions/p-1" },
+      { id: "e2", occurred_at: "2026-11-01T10:00:01Z", action: "approval_recorded", subject: "owner_decision: d-9", outcome: null, revision: null, ref: "/api/operations/d-9" },
+      { id: "e3", occurred_at: "2026-11-01T10:00:02Z", action: "approval_recorded", subject: "plain-id", outcome: null, revision: null, ref: null },
     ] });
     const read = await ui.loadAuditEvents();
     assert.equal(read.status, "ready");
