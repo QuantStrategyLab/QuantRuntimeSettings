@@ -107,7 +107,7 @@ additive `DecisionFields`. Exact evidence-receipt reads keep their existing shap
 | Category | Priority | `affects_live` |
 |---|---|---|
 | `reconciliation_recovery` | `high` | true: a later controller action can affect execution |
-| `credential_maintenance` | `medium` at 30/7/1 days or expired; otherwise `normal` | false |
+| `credential_maintenance` | `medium` at 30/14/7 days or expired; otherwise `normal` | false |
 | `strategy_promotion` | `normal` | true only for a stored live confirmation mode; intent remains non-executable |
 | `owner_decision` | `normal` | true for a stored live-decision recommendation; intent remains non-executable |
 | `paper_account_application` | `normal` | false; existing paper qualification and application controls still apply |
@@ -136,6 +136,31 @@ expiry produces `expired`; otherwise the item is `pending`. Unknown dates are
 record update time does not certify research freshness. Credential items have
 one stable `credential:<id>` identity in the unified inbox, and the old credential
 endpoint is retained.
+
+A `credential_maintenance` inbox item also carries `credential_expiry`, an object
+with exactly three display fields. It is present only for that category and is
+not required on other categories:
+
+| Field | Contract |
+|---|---|
+| `expires_at` | Canonical UTC ISO instant from the registered expiry, or `null` when unknown. |
+| `days_remaining` | Server-computed `max(0, ceil((expires_at - server_now) / 86400000))`, or `null` when unknown. Expired returns `0`. |
+| `severity` | `none`, `unknown`, `notice`, `warning`, `urgent` or `expired`. |
+
+The server computes phase, days and severity once per response. Exactly 30, 14
+and 7 days belong to `notice`, `warning` and `urgent`; a fraction above a
+boundary stays in the preceding phase; reaching the expiry instant yields
+`expired`. More than 30 days is `not_due` with severity `none` and creates no
+pending item. Unknown or invalid registered metadata is `unknown` with a null
+expiry and null days. A credential-source read failure remains `read_failed`; it
+is not converted into an unknown expiry or a healthy state. The object never
+contains a token, query ID, private Flex configuration, credential fingerprint or
+watchdog payload.
+
+`GET /api/credential-maintenance` exposes the same `days_remaining` and
+`severity` fields alongside its current phase. Its due phases are
+`30/14/7/expired`; `1` is retired, and consumers that validate the phase enum
+must accept `14`.
 
 `diff` contains scalar before/after values for available strategy, version,
 parameter and shadow metrics. A missing old value is `null`, not an inferred

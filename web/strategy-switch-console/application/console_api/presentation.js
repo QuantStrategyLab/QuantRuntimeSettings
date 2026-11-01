@@ -132,7 +132,7 @@ export function decisionFields(entry, category, now = Date.now()) {
       category === "reconciliation_recovery"
         ? "high"
         : category === "credential_maintenance" &&
-            ["30", "7", "1", "expired"].includes(data.phase)
+            ["30", "14", "7", "expired"].includes(data.phase)
           ? "medium"
           : "normal",
     created_at: time(data.created_at || data.first_observed_at),
@@ -196,6 +196,15 @@ export function canonicalItem(entry, category) {
     ...(category === "paper_account_application" ? {
       status: entry.application || entry.state === "human_accepted" ? "decided" : fields.status,
       application_status: entry.application?.status || null,
+    } : {}),
+    ...(category === "credential_maintenance" ? {
+      credential_expiry: {
+        expires_at: time(data.expires_at),
+        days_remaining: Number.isSafeInteger(data.days_remaining) ? data.days_remaining : null,
+        severity: ["none", "unknown", "notice", "warning", "urgent", "expired"].includes(data.severity)
+          ? data.severity
+          : "unknown",
+      },
     } : {}),
     decision_id: id,
     revision: decisionRevision(binding, id),

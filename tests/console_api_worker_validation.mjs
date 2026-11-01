@@ -372,7 +372,12 @@ const deps = {
   promotion: async () => { counts.promotion++; return json({ data_status: "ready", tickets: [] }); },
   recovery: async () => { counts.recovery++; return json({ data_status: "ready", recoveries: [] }); },
   credential: async () => { counts.credential++; return credentialForbidden
-    ? json({ ok: false, error: "admin required" }, 403) : json({ requires_action: false }); },
+    ? json({ ok: false, error: "admin required" }, 403)
+    : json({
+        id: "ibkr_flex", requires_action: true, phase: "14", delivery: "not_reserved",
+        expires_at: "2035-04-01T00:00:00.000Z", days_remaining: 14, severity: "warning",
+        token: "synthetic-token-sentinel", query_id: "synthetic-query-sentinel",
+      }); },
 };
 const request = (path) => new Request(`https://synthetic.invalid${path}`);
 const read = async (path, ports = deps, env = {}) => {
@@ -386,6 +391,11 @@ try {
   const oldAccounts = await read("/api/accounts");
   const oldInbox = await read("/api/decisions-inbox");
   assert.deepEqual(counts, { metadata: 1, owner: 2, promotion: 2, recovery: 2, credential: 2, outbound: 0 });
+  assert.deepEqual(oldInbox.body.items.find(item => item.category === "credential_maintenance").credential_expiry, {
+    expires_at: "2035-04-01T00:00:00.000Z", days_remaining: 14, severity: "warning",
+  });
+  assert.equal(JSON.stringify(oldInbox.body).includes("synthetic-token-sentinel"), false);
+  assert.equal(JSON.stringify(oldInbox.body).includes("synthetic-query-sentinel"), false);
   resetCounts();
   const result = await read("/api/accounts?include=decisions-inbox");
   assert.equal(result.status, 200);

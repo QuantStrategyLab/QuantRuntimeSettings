@@ -3,7 +3,16 @@ export class CredentialMaintenanceError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
 const ID = "ibkr_flex";
-const DUE = new Set(["30", "7", "1", "expired"]);
+const DUE = new Set(["30", "14", "7", "expired"]);
+const DAY_MS = 86400000;
+const SEVERITY = Object.freeze({
+  unknown: "unknown",
+  not_due: "none",
+  "30": "notice",
+  "14": "warning",
+  "7": "urgent",
+  expired: "expired",
+});
 
 export function normalizeExpiryInstant(value) {
   if (value === null) return null;
@@ -22,12 +31,19 @@ export function normalizeExpiryInstant(value) {
   return new Date(instant).toISOString();
 }
 
+export function credentialExpiryProjection(value, now = Date.now()) {
+  let expires_at;
+  try { expires_at = normalizeExpiryInstant(value); } catch {
+    return { expires_at: null, phase: "unknown", days_remaining: null, severity: "unknown" };
+  }
+  if (expires_at === null) return { expires_at: null, phase: "unknown", days_remaining: null, severity: "unknown" };
+  const remaining = (Date.parse(expires_at) - now) / DAY_MS;
+  const phase = remaining <= 0 ? "expired" : remaining <= 7 ? "7" : remaining <= 14 ? "14" : remaining <= 30 ? "30" : "not_due";
+  return { expires_at, phase, days_remaining: Math.max(0, Math.ceil(remaining)), severity: SEVERITY[phase] };
+}
+
 export function credentialPhase(value, now = Date.now()) {
-  let expiry;
-  try { expiry = normalizeExpiryInstant(value); } catch { return "unknown"; }
-  if (expiry === null) return "unknown";
-  const days = (Date.parse(expiry) - now) / 86400000;
-  return days <= 0 ? "expired" : days <= 1 ? "1" : days <= 7 ? "7" : days <= 30 ? "30" : "not_due";
+  return credentialExpiryProjection(value, now).phase;
 }
 
 export function initializeCredentialMaintenance(sql) {
@@ -37,11 +53,10 @@ export function initializeCredentialMaintenance(sql) {
 const key = (p) => JSON.stringify([ID, p.expires_at, p.phase]);
 function projection(sql) {
   const row = sql.exec("SELECT revision, expires_at FROM credential_maintenance_metadata WHERE id = ?", ID).toArray()[0];
-  let expires_at = null;
-  try { expires_at = normalizeExpiryInstant(row?.expires_at ?? null); } catch { /* corrupt metadata remains unknown */ }
-  const phase = credentialPhase(expires_at);
-  const p = { id: ID, metadata_source: "operator_provided", metadata_revision: row?.revision ?? 0, expires_at,
-    phase, requires_action: phase !== "not_due", delivery: "not_reserved" };
+  const expiry = credentialExpiryProjection(row?.expires_at ?? null);
+  const p = { id: ID, metadata_source: "operator_provided", metadata_revision: row?.revision ?? 0, expires_at: expiry.expires_at,
+    phase: expiry.phase, days_remaining: expiry.days_remaining, severity: expiry.severity,
+    requires_action: expiry.phase !== "not_due", delivery: "not_reserved" };
   if (DUE.has(p.phase)) p.delivery = sql.exec("SELECT state FROM credential_maintenance_delivery WHERE delivery_key = ?", key(p)).toArray()[0]?.state ?? "not_reserved";
   return p;
 }

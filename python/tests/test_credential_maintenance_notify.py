@@ -70,6 +70,19 @@ class CredentialMaintenanceTests(unittest.TestCase):
             with patch.object(client, '_request', return_value={**META, **changes}):
                 self.assertIsNone(client.read_due())
 
+    def test_current_phases_accept_fourteen_and_reject_one(self):
+        for phase in ['30', '14', '7', 'expired']:
+            client = self.client()
+            with patch.object(client, '_request', return_value={**META, 'phase': phase}):
+                reminder = client.read_due()
+                self.assertIsNotNone(reminder)
+                self.assertEqual(reminder.phase, phase)
+                self.assertEqual(client.diagnostic, {'read': 'ready', 'phase': phase, 'delivery': 'not_reserved'})
+        client = self.client()
+        with patch.object(client, '_request', return_value={**META, 'phase': '1'}):
+            self.assertIsNone(client.read_due())
+            self.assertEqual(client.diagnostic, {'read': 'invalid', 'phase': 'unknown', 'delivery': 'unknown'})
+
     def test_uncertain_ack_and_claim_never_release(self):
         client = self.client()
         with patch.object(client, '_request', side_effect=[META, {'granted': True, 'claim_id': 'synthetic-claim', 'phase': '7', 'delivery': 'reserved'}, RuntimeError('private upstream sentinel')]):
@@ -200,7 +213,7 @@ class CredentialMaintenanceTests(unittest.TestCase):
         from project_public_digest_receipt import project_public_receipt
         payload = type('Payload', (), {'business_day': '2035-03-25', 'locale': 'en', 'runs': []})()
         route = {'token_source_kind': 'env', 'chat_source_kind': 'env', 'warnings': [], 'missing': []}
-        for phase in ['30', '7', '1', 'expired']:
+        for phase in ['30', '14', '7', 'expired']:
             for delivery in ['delivered', 'reserved', 'unknown']:
                 responses = [{**META, 'phase': phase}, {'granted': True, 'claim_id': 'synthetic-private-claim', 'phase': phase, 'delivery': 'reserved'}, {'phase': phase, 'delivery': delivery}]
                 with self.subTest(phase=phase, delivery=delivery), patch.dict(os.environ, ENV, clear=True), patch.object(self.m.MaintenanceClient, '_request', side_effect=responses) as request, patch.object(sender.aggregator, 'build_digest_payload', return_value=(payload, 'synthetic digest', [])), patch.object(sender.aggregator, 'build_receipt', return_value={'total_fills': None}), patch.object(sender, 'diagnose_telegram_route', return_value=route), patch.object(sender, 'missing_delivery_requirements', return_value=[]), patch.object(sender, 'resolve_telegram_token', return_value='synthetic-token'), patch.object(sender, 'resolve_telegram_chat_id', return_value='-123'), patch.object(self.m, 'send_strict_telegram', return_value=True) as strict, patch.object(sender, 'send_telegram_message') as legacy, patch.object(sender, '_write_receipt') as write, contextlib.redirect_stdout(io.StringIO()):
