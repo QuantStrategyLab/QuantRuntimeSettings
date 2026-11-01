@@ -300,6 +300,43 @@ Store the client ID and client secret in Worker secrets.
 
 ## Deploy With Wrangler
 
+The manual deploy workflow's default-off `render_and_compare_only` input uses
+its ordinary `Prepare Wrangler config` step and the same GitHub Environment.
+Comparison requires both `CLOUDFLARE_API_TOKEN` and an explicit
+`CLOUDFLARE_ACCOUNT_ID` in that Environment. `CLOUDFLARE_WRANGLER_CONFIG_TOML`
+alone or an omitted account ID is insufficient; validation fails before the
+first GET.
+Use current `main`, an empty `source_sha`, `private_release_check=off`,
+`ibkr_candidate_resume=off`, and disable all sync, release, rollback and other
+preflight inputs. This mode skips builds, Wrangler commands, credential-file
+installation, receiver checks and every write step, even with conflicting
+inputs (conflicts fail validation). It only renders the private TOML, performs
+Cloudflare GETs, prints a value-redacted per-item comparison and removes the
+rendered file. Neither raw API responses nor config files are uploaded.
+
+The comparison checks settings, active-version bindings, variables, KV IDs,
+Durable Object namespace identity/storage, migration tag, cron, subdomain,
+routes, custom domains and secret name/type inventory. Secret values remain
+unreadable and are retained by ordinary deployment; they are never compared
+against GitHub secret values. Remote-only binding names are also redacted.
+Unknown fields, unsupported template shapes, incomplete inventories, read errors,
+multiple active versions or changed observations produce a nonzero exit code.
+Undeclared provider settings are reported as unknown unless the pinned Wrangler
+version has a verified preservation rule; absence is not an invented default.
+An omitted `preview_urls` retains the readable live boolean, rather than copying
+`workers_dev`; an unreadable preview setting still blocks the comparison.
+The local `main` filename is a build input, not a deployed code equality check.
+Two matching observations are not an atomic lock or permission to deploy. After
+a clean result, any separately authorized standard deployment must use the same
+reviewed source and unchanged Environment inputs; a mismatch or unreadable item
+requires stopping, not changing production to make the comparison pass.
+
+References: [Cloudflare configuration source of truth](https://developers.cloudflare.com/workers/wrangler/configuration/#source-of-truth),
+[script settings API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/script_and_version_settings/methods/get/),
+[version API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/get/),
+[Durable Object namespaces API](https://developers.cloudflare.com/api/resources/durable_objects/subresources/namespaces/methods/list/),
+and [Version URL settings](https://developers.cloudflare.com/workers/versions-and-deployments/version-urls/).
+
 The manual **Diagnose Active Console Module** workflow performs a read-only
 inspection of the single 100%-active Worker version. Supply the full reviewed
 main commit SHA; the workflow checks the checkout and current remote main before

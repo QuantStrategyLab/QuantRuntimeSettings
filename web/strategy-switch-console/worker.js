@@ -1,3 +1,4 @@
+import { binanceDetailCommand } from "./binance_detail_archive.js";
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
 import { readNotificationLog } from "./application/console_api/notification_receipts.js";
 import { readRuntimeControlReceipt } from "./application/console_api/runtime_control_receipts.js";
@@ -196,8 +197,13 @@ const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
 const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
-const CURRENT_STRATEGIES_CACHE_TTL_MS = 5_000;       // 5 sec — rapid refresh during active development
-const CURRENT_STRATEGIES_STALE_TTL_MS = 600_000;       // 10 min — return stale + background refresh
+// The keep-alive bump stays below the KV fresh window so one missed cron tick
+// (the schedule is */5) still leaves the entry inside it; a cold isolate then
+// never has to fan out to GitHub just because the stamp aged out.
+const CURRENT_STRATEGIES_MEMO_TTL_MS = 60_000;      // 60 sec — a warm isolate re-checks GitHub after this
+const CURRENT_STRATEGIES_KV_FRESH_MS = 1_800_000;   // 30 min — a cold isolate serves the KV entry without any GitHub fan-out
+const CURRENT_STRATEGIES_STALE_TTL_MS = 3_600_000;  // 60 min — return stale plus background refresh before blocking on GitHub
+const CURRENT_STRATEGIES_KV_BUMP_MS = 900_000;      // 15 min — ceiling for ts-only rewrites when the content did not change
 const GITHUB_API_TIMEOUT_MS = 8000;
 const GITHUB_LOGIN_REQUEST_TIMEOUT_MS = 20000;
 const UX1_CALCULATOR_DEADLINE_MS = 30000;
@@ -495,6 +501,7 @@ const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_period_return_put", "account_period_return_read", "account_daily_native_return_research_read",
   "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read", "account_facts_history_put",
   "binance_wallet_history_put", "binance_wallet_history_read",
+  "binance_detail_put", "binance_detail_read",
 ]);
 const MARKET_BENCHMARK_DO_ACTIONS = new Set([
   "market_benchmark_put", "market_benchmark_read", "market_benchmark_revise",
@@ -968,6 +975,9 @@ export default {
       if (url.pathname === "/api/binance-private-scope" && request.method === "GET") {
         return await binancePrivateScopeResponse(request, env);
       }
+      if (url.pathname === "/api/internal/binance-account-facts/archive" && request.method === "GET") {
+        return await binanceDetailArchiveResponse(request, env, url);
+      }
       if (url.pathname === "/api/internal/binance-account-facts" && request.method === "GET") {
         return await binanceAccountFactsReadinessResponse(request, env);
       }
@@ -1114,10 +1124,7 @@ export default {
     try {
       const accountConfig = await loadAccountOptionsConfig(env);
       const strategies = await loadCurrentStrategiesSafely(accountConfig.options, env);
-      await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
-        ts: Date.now(),
-        data: strategies,
-      });
+      await writeCurrentStrategiesCache(env, strategies, Date.now());
     } catch {
       // Silently skip — next user request will populate cache via SWR
     }
@@ -2836,6 +2843,7 @@ export class RuntimeInstances {
   accountFactsCommand(command) {
     if (!command || typeof command.action !== "string") throw new HttpError("unsupported_account_facts_action", 400);
     if (command.action === "account_daily_native_return_research_read") return this.researchNativeDailyReturns(command);
+    if (["binance_detail_put", "binance_detail_read"].includes(command.action)) return binanceDetailCommand(this.sql, command);
     if (command.action === "binance_wallet_history_put" || command.action === "binance_wallet_history_read") {
       return this.binanceWalletHistoryCommand(command);
     }
@@ -6393,6 +6401,72 @@ let _memCurrentStrategies = null;
 let _memCurrentStrategiesTs = 0;
 let _memRefreshing = false;  // prevent concurrent background refreshes
 
+// KV free tier caps writes at 1,000/day account-wide and the */5 cron plus every
+// background refresh reaches this helper, so a write is paid for only when the
+// rendered content changed or the stored entry needs its ts bumped to stay inside
+// the fresh window that cold isolates serve from.
+// current_strategies_cache carries per-account execution_evidence.observed_at
+// stamped with new Date() (see accountExecutionEvidence callers), so whole-payload
+// byte equality can never hold; the comparison drops those stamps and keeps the
+// stored value untouched for readers.
+function currentStrategiesSignature(payload) {
+  const clone = JSON.parse(JSON.stringify(payload ?? null));
+  const visit = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "execution_evidence" && value && typeof value === "object") delete value.observed_at;
+      else visit(value);
+    }
+  };
+  visit(clone);
+  return JSON.stringify(clone);
+}
+
+// readConfigJson reports a damaged value as `STRATEGY_SWITCH_CONFIG.<key> must be
+// valid JSON`. Only that shape is a cache miss; a KV read that failed for any other
+// reason is an outage and has to reach the caller instead of being mistaken for an
+// empty cache — the difference is what keeps cold isolates from fanning out to
+// GitHub on every request while the store is unhealthy.
+function isConfigJsonParseError(error) {
+  return /^STRATEGY_SWITCH_CONFIG\.[^\s]+ must be valid JSON$/.test(String(error?.message || ""));
+}
+
+async function readCurrentStrategiesCacheEntry(env) {
+  try {
+    return await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+  } catch (error) {
+    if (!isConfigJsonParseError(error)) throw error;
+    return null;
+  }
+}
+
+async function writeCurrentStrategiesCache(env, payload, ts) {
+  const signature = currentStrategiesSignature(payload);
+  // A damaged stored value must not wedge the cache; this is the only path that can
+  // overwrite it, so the comparison reads through the same repair-aware helper.
+  const cached = await readCurrentStrategiesCacheEntry(env);
+  if (cached?.data && currentStrategiesSignature(cached.data) === signature
+      && cached.ts && ts - cached.ts < CURRENT_STRATEGIES_KV_BUMP_MS) {
+    return;
+  }
+  await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, { ts, data: payload });
+}
+
+// loadCurrentStrategiesSafely answers with evidence-only account entries whenever
+// GitHub timed out or threw, so a payload whose every account is exactly that
+// shape carries no strategy information and must not be served as fresh.
+function isDegradedCurrentStrategies(payload) {
+  const accounts = Object.values(payload || {}).flatMap(options => Object.values(options || {}));
+  if (!accounts.length) return false;
+  return accounts.every(account => account && typeof account === "object"
+    && Object.keys(account).length === 1
+    && account.execution_evidence?.status === "read_failed");
+}
+
 async function configPayload(request, env, ctx) {
   const session = await readSession(request, env);
   const meta = await loadPlatformMeta(env);
@@ -6420,7 +6494,7 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
   // 1) In-memory cache
   if (_memCurrentStrategies) {
     const age = Date.now() - _memCurrentStrategiesTs;
-    if (age < CURRENT_STRATEGIES_CACHE_TTL_MS) {
+    if (age < CURRENT_STRATEGIES_MEMO_TTL_MS) {
       currentStrategies = _memCurrentStrategies;
       cacheFresh = true;
     } else if (age < CURRENT_STRATEGIES_STALE_TTL_MS) {
@@ -6431,10 +6505,13 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
 
   // 2) KV cache
   if (!currentStrategies && hasConfigStore(env)) {
-    const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+    const cached = await readCurrentStrategiesCacheEntry(env);
     if (cached?.ts && cached.data) {
       const age = Date.now() - cached.ts;
-      if (age < CURRENT_STRATEGIES_CACHE_TTL_MS) {
+      // A degraded entry stays inside the freshness window but is never *fresh*:
+      // the next request must revalidate instead of serving a read_failed payload
+      // for the whole 30 minutes.
+      if (age < CURRENT_STRATEGIES_KV_FRESH_MS && !isDegradedCurrentStrategies(cached.data)) {
         currentStrategies = cached.data;
         cacheFresh = true;
       } else if (age < CURRENT_STRATEGIES_STALE_TTL_MS) {
@@ -6456,10 +6533,7 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
         const fresh = await loadCurrentStrategiesSafely(accountOptions, env);
         _memCurrentStrategies = fresh;
         _memCurrentStrategiesTs = Date.now();
-        await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
-          ts: _memCurrentStrategiesTs,
-          data: fresh,
-        });
+        await writeCurrentStrategiesCache(env, fresh, _memCurrentStrategiesTs);
       } catch { /* keep stale data */ }
       finally { _memRefreshing = false; }
     })());
@@ -6471,10 +6545,7 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
     _memCurrentStrategies = currentStrategies;
     _memCurrentStrategiesTs = Date.now();
     if (hasConfigStore(env) && ctx) {
-      ctx.waitUntil(writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
-        ts: _memCurrentStrategiesTs,
-        data: currentStrategies,
-      }));
+      ctx.waitUntil(writeCurrentStrategiesCache(env, currentStrategies, _memCurrentStrategiesTs));
     }
   }
 
@@ -8609,6 +8680,10 @@ async function syncBinanceAccountFactsResponse(request, env) {
       unchanged = incomingTime === previousTime;
     }
     try {
+      const detail = await runtimeInstanceCommand(env, {
+        action: "binance_detail_put", binding, report, date: report.observed_finished_at.slice(0, 10),
+      });
+      if (detail.readback_verified !== true) throw new Error("binance_detail_readback_failed");
       const history = binanceWalletHistoryEntry(report, binding);
       await runtimeInstanceCommand(env, {
         action: "binance_wallet_history_put",
@@ -8629,6 +8704,21 @@ async function syncBinanceAccountFactsResponse(request, env) {
   } catch (error) {
     if (error?.status === 413) return json({ ok: false, error: "binance_account_facts_payload_too_large" }, 413);
     return binanceFactsErrorResponse(error);
+  }
+}
+
+async function binanceDetailArchiveResponse(request, env, url) {
+  const authError = binanceFactsSyncAuthorizationResponse(request, env);
+  if (authError) return authError;
+  try {
+    const binding = await trustedBinanceFactsBinding(env);
+    if (!binding) throw new Error("binding_missing");
+    const result = await runtimeInstanceCommand(env, {
+      action: "binance_detail_read", binding, date: url.searchParams.get("date"),
+    });
+    return json(result, result.report ? 200 : 404);
+  } catch {
+    return json({ ok: false, error: "binance_detail_archive_unavailable" }, 503);
   }
 }
 
@@ -11638,14 +11728,22 @@ function accountFactsDisabledResponse() {
   return json({ ok: false, error: "account_facts_disabled" }, 404);
 }
 
-function accountFactsErrorResponse(error) {
-  if (error instanceof AccountFactsError) {
-    return json({ ok: false, error: error.code }, error.status || 400);
-  }
-  if (error instanceof HttpError) {
-    return json({ ok: false, error: error.message }, error.status || 400);
-  }
-  return json({ ok: false, error: error?.message || "invalid_account_facts_history" }, error?.status || 400);
+// Sync producers keep only the HTTP status, so a refused push is undiagnosable
+// from their logs. Publish the refusal code, tagged with a fixed endpoint literal
+// from the caller; free-form exception text is classified to "unknown" so payload
+// content, identities and credentials cannot enter the log stream. The response
+// body and status are exactly what this helper already returned.
+function accountFactsErrorResponse(error, endpoint = "read") {
+  const code = error instanceof AccountFactsError ? error.code
+    : error instanceof HttpError ? error.message
+    : error?.message || "invalid_account_facts_history";
+  const status = error?.status || 400;
+  console.warn("account_facts_refused", {
+    endpoint,
+    http_status: status,
+    error_category: typeof code === "string" && /^[a-z][a-z0-9_]{2,63}$/.test(code) ? code : "unknown",
+  });
+  return json({ ok: false, error: code }, status);
 }
 
 function requireCycleHealthProvisionToken(request, env) {
@@ -11881,7 +11979,7 @@ async function syncAccountExternalFlowResponse(request, env) {
       record_count: new Set(flow.windows.flatMap(w => w.records.map(r => r.source_ref))).size });
   } catch (error) {
     if (error instanceof AccountFactsError || error instanceof HttpError || error?.code?.startsWith("external_flow")
-        || error?.code === "invalid_external_flow") return accountFactsErrorResponse(error);
+        || error?.code === "invalid_external_flow") return accountFactsErrorResponse(error, "external_flow_sync");
     return json({ ok: false, error: "account_external_flow_unavailable" }, 503);
   }
 }
@@ -11906,7 +12004,7 @@ async function syncAccountExecutionsResponse(request, env) {
       account_key: binding.account_key, period: payload.period, record_count: payload.records.length });
   } catch (error) {
     if (error instanceof AccountFactsError || error instanceof HttpError || error?.code?.startsWith("execution_")
-        || error?.code === "invalid_broker_executions") return accountFactsErrorResponse(error);
+        || error?.code === "invalid_broker_executions") return accountFactsErrorResponse(error, "executions_sync");
     return json({ ok: false, error: "account_executions_unavailable" }, 503);
   }
 }
@@ -11930,7 +12028,7 @@ async function syncAccountPeriodReturnResponse(request, env) {
     return json({ ok: true, stored: true, unchanged: stored.unchanged === true, account_key: binding.account_key,
       period: payload.period, currency: payload.currency, method: payload.method });
   } catch (error) {
-    if (error instanceof AccountFactsError || error instanceof HttpError) return accountFactsErrorResponse(error);
+    if (error instanceof AccountFactsError || error instanceof HttpError) return accountFactsErrorResponse(error, "period_return_sync");
     return json({ ok: false, error: "account_period_return_unavailable" }, 503);
   }
 }
@@ -11945,7 +12043,8 @@ async function syncAccountFactsResponse(request, env, options) {
     runtimeInstanceCommand,
     readBoundedJson,
     requireDedicatedAccountFactsSyncToken,
-    accountFactsErrorResponse,
+    accountFactsErrorResponse: (error) => accountFactsErrorResponse(
+      error, options?.historical ? "history_sync" : "current_sync"),
   }, options);
 }
 
@@ -18400,6 +18499,13 @@ function escapeHtml(value) {
 export const __test = {
   auditEventAction,
   effectiveAccountSettings,
+  writeCurrentStrategiesCache,
+  readCurrentStrategiesCacheEntry,
+  isConfigJsonParseError,
+  currentStrategiesSignature,
+  isDegradedCurrentStrategies,
+  currentStrategiesKvBumpMs: CURRENT_STRATEGIES_KV_BUMP_MS,
+  currentStrategiesKvFreshMs: CURRENT_STRATEGIES_KV_FRESH_MS,
   dispatchAccountDiagnosis,
   humanDecisionReceipt,
   researchPromotionMaterialKey,
@@ -18493,6 +18599,7 @@ export const __test = {
   resolveTrustedAccountFactsBinding,
   decideAccountFactsPut,
   accountFactsOptionMatchesBinding,
+  accountFactsErrorResponse,
   canonicalizeAccountFactsHistory,
   ux1JobUnknownAfterMs: UX1_JOB_UNKNOWN_AFTER_MS,
   ux1CalculatorDeadlineMs: UX1_CALCULATOR_DEADLINE_MS,

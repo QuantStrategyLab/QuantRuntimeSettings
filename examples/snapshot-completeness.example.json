@@ -1,0 +1,134 @@
+{
+  "window_days": 30,
+  "state_prefix": "gs://synthetic-private/audit",
+  "backfill_enabled": false,
+  "targets": [
+    {
+      "platform": "longbridge",
+      "status": "active",
+      "identity": {
+        "schema": "synthetic.broker.v1",
+        "platform": "longbridge",
+        "account": "synthetic-account",
+        "binding": "synthetic-binding"
+      },
+      "as_of_path": "observed_at",
+      "archive": {
+        "prefix": "gs://synthetic-private/archive/{date}/"
+      },
+      "calendar": {
+        "kind": "sessions",
+        "id": "synthetic-exchange",
+        "source": "synthetic-example-not-for-production",
+        "timezone": "Asia/Hong_Kong",
+        "start": "2026-10-20",
+        "end": "2026-10-20",
+        "grace_seconds": 3600,
+        "sessions": [
+          {
+            "date": "2026-10-20",
+            "close_at": "2026-10-20T16:00:00+08:00"
+          }
+        ]
+      },
+      "fields": {
+        "cash": {
+          "path": "cash",
+          "complete_path": "coverage.cash",
+          "complete_value": "complete",
+          "required": [
+            "asset",
+            "quantity"
+          ],
+          "numeric": [
+            "quantity"
+          ],
+          "empty_proof": {
+            "query_ok": "proof.cash.query_ok",
+            "row_count": "proof.cash.row_count",
+            "pagination_complete": "proof.cash.pagination_complete"
+          }
+        },
+        "positions": {
+          "path": "positions",
+          "complete_path": "coverage.positions",
+          "complete_value": "complete",
+          "required": [
+            "asset",
+            "quantity"
+          ],
+          "numeric": [
+            "quantity"
+          ],
+          "empty_proof": {
+            "query_ok": "proof.positions.query_ok",
+            "row_count": "proof.positions.row_count",
+            "pagination_complete": "proof.positions.pagination_complete"
+          }
+        },
+        "orders": {
+          "path": "orders",
+          "complete_path": "coverage.orders",
+          "complete_value": "complete",
+          "required": [
+            "asset",
+            "quantity"
+          ],
+          "numeric": [
+            "quantity"
+          ],
+          "empty_proof": {
+            "query_ok": "proof.orders.query_ok",
+            "row_count": "proof.orders.row_count",
+            "pagination_complete": "proof.orders.pagination_complete"
+          }
+        },
+        "fills": {
+          "path": "fills",
+          "complete_path": "coverage.fills",
+          "complete_value": "complete",
+          "required": [
+            "asset",
+            "quantity"
+          ],
+          "numeric": [
+            "quantity"
+          ],
+          "empty_proof": {
+            "query_ok": "proof.fills.query_ok",
+            "row_count": "proof.fills.row_count",
+            "pagination_complete": "proof.fills.pagination_complete"
+          }
+        }
+      }
+    },
+    {
+      "platform": "firstrade",
+      "status": "unverified"
+    },
+    {
+      "platform": "schwab",
+      "status": "unverified"
+    },
+    {
+      "platform": "ibkr",
+      "status": "unverified"
+    },
+    {
+      "platform": "binance",
+      "status": "unverified"
+    },
+    {
+      "platform": "alpaca",
+      "status": "unverified"
+    },
+    {
+      "platform": "qmt",
+      "status": "unverified"
+    },
+    {
+      "platform": "ftmo",
+      "status": "unverified"
+    }
+  ]
+}
