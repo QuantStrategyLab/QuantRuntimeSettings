@@ -16,7 +16,8 @@ try {
     import { renderToStaticMarkup } from 'react-dom/server';
     import { CatalogTab, ResearchTab, parseResearchLeads, loadResearchLeads } from './src/pages/strategies/StrategiesPage';
     import { AccountDirectoryContext } from './src/app/context';
-    import { StatStrip, CredentialsCard } from './src/pages/health/HealthPage';
+    import { StatStrip } from './src/pages/health/HealthPage';
+    import CredentialRotationPanel from './src/pages/health/CredentialRotationPanel';
     import { SummaryCards } from './src/pages/performance/SummaryCards';
     import { Tabs } from './src/components/Tabs';
     import { DayDetail } from './src/pages/health/RunGrid';
@@ -30,8 +31,10 @@ try {
     export const badge = (language, status, reason) => render(language, StatusBadge, { status, reason });
     export const stats = (language, data) => render(language, StatStrip, {
       summary: { phase: 'ready', data, reload() {} }, credential: { phase: 'loading', reload() {} } });
-    export const credentials = (language, data) => render(language, CredentialsCard, {
-      credential: { phase: 'ready', data, reload() {} } });
+    export const credentials = (language, envelope, reminder) => render(language, CredentialRotationPanel, {
+      rotation: { phase: 'ready', data: envelope, reload() {} },
+      reminder: { phase: 'ready', data: reminder, reload() {} },
+      confirm: async () => true, onRotated() {} });
     export const summary = language => render(language, SummaryCards, { scope: 'all', state: globalThis.__displayState });
     export const tabs = language => render(language, Tabs, {
       id: 'test-tabs', items: [{ id: 'first', label: 'First' }, { id: 'second', label: 'Second' }], active: 'second', onChange() {} });
@@ -42,7 +45,7 @@ try {
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", loader: { ".css": "empty" },
     define: { "import.meta.env": "{}" }, plugins: [{ name: "controlled-read", setup(b) {
       b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents:
-        "export const useApi = () => globalThis.__displayState;", loader: "js" }));
+        "export const useApi = () => globalThis.__displayState; export const createRequestGate = () => ({ begin: () => 1, isCurrent: () => true, invalidate: () => {} });", loader: "js" }));
       b.onLoad({ filter: /\/api\/client\.ts$/ }, () => ({ contents: `
         export class AccessError extends Error {
           constructor(status) { super(status === 401 ? 'session_expired' : 'access_denied'); this.status = status; }
@@ -54,7 +57,7 @@ try {
         export const readRevision = () => 0;
         export const postJson = () => { throw Error('writes_forbidden'); };`, loader: "js" }));
       for (const [file, exports] of [["StrategiesPage", "CatalogTab, ResearchTab, parseResearchLeads, loadResearchLeads"],
-        ["HealthPage", "StatStrip, CredentialsCard"], ["RunGrid", "DayDetail"]]) {
+        ["HealthPage", "StatStrip"], ["RunGrid", "DayDetail"]]) {
         b.onLoad({ filter: new RegExp(`/${file}\\.tsx$`) }, async ({ path }) => ({
           contents: await readFile(path, "utf8") + `\nexport { ${exports} };`, loader: "tsx" }));
       }
@@ -68,14 +71,21 @@ try {
     const { text, zone } = formatDateTime(expiry, language, true);
     assert.ok(text.includes("2027"));
     assert.ok(zone.includes("GMT"));
-    const credential = { id: "ibkr_flex", phase: "not_due", expires_at: expiry };
+    const credential = { id: "ibkr_flex", phase: "not_due", expires_at: expiry, requires_action: false, delivery: "telegram" };
     const label = language === "zh" ? "IBKR 报表凭证" : "IBKR report credential";
-    const renderedCredential = ui.credentials(language, credential);
+    const rotationEnvelope = {
+      schema_version: "qsl.credential_rotation.v1", ok: true, server_time: expiry,
+      metadata: { name: label, last_rotated_at: null, expires_at: expiry },
+      operation: null, allowed_actions: ["stage"],
+    };
+    const renderedCredential = ui.credentials(language, rotationEnvelope, credential);
     assert.ok(renderedCredential.includes(label));
     assert.ok(renderedCredential.includes(text));
     assert.ok(renderedCredential.includes(`(${zone})`));
     assert.doesNotMatch(renderedCredential, /ibkr_flex/);
-    assert.doesNotMatch(ui.credentials(language, { ...credential, id: "future_private_id", expires_at: null }), /future_private_id|2027/);
+    assert.doesNotMatch(ui.credentials(language, {
+      ...rotationEnvelope, metadata: { ...rotationEnvelope.metadata, expires_at: null },
+    }, credential), /2027/, "a missing expiry never renders a fabricated date");
     assert.deepEqual(formatDateTime("invalid", language, true), { text: "—", zone: "" });
     assert.deepEqual(formatDateTime(null, language, true), { text: "—", zone: "" });
     globalThis.__displayState = { phase: "ready", data: { status: "unavailable", unavailable_reason: "mixed_currency", as_of: null } };

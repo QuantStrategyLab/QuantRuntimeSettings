@@ -62,7 +62,7 @@ try {
     export const detail = (language, snapshot) => render(language, DayDetail, { selection: { date:'2026-10-16', account: { platform:'schwab', account_alias:'live' } }, cell: { phase:'ready', snapshot } });`, resolveDir: root },
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },
     plugins: [{ name: "local-read-only-fixtures", setup(b) {
-      b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: "export const useApi = () => globalThis.__groupingState;", loader: "js" }));
+      b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: "export const useApi = () => globalThis.__groupingState; export const createRequestGate = () => ({ begin: () => 1, isCurrent: () => true, invalidate: () => {} });", loader: "js" }));
       for (const [file, exports] of [["HealthPage", "FreshnessTable, StatStrip"], ["PerformanceTabs", "HoldingsTab, TradesTab"], ["RunGrid", "DayDetail"]])
         b.onLoad({ filter: new RegExp(`/${file}\\.tsx$`) }, async ({ path }) => ({ contents: await readFile(path, "utf8") + `\nexport { ${exports} };`, loader: "tsx" }));
     } }],
