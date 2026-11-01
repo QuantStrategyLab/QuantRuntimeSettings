@@ -61,6 +61,15 @@ class ComparisonTests(unittest.TestCase):
     def assertBlocked(self):
         self.assertTrue(any(row['status'] != 'match' for row in self.rows()))
 
+    def mutate_bindings(self, mutation):
+        mutation(self.live['settings']['bindings'])
+        mutation(self.live['version_bindings'])
+
+    def assertBindingCheckBlocked(self):
+        rows = self.rows()
+        self.assertEqual(next(row for row in rows if row['item'] == 'bindings.active_version')['status'], 'match')
+        self.assertTrue(any(row['status'] != 'match' and row['item'] != 'bindings.active_version' for row in rows), rows)
+
     def test_all_match_and_no_private_output(self):
         rows = self.rows()
         self.assertTrue(all(row['status'] == 'match' for row in rows), rows)
@@ -72,24 +81,47 @@ class ComparisonTests(unittest.TestCase):
         for index, field in [(0, 'text'), (1, 'namespace_id'), (2, 'class_name'), (3, 'name')]:
             with self.subTest(index=index):
                 _, self.live = fixture()
-                self.live['settings']['bindings'][index][field] = 'PRIVATE_VALUE_SENTINEL'
-                self.assertBlocked()
+                self.mutate_bindings(lambda bindings: bindings[index].__setitem__(field, 'PRIVATE_VALUE_SENTINEL'))
+                self.assertBindingCheckBlocked()
                 self.assertNotIn('PRIVATE_VALUE_SENTINEL', json.dumps(self.rows()))
                 _, self.live = fixture()
-                self.live['settings']['bindings'].pop(index)
-                self.assertBlocked()
+                self.mutate_bindings(lambda bindings: bindings.pop(index))
+                self.assertBindingCheckBlocked()
 
     def test_remote_only_binding_duplicate_and_secret_collision_block(self):
         for binding in [
             {'name': 'EXTRA_PRIVATE', 'type': 'plain_text', 'text': 'PRIVATE_VALUE'},
             {'name': 'CACHE', 'type': 'kv_namespace', 'namespace_id': 'b' * 32},
-            {'name': 'FEATURE', 'type': 'secret_text'},
         ]:
             with self.subTest(binding=binding['type']):
                 _, self.live = fixture()
-                self.live['settings']['bindings'].append(binding)
-                self.assertBlocked()
+                self.mutate_bindings(lambda bindings: bindings.append(dict(binding)))
+                self.assertBindingCheckBlocked()
                 self.assertNotIn('EXTRA_PRIVATE', json.dumps(self.rows()))
+
+        def secret_collision(bindings):
+            bindings[0]['type'] = 'secret_text'
+
+        _, self.live = fixture()
+        self.mutate_bindings(secret_collision)
+        self.assertBindingCheckBlocked()
+
+    def test_declared_runtime_settings_require_active_version_values(self):
+        for key, value in [('usage_model', 'standard'), ('limits', {'cpu_ms': 10})]:
+            with self.subTest(key=key):
+                self.config, self.live = fixture()
+                self.config[key] = value
+                self.live['settings'][key] = value
+                rows = {row['item']: row for row in self.rows()}
+                self.assertEqual(rows['settings.' + key]['status'], 'match')
+                self.assertIn('runtime.' + key, rows)
+                self.assertEqual(rows['runtime.' + key]['reason'], 'missing_runtime_setting')
+                self.assertEqual(rows['runtime.' + key]['status'], 'unreadable')
+                self.live['runtime'][key] = copy.deepcopy(value)
+                self.assertTrue(all(row['status'] == 'match' for row in self.rows()))
+                self.live['runtime'][key] = 'PRIVATE_VALUE_SENTINEL'
+                self.assertBlocked()
+                self.assertNotIn('PRIVATE_VALUE_SENTINEL', json.dumps(self.rows()))
 
     def test_settings_cron_routes_and_inventory_gaps_block(self):
         mutations = [

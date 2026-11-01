@@ -302,6 +302,10 @@ Store the client ID and client secret in Worker secrets.
 
 The manual deploy workflow's default-off `render_and_compare_only` input uses
 its ordinary `Prepare Wrangler config` step and the same GitHub Environment.
+Comparison requires both `CLOUDFLARE_API_TOKEN` and an explicit
+`CLOUDFLARE_ACCOUNT_ID` in that Environment. `CLOUDFLARE_WRANGLER_CONFIG_TOML`
+alone or an omitted account ID is insufficient; validation fails before the
+first GET.
 Use current `main`, an empty `source_sha`, `private_release_check=off`,
 `ibkr_candidate_resume=off`, and disable all sync, release, rollback and other
 preflight inputs. This mode skips builds, Wrangler commands, credential-file

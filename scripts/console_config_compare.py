@@ -245,6 +245,9 @@ def compare(config, live):
                 row('runtime.exports', expected_exports, normalized)
             else:
                 row('runtime.exports', reason='unsupported_runtime_exports')
+    for key in sorted({'usage_model', 'limits'}):
+        if key in config and key not in runtime:
+            row('runtime.' + key, reason='missing_runtime_setting')
     for key in sorted(set(runtime) - {'compatibility_date', 'compatibility_flags', 'migration_tag', 'exports'}):
         label = key if key in SETTING_KEYS else 'unsupported'
         row('runtime.' + label, settings.get(key, MISSING), runtime[key],
