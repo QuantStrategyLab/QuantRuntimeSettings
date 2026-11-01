@@ -18,7 +18,7 @@ try {
         import { renderToStaticMarkup } from 'react-dom/server';
         import { I18nProvider } from './src/i18n';
         import { actionBlockers, expiryState, MutationOutcomeUnknown } from './src/api/cockpit';
-        import { ApplicationStatus, DigestStatus, EffectivePolicyPanel, RiskTierSelector } from './src/components/cockpit';
+        import { ApplicationStatus, DecisionCard, DigestStatus, EffectivePolicyPanel, FreshnessBadge, PauseControl, RiskTierSelector } from './src/components/cockpit';
         export { actionBlockers, expiryState, MutationOutcomeUnknown };
         const wrap = (language, node) => renderToStaticMarkup(h(I18nProvider, { language }, node));
         export const tiers = (language) => wrap(language, h(RiskTierSelector, {
@@ -43,7 +43,33 @@ try {
           runtime_state: 'unknown', failure_reason: null, unknown_reason: null,
           readback_available: null, server_time: null,
         };
-        export const applied = (language) => wrap(language, h(ApplicationStatus, { operation: base, status: 'ready' }));
+        export const applied = (language) => wrap(language, h(ApplicationStatus, {
+          operation: { ...base, readback_available: true }, status: 'ready',
+        }));
+        export const appliedCapabilityUnknown = (language) => wrap(language, h(ApplicationStatus, { operation: base, status: 'ready' }));
+        export const appliedNoReadback = (language) => wrap(language, h(ApplicationStatus, {
+          operation: { ...base, readback_available: false }, status: 'ready',
+        }));
+        const card = (state, blockers) => (language) => wrap(language, h(DecisionCard, {
+          decision: {
+            decision_id: 'decision-1', short_id: 'd-1', category: 'reconciliation_recovery', revision: 3,
+            state, title_key: 'category.reconciliation_recovery', account_alias: 'demo_account', platform: null,
+            release_id: null, target_id: null, expires_at: null, server_time: null, allowed_actions: [],
+            evidence: { evidence_id: null, label_key: null, observed_at: null, valid_until: null,
+              state: 'stale', qualification: 'unknown', limitations: [] },
+            policy: null, receipt: null,
+          },
+          operation: null, receivedAt: '2026-11-01T10:00:00Z', blockedReasons: blockers, onSelect: () => {},
+        }));
+        export const unknownCard = card('unknown', ['state_unknown', 'evidence_stale']);
+        export const pendingCard = card('pending', ['decision_expired']);
+        export const freshness = (language) => wrap(language, h(FreshnessBadge, { state: 'expired' }));
+        export const pause = (language) => wrap(language, h(PauseControl, {
+          operatingState: 'running', canPause: true, canResume: true, pending: false, reason: null,
+        }));
+        export const pauseBlocked = (language) => wrap(language, h(PauseControl, {
+          operatingState: 'running', canPause: false, canResume: true, pending: false, reason: 'Platform does not allow pausing here',
+        }));
         export const confirmed = (language) => wrap(language, h(ApplicationStatus, {
           operation: { ...base, runtime_confirmed_at: '2026-11-01T10:05:00Z', runtime_state: 'running' }, status: 'ready',
         }));
@@ -108,12 +134,37 @@ try {
   assert.match(policyEn, /Reduction only/, "a temporary restriction is shown separately");
   assert.match(policyEn, /Policy mapping unavailable/, "a missing approved mapping stays unavailable");
 
-  // Applied is not runtime-confirmed.
+  // Applied is not runtime-confirmed, and the caveat follows the server capability flag.
   const applied = ui.applied("en");
   assert.match(applied, /Platform reported applied; runtime confirmation pending/);
   assert.doesNotMatch(applied, /Runtime confirmed/);
   assert.match(ui.confirmed("en"), /Runtime confirmed/);
   assert.match(ui.operationMissing("en"), /operation-status endpoint is not available/);
+  assert.match(ui.appliedCapabilityUnknown("en"), /readback capability unknown/, "an omitted capability flag is not a pending observation");
+
+  // A server-reported absence of readback is not sold as an observation in progress.
+  const noReadback = ui.appliedNoReadback("en");
+  assert.match(noReadback, /independent runtime readback is unavailable/);
+  assert.doesNotMatch(noReadback, /runtime confirmation pending/);
+  assert.match(ui.appliedNoReadback("zh"), /无法提供独立的运行时回读/);
+
+  // An unreadable state is shown as unknown, and each blocker names its own cause.
+  const unknownCard = ui.unknownCard("en");
+  assert.match(unknownCard, /State unknown/);
+  assert.match(unknownCard, /decision state could not be read/);
+  assert.match(unknownCard, /Supporting data is stale/);
+  assert.doesNotMatch(unknownCard, />Pending</, "an unknown state must not fall back to pending");
+  assert.match(ui.pendingCard("en"), /Expired|expired/);
+  assert.match(ui.freshness("en"), /badge-error/);
+  assert.match(ui.freshness("zh"), /已失效/);
+
+  // Pause never reads as liquidation, and a disabled control points at its reason.
+  assert.match(ui.pause("en"), /Pausing does not liquidate positions or cancel pending orders/);
+  assert.match(ui.pause("zh"), /暂停不会平仓/);
+  assert.doesNotMatch(ui.pause("en"), /aria-describedby/, "an enabled control needs no reason link");
+  const pauseBlocked = ui.pauseBlocked("en");
+  assert.match(pauseBlocked, /Platform does not allow pausing here/);
+  assert.match(pauseBlocked, /aria-describedby=/);
 
   // Accepted delivery is not delivered, and coverage stays visible.
   const digest = ui.digestAccepted("en");
@@ -130,6 +181,22 @@ try {
   assert.match(decisions, /promotionRiskBinding/);
   assert.match(decisions, /risk\.policy_revision/);
   assert.match(decisions, /allowed_actions/, "server allow-lists gate the client controls");
+  assert.doesNotMatch(decisions, /role="listitem"/, "a queue row keeps its button semantics");
+
+  // A queue entry links to its own decision and the URL carries that target.
+  const [router, overviewSource, accounts] = await Promise.all([
+    readFile(new URL("../web/strategy-switch-console/frontend/src/app/router.ts", import.meta.url), "utf8"),
+    readFile(new URL("../web/strategy-switch-console/frontend/src/pages/overview/OverviewPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../web/strategy-switch-console/frontend/src/pages/accounts/AccountsPage.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(router, /decision: params\.get\("decision"\)/);
+  assert.match(router, /if \(route\.page === "decisions" && route\.decision\) params\.set\("decision", route\.decision\)/,
+    "the target is only shared on the page that reads it");
+  assert.match(decisions, /selectItem\(item\.id\)/);
+  assert.match(decisions, /navigate\(\{ decision: id \}\)/);
+  assert.match(overviewSource, /navigate\(\{ page: "decisions", decision: id \}\)/);
+  assert.match(overviewSource, /page: "decisions", decision: null/, "an index link drops a stale target");
+  assert.match(accounts, /page: "decisions", decision: null/);
 
   // Pages consume the cockpit surfaces instead of restating them.
   const sources = await Promise.all([

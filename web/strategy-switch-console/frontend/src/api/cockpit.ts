@@ -13,7 +13,7 @@ import type { Category, InboxItem, InboxResponse, NotificationSendLog, StrategyS
 export type RiskTier = "CAPITAL_PRESERVATION" | "BALANCED_COMPOUNDING" | "GROWTH_COMPOUNDING";
 export type ProductStage = "research" | "paper" | "small_live" | "full_live";
 export type StageAxis = ProductStage | "unclassified";
-export type DecisionState = "pending" | "approved" | "rejected" | "expired" | "superseded" | "withdrawn";
+export type DecisionState = "pending" | "approved" | "rejected" | "expired" | "superseded" | "withdrawn" | "unknown";
 export type DecisionAction = "approve" | "reject" | "withdraw";
 export type EvidenceState = "current" | "stale" | "missing" | "expired" | "unavailable";
 export type Qualification = "qualified" | "unqualified" | "unknown";
@@ -355,7 +355,8 @@ function normalizeOperation(value: unknown): OperationRecord | null {
 function normalizeDecision(value: unknown, fallback: { id: string; shortId: string; category: Category; titleKey: string }): DecisionDetail {
   const raw = asRecord(value) ?? {};
   const states: DecisionState[] = ["pending", "approved", "rejected", "expired", "superseded", "withdrawn"];
-  const state = states.includes(raw.state as DecisionState) ? raw.state as DecisionState : "pending";
+  // An unrecognized or absent state is unknown, never a silently pending decision.
+  const state = states.includes(raw.state as DecisionState) ? raw.state as DecisionState : "unknown";
   const allowed = Array.isArray(raw.allowed_actions)
     ? raw.allowed_actions.map(asDecisionAction).filter((item): item is DecisionAction => item !== null)
     : [];

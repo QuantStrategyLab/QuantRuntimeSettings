@@ -302,6 +302,23 @@
   color: var(--text-muted);
 }
 
+.cockpit-stage-name {
+  display: block;
+  color: var(--text-secondary);
+}
+
+.cockpit-stage-detail {
+  display: block;
+  margin-top: 2px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.cockpit-stage[data-state="unavailable"] {
+  border-top-style: dashed;
+  border-top-color: var(--border-control);
+}
+
 .cockpit-stage[data-state="active"] {
   border-top-color: var(--status-attention);
   color: var(--text-primary);

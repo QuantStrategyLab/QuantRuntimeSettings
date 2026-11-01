@@ -33,10 +33,14 @@ export function blockerLabel(reason: string, t: ReturnType<typeof useT>): string
   if (reason === "approval_not_allowed") return t("cockpit.blocker.not_allowed");
   if (reason === "evidence_missing") return t("cockpit.blocker.support_missing");
   if (reason === "evidence_unqualified") return t("cockpit.blocker.unqualified");
+  if (reason === "evidence_stale") return t("cockpit.blocker.support_stale");
+  if (reason === "evidence_expired") return t("cockpit.blocker.support_expired");
+  if (reason === "evidence_unavailable") return t("cockpit.blocker.support_unavailable");
   if (reason.startsWith("evidence_")) return t("cockpit.blocker.support");
   if (reason === "policy_unavailable") return t("cockpit.blocker.policy");
   if (reason === "policy_binding_missing") return t("cockpit.blocker.binding");
   if (reason === "revision_invalid") return t("cockpit.blocker.revision");
+  if (reason === "state_unknown") return t("cockpit.blocker.state_unknown");
   if (reason.startsWith("state_")) return t("cockpit.blocker.state");
   return t("cockpit.blocker.other");
 }
@@ -73,10 +77,11 @@ export function FreshnessBadge({
   const t = useT();
   const language = useLanguage();
   const known = state === "current" || state === "stale" || state === "missing" || state === "unknown"
-    || state === "partial" || state === "unavailable" || state === "read_failed" || state === "fresh" || state === "ready";
+    || state === "partial" || state === "unavailable" || state === "read_failed" || state === "expired"
+    || state === "fresh" || state === "ready";
   const normalized = state === "fresh" || state === "ready" ? "current" : known ? state : "unknown";
   const tone = normalized === "current" ? "ok"
-    : normalized === "read_failed" ? "error"
+    : normalized === "read_failed" || normalized === "expired" ? "error"
       : normalized === "stale" || normalized === "partial" ? "warn" : "unknown";
   const observed = observedAt ? formatDateTime(observedAt, language) : null;
   return (
@@ -417,11 +422,16 @@ export function EffectivePolicyPanel({
 
 export function LifecycleStepper({ binding }: { binding: LifecycleBinding }) {
   const t = useT();
-  const highlight = STAGES.includes(binding.authorized_stage as ProductStage)
+  const authorizedStage = STAGES.includes(binding.authorized_stage as ProductStage)
     ? binding.authorized_stage as ProductStage
-    : STAGES.includes(binding.effective_stage as ProductStage)
-      ? binding.effective_stage as ProductStage
-      : null;
+    : null;
+  const effectiveStage = STAGES.includes(binding.effective_stage as ProductStage)
+    ? binding.effective_stage as ProductStage
+    : null;
+  // The stepper draws one axis only, so it names the axis it is drawing.
+  const highlight = authorizedStage ?? effectiveStage;
+  const stepAxisKey = authorizedStage ? "cockpit.lifecycle.step.authorized"
+    : effectiveStage ? "cockpit.lifecycle.step.effective" : "cockpit.lifecycle.step.unconfirmed";
   const highlightIndex = highlight ? STAGES.indexOf(highlight) : -1;
   const axes: { key: string; value: string }[] = [
     { key: "cockpit.lifecycle.axis.research", value: t(`cockpit.lifecycle.stage.${binding.research_stage}`) },
@@ -433,7 +443,7 @@ export function LifecycleStepper({ binding }: { binding: LifecycleBinding }) {
   return (
     <section className="cockpit-section" aria-label={t("cockpit.lifecycle.title")}>
       <h3 className="cockpit-section-title">{t("cockpit.lifecycle.title")}</h3>
-      <p className="cockpit-meta">{t("cockpit.lifecycle.step")}</p>
+      <p className="cockpit-meta">{t(stepAxisKey)}</p>
       <ol className="cockpit-stepper">
         {STAGES.map((stage, index) => {
           const active = highlightIndex >= 0 && index === highlightIndex;
@@ -472,7 +482,13 @@ function operationLabel(operation: OperationRecord, t: ReturnType<typeof useT>):
   if (operation.runtime_confirmed_at) return t("cockpit.operation.confirmed");
   if (operation.state === "pending") return operation.dispatched_at ? t("cockpit.operation.applying") : t("cockpit.operation.accepted");
   if (operation.state === "applying") return t("cockpit.operation.applying");
-  if (operation.state === "applied") return t("cockpit.operation.applied_unobserved");
+  if (operation.state === "applied") {
+    // Capability is a server fact: an unobservable application is never shown as
+    // confirmation still arriving, and an unknown capability is not read as either.
+    if (operation.readback_available === false) return t("cockpit.operation.applied_no_readback");
+    if (operation.readback_available === null) return t("cockpit.operation.applied_readback_unknown");
+    return t("cockpit.operation.applied_unobserved");
+  }
   if (operation.state === "rejected") return t("cockpit.operation.rejected");
   if (operation.state === "failed") return t("cockpit.operation.failed");
   return t("cockpit.operation.unknown");
@@ -525,10 +541,21 @@ export function ApplicationStatus({
   const applied = operation.state === "applied" || Boolean(operation.runtime_confirmed_at);
   const observed = Boolean(operation.runtime_confirmed_at);
   const failed = operation.state === "rejected" || operation.state === "failed";
+  const readbackBlocked = applied && operation.readback_available === false;
+  const stageStateKey = (stage: "idle" | "active" | "complete" | "failed" | "unavailable") =>
+    t(`cockpit.operation.stage.${stage}`);
   const stages = [
-    { label: t("cockpit.operation.decision"), state: "complete" },
-    { label: t("cockpit.operation.application"), state: failed ? "failed" : observed ? "complete" : applied ? "complete" : "active" },
-    { label: t("cockpit.operation.observation"), state: observed ? "complete" : applied ? "active" : "idle" },
+    { label: t("cockpit.operation.decision"), state: "complete", detail: stageStateKey("complete") },
+    {
+      label: t("cockpit.operation.application"),
+      state: failed ? "failed" : observed || applied ? "complete" : "active",
+      detail: stageStateKey(failed ? "failed" : observed || applied ? "complete" : "active"),
+    },
+    {
+      label: t("cockpit.operation.observation"),
+      state: observed ? "complete" : readbackBlocked ? "unavailable" : applied ? "active" : "idle",
+      detail: stageStateKey(observed ? "complete" : readbackBlocked ? "unavailable" : applied ? "active" : "idle"),
+    },
   ];
   const lastUpdate = operation.applied_at ?? operation.runtime_confirmed_at ?? operation.dispatched_at ?? operation.recorded_at;
   const lastUpdateText = lastUpdate ? formatDateTime(lastUpdate, language) : null;
@@ -541,7 +568,11 @@ export function ApplicationStatus({
       </div>
       <ol className="cockpit-stages">
         {stages.map(stage => (
-          <li key={stage.label} className="cockpit-stage" data-state={stage.state}>{stage.label}</li>
+          <li key={stage.label} className="cockpit-stage" data-state={stage.state}>
+            <span className="cockpit-stage-name">{stage.label}</span>
+            {/* The border colour alone cannot carry the stage; the state is text as well. */}
+            <span className="cockpit-stage-detail">{stage.detail}</span>
+          </li>
         ))}
       </ol>
       {(operation.failure_reason || operation.unknown_reason) && (
@@ -584,9 +615,10 @@ export function PauseControl({
   onResume?: () => void;
 }) {
   const t = useT();
+  const reasonId = useId();
   const stateKey = operatingState === "running" ? "cockpit.pause.running"
     : operatingState === "paused" ? "cockpit.pause.paused" : "cockpit.pause.unknown";
-  const blocked = !canPause && !canResume;
+  const unavailable = !canPause || !canResume;
   return (
     <section className="cockpit-section" aria-label={t("cockpit.pause.title")}>
       <h3 className="cockpit-section-title">{t("cockpit.pause.title")}</h3>
@@ -600,6 +632,7 @@ export function PauseControl({
           type="button"
           className="button button-secondary button-sm"
           disabled={pending || !canPause}
+          aria-describedby={canPause ? undefined : reasonId}
           onClick={onPause}
         >
           {t("cockpit.pause.pause")}
@@ -608,14 +641,18 @@ export function PauseControl({
           type="button"
           className="button button-secondary button-sm"
           disabled={pending || !canResume}
+          aria-describedby={canResume ? undefined : reasonId}
           onClick={onResume}
         >
           {t("cockpit.pause.resume")}
         </button>
         {pending && <span className="cockpit-meta" role="status">{t("cockpit.pause.pending")}</span>}
       </div>
-      {blocked && <p className="cockpit-note">{reason || t("cockpit.pause.unavailable")}</p>}
+      {unavailable && (
+        <p className="cockpit-note" id={reasonId}>{reason || t("cockpit.pause.unavailable")}</p>
+      )}
       <p className="cockpit-note">{t("cockpit.pause.note")}</p>
+      <p className="cockpit-note">{t("cockpit.pause.no_liquidation")}</p>
     </section>
   );
 }
@@ -755,36 +792,48 @@ export function DigestStatus({
 
 /* ---------- persistent operation strip ---------- */
 
+/** Pending, failed and unknown operations stay visible across pages; confirmed ones do not. */
 export function operationNeedsAttention(operation: OperationRecord | null): boolean {
   if (!operation) return false;
-  return operation.state === "pending" || operation.state === "applying" || operation.state === "unknown";
+  return operation.state === "pending" || operation.state === "applying" || operation.state === "unknown"
+    || operation.state === "failed" || operation.state === "rejected";
 }
 
 export function PersistentOperationStrip({
   operation,
   lastReadAt,
   onView,
+  onRefresh,
   onAcknowledge,
 }: {
   operation: OperationRecord;
   lastReadAt: string | null;
   onView: () => void;
+  onRefresh?: () => void;
   onAcknowledge?: () => void;
 }) {
   const t = useT();
   const language = useLanguage();
   const unknown = operation.state === "unknown";
   const readAt = lastReadAt ? formatDateTime(lastReadAt, language) : null;
+  // The strip keeps the whole scope it was created for; it never borrows the
+  // account or target the reader happens to be looking at now.
+  const scope = [operation.account_alias, operation.platform, operation.release_id, operation.target_id]
+    .filter(Boolean).join(" · ");
   return (
-    <div className="cockpit-strip" data-state={operation.state} role={unknown ? "alert" : "status"}>
+    <div className="cockpit-strip" data-state={operation.state} role={unknown || operation.state === "failed" || operation.state === "rejected" ? "alert" : "status"}>
       <span className="cockpit-strip-title">{t("cockpit.strip.title")}</span>
-      <span className="cockpit-strip-subject">
-        {operation.account_alias || operation.release_id || operation.operation_id}
-      </span>
-      <Badge tone={unknown ? "error" : "warn"}>{unknown ? t("cockpit.strip.unknown") : operationLabel(operation, t)}</Badge>
+      {scope && <span className="cockpit-strip-subject">{scope}</span>}
+      <Badge tone={unknown ? "error" : operation.state === "failed" || operation.state === "rejected" ? "error" : "warn"}>
+        {unknown ? t("cockpit.strip.unknown") : operationLabel(operation, t)}
+      </Badge>
       {readAt && <span className="cockpit-meta">{t("cockpit.strip.last_read", { value: readAt.text })}</span>}
       <span className="cockpit-strip-actions">
         <button type="button" className="button button-secondary button-sm" onClick={onView}>{t("cockpit.strip.view")}</button>
+        {/* Reading an operation never repeats the mutation. */}
+        {onRefresh && (
+          <button type="button" className="button button-secondary button-sm" onClick={onRefresh}>{t("cockpit.operation.refresh")}</button>
+        )}
         {unknown && onAcknowledge && (
           <button type="button" className="button button-secondary button-sm" onClick={onAcknowledge}>{t("cockpit.strip.ack")}</button>
         )}
