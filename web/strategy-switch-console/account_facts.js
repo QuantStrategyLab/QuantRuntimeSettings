@@ -648,7 +648,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
         sourceTags: new Set(["liquidationValue"]),
         fixedFields: { currency_source: "owner_confirmed" },
       }
-      : (firstrade ? { maxRows: 2, optionalFields: FIRSTRADE_OPTIONAL_BALANCE_FIELDS }
+      : (firstrade ? { maxRows: 1, optionalFields: FIRSTRADE_OPTIONAL_BALANCE_FIELDS }
         : { nullableFields: ibkr ? ["net_assets"] : [] }),
   );
   const cash = moneyRows(
