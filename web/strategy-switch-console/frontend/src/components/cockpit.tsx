@@ -24,7 +24,8 @@ export function tierLabel(value: string | null | undefined, t: ReturnType<typeof
   if (value === "CAPITAL_PRESERVATION") return t("cockpit.tier.capital");
   if (value === "BALANCED_COMPOUNDING") return t("cockpit.tier.balanced");
   if (value === "GROWTH_COMPOUNDING") return t("cockpit.tier.growth");
-  return t("cockpit.not_set");
+  if (value === null || value === undefined || value === "") return t("cockpit.not_set");
+  return t("cockpit.tier.unknown");
 }
 
 /** Regime effects are machine values: known codes have copy, unknown ones never render raw. */

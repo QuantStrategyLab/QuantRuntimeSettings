@@ -90,7 +90,8 @@ try {
   assert.match(auditZh, /记录修订 7/);
   assert.match(auditZh, /其他操作/);
   assert.match(auditZh, /其他对象/);
-  assert.match(auditZh, /结果未知/);
+  assert.match(auditZh, /结果 未知/, "unknown outcomes render the exact localized value");
+  assert.doesNotMatch(auditZh, /结果未知|weird_outcome/);
   const auditEn = visible(ui.audit("en"));
   assert.match(auditEn, /Owner decision recorded/);
   assert.match(auditEn, /Subject: Owner decision · demo/);
@@ -98,7 +99,8 @@ try {
   assert.match(auditEn, /Record revision 7/);
   assert.match(auditEn, /Other action/);
   assert.match(auditEn, /Other subject/);
-  assert.match(auditEn, /Outcome unknown/);
+  assert.match(auditEn, /Outcome Unknown/, "unknown outcomes render the exact localized value");
+  assert.doesNotMatch(auditEn, /Outcome unknown/);
   assert.doesNotMatch(auditEn, /record owner decision|owner_decision:|some new action|mystery kind|weird outcome/,
     "raw action, kind and outcome codes never reach visible text");
 
