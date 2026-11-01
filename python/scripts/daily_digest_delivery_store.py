@@ -20,10 +20,13 @@ def location(uri):
 
 
 class GCSDeliveryStore:
-    def __init__(self, candidates_uri, deliveries_uri, *, client=None):
+    def __init__(self, candidates_uri, deliveries_uri, *, candidates_by_platform=None, client=None):
         from google.cloud import storage
         self.client = client or storage.Client()
         self.candidates_bucket, self.candidates_prefix = location(candidates_uri)
+        self.candidates_by_platform = {
+            platform: location(uri) for platform, uri in (candidates_by_platform or {}).items()
+        }
         self.deliveries_bucket, self.deliveries_prefix = location(deliveries_uri)
 
     def _blob(self, bucket, prefix, key):
@@ -31,7 +34,9 @@ class GCSDeliveryStore:
 
     def candidate(self, key, timeout):
         from google.api_core.exceptions import NotFound
-        blob = self._blob(self.candidates_bucket, self.candidates_prefix, key)
+        bucket, prefix = self.candidates_by_platform.get(
+            key.split('/', 1)[0], (self.candidates_bucket, self.candidates_prefix))
+        blob = self._blob(bucket, prefix, key)
         try:
             body = blob.download_as_bytes(retry=None, timeout=timeout, if_generation_match=None)
             if len(body) > 2_000_000:
