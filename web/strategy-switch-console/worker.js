@@ -12632,6 +12632,10 @@ async function listResearchPromotionTickets(env) {
       const authority = await readHumanDecisionAuthority(env, "promotion", record.ticket_id);
       const ticket = attachPromotionQueueReadMetadata(record, overlayPromotionDecision(record, authority), authority);
       if (ticket.live_authority_granted) continue;
+      if (ticket.state === "awaiting_human") {
+        // Project the same durable observation used by the decision metadata.
+        ticket.decision_authority = humanDecisionAuthorityView(authority);
+      }
       tickets.push(ticket);
     } catch (error) {
       if (error instanceof HttpError && error.status === 503) throw error;
@@ -12694,19 +12698,6 @@ async function researchPromotionTicketsResponse(request, env) {
     } });
   }
   const awaiting = tickets.filter((ticket) => ticket.state === "awaiting_human");
-  // Current authority is read from the durable material, never inferred from the
-  // ticket body; an unreadable authority leaves the ticket visibly non-actionable.
-  if (hasRuntimeInstanceStore(env)) {
-    await Promise.all(awaiting.map(async (ticket) => {
-      try {
-        ticket.decision_authority = humanDecisionAuthorityView(
-          await readHumanDecisionAuthority(env, "promotion", ticket.ticket_id),
-        );
-      } catch {
-        ticket.decision_authority = null;
-      }
-    }));
-  }
   const applicationTickets = tickets.filter((ticket) =>
     ticket.state === "awaiting_human" || ticket.state === "human_accepted");
   const accountConfig = await loadAccountOptionsConfig(env);
