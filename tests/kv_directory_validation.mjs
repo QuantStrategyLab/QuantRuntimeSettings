@@ -290,3 +290,29 @@ cacheKv.put = async (k, v) => { cachePuts++; cacheValues.set(k, v); };
 await cacheDirectory.command({ action: "cache", payload: { changed: false }, ts: 1_800_000_900_003 });
 assert.equal(cachePuts, 4, "a failed write does not advance the successful-write signature");
 console.log("kv_operation_budget: PASS (288 ticks: 1 List/1 mirror put; 100 cold refreshes: 1 cache put)");
+
+// Exercise the production Worker -> private directory command bridge as well.
+const bridgeState = new Map(); let bridgeWrites = 0;
+const bridgeKv = { async get() { return null; }, async put() { bridgeWrites++; } };
+const bridgeDirectory = new KvDirectory({ async get(k) { return bridgeState.get(k); },
+  async put(k, v) { bridgeState.set(k, structuredClone(v)); } }, bridgeKv);
+const bridgeEnv = { STRATEGY_SWITCH_CONFIG: bridgeKv, STRATEGY_SWITCH_RUNTIME_INSTANCES: {
+  idFromName: name => name, get: name => ({ async fetch(_url, init) {
+    assert.equal(name, "console-kv-directory-v1");
+    const result = await bridgeDirectory.command(JSON.parse(init.body));
+    return Response.json(result);
+  } }),
+} };
+await Promise.all(Array.from({ length: 20 }, (_, i) => __test.writeCurrentStrategiesCache(
+  bridgeEnv, cachePayload(String(i)), 1_800_000_000_000 + i)));
+assert.equal(bridgeWrites, 1, "production Worker cache writes actually use the serialized owner");
+const legacyCache = new Map(); let legacyCacheWrites = 0;
+const legacyCacheEnv = { STRATEGY_SWITCH_CONFIG: {
+  async get(k) { return legacyCache.get(k) ?? null; },
+  async put(k, v) { legacyCacheWrites++; legacyCache.set(k, v); },
+}, STRATEGY_SWITCH_RUNTIME_INSTANCES: { idFromName: x => x, get: () => ({ async fetch() {
+  return Response.json({ error: "runtime_instance_actor_required" }, { status: 400 });
+} }) } };
+await __test.writeCurrentStrategiesCache(legacyCacheEnv, cachePayload("old receiver"), 1_800_000_000_000);
+await __test.writeCurrentStrategiesCache(legacyCacheEnv, cachePayload("retry"), 1_800_000_000_001);
+assert.equal(legacyCacheWrites, 1, "older private receivers retain the existing KV comparison");
