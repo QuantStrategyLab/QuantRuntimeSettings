@@ -183,10 +183,13 @@ const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
 const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
+// The keep-alive bump stays below the KV fresh window so one missed cron tick
+// (the schedule is */5) still leaves the entry inside it; a cold isolate then
+// never has to fan out to GitHub just because the stamp aged out.
 const CURRENT_STRATEGIES_MEMO_TTL_MS = 60_000;      // 60 sec — a warm isolate re-checks GitHub after this
-const CURRENT_STRATEGIES_KV_FRESH_MS = 1_200_000;   // 20 min — a cold isolate serves the KV entry without any GitHub fan-out
+const CURRENT_STRATEGIES_KV_FRESH_MS = 1_800_000;   // 30 min — a cold isolate serves the KV entry without any GitHub fan-out
 const CURRENT_STRATEGIES_STALE_TTL_MS = 3_600_000;  // 60 min — return stale plus background refresh before blocking on GitHub
-const CURRENT_STRATEGIES_KV_BUMP_MS = 1_200_000;    // 20 min — ceiling for ts-only rewrites when the content did not change
+const CURRENT_STRATEGIES_KV_BUMP_MS = 900_000;      // 15 min — ceiling for ts-only rewrites when the content did not change
 const GITHUB_API_TIMEOUT_MS = 8000;
 const GITHUB_LOGIN_REQUEST_TIMEOUT_MS = 20000;
 const UX1_CALCULATOR_DEADLINE_MS = 30000;
@@ -6349,12 +6352,30 @@ function currentStrategiesSignature(payload) {
 
 async function writeCurrentStrategiesCache(env, payload, ts) {
   const signature = currentStrategiesSignature(payload);
-  const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+  // A damaged stored value must not wedge the cache: readConfigJson throws on
+  // invalid JSON, and this helper is the only path that can overwrite it.
+  let cached = null;
+  try {
+    cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+  } catch {
+    cached = null;
+  }
   if (cached?.data && currentStrategiesSignature(cached.data) === signature
       && cached.ts && ts - cached.ts < CURRENT_STRATEGIES_KV_BUMP_MS) {
     return;
   }
   await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, { ts, data: payload });
+}
+
+// loadCurrentStrategiesSafely answers with evidence-only account entries whenever
+// GitHub timed out or threw, so a payload whose every account is exactly that
+// shape carries no strategy information and must not be served as fresh.
+function isDegradedCurrentStrategies(payload) {
+  const accounts = Object.values(payload || {}).flatMap(options => Object.values(options || {}));
+  if (!accounts.length) return false;
+  return accounts.every(account => account && typeof account === "object"
+    && Object.keys(account).length === 1
+    && account.execution_evidence?.status === "read_failed");
 }
 
 async function configPayload(request, env, ctx) {
@@ -6398,7 +6419,10 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
     const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
     if (cached?.ts && cached.data) {
       const age = Date.now() - cached.ts;
-      if (age < CURRENT_STRATEGIES_KV_FRESH_MS) {
+      // A degraded entry stays inside the freshness window but is never *fresh*:
+      // the next request must revalidate instead of serving a read_failed payload
+      // for the whole 30 minutes.
+      if (age < CURRENT_STRATEGIES_KV_FRESH_MS && !isDegradedCurrentStrategies(cached.data)) {
         currentStrategies = cached.data;
         cacheFresh = true;
       } else if (age < CURRENT_STRATEGIES_STALE_TTL_MS) {
@@ -17667,6 +17691,9 @@ export const __test = {
   effectiveAccountSettings,
   writeCurrentStrategiesCache,
   currentStrategiesSignature,
+  isDegradedCurrentStrategies,
+  currentStrategiesKvBumpMs: CURRENT_STRATEGIES_KV_BUMP_MS,
+  currentStrategiesKvFreshMs: CURRENT_STRATEGIES_KV_FRESH_MS,
   dispatchAccountDiagnosis,
   humanDecisionReceipt,
   researchPromotionMaterialKey,
