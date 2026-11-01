@@ -92,6 +92,11 @@ const LONG_BRIDGE_FINANCING_ALLOWED_FIELDS = Object.freeze([
 const LONG_BRIDGE_RISK_LEVEL_WIRE = Object.freeze(["0", "1", "2", "3"]);
 const IBKR_BALANCE_FIELDS = ["currency", "net_assets"];
 const IBKR_CASH_FIELDS = ["currency", "cash_balance", "source_tag"];
+// Firstrade optionally carries the balance-API long_stock_value next to
+// net_assets; the publisher only sends it when include_valuation_basis is on,
+// so it is allowed when present and never required.
+const FIRSTRADE_BALANCE_FIELDS = ["currency", "net_assets"];
+const FIRSTRADE_OPTIONAL_BALANCE_FIELDS = ["long_stock_value"];
 const SCHWAB_BALANCE_FIELDS = ["currency", "net_assets", "source_tag", "currency_source"];
 
 export class AccountFactsError extends Error {
@@ -628,9 +633,12 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   if (!observationDate) reject("invalid_account_facts_date");
   const startedDate = new Date(startedMs).toISOString().slice(0, 10);
   if (observationDate !== startedDate) reject("invalid_account_facts_date");
+  const firstradeBalanceFields = [...FIRSTRADE_BALANCE_FIELDS,
+    ...(Object.prototype.hasOwnProperty.call(raw.broker_reported_balances?.[0] ?? {}, "long_stock_value")
+      ? FIRSTRADE_OPTIONAL_BALANCE_FIELDS : [])];
   const balances = moneyRows(
     raw.broker_reported_balances,
-    (ibkr || firstrade) ? IBKR_BALANCE_FIELDS : (schwab ? SCHWAB_BALANCE_FIELDS : LONG_BRIDGE_BALANCE_FIELDS),
+    firstrade ? firstradeBalanceFields : (ibkr ? IBKR_BALANCE_FIELDS : (schwab ? SCHWAB_BALANCE_FIELDS : LONG_BRIDGE_BALANCE_FIELDS)),
     "balances",
     schwab
       ? {

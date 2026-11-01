@@ -1829,6 +1829,14 @@ for (const patch of [
   {cash: [{currency: "USD", cash_balance: "1", source_tag: "buying_power"}]},
   {cash: [{currency: "HKD", cash_balance: "1", source_tag: "provider.cash_balance"}]},
 ]) assert.throws(() => normalizeAccountFactsHistoryPayload(ftHistory(patch)));
+// Firstrade balance allowlist: an optional long_stock_value next to net_assets is
+// accepted, while unknown balance fields still reject the whole snapshot.
+assert.deepEqual(normalizeAccountFactsHistoryPayload(ftHistory({
+  broker_reported_balances: [{currency: "USD", net_assets: "12.5", long_stock_value: "70"}],
+})).broker_reported_balances, [{currency: "USD", net_assets: "12.5", long_stock_value: "70"}]);
+assert.throws(() => normalizeAccountFactsHistoryPayload(ftHistory({
+  broker_reported_balances: [{currency: "USD", net_assets: "12.5", unknown_balance_field: "70"}],
+})), /invalid_account_facts_balances/);
 assert.deepEqual(normalizeAccountFactsHistoryPayload(ftHistory({cash: []})).cash, []);
 await saveAccountOptions({firstrade: [ftAccount]});
 await saveBindings([ftBinding]);
