@@ -17,9 +17,11 @@ try {
         import { createElement as h } from 'react';
         import { renderToStaticMarkup } from 'react-dom/server';
         import { I18nProvider } from './src/i18n';
-        import { actionBlockers, expiryState, MutationOutcomeUnknown, loadDecisionDetail, loadOperation, submitDecisionAction, isDecisionRevision } from './src/api/cockpit';
+        import { actionBlockers, expiryState, MutationOutcomeUnknown, loadAuditEvents, loadDecisionDetail, loadOperation, normalizeEvidenceSummary, submitDecisionAction, isDecisionRevision } from './src/api/cockpit';
+        import { allowedActionIds, decisionActionAllowed, promotionDecisionBody } from './src/pages/decisions/helpers';
         import { ApplicationStatus, DecisionCard, DigestStatus, EffectivePolicyPanel, FreshnessBadge, LifecycleStepper, PauseControl, RiskTierSelector } from './src/components/cockpit';
-        export { actionBlockers, expiryState, MutationOutcomeUnknown, loadDecisionDetail, loadOperation, submitDecisionAction, isDecisionRevision };
+        export { actionBlockers, expiryState, MutationOutcomeUnknown, loadAuditEvents, loadDecisionDetail, loadOperation, normalizeEvidenceSummary, submitDecisionAction, isDecisionRevision };
+        export { allowedActionIds, decisionActionAllowed, promotionDecisionBody };
         const wrap = (language, node) => renderToStaticMarkup(h(I18nProvider, { language }, node));
         export const tiers = (language) => wrap(language, h(RiskTierSelector, {
           scope: 'demo_account', value: 'BALANCED_COMPOUNDING', savedValue: 'BALANCED_COMPOUNDING',
@@ -216,12 +218,34 @@ try {
     policy: { no_order: true },
     errors: [],
   };
+  const auditEnvelope = {
+    schema_version: "qsl.audit_events.v1",
+    server_time: "2026-11-01T10:03:00Z",
+    data_status: "ready",
+    events: [
+      {
+        id: "ev-1", source: "decision_actions", occurred_at: "2026-11-01T10:01:00Z",
+        action: "decision_action", actor_alias: "owner", subject: { kind: "decision", id: "strategy_promotion:t-1" },
+        revision: "f".repeat(64), outcome: "recorded", ref: "/api/decisions/strategy_promotion%3At-1",
+      },
+      {
+        id: "ev-2", source: "operations", occurred_at: "2026-11-01T10:02:00Z",
+        action: "operation_update", actor_alias: null, subject: { kind: "operation", id: "operation:owner_decision:c-1" },
+        revision: null, outcome: "applying", ref: "/api/operations/operation%3Aowner_decision%3Ac-1",
+      },
+    ],
+    next_cursor: "25",
+    coverage: "partial",
+    policy: { no_order: true },
+    errors: [],
+  };
   let lastPostBody = null;
   let postCount = 0;
   const jsonResponse = (payload, status = 200) => ({ status, ok: status >= 200 && status < 300, json: async () => payload });
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (path, init) => {
     if (String(path).endsWith("/actions")) { postCount += 1; lastPostBody = JSON.parse(init.body); return jsonResponse(actionResult); }
+    if (String(path).startsWith("/api/audit-events")) return jsonResponse(auditEnvelope);
     if (String(path).startsWith("/api/operations/")) return jsonResponse(operationEnvelope);
     if (String(path).startsWith("/api/decisions/")) return jsonResponse(reviewEnvelope);
     return jsonResponse({ ok: false, error: "not_found" }, 404);
@@ -315,9 +339,67 @@ try {
     globalThis.fetch = async () => jsonResponse({ state: "pending", revision: 4 });
     assert.equal((await ui.loadDecisionDetail("strategy_promotion:t-1")).status, "not_ready", "no review envelope, no decision");
     assert.equal((await ui.loadOperation("operation:strategy_promotion:t-1")).status, "not_ready", "no operation envelope, no operation");
+
+    // Audit events map field-by-field from the qsl.audit_events.v1 envelope.
+    let auditPath = "";
+    globalThis.fetch = async (path) => {
+      auditPath = String(path);
+      return auditPath.startsWith("/api/audit-events") ? jsonResponse(auditEnvelope) : jsonResponse({}, 404);
+    };
+    const audit = await ui.loadAuditEvents("25");
+    assert.match(auditPath, /cursor=25/, "the server cursor is passed through unchanged");
+    assert.equal(audit.status, "ready");
+    assert.equal(audit.data.length, 2);
+    assert.equal(audit.data[0].event_id, "ev-1");
+    assert.equal(audit.data[0].actor, "owner", "actor_alias is the audited actor");
+    assert.equal(audit.data[0].subject, "decision:strategy_promotion:t-1");
+    assert.equal(audit.data[0].revision, "f".repeat(64), "the revision is the opaque digest, not a counter");
+    assert.equal(audit.data[0].decision_id, "strategy_promotion:t-1", "the encoded ref decodes to the decision id");
+    assert.equal(audit.data[0].operation_id, null);
+    assert.equal(audit.data[1].operation_id, "operation:owner_decision:c-1");
+    assert.equal(audit.data[1].decision_id, null);
+    assert.equal(audit.data[1].actor, null);
+    assert.equal(audit.data[1].revision, null);
+    globalThis.fetch = async () => jsonResponse({ ...auditEnvelope, schema_version: "qsl.audit_events.v2" });
+    assert.equal((await ui.loadAuditEvents()).status, "not_ready", "an unknown audit schema is not rendered as history");
   } finally {
     globalThis.fetch = realFetch;
   }
+
+  // The server action allow-list gates both paths; a missing field keeps legacy behaviour.
+  assert.equal(ui.allowedActionIds(undefined), null);
+  assert.equal(ui.allowedActionIds("approve"), null);
+  assert.deepEqual(ui.allowedActionIds([{ action: "accept" }, "reject", { action: "accept" }]), ["accept", "reject"]);
+  assert.equal(ui.decisionActionAllowed({}, "adopt"), true, "items without the field keep the old gating");
+  assert.equal(ui.decisionActionAllowed({ allowed_actions: [] }, "adopt"), false, "an empty list allows nothing");
+  assert.equal(ui.decisionActionAllowed({ allowed_actions: [{ action: "approve_limited_live_canary" }] }, "adopt"), true);
+  assert.equal(ui.decisionActionAllowed({ allowed_actions: [{ action: "approve_limited_live_canary" }] }, "decline"), false);
+  assert.equal(ui.decisionActionAllowed({ allowed_actions: [{ action: "keep_parked" }] }, "decline"), true);
+  assert.equal(ui.decisionActionAllowed({ allowed_actions: [{ action: "reject" }] }, "adopt"), false);
+  assert.equal(ui.decisionActionAllowed({ allowed_actions: [{ action: "accept" }] }, "adopt"), true);
+
+  // The legacy promotion body sends exactly the keys the server asserts on.
+  const promotionBody = ui.promotionDecisionBody({
+    ticketId: "t-1", accept: true, account: { platform: "ibkr", key: "demo", mode: "live" },
+    riskProfile: "BALANCED_COMPOUNDING", proposedParams: { x: 1 }, strategyProfile: "demo_trend", domain: "trend",
+  });
+  assert.deepEqual(Object.keys(promotionBody).sort(),
+    ["confirmation", "decision", "expected_domain", "expected_proposed_params", "expected_strategy_profile", "selected_account", "ticket_id"]);
+  assert.deepEqual(Object.keys(promotionBody.confirmation).sort(), ["execution_mode", "risk_profile", "target_platform"],
+    "normalizePromotionConfirmation rejects any other confirmation key with 400");
+  assert.equal("policy_revision" in promotionBody.confirmation, false, "a bound tier is display-only, never submitted");
+  assert.equal("expected_policy_revision" in promotionBody, false, "the server never reads an expected policy revision");
+  const rejectBody = ui.promotionDecisionBody({ ticketId: "t-2", accept: false, account: null, riskProfile: null, proposedParams: null, strategyProfile: "s", domain: "d" });
+  assert.equal(rejectBody.decision, "reject");
+  assert.equal(rejectBody.confirmation, null);
+  assert.equal("selected_account" in rejectBody, false);
+  assert.deepEqual(rejectBody.expected_proposed_params, {});
+
+  // Evidence freshness "ready" is the inbox spelling of current; absent shadow never qualifies.
+  assert.equal(ui.normalizeEvidenceSummary({ freshness: "ready", shadow: { passed: false } }).state, "current");
+  assert.equal(ui.normalizeEvidenceSummary({ freshness: "ready", shadow: { passed: false } }).qualification, "unqualified");
+  assert.equal(ui.normalizeEvidenceSummary({ freshness: "unknown" }).state, "unavailable");
+  assert.equal(ui.normalizeEvidenceSummary(null), null);
 
   // Selected preference, approved mapping and observed policy stay separate.
   const policyEn = ui.policy("en");
@@ -382,6 +464,11 @@ try {
   assert.match(decisions, /risk\.policy_revision/);
   assert.match(decisions, /allowed_actions/, "server allow-lists gate the client controls");
   assert.doesNotMatch(decisions, /role="listitem"/, "a queue row keeps its button semantics");
+  assert.doesNotMatch(decisions, /expected_policy_revision/, "the server rejects unknown legacy keys");
+  assert.doesNotMatch(decisions, /expanded\.server_time/, "server_time lives on the inbox envelope, never per item");
+  assert.match(decisions, /inboxServerTime/, "expiry uses the envelope clock");
+  assert.match(decisions, /operation_reference/, "the inbox traces the operation reference object");
+  assert.match(decisions, /decisionActionAllowed/, "adopt and decline follow the server action ids");
 
   // A queue entry links to its own decision and the URL carries that target.
   const [router, overviewSource, accounts] = await Promise.all([
