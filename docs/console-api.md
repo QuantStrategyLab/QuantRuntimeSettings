@@ -20,6 +20,8 @@ draft saves and conflicts. All responses use `Cache-Control: no-store`.
 | GET `/api/account-settings/history` | `account`, optional `platform`, `limit`, `cursor` | `SettingsHistoryResponse` / `settings_history` |
 | POST `/api/account-settings/draft` | `CombinedDraftRequest` | `CombinedDraftResponse` / `draft` |
 | GET `/api/runtime/today` | none | `TodayRunSummary` / `today_runs` |
+| GET `/api/runtime/readback` | required `scope=platform:account-alias` | `runtime_readback` |
+| GET `/api/audit-events` | optional `limit` (1–100, default 25), opaque `cursor` | `audit_events` |
 | GET `/api/strategies/summary` | none | `StrategySummary` / `strategy_summary` |
 | GET `/api/notifications/send-log` | `limit`, `cursor` | `NotificationSendLog` / `notification_log` |
 | GET `/api/accounts/run-controls` | `account`, optional `platform` | `RunControlAvailability` / `run_controls` |
@@ -31,6 +33,36 @@ draft saves and conflicts. All responses use `Cache-Control: no-store`.
 | GET `/api/performance/trades` | `scope`, `range`, optional `platform` | `TradeStatsResponse` / `trades` |
 
 `account` and `scope` are configured account aliases, never broker account numbers.
+The runtime readback route uses the explicit `platform:account-alias` pair and
+does not accept `all`. It returns only saved deployment observations for the
+uniquely bound runtime target. `server_time` is the response clock;
+`observed_at` is the producer's deployment observation time. Missing, future,
+stale, conflicting or incomplete evidence never yields a known runtime switch.
+Stale observations retain their timestamp with `runtime_enabled: null` and
+`scheduler_state: unknown`. Missing evidence returns `unavailable`; storage or
+source discovery failures return HTTP 503. A missing scope returns 404, invalid
+parameters 400, and an ambiguous configured scope 409. The endpoint makes no
+external calls, dispatches no operations, and grants no trading authority.
+
+Audit pages are ordered by observation time descending and event ID ascending.
+Pass `next_cursor` unchanged; `null` ends the available traversal. The cursor
+contains a versioned position and the first page's time ceiling. Newer events
+cannot shift later pages. Refresh starts a new traversal. Numeric offset
+cursors from the preliminary API are no longer accepted; clients must restart
+from the first page after upgrading. Duplicate or unknown query parameters,
+invalid cursors and out-of-range limits return 400. Unreadable sources return
+503 rather than an apparently complete empty page. Both routes require an
+allowed reader session and reject non-GET methods.
+
+Audit coverage includes durable decisions, current application records, and the
+existing bounded activity log. Durable records are paged at the database;
+there is no fixed 1,000-record export ceiling. Application updates and activity
+log retention can change what remains available between requests: this is a
+read projection, not an immutable historical export. The server preserves the
+`id`, `actor_alias`, structured `subject`, nullable string `revision`,
+`next_cursor` and `coverage` fields for typed clients. It never includes raw
+decision payloads or account configuration.
+
 `scope=all` reuses the overview cohort: it excludes known paper accounts and
 conflicting or duplicate facts. An unspecified environment remains eligible,
 as in the existing charts; this does not certify a live identity. Single-account

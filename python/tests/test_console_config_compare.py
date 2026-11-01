@@ -77,6 +77,240 @@ class ComparisonTests(unittest.TestCase):
         for private in ['PRIVATE_NAME_SENTINEL', 'a' * 32, 'b' * 32, 'c' * 32, 'demo-console']:
             self.assertNotIn(private, output)
 
+    def test_empty_flags_match_omitted_null_or_empty_api_flags(self):
+        for rendered in (compare.MISSING, []):
+            for setting in (compare.MISSING, None, []):
+                for runtime in (compare.MISSING, None, []):
+                    with self.subTest(rendered=rendered, setting=setting, runtime=runtime):
+                        self.config, self.live = fixture()
+                        if rendered is not compare.MISSING:
+                            self.config['compatibility_flags'] = rendered
+                        for source, value in [(self.live['settings'], setting), (self.live['runtime'], runtime)]:
+                            source.pop('compatibility_flags', None)
+                            if value is not compare.MISSING:
+                                source['compatibility_flags'] = value
+                        self.assertTrue(all(row['status'] == 'match' for row in self.rows()), self.rows())
+
+    def test_nonempty_or_invalid_flags_still_block_real_differences(self):
+        for scope in ('settings', 'runtime'):
+            for actual in (compare.MISSING, None, [], ['different_flag'], {}, False):
+                with self.subTest(scope=scope, actual=actual):
+                    self.config, self.live = fixture()
+                    self.config['compatibility_flags'] = ['nodejs_compat']
+                    for source in (self.live['settings'], self.live['runtime']):
+                        source['compatibility_flags'] = ['nodejs_compat']
+                    self.assertTrue(all(row['status'] == 'match' for row in self.rows()))
+                    self.live[scope].pop('compatibility_flags')
+                    if actual is not compare.MISSING:
+                        self.live[scope]['compatibility_flags'] = actual
+                    row = next(row for row in self.rows() if row['item'] == scope + '.compatibility_flags')
+                    self.assertNotEqual(row['status'], 'match')
+                    if actual is compare.MISSING:
+                        self.assertEqual(row['reason'], 'missing_setting' if scope == 'settings' else 'missing_runtime_setting')
+            for actual in (['nodejs_compat'], {}, False, ''):
+                self.config, self.live = fixture()
+                self.live[scope]['compatibility_flags'] = actual
+                self.assertBlocked()
+        for rendered in (None, {}, '', False, [None], ['']):
+            self.config, self.live = fixture()
+            self.config['compatibility_flags'] = rendered
+            self.live['settings']['compatibility_flags'] = rendered
+            self.live['runtime']['compatibility_flags'] = rendered
+            self.assertBlocked()
+        for scope in ('settings', 'runtime'):
+            self.config, self.live = fixture()
+            self.live[scope].pop('compatibility_date')
+            self.assertBlocked()
+
+    def test_no_placement_empty_tags_and_absent_observability_match(self):
+        self.config['placement'] = {'mode': 'off'}
+        self.live['settings'].update(placement={}, tags=[])
+        self.live['settings'].pop('observability')
+        self.live['runtime'].pop('compatibility_flags')
+        self.assertTrue(all(row['status'] == 'match' for row in self.rows()), self.rows())
+        self.live['settings'].pop('placement')
+        self.assertTrue(all(row['status'] == 'match' for row in self.rows()))
+
+    def test_optional_settings_absence_and_real_live_only_values(self):
+        for key, value in [('placement', {'mode': 'smart'}), ('tags', ['synthetic-tag']),
+                           ('observability', {'enabled': True})]:
+            with self.subTest(key=key):
+                self.config, self.live = fixture()
+                self.live['settings'].pop(key, None)
+                self.assertTrue(all(row['status'] == 'match' for row in self.rows()))
+                self.live['settings'][key] = value
+                row = next(row for row in self.rows() if row['item'] == 'settings.' + key)
+                self.assertEqual(row['status'], 'unreadable')
+                self.assertEqual(row['reason'], 'undeclared_effective_setting')
+                if key == 'tags':
+                    # Pinned Wrangler ignores top-level tags. Never present a
+                    # fictitious declaration as an effective configuration.
+                    self.config[key] = copy.deepcopy(value)
+                    self.assertBlocked()
+                    continue
+                self.config[key] = copy.deepcopy(value)
+                self.assertTrue(all(row['status'] == 'match' for row in self.rows()))
+                self.live['settings'].pop(key)
+                self.assertBlocked()
+                self.live['settings'][key] = None
+                self.assertBlocked()
+        self.config, self.live = fixture()
+        self.config['placement'] = {'mode': 'off'}
+        self.live['settings']['placement'] = {'mode': 'smart'}
+        self.assertBlocked()
+        self.config['placement']['hint'] = 'synthetic-region'
+        self.live['settings']['placement'] = {}
+        self.assertBlocked()
+        # Empty provider objects must not erase an explicit logging declaration.
+        self.config, self.live = fixture()
+        self.config['observability'] = {'enabled': False}
+        self.live['settings'].pop('observability')
+        self.assertBlocked()
+        for tags in ([], ['synthetic-tag']):
+            self.config, self.live = fixture()
+            self.config['tags'] = tags
+            self.live['settings']['tags'] = tags
+            self.assertBlocked()
+
+    def test_unsupported_fields_emit_only_sanitized_names_and_remain_blocked(self):
+        cases = [('settings', 'unsupported_live_setting'), ('config', 'unsupported_config_key'),
+                 ('subdomain', 'unsupported_subdomain_setting'), ('runtime', 'unmapped_runtime_setting')]
+        for scope, reason in cases:
+            for name in ('future_setting', 'A_0.key-name', 'x' * 64, '', 'x' * 65,
+                         'bad/name', 'bad=PRIVATE_TOKEN', 'bad\nPRIVATE_TOKEN', '非法字段'):
+                with self.subTest(scope=scope, name=name):
+                    self.config, self.live = fixture()
+                    target = self.config if scope == 'config' else self.live[scope]
+                    target[name] = {'token': 'PRIVATE_TOKEN_VALUE', 'account_id': 'a' * 32,
+                                    'nested_secret': ['PRIVATE_SECRET_VALUE']}
+                    rows = self.rows()
+                    row = next(row for row in rows if row.get('reason') == reason)
+                    self.assertEqual(row['status'], 'unreadable')
+                    valid = name in ('future_setting', 'A_0.key-name', 'x' * 64)
+                    self.assertEqual(row['field'], name if valid else '<unsupported-field>')
+                    output = json.dumps(rows, ensure_ascii=False)
+                    for private in ('PRIVATE_TOKEN', 'PRIVATE_SECRET', 'nested_secret', 'account_id',
+                                    'PRIVATE_NAME_SENTINEL', 'a' * 32):
+                        self.assertNotIn(private, output)
+                    if not valid and name:
+                        self.assertNotIn(name, output)
+
+    def test_known_annotations_are_recorded_as_redacted_deployment_metadata(self):
+        for annotations in ({}, {'workers/message': 'PRIVATE_MESSAGE'},
+                            {'workers/tag': 'PRIVATE_TAG'}, {'workers/triggered_by': 'PRIVATE_TRIGGER'},
+                            {'workers/message': 'PRIVATE_MESSAGE', 'workers/tag': 'PRIVATE_TAG',
+                             'workers/triggered_by': 'PRIVATE_TRIGGER'}):
+            with self.subTest(keys=sorted(annotations)):
+                self.live['settings']['annotations'] = annotations
+                rows = self.rows()
+                self.assertTrue(all(row['status'] == 'match' for row in rows), rows)
+                recorded = [row for row in rows if row['item'].startswith('settings.annotations')]
+                self.assertTrue(recorded)
+                self.assertTrue(all(row['classification'] == 'deployment_metadata' for row in recorded))
+                for key in annotations:
+                    row = next(row for row in recorded if row['item'] == 'settings.annotations.' + key)
+                    self.assertEqual(row['live'], '<redacted>')
+                    self.assertEqual(row['rendered'], 'absent')
+                self.assertNotIn('PRIVATE_', json.dumps(rows))
+
+    def test_unknown_annotation_keys_including_alias_block_without_echoing_keys(self):
+        for key in ('workers/alias', 'workers/future', 'PRIVATE_KEY', 'bad\nPRIVATE_KEY', ''):
+            with self.subTest(index=len(key)):
+                self.live['settings']['annotations'] = {
+                    'workers/message': 'PRIVATE_MESSAGE', key: {'nested': 'PRIVATE_SECRET'}}
+                rows = self.rows()
+                blocked = [row for row in rows if row.get('reason') == 'unsupported_annotation_key']
+                self.assertEqual(len(blocked), 1)
+                self.assertEqual(blocked[0]['status'], 'unreadable')
+                output = json.dumps(rows)
+                self.assertNotIn('PRIVATE_', output)
+                self.assertNotIn('workers/alias', output)
+                self.assertNotIn('workers/future', output)
+
+    def test_malformed_annotations_and_non_string_known_values_block(self):
+        for value in (None, [], ['PRIVATE_SECRET'], 'PRIVATE_SECRET', False, 1):
+            with self.subTest(shape=type(value).__name__):
+                self.live['settings']['annotations'] = value
+                rows = self.rows()
+                self.assertTrue(any(row.get('reason') == 'unsupported_annotations_shape' for row in rows))
+                self.assertNotIn('PRIVATE_', json.dumps(rows))
+        for key in ('workers/message', 'workers/tag', 'workers/triggered_by'):
+            for value in (None, True, 1, [], {'PRIVATE_KEY': 'PRIVATE_SECRET'}):
+                with self.subTest(key=key, shape=type(value).__name__):
+                    self.live['settings']['annotations'] = {key: value}
+                    rows = self.rows()
+                    self.assertTrue(any(row.get('reason') == 'unsupported_annotation_value' for row in rows))
+                    self.assertNotIn('PRIVATE_', json.dumps(rows))
+
+    def test_annotation_limits_use_utf8_bytes_and_reject_invalid_unicode(self):
+        for key, limit in (('workers/message', 1000), ('workers/tag', 100)):
+            for value, valid in (('', True), ('x' * limit, True), ('x' * (limit + 1), False),
+                                 ('\u00e9' * (limit // 2), True), ('\u00e9' * (limit // 2 + 1), False),
+                                 ('\ud800', False)):
+                with self.subTest(key=key, length=len(value), valid=valid):
+                    self.live['settings']['annotations'] = {key: value}
+                    row = next(row for row in self.rows() if row['item'] == 'settings.annotations.' + key)
+                    self.assertEqual(row['status'], 'match' if valid else 'unreadable')
+
+    def test_version_tag_blocks_if_either_inventory_exposes_version_metadata(self):
+        for scope in ('settings', 'version_bindings'):
+            with self.subTest(scope=scope):
+                self.config, self.live = fixture()
+                self.live['settings']['annotations'] = {'workers/tag': 'PRIVATE_TAG'}
+                bindings = self.live['settings']['bindings'] if scope == 'settings' else self.live[scope]
+                bindings.append({'name': 'PRIVATE_BINDING', 'type': 'version_metadata'})
+                rows = self.rows()
+                row = next(row for row in rows if row['item'] == 'settings.annotations.workers/tag')
+                self.assertEqual(row['status'], 'unreadable')
+                self.assertEqual(row['reason'], 'annotation_runtime_dependency')
+                self.assertNotIn('PRIVATE_', json.dumps(rows))
+
+    def test_version_tag_requires_readable_binding_inventories(self):
+        for scope in ('settings', 'version_bindings'):
+            for value in (None, [None]):
+                with self.subTest(scope=scope, shape=type(value).__name__):
+                    self.config, self.live = fixture()
+                    self.live['settings']['annotations'] = {'workers/tag': 'PRIVATE_TAG'}
+                    if scope == 'settings':
+                        self.live[scope]['bindings'] = value
+                    else:
+                        self.live[scope] = value
+                    row = next(row for row in self.rows() if row['item'] == 'settings.annotations.workers/tag')
+                    self.assertEqual(row['status'], 'unreadable')
+
+    def test_annotations_do_not_allow_local_or_runtime_configuration(self):
+        for scope in ('config', 'runtime'):
+            with self.subTest(scope=scope):
+                self.config, self.live = fixture()
+                target = self.config if scope == 'config' else self.live[scope]
+                target['annotations'] = {'workers/message': 'PRIVATE_MESSAGE'}
+                self.assertBlocked()
+                self.assertNotIn('PRIVATE_', json.dumps(self.rows()))
+
+    def test_annotation_change_during_observation_still_blocks(self):
+        self.live['settings']['annotations'] = {'workers/message': 'PRIVATE_BEFORE'}
+        after = copy.deepcopy(self.live)
+        after['settings']['annotations']['workers/message'] = 'PRIVATE_AFTER'
+        with patch.object(compare, 'snapshot', side_effect=[self.live, after]):
+            rows = compare.run(self.config, object())
+        self.assertEqual(rows[-1], {'item': 'observation.stable', 'status': 'mismatch'})
+        self.assertNotIn('PRIVATE_', json.dumps(rows))
+
+    def test_annotation_values_never_reach_main_output_and_unknown_still_exits_nonzero(self):
+        for unknown in (False, True):
+            with self.subTest(unknown=unknown):
+                self.live['settings']['annotations'] = {'workers/message': 'PRIVATE_SECRET'}
+                if unknown:
+                    self.live['settings']['annotations']['PRIVATE_KEY'] = 'PRIVATE_SECRET'
+                with patch.object(Path, 'read_text', return_value=''), \
+                        patch.object(compare.tomllib, 'loads', return_value=self.config), \
+                        patch.dict(os.environ, {'CLOUDFLARE_API_TOKEN': 'PRIVATE_TOKEN'}), \
+                        patch.object(compare, 'snapshot', return_value=self.live), \
+                        contextlib.redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(compare.main(), 1 if unknown else 0)
+                self.assertEqual(json.loads(out.getvalue())['all_match'], not unknown)
+                self.assertNotIn('PRIVATE_', out.getvalue())
+
     def test_each_binding_value_change_or_removal_blocks(self):
         for index, field in [(0, 'text'), (1, 'namespace_id'), (2, 'class_name'), (3, 'name')]:
             with self.subTest(index=index):
@@ -144,7 +378,7 @@ class ComparisonTests(unittest.TestCase):
             _, self.live = fixture()
             mutation(self.live)
             self.assertBlocked()
-            self.assertNotIn('PRIVATE_', json.dumps(self.rows()))
+            self.assertNotIn('PRIVATE_VALUE', json.dumps(self.rows()))
 
     def test_unknown_local_configuration_is_not_ignored(self):
         self.config['unsafe'] = {'metadata': {'PRIVATE_KEY': 'PRIVATE_VALUE'}}

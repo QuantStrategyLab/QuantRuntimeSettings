@@ -341,6 +341,49 @@ HTTP errors use `http`; unexpected exceptions retain
 `request_or_schema_unreadable`. Reasons never contain response bodies, URLs,
 provider messages, identifiers or exception text.
 
+Unsupported settings remain unreadable and include only a sanitized `field`
+name: ASCII letters, digits, `_`, `.`, or `-`, with 1–64 characters. Other names
+become `<unsupported-field>`; values and nested content are never emitted.
+This diagnostic does not make the field supported.
+
+The settings response's optional `annotations` object describes the Worker
+version, separately from Worker `tags`. Only string-valued `workers/message`
+(up to 1000 UTF-8 bytes), `workers/tag` (up to 100 bytes), and
+`workers/triggered_by` are recognized. They describe the version message,
+identifier and creation operation; `triggered_by` is set by the server.
+Recognized entries produce `match` rows with
+`classification=deployment_metadata`, an absent rendered value and a redacted
+live value. They are recorded without treating deployment metadata as config
+drift. Omission and an empty object are also accepted; null, malformed objects,
+non-string/invalid values and unknown keys remain unreadable. Unknown annotation
+keys and all annotation values are redacted. Local `annotations` declarations
+and annotations inside runtime settings are still unsupported.
+
+A version tag can be exposed to Worker code through a `version_metadata`
+binding. A tag is therefore accepted as deployment metadata only when both the
+settings and active-version binding inventories are readable and neither has
+that binding; otherwise `annotation_runtime_dependency` blocks comparison.
+Other keys, including `workers/alias` (which can affect version URLs), are never
+implicitly allowed. The existing full-snapshot stability check still blocks
+changes between observations, including metadata changes. See the
+[settings API](https://developers.cloudflare.com/api/typescript/resources/workers/subresources/scripts/subresources/script_and_version_settings/),
+[upload annotations](https://developers.cloudflare.com/workers/configuration/multipart-upload-metadata/)
+and [runtime version metadata](https://developers.cloudflare.com/workers/runtime-apis/bindings/version-metadata/).
+
+An omitted or empty rendered `compatibility_flags` list matches an omitted,
+null or empty list in the settings and active runtime responses. Nonempty flags
+still require an exact match; invalid shapes and missing required dates block
+comparison.
+The template declares placement mode `off`. Pinned Wrangler
+omits placement from the upload for `off` without a hint, matching an absent or
+empty live placement object; smart/targeted placement is not inferred. Pinned
+Wrangler has no top-level `tags` option: such declarations fail closed. With no
+configured environments, its tag transform preserves an empty live tag list;
+nonempty undeclared tags still block comparison. An
+omitted observability config matches absent logging or exactly
+`{"enabled": false}`. Wrangler's implicit disable is a no-op for either state;
+enabled logging or additional observability fields still block comparison.
+
 Undeclared provider settings are reported as unknown unless the pinned Wrangler
 version has a verified preservation rule; absence is not an invented default.
 An omitted `preview_urls` retains the readable live boolean, rather than copying

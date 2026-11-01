@@ -29,12 +29,17 @@ KNOWN_CONFIG = {
     'name', 'main', 'account_id', 'compatibility_date', 'compatibility_flags',
     'workers_dev', 'preview_urls', 'vars', 'kv_namespaces', 'durable_objects',
     'migrations', 'triggers', 'observability', 'limits', 'placement', 'logpush',
-    'tail_consumers', 'tags', 'usage_model',
+    'tail_consumers', 'usage_model',
 }
 SETTING_KEYS = {
     'compatibility_date', 'compatibility_flags', 'usage_model', 'limits',
     'placement', 'logpush', 'observability', 'tail_consumers', 'tags',
     'cache_options', 'streaming_tail_consumers',
+}
+# Cloudflare script/version annotations, not Worker tags or runtime settings.
+# Message/tag limits are UTF-8 bytes; triggered_by is server-provided provenance.
+ANNOTATION_BYTE_LIMITS = {
+    'workers/message': 1000, 'workers/tag': 100, 'workers/triggered_by': None,
 }
 
 
@@ -185,15 +190,18 @@ def snapshot(reader, name):
 def compare(config, live):
     rows = []
 
-    def row(item, expected=MISSING, actual=MISSING, reason=None):
-        status = 'unreadable' if reason else ('match' if expected == actual else 'mismatch')
+    def row(item, expected=MISSING, actual=MISSING, reason=None, *, field=MISSING, metadata=False):
+        status = 'unreadable' if reason else ('match' if metadata or expected == actual else 'mismatch')
         rows.append({'item': item, 'status': status,
                      'rendered': 'absent' if expected is MISSING else '<redacted>',
                      'live': 'absent' if actual is MISSING else '<redacted>',
-                     **({'reason': reason} if reason else {})})
+                     **({'reason': reason} if reason else {}),
+                     **({'classification': 'deployment_metadata'} if metadata else {}),
+                     **({'field': field if isinstance(field, str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,64}', field)
+                         else '<unsupported-field>'} if field is not MISSING else {})})
 
-    for index, _ in enumerate(sorted(set(config) - KNOWN_CONFIG)):
-        row(f'config.unsupported[{index}]', reason='unsupported_config_key')
+    for index, key in enumerate(sorted(set(config) - KNOWN_CONFIG)):
+        row(f'config.unsupported[{index}]', reason='unsupported_config_key', field=key)
     # These identify the request target and build entrypoint, not deployed code.
     row('target.account', config.get('account_id'), os.environ.get('CLOUDFLARE_ACCOUNT_ID'))
     if config.get('main') != 'worker.js':
@@ -271,18 +279,41 @@ def compare(config, live):
         row('bindings.' + name, desired[name], MISSING)
     for index, _ in enumerate(secret_names):
         row(f'secrets.unmatched[{index}]', reason='secret_inventory_disagrees')
-    # Missing required fields are unknown, not empty defaults.
-    for key in ('compatibility_date', 'compatibility_flags'):
-        expected = config.get(key, [] if key == 'compatibility_flags' else MISSING)
-        row('settings.' + key, expected, settings.get(key, MISSING),
-            'missing_setting' if key not in settings else None)
-        row('runtime.' + key, settings.get(key, MISSING), runtime.get(key, MISSING),
-            'missing_runtime_setting' if key not in runtime else None)
+    # A date is required. Only empty flags have an equivalent omitted/null form
+    # in API responses; never invent a flag when the rendered list is nonempty.
+    row('settings.compatibility_date', config.get('compatibility_date', MISSING),
+        settings.get('compatibility_date', MISSING),
+        'missing_setting' if 'compatibility_date' not in settings else None)
+    row('runtime.compatibility_date', settings.get('compatibility_date', MISSING),
+        runtime.get('compatibility_date', MISSING),
+        'missing_runtime_setting' if 'compatibility_date' not in runtime else None)
+    flags = config.get('compatibility_flags', [])
+    if not isinstance(flags, list) or any(not isinstance(flag, str) or not flag for flag in flags):
+        row('config.compatibility_flags', reason='unsupported_compatibility_flags')
+    for scope, source, reason in [('settings', settings, 'missing_setting'),
+                                   ('runtime', runtime, 'missing_runtime_setting')]:
+        actual = source.get('compatibility_flags', MISSING)
+        if flags == [] and (actual is MISSING or actual is None or actual == []):
+            row(scope + '.compatibility_flags', [], [])
+        else:
+            row(scope + '.compatibility_flags', flags, actual, reason if actual is MISSING else None)
     # Known implicit upload behavior; other provider defaults are NOT guessed.
-    expected_settings = {'observability': {'enabled': False}}
     for key in SETTING_KEYS - {'compatibility_date', 'compatibility_flags'}:
-        expected = config.get(key, expected_settings.get(key, MISSING))
+        expected = config.get(key, MISSING)
         actual = settings.get(key, MISSING)
+        # Pinned Wrangler's parseConfigPlacement omits placement for mode=off.
+        # The API can return that no-placement state as an empty object.
+        if key == 'placement' and expected == {'mode': 'off'}:
+            expected = {} if actual is not MISSING else MISSING
+        # An omitted observability config disables logging. Pinned Wrangler
+        # documents this as a no-op when it is already absent/disabled on live.
+        if key == 'observability' and expected is MISSING and actual == {'enabled': False}:
+            expected = actual
+        # Pinned Wrangler has no top-level tags option. With no configured
+        # environments, its service/environment tag transform preserves [].
+        # Nonempty live-only tags still require review rather than inference.
+        if key == 'tags' and expected is MISSING and actual == []:
+            expected = []
         # Pinned ordinary deploy omits these settings when not configured:
         # logpush/tail consumers are omitted from PATCH, usage_model is never
         # uploaded. No secret sync or special release mode runs here.
@@ -292,8 +323,45 @@ def compare(config, live):
             row('settings.' + key, expected, actual, 'undeclared_effective_setting')
         else:
             row('settings.' + key, expected, actual)
-    for index, _ in enumerate(sorted(set(settings) - SETTING_KEYS - {'bindings'})):
-        row(f'settings.unsupported[{index}]', reason='unsupported_live_setting')
+    annotations = settings.get('annotations', MISSING)
+    if annotations is MISSING or annotations == {}:
+        row('settings.annotations', actual=annotations, metadata=True)
+    elif not isinstance(annotations, dict):
+        row('settings.annotations', actual=annotations, reason='unsupported_annotations_shape')
+    else:
+        # Version tags can be consumed by Worker code via version_metadata.
+        # Do not classify them as harmless without both binding inventories.
+        inventories = (settings.get('bindings'), live.get('version_bindings'))
+        metadata_unexposed = all(
+            isinstance(inventory, list) and all(
+                isinstance(binding, dict) and isinstance(binding.get('name'), str)
+                and isinstance(binding.get('type'), str) and binding['type'] != 'version_metadata'
+                for binding in inventory)
+            for inventory in inventories)
+        for index, key in enumerate(sorted(annotations)):
+            actual = annotations[key]
+            if key not in ANNOTATION_BYTE_LIMITS:
+                # Unknown keys can themselves contain private data. Never echo
+                # them, including workers/alias, which can affect version URLs.
+                row(f'settings.annotations.unsupported[{index}]', actual=actual,
+                    reason='unsupported_annotation_key')
+                continue
+            limit = ANNOTATION_BYTE_LIMITS[key]
+            valid = isinstance(actual, str)
+            if valid:
+                try:
+                    size = len(actual.encode('utf-8'))
+                    valid = limit is None or size <= limit
+                except UnicodeError:
+                    valid = False
+            reason = None
+            if not valid:
+                reason = 'unsupported_annotation_value'
+            elif key == 'workers/tag' and not metadata_unexposed:
+                reason = 'annotation_runtime_dependency'
+            row('settings.annotations.' + key, actual=actual, reason=reason, metadata=reason is None)
+    for index, key in enumerate(sorted(set(settings) - SETTING_KEYS - {'bindings', 'annotations'})):
+        row(f'settings.unsupported[{index}]', reason='unsupported_live_setting', field=key)
     migrations = config.get('migrations', [])
     if len(migrations) != 1 or set(migrations[0]) != {'tag', 'new_sqlite_classes'}:
         row('migrations', reason='unsupported_migrations')
@@ -318,7 +386,8 @@ def compare(config, live):
     for key in sorted(set(runtime) - {'compatibility_date', 'compatibility_flags', 'migration_tag', 'exports'}):
         label = key if key in SETTING_KEYS else 'unsupported'
         row('runtime.' + label, settings.get(key, MISSING), runtime[key],
-            'unmapped_runtime_setting' if key not in SETTING_KEYS or key not in settings else None)
+            'unmapped_runtime_setting' if key not in SETTING_KEYS or key not in settings else None,
+            field=key if label == 'unsupported' else MISSING)
     subdomain = live.get('subdomain')
     if not isinstance(subdomain, dict):
         row('subdomain', reason='missing_subdomain')
@@ -332,8 +401,8 @@ def compare(config, live):
             expected = actual if retained else config.get(local, MISSING)
             row('subdomain.' + key + ('.retained' if retained else ''), expected, actual,
                 'unreadable_subdomain_setting' if not isinstance(actual, bool) else None)
-        for index, _ in enumerate(set(subdomain) - {'enabled', 'previews_enabled'}):
-            row(f'subdomain.unsupported[{index}]', reason='unsupported_subdomain_setting')
+        for index, key in enumerate(sorted(set(subdomain) - {'enabled', 'previews_enabled'})):
+            row(f'subdomain.unsupported[{index}]', reason='unsupported_subdomain_setting', field=key)
     schedules = live.get('schedules')
     crons = schedules.get('schedules') if isinstance(schedules, dict) else None
     if (not isinstance(crons, list) or any(not isinstance(c, dict) or not isinstance(c.get('cron'), str)
