@@ -6350,16 +6350,29 @@ function currentStrategiesSignature(payload) {
   return JSON.stringify(clone);
 }
 
+// readConfigJson reports a damaged value as `STRATEGY_SWITCH_CONFIG.<key> must be
+// valid JSON`. Only that shape is a cache miss; a KV read that failed for any other
+// reason is an outage and has to reach the caller instead of being mistaken for an
+// empty cache — the difference is what keeps cold isolates from fanning out to
+// GitHub on every request while the store is unhealthy.
+function isConfigJsonParseError(error) {
+  return /^STRATEGY_SWITCH_CONFIG\.[^\s]+ must be valid JSON$/.test(String(error?.message || ""));
+}
+
+async function readCurrentStrategiesCacheEntry(env) {
+  try {
+    return await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+  } catch (error) {
+    if (!isConfigJsonParseError(error)) throw error;
+    return null;
+  }
+}
+
 async function writeCurrentStrategiesCache(env, payload, ts) {
   const signature = currentStrategiesSignature(payload);
-  // A damaged stored value must not wedge the cache: readConfigJson throws on
-  // invalid JSON, and this helper is the only path that can overwrite it.
-  let cached = null;
-  try {
-    cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
-  } catch {
-    cached = null;
-  }
+  // A damaged stored value must not wedge the cache; this is the only path that can
+  // overwrite it, so the comparison reads through the same repair-aware helper.
+  const cached = await readCurrentStrategiesCacheEntry(env);
   if (cached?.data && currentStrategiesSignature(cached.data) === signature
       && cached.ts && ts - cached.ts < CURRENT_STRATEGIES_KV_BUMP_MS) {
     return;
@@ -6416,7 +6429,7 @@ async function readCurrentStrategies(accountOptions, env, ctx) {
 
   // 2) KV cache
   if (!currentStrategies && hasConfigStore(env)) {
-    const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+    const cached = await readCurrentStrategiesCacheEntry(env);
     if (cached?.ts && cached.data) {
       const age = Date.now() - cached.ts;
       // A degraded entry stays inside the freshness window but is never *fresh*:
@@ -17690,6 +17703,8 @@ function escapeHtml(value) {
 export const __test = {
   effectiveAccountSettings,
   writeCurrentStrategiesCache,
+  readCurrentStrategiesCacheEntry,
+  isConfigJsonParseError,
   currentStrategiesSignature,
   isDegradedCurrentStrategies,
   currentStrategiesKvBumpMs: CURRENT_STRATEGIES_KV_BUMP_MS,

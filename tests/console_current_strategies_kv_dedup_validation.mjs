@@ -80,7 +80,10 @@ assert.equal(puts, 2, "post-bump requests must stay write-free");
 
 // Direct helper cases pin the boundaries and the failure modes the HTTP timeline
 // cannot reach from a single isolate.
-const { writeCurrentStrategiesCache, currentStrategiesSignature, isDegradedCurrentStrategies } = __test;
+const {
+  writeCurrentStrategiesCache, currentStrategiesSignature, isDegradedCurrentStrategies,
+  readCurrentStrategiesCacheEntry, isConfigJsonParseError,
+} = __test;
 const evidencePayload = (observedAt, netAssets) => ({
   longbridge: {
     hk: { execution_evidence: { status: "reported", observed_at: observedAt }, net_assets: netAssets },
@@ -164,6 +167,41 @@ assert.equal(isDegradedCurrentStrategies({}), false,
 // only kept alive at the bump ceiling still has to land inside the KV fresh window.
 assert.ok(bump + 300_000 <= __test.currentStrategiesKvFreshMs,
   "bump ceiling plus one 5-minute tick must stay inside the KV fresh window");
+
+// The cached payload is echoed back through /api/config, so re-stamping a stored
+// timestamp on every read would make each read a distinct value — and a reader that
+// wrote back what it read would defeat the dedup in production.
+const tsBeforeEcho = storedCache().ts;
+await requestConfig();
+assert.equal(storedCache().ts, tsBeforeEcho, "reading /api/config must not re-stamp the cached ts");
+assert.equal(puts, 2, "reading /api/config must not add a write");
+
+// A damaged entry has to be a miss on the *read* path too, not a 500: let the
+// isolate memo age past its stale ceiling so the KV branch is the one that sees it.
+store.set("current_strategies_cache", "{not json");
+nowOffset += 3_700_000;
+const putsBeforeRepair = puts;
+await requestConfig();
+assert.equal(puts, putsBeforeRepair + 1, "a damaged cache entry must be repaired by exactly one write");
+assert.ok(storedCache().data, "the repaired entry must carry a payload again");
+
+// A KV outage is not a damaged entry. Swallowing it would fan every cold request out
+// to GitHub while the store is unhealthy.
+assert.equal(isConfigJsonParseError(new Error("STRATEGY_SWITCH_CONFIG.current_strategies_cache must be valid JSON")), true,
+  "the parse failure readConfigJson reports must classify as damage");
+assert.equal(isConfigJsonParseError(new Error("kv unavailable")), false,
+  "a transport failure must not classify as damage");
+await assert.rejects(
+  () => readCurrentStrategiesCacheEntry({
+    ...env,
+    STRATEGY_SWITCH_CONFIG: {
+      async get() { throw new Error("kv unavailable"); },
+      async put() {}, async list() { return { keys: [] }; }, async delete() {},
+    },
+  }),
+  /kv unavailable/,
+  "an unavailable KV read must still reach the caller",
+);
 
 Date.now = realNow;
 globalThis.fetch = realFetch;
