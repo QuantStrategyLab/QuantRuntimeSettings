@@ -18,7 +18,7 @@ try {
         import { renderToStaticMarkup } from 'react-dom/server';
         import { I18nProvider } from './src/i18n';
         import { actionBlockers, expiryState, MutationOutcomeUnknown } from './src/api/cockpit';
-        import { ApplicationStatus, DecisionCard, DigestStatus, EffectivePolicyPanel, FreshnessBadge, PauseControl, RiskTierSelector } from './src/components/cockpit';
+        import { ApplicationStatus, DecisionCard, DigestStatus, EffectivePolicyPanel, FreshnessBadge, LifecycleStepper, PauseControl, RiskTierSelector } from './src/components/cockpit';
         export { actionBlockers, expiryState, MutationOutcomeUnknown };
         const wrap = (language, node) => renderToStaticMarkup(h(I18nProvider, { language }, node));
         export const tiers = (language) => wrap(language, h(RiskTierSelector, {
@@ -64,6 +64,16 @@ try {
         export const unknownCard = card('unknown', ['state_unknown', 'evidence_stale']);
         export const pendingCard = card('pending', ['decision_expired']);
         export const freshness = (language) => wrap(language, h(FreshnessBadge, { state: 'expired' }));
+        const lifecycle = {
+          profile: 'demo_trend', account_alias: 'demo_account', platform: 'ibkr', target_id: 'demo-target',
+          release_id: 'demo-release', present: true, research_stage: 'paper', authorized_stage: 'small_live',
+          effective_stage: 'paper', operating_state: 'running', application_state: 'applied',
+          observed_at: '2026-11-01T09:30:00Z', evidence: null, regime_effect: 'risk_reduction_only',
+        };
+        export const stepper = (language) => wrap(language, h(LifecycleStepper, { binding: lifecycle }));
+        export const stepperUnconfirmed = (language) => wrap(language, h(LifecycleStepper, {
+          binding: { ...lifecycle, authorized_stage: 'unknown', effective_stage: 'unknown' },
+        }));
         export const pause = (language) => wrap(language, h(PauseControl, {
           operatingState: 'running', canPause: true, canResume: true, pending: false, reason: null,
         }));
@@ -147,6 +157,14 @@ try {
   assert.match(noReadback, /independent runtime readback is unavailable/);
   assert.doesNotMatch(noReadback, /runtime confirmation pending/);
   assert.match(ui.appliedNoReadback("zh"), /无法提供独立的运行时回读/);
+
+  // The stepper draws one axis and says which, while the other axes stay listed.
+  const stepper = ui.stepper("en");
+  assert.match(stepper, /Stepper shows: authorized ceiling/);
+  assert.match(stepper, /Authorized ceiling/);
+  assert.match(stepper, /Observed stage/);
+  assert.match(ui.stepper("zh"), /步进器显示：授权上限/);
+  assert.match(ui.stepperUnconfirmed("en"), /Stage unconfirmed/);
 
   // An unreadable state is shown as unknown, and each blocker names its own cause.
   const unknownCard = ui.unknownCard("en");

@@ -27,6 +27,12 @@ export function tierLabel(value: string | null | undefined, t: ReturnType<typeof
   return t("cockpit.not_set");
 }
 
+/** The server owns this vocabulary; an unmapped value stays readable instead of raw. */
+export function regimeLabel(value: string, t: ReturnType<typeof useT>): string {
+  if (value === "risk_reduction_only") return t("cockpit.regime.reduction_only");
+  return value.replace(/_/g, " ");
+}
+
 export function blockerLabel(reason: string, t: ReturnType<typeof useT>): string {
   if (reason === "decision_expired") return t("cockpit.blocker.expired");
   if (reason === "expiry_unverified") return t("cockpit.blocker.expiry");

@@ -12,7 +12,7 @@ import { useNavigate } from "../../app/context";
 import { useT } from "../../i18n";
 import { useApi } from "../../lib/hooks";
 import { AsOfStamp, Badge, EmptyState, ErrorState, Skeleton, StatusBadge } from "../../components/primitives";
-import { EvidenceSummary, LifecycleStepper } from "../../components/cockpit";
+import { EvidenceSummary, LifecycleStepper, regimeLabel } from "../../components/cockpit";
 import { Tabs } from "../../components/Tabs";
 import "./strategies.css";
 
@@ -147,7 +147,7 @@ function StrategyCard({ strategy, assignmentKnown = true, lifecycles }: {
                   <>
                     <LifecycleStepper binding={binding} />
                     {binding.evidence && <EvidenceSummary evidence={binding.evidence} />}
-                    {binding.regime_effect && <p className="cockpit-note">{binding.regime_effect}</p>}
+                    {binding.regime_effect && <p className="cockpit-note">{regimeLabel(binding.regime_effect, t)}</p>}
                   </>
                 ) : <p className="cockpit-note">{t("cockpit.lifecycle.not_provided")}</p>}
               </div>

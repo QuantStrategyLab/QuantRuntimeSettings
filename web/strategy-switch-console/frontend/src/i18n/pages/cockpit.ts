@@ -139,6 +139,7 @@ export const zh: Record<string, string> = {
   "cockpit.lifecycle.note": "阶段、授权、实际观察和运行状态分别显示；界面不会自行提升阶段。",
   "cockpit.lifecycle.not_provided": "未提供该目标的生命周期阶段信息。",
   "cockpit.lifecycle.identity": "版本 {release} · 目标 {target}",
+  "cockpit.regime.reduction_only": "市场状态限制：仅允许降低风险的操作。",
 
   "cockpit.operation.title": "申请状态",
   "cockpit.operation.decision": "决定",
@@ -353,6 +354,7 @@ export const en: Record<string, string> = {
   "cockpit.lifecycle.note": "Stage, authority, observation and operating state stay separate; the UI never promotes a stage.",
   "cockpit.lifecycle.not_provided": "Lifecycle stages were not provided for this target.",
   "cockpit.lifecycle.identity": "Release {release} · target {target}",
+  "cockpit.regime.reduction_only": "Regime limit: only risk-reducing actions are allowed.",
 
   "cockpit.operation.title": "Application status",
   "cockpit.operation.decision": "Decision",
