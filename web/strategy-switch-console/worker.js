@@ -6424,7 +6424,7 @@ let _memRefreshing = false;  // prevent concurrent background refreshes
 // byte equality can never hold; the comparison drops those stamps and keeps the
 // stored value untouched for readers.
 function currentStrategiesSignature(payload) {
-  const clone = JSON.parse(JSON.stringify(payload ?? null));
+  const clone = structuredClone(payload ?? null);
   const visit = (node) => {
     if (Array.isArray(node)) {
       node.forEach(visit);
