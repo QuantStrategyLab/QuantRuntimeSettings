@@ -35,12 +35,11 @@ type CredentialPhase = CredentialMaintenance["phase"];
 
 const ATTENTION_PHASES: readonly CredentialPhase[] = ["30", "14", "7", "expired"];
 
-/* Tones follow the server's severity escalation: notice → accent, warning → warn, urgent/expired → error. */
-const PHASE_TONE: Record<CredentialPhase, "ok" | "accent" | "warn" | "error" | "unknown"> = {
+const PHASE_TONE: Record<CredentialPhase, "ok" | "warn" | "error" | "unknown"> = {
   expired: "error",
-  "7": "error",
+  "7": "warn",
   "14": "warn",
-  "30": "accent",
+  "30": "warn",
   not_due: "ok",
   unknown: "unknown",
 };

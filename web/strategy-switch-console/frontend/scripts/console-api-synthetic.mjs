@@ -90,8 +90,8 @@ export function consoleApiFixture(
     },
     "credential_maintenance",
   );
-  // The backend canonicalItem projection does not yet emit credential_expiry on
-  // this branch; append the synthetic server-computed contract the cockpit reads.
+  // Backend projection (#1032) emits credential_expiry for credential_maintenance
+  // items; this synthetic server reproduces that contract for the cockpit.
   credential.credential_expiry = {
     expires_at: credentialExpiresAt,
     days_remaining: 7,

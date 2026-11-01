@@ -12,13 +12,13 @@ Use Credential maintenance or Manage expiry in the existing Decisions page. A da
 
 ## 通知通道 / Delivery channel
 
-沿用 `daily-digest-notify.yml` 既有工作日中央日报、bot/chat 和 Environment。只复用既有 `vars.STRATEGY_SWITCH_CONSOLE_URL` 与明确的 `secrets.STRATEGY_SWITCH_SYNC_TOKEN`，不使用 GitHub/dispatch fallback；不得与券商、控制或其他 token 同值。Worker 仍使用既有 RuntimeInstances SQLite binding，无新资源或 cron。新持久发送操作要求真实 GitHub main workflow 上下文；dry-run、route-check、非 main 不进行提醒 claim、ACK 或发送，也不新增 Secret Manager/Gateway/Flex 读取。
+沿用 `daily-digest-notify.yml` 既有工作日中央日报、bot/chat 和 Environment。只复用既有 `vars.STRATEGY_SWITCH_CONSOLE_URL` 与明确的 `secrets.STRATEGY_SWITCH_SYNC_TOKEN`，不使用 GitHub/dispatch fallback；不得与券商、控制或其他 token 同值。Worker 仍使用既有 RuntimeInstances SQLite binding，无新资源或 cron。新持久发送操作要求真实 GitHub main workflow 上下文；dry-run、route-check、非 main 不进行提醒 claim、ACK 或发送，也不新增 Secret Manager/Gateway/Flex 读取。本改动不新增 Flex 私密配置或 watchdog 读取。
 
-The existing weekday central digest, bot/chat and Environment are reused. Configure the existing console URL variable and explicit sync-token secret; no GitHub/dispatch fallback or token alias is accepted. The existing RuntimeInstances SQLite binding owns metadata and delivery; there is no new resource or cron. Maintenance persistence requires the actual main workflow context. Dry-run, route-check and other branches do not claim, ACK or send maintenance, or add broker/secret reads.
+The existing weekday central digest, bot/chat and Environment are reused. Configure the existing console URL variable and explicit sync-token secret; no GitHub/dispatch fallback or token alias is accepted. The existing RuntimeInstances SQLite binding owns metadata and delivery; there is no new resource or cron. Maintenance persistence requires the actual main workflow context. Dry-run, route-check and other branches do not claim, ACK or send maintenance, or add broker/secret reads. This change adds no Flex private configuration or watchdog read.
 
-仅发送当前最紧急的 30 / 7 / 1 天或已到登记到期时刻阶段，不补发历史阶段；未知日期只显示网站登记待办。维护块附在同一条中央日报中，使用严格 Telegram 回执验证。候选数据构建失败时可仅发送维护块，但保留业务失败、未知业务数量和非零退出，不冒称日报业务成功。
+仅发送当前最紧急的 30 / 14 / 7 天或已到登记到期时刻阶段，不补发历史阶段；未知日期只显示网站登记待办。维护块附在同一条中央日报中，使用严格 Telegram 回执验证。候选数据构建失败时可仅发送维护块，但保留业务失败、未知业务数量和非零退出，不冒称日报业务成功。
 
-Only the current most urgent 30/7/1-day or registered-expiry-reached phase is sent, without historical backfill. Unknown expiry creates only the website registration TODO. The small block is appended to the same central message with a strict Telegram receipt. A failed business build may deliver a maintenance-only message while retaining the original business failure, unknown counts and nonzero exit.
+Only the current most urgent 30/14/7-day or registered-expiry-reached phase is sent, without historical backfill. Unknown expiry creates only the website registration TODO. The small block is appended to the same central message with a strict Telegram receipt. A failed business build may deliver a maintenance-only message while retaining the original business failure, unknown counts and nonzero exit.
 
 ## 去重与未知结果 / Deduplication and uncertainty
 
