@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
+import {execFileSync} from 'node:child_process';
 import {runInNewContext} from 'node:vm';
 import {buildFreezeCandidate,assertFrozenPolicySource,FROZEN_POLICY} from '../scripts/console_958_freeze_candidate.mjs';
 import {pathToFileURL} from 'node:url';
@@ -56,9 +57,12 @@ test('modified historic freeze function or duplicate helper is refused',()=>{
  assert.throws(()=>buildFreezeCandidate(ts,original,Buffer.from(original.toString().replace('normalizeSwitchInputs(rawInput)','normalizeSwitchInputs({})'))));
 });
 
-test('frozen set equals fixed main asset including all 14 entries',async()=>{
- const policyUrl=process.env.QRS_TEST_POLICY ? pathToFileURL(process.env.QRS_TEST_POLICY).href : new URL('../web/strategy-switch-console/strategy_profiles_asset.js',import.meta.url).href;
+test('frozen set equals the historical asset including all 14 entries',async()=>{
+ const policyUrl=process.env.QRS_TEST_POLICY ? pathToFileURL(process.env.QRS_TEST_POLICY).href : `data:text/javascript;base64,${execFileSync('git',['cat-file','blob','390c7be888059e95793f066ebf4a38ca7234b8f4'],{cwd:new URL('..',import.meta.url)}).toString('base64')}`;
  const {DEFAULT_STRATEGY_PROFILES}=await import(policyUrl);
  assert.equal(FROZEN_POLICY.length,14);assertFrozenPolicySource(DEFAULT_STRATEGY_PROFILES);
  assert.throws(()=>assertFrozenPolicySource(DEFAULT_STRATEGY_PROFILES.filter(x=>x.profile!==FROZEN_POLICY[0])));
+ const {DEFAULT_STRATEGY_PROFILES: current}=await import('../web/strategy-switch-console/strategy_profiles_asset.js');
+ assert.equal(current.find(x=>x.profile==='global_etf_rotation').frozen,false);
+ assert.throws(()=>assertFrozenPolicySource(current));
 });
