@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "generated_at": "2030-01-07T14:35:00Z",
+  "snapshot_at": "2030-01-07T14:26:00Z",
+  "freshness": {"data_status": "ready", "age_seconds": 367},
+  "reporting_currency": "USD",
+  "totals": {
+    "status": "unavailable",
+    "coverage": {"included": 0, "total": 0, "excluded_reasons": ["no_non_paper_accounts"]},
+    "fx": {"status": "known", "as_of": "2030-01-07T14:00:00Z", "source": "overview_fx"},
+    "nav": null,
+    "day_change": null,
+    "drawdown": null,
+    "gross_exposure_ratio": null,
+    "leveraged_etf_exposure_ratio": null,
+    "runs_today": {"done": 0, "expected": 0, "pending": []},
+    "config_drift": {"count": 0, "target_ids": []},
+    "data_age_seconds": 22320
+  },
+  "book": [],
+  "equity_curve": {
+    "range": "6M",
+    "portfolio": {"dates": [], "indexed": []},
+    "benchmark": {"id": null, "label": null, "indexed": []},
+    "drawdown": [],
+    "history_starts": null,
+    "return_basis": "unavailable"
+  },
+  "needs_you": [],
+  "schema_version": "qsl.desk.overview.v1"
+}

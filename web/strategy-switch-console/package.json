@@ -2,7 +2,13 @@
   "name": "qsl-strategy-switch-console-tests",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test:contracts": "node ../../tests/desk_contract_validation.mjs",
+    "test:operations": "node ../../tests/desk_helpers_validation.mjs && node ../../tests/desk_readback_validation.mjs && npm --prefix frontend run test:operations"
+  },
   "devDependencies": {
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
     "miniflare": "4.20260730.0"
   },
   "overrides": {

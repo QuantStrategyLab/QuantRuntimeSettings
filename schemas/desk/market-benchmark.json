@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/market-benchmark.json",
+  "title": "market-benchmark",
+  "description": "API-CONTRACT.md §3.16",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.market_benchmark_points.v1"},
+    "inception_date": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"},
+    "timezone": {"const": "Asia/Shanghai"},
+    "series": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "enum": ["sp500", "nasdaq100", "djia", "russell2000"]},
+          "legacy_id": {"type": "string", "enum": ["标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]},
+          "label_en": {"type": "string"},
+          "label_zh": {"type": "string"},
+          "kind": {"const": "index"}
+        },
+        "required": ["id", "legacy_id", "label_en", "label_zh", "kind"],
+        "additionalProperties": false
+      }
+    },
+    "points": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "seriesId": {"type": "string", "enum": ["标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]},
+          "observationDate": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"},
+          "close": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+          "source": {"type": "string"}
+        },
+        "required": ["seriesId", "observationDate", "close", "source"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["ok", "schema_version", "inception_date", "timezone", "series", "points"],
+  "additionalProperties": false
+}

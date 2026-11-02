@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/logs.json",
+  "title": "logs",
+  "description": "API-CONTRACT.md §3.19",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.logs.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+          "level": {"type": "string", "enum": ["debug", "info", "warn", "error"]},
+          "source": {
+            "type": "string",
+            "pattern": "^(?:[a-z0-9_-]+/[a-z0-9_-]+|control-plane|account-facts|research|digest)$"
+          },
+          "run_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+          "message": {"type": "string", "maxLength": 400}
+        },
+        "required": ["id", "at", "level", "source", "run_id", "message"],
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    "retention": {
+      "type": "object",
+      "properties": {"days": {"const": 90}, "truncated": {"type": "boolean"}},
+      "required": ["days", "truncated"],
+      "additionalProperties": false
+    },
+    "redaction": {"const": "applied"}
+  },
+  "required": ["ok", "schema_version", "generated_at", "items", "next_cursor", "retention", "redaction"],
+  "additionalProperties": false
+}

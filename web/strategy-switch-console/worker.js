@@ -1,4 +1,6 @@
 import { binanceDetailCommand } from "./binance_detail_archive.js";
+import { createDeskAuth, DeskError, deskErrorResponse } from "./application/desk/http.js";
+import { DeskReadbackStore, deskReadbackResponse, buildReadback, readbackTargets } from "./application/desk/readback.js";
 import { auditPageQuery, auditEventInPage, auditEventOrder, auditNextCursor } from "./application/console_api/audit_pagination.js";
 import { runtimeReadbackProjection } from "./application/console_api/runtime_readback.js";
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
@@ -863,6 +865,11 @@ export default {
           daily: (req, e) => runtimeDailyResponse(req, e, new URL(req.url), today ? { readSession: readTodaySession, readOptions: readTodayOptions, readRegistered: readTodayRegistered } : undefined),
           notificationReceipts: e => readNotificationLog({ repository: e.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY, token: e.RUNTIME_SETTINGS_DISPATCH_TOKEN }),
           runControls: consoleRunControls,
+        });
+      }
+      if (url.pathname.startsWith("/api/desk/targets/") || url.pathname === "/api/desk/readbacks" || url.pathname.startsWith("/api/desk/readbacks/")) {
+        return await deskReadbackResponse(request, env, {
+          auth: deskAuth, command: runtimeInstanceCommand, options: loadAccountOptionsConfig,
         });
       }
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
@@ -2259,6 +2266,14 @@ export class RuntimeInstances {
     initializeCredentialMaintenance(this.sql);
     initializeSecretRotation(this.sql);
     this.rotationEnv = env;
+    this.deskReadbacks = new DeskReadbackStore(ctx.storage, async (id, actor) => {
+      const state = this.read();
+      const target = readbackTargets({ options: runtimeInstanceAccountOptions(state.instances), revision: state.revision }).find(target => target.id === id);
+      if (!target) throw new DeskError("not_found", 404);
+      let observed = null;
+      try { observed = this.readAccountSettings({ platform: target.platform, key: target.key, legacy: await readRiskProfileLegacy(env) }); } catch { /* Degrade saved independently. */ }
+      return deskTargetReadback(env, target, actor, observed);
+    });
     // Native intervals remain in the existing private account read-model store.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS account_period_return (
       account_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL
@@ -3860,6 +3875,7 @@ export class RuntimeInstances {
       platform: item.platform,
       key: item.key,
       instance_revision: state.revision,
+      enabled: item.enabled,
       identity,
       config: item.config,
       draft: this.accountSettingDraftView(item, identity),
@@ -4396,6 +4412,8 @@ export class RuntimeInstances {
     };
   }
 
+  async alarm() { await this.deskReadbacks.alarm(); }
+
   async fetch(request) {
     try {
       if (new URL(request.url).pathname === DIRECTORY_PATH) {
@@ -4407,6 +4425,10 @@ export class RuntimeInstances {
       if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
       let command;
       try { command = await request.json(); } catch { throw new HttpError("invalid_runtime_instance_request", 400); }
+      if (["desk_readback_start", "desk_readback_get", "desk_readback_fresh"].includes(command?.action)) {
+        try { return json(await this.deskReadbacks.command(command)); }
+        catch (error) { return deskErrorResponse(error); }
+      }
       if (typeof command?.action === "string" && command.action.startsWith("rotation_")) {
         return json(await durableRotationCommand(this.storage, this.sql, this.rotationEnv, command));
       }
@@ -5427,6 +5449,8 @@ function loginTimeoutResponse(stage) {
   );
 }
 
+const deskAuth = createDeskAuth({ readSession, requireSameOrigin });
+
 async function sessionPayload(request, env) {
   const session = await readSession(request, env);
   return {
@@ -5434,6 +5458,7 @@ async function sessionPayload(request, env) {
     login: session?.login || null,
     allowed: Boolean(session?.allowed),
     admin: Boolean(session?.admin),
+    server_time: new Date().toISOString(),
   };
 }
 
@@ -18010,6 +18035,58 @@ async function loadRiskProfileBindings(env) {
   }
 }
 
+// Desk reads deliberately bypass the current-strategies memory/KV cache. Raw
+// variable maps stay local; only explicit resolver fields enter the projection.
+async function deskTargetReadback(env, target, actor, suppliedObserved = undefined) {
+  let observed = suppliedObserved;
+  if (observed === undefined) {
+    try {
+      observed = await runtimeInstanceCommand(env, { action: "account_settings_read", actor,
+        platform: target.platform, key: target.key, legacy: await readRiskProfileLegacy(env) });
+    } catch { observed = null; }
+  }
+  if (observed && observed.config?.target_name !== target.config.target_name) throw new DeskError("not_found", 404);
+  const config = observed?.config || target.config;
+  const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
+  const repository = platformRepositories(env)?.[target.platform];
+  let platform = {}, platformReason = "source_unavailable";
+  if (token && repository && config) {
+    const cache = new Map();
+    let failed = false;
+    const readVariable = async (repo, scope, environment, name) => {
+      const key = JSON.stringify([repo, scope, environment]);
+      if (!cache.has(key)) cache.set(key, fetchGithubVariables(token, repo, scope, environment, { reportReadErrors: true }));
+      const variables = await cache.get(key);
+      if (variables === null) failed = true;
+      return variables?.get(name) || "";
+    };
+    try {
+      const options = observed?.account_options?.[target.platform] || [];
+      const current = await resolveCurrentStrategyForAccount({ platform: target.platform, option: config,
+        optionsCount: options.length || target.optionsCount || 1, repository, readVariable });
+      if (failed) throw new Error("read_failed");
+      const scope = resolveVariableScope(target.platform, config);
+      const environment = resolveGithubEnvironment(target.platform, config, scope);
+      // Identity must come from a uniquely matched runtime record, never config.
+      const service = current?.source === "CLOUD_RUN_SERVICE_TARGETS_JSON"
+        ? runtimeTargetFromServiceTargets(await readVariable(repository, "repository", "", "CLOUD_RUN_SERVICE_TARGETS_JSON"), target.platform, config) : null;
+      const runtime = current?.source === "RUNTIME_TARGET_JSON"
+        ? parseJsonObject(await readVariable(repository, scope, environment, "RUNTIME_TARGET_JSON")) : null;
+      if (failed) throw new Error("read_failed");
+      const identity = current?.source === "CLOUD_RUN_SERVICE_TARGETS_JSON" ? service
+        : runtime && runtimeTargetMatchesAccount(runtime, target.platform, config) ? runtime : null;
+      platform = { strategy_profile: current?.strategy_profile, enabled: current?.runtime_target_enabled,
+        income_layer_enabled: current?.income_layer_enabled, option_overlay_enabled: current?.option_overlay_enabled,
+        reserved_cash_floor: current?.min_reserved_cash_usd, reserved_cash_ratio: current?.reserved_cash_ratio,
+        dca_mode: current?.dca_mode, dca_base_investment_usd: current?.dca_base_investment_usd,
+        broker_environment: identity?.broker_environment, account_selector: identity?.account_selector,
+        cash_currency: identity?.cash_currency, runtime_status_target_id: identity?.runtime_status_target_id };
+      platformReason = "never_read";
+    } catch { platform = {}; platformReason = "read_failed"; }
+  }
+  return buildReadback({ target, observed, platform, platformReason, now: Date.now(), cleanRatio: cleanCurrentRatio });
+}
+
 async function effectiveAccountSettings(env, observed) {
   const broker = observed.identity?.broker_environment === "live" || observed.identity?.broker_environment === "paper"
     ? { status: "known", value: observed.identity.broker_environment }
@@ -18553,9 +18630,11 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  deskAuth,
   credentialRotationResponse, runtimeInstanceCommand,
   auditEventAction,
   effectiveAccountSettings,
+  deskTargetReadback,
   writeCurrentStrategiesCache,
   readCurrentStrategiesCacheEntry,
   isConfigJsonParseError,

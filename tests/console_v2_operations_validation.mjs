@@ -1,3 +1,4 @@
+import "./desk_contract_validation.mjs";
 import assert from "node:assert/strict";
 import {__test as workerTest} from "../web/strategy-switch-console/worker.js";
 import {

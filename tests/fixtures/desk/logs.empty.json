@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "items": [],
+  "next_cursor": null,
+  "retention": {"days": 90, "truncated": false},
+  "redaction": "applied",
+  "schema_version": "qsl.desk.logs.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

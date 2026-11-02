@@ -10,43 +10,54 @@ Precedence: explicit override, generated map, caller fallback, unchanged technic
 
 Resolved names are for display only. Never pass them to trading selection, account selection, target IDs, fingerprints, release/continuity bindings, Secret names, storage/object keys, claim keys or notification deduplication. Workflow/environment IDs and report profile IDs retain their operational meaning. CI and source merges do not establish production adoption. Trading runtime changes require their separate reviewed deployment; this naming work deploys no trading service.
 
-## Private account identities in the v3 daily digest
+## Account config labels in the v3 daily digest
 
-The v3 digest may show a full account identity in the Telegram body. Supply
-`QSL_DISPLAY_NAMES_JSON` to the central digest service at runtime through its
-protected configuration or secret reference. Its `accounts.<platform>` map is
-queried by `opaque_account_uid`, then `target_id`, then existing alias/hint/scope
-keys. These keys are lookup keys only; opaque IDs and target IDs are never
-rendered as account names. A map value must be the actual configured account
-identity, not a descriptive alias, a masked placeholder or an execution lane.
+Account titles come from the existing selected account config, in order:
+`label`, `key`, `target_name`. Carry these fields with the approved
+`DIGEST_EXPECTED_TARGETS_JSON` binding (or `aggregator.expected_targets`),
+or call `cloud_run_daily_digest.project_expected_target_label(binding, account_option)`
+where the selected config and binding are available. `Configuration` calls this
+projection during environment intake; it is not a separate alias registry.
+No `QSL_DISPLAY_NAMES_JSON` account map is required.
 
-The following mapping is entirely synthetic:
+For example, this binding uses entirely synthetic identity values:
 
 ```json
-{"accounts":{"ibkr":{"fake-opaque-a":"U0000001"},"schwab":{"fake-opaque-b":"00000002"},"firstrade":{"fake-opaque-c":"00000003"},"longbridge":{"fake-opaque-d":"LB000004"},"binance":{"fake-opaque-e":"fake-binance-user"}}}
+{"platform_id":"ibkr","opaque_account_uid":"synthetic-account","target_id":"synthetic-target","strategy_profile":"synthetic-strategy","candidate_slot":"synthetic-slot","label":"live","key":"paper","target_name":"sg"}
 ```
 
-| Platform | Runtime source and digest lookup |
-| --- | --- |
-| IBKR | The producer projects `runtime_target.account_selector` from its report or protected `CLOUD_RUN_SERVICE_TARGETS_JSON` into `account_hint`. Only the central private mapping may supply a full identity; an unmapped `U`/`DU` account hint is masked. |
-| Schwab | The producer supplies `SCHWAB_DIGEST_OPAQUE_ACCOUNT_UID`, falling back to its configured runtime account hash. Map this key to the actual account number in the central service; the hash cannot supply the number. An unmapped numeric `account_hint` is masked. |
-| Firstrade | The producer's protected binding supplies `DIGEST_OPAQUE_ACCOUNT_UID`. Map it to the configured `FIRSTRADE_ACCOUNT` / runtime account selector in the central service. An unmapped numeric `account_hint` is masked. |
-| LongBridge | The producer supplies `DIGEST_OPAQUE_ACCOUNT_UID`. Map it to the actual configured broker account identity in the central service. Regions, channels and token secret names are not account numbers. |
-| Binance | The producer supplies `DIGEST_OPAQUE_ACCOUNT_UID` or `BINANCE_DIGEST_OPAQUE_ACCOUNT_UID`. Map it to the actual configured account UID/name in the central service. `default`, `crypto_combo` and `live` do not identify the account. |
+The projection adds the optional internal `account_label` (`live` here).
+Existing callers may also supply a projected `account_label` directly; a valid
+projected label takes precedence over retained source fields. It must
+be a printable string of at most 70 characters. Empty labels use fallback;
+invalid projected labels fail startup with a fixed reason and no input echo.
+Unsafe source fields are skipped in priority order. Names such as `live`,
+`paper`, `sg`, `hk` and already masked names remain valid. Raw broker IDs,
+long numeric strings, URLs and control characters cannot become config labels.
 
-An exact protected `DIGEST_EXPECTED_TARGETS_JSON` binding may also provide an
-`account_hint`; aggregation applies it only when platform, opaque account UID,
-target and strategy all match, the hint has a valid format, and the producer
-has not already supplied a valid identity. IBKR mapping values must be full
-`U`/`DU` account IDs; Schwab and Firstrade mapping values must be numeric account
-IDs (with optional separators or an `Account` prefix). No account number is inferred from a scope,
-opaque ID, target ID or execution mode. When the private mapping is missing,
-invalid or has no usable entry, a valid IBKR, Schwab or Firstrade hint is shown
-as `***` plus its final two characters. Otherwise the notification uses a generic
-account label, with ordinals for collisions. Full producer hints are never used
-as display identities without a usable private mapping.
-Bundled/public account aliases and global lane aliases do not identify v3
-accounts. Other notification formats retain their existing masked-label rules.
+Aggregation copies the label only from the trusted binding whose platform,
+opaque account UID, target and strategy all match. Candidate-supplied labels
+are discarded. Labels never affect grouping, execution selection, storage keys
+or deduplication; distinct accounts with identical labels retain display ordinals.
+Bindings without any account config fields remain compatible. This code does
+not fetch console configuration or infer relationships between target IDs and
+config names: the existing configuration owner must carry the selected fields
+on each binding. No deployment or protected configuration update is included.
+
+A safe config label takes precedence over the existing optional private runtime
+mapping. That mapping remains supported for compatibility. Without either,
+a valid IBKR, Schwab or Firstrade `account_hint` displays `***` plus its last
+two characters; otherwise a generic account title is used. An exact binding
+may supply the hint when the producer has none. Opaque IDs, scopes and target
+IDs are never guessed into titles. Other notification formats retain their
+existing display rules.
+
+The authenticated console follows the same `label`, `key`, `target_name`
+priority within the matching platform's account option. Config names are kept
+as configured in either language; a generated alias or an IBKR selector cannot
+override them. If no safe config name exists, it uses a safe alias, then a
+masked broker identity or the localized generic account title. Selector-based
+grouping and routing remain unchanged.
 
 An account block requires at least one known positive order or fill count across
 its runs. Account blocks with only zero or unknown counts are omitted; safe risk
@@ -55,7 +66,8 @@ Unknown counts remain unknown in window totals; they do not establish the
 verified all-idle state needed for the single-line no-trades message.
 
 Never put real identities in this file, generated snapshots, frontend build
-variables, tests, PR text or artifacts. Read private mappings only at runtime.
+variables, tests, PR text or artifacts. Read private mappings only at runtime. Config labels are private display metadata
+and are excluded from serialized run receipts as well as public projections.
 The authenticated Cloud Run preview returns status only; delivery records omit
 the message body. CLI logs withhold the body, `--write-text` writes a withholding
 notice, and the aggregator's `--write-json` exports the count-only public receipt.

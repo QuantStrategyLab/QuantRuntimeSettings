@@ -2,7 +2,7 @@ import { useContext } from "react";
 import { AccountDirectoryContext } from "../app/context";
 import { useLanguage, useT } from "../i18n";
 import { accountOption, type AccountRef, type DirectoryConfig } from "./accountDirectory";
-import { accountName, builtInAccountTitle, strategyName, laneName, domainName } from "./displayNames";
+import { strategyName, laneName, domainName } from "./displayNames";
 
 export function useDisplayNames(override?: DirectoryConfig | null) {
   const directory = useContext(AccountDirectoryContext), language = useLanguage(), t = useT();
@@ -12,19 +12,20 @@ export function useDisplayNames(override?: DirectoryConfig | null) {
     account: (alias: string | null | undefined, platform?: string | null) => {
       if (!alias) return t("common.account");
       const option = platform ? accountOption(config, platform, alias) : undefined;
-      // A configured single native IBKR account owns the account title. Show
-      // the full identifier on the authenticated console, separate from strategy.
-      const selector = platform?.toLowerCase() === "ibkr" ? option?.account_selector?.trim() : undefined;
-      if (selector && /^(?:DU|U)\d{5,}$/i.test(selector)) return selector;
-      // Built-in titles may arrive either as the alias or as the configured
-      // label; resolve both, while arbitrary custom labels pass through.
-      const builtIn = builtInAccountTitle(option?.label, language, platform) || builtInAccountTitle(alias, language, platform);
-      // Keep the server-provided account name in full. When no display label
-      // exists, the account key itself is the only honest name; never replace
-      // it with a strategy name or a generic "Account" placeholder.
-      const fallback = option?.label && option.label !== alias ? option.label : alias;
-      const label = builtIn || accountName(alias, platform, language, fallback);
-      return label;
+      for (const value of [option?.label, option?.key, option?.target_name]) {
+        const label = safeAccountLabel(value);
+        if (label) return label;
+      }
+      const label = safeAccountLabel(alias);
+      if (label) return label;
+      // Raw broker identities may supply only the last two digits as fallback.
+      const selector = option?.account_selector?.trim();
+      for (const value of [selector, alias]) {
+        if (value && /^(?:D?U\d{5,16}|(?:Account )?\d[\d .-]{4,24}\d)$/i.test(value)) {
+          return "***" + value.slice(-2);
+        }
+      }
+      return t("common.account");
     },
     strategy: (profile: string) => {
       const item = config?.strategyProfiles?.find(item => item.profile === profile);
@@ -37,3 +38,12 @@ export function useDisplayNames(override?: DirectoryConfig | null) {
   };
 }
 function displayPlatform(label: string | undefined, platform: string) { return label || platform; }
+
+/** Display-only config labels; selectors and grouping identities stay private. */
+function safeAccountLabel(value: unknown): string {
+  if (typeof value !== "string" || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(value)) return "";
+  const label = value.trim();
+  if (!label || label.length > 70 || label.includes("://")
+      || /D?U\d{5,}|\d(?:[\s.-]*\d){4,}|^[0-9a-f-]{12,}$/i.test(label)) return "";
+  return label;
+}

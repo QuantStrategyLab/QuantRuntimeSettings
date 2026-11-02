@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "channel": {
+    "name": "QuantSentinel · Telegram",
+    "status": {"status": "known", "value": "ok", "observed_at": "2030-01-07T06:00:04Z"}
+  },
+  "last_delivery": {"at": "2030-01-07T06:00:04Z", "outcome": "ok", "recipients": 1},
+  "digest": {"schedule_utc": "06:00", "last_composed_at": "2030-01-07T06:00:00Z", "targets": 7, "runs": 11},
+  "schema_version": "qsl.desk.alert_delivery.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

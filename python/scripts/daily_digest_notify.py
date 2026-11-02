@@ -536,6 +536,7 @@ class DigestRunEntry:
     source_run_id: str = ""
     approved_gate_reasons: tuple[Mapping[str, object], ...] = ()
     account_alias: str = ""
+    account_label: str = ""
     # Display-only plan observation; never approves a risk gate or supplies counts.
     routine_decision: Mapping[str, object] | None = None
     routine_decisions: tuple[Mapping[str, object], ...] = ()
@@ -1841,6 +1842,7 @@ def filter_runs_for_digest(
                 tips=_parse_tips(raw.get("tips") or raw.get("tip")),
                 account_hint=str(raw.get("account_hint") or "").strip(),
                 account_alias=str(raw.get("account_alias") or "").strip(),
+                account_label=raw.get("account_label") if isinstance(raw.get("account_label"), str) else "",
                 opaque_account_uid=str(raw.get("opaque_account_uid") or "").strip(),
                 target_id=str(raw.get("target_id") or "").strip(),
                 account_scope=str(
