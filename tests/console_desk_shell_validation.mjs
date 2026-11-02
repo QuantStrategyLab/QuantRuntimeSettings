@@ -1,6 +1,11 @@
 // Desk (Meridian) shell: hash routes, hotkeys, review overrides, the fail-closed access gate,
 // zh-CN/en copy parity and token-only styling. Synthetic inputs only.
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
 import { readFileSync } from "node:fs";
 import { DESK_PAGES, deskHash, hotkeyPage, isDeskHash, parseDeskHash, urlOverrides } from "../web/strategy-switch-console/frontend/src/desk/router.ts";
 import { deskAccess } from "../web/strategy-switch-console/frontend/src/desk/shell/access.ts";
@@ -94,4 +99,40 @@ for (const name of used) {
   if (!themeIndependent.has(name)) assert.ok(blocks[1].includes(`${name}:`), `${name} missing (dark)`);
 }
 
-console.log("console desk shell validation passed");
+
+// Render the actual status element: stale health must be distinguishable without colour.
+const directory = await mkdtemp(join(tmpdir(), "desk-gateway-ui-"));
+try {
+  const outfile = join(directory, "render.cjs");
+  const root = new URL("../web/strategy-switch-console/frontend/", import.meta.url).pathname;
+  await build({ stdin: { resolveDir: root, contents: `
+    import { createElement as h } from 'react';
+    import { renderToStaticMarkup } from 'react-dom/server';
+    import { TopBar } from './src/desk/shell/TopBar';
+    import { deskTranslate } from './src/desk/i18n';
+    export const render = (language, gateway) => renderToStaticMarkup(h(TopBar, {
+      page: 'overview', language, gateway, t: (key, params) => deskTranslate(language, key, params),
+      theme: 'light', nowIso: '2026-11-03T00:00:00Z', serverClock: true, mock: null,
+      onLanguage() {}, onTheme() {},
+    }));
+  ` }, bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic", logLevel: "silent" });
+  const { render } = createRequire(import.meta.url)(outfile);
+  const statusText = html => html.match(/role="status">([\s\S]*?)<\/span>/)[1].replace(/<[^>]*>/g, "");
+  for (const language of ["zh", "en"]) {
+    for (const value of ["all_reachable", "degraded", "down"]) {
+      const read = { status: "stale", value, observed_at: "2026-11-02T00:00:00Z", age_seconds: 86400 };
+      const text = statusText(render(language, { kind: "read", read }));
+      assert.match(text, language === "zh" ? /已过期/ : /stale/i, "status must name stale evidence");
+      assert.match(text, /1/, "status includes observation age");
+      assert.ok(!text.includes(deskTranslate(language, `gateway.${value}`)), "old values never assert current health");
+    }
+    const current = statusText(render(language, { kind: "read", read: { status: "known", value: "all_reachable", observed_at: "2026-11-03T00:00:00Z" } }));
+    assert.equal(current, deskTranslate(language, "gateway.all_reachable"));
+    for (const gateway of [{ kind: "failed" }, { kind: "loading" }, { kind: "read", read: { status: "unknown", reason: "read_failed", observed_at: null } }]) {
+      const text = statusText(render(language, gateway));
+      assert.ok(!text.includes(deskTranslate(language, "gateway.all_reachable")));
+    }
+  }
+} finally { await rm(directory, { recursive: true, force: true }); }
+
+console.log("console desk shell validation passed (including rendered stale gateway status)");
