@@ -18,6 +18,31 @@ Missing reader configuration, repository mapping or account configuration produc
 
 These links group the existing sections; their permission, unknown-result and configuration-only limits still apply. Deployment examples require separately authorized target configuration.
 
+## Daily setup consumer freeze
+
+The primary daily setup workflow permits only its existing read-only `preflight`.
+It blocks `execute`, both `multi-*` modes and both `execution-*` modes before
+checkout or provider access. The transport also rejects the four multi/execution
+modes before credential validation or external requests, including Binance
+execution mode, which still depends on the shared profile comparison.
+The period-return workflow blocks non-Binance `match-daily-binding` before any
+KV read. Its Binance comparison and other modes retain their existing behavior.
+Blocked modes exit unsuccessfully with `strategy_profiles_consumer_frozen`;
+there is no runtime override or fallback comparison.
+
+This is a source-level freeze, not an authority-reader migration. Dormant legacy
+KV/default matching remains unreachable in these frozen modes. Removing the
+freeze requires a reviewed authority reader with protected revision/digest
+evidence, cross-workflow revision binding, a drained profile/configuration
+maintenance freeze, and qualification of the exact publishing module and DO
+resources. Existing primary binding-only comparison and direct primary transport
+behavior are unchanged; they are not qualified for authority-compatible release
+by this change. Historical workflow revisions, outstanding runs, manual
+publishers and external consumers require independent operational fencing and
+drain evidence. A source patch does not stop an already running workflow.
+Cutover remains NO-GO until those controls, approved seed/hash-chain evidence
+and cost/budget conditions are proven. No deploy or seed action is implied.
+
 [简体中文](README.zh-CN.md)
 
 [Control-plane source retirement](../../docs/control-plane-source-retirement.md)
