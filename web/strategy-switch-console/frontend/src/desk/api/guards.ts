@@ -10,7 +10,12 @@ type Guard<T> = (value: unknown) => value is T;
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const isString = (value: unknown): value is string => typeof value === "string";
-const isIso = (value: unknown): value is string => isString(value) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value);
+const isIso = (value: unknown): value is string => {
+  if (!isString(value) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value)) return false;
+  const timestamp = Date.parse(value);
+  // Date.parse normalizes impossible dates and 24:00; require the UTC fields to survive.
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 19) === value.slice(0, 19);
+};
 const isDecimal = (value: unknown): value is string => isString(value) && /^-?(0|[1-9]\d*)(\.\d+)?$/.test(value);
 const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
 const oneOf = <T extends string>(...values: T[]) => (value: unknown): value is T => values.includes(value as T);
