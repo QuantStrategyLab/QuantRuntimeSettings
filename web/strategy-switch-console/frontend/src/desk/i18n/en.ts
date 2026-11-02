@@ -70,6 +70,7 @@ export const en: Record<DeskKey, string> = {
   "gateway.all_reachable": "Gateways reachable",
   "gateway.degraded": "Gateways degraded",
   "gateway.down": "Gateways down",
+  "gateway.stale": "Gateway observation stale; current state unknown",
   "gateway.unknown": "Gateway state unknown",
   "gateway.loading": "Reading runtime state",
   "gateway.failed": "Runtime state read failed",

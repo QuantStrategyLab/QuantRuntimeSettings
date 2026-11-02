@@ -29,8 +29,9 @@ function gatewayView(chip: GatewayChip): { key: DeskKey; tone: string } {
   if (chip.kind === "failed") return { key: "gateway.failed", tone: "unknown" };
   const read = chip.read;
   if (read.status === "unknown") return { key: "gateway.unknown", tone: "unknown" };
+  if (read.status === "stale") return { key: "gateway.stale", tone: "unknown" };
   const tone = read.value === "all_reachable" ? "ok" : read.value === "degraded" ? "warn" : "risk";
-  return { key: `gateway.${read.value}` as DeskKey, tone: read.status === "stale" ? "unknown" : tone };
+  return { key: `gateway.${read.value}` as DeskKey, tone };
 }
 
 export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock, mock, onLanguage, onTheme }: TopBarProps) {

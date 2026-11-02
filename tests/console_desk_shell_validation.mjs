@@ -95,3 +95,42 @@ for (const name of used) {
 }
 
 console.log("console desk shell validation passed");
+
+// 7. Render the actual status chip: stale reachability cannot sound current.
+const { createRequire } = await import("node:module");
+const { fileURLToPath } = await import("node:url");
+const { join } = await import("node:path");
+const frontend = fileURLToPath(new URL("../web/strategy-switch-console/frontend/", import.meta.url));
+const require = createRequire(join(frontend, "package.json"));
+const React = require("react");
+const { renderToStaticMarkup } = require("react-dom/server");
+const { buildSync } = require("esbuild");
+const compiled = buildSync({
+  stdin: { contents: 'export { TopBar } from "./desk/shell/TopBar";', resolveDir: join(frontend, "src"), loader: "tsx" },
+  bundle: true, platform: "node", format: "cjs", jsx: "automatic",
+  external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent",
+}).outputFiles[0].text;
+const component = { exports: {} };
+new Function("require", "module", "exports", compiled)(require, component, component.exports);
+const gatewayStatus = (gateway, language) => {
+  const html = renderToStaticMarkup(React.createElement(component.exports.TopBar, {
+    page: "overview", t: (key, values) => deskTranslate(language, key, values), language,
+    theme: "light", gateway, nowIso: "2026-11-02T14:00:00Z", serverClock: true,
+    mock: null, onLanguage() {}, onTheme() {},
+  }));
+  return html.match(/role="status"[^>]*>([\s\S]*?)<\/span>/)?.[1].replace(/<[^>]*>/g, "");
+};
+for (const language of ["en", "zh"]) {
+  for (const value of ["all_reachable", "degraded", "down"]) {
+    const stale = gatewayStatus({ kind: "read", read: { status: "stale", value,
+      observed_at: "2026-11-01T14:00:00Z", age_seconds: 86400 } }, language);
+    assert.match(stale, language === "en" ? /stale|unknown/i : /过期|未知/);
+    assert.doesNotMatch(stale, /Gateways reachable|网关可达/);
+  }
+  assert.equal(gatewayStatus({ kind: "read", read: { status: "known", value: "all_reachable",
+    observed_at: "2026-11-02T14:00:00Z" } }, language), deskTranslate(language, "gateway.all_reachable"));
+  for (const gateway of [{ kind: "failed" }, { kind: "loading" }, { kind: "read", read: { status: "unknown", reason: "read_failed" } }]) {
+    assert.doesNotMatch(gatewayStatus(gateway, language), /Gateways reachable|网关可达/);
+  }
+}
+console.log("desk gateway rendering validation passed");
