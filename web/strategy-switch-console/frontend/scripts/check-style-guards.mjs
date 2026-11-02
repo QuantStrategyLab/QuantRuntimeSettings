@@ -46,7 +46,7 @@ export function parseDeclarations(source) {
       l += (lead.match(/\n/g) || []).length;
       const decl = part.trim();
       const idx = decl.indexOf(":");
-      if (idx > 0) out.push({ selector: stack.join(" "), prop: decl.slice(0, idx).trim().toLowerCase(), value: decl.slice(idx + 1).trim(), line: l });
+      if (idx > 0) out.push({ selector: stack.join(" "), own: stack[stack.length - 1] || "", prop: decl.slice(0, idx).trim().toLowerCase(), value: decl.slice(idx + 1).trim(), line: l });
       l += (part.slice(lead.length).match(/\n/g) || []).length;
     }
   };
@@ -68,6 +68,25 @@ export function parseDeclarations(source) {
   return out;
 }
 
+// Split a selector list on top-level commas (not inside parens/brackets), so grouped and multiline lists are judged per branch.
+function selectorBranches(list) {
+  const branches = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of list) {
+    if ("([".includes(ch)) depth += 1;
+    else if (")]".includes(ch)) depth = Math.max(0, depth - 1);
+    if (ch === "," && depth === 0) { branches.push(cur.trim()); cur = ""; } else cur += ch;
+  }
+  branches.push(cur.trim());
+  return branches;
+}
+
+// Shadows are only allowed when every branch of the rule's own selector list is a :focus-visible ring.
+function shadowOutsideFocus(d) {
+  return !selectorBranches(d.own).every((b) => /:focus-visible/.test(b));
+}
+
 export function checkCss(source, file = "x.css") {
   const base = file.split("/").pop();
   const found = [];
@@ -75,7 +94,7 @@ export function checkCss(source, file = "x.css") {
   for (const d of parseDeclarations(source)) {
     const { prop, value } = d;
     if (!COLOR_FILES.has(base) && /#[0-9a-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/i.test(value)) add("color-literal", d);
-    if (prop === "box-shadow" && !/:focus-visible/.test(d.selector) && !/^(none|0)$/.test(value)) add("box-shadow", d);
+    if (prop === "box-shadow" && shadowOutsideFocus(d) && !/^(none|0)$/.test(value)) add("box-shadow", d);
     if (/gradient\(/i.test(value)) add("gradient", d);
     if (/^border(-(top|right|bottom|left|inline|block)(-(start|end))?)?(-width)?$/.test(prop) && /(?<![\d.])1px/.test(value)) add("border-1px", d);
     if (prop === "font-size" && /(?<![\w.-])\d*\.?\d+px/.test(value)) add("font-size-px", d);

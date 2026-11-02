@@ -12,6 +12,13 @@ assert.deepEqual(rules("/* #fff box-shadow: 0 0 1px red */ .a { color: var(--tex
 assert.deepEqual(rules(".a { box-shadow: 0 1px 2px var(--x); }"), ["box-shadow"]);
 assert.deepEqual(rules(".a:focus-visible { box-shadow: 0 0 0 2px var(--accent); }"), []);
 assert.deepEqual(rules("@media (x) { .a:focus-visible { box-shadow: 0 0 0 2px var(--accent); } }"), []);
+assert.deepEqual(rules(".a:hover, .a:focus-visible { box-shadow: 0 1px 2px var(--accent); }"), ["box-shadow"]);
+assert.deepEqual(rules(".a:focus-visible,\n.b:hover {\n  box-shadow: 0 1px 2px var(--accent);\n}"), ["box-shadow"]);
+assert.deepEqual(rules(".a,\n.b {\n  box-shadow: 0 1px 2px var(--accent);\n}"), ["box-shadow"]);
+assert.deepEqual(rules(".a:focus-visible,\n.b:focus-visible { box-shadow: 0 0 0 2px var(--accent); }"), []);
+assert.deepEqual(rules("@media (x) { .a:hover, .b:focus-visible { box-shadow: 0 0 0 2px var(--accent); } }"), ["box-shadow"]);
+assert.deepEqual(rules(".a:not(.b, .c):focus-visible { box-shadow: 0 0 0 2px var(--accent); }"), []);
+assert.deepEqual(rules(".a:hover, .b { box-shadow: none; }"), []);
 assert.deepEqual(rules(".a { background: linear-gradient(red, blue); }"), ["gradient"]);
 assert.deepEqual(rules(".a { border: 1px solid var(--border); }"), ["border-1px"]);
 assert.deepEqual(rules(".a { border-bottom: 1px solid var(--border); }"), ["border-1px"]);
