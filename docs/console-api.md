@@ -690,3 +690,65 @@ explicitly retains `event_id` and `operation_id` for this variant alongside the
 legacy `id`/`ref` event parser. Internal denial reasons are not projected. No notification is sent by these endpoints; any later
 notification integration must occur after audit commit and use only these fixed
 fields, without retrying the secret mutation.
+
+## Informational forward reconciliation
+
+`GET /api/account-facts` adds `accounts[].forward_reconciliation`, described by
+[`qsl-forward-reconciliation-read.v1.schema.json`](../schemas/qsl-forward-reconciliation-read.v1.schema.json).
+This additive field is independent of `qsl.reconciliation_record.v2`, which stays
+a MISSING-only deployment-identity contract. Existing consumers may ignore the new
+field; there is no frontend change or new route, writer, service or storage.
+
+The existing pure account read projection supplies null evidence. Account facts
+have no independently qualified native source timestamp, opening baseline or
+notification receipt. Their observation date, collection finish, balances and
+recovery decisions cannot fill these gaps. Each account therefore returns
+`source_status=unknown`, null source/baseline/later anchor, a missing input baseline
+(`opening_snapshot_missing`), unknown notification and UNRECONCILED positions,
+cash and events. Missing means the baseline evidence was not supplied, not proof
+that no baseline exists at the broker. All values are informational only.
+
+The pure `projectForwardReconciliation(evidence, {now})` contract accepts a closed
+metadata object with `source`, `baseline`, `later_anchor` and `notification`, each
+nullable. A snapshot retains `source_as_of`, its explicit native offset and IANA
+`timezone`, and `capture_started_at` / `capture_finished_at` independently.
+Supported native zones are UTC, America/New_York, Asia/Hong_Kong and Asia/Singapore.
+Dates must be possible and offsets must agree with the named timezone. Source
+as-of cannot exceed capture finish; capture start cannot exceed finish; no evidence
+may be in the future. Native source dates before November 3, 2026 are rejected.
+A baseline must have an actual November 3 native date; a later anchor keeps its
+own timestamp and must follow a supplied baseline. Neither anchor can exceed a
+supplied current source. Missing baseline never gets filled from the later anchor.
+No midnight, atomic capture or full accounting coverage is inferred.
+
+`generated_at` is evaluation time only; it is null when no financial evidence
+object is supplied, so repeated unknown reads do not manufacture a financial
+report timestamp. Current source age above 1,800 seconds is
+`stale` even with a fresh generated wrapper. Historical baseline/anchor timestamps
+are preserved without applying current-source TTL. `present` describes metadata,
+not verified authenticity, complete coverage or a financial match. This contract
+cannot prove an upstream claim is genuine. Connecting evidence requires a
+separately authenticated, source-bound existing reader; no such reader is wired
+by this patch. Unbound extensions in account storage are ignored.
+
+Notification metadata is independent: `unknown` has null timestamps; `pending`
+has `requested_at` and no `confirmed_at`; `confirmed` requires an authentic receiver
+receipt timestamp at or after the request. Times must not exceed evaluation time.
+A timestamp supplied to a pure validator is not runtime delivery proof. No sender,
+retry queue, recipient, receipt identifier or raw error is exposed or added.
+Malformed/extra metadata throws the fixed `invalid_forward_reconciliation_evidence`
+error, never raw source content. Callers must treat that error as a failed read;
+it must not authorize an action or be converted to a successful financial result.
+Temporal rules are enforced by the projection in addition to structural schema
+validation. There are no account identifiers, financial values or free-text fields
+in this sub-contract. All dimensions remain UNRECONCILED even with source or notice
+evidence. It grants no readiness, recovery, halt, approval or execution permission.
+
+Frontend ownership remains with the existing planner (Claude), implementer (Qwen
+via Qoder) and reviewer (Claude). The frozen handoff is the additive account field
+above: display native source/capture/generated times separately; missing opening
+and later anchor separately; pending/confirmed/unknown notices separately from
+UNRECONCILED dimensions. Render unknown fields without zeros or inferred dates,
+in zh-CN/en and light/dark. Backend/schema/tests remain owned by the backend
+maintainer; frontend files, actions, task-list workflows and assets are outside
+this patch. Runtime collection, deployed adoption and delivery remain NOT_PROVEN.
