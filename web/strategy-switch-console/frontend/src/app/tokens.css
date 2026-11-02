@@ -43,9 +43,32 @@
   --chart-benchmark: #646B78;
   --shadow: 0 12px 32px #18181B1A;
 
+  /* Meridian desk (src/desk), light: warm porcelain with pastel glows. Text pairs meet 4.5:1 on --mrd-panel. */
+  --mrd-bg: #F3EEE6;
+  --mrd-ink: #1B1A24;
+  --mrd-ink-2: #5D5B6E;
+  --mrd-ink-3: #6C6A7E;
+  --mrd-panel: #FFFFFFAD;
+  --mrd-panel-2: #FFFFFFE6;
+  --mrd-line: #281E4617;
+  --mrd-highlight: #FFFFFFE6;
+  --mrd-mint: #0B7D57;
+  --mrd-amber: #A35C00;
+  --mrd-coral: #C0334C;
+  --mrd-violet: #5646D4;
+  --mrd-sky: #16699F;
+  --mrd-unknown: #6C6A80;
+  --mrd-button: #1B1A24;
+  --mrd-button-ink: #FFFFFF;
+  --mrd-on-accent: #FFFFFF;
+  --mrd-shadow: 0 18px 40px -22px #3C286459;
+  --mrd-aurora: radial-gradient(900px 600px at 5% -10%, #A08CFF59, #A08CFF00 60%), radial-gradient(800px 600px at 100% 0%, #78D2C859, #78D2C800 60%), radial-gradient(700px 500px at 70% 110%, #FFBE8266, #FFBE8200 60%);
+
   /* Type, space, shape: theme independent. */
   --font-sans: "Geist", "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-mono: "Geist Mono", "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  --mrd-font-serif: "Instrument Serif", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", Georgia, serif;
+  --mrd-radius: 22px;
   --text-xs: 12px;
   --text-sm: 13px;
   --text-base: 14px;
@@ -148,6 +171,26 @@
   --on-warn: #17181C;
   --chart-benchmark: #9AA0AE;
   --shadow: 0 12px 32px #00000066;
+
+  --mrd-bg: #0A0C13;
+  --mrd-ink: #ECEAF4;
+  --mrd-ink-2: #A5A3B8;
+  --mrd-ink-3: #8F8DA6;
+  --mrd-panel: #FFFFFF0D;
+  --mrd-panel-2: #FFFFFF16;
+  --mrd-line: #FFFFFF17;
+  --mrd-highlight: #FFFFFF24;
+  --mrd-mint: #62E3B4;
+  --mrd-amber: #FFB85A;
+  --mrd-coral: #FF7B8A;
+  --mrd-violet: #A99CFF;
+  --mrd-sky: #6CC7FF;
+  --mrd-unknown: #9D9BB4;
+  --mrd-button: #ECEAF4;
+  --mrd-button-ink: #14131C;
+  --mrd-on-accent: #0A0C13;
+  --mrd-shadow: 0 20px 50px -20px #000000B3;
+  --mrd-aurora: radial-gradient(900px 600px at 8% -10%, #5F56E657, #5F56E600 60%), radial-gradient(800px 600px at 100% 0%, #14969638, #14969600 60%), radial-gradient(700px 500px at 70% 110%, #FFAA5024, #FFAA5000 60%);
 
   color-scheme: dark;
 }
