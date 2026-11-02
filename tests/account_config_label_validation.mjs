@@ -27,6 +27,9 @@ for (const locale of ['zh', 'en']) {
     assert.equal(hook({accountOptions:{ibkr:[{...config.accountOptions.ibkr[0],label}]}}).account('live','ibkr'), 'live');
   }
   assert.equal(hook({accountOptions:{ibkr:[{key:'U0000099',target_name:'sg',account_selector:'U0000099'}]}}).account('U0000099','ibkr'), 'sg');
+  assert.equal(hook({accountOptions:{ibkr:[{key:'paper',target_name:'sg'}]}}).account('paper','ibkr'), 'paper', 'key precedes target_name when label is absent');
+  assert.equal(hook({accountOptions:{ibkr:[{label:'U0000099',key:'U0000099',target_name:'sg'}]}}).account('U0000099','ibkr'), 'sg', 'unsafe label and key fall back to target_name');
+  assert.equal(hook({accountOptions:{ibkr:[{key:'U0000099',target_name:'U0000099',account_selector:'U0000099'}]}}).account('U0000099','ibkr'), '***99', 'unsafe config names retain last-two-digit masking');
   assert.equal(hook(null).account('U0000099','ibkr'), '***99');
   assert.equal(hook(null).account(null,'ibkr'), locale === 'zh' ? '账户' : 'Account');
   assert.equal(hook(null).account('live','ibkr'), 'live');
