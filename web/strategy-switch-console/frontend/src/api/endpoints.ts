@@ -395,13 +395,17 @@ function normalizeEnvelope(value: unknown): CredentialRotationEnvelope {
 
 /** Fixed codes this client raises itself, before a request leaves the browser. */
 const ROTATION_CLIENT_CODES: readonly string[] = [
-  "request_id_invalid", "credential_value_length_invalid", "step_up_method_invalid", "step_up_code_required",
+  "request_id_invalid", "operation_id_invalid", "credential_value_length_invalid",
+  "step_up_method_invalid", "step_up_code_required", "downstream_verification_required",
 ];
 
 /** Fixed-code lookup for the rotation routes: errors are a code source, never text to render. */
 export function rotationErrorCode(error: unknown): string | null {
-  if (!(error instanceof Error)) return null;
-  return [...ROTATION_ERROR_CODES, ...ROTATION_CLIENT_CODES].includes(error.message) ? error.message : null;
+  const code = error instanceof AccessError
+    ? error.code
+    : error instanceof Error ? error.message : null;
+  if (code === null) return null;
+  return [...ROTATION_ERROR_CODES, ...ROTATION_CLIENT_CODES].includes(code) ? code : null;
 }
 
 export function loadCredentialRotation(): Promise<CredentialRotationEnvelope> {

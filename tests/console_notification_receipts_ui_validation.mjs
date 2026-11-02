@@ -77,7 +77,17 @@ try {
           export const loadNotificationLog = named('loadNotificationLog', () => {
             globalThis.__notificationRequests += 1;
             globalThis.__calls.push('loadNotificationLog');
-            return globalThis.__fx.notificationLog; });`,
+            return globalThis.__fx.notificationLog; });
+          export const loadCredentialRotation = named('loadCredentialRotation', () => {
+            globalThis.__calls.push('loadCredentialRotation');
+            if (globalThis.__throw === 'loadCredentialRotation') throw new Error('synthetic read failure');
+            return deferred('loadCredentialRotation') || globalThis.__fx.credentialRotation; });
+          // The SSR pass never submits; the mutation adapters only need to exist for the bundle.
+          export const stageCredentialRotation = named('stageCredentialRotation', async () => { throw new Error('synthetic: no mutation during SSR'); });
+          export const finalizeCredentialRotation = named('finalizeCredentialRotation', async () => { throw new Error('synthetic: no mutation during SSR'); });
+          export const cancelCredentialRotation = named('cancelCredentialRotation', async () => { throw new Error('synthetic: no mutation during SSR'); });
+          export const rotationErrorCode = () => null;
+          export const isRotationTimestamp = value => /(?:Z|[+-]\\d{2}:\\d{2})$/.test(String(value ?? ''));`,
         loader: "js",
       }));
       // The digest adapter reads the legacy log but only surfaces a labeled
@@ -103,7 +113,7 @@ try {
               return { phase: 'ready', data, error: null, reload() {} };
             } catch (error) { return { phase: 'error', data: null, error, reload() {} }; }
           }
-          export const createRequestGate = () => ({ start: () => 1, current: () => true, invalidate() {} });`,
+          export const createRequestGate = () => ({ start: () => 1, current: () => true, invalidate() {}, begin: () => 1, isCurrent: () => true });`,
         loader: "js",
       }));
     } }],
@@ -121,9 +131,18 @@ try {
     counts: { configured: 2, observed: 2, runs: 2 },
     accounts: [account("alpha", "no_submission", "succeeded"), account("beta", "failed", "failed")],
   };
+  const credentialRotation = {
+    schema_version: "qsl.credential_rotation.v1",
+    ok: true,
+    server_time: "2026-10-30T20:00:00Z",
+    metadata: { name: "IBKR Flex token", last_rotated_at: "2026-08-01T09:00:00Z", expires_at: "2026-11-25T09:00:00Z" },
+    operation: null,
+    allowed_actions: ["stage"],
+  };
   const fixtures = {
     todayRuns,
     credential: { id: "ibkr_flex", phase: "not_due", expires_at: null, requires_action: false },
+    credentialRotation,
     accounts: { accounts: [] },
     bindings: [],
     daily: null,
@@ -181,13 +200,13 @@ try {
       // legacy receipt rows themselves never reach the page.
       assert.equal(globalThis.__notificationRequests, 1, "the digest projection reads its source exactly once");
       assert.equal(globalThis.__calls.filter(call => call === "loadNotificationLog").length, 1, "no second notification read");
-      // Only the freshness and credential tables remain.
-      assert.equal((html.match(/<table/g) || []).length, 2, "only freshness and credential tables remain");
+      // Only the freshness table remains; the credential card is a panel now.
+      assert.equal((html.match(/<table/g) || []).length, 1, "only the freshness table remains");
       // The page itself is intact.
       assert.ok(html.includes(language === "zh" ? "运行状态" : "Run status"));
       assert.ok(html.includes(language === "zh" ? "近 14 个纽约业务日" : "Last 14 New York business days"));
       assert.ok(html.includes(language === "zh" ? "数据新鲜度" : "Data freshness"));
-      assert.ok(html.includes(language === "zh" ? "凭证到期" : "Credential expiry"));
+      assert.ok(html.includes(language === "zh" ? "凭证轮换" : "Credential rotation"), "the credential rotation panel is present");
     });
 
     test(`${language}: exactly four KPIs in the audited order`, () => {

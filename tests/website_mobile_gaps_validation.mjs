@@ -32,7 +32,7 @@ try {
     export const calendar = language => render(language, CalendarCard, {scope:'all',range:'YTD',epoch:0});
   ` }, bundle: true, platform: 'node', format: 'cjs', outfile, jsx: 'automatic', loader: { '.css': 'empty' },
     define: { 'import.meta.env': '{}' }, plugins: [{ name: 'controlled-state', setup(b) {
-      b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: 'export const useApi = () => globalThis.__mobileState;', loader: 'js' }));
+      b.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: 'export const useApi = () => globalThis.__mobileState; export const createRequestGate = () => ({ begin: () => 1, isCurrent: () => true, invalidate: () => {} });', loader: 'js' }));
       b.onLoad({ filter: /\/StrategiesPage\.tsx$/ }, async ({ path }) => ({ contents: await readFile(path, 'utf8') + '\nexport { CatalogTab };', loader: 'tsx' }));
       b.onLoad({ filter: /\/HealthPage\.tsx$/ }, async ({ path }) => ({ contents: await readFile(path, 'utf8') + '\nexport { StatStrip };', loader: 'tsx' }));
       b.onLoad({ filter: /\/PerformanceTabs\.tsx$/ }, async ({ path }) => ({ contents: await readFile(path, 'utf8') + '\nexport { HoldingsTab, RankingTab };', loader: 'tsx' }));

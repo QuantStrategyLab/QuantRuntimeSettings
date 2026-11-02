@@ -33,7 +33,7 @@ try {
     bundle: true, platform: "node", format: "cjs", outfile, jsx: "automatic",
     loader: { ".css": "empty" }, define: { "import.meta.env": "{}" },
     plugins: [{ name: "controlled-read", setup(builder) {
-      builder.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: "export const useApi = () => ({ ...globalThis.__fix03State, reload: () => {} });", loader: "js" }));
+      builder.onLoad({ filter: /\/lib\/hooks\.ts$/ }, () => ({ contents: "export const useApi = () => ({ ...globalThis.__fix03State, reload: () => {} }); export const createRequestGate = () => ({ begin: () => 1, isCurrent: () => true, invalidate: () => {} });", loader: "js" }));
       builder.onLoad({ filter: /\/pages\/health\/HealthPage\.tsx$/ }, async ({ path }) => ({ contents: await readFile(path, "utf8") + "\nexport { FreshnessTable };", loader: "tsx" }));
     } }],
   });

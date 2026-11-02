@@ -753,6 +753,12 @@ function decodeRefSegment(segment: string): string | null {
   }
 }
 
+/** Rotation actions recorded by the audit API; their ids are not legacy `id`/`ref`. */
+const ROTATION_AUDIT_ACTIONS: readonly string[] = [
+  "credential_rotation_stage", "credential_rotation_finalize",
+  "credential_rotation_cancel", "credential_rotation_denied",
+];
+
 export async function loadAuditEvents(cursor: string | null = null, synthetic = false): Promise<CockpitRead<AuditEvent[]>> {
   if (synthetic) return { status: "ready", synthetic: true, data: syntheticAudit() };
   try {
@@ -769,9 +775,10 @@ export async function loadAuditEvents(cursor: string | null = null, synthetic = 
       const refId = refMatch ? decodeRefSegment(refMatch[2]) : null;
       const revision = asString(event.revision);
       const subject = asAuditSubject(event.subject);
+      // A rotation event carries its own opaque ids and no legacy `id`/`ref` at all.
       const rotation = subject?.kind === "credential" && subject.id === "ibkr_flex"
-        && ["credential_rotation_stage", "credential_rotation_finalize", "credential_rotation_cancel", "credential_rotation_denied"]
-          .includes(asString(event.action) ?? "") && typeof event.event_id === "string";
+        && ROTATION_AUDIT_ACTIONS.includes(asString(event.action) ?? "")
+        && typeof event.event_id === "string";
       return [{
         event_id: asString(rotation ? event.event_id : event.id) ?? "",
         occurred_at: asString(event.occurred_at) ?? "",
