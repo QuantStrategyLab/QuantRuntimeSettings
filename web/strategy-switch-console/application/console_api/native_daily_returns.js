@@ -126,6 +126,7 @@ export function applyNativeDailyReturns(blocks, input) {
     if (point.value > peak) { peak = point.value; peakDate = point.date; }
   }
   Object.assign(blocks.summary, { status, unavailable_reason: reason, currency, value_kind: "pnl",
+    cashflow_method: undefined, approximate: undefined,
     as_of: daily.at(-1).date, coverage, twr_return_percent: incomplete ? null : (growth - 1) * 100,
     amount, simple_weighted_return_percent: null, best_day: null, worst_day: null,
     max_drawdown: incomplete ? { percent: null, peak_date: null, trough_date: null, unavailable_reason: reason }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {performanceResponse} from '../web/strategy-switch-console/application/console_api/performance_routes.js';
 import {performanceBlocks} from '../web/strategy-switch-console/application/console_api/performance.js';
 import {applyNativeDailyReturns} from '../web/strategy-switch-console/application/console_api/native_daily_returns.js';
 import {applyCashflowPerformance} from '../web/strategy-switch-console/application/console_api/cashflow_performance.js';
@@ -314,3 +315,90 @@ const internalGap = trailingCase('2026-10-23', ['2026-10-19','2026-10-21']);
 assert.equal(internalGap.summary.twr_return_percent, null);
 assert.equal(internalGap.summary.max_drawdown.percent, null);
 console.log('native_daily_returns_trailing_weekday: PASS');
+
+// Regression: native values replace an approximate Dietz result, including its
+// metadata. Exercise the serialized API response with fake readers only.
+const routeStart='2026-09-30T12:00:00.000Z';
+const routeEnd='2026-10-01T12:00:00.000Z';
+const routeEnd2='2026-10-02T12:00:00.000Z';
+const routePoints=[
+  {date:'2026-09-30',value:100,observed_at:routeStart},
+  {date:'2026-10-01',value:130,observed_at:routeEnd},
+  {date:'2026-10-02',value:143,observed_at:routeEnd2},
+];
+const routeFlows={schema_version:'external_flow.v1',windows:[
+  {currency:'USD',date:'2026-10-01',period_start:routeStart,period_end:routeEnd,
+    source:'ibkr_flex',coverage:'complete',records:[{source_ref:'b'.repeat(64),
+      type:'deposit',amount:'20',effective_at:'2026-10-01T00:00:00.000Z',
+      settlement_date:'2026-10-01',transfer_ref:null}]},
+  {currency:'USD',date:'2026-10-02',period_start:routeEnd,period_end:routeEnd2,
+    source:'ibkr_flex',coverage:'complete',records:[]},
+]};
+const routeDaily=[row('2026-10-01','0.07'),row('2026-10-02','-0.02')];
+const originalNow=Date.now;
+const originalFetch=globalThis.fetch;
+try {
+  Date.now=()=>Date.parse('2026-10-02T16:00:00Z');
+  globalThis.fetch=async()=>{throw new Error('Unexpected network request in synthetic regression');};
+  const readRoute=async(endpoint,daily=routeDaily,enabled=true)=>{
+    const account={platform:'ibkr',account_key:'synthetic-account',binding_status:'bound',
+      observed_finished_at:routeEnd2,observation_date:'2026-10-02',
+      balances:[{currency:'USD',net_assets:'143'}],positions_complete:true,positions:[],
+      ...(daily===null?{}:{return:{daily}})};
+    const deps={
+      json:(body,status=200)=>Response.json(body,{status}),
+      readSession:async()=>({allowed:true}),
+      accountOptions:async()=>({options:{ibkr:[{key:'synthetic-account'}]}}),
+      facts:async()=>Response.json({accounts:[account]}),
+      history:async()=>Response.json({platform:'ibkr',account_key:'synthetic-account',
+        currencies:['USD'],externalFlow:routeFlows,series:{currency:'USD',
+          points:routePoints.map(point=>({currency:'USD',observation_date:point.date,
+            net_assets:String(point.value),observed_finished_at:point.observed_at}))}}),
+      benchmarks:async()=>Response.json({points:[]}),
+    };
+    const response=await performanceResponse(new Request(
+      `https://fake.invalid/api/performance/${endpoint}?range=ALL&year=2026&month=10`),
+      enabled?{CONSOLE_EXTERNAL_FLOW_ENABLED:'true'}:{},deps);
+    assert.equal(response.status,200);
+    return response.json();
+  };
+  const assertNoDietz=block=>{
+    assert.equal(Object.hasOwn(block,'cashflow_method'),false,'native response must omit inherited Dietz method');
+    assert.equal(Object.hasOwn(block,'approximate'),false,'native response must omit inherited approximation flag');
+  };
+  for(const daily of [null,routeDaily.map(item=>({...item,unit:'percent'}))]){
+    const dietz=await readRoute('summary',daily);
+    assert.ok(Math.abs(dietz.twr_return_percent-20)<1e-10);
+    assert.equal(dietz.cashflow_method,'modified_dietz','absent or rejected native retains genuine Dietz metadata');
+    assert.equal(dietz.approximate,true);
+    assert.equal(dietz.coverage.native_return_source,undefined);
+  }
+  for(const enabled of [true,false]){
+    const summary=await readRoute('summary',routeDaily,enabled);
+    const curve=await readRoute('returns',routeDaily,enabled);
+    assert.ok(Math.abs(summary.twr_return_percent-4.86)<1e-10);
+    assert.ok(Math.abs(curve.points.at(-1).value-4.86)<1e-10);
+    for(const block of [summary,curve,...summary.per_currency])assertNoDietz(block);
+    for(const block of [summary,curve]){
+      assert.equal(block.coverage.native_return_source,'ChangeInNAV.twr');
+      assert.equal(block.coverage.period_from,'2026-10-01');
+      assert.equal(block.coverage.period_to,'2026-10-02');
+      assert.equal(block.coverage.native_amount_method,null);
+    }
+    assert.equal(summary.amount,null,'native percentage alone cannot invent money P/L');
+  }
+  const gapDaily=[row('2026-09-30','0.07'),row('2026-10-02','-0.02')];
+  const gapSummary=await readRoute('summary',gapDaily);
+  const gapCurve=await readRoute('returns',gapDaily);
+  assert.equal(gapSummary.twr_return_percent,null);
+  assert.equal(gapSummary.max_drawdown.percent,null);
+  assert.equal(gapSummary.amount,null);
+  assert.equal(gapCurve.coverage.native_daily_only,true);
+  assert.equal(gapCurve.points.length,2);
+  gapCurve.points.forEach((point,i)=>assert.ok(Math.abs(point.daily_return_percent-[7,-2][i])<1e-10));
+  assertNoDietz(gapSummary);assertNoDietz(gapCurve);
+} finally {
+  Date.now=originalNow;
+  globalThis.fetch=originalFetch;
+}
+console.log('native_daily_returns_serialized_metadata: PASS (native over Dietz, fallback, gaps, provenance, no invented P/L)');
