@@ -121,7 +121,7 @@ rejects("account-detail", account, "A Read cannot be bare null");
 account.mode = { status: "known", value: "live" };
 rejects("account-detail", account, "Nested known Read requires observed_at");
 const readback = fixture("readback");
-readback.fields.find(({ key }) => key === "cash_reserve_ratio").platform.value = 0.12;
+readback.fields.find(({ key }) => key === "reserved_cash_ratio").platform.value = 0.12;
 rejects("readback", readback, "Setting ratio must be a decimal string");
 const performance = fixture("performance");
 performance.monthly.rows[0].months.pop();

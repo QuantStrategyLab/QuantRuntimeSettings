@@ -25,7 +25,7 @@ async function stored(operation) {
 // Invoke inside the existing RuntimeInstances DO with its ctx.storage, not KV.
 // scope MUST be server-derived from authenticated actor + method + route.
 // create(requestId) returns { status, body }; persist only public response data.
-export async function withIdempotency(storage, { scope, body }, create) {
+export async function withIdempotency(storage, { scope, body, reserve }, create) {
   const key = body?.idempotency_key;
   if (typeof key !== "string" || !/^[A-Za-z0-9._:-]{1,128}$/.test(key)) throw new DeskError("invalid_idempotency_key", 400);
   if (typeof scope !== "string" || !scope) throw new DeskError("invalid_idempotency_scope", 400);
@@ -39,6 +39,9 @@ export async function withIdempotency(storage, { scope, body }, create) {
       if (existing.fingerprint !== fingerprint) throw new DeskError("idempotency_key_conflict", 409);
       return existing;
     }
+    // Optional local guard/claim joins the reservation transaction. A refused
+    // claim rolls back without leaving an incomplete idempotency reservation.
+    if (reserve) await reserve(txn, requestId);
     await txn.put(storageKey, { fingerprint, request_id: requestId, state: "pending" });
     return null;
   }));

@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "target_id": "longbridge/hk",
+  "readback_id": "rb_demo_unavailable",
+  "read_at": "2030-01-07T14:31:12Z",
+  "saved_revision": 42,
+  "overall": "unknown",
+  "summary": {"match": 0, "drift": 0, "unknown": 12},
+  "fields": [
+    {"key": "strategy_profile", "label": "strategy_profile", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "broker_environment", "label": "broker_environment", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "income_layer_enabled", "label": "income_layer_enabled", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "option_overlay_enabled", "label": "option_overlay_enabled", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "reserved_cash_floor", "label": "reserved_cash_floor", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "reserved_cash_ratio", "label": "reserved_cash_ratio", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "dca_mode", "label": "dca_mode", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "dca_base_investment_usd", "label": "dca_base_investment_usd", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "enabled", "label": "enabled", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "account_selector", "label": "account_selector", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "cash_currency", "label": "cash_currency", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"},
+    {"key": "runtime_status_target_id", "label": "runtime_status_target_id", "saved": {"status": "unknown", "reason": "source_unavailable"}, "platform": {"status": "unknown", "reason": "read_failed"}, "state": "unknown"}
+  ],
+  "identity": {"account_suffix": "0001", "broker_environment": "live", "service": "demo-hk-service", "runtime_status_target_id": "longbridge.hk"},
+  "facts_binding": {"status": "unknown", "reason": "identity_unverified"},
+  "alert_route": "QuantSentinel · Telegram",
+  "actions": {"reapply_saved": {"allowed": false, "reason_code": "not_enabled"}, "adopt_platform": {"allowed": false, "reason_code": "not_enabled"}},
+  "schema_version": "qsl.desk.readback.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

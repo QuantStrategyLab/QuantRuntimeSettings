@@ -22,8 +22,8 @@
       "state": "drift"
     },
     {
-      "key": "cash_reserve_ratio",
-      "label": "cash_reserve_ratio",
+      "key": "reserved_cash_ratio",
+      "label": "reserved_cash_ratio",
       "saved": {"status": "known", "value": "0.08", "observed_at": "2030-01-07T13:00:00Z"},
       "platform": {"status": "known", "value": "0.12", "observed_at": "2030-01-07T14:31:12Z"},
       "state": "drift"
