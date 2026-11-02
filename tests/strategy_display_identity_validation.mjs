@@ -1,10 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
-import { buildSync } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
+import { readFileSync } from "node:fs";
 import { candidateDisplayName, listDailyDecisions, strategyIdentityView, strategySelectionName } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { __test as serverContract } from "../web/strategy-switch-console/worker.js";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
@@ -127,62 +122,11 @@ assert.equal(body.overrides.strategy_profile, v7.profile, "submitted strategy ID
 assert.equal(body.expected_draft_revision, 2);
 
 for (const key of ["策略身份与版本", "身份来源", "策略目录", "研究票据", "候选材料", "应用记录", "候选版本", "研究 study", "来源 revision（资料字段）", "配置摘要（资料字段）", "研究角色（资料字段）", "运行通道（资料字段）", "资料时间", "冻结研究版本", "冻结研究索引不证明实际部署、采用或运行状态。", "未知"]) assert.notEqual(translate(key, "en"), key);
-const accounts = readFileSync(new URL("../web/strategy-switch-console/frontend/src/AccountsPage.tsx", import.meta.url), "utf8");
-const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
-const decisionsPage = readFileSync(new URL("../web/strategy-switch-console/frontend/src/DecisionsPage.tsx", import.meta.url), "utf8");
-assert.match(accounts, /strategySelectionName\(choice, strategyOptions, language\)/);
-assert.match(accounts, /<StrategyIdentity/);
-assert.match(decisionsPage, /<StrategyIdentity/);
-assert.match(app, /strategySelectionName/);
-assert.match(app, /<StrategyIdentity/);
-assert.match(app, /expected_strategy_profile: ticket.strategy_profile/);
-assert.match(accounts, /key=\{item.profile\} value=\{item.profile\}/);
-// Render the actual React components offline. This is SSR proof, not browser interaction QA.
-const temporary = mkdtempSync(join(tmpdir(), "qsl-strategy-ssr-"));
-try {
-  const frontend = fileURLToPath(new URL("../web/strategy-switch-console/frontend", import.meta.url));
-  const appSource = readFileSync(join(frontend, "src/App.tsx"), "utf8");
-  const facade = join(temporary, "App.tsx");
-  writeFileSync(facade, appSource.replaceAll('from "./', `from "${frontend}/src/`) + "\nexport { ApplicationCard };\n");
-  const bundle = buildSync({ stdin: { contents: `
-    import React from "react";
-    import { renderToStaticMarkup } from "react-dom/server";
-    import { LocaleContext } from "./src/locales";
-    import { StrategyIdentity } from "./src/StrategyIdentity";
-    import { DecisionsPage } from "./src/DecisionsPage";
-    import { ApplicationCard } from "${facade}";
-    export const identity = (value, language) => renderToStaticMarkup(<LocaleContext.Provider value={language}><StrategyIdentity value={value}/></LocaleContext.Provider>);
-    export const application = (application, profiles, language) => renderToStaticMarkup(<LocaleContext.Provider value={language}><ApplicationCard application={application} profiles={profiles} language={language} busy={false} onDeploy={()=>{}}/></LocaleContext.Provider>);
-    export const decisions = (items, language) => renderToStaticMarkup(<LocaleContext.Provider value={language}><DecisionsPage blocked={false} items={items} admin={false} busy={false} selectedAccountId="" onSelectAccount={()=>{}} onDecide={()=>{}}/></LocaleContext.Provider>);
-  `, resolveDir: frontend, loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", write: false, nodePaths: [join(frontend, "node_modules")] });
-  const path = join(temporary, "render.cjs");
-  writeFileSync(path, bundle.outputFiles[0].text);
-  const render = createRequire(import.meta.url)(path);
-  for (const language of ["zh", "en"]) {
-    const html = render.identity(catalog, language);
-    assert.match(html, /<details class="decision-fold strategy-identity">/);
-    assert.equal(html.includes("Information unavailable"), false, "every rendered detail label has English copy");
-    assert.equal(html.includes("<details open"), false, "long identity metadata is collapsed initially");
-    assert.match(html, /843ab4e93e81985c2b3becc61a2f0b971508ccf25afa59acf402e75f574514d1/);
-    assert.equal(html.includes(translate("冻结研究索引不证明实际部署、采用或运行状态。", language)), false, "internal process footnotes are removed while identity fields remain");
-    assert.equal(html.includes(translate("未知", language)), true);
-    const studyHtml = render.identity(r6, language);
-    assert.match(studyHtml, /<details class="decision-fold strategy-identity">/);
-    const result = listDailyDecisions({ language, profiles, promotions: ready({ tickets: [ticket] }), owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [] });
-    const decisionHtml = render.decisions(result.items, language);
-    assert.equal(decisionHtml.includes(strategySelectionName(v7, profiles, language)), true);
-    assert.equal(decisionHtml.includes(ticket.ticket_id), true);
-    assert.equal(decisionHtml.includes(translate("策略身份与版本", language)), true);
-    assert.match(decisionHtml, /disabled=""/, "synthetic non-admin cannot decide");
-    const application = { ...ticket, application_preparation: { account_options: [] }, application: { strategy_profile: v7.profile, candidate_id: v7.profile, config_sha256: configHash, status: "unknown", dispatch_state: "unknown" } };
-    const applicationHtml = render.application(application, profiles, language);
-    assert.equal(applicationHtml.includes(strategySelectionName(v7, profiles, language)), true);
-    assert.equal(applicationHtml.includes(configHash), true);
-    assert.match(applicationHtml, /disabled=""/);
-    const historicalGap = render.application({ ...application, application: { status: "unknown", dispatch_state: "unknown" } }, profiles, language);
-    assert.equal(historicalGap.includes(configHash), false, "a prior application with missing identity is not repaired from its ticket");
-    assert.equal(historicalGap.includes(strategySelectionName(v7, profiles, language)), false);
-  }
-  assert.equal(render.identity(strategyIdentityView({ basis: "候选材料", record: { candidateId: "<script>unsafe</script>" } }), "en").includes("<script>unsafe</script>"), false, "React escapes supplied identity text");
-} finally { rmSync(temporary, { recursive: true, force: true }); }
-console.log("Strategy display identity validation passed (including actual React SSR)");
+// The legacy StrategyIdentity/ApplicationCard components and the SSR proof for them were retired
+// with the unused first-generation UI tree; the live pages are checked at the source level.
+const liveSrc = (file) => readFileSync(new URL(`../web/strategy-switch-console/frontend/src/${file}`, import.meta.url), "utf8");
+const strategyTab = liveSrc("pages/accounts/StrategyTab.tsx");
+const decisionHelpers = liveSrc("pages/decisions/helpers.ts");
+assert.match(strategyTab, /key=\{option.profile\} value=\{option.profile\}/, "strategy options submit the profile ID while showing the label");
+assert.match(decisionHelpers, /expected_strategy_profile: input.strategyProfile/, "decision submissions pin the ticket's strategy profile ID");
+console.log("Strategy display identity validation passed (live-source checks; legacy SSR retired)");
