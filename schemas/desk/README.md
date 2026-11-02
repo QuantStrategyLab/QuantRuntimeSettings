@@ -133,3 +133,49 @@ Run `npm run test:operations --prefix web/strategy-switch-console` for these
 helpers and the existing operations suite. The helper tests use a synthetic
 SQLite-backed Miniflare Durable Object, plus real Worker session/auth checks.
 They verify local behavior, not production persistence or live broker reads.
+
+## BE-2 saved/platform readback and refresh
+
+Contract §3.4–§3.5 now have backend routes. An allowed session can read a
+configured target and start/poll a refresh job. The existing ACL is shared
+across configured platforms; unknown or absent targets return 404. POST also
+requires same-origin JSON, at most 8 KiB and 1–20 unique targets (omission means
+all configured targets). No frontend files or execution gates change.
+
+Saved values come from the durable account configuration and identity-current
+saved draft overrides. An identity-conflicting draft makes saved fields unknown.
+Platform values come from fresh, scoped GitHub variable reads through the
+existing strategy resolver, bypassing current-strategies caches. Identity fields
+require a matched runtime record; saved identity is never used as platform
+readback. Missing sources and failed reads remain unknown. Facts binding stays
+`unknown/identity_unverified` and alert routing stays null until those sources
+are connected. Re-apply and Adopt remain disabled.
+
+Only the twelve §3.4 keys are projected and schema-accepted. Booleans become
+`true`/`false` strings; decimals are validated (ratios also use `cleanCurrentRatio`)
+and canonicalized without floating-point rounding; strings are trimmed.
+Selectors are compared privately and returned as masked suffixes. Drift outranks
+unknown. `observed_at` is the time this configuration was read, not evidence of
+a live broker/runtime observation. `saved_revision` uses the known integer
+account-options revision even when detailed saved settings fail. An unavailable
+or uninitialized revision store returns 503 rather than inventing revision zero.
+Fixtures use `reserved_cash_ratio`, the
+canonical field name in §3.4's field list, instead of the example's alias.
+
+The existing RuntimeInstances Durable Object stores snapshots and jobs for
+24 hours, with alarm-based physical expiry. Cookie fingerprints scope jobs,
+active-job claims and BE-1 idempotency records; raw cookies are never stored.
+One active refresh per session is claimed in the idempotency reservation
+transaction through an optional local `reserve` callback; a busy rejection
+rolls back both claims so the same key can be retried. Alarms read one
+target at a time and re-arm before source I/O, so interrupted reads are safe to
+retry. Each target succeeds independently; all-unreadable platform results are
+listed as failed. Polling another session's ID returns 404. Snapshot IDs can
+also be read back through the polling route during their TTL. BE-1 idempotency
+records retain its existing indefinite retention and fail-closed handling of
+incomplete reservations.
+
+`npm run test:operations --prefix web/strategy-switch-console` includes the
+BE-2 tests. They use synthetic data, a fixed clock and a real SQLite-backed
+Miniflare DO, with manually driven alarms. This verifies local persistence,
+concurrency, failures, refresh and expiry; no deployed Worker or broker is used.

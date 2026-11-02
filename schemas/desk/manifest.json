@@ -22,7 +22,7 @@
     "name": "readback",
     "section": "3.4",
     "endpoints": ["GET /api/desk/targets/{target_id}/readback"],
-    "scenarios": ["ok", "degraded"]
+    "scenarios": ["ok", "degraded", "unavailable"]
   },
   {
     "name": "readback-start",

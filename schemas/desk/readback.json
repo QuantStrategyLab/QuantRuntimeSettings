@@ -25,7 +25,12 @@
     },
     "fields": {
       "type": "array",
-      "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackField"}
+      "items": {
+        "allOf": [
+          {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackField"},
+          {"properties": {"key": {"enum": ["strategy_profile", "broker_environment", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio", "dca_mode", "dca_base_investment_usd", "enabled", "account_selector", "cash_currency", "runtime_status_target_id"]}}}
+        ]
+      }
     },
     "identity": {
       "type": "object",
