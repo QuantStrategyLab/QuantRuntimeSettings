@@ -261,13 +261,21 @@ try {
   assert.doesNotMatch(html, /data-ux1-default-view|id="ux1-preview-button"/, "root no longer serves the legacy UX1 page markup");
   assert.equal(html.includes("fonts.googleapis.com"), false);
   assert.equal(html.includes("fonts.gstatic.com"), false);
-  const appSource = await readFile(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
+  const liveSrc = "../web/strategy-switch-console/frontend/src/";
+  const appSource = [
+    await readFile(new URL(`${liveSrc}app/App.tsx`, import.meta.url), "utf8"),
+    await readFile(new URL(`${liveSrc}app/AppShell.tsx`, import.meta.url), "utf8"),
+    await readFile(new URL(`${liveSrc}app/router.ts`, import.meta.url), "utf8"),
+  ].join("\n");
   assert.doesNotMatch(appSource, /DISPLAY_STORAGE_KEY|normalizeDisplayMode|mode-control/, "served React UI has one information level without a display-mode control");
-  const mainNavigation = appSource.match(/const NAV:[\s\S]*?= \[([\s\S]*?)\];/)?.[1] || "";
-  assert.match(mainNavigation, /label: "账户总览"/, "main navigation exposes account overview");
-  assert.match(mainNavigation, /label: "待办决策"/, "main navigation exposes the human decisions workspace");
-  assert.match(mainNavigation, /label: "账户设置"/, "main navigation exposes account settings");
-  assert.doesNotMatch(mainNavigation, /报告|reports|专业|简易/, "reports are nested and information mode controls are removed from primary navigation");
+  const mainNavigation = appSource.match(/const NAV_ITEMS:[\s\S]*?= \[([\s\S]*?)\];/)?.[1] || "";
+  const zhCopy = await readFile(new URL(`${liveSrc}i18n/zh-CN.ts`, import.meta.url), "utf8");
+  const navLabels = [...mainNavigation.matchAll(/labelKey: "([^"]+)"/g)].map((match) => zhCopy.match(new RegExp(`"${match[1].replace(".", "\\.")}":\\s*"([^"]*)"`))?.[1] || "");
+  assert.match(mainNavigation, /id: "overview"/, "main navigation exposes account overview");
+  assert.match(mainNavigation, /id: "decisions"/, "main navigation exposes the human decisions workspace");
+  assert.match(mainNavigation, /id: "accounts"/, "main navigation exposes account settings");
+  assert.ok(navLabels.length >= 3 && navLabels.every(Boolean), "every main navigation item resolves to zh copy");
+  assert.doesNotMatch(`${mainNavigation}\n${navLabels.join("\n")}`, /报告|reports|专业|简易/, "reports are nested and information mode controls are removed from primary navigation");
   assert.doesNotMatch(appSource, /function AdminPanel|管理设置|admin-shortcut/, "account settings replace the separate admin page");
   const csp = page.headers.get("Content-Security-Policy") || "";
   assert.match(csp, /style-src 'self'/);
@@ -553,7 +561,7 @@ try {
   assert.notEqual(promotion.status, 404);
   assert.equal(outbound, 0);
 
-  const app = await readFile(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
+  const app = (await Promise.all(["app/App.tsx", "app/AppShell.tsx", "pages/decisions/DecisionsPage.tsx", "pages/overview/OverviewPage.tsx"].map((file) => readFile(new URL(`../web/strategy-switch-console/frontend/src/${file}`, import.meta.url), "utf8")))).join("\n");
   assert.equal(app.includes("function setUx1ViewMode"), false);
   assert.equal(app.includes("qsl-ux1-view-mode"), false);
   assert.equal(app.includes("上一份方案已过期或计算失败"), false);

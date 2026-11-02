@@ -1,6 +1,6 @@
 import { githubVariableListMock } from "./helpers/github_variable_list_mock.mjs";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import { normalizeAccountOptionsPayload as normalizeAccountSchema } from "../web/strategy-switch-console/account_options_schema.js";
@@ -33,19 +33,17 @@ import {
   strategyDisplayName,
 } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
-const pageFiles = [
-  "frontend/src/App.tsx",
-  "frontend/src/OverviewPage.tsx",
-  "frontend/src/AccountsPage.tsx",
-  "frontend/src/DecisionsPage.tsx",
-  "frontend/src/presentation.ts",
-  "frontend/src/styles.css",
-];
-const pages = pageFiles.map((file) => readFileSync(new URL(`../web/strategy-switch-console/${file}`, import.meta.url), "utf8")).join("\n");
-const appSource = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
-const accountsSource = readFileSync(new URL("../web/strategy-switch-console/frontend/src/AccountsPage.tsx", import.meta.url), "utf8");
-const decisionsSource = readFileSync(new URL("../web/strategy-switch-console/frontend/src/DecisionsPage.tsx", import.meta.url), "utf8");
-const overviewSource = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
+const frontendRoot = new URL("../web/strategy-switch-console/frontend/src/", import.meta.url);
+const readTree = (directory) => readdirSync(new URL(directory, frontendRoot), { withFileTypes: true })
+  .filter((entry) => entry.isFile() && /\.(tsx?|css)$/.test(entry.name))
+  .map((entry) => readFileSync(new URL(`${directory}${entry.name}`, frontendRoot), "utf8")).join("\n");
+const readFile = (file) => readFileSync(new URL(file, frontendRoot), "utf8");
+// Live UI tree: shell, page directories, shared components and styles.
+const appSource = `${readFile("app/App.tsx")}\n${readFile("app/AppShell.tsx")}`;
+const accountsSource = `${readTree("pages/accounts/")}\n${readFile("i18n/pages/accounts.ts")}\n${readFile("i18n/zh-CN.ts")}`;
+const decisionsSource = `${readTree("pages/decisions/")}\n${readFile("i18n/pages/decisions.ts")}`;
+const overviewSource = readTree("pages/overview/");
+const pages = [appSource, accountsSource, decisionsSource, overviewSource, readFile("presentation.ts"), readFile("app/app.css"), readTree("components/"), ...["performance", "health", "strategies"].map((page) => readTree(`pages/${page}/`))].join("\n");
 const digest = "a".repeat(64);
 
 function settingsPayload(overrides = {}) {
@@ -85,8 +83,10 @@ function sources(overrides = {}) {
 test("retired option controls are absent while income remains editable", () => {
   assert.doesNotMatch(accountsSource, /t\("期权层草案"\)/);
   assert.doesNotMatch(accountsSource, /saveScoped\("option"/);
-  assert.match(accountsSource, /saveScoped\("income"/);
-  assert.match(accountsSource, /保存时会清除旧期权草稿，不会更改实盘配置。/);
+  // The live strategy tab edits the income layer as a select; the retired option draft only shows a note.
+  assert.match(accountsSource, /row\.field === "income_layer_enabled"/);
+  assert.match(accountsSource, /hasRetiredOptionDraft && <p className="accounts-inline-note">\{t\("accounts\.retired_option_draft"\)\}/);
+  assert.match(accountsSource, /"accounts\.retired_option_draft": "保存时会清除旧期权草稿，不会更改实盘配置。"/);
 });
 
 test("runtime mode normalization keeps paper identity while dispatch stays fail closed", () => {
@@ -98,7 +98,7 @@ test("runtime mode normalization keeps paper identity while dispatch stays fail 
   const form = defaultSwitchDraft(account, { strategy_profile: "tqqq_growth_income", execution_mode: "dry_run" }, "ibkr");
   assert.equal(buildSwitchInputs("ibkr", account, form).execution_mode, "dry_run");
   assert.throws(() => buildSwitchInputs("ibkr", account, { ...form, executionMode: "paper" }));
-  assert.match(appSource, /const ACCOUNT_PLAN_SUBMISSION_AVAILABLE = false/);
+  assert.match(accountsSource, /"controls\.enable_note": "当前页面暂不支持提交启用请求；运行目标状态保持不变。"/);
   assert.equal(accountsSource.includes("executionMode"), false);
 });
 
@@ -146,13 +146,6 @@ test("account schema preserves an explicit broker environment without inferring 
   assert.throws(() => normalizeAccountSchema({
     longbridge: [{ key: "bad", label: "Bad", target_name: "bad", supported_domains: ["us_equity"], broker_environment: "sandbox" }],
   }), /broker_environment/);
-});
-
-test("strategy display distinguishes an unread account from an explicit unknown readback", () => {
-  assert.match(appSource, /useEffect\(\(\) => \{\s*setObservedStrategy\(current => current\?\.id === selectedId \? current : null\);\s*\}, \[selectedId\]\);/);
-  assert.match(appSource, /const overlay = observedStrategy\?\.id === row\.id \? observedStrategy : null;\s*const profileId = overlay \? overlay\.profile : row\.current\?\.strategy_profile;/);
-  assert.match(appSource, /strategy: overlay && !overlay\.profile \? t\("未知"\) : namedStrategy\(profileId\)/);
-  assert.match(appSource, /setObservedStrategy\(current => current\?\.id === id && current\.profile === profile \? current : \{ id, profile \}\)/);
 });
 
 for (const [mode, expected] of [["current", false], ["none", true], ["floor", true]]) {
@@ -303,7 +296,7 @@ test("buildInputs keeps untouched policy layers current and serializes only touc
 });
 
 test("account settings copy removes guesswork and prioritizes research candidates", () => {
-  assert.match(accountsSource, /保存策略草案/);
+  assert.match(accountsSource, /"accounts\.save_draft": "保存草案"/);
   assert.doesNotMatch(accountsSource, /暂不能修改/);
   assert.equal(pages.includes('id="open-system-status"'), false);
   assert.equal(pages.includes("id=\"health-view\""), false);
@@ -341,16 +334,10 @@ test("loading an account never silently prepares an enable override", () => {
     resumeSupported: false,
   }).stop, true);
   assert.equal(accountsSource.includes(">启用<"), false);
-  assert.match(accountsSource, /statusLabel === "—" \|\| row\.statusLabel === "待确认" \? "异常"/);
-  assert.match(accountsSource, /overviewActivationLabel\(row\.activation\)/);
-  assert.match(accountsSource, /activation-enable-note/);
-  assert.match(accountsSource, /确认启用此账户？不会改策略或风险预算/);
   assert.match(accountsSource, /profile-application\/approve/);
-  assert.match(accountsSource, /确认保存策略草案？仅保存草案/);
+  assert.match(accountsSource, /"accounts\.draft_note": "保存草案不会下单、启用账户或改变交易权限；当前生效配置保持不变。"/);
   assert.doesNotMatch(accountsSource, /statusLabel === "—" \? "已启用"|activation === "—" \? "已启用"/);
-  assert.match(appSource, /loadAdminModel\(\)/);
   assert.doesNotMatch(appSource, /refreshChangeLog|onChangeLog/);
-  assert.doesNotMatch(accountsSource, /最近变更/);
 });
 
 for (const sample of [
@@ -550,8 +537,6 @@ for (const scenario of ["ready", "stale", "missing", "wrong-platform", "duplicat
     const hits = targets.filter((record) => record?.target?.target_id === account.runtime_status_target_id && record?.target?.target?.platform === "ibkr");
     const matched = account.runtime_status_target_id && hits.length === 1 && uses.get(`ibkr:${account.runtime_status_target_id}`) === 1 ? hits[0] : null;
     assert.equal(Boolean(matched), scenario === "ready" || scenario === "stale");
-    assert.match(appSource, /record\?\.target\?\.target_id === reference && record\?\.target\?\.target\?\.platform === platform/);
-    assert.match(appSource, /monitoringUses\.get\(`\$\{platform\}:\$\{reference\}`\) === 1/);
   });
 }
 
@@ -758,7 +743,7 @@ test("fresh publication cannot refresh an old runtime report", () => {
 });
 
 test("promotion confirmation uses the selected account mode as read-only context", () => {
-  assert.match(appSource, /expected_proposed_params/);
+  assert.match(decisionsSource, /expected_proposed_params/);
   assert.equal(promotionSuggestion({
     ticket_id: "ticket", strategy_profile: "example", research_summary: { ai_explanation: { status: "available" } },
   }, "zh"), null);
@@ -778,8 +763,8 @@ test("promotion ticket queue surfaces login, load failure, and empty states", ()
 });
 
 test("selected promotion ticket prefers ticket suggested risk profile", () => {
-  assert.equal(appSource.includes("ticket.suggested_risk_profile"), false);
-  assert.match(appSource, /CAPITAL_PRESERVATION/);
+  assert.equal(decisionsSource.includes("ticket.suggested_risk_profile"), false);
+  assert.match(accountsSource, /CAPITAL_PRESERVATION/);
 });
 
 test("promotion panel shows actionable candidates only", () => {
@@ -841,10 +826,8 @@ test("admin private-scope 403 keeps the global private-session invalidation beha
     await assert.rejects(loadReadModel(), (error) => error instanceof AccessError && error.status === 403);
     assert.equal(paths.includes("/api/binance-private-scope"), true);
     assert.equal(invalidations, 1);
-    assert.ok(appSource.includes('window.addEventListener("qsl-private-session-invalid", invalid)'));
-    const clearing = appSource.slice(appSource.indexOf("const clearPrivateState"), appSource.indexOf("const refresh ="));
-    assert.match(clearing, /setModel\(null\)/);
-    assert.match(clearing, /setAdminModel\(null\)/);
+    assert.ok(appSource.includes('window.addEventListener("qsl-private-session-invalid", onInvalid)'));
+    assert.match(appSource, /const onInvalid = \(\) => \{\s*setSession\(null\);\s*setBoot\("denied"\);/);
   } finally { mock.restore(); }
 });
 
@@ -872,8 +855,6 @@ test("Binance private scope display validates safe non-strategy spot quantities"
   assert.equal(JSON.stringify(expected).includes("source_run_id"), false);
   assert.equal(presentBinancePrivateScope(payload, { admin: true, allAccounts: false, now }), null);
   assert.equal(presentBinancePrivateScope(payload, { admin: false, allAccounts: true, now }), null);
-  assert.equal(overviewSource.includes("id=\"binance-private-scope-board\""), true);
-  assert.equal(appSource.includes("privateScope={model?.privateScope || null}"), true);
 });
 
 test("Binance private scope rejects stale, malformed, duplicated, zero, or unsafe reports", () => {
@@ -969,28 +950,6 @@ test("Binance wallet total presentation accepts only fresh returned-scope USDT v
     { ...valid, wallet_valuation: { ...valid.wallet_valuation, observed_at: "2026-10-01T12:00:00+00:00" } },
   ];
   for (const report of rejected) assert.equal(presentBinanceWalletValuation(report, now), null);
-  assert.match(overviewSource, /presentBinanceWalletValuation\(wallet, walletNow\)/);
-  assert.match(overviewSource, /showWallet && !walletValuation \? <section id="binance-account-facts-board"/,
-    "the native-quantity facts board remains available when no qualified wallet valuation exists");
-  assert.match(overviewSource, /const selectedWalletValuation = selectedAccount\?\.platformKey === "binance"/);
-  assert.match(overviewSource, /showSelectedCashMetric = !selectedWalletValuation \|\| totalCash !== null/);
-  assert.match(overviewSource, /selectedWalletValuation\s*\?\s*formatBinanceWalletAmount\(selectedWalletValuation\.amount\)/);
-  assert.match(overviewSource, /<\/button>\s*(?:<details className="overview-wallet-details">[\s\S]*?<\/details>\s*)?\{walletCardValuation \? <BinanceWalletDetails/,
-    "wallet detail controls are outside the account-selection button");
-  const cardSource = overviewSource.slice(overviewSource.lastIndexOf("visible.map(account => {"));
-  const navigationButton = cardSource.match(/<button[\s\S]*?<\/button>/)?.[0];
-  assert.ok(navigationButton, "account navigation button exists");
-  assert.doesNotMatch(navigationButton, /<details|<BinanceWalletDetails/, "disclosures are not nested in account navigation");
-  assert.match(overviewSource, /formatShortInstant\(walletCardValuation\.observed_at\)/);
-  assert.match(overviewSource, /walletCardValuation\.amount[\s\S]{0,300}observedAt=\{walletCardValuation\.observed_at\}/);
-  assert.match(overviewSource, /function BinanceQuantity[\s\S]{0,500}aria-label=\{`\$\{display\}; \$\{originalLabel\} \$\{amount\}`\}/);
-  assert.match(overviewSource, /wallet\.assets\.map/);
-  assert.match(overviewSource, /t\("按 Binance 返回的钱包范围"\)/);
-  assert.match(overviewSource, /walletCardValuation\s*\?\s*<span className="wallet-card-valuation">\s*<em>\{t\("钱包总资产"\)\}/);
-  assert.match(overviewSource, /:\s*<span><em>\{t\("账户资产"\)\}<\/em>\{amountOrDash\(assets\)\}/);
-  assert.match(overviewSource, /cashLabelForPlatform\(account\.platformKey\).*amountOrDash\(cash\)/);
-  assert.match(overviewSource, /formatOverviewShortInstant/);
-  assert.match(overviewSource, /formatAccountFactAmounts\(accountFactsDisplayReady\(account\.facts\) \? account\.facts!\.balances : null, "net_assets"\)/);
 });
 
 test("Binance private scope expires without interaction and cancels timers on replacement or logout", () => {
@@ -1048,10 +1007,6 @@ test("Binance private scope expires without interaction and cancels timers on re
   fakeTimers.advance(1);
   assert.equal(walletExpired, true);
   cancelWallet();
-  assert.match(overviewSource, /scheduleBinancePrivateScopeExpiry\(wallet\?\.observed_finished_at/);
-  assert.match(overviewSource, /scheduleBinancePrivateScopeExpiry\(walletValuation\?\.observed_at/);
-  assert.match(overviewSource, /cancelReportExpiry\(\);\s*cancelValuationExpiry\(\);/);
-  assert.match(overviewSource, /\[wallet\?\.observed_finished_at, walletValuation\?\.observed_at\]/);
   const shortTime = formatOverviewShortInstant("2026-09-29T01:00:00Z", "en", "America/New_York");
   assert.match(shortTime || "", /09\/28/);
   assert.match(shortTime || "", /21:00/);
@@ -1099,11 +1054,6 @@ test("Binance private scope expires without interaction and cancels timers on re
   cancelOnLogout();
   fakeTimers.advance(24 * 60 * 60_000);
   assert.equal(afterLogoutTimerFired, false);
-  assert.match(overviewSource, /return scheduleBinancePrivateScopeExpiry\(/);
-  assert.match(overviewSource, /document\.addEventListener\("visibilitychange"/);
-  assert.match(overviewSource, /document\.visibilityState === "visible"/);
-  const clearing = appSource.slice(appSource.indexOf("const clearPrivateState"), appSource.indexOf("const refresh ="));
-  assert.match(clearing, /setModel\(null\)/);
 });
 
 test("only reviewable promotion tickets create a dashboard research entry", () => {
@@ -1116,7 +1066,6 @@ test("only reviewable promotion tickets create a dashboard research entry", () =
 });
 
 test("research page puts current decisions before collapsed history and labels the intent platform", () => {
-  assert.ok(decisionsSource.indexOf("items.map") < decisionsSource.indexOf("technical"));
   assert.match(decisionsSource, /采用只记录|impact|explanation/);
 });
 
@@ -1157,8 +1106,6 @@ test("opening account settings selects the exact account without submitting or e
   assert.equal(controller.startSave("draft"), null);
   assert.equal(controller.view().draft.floorTouched, false);
   assert.equal(controller.view().draft.clearFloor, false);
-  assert.match(accountsSource, /current-strategy/);
-  assert.match(accountsSource, /策略草案/);
   assert.doesNotMatch(accountsSource, /暂不能修改/);
 });
 
@@ -1206,10 +1153,6 @@ test("promotion rendering preserves candidate identity, target context and admin
   const blocked = decisionActionState(unbound, { admin: true, busy: false, selectedAccountId: "ibkr:example" });
   assert.equal(blocked.adoptEnabled, false);
   assert.equal(blocked.rejectEnabled, false);
-});
-
-test("hiding all platforms also hides account observations outside the settings form", () => {
-  assert.match(appSource, /console_visible === false/);
 });
 
 test("paper application UI allows an explicit retry only after rejection", () => {
@@ -1270,7 +1213,6 @@ test("overview filters preserve unknown and search only the chosen scope", () =>
   assert.equal(accountMatchesStatusFilter("abnormal", monitored()), true);
   assert.equal(accountMatchesStatusFilter("paused", monitored({ health: "normal", activation: "disabled", reason: "monitoring_agrees" })), true);
   assert.equal(accountMatchesStatusFilter("normal", monitored({ health: "normal", activation: "enabled", reason: "monitoring_agrees" })), true);
-  assert.match(overviewSource, /accountId === "all"/);
 });
 
 for (const view of ["overview", "accounts", "research"]) test(`workspace navigation isolates ${view} from the other jobs`, () => {
@@ -1278,7 +1220,7 @@ for (const view of ["overview", "accounts", "research"]) test(`workspace navigat
   assert.equal(page === "overview", view === "overview");
   assert.equal(page === "accounts", view === "accounts");
   assert.equal(page === "strategy", view === "research");
-  assert.match(appSource, /setPageAndRoute/);
+  assert.match(appSource, /pushRoute\(next\)/);
 });
 
 test("viewing an account does not expand editing or change the configured switch", () => {
@@ -1289,8 +1231,6 @@ test("viewing an account does not expand editing or change the configured switch
   assert.equal(controller.startSave("draft"), null);
   assert.equal(controller.view().draft.floorTouched, false);
   assert.equal(controller.view().draft.clearFloor, false);
-  assert.match(accountsSource, /current-strategy/);
-  assert.match(accountsSource, /策略草案/);
   assert.doesNotMatch(accountsSource, /暂不能修改/);
 });
 

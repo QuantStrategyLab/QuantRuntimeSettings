@@ -2,20 +2,18 @@
 
 本次只调整信息组织和操作呈现，保留现有账户、策略权限及确认流程，不增加服务、依赖或费用。
 
-## Mandatory frontend design rules
+## Frontend design rules
 
-These rules apply to all future frontend plans and implementations.
+Only two frontend design requirements are hard, for all plans and implementations:
 
-- **Flat:** Do not use gradients, shadows (except focus rings), noise, or decorative effects. Use 0.5px hairline borders and generous whitespace.
-- **Design tokens:** All colors, type, radius, and spacing must come from CSS variables, never hardcoded values. Use `--surface-0`, `--surface-1`, and `--surface-2`; `--text-primary`, `--text-secondary`, and `--text-muted`; `--border`, `--border-strong`, and `--border-stronger`; semantic accent, danger, success, and warning colors and tints; `--radius` (8px) and `--radius-card` (12px); padding and gap scales; and `--font-sans` and `--font-mono`.
-- **Dark mode:** Dark mode is mandatory. Every color must work in both light and dark modes.
-- **Cards:** Use a surface background token, a 0.5px border, `--radius-card` (12px), and padding tokens resolving to `1rem 1.25rem`.
-- **Responsive grid:** Use `repeat(auto-fit, minmax(160px, 1fr))`. Show at most four boxes per row; otherwise wrap them or split the content into an overview plus detail.
-- **Complexity budget:** Use at most two color ramps per chart. Whenever color encodes meaning, provide a one-line legend. Keep box subtitles to five words or fewer and put detail on click-through.
-- **Explanatory prose:** Keep explanatory prose outside visual components.
-- **Form elements:** All form elements must share one pre-styled base, with inputs 36px high and built-in hover and focus states.
+1. **Bilingual:** zh-CN is the primary language, with en alongside it.
+2. **Light and dark mode:** every screen works in both.
 
-Source: the owner's adopted guidance (2026-11-01). Existing pages are migrated incrementally; all new work must comply.
+All other design choices are free: layout, colour, shadows, gradients, borders, radius, grids, charts, components and tokens usage. Hardcoded colours are reported only by `npm run check:style-guards` (in `web/strategy-switch-console/frontend`, added by #1046), which is advisory and warn-only and never blocks.
+
+Blocking design checks cover only the two hard requirements: `tests/console_frontend_i18n_validation.mjs` for zh-CN and en, and `tests/console_tokens_css_validation.mjs` plus the theme section of `tests/console_credential_rotation_ui_validation.mjs` for light and dark colour tokens. To keep that light/dark check reliable, `tests/console_tokens_css_validation.mjs` also requires `tokens.css` to stay the only stylesheet that declares `:root` tokens and every `var()` in it to resolve.
+
+History: the owner adopted a flat design spec on 2026-11-01 (#1034) and revoked it on 2026-11-02. It no longer applies, and existing pages need no migration for it. Its last assertions (fixed grid, hairline borders, paddings, control heights, no shadows and a ban on literal colours) lived in `tests/console_credential_rotation_ui_validation.mjs`; #1046 removes them. Until #1046 merges, that test on `main` still enforces them.
 
 ## 日常需要回答的问题
 

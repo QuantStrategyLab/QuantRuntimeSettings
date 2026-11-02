@@ -5,46 +5,15 @@ import { translate } from "../web/strategy-switch-console/frontend/src/locales.t
 import { RUNTIME_DAILY_TARGET, runtimeDailyTarget } from "../web/strategy-switch-console/runtime_daily_contract.js";
 import "./overview_current_aggregation_validation.mjs";
 
-const overviewSource = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
-assert.equal((overviewSource.match(/amountOrDash\(totalCash\)/g) || []).length, 1,
-  "the selected-account cash metric renders its amount exactly once");
-assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.assets/);
-assert.match(overviewSource, /sumAmountsToUsd\(assetTotals, overviewUsdRates\)/,
-  "home total assets convert ready amounts to one USD figure with live FX rates");
-assert.match(overviewSource, /sumAmountsToUsd\(readCash, overviewUsdRates\)/,
-  "home cash converts ready amounts to one USD figure with live FX rates");
-assert.match(overviewSource, /loadOverviewUsdRates\(\)/,
-  "home cards load Frankfurter FX rates at runtime");
-assert.match(overviewSource, /code === "USD" \|\| code === "USDT"/,
-  "overview spoken money labels USDT as 美元 under the 1:1 USD policy");
-assert.match(overviewSource, /overviewReportingCurrency\(walletCardValuation\.currency\)/,
-  "Binance wallet amounts display under the overview USD reporting unit");
-assert.match(overviewSource, /formatOverviewAccountCash/,
-  "overview cash uses shared formatter (AFS cash or Binance spot_free; no invented zeros)");
-assert.match(overviewSource, /overviewTypePillLabel/,
-  "overview type pills use shared live/paper/unconfirmed helper");
-assert.match(overviewSource, /overviewMonitoringPillLabel/,
-  "overview status uses distinct monitoring vs enable labels");
-assert.match(overviewSource, /formatOverviewUsdAmount\(assetUsd\.amount\)/,
-  "home total assets display with two decimal places");
-assert.match(overviewSource, /formatOverviewUsdAmount\(cashUsd\.amount\)/,
-  "home cash displays with two decimal places");
-assert.match(overviewSource, /t\("美元"\)/,
-  "home cards label the reporting unit as 美元/USD");
-assert.equal(overviewSource.includes("moneyFigures(assetTotals)"), false,
-  "home cards no longer render a multi-currency asset list");
-assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.cashBalance/);
-assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.availableCash/);
-assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.cashCovered/);
-assert.match(overviewSource, /visibleFactsSummary\.excludingPaper\.covered/);
-assert.match(overviewSource, /按配置环境查看资产明细/);
-assert.match(overviewSource, /overview-runtime-state/);
-assert.match(overviewSource, /brokerAccountType\(account\.brokerEnvironment\)/);
-const overviewStyles = readFileSync(new URL("../web/strategy-switch-console/frontend/src/styles.css", import.meta.url), "utf8");
-assert.match(overviewStyles, /grid-template-areas: "head" "metrics" "chart" "runtime" "accounts"/,
-  "mobile overview brings chart and runtime records before the long account list");
-assert.match(overviewStyles, /overview-aggregate-breakdown/,
-  "environment detail groups are collapsible while aggregate totals remain visible");
+// The live overview (pages/overview) reports per-currency totals; legacy single-USD conversion,
+// FX loading, account-type pill helpers and the aggregate-breakdown block no longer exist there.
+const overviewSource = readFileSync(new URL("../web/strategy-switch-console/frontend/src/pages/overview/OverviewPage.tsx", import.meta.url), "utf8");
+assert.match(overviewSource, /<CurrencyTotals totals=\{data\.per_currency\}/,
+  "overview totals render per-currency, never one blended figure");
+assert.match(overviewSource, /USD and USDT are never blended into one series/);
+assert.equal(overviewSource.includes("sumAmountsToUsd"), false, "no cross-currency USD blending in the live overview");
+const overviewStyles = readFileSync(new URL("../web/strategy-switch-console/frontend/src/pages/overview/overview.css", import.meta.url), "utf8");
+assert.match(overviewStyles, /@media \(max-width: 480px\)/, "overview has a phone breakpoint");
 
 const now = Date.parse("2026-10-04T16:00:00Z");
 const instant = offset => new Date(now + offset * 1000).toISOString();

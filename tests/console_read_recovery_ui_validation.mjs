@@ -5,37 +5,52 @@ import { build } from '../web/strategy-switch-console/frontend/node_modules/esbu
 import React from '../web/strategy-switch-console/frontend/node_modules/react/index.js';
 import { renderToStaticMarkup } from '../web/strategy-switch-console/frontend/node_modules/react-dom/server.node.js';
 
+// Renders the live InboxReadFailed component (the unreadable-inbox state used by the
+// decisions/inbox surface). Dropped with the legacy tree, no live equivalent to SSR:
+// - AccountsPage "暂无账户" / "账户清单暂不可用": live AccountsPage takes only route
+//   params and loads through useApi, so its directory-unavailable prop state no longer exists.
+// - Legacy DecisionsPage props (blocked/sources/retrying) partial-source and busy states:
+//   the live page self-loads; its partial notice is covered in promotion_queue_partial_validation.
 const frontend = new URL('../web/strategy-switch-console/frontend/', import.meta.url).pathname;
 const temporary = await mkdtemp(frontend + 'node_modules/.read-recovery-');
 try {
   const compiled = await build({
-    stdin: { contents: 'export { AccountsPage } from "./AccountsPage"; export { DecisionsPage } from "./DecisionsPage"; export { LocaleContext } from "./locales";', resolveDir: frontend + 'src', loader: 'tsx' },
-    bundle: true, platform: 'node', format: 'esm', packages: 'external', write: false,
+    stdin: { contents: 'export { InboxReadFailed } from "./components/InboxReadFailed"; export { I18nProvider } from "./i18n"; export { HttpError, AccessError } from "./api/client";', resolveDir: frontend + 'src', loader: 'tsx' },
+    bundle: true, platform: 'node', format: 'esm', packages: 'external', write: false, jsx: 'automatic',
   });
   const file = temporary + '/components.mjs';
   await writeFile(file, compiled.outputFiles[0].text);
-  const { AccountsPage, DecisionsPage, LocaleContext } = await import(pathToFileURL(file));
-  const render = (component, props, language = 'zh') => renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: language }, React.createElement(component, props)));
-  const accountProps = { rows: [], selectedId: '', unresolvedSaves: new Map(), detailOpen: false, settingsEpoch: 0, refreshToken: 0, stopAllowed: false, stopLabel: '', stopRefreshVisible: false, resumeVisible: false, onSelect() {}, onBack() {}, onDirty() {}, onStop() {}, onRefreshStop() {}, onResume() {}, onSettingsRead() {}, resolveStrategy: () => ({ name: '', note: '' }) };
-  const empty = render(AccountsPage, accountProps);
-  assert.match(empty, /暂无账户/);
-  assert.doesNotMatch(empty, /<table/);
-  const failed = render(AccountsPage, { ...accountProps, directoryUnavailable: true });
-  assert.match(failed, /账户清单暂不可用/);
-  assert.doesNotMatch(failed, /暂无账户/);
-  assert.match(render(AccountsPage, { ...accountProps, directoryUnavailable: true }, 'en'), /Account list unavailable/);
-  const decisionProps = { blocked: true, items: [], sources: { promotions: 'ready', owners: 'stale', recovery: 'ready' }, admin: false, busy: false, selectedAccountId: '', onSelectAccount() {}, onDecide() {}, onRetry() {} };
-  assert.match(render(DecisionsPage, decisionProps), /重新读取待办/);
-  assert.doesNotMatch(render(DecisionsPage, decisionProps), /暂无需要你决定的事项/, 'unread sources are not a confirmed empty queue');
-  const item = { id: 'synthetic-1', kind: 'promotion', title: 'Synthetic proposal', kicker: '新策略方案', question: '是否采用这项方案？', currentName: '当前策略', proposedName: 'Synthetic proposal', accountLine: '', accountChoices: [], materialNotes: [], reference: 'synthetic-1', technical: '{}', impact: '采用只记录你的意向，账户策略和交易权限保持不变。', canAdopt: false, canReject: false };
-  const partial = render(DecisionsPage, { ...decisionProps, items: [item], sources: { ...decisionProps.sources, owners: 'failed' } });
-  assert.match(partial, /部分待办暂时无法读取/);
-  assert.match(partial, /重新读取待办/);
-  assert.match(partial, /Synthetic proposal/);
-  assert.doesNotMatch(partial, /暂无需要你决定的事项/);
-  assert.match(render(DecisionsPage, { ...decisionProps, retrying: true }), /disabled=""[^>]*>正在读取…/);
-  assert.doesNotMatch(render(DecisionsPage, { ...decisionProps, blocked: false, sources: { promotions: 'ready', owners: 'ready', recovery: 'ready' } }), /重新读取待办/);
-  console.log('console_read_recovery_ui_validation: PASS (actual React empty, failed, partial, busy and English states)');
+  const { InboxReadFailed, I18nProvider, HttpError, AccessError } = await import(pathToFileURL(file));
+  const render = (props, language = 'zh') => renderToStaticMarkup(React.createElement(I18nProvider, { language }, React.createElement(InboxReadFailed, props)));
+
+  const retry = () => {};
+  const unknown = render({ error: new Error('boom'), onRetry: retry });
+  assert.match(unknown, /role="alert"/);
+  assert.match(unknown, /data-state="unknown"/);
+  assert.match(unknown, /待办暂时无法读取/);
+  assert.match(unknown, /待办与审批数量暂时无法确认/, 'unread sources are never shown as a zero count');
+  assert.match(unknown, /重新读取待办/);
+  assert.doesNotMatch(unknown, /暂无需要你决定的事项/, 'unread sources are not a confirmed empty queue');
+
+  const noRetry = render({ error: new Error('boom') });
+  assert.doesNotMatch(noRetry, /<button/);
+
+  const incomplete = render({ data: { error_state: 'index_incomplete', directory: { complete: false, retry_at: Date.parse('2026-10-15T08:00:00Z') } }, onRetry: retry });
+  assert.match(incomplete, /data-state="index_incomplete"/);
+  assert.match(incomplete, /待办列表尚未更新完成/);
+  assert.match(incomplete, /最早重试时间/);
+  assert.match(incomplete, /重新读取待办/);
+
+  const denied = render({ error: new AccessError(401), onRetry: retry });
+  assert.match(denied, /data-state="unauthorized"/);
+  assert.match(denied, /待办访问受限/);
+  assert.match(denied, /重新登录/);
+  assert.doesNotMatch(denied, /<button/, 'unauthorized is not retryable');
+
+  const en = render({ error: new Error('boom'), onRetry: retry }, 'en');
+  assert.match(en, /Todos could not be read/);
+  assert.match(en, /Read todos again/);
+  console.log('console_read_recovery_ui_validation: PASS (live InboxReadFailed unknown, incomplete, unauthorized, no-retry and English states)');
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

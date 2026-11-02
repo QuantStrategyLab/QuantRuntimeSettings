@@ -1,13 +1,14 @@
 // Synthetic process harness for the real read-only entrypoint. No network,
 // production code, token or Cloudflare data is used in these tests.
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {test} from 'node:test';
 import {mkdtemp,mkdir,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
-test('both exact modes run the same validated candidate; unrelated bytes never run it',async()=>{
+test('historical and reviewed modes run only the fixed candidate; unknown hashes fail',async()=>{
   const root=await mkdtemp(join(tmpdir(),'qrs946-readonly-flow-'));
   try{
     for(const dir of ['scripts','web/strategy-switch-console/node_modules/@jridgewell/trace-mapping',
@@ -15,6 +16,8 @@ test('both exact modes run the same validated candidate; unrelated bytes never r
       await mkdir(join(root,dir),{recursive:true});
     for(const name of ['console_946_active_dry_run.mjs','console_946_readonly_state.mjs'])
       await writeFile(join(root,'scripts',name),await readFile(new URL('../scripts/'+name,import.meta.url)));
+    await writeFile(join(root,'scripts/console_946_reviewed_main_baseline.mjs'),
+      `export const REVIEWED_MAIN=Object.freeze({commit:'0123456789abcdef0123456789abcdef01234567',moduleSha256:'${createHash('sha256').update('synthetic-reviewed-main').digest('hex')}'});\n`);
     await writeFile(join(root,'web/strategy-switch-console/package.json'),'{}');
     await writeFile(join(root,'web/strategy-switch-console/frontend/package.json'),'{}');
     await writeFile(join(root,'web/strategy-switch-console/node_modules/@jridgewell/trace-mapping/index.js'),'module.exports={};');
@@ -46,12 +49,21 @@ test('both exact modes run the same validated candidate; unrelated bytes never r
         assert.equal(output.candidate_runtime_passed,true);assert.equal(output.upload_attempted,false);
         assert.equal(await readFile(marker,'utf8'),'runtime-ran');
       }
-      const rejected=await execute('private-synthetic-other');
-      assert.equal(rejected.status,1);const output=JSON.parse(rejected.stderr);
-      assert.equal(output.reason,'active_54e_bytes_mismatch');assert.equal(output.get_verified,true);
-      assert.equal(output.patch_ready,false);assert.equal(output.already_applied,null);
-      assert.doesNotMatch(rejected.stdout+rejected.stderr,/private-synthetic-other|synthetic-token|synthetic-account/);
-      await assert.rejects(readFile(marker),'unmatched live bytes must not be executed');
+      const reviewed=await execute('synthetic-reviewed-main');
+      assert.equal(reviewed.status,0,reviewed.stderr);
+      const accepted=JSON.parse(reviewed.stdout);
+      assert.equal(accepted.reviewed_main,true);assert.equal(accepted.patch_ready,false);
+      assert.equal(accepted.already_applied,null);assert.equal(accepted.baseline_commit,'0123456789abcdef0123456789abcdef01234567');
+      assert.equal(accepted.upload_attempted,false);
+      assert.equal(await readFile(marker,'utf8'),'runtime-ran');
+      for(const unknown of ['synthetic-reviewed-main\n','private-synthetic-other']){
+        const rejected=await execute(unknown);
+        assert.equal(rejected.status,1);const output=JSON.parse(rejected.stderr);
+        assert.equal(output.reason,'active_54e_bytes_mismatch');assert.equal(output.get_verified,true);
+        assert.equal(output.patch_ready,false);assert.equal(output.already_applied,null);
+        assert.doesNotMatch(rejected.stdout+rejected.stderr,/private-synthetic-other|synthetic-token|synthetic-account/);
+        await assert.rejects(readFile(marker),'unmatched live bytes must not be executed');
+      }
     }finally{
       for(const key of ['RUNNER_TEMP','TEST_ACTIVE','TEST_MARKER','CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID']){
         if(before[key]===undefined)delete process.env[key];else process.env[key]=before[key];

@@ -55,6 +55,24 @@ bad = clone(overview.ok); bad.schema_version = "qsl.desk.overview.v2"; assert.eq
 bad = clone(ribbon.ok); bad.console_state.gateways = { status: "unknown", reason: "read_failed", value: "down" }; assert.equal(isRibbon(bad), false, "unknown gateway is not down");
 bad = clone(session.ok); delete bad.server_time; assert.equal(isSession(bad), false, "session needs server_time");
 
+// Invalid calendar/time fields must fail at every trusted timestamp boundary.
+for (const at of ["2026-99-99T99:99:99Z", "2026-02-29T12:00:00Z", "2026-04-31T00:00:00Z",
+  "2026-01-00T00:00:00Z", "2026-00-01T00:00:00Z", "2026-11-02T24:00:00Z",
+  "2026-11-02T12:60:00Z", "2026-11-02T12:00:60Z", "2026-11-02T12:00:00+00:00"]) {
+  assert.equal(isSession({ ...session.ok, server_time: at }), false, "invalid session time");
+  for (const status of ["known", "stale"]) {
+    const read = { status, value: "all_reachable", observed_at: at, age_seconds: 1 };
+    assert.equal(isRead(read), false, "invalid observation time");
+    const payload = clone(ribbon.ok); payload.console_state.gateways = read;
+    const api = createDeskApi({ forcedScenario: null, delayMs: 0, sources: { ribbon: "live" }, fetchJson: async () => payload });
+    await assert.rejects(api.ribbon(), DeskContractError);
+  }
+  assert.equal(isRibbon({ ...ribbon.ok, generated_at: at }), false, "invalid envelope time");
+}
+for (const at of ["2024-02-29T23:59:59Z", "2026-11-02T00:00:00.123456Z", "0099-01-01T00:00:00Z"]) {
+  assert.ok(isRead({ status: "known", value: 1, observed_at: at }), "valid leap/fractional/early-year time");
+}
+
 // 3. Fixtures are internally consistent and synthetic.
 const cents = text => BigInt(text.replace(".", ""));
 const usd = overview.ok.book.reduce((sum, row) => sum + cents(row.nav.usd), 0n);

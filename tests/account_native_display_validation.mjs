@@ -40,10 +40,11 @@ assert.equal(display('binance', 'alias', null, report).nativeType, null, 'a nati
 for (const key of ['配置环境', '配置 live 环境', '配置 paper 环境', '配置环境待确认', '原生类别', '身份可信度', '身份部分核验', '身份待确认', '身份资料已过期']) {
   assert.notEqual(translate(key, 'en'), key, `English translation exists: ${key}`);
 }
-const page = readFileSync(new URL('../web/strategy-switch-console/frontend/src/AccountsPage.tsx', import.meta.url), 'utf8');
-const css = readFileSync(new URL('../web/strategy-switch-console/frontend/src/styles.css', import.meta.url), 'utf8');
-for (const label of ['配置环境', '原生类别', '身份可信度']) {
-  assert.ok(page.includes(`className="account-field-label account-fact-label">{t("${label}")}`));
-}
-assert.match(css, /\.accounts-page \.account-list \.account-fact-label \{ display: block;/, 'fact labels remain visible on desktop as well as mobile');
+const detail = readFileSync(new URL('../web/strategy-switch-console/frontend/src/pages/accounts/AccountDetail.tsx', import.meta.url), 'utf8');
+assert.match(detail, /const nativeTypeToken = verifiedSchwabAccountTypeToken\(account\.platform, fact\?\.data_status, fact\?\.broker_account_type\)/, 'native type comes only from a verified fresh broker report');
+assert.match(detail, /const accountType = nativeType \?\? declared\?\.accountType \?\? null/, 'a verified native type outranks the declared type');
+assert.match(detail, /nativeType && declared\?\.accountType && nativeType !== declared\.accountType/, 'a native/declared type disagreement is surfaced as a conflict');
+assert.match(detail, /<span>\{t\("accounts\.declaration\.account_type"\)\}<\/span>/, 'the account type row keeps a visible label');
+// Dropped with the legacy tree: the desktop-visible .account-fact-label CSS rule and the
+// 配置环境/身份可信度 row labels; the live detail card renders environment as a badge instead.
 console.log('account_native_display_validation: PASS');
