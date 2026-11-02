@@ -9,4 +9,10 @@ document.documentElement.dataset.theme = resolveTheme(preferences.theme, window.
 document.documentElement.lang = preferences.language === "zh" ? "zh-CN" : "en";
 
 const root = document.getElementById("root");
-if (root) createRoot(root).render(<App />);
+// The Meridian desk lives under #/desk/* and loads as its own chunk; every other URL
+// boots the existing console unchanged.
+if (root && /^#\/desk(?:[/?]|$)/.test(window.location.hash)) {
+  void import("./desk/DeskApp").then(({ mountDesk }) => mountDesk(root));
+} else if (root) {
+  createRoot(root).render(<App />);
+}
