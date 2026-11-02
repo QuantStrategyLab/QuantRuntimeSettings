@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -52,3 +53,36 @@ def display_name(kind, key, locale="en", *, fallback="", platform=""):
             if result:
                 return result
     return str(fallback or key)
+
+
+def runtime_account_names(keys, *, platform, locale="en"):
+    """Read account identities only from the protected runtime override.
+
+    Bundled account/lane aliases are public presentation defaults, not broker
+    identities. Never use this mapping in a frontend build or generated file.
+    """
+    accounts = _overrides(os.environ.get("QSL_DISPLAY_NAMES_JSON", "")).get("accounts", {})
+    section = accounts.get(str(platform).lower(), {}) if isinstance(accounts, dict) else {}
+    if isinstance(section, dict):
+        for key in dict.fromkeys(keys):
+            if key:
+                value = _text(section.get(key), locale)
+                if value:
+                    yield value
+
+
+def broker_account_identity(platform, value):
+    """Validate a display identity without mistaking a mask for a full ID."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if (not value or len(value) > 70 or not value.isprintable() or "://" in value
+            or any(char in value for char in "*•·…<>\\\n\r")
+            or re.search(r"(?i)x{2,}|masked|redacted", value)
+            or value.lower() in {"live", "paper", "shadow", "default", "account", "实盘", "模拟", "账户"}):
+        return ""
+    if platform == "ibkr":
+        return value.upper() if re.fullmatch(r"(?i)D?U[0-9]{5,16}", value) else ""
+    if platform in {"schwab", "firstrade"}:
+        return value if re.fullmatch(r"(?:Account )?[0-9][0-9 .-]{4,24}[0-9]", value) else ""
+    return value if platform in {"longbridge", "binance"} else ""

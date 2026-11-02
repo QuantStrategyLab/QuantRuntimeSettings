@@ -63,7 +63,7 @@ class ReceiptCountEvidenceTests(unittest.TestCase):
                 if count == 2:
                     self.assertIn("成交 2", text)
 
-    def test_sender_preserves_unknown_global_total_and_local_private_preview(self):
+    def test_sender_preserves_unknown_global_total_and_withholds_preview_body(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             candidates = root / "candidates.json"
@@ -86,8 +86,9 @@ class ReceiptCountEvidenceTests(unittest.TestCase):
         self.assertIsNone(result["total_fills"])
         self.assertEqual(result["total_fills_status"], "unknown")
         self.assertEqual(result["runs"][0]["fill_count"], 0)
-        # Local preview and the private receipt retain their existing purpose.
-        self.assertIn("123.45", preview.getvalue())
+        # Private receipts retain facts; even local preview logs omit the body.
+        self.assertNotIn("123.45", preview.getvalue())
+        self.assertIn("private message body withheld", preview.getvalue())
         self.assertIn("synthetic-private-target", json.dumps(result))
 
     def receipt(self, coverage, runs=()):

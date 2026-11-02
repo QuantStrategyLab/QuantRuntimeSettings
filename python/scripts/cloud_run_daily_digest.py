@@ -190,7 +190,7 @@ def _report(configuration, rows, outcomes, day, platform_config):
             break
         trailer.append(detail)
     base = render(payload, max_units=max(256, 3850 - _units('\n'.join(trailer))))
-    idle = '今日全部账号无交易' if zh else 'No trades across all accounts today'
+    idle = '😴 今日全部账号无交易' if zh else '😴 No trades across all accounts today'
     if coverage == 'complete' and (not base or base == idle):
         return idle, coverage
     if not base:

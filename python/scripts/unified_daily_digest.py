@@ -6,7 +6,7 @@ import re
 from datetime import date, datetime, time
 from notification_mode import consolidation_enabled, routine_mode
 from notification_snapshot.unified_contract import SGT, sgt_business_window
-from display_names import display_name
+from display_names import broker_account_identity, display_name, runtime_account_names
 from daily_digest_notify import DailyDigestInput, _presentation_needs_attention, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale, routine_decision_text, routine_observation_text
 
 
@@ -100,25 +100,11 @@ def _safe_display_text(value: object) -> str:
     return text[:70]
 
 
-def _run_display_contexts(rows, locale):
+def _run_display_contexts(rows, locale, *, runtime_accounts=False):
     """Resolve names with existing mappings; ordinals distinguish collisions."""
-    missing = "\0"
     parts, accounts = [], {}
     for index, row in enumerate(rows):
-        # A canonical display alias must hit this platform's trusted mapping.
-        # Neither the alias nor its identity/binding keys are display fallbacks.
-        account = _safe_display_text(display_name("accounts", row.account_alias, locale,
-                    fallback=missing, platform=row.platform_id)) if row.account_alias else ""
-        for key in dict.fromkeys((row.account_hint, row.account_scope, row.execution_mode)):
-            if account:
-                break
-            if not key:
-                continue
-            fallback = display_name("account_aliases", key, locale, fallback=missing)
-            candidate = display_name("accounts", key, locale, fallback=fallback, platform=row.platform_id)
-            account = _safe_display_text(candidate)
-            if account:
-                break
+        account = _account_identity_label(row, locale) if runtime_accounts else _legacy_account_label(row, locale)
         account = account or ("账户" if locale == "zh" else "Account")
         # These protected keys stay internal; display ordinals never replace them.
         identity = row.opaque_account_uid or row.target_id or row.account_hint or ("row", index)
@@ -151,8 +137,40 @@ def _run_display_contexts(rows, locale):
             for platform, account, strategy, group, identity in parts]
 
 
+def _account_identity_label(row, locale):
+    # Opaque keys are lookup keys only, never labels. Only the runtime override
+    # may translate one to a full broker identity; generated lane aliases cannot.
+    keys = (row.opaque_account_uid, row.target_id, row.account_alias,
+            row.account_hint, row.account_scope, row.execution_mode)
+    for value in runtime_account_names(keys, platform=row.platform_id, locale=locale):
+        account = broker_account_identity(row.platform_id, value)
+        if account:
+            return account
+    # IBKR producers normalize runtime_target.account_selector into account_hint.
+    # Numeric hints on Schwab/Firstrade are also explicit broker identifiers.
+    # Never extract an identity from a scope, hash, target or execution mode.
+    if row.platform_id in {"ibkr", "schwab", "firstrade"}:
+        return broker_account_identity(row.platform_id, row.account_hint)
+    return ""
+
+
 def _run_display_labels(rows, locale):
     return [" / ".join(context) for context in _run_display_contexts(rows, locale)]
+
+
+def _legacy_account_label(row, locale):
+    """Retain the existing masked-label contract for non-digest notifications."""
+    missing = "\0"
+    account = _safe_display_text(display_name("accounts", row.account_alias, locale,
+        fallback=missing, platform=row.platform_id)) if row.account_alias else ""
+    for key in dict.fromkeys((row.account_hint, row.account_scope, row.execution_mode)):
+        if account:
+            break
+        if key:
+            fallback = display_name("account_aliases", key, locale, fallback=missing)
+            account = _safe_display_text(display_name("accounts", key, locale,
+                fallback=fallback, platform=row.platform_id))
+    return account
 
 
 def _known_count(row, name):
@@ -228,7 +246,7 @@ def _account_observations(rows, locale):
     for index, row in enumerate(snapshots, 1):
         observation = []
         if _finite_number(row.equity) and re.fullmatch(r"[A-Z]{3,5}", row.equity_currency):
-            observation.append(("总资产 " if locale == "zh" else "Total assets ") + f"{row.equity_currency} {row.equity:,.2f}")
+            observation.append("💰 " + ("总资产 " if locale == "zh" else "Total assets ") + f"{row.equity_currency} {row.equity:,.2f}")
         observation.extend(_account_holdings(row, locale))
         if observation and len(snapshots) > 1:
             observation.insert(0, f"运行快照 {index}" if locale == "zh" else f"Run snapshot {index}")
@@ -244,9 +262,9 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     coverage = payload.evidence_coverage
     complete = bool(coverage and coverage.is_complete_for_verified_idle and not summary.get("counts_scope_unknown", summary.get("counts_unknown")))
     if complete and all(_verified_no_trade(row) for row in payload.runs):
-        return "今日全部账号无交易" if zh else "No trades across all accounts today"
-    lines = [f"每日交易摘要 · {payload.business_day}" if zh else f"Daily trading digest · {payload.business_day}"]
-    lines.append(_window_text(payload.business_day, locale))
+        return "😴 今日全部账号无交易" if zh else "😴 No trades across all accounts today"
+    lines = ["📊 " + (f"每日交易摘要 · {payload.business_day}" if zh else f"Daily trading digest · {payload.business_day}")]
+    lines.append("🕒 " + _window_text(payload.business_day, locale))
     lines.append(("窗口内运行次数未知" if zh else "Run count in window unknown") if summary.get("run_count_unknown") else
                  f"已收录运行 {len(payload.runs)} 次" if zh else f"Observed runs in window: {len(payload.runs)}")
     counts = []
@@ -275,7 +293,7 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     if immediate:
         lines.append(f"紧急事项 {immediate} 项（日报留档）" if zh else f"Urgent items: {immediate} (daily record)")
     accounts = {}
-    for index, (row, (platform, account, strategy)) in enumerate(zip(payload.runs, _run_display_contexts(payload.runs, locale))):
+    for index, (row, (platform, account, strategy)) in enumerate(zip(payload.runs, _run_display_contexts(payload.runs, locale, runtime_accounts=True))):
         header = f"{platform}·{account}"
         identity = row.opaque_account_uid or row.target_id or row.account_hint or ("row", index)
         accounts.setdefault((row.platform_id, identity), []).append((row, header, strategy))
@@ -287,17 +305,17 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         header = entries[0][1]
         needs_attention = any(row.status == "alert" or is_blocked(row) or _presentation_needs_attention(row)
                               or not all(_known_count(row, name) for name in ("order", "fill")) for row in rows)
-        block = [header]
+        block = ["🏦 " + header]
         missing_strategy = "未命名策略" if zh else "Unnamed strategy"
         strategies = list(dict.fromkeys(strategy for _, _, strategy in entries if strategy != missing_strategy))
         if strategies:
-            block.append(("策略：" if zh else "Strategy: ") + " / ".join(strategies))
+            block.append("🎯 " + ("策略：" if zh else "Strategy: ") + " / ".join(strategies))
         values = {}
         for name in ("order", "fill"):
             values[name] = (str(sum(getattr(row, name + "_count") for row in rows))
                             if all(_known_count(row, name) for row in rows) else "未知" if zh else "unknown")
-        block.append(f"提交{values['order']}笔/成交{values['fill']}笔" if zh else
-                     f"Submitted {values['order']}/Filled {values['fill']}")
+        block.append("📝 " + (f"提交{values['order']}笔/成交{values['fill']}笔" if zh else
+                     f"Submitted {values['order']}/Filled {values['fill']}"))
         if needs_attention:
             block.append("需核对" if zh else "Needs review")
         details = []

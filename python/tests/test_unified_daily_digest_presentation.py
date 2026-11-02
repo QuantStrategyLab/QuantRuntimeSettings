@@ -91,11 +91,11 @@ class UnifiedPresentationTests(unittest.TestCase):
         rows = (row(), row("synthetic-b", strategy_profile="tqqq_growth_income"))
         before = deepcopy([asdict(item) for item in rows])
         with self.display_names({"accounts": {"schwab": {
-                "synthetic-a": {"zh": "合成甲", "en": "Synthetic A"},
-                "synthetic-b": {"zh": "合成乙", "en": "Synthetic B"}}}}):
+                "synthetic-a": {"zh": "00000011", "en": "Account 00000011"},
+                "synthetic-b": {"zh": "00000022", "en": "Synthetic B"}}}}):
             text = render(payload(*rows))
-        self.assertIn("Schwab·合成甲\n策略：半导体趋势收益", text)
-        self.assertIn("Schwab·合成乙\n策略：纳斯达克增长收益", text)
+        self.assertIn("Schwab·00000011\n🎯 策略：半导体趋势收益", text)
+        self.assertIn("Schwab·00000022\n🎯 策略：纳斯达克增长收益", text)
         self.assertEqual([asdict(item) for item in rows], before)
         for item in rows:
             self.assertNotIn(item.opaque_account_uid, text)
@@ -103,27 +103,27 @@ class UnifiedPresentationTests(unittest.TestCase):
             self.assertNotIn(item.source_run_id, text)
 
     def test_selected_locale_reaches_alias_and_strategy_for_variants(self):
-        mapping = {"accounts": {"schwab": {"synthetic-a": {"zh": "合成甲", "en": "Synthetic A"}}}}
+        mapping = {"accounts": {"schwab": {"synthetic-a": {"zh": "00000011", "en": "Account 00000011"}}}}
         with self.display_names(mapping):
             for locale in ("zh-CN", "zh_TW", " ZH-hans ", " zh "):
                 with self.subTest(locale=locale):
                     text = render(payload(row(), locale=locale))
-                    self.assertIn("合成甲\n策略：半导体趋势收益", text)
-                    self.assertNotIn("Synthetic A", text)
+                    self.assertIn("00000011\n🎯 策略：半导体趋势收益", text)
+                    self.assertNotIn("Account 00000011", text)
             text = render(payload(row(), locale=" en-US "))
             self.assertIn("Daily trading digest", text)
-            self.assertIn("Synthetic A\nStrategy: Semiconductor Trend Income", text)
-            self.assertNotIn("合成甲", text)
+            self.assertIn("Account 00000011\n🎯 Strategy: Semiconductor Trend Income", text)
+            self.assertNotIn("Schwab·00000011\n", text)
 
-    def test_platform_account_mapping_precedes_global_alias_fallback(self):
-        mapping = {"account_aliases": {"synthetic-a": {"zh": "全局甲", "en": "Global A"}}}
+    def test_platform_runtime_mapping_identifies_accounts_without_global_aliases(self):
+        mapping = {"account_aliases": {"synthetic-a": {"zh": "00000044", "en": "Global A"}}}
         with self.display_names(mapping):
-            self.assertIn("全局甲", render(payload(row())))
-        mapping["accounts"] = {"schwab": {"synthetic-a": {"zh": "平台甲", "en": "Platform A"}}}
+            self.assertNotIn("00000044", render(payload(row())))
+        mapping["accounts"] = {"schwab": {"synthetic-a": {"zh": "00000033", "en": "Platform A"}}}
         with self.display_names(mapping):
             text = render(payload(row()))
-            self.assertIn("平台甲", text)
-            self.assertNotIn("全局甲", text)
+            self.assertIn("00000033", text)
+            self.assertNotIn("00000044", text)
 
     def test_unmapped_accounts_get_distinct_generic_labels_not_raw_identifiers(self):
         text = render(payload(row(), row("synthetic-b")))
@@ -134,22 +134,22 @@ class UnifiedPresentationTests(unittest.TestCase):
 
     def test_same_account_repeated_healthy_runs_do_not_repeat_context(self):
         item = row()
-        with self.display_names({"account_aliases": {"synthetic-a": "Synthetic alias"}}):
+        with self.display_names({"accounts": {"schwab": {"synthetic-a": "00000055"}}}):
             text = render(payload(item, replace(item, source_run_id="synthetic-second-run")))
-        self.assertEqual(text.count("Schwab·Synthetic alias\n策略：半导体趋势收益"), 1)
+        self.assertEqual(text.count("Schwab·00000055\n🎯 策略：半导体趋势收益"), 1)
         self.assertIn("已收录运行 2 次", text)
 
     def test_colliding_aliases_are_disambiguated_by_display_ordinal(self):
-        with self.display_names({"account_aliases": {"synthetic-a": "Shared alias", "synthetic-b": "Shared alias"}}):
+        with self.display_names({"accounts": {"schwab": {"synthetic-a": "00000066", "synthetic-b": "00000066"}}}):
             text = render(payload(row(), row("synthetic-b")))
-        self.assertIn("Shared alias 1", text)
-        self.assertIn("Shared alias 2", text)
+        self.assertIn("00000066 1", text)
+        self.assertIn("00000066 2", text)
 
     def test_generated_ordinals_cannot_collide_with_existing_alias(self):
-        with self.display_names({"account_aliases": {
-                "synthetic-a": "Shared alias", "synthetic-b": "Shared alias", "synthetic-c": "Shared alias 1"}}):
+        with self.display_names({"accounts": {"schwab": {
+                "synthetic-a": "00000066", "synthetic-b": "00000066", "synthetic-c": "00000066 1"}}}):
             text = render(payload(row(), row("synthetic-b"), row("synthetic-c")))
-        lines = [line for line in text.splitlines() if line.startswith("Schwab·")]
+        lines = [line for line in text.splitlines() if line.startswith("🏦 Schwab·")]
         self.assertEqual(len(lines), 3)
         self.assertEqual(len(set(lines)), 3)
         self.assertIn("已收录运行 3 次", text)
@@ -188,9 +188,9 @@ class UnifiedPresentationTests(unittest.TestCase):
             rebalance_conclusion="blocked", block_reason={"reason_code": "strategy_risk_rejected", "observed_value": None, "limit": None},
             approved_gate_reasons=({"reason_code": "consecutive_loss_limit_exceeded", "observed_value": 6, "limit": 5},
                 {"reason_code": "daily_loss_limit_exceeded", "observed_value": 80, "limit": 60, "equity_usd": 2000}))
-        with self.display_names({"account_aliases": {"synthetic-a": "Synthetic alias"}}):
+        with self.display_names({"accounts": {"schwab": {"synthetic-a": "00000055"}}}):
             text = render(payload(item))
-        self.assertIn("Synthetic alias\n策略：半导体趋势收益", text)
+        self.assertIn("00000055\n🎯 策略：半导体趋势收益", text)
         self.assertIn("6>5", text)
         self.assertIn("80≥60", text)
         self.assertIn("核对基准净值和资金进出", text)
@@ -270,9 +270,10 @@ class UnifiedPresentationTests(unittest.TestCase):
         self.assertLessEqual(len(text.encode("utf-16-le")) // 2, 512)
 
     def test_aliases_are_single_line_and_long_context_keeps_message_budget(self):
-        with self.display_names({"account_aliases": {"synthetic-a": "合成\n别名"}}):
+        with self.display_names({"accounts": {"schwab": {"synthetic-a": "合成\n别名"}}}):
             text = render(payload(row()))
-        self.assertIn("合成 别名", text)
+        self.assertIn("Schwab·账户", text)
+        self.assertNotIn("合成", text)
         rows = tuple(row("synthetic-" + str(index)) for index in range(100))
         text = render(payload(*rows), max_units=512)
         self.assertLessEqual(len(text.encode("utf-16-le")) // 2, 512)

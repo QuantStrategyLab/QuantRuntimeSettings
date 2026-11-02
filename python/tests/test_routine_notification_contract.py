@@ -48,10 +48,11 @@ class RoutineNotificationContractTests(unittest.TestCase):
         self.names.start()
         self.addCleanup(self.names.stop)
 
-    def render(self, rows, *, locale="zh", unified=False, layout="v1"):
+    def render(self, rows, *, locale="zh", unified=False, layout="v1", account_names=None):
         config = {"strategies": {}, "notifications": {"quant_sentinel": {"daily_digest": {
             "aggregator": {"expected_targets": rows}}}}}
-        env = {"QRS_UNIFIED_NOTIFICATION_ENABLED": "true"} if unified else {}
+        env = {"QRS_UNIFIED_NOTIFICATION_ENABLED": "true",
+               "QSL_DISPLAY_NAMES_JSON": json.dumps({"accounts": account_names or NAMES["accounts"]})} if unified else {}
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, env, clear=True):
             path = Path(directory) / "synthetic.json"
             path.write_text(json.dumps({"runs": rows}))
@@ -90,7 +91,7 @@ class RoutineNotificationContractTests(unittest.TestCase):
                 before = copy.deepcopy(raw)
                 payload, text, collected = self.render([raw], locale=locale, unified=unified)
                 if unified:
-                    self.assertEqual(text, "今日全部账号无交易" if locale == "zh" else "No trades across all accounts today")
+                    self.assertEqual(text, "😴 今日全部账号无交易" if locale == "zh" else "😴 No trades across all accounts today")
                 else:
                     self.assertIn("12.5 USD", text)
                     self.assertIn("50.0 USD", text)
@@ -123,7 +124,7 @@ class RoutineNotificationContractTests(unittest.TestCase):
                 payload, text, _ = self.render([row(routine_decision=first,
                     routine_decisions=[first, second, first])], locale=locale, unified=unified)
                 if unified:
-                    self.assertEqual(text, "今日全部账号无交易" if locale == "zh" else "No trades across all accounts today")
+                    self.assertEqual(text, "😴 今日全部账号无交易" if locale == "zh" else "😴 No trades across all accounts today")
                 else:
                     self.assertEqual(text.count("12.5 USD"), 1)
                     self.assertEqual(text.count("17.5 HKD"), 1)
@@ -194,8 +195,9 @@ class RoutineNotificationContractTests(unittest.TestCase):
 
     def test_trusted_same_platform_alias_wins_over_masked_hint_without_becoming_identity(self):
         for unified in (False, True):
-            payload, text, _ = self.render([row(account_alias="canonical-demo", account_hint="masked-demo", order_count=1)], unified=unified)
-            self.assertIn("Long-term demo", text)
+            payload, text, _ = self.render([row(account_alias="canonical-demo", account_hint="masked-demo", order_count=1)],
+                unified=unified, account_names={"ibkr": {"canonical-demo": "U0000099"}})
+            self.assertIn("U0000099" if unified else "Long-term demo", text)
             for private in ("canonical-demo", "masked-demo", "synthetic-account", "synthetic-target"):
                 self.assertNotIn(private, text)
             self.assertEqual(payload.runs[0].opaque_account_uid, "synthetic-account")

@@ -147,8 +147,8 @@ class ConsolidationLanguageTests(unittest.TestCase):
 
     def test_zero_runs_and_verified_zero_trade_runs_get_one_idle_line(self):
         with patch.dict(os.environ, ON, clear=True):
-            self.assertEqual(render(payload()), "今日全部账号无交易")
-            self.assertEqual(render(payload(row())), "今日全部账号无交易")
+            self.assertEqual(render(payload()), "😴 今日全部账号无交易")
+            self.assertEqual(render(payload(row())), "😴 今日全部账号无交易")
 
     def test_localized_schwab_reason_is_run_scoped_and_does_not_infer_fills(self):
         from dataclasses import replace
@@ -223,7 +223,7 @@ class ConsolidationCandidateTests(unittest.TestCase):
                 self.assertEqual(len(p.runs), 1)
                 self.assertEqual(receipt["total_fills"], 0)
                 self.assertFalse(receipt["notification_summary"]["counts_unknown"])
-                self.assertEqual(text, "今日全部账号无交易")
+                self.assertEqual(text, "😴 今日全部账号无交易")
                 self.assertNotIn("全窗口统计未知", text)
 
     def test_raw_event_cannot_clear_real_archive_conflict(self):
@@ -308,7 +308,7 @@ class ConsolidationCandidateTests(unittest.TestCase):
         idle = candidate(actually_ran=False)
         idle.pop("notification_event")
         _, text, _, receipt = build([idle])
-        self.assertEqual(text, "今日全部账号无交易")
+        self.assertEqual(text, "😴 今日全部账号无交易")
         self.assertEqual(receipt["evidence_status"], "verified_idle")
 
     def test_missing_expected_binding_is_visible_without_filling_unknown_counts(self):
@@ -379,7 +379,7 @@ class ConsolidationCandidateTests(unittest.TestCase):
 
     def test_verified_idle_text_does_not_apply_to_unknown_counts(self):
         _, known, _, _ = build([candidate(execution_status="no_action")])
-        self.assertEqual(known, "今日全部账号无交易")
+        self.assertEqual(known, "😴 今日全部账号无交易")
         _, unknown, _, _ = build([candidate(execution_status="no_action", fill_count=None)])
         self.assertNotIn("无交易", unknown)
 

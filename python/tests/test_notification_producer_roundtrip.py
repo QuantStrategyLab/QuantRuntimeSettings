@@ -112,7 +112,7 @@ class ProducerRoundtripTests(unittest.TestCase):
         self.assertEqual(sends, [])
         self.assertFalse(summary["counts_unknown"])
         self.assertEqual(receipt["total_fills"], 0)
-        self.assertEqual(text, "今日全部账号无交易")
+        self.assertEqual(text, "😴 今日全部账号无交易")
         self.assertNotIn("全窗口统计未知", text)
         orders = [{"status": "filled", "broker_order_id": "synthetic-order"}]
         real, sends = self.produce([("order-run", orders), ("order-run", orders)])
