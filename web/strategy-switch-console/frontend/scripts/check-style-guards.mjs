@@ -1,4 +1,5 @@
-// Flat-design style guards for the console CSS (rules: docs/console-information-design.zh-CN.md, #1034).
+// Tokens-only style guard for the console CSS: no hardcoded colours or font sizes, no legacy token aliases.
+// Visual design (shadows, gradients, radius, borders, grids) is free; the former flat-design spec is revoked.
 // Warn-only by default: prints violations and exits 0. Pass --strict to exit 1 on any violation.
 // Other flags: --markdown (grouped report for a PR body), --json.
 // The dead legacy file src/styles.css is skipped; P0-2 deletes it.
@@ -18,16 +19,10 @@ export const LEGACY_ALIASES = [
 const ALIAS_RE = new RegExp(`--(?:${LEGACY_ALIASES.join("|")})(?![\\w-])`);
 const SKIP_FILES = new Set(["src/styles.css"]);
 const COLOR_FILES = new Set(["tokens.css"]);
-// Date matrices are not blocks, so repeat(7, ...) is allowed on calendar month grids.
-const GRID_ALLOW_SELECTOR = /calendar-month|calendar-grid|month-matrix/;
 
 export const RULES = {
   "color-literal": "colour literal outside tokens.css (use a token)",
-  "box-shadow": "box-shadow outside :focus-visible (flat design: no shadows)",
-  gradient: "gradient (flat design: solid fills only)",
-  "border-1px": "1px border (use the 0.5px hairline token)",
   "font-size-px": "literal px font size (use a type token)",
-  "grid-columns": "repeat(N > 4) grid (max 4 boxes per row)",
   "legacy-token": "legacy token alias or --benchmark-N (use the canonical token)",
 };
 
@@ -72,40 +67,6 @@ export function parseDeclarations(source) {
   return out;
 }
 
-// Reduce a selector to its top level: quoted strings, [attr] contents and (...) contents are removed
-// (backslash escapes honoured), and top-level commas become `split` points when requested.
-function topLevel(list, splitOnComma) {
-  const parts = [];
-  let cur = "";
-  let depth = 0;
-  let quote = "";
-  for (let i = 0; i < list.length; i += 1) {
-    const ch = list[i];
-    if (ch === "\\") { i += 1; if (depth === 0) cur += "x"; continue; }
-    if (quote) { if (ch === quote) quote = ""; continue; }
-    if (ch === '"' || ch === "'") { quote = ch; continue; }
-    if ("([".includes(ch)) { if (depth === 0) cur += ch; depth += 1; continue; }
-    if (")]".includes(ch)) { depth = Math.max(0, depth - 1); if (depth === 0) cur += ch; continue; }
-    if (depth > 0) continue;
-    if (ch === "," && splitOnComma) { parts.push(cur.trim()); cur = ""; } else cur += ch;
-  }
-  parts.push(cur.trim());
-  return parts;
-}
-
-// True only if the selector's subject (last compound) carries a top-level, positive :focus-visible.
-// :not(:focus-visible), :is()/:where() contents, attribute values and quoted text never count.
-function isFocusVisibleBranch(branch) {
-  const [flat] = topLevel(branch, false);
-  const subject = flat.split(/[\s>+~]+/).filter(Boolean).pop() || "";
-  return /:focus-visible(?![\w-])/i.test(subject);
-}
-
-// Shadows are only allowed when every selector in the rule's own list targets a :focus-visible element.
-function shadowOutsideFocus(d) {
-  return !topLevel(d.own, true).every(isFocusVisibleBranch);
-}
-
 export function checkCss(source, file = "x.css") {
   const base = file.split("/").pop();
   const found = [];
@@ -113,13 +74,7 @@ export function checkCss(source, file = "x.css") {
   for (const d of parseDeclarations(source)) {
     const { prop, value } = d;
     if (!COLOR_FILES.has(base) && /#[0-9a-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/i.test(value)) add("color-literal", d);
-    if (prop === "box-shadow" && shadowOutsideFocus(d) && !/^(none|0)$/.test(value)) add("box-shadow", d);
-    if (/gradient\(/i.test(value)) add("gradient", d);
-    if (/^border(-(top|right|bottom|left|inline|block)(-(start|end))?)?(-width)?$/.test(prop) && /(?<![\d.])1px/.test(value)) add("border-1px", d);
     if (prop === "font-size" && /(?<![\w.-])\d*\.?\d+px/.test(value)) add("font-size-px", d);
-    if (/^grid-template(-columns)?$/.test(prop) && !GRID_ALLOW_SELECTOR.test(d.selector)) {
-      for (const m of value.matchAll(/repeat\(\s*(\d+)\s*,/g)) if (Number(m[1]) > 4) add("grid-columns", d);
-    }
     if (ALIAS_RE.test(prop) || ALIAS_RE.test(value) || /--benchmark-\d/.test(prop + value)) add("legacy-token", d);
   }
   return found;

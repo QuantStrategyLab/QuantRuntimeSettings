@@ -9,46 +9,18 @@ assert.deepEqual(rules(".a { color: #fff; }"), ["color-literal"]);
 assert.deepEqual(rules(".a { color: rgba(0,0,0,.5); }"), ["color-literal"]);
 assert.deepEqual(rules(".a { color: #fff; }", "src/app/tokens.css"), []);
 assert.deepEqual(rules("/* #fff box-shadow: 0 0 1px red */ .a { color: var(--text-primary); }"), []);
-assert.deepEqual(rules(".a { box-shadow: 0 1px 2px var(--x); }"), ["box-shadow"]);
-assert.deepEqual(rules(".a:focus-visible { box-shadow: 0 0 0 2px var(--accent); }"), []);
-assert.deepEqual(rules("@media (x) { .a:focus-visible { box-shadow: 0 0 0 2px var(--accent); } }"), []);
-assert.deepEqual(rules(".a:hover, .a:focus-visible { box-shadow: 0 1px 2px var(--accent); }"), ["box-shadow"]);
-assert.deepEqual(rules(".a:focus-visible,\n.b:hover {\n  box-shadow: 0 1px 2px var(--accent);\n}"), ["box-shadow"]);
-assert.deepEqual(rules(".a,\n.b {\n  box-shadow: 0 1px 2px var(--accent);\n}"), ["box-shadow"]);
-assert.deepEqual(rules(".a:focus-visible,\n.b:focus-visible { box-shadow: 0 0 0 2px var(--accent); }"), []);
-assert.deepEqual(rules("@media (x) { .a:hover, .b:focus-visible { box-shadow: 0 0 0 2px var(--accent); } }"), ["box-shadow"]);
-assert.deepEqual(rules(".a:not(.b, .c):focus-visible { box-shadow: 0 0 0 2px var(--accent); }"), []);
-assert.deepEqual(rules(".a:hover, .b { box-shadow: none; }"), []);
-// Bypass attempts: only a positive top-level :focus-visible on every selector is exempt.
-const SH = "box-shadow: 0 1px 2px var(--accent);";
-for (const sel of [
-  ".a:focus-visible, :is(.b:hover, .b:focus-visible)",
-  ":is(.a:hover, .a:focus-visible)",
-  ":where(.a:hover, .a:focus-visible)",
-  ".a:not(:focus-visible)",
-  '[data-note=":focus-visible"]',
-  "[data-note=':focus-visible']",
-  '.a[data-note="("]:focus-visible, .b:hover',
-  '.a[data-note=")"]:focus-visible, .b:hover',
-  ".a:focus-visible .child",
-  ".a:focus-visible-not",
-]) {
-  assert.deepEqual(rules(`${sel} { ${SH} }`), ["box-shadow"], sel);
-  assert.deepEqual(rules(`@media (x) {\n  ${sel} {\n    ${SH}\n  }\n}`), ["box-shadow"], sel);
-}
-assert.deepEqual(rules('.a[data-note="("]:focus-visible, .b[data-x=")"]:focus-visible { ' + SH + " }"), []);
-assert.deepEqual(rules(":is(.a, .b):focus-visible { " + SH + " }"), []);
-assert.deepEqual(rules(".x > .a:FOCUS-VISIBLE::after { " + SH + " }"), []);
-assert.deepEqual(rules(".a { background: linear-gradient(red, blue); }"), ["gradient"]);
-assert.deepEqual(rules(".a { border: 1px solid var(--border); }"), ["border-1px"]);
-assert.deepEqual(rules(".a { border-bottom: 1px solid var(--border); }"), ["border-1px"]);
-assert.deepEqual(rules(".a { border: 0.5px solid var(--border); outline: 2px solid var(--accent); }"), []);
+// Visual-design properties are free: only hardcoded values and legacy aliases are checked.
+for (const css of [
+  ".a { box-shadow: 0 1px 2px var(--shadow-sm); }",
+  ".a { background: linear-gradient(var(--c1), var(--c2)); }",
+  ".a { border: 1px solid var(--border); border-radius: var(--radius-md); }",
+  ".a { border: 0.5px solid var(--border); }",
+  ".a { grid-template-columns: repeat(6, 1fr); }",
+]) assert.deepEqual(rules(css), [], css);
+assert.deepEqual(rules(".a { box-shadow: 0 1px 2px rgba(0,0,0,.2); }"), ["color-literal"]);
+assert.deepEqual(rules(".a { background: linear-gradient(#fff, #000); }"), ["color-literal"]);
 assert.deepEqual(rules(".a { font-size: 13px; }"), ["font-size-px"]);
 assert.deepEqual(rules(".a { font-size: var(--text-sm); }"), []);
-assert.deepEqual(rules(".a { grid-template-columns: repeat(5, 1fr); }"), ["grid-columns"]);
-assert.deepEqual(rules(".a { grid-template-columns: repeat(4, 1fr); }"), []);
-assert.deepEqual(rules(".a { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }"), []);
-assert.deepEqual(rules(".calendar-month-grid { grid-template-columns: repeat(7, 1fr); }"), []);
 assert.deepEqual(rules(".a { color: var(--ink); }"), ["legacy-token"]);
 assert.deepEqual(rules(":root { --shadow: none; }"), ["legacy-token"]);
 assert.deepEqual(rules(".a { color: var(--benchmark-3); }"), ["legacy-token"]);
@@ -59,7 +31,7 @@ assert.deepEqual(rules(".a { color: var(--inkwell); }"), []);
 assert.deepEqual(rules(".a { color: var(--text-muted); }"), []);
 
 // Line numbers point at the declaration.
-assert.equal(checkCss(".a {\n  color: red;\n  border: 1px solid x;\n}", "a.css")[0].line, 3);
+assert.equal(checkCss(".a {\n  color: red;\n  color: #fff;\n}", "a.css")[0].line, 3);
 
 // The live tree is scanned and the legacy dead file is skipped; warn-only never fails.
 const root = new URL("../web/strategy-switch-console/frontend/", import.meta.url).pathname;
