@@ -16,6 +16,39 @@ export const RULES = {
   "theme-parity": "colour token defined in only one of the light and dark blocks of tokens.css",
 };
 
+// Colour literals: hex, every CSS colour function and the CSS named colours. Keywords such as
+// transparent, currentColor and inherit, and system colours, are not palette values and are ignored.
+const COLOR_FUNCTION = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/i;
+const NAMED_COLORS = new Set(`
+aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue
+blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson
+cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen
+darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet
+deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro
+ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred
+indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan
+lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey
+lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid
+mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin
+navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen
+paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple
+red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver
+skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle
+tomato turquoise violet wheat white whitesmoke yellow yellowgreen
+`.split(/\s+/).filter(Boolean));
+// Named colours are only looked for in properties that take a colour, so identifiers in
+// font-family, animation-name, grid-template-areas and similar values do not match.
+const COLOR_PROPS = /^(?:--.*|color|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-color)?|outline(?:-color)?|box-shadow|text-shadow|fill|stroke|caret-color|accent-color|text-decoration(?:-color)?|text-emphasis(?:-color)?|column-rule(?:-color)?|scrollbar-color|stop-color|flood-color|lighting-color|filter|-webkit-text-fill-color|-webkit-text-stroke(?:-color)?)$/;
+
+/** True when a declaration value carries a hardcoded colour. */
+export function hasColorLiteral(prop, value) {
+  // Ignore strings, url() and var() references: names inside them are not colours.
+  const v = value.replace(/"[^"]*"|'[^']*'|url\([^)]*\)|var\(\s*--[\w-]+/gi, " ");
+  if (COLOR_FUNCTION.test(v)) return true;
+  if (!COLOR_PROPS.test(prop)) return false;
+  return (v.match(/(?<![\w-])[a-z]+(?![\w-])/gi) || []).some((w) => NAMED_COLORS.has(w.toLowerCase()));
+}
+
 function stripComments(text) {
   return text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
 }
@@ -63,7 +96,7 @@ export function checkCss(source, file = "x.css") {
   const add = (rule, d) => found.push({ rule, file, line: d.line, selector: d.selector, text: `${d.prop}: ${d.value}` });
   for (const d of parseDeclarations(source)) {
     const { prop, value } = d;
-    if (!COLOR_FILES.has(base) && /#[0-9a-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/i.test(value)) add("color-literal", d);
+    if (!COLOR_FILES.has(base) && hasColorLiteral(prop, value)) add("color-literal", d);
   }
   if (COLOR_FILES.has(base)) found.push(...checkThemeParity(source, file));
   return found;
@@ -74,7 +107,7 @@ export function checkThemeParity(source, file = "tokens.css") {
   const light = new Map();
   const dark = new Map();
   for (const d of parseDeclarations(source)) {
-    if (!d.prop.startsWith("--") || !/#[0-9a-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/i.test(d.value)) continue;
+    if (!d.prop.startsWith("--") || !hasColorLiteral(d.prop, d.value)) continue;
     const isDark = /data-theme=["']?dark/.test(d.selector);
     (isDark ? dark : light).set(d.prop, d);
   }
