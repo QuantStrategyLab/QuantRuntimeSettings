@@ -34,7 +34,10 @@ class ApprovedGateTests(unittest.TestCase):
             for locale in ("zh", "en"):
                 with self.subTest(reasons=reasons, locale=locale):
                     row = gate(reasons)
-                    payload, text, collected, receipt = build([row, copy.deepcopy(row)], locale=locale)
+                    # An account is included only if some run actually traded;
+                    # the gate observation itself still records zero orders.
+                    payload, text, collected, receipt = build([row, copy.deepcopy(row),
+                        candidate("run-traded", order_count=1, fill_count=1)], locale=locale)
                     self.assertEqual(collected.notification_summary["immediate_events"], 0)
                     self.assertEqual(receipt["runs"][0]["approved_gate_reasons"], tuple(reasons))
                     self.assertEqual(receipt["runs"][0]["source_run_id"], row["source_run_id"])
@@ -49,9 +52,9 @@ class ApprovedGateTests(unittest.TestCase):
 
     def test_same_run_reason_union_preserves_all_reasons_in_both_input_orders(self):
         for rows in ([gate([DAILY]), gate([CONSECUTIVE])], [gate([CONSECUTIVE]), gate([DAILY])]):
-            _, text, collected, receipt = build(rows)
+            _, text, collected, receipt = build([*rows, candidate("run-traded", order_count=1, fill_count=1)])
             self.assertEqual(collected.notification_summary["immediate_events"], 0)
-            self.assertEqual(len(receipt["runs"]), 1)
+            self.assertEqual(len(receipt["runs"]), 2)
             self.assertEqual({r["reason_code"] for r in receipt["runs"][0]["approved_gate_reasons"]}, {DAILY["reason_code"], CONSECUTIVE["reason_code"]})
             self.assertIn("80≥60", text)
             self.assertIn("6>5", text)

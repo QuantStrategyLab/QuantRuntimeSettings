@@ -138,18 +138,17 @@ class ConsolidationGuardTests(unittest.TestCase):
 class ConsolidationLanguageTests(unittest.TestCase):
     def test_utf16_budget_remains_one_message_with_both_locales(self):
         from dataclasses import replace
-        item = row(block_reason=dict(reason_code="strategy_risk_rejected", order_submitted_this_run=False))
+        item = row(order_count=1, status="alert", block_reason=dict(reason_code="strategy_risk_rejected", order_submitted_this_run=False))
         with patch.dict(os.environ, ON, clear=True):
             for locale in ("zh", "en"):
-                text = render(replace(payload(*([item] * 100)), locale=locale), max_units=256)
+                text = render(replace(payload(*(row(order_count=1, account_hint=f"synthetic-{index}", status="alert", block_reason=item.block_reason) for index in range(100))), locale=locale), max_units=256)
                 self.assertLessEqual(len(text.encode("utf-16-le")) // 2, 256)
                 self.assertIn("省略" if locale == "zh" else "omitted", text)
 
-    def test_zero_runs_is_silent_but_zero_trade_runs_get_a_summary(self):
+    def test_zero_runs_and_verified_zero_trade_runs_get_one_idle_line(self):
         with patch.dict(os.environ, ON, clear=True):
-            self.assertEqual(render(payload()), "")
-            self.assertIn("订单：0", render(payload(row())))
-            self.assertIn("已收录运行 1 次", render(payload(row())))
+            self.assertEqual(render(payload()), "今日全部账号无交易")
+            self.assertEqual(render(payload(row())), "今日全部账号无交易")
 
     def test_localized_schwab_reason_is_run_scoped_and_does_not_infer_fills(self):
         from dataclasses import replace
@@ -224,7 +223,7 @@ class ConsolidationCandidateTests(unittest.TestCase):
                 self.assertEqual(len(p.runs), 1)
                 self.assertEqual(receipt["total_fills"], 0)
                 self.assertFalse(receipt["notification_summary"]["counts_unknown"])
-                self.assertIn("订单：0", text)
+                self.assertEqual(text, "今日全部账号无交易")
                 self.assertNotIn("全窗口统计未知", text)
 
     def test_raw_event_cannot_clear_real_archive_conflict(self):
@@ -299,16 +298,17 @@ class ConsolidationCandidateTests(unittest.TestCase):
         self.assertEqual(receipt["notification_summary"]["source_inventory"]["schwab"]["covered_targets"], 0)
         self.assertIsNone(receipt["run_count"])
 
-    def test_zero_runs_has_no_message_but_unknown_coverage_is_retained(self):
+    def test_zero_runs_distinguishes_unknown_coverage_from_verified_idle(self):
         p, text, _, receipt = build([])
-        self.assertEqual(text, "")
+        self.assertIn("全窗口统计未知", text)
+        self.assertNotIn("无交易", text)
         self.assertEqual(len(p.runs), 0)
         self.assertEqual(receipt["evidence_status"], "evidence_unknown")
         self.assertIsNone(receipt["total_fills"])
         idle = candidate(actually_ran=False)
         idle.pop("notification_event")
         _, text, _, receipt = build([idle])
-        self.assertEqual(text, "")
+        self.assertEqual(text, "今日全部账号无交易")
         self.assertEqual(receipt["evidence_status"], "verified_idle")
 
     def test_missing_expected_binding_is_visible_without_filling_unknown_counts(self):
@@ -331,7 +331,8 @@ class ConsolidationCandidateTests(unittest.TestCase):
         a["business_day"] = "2026-10-16"
         p, text, _, receipt = build([a])
         self.assertEqual(len(p.runs), 0)
-        self.assertEqual(text, "")
+        self.assertIn("全窗口统计未知", text)
+        self.assertNotIn("无交易", text)
         self.assertEqual(len(receipt["stale_candidates"]), 1)
 
     def test_orders_are_routine_and_digest_counts_only_archive_facts(self):
@@ -372,20 +373,21 @@ class ConsolidationCandidateTests(unittest.TestCase):
         self.assertIn("Orders submitted; fill confirmation pending", english)
         self.assertNotRegex(english, r"[\u4e00-\u9fff]")
         _, issue, _, _ = build([dict(a, evidence_persistence_status="persistence_failed")])
-        self.assertIn("需核对，订单已提交，成交待确认", issue)
+        self.assertIn("需核对", issue)
+        self.assertIn("订单已提交，成交待确认", issue)
         self.assertIn("证据留存失败", issue)
 
     def test_verified_idle_text_does_not_apply_to_unknown_counts(self):
         _, known, _, _ = build([candidate(execution_status="no_action")])
-        self.assertIn("已运行，无交易", known)
+        self.assertEqual(known, "今日全部账号无交易")
         _, unknown, _, _ = build([candidate(execution_status="no_action", fill_count=None)])
         self.assertNotIn("无交易", unknown)
 
     def test_observations_from_candidate_archive_and_heartbeat_count_once(self):
         counts = {"watch": 2, "opportunity_watch": 1, "taco_rebound": 0}
-        a = candidate(routine_observation_counts=counts)
+        a = candidate(order_count=1, routine_observation_counts=counts)
         archived = {key: value for key, value in a.items() if key != "notification_event"}
-        heartbeat = candidate(kind="healthy_heartbeat", routine_observation_counts=counts)
+        heartbeat = candidate(kind="healthy_heartbeat", order_count=1, routine_observation_counts=counts)
         p, text, _, receipt = build([a, archived, heartbeat, a])
         self.assertEqual(len(p.runs), 1)
         self.assertEqual(p.runs[0].routine_observation_counts, counts)
@@ -400,10 +402,10 @@ class ConsolidationCandidateTests(unittest.TestCase):
         self.assertNotRegex(english, r"[\u4e00-\u9fff]")
 
     def test_observation_disagreement_is_sticky_unknown_without_changing_trade_counts(self):
-        known = candidate(routine_observation_counts={"watch": 2})
+        known = candidate(order_count=1, routine_observation_counts={"watch": 2})
         for other in ({"watch": 3}, {}, {"watch": None}):
             with self.subTest(other=other):
-                p, text, _, receipt = build([known, candidate(routine_observation_counts=other), known])
+                p, text, _, receipt = build([known, candidate(order_count=1, routine_observation_counts=other), known])
                 self.assertIsNone(p.runs[0].routine_observation_counts["watch"])
                 self.assertIn("策略观察 统计待核对", text)
                 self.assertEqual(receipt["total_fills"], 0)

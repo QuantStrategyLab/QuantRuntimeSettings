@@ -14,7 +14,7 @@ def row(account="synthetic-a", **updates):
     values = dict(platform_id="schwab", strategy_profile="soxl_soxx_trend_income",
                   account_hint=account, opaque_account_uid="opaque-" + account,
                   target_id="target-" + account, source_run_id="run-" + account,
-                  order_count=0, fill_count=0, cycle_count=1)
+                  order_count=1, fill_count=1, cycle_count=1)
     values.update(updates)
     return DigestRunEntry(**values)
 
@@ -94,8 +94,8 @@ class UnifiedPresentationTests(unittest.TestCase):
                 "synthetic-a": {"zh": "合成甲", "en": "Synthetic A"},
                 "synthetic-b": {"zh": "合成乙", "en": "Synthetic B"}}}}):
             text = render(payload(*rows))
-        self.assertIn("Schwab / 合成甲 / 半导体趋势收益", text)
-        self.assertIn("Schwab / 合成乙 / 纳斯达克增长收益", text)
+        self.assertIn("Schwab·合成甲\n策略：半导体趋势收益", text)
+        self.assertIn("Schwab·合成乙\n策略：纳斯达克增长收益", text)
         self.assertEqual([asdict(item) for item in rows], before)
         for item in rows:
             self.assertNotIn(item.opaque_account_uid, text)
@@ -108,11 +108,11 @@ class UnifiedPresentationTests(unittest.TestCase):
             for locale in ("zh-CN", "zh_TW", " ZH-hans ", " zh "):
                 with self.subTest(locale=locale):
                     text = render(payload(row(), locale=locale))
-                    self.assertIn("合成甲 / 半导体趋势收益", text)
+                    self.assertIn("合成甲\n策略：半导体趋势收益", text)
                     self.assertNotIn("Synthetic A", text)
             text = render(payload(row(), locale=" en-US "))
             self.assertIn("Daily trading digest", text)
-            self.assertIn("Synthetic A / Semiconductor Trend Income", text)
+            self.assertIn("Synthetic A\nStrategy: Semiconductor Trend Income", text)
             self.assertNotIn("合成甲", text)
 
     def test_platform_account_mapping_precedes_global_alias_fallback(self):
@@ -136,7 +136,7 @@ class UnifiedPresentationTests(unittest.TestCase):
         item = row()
         with self.display_names({"account_aliases": {"synthetic-a": "Synthetic alias"}}):
             text = render(payload(item, replace(item, source_run_id="synthetic-second-run")))
-        self.assertEqual(text.count("Schwab / Synthetic alias / 半导体趋势收益"), 1)
+        self.assertEqual(text.count("Schwab·Synthetic alias\n策略：半导体趋势收益"), 1)
         self.assertIn("已收录运行 2 次", text)
 
     def test_colliding_aliases_are_disambiguated_by_display_ordinal(self):
@@ -149,7 +149,7 @@ class UnifiedPresentationTests(unittest.TestCase):
         with self.display_names({"account_aliases": {
                 "synthetic-a": "Shared alias", "synthetic-b": "Shared alias", "synthetic-c": "Shared alias 1"}}):
             text = render(payload(row(), row("synthetic-b"), row("synthetic-c")))
-        lines = [line for line in text.splitlines() if line.startswith("• ")]
+        lines = [line for line in text.splitlines() if line.startswith("Schwab·")]
         self.assertEqual(len(lines), 3)
         self.assertEqual(len(set(lines)), 3)
         self.assertIn("已收录运行 3 次", text)
@@ -168,7 +168,7 @@ class UnifiedPresentationTests(unittest.TestCase):
     def test_missing_names_use_localized_fallbacks_not_machine_keys(self):
         for locale, expected in (("zh", "未命名策略"), ("en", "Unnamed strategy")):
             text = render(payload(row(strategy_profile="synthetic-unmapped-profile"), locale=locale))
-            self.assertIn(expected, text)
+            self.assertNotIn("策略：" if locale == "zh" else "Strategy:", text)
             self.assertNotIn("synthetic-unmapped-profile", text)
         text = render(payload(row(platform_id="charles_schwab")))
         self.assertIn("未知平台", text)
@@ -181,7 +181,7 @@ class UnifiedPresentationTests(unittest.TestCase):
             with self.subTest(field=field):
                 text = render(payload(replace(item, strategy_label=protected)))
                 self.assertNotIn(protected, text)
-                self.assertIn("未命名策略", text)
+                self.assertNotIn("策略：", text)
 
     def test_both_approved_risk_reasons_and_unknown_fills_survive_context(self):
         item = row(order_count=0, fill_count=None, fill_count_status="unknown",
@@ -190,7 +190,7 @@ class UnifiedPresentationTests(unittest.TestCase):
                 {"reason_code": "daily_loss_limit_exceeded", "observed_value": 80, "limit": 60, "equity_usd": 2000}))
         with self.display_names({"account_aliases": {"synthetic-a": "Synthetic alias"}}):
             text = render(payload(item))
-        self.assertIn("Synthetic alias / 半导体趋势收益", text)
+        self.assertIn("Synthetic alias\n策略：半导体趋势收益", text)
         self.assertIn("6>5", text)
         self.assertIn("80≥60", text)
         self.assertIn("核对基准净值和资金进出", text)
@@ -217,9 +217,9 @@ class UnifiedPresentationTests(unittest.TestCase):
     def test_partially_known_run_counts_remain_visible_under_unknown_totals(self):
         cases = (
             (row(order_count=2, fill_count=None, fill_count_status="unknown", execution_status="order_submitted"),
-             "本轮订单 2，成交 未知", "this run: orders 2, fills unknown"),
+             "提交2笔/成交未知笔", "Submitted 2/Filled unknown"),
             (row(order_count=None, order_count_status="unknown", fill_count=3),
-             "本轮订单 未知，成交 3", "this run: orders unknown, fills 3"),
+             "提交未知笔/成交3笔", "Submitted unknown/Filled 3"),
         )
         for item, zh_detail, en_detail in cases:
             for locale, detail in (("zh", zh_detail), ("en", en_detail)):
@@ -251,7 +251,7 @@ class UnifiedPresentationTests(unittest.TestCase):
                     self.assertIn(expected, text)
                     self.assertIn("需核对" if locale == "zh" else "Needs review", text)
                     self.assertNotIn("：已运行" if locale == "zh" else ": Observed run", text)
-                    self.assertIn("本轮 2 单，成交 1" if locale == "zh" else "2 orders, 1 fills", text)
+                    self.assertIn("提交2笔/成交1笔" if locale == "zh" else "Submitted 2/Filled 1", text)
                     self.assertEqual(asdict(item), before)
 
     def test_risk_and_evidence_failures_are_both_visible(self):

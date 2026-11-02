@@ -89,9 +89,12 @@ class RoutineNotificationContractTests(unittest.TestCase):
                 raw = row(routine_decision=decision(), status="alert", rebalance_conclusion="blocked")
                 before = copy.deepcopy(raw)
                 payload, text, collected = self.render([raw], locale=locale, unified=unified)
-                self.assertIn("12.5 USD", text)
-                self.assertIn("50.0 USD", text)
-                self.assertIn("跳过该计划" if locale == "zh" else "skip this plan", text)
+                if unified:
+                    self.assertEqual(text, "今日全部账号无交易" if locale == "zh" else "No trades across all accounts today")
+                else:
+                    self.assertIn("12.5 USD", text)
+                    self.assertIn("50.0 USD", text)
+                    self.assertIn("跳过该计划" if locale == "zh" else "skip this plan", text)
                 self.assertEqual(raw, before)
                 self.assertEqual(payload.runs[0].status, "alert")
                 self.assertEqual((payload.runs[0].order_count, payload.runs[0].fill_count), (0, 0))
@@ -119,9 +122,12 @@ class RoutineNotificationContractTests(unittest.TestCase):
             for locale in ("zh", "en"):
                 payload, text, _ = self.render([row(routine_decision=first,
                     routine_decisions=[first, second, first])], locale=locale, unified=unified)
-                self.assertEqual(text.count("12.5 USD"), 1)
-                self.assertEqual(text.count("17.5 HKD"), 1)
-                self.assertIn("50.0 HKD", text)
+                if unified:
+                    self.assertEqual(text, "今日全部账号无交易" if locale == "zh" else "No trades across all accounts today")
+                else:
+                    self.assertEqual(text.count("12.5 USD"), 1)
+                    self.assertEqual(text.count("17.5 HKD"), 1)
+                    self.assertIn("50.0 HKD", text)
                 self.assertNotIn("30.0", text)
                 self.assertEqual((payload.runs[0].order_count, payload.runs[0].fill_count), (0, 0))
         for invalid in ([first, decision(observed_value=True)], "private", [first] * 101):
@@ -129,7 +135,7 @@ class RoutineNotificationContractTests(unittest.TestCase):
         for unified in (False, True):
             for layout in ("v1", "sections_v2"):
                 for locale in ("zh", "en"):
-                    payload, text, _ = self.render([row(status="alert", rebalance_conclusion="blocked",
+                    payload, text, _ = self.render([row(status="alert", rebalance_conclusion="blocked", fill_count=None,
                         routine_decisions=[decision(symbol=f"DEMO{i}", observed_value=i, limit=1000) for i in range(100)])],
                         unified=unified, layout=layout, locale=locale)
                     from unified_daily_digest import _units
@@ -188,7 +194,7 @@ class RoutineNotificationContractTests(unittest.TestCase):
 
     def test_trusted_same_platform_alias_wins_over_masked_hint_without_becoming_identity(self):
         for unified in (False, True):
-            payload, text, _ = self.render([row(account_alias="canonical-demo", account_hint="masked-demo")], unified=unified)
+            payload, text, _ = self.render([row(account_alias="canonical-demo", account_hint="masked-demo", order_count=1)], unified=unified)
             self.assertIn("Long-term demo", text)
             for private in ("canonical-demo", "masked-demo", "synthetic-account", "synthetic-target"):
                 self.assertNotIn(private, text)

@@ -1,6 +1,7 @@
 """Compact bilingual digest. Pure rendering; never split one digest into sends."""
 from __future__ import annotations
 
+import math
 import re
 from datetime import date, datetime, time
 from notification_mode import consolidation_enabled, routine_mode
@@ -92,12 +93,14 @@ def _safe_display_text(value: object) -> str:
     if (not text.isprintable() or "://" in text
             or re.search(r"[Dd]?[Uu][0-9]{5,}", text)
             or text.isdecimal()
+            or re.search(r"\d{5,}", text)
+            or re.search(r"\d(?:[\s.-]*\d){4,}", text)
             or re.fullmatch(r"[0-9a-fA-F-]{12,}", text)):
         return ""
     return text[:70]
 
 
-def _run_display_labels(rows, locale):
+def _run_display_contexts(rows, locale):
     """Resolve names with existing mappings; ordinals distinguish collisions."""
     missing = "\0"
     parts, accounts = [], {}
@@ -144,13 +147,29 @@ def _run_display_labels(rows, locale):
                 reserved[platform].add(candidate)
                 ordinal += 1
             resolved[group, identity] = candidate
-    return [" / ".join((platform, resolved[group, identity], strategy))
+    return [(platform, resolved[group, identity], strategy)
             for platform, account, strategy, group, identity in parts]
+
+
+def _run_display_labels(rows, locale):
+    return [" / ".join(context) for context in _run_display_contexts(rows, locale)]
 
 
 def _known_count(row, name):
     value = getattr(row, name + "_count")
     return type(value) is int and value >= 0 and getattr(row, name + "_count_status") == "known"
+
+
+def _has_activity(row):
+    return any(_known_count(row, name) and getattr(row, name + "_count") > 0 for name in ("order", "fill"))
+
+
+def _verified_no_trade(row):
+    return all(_known_count(row, name) and getattr(row, name + "_count") == 0 for name in ("order", "fill"))
+
+
+def _finite_number(value):
+    return type(value) in (int, float) and math.isfinite(value)
 
 
 def _evidence_attention_text(row, locale):
@@ -175,15 +194,57 @@ def _evidence_attention_text(row, locale):
     return ("，" if zh else "; ").join(parts)
 
 
+def _account_holdings(row, locale):
+    from daily_digest_notify import _format_money, _format_qty, _holdings_header
+    holdings = sorted(row.holdings, key=lambda item: item.market_value if _finite_number(item.market_value) else -1, reverse=True)
+    rendered = []
+    for holding in holdings[:5]:
+        # Numeric exchange tickers are symbols, not account-label fallbacks.
+        symbol = holding.symbol if re.fullmatch(r"\d{5,6}", holding.symbol) else _safe_display_text(holding.symbol)
+        if not symbol:
+            continue
+        parts = [symbol]
+        if _finite_number(holding.quantity):
+            parts.append(_format_qty(holding.quantity, locale=locale) + ("股" if locale == "zh" else " shares"))
+        if _finite_number(holding.market_value) and re.fullmatch(r"[A-Z]{3,5}", holding.currency):
+            parts.append(_format_money(holding.market_value, currency=holding.currency, locale=locale))
+        rendered.append(" ".join(parts))
+    if not rendered:
+        return []
+    header = _holdings_header(row.holdings_scope, locale)
+    count = (f"（共{len(holdings)}项）" if locale == "zh" else f" ({len(holdings)} total)") if len(holdings) > 5 else ""
+    return [header + count] + [" · ".join(rendered[index:index + 2]) for index in range(0, len(rendered), 2)]
+
+
+def _account_observations(rows, locale):
+    """Keep distinct producer snapshots without inferring their chronology."""
+    snapshots, seen = [], []
+    for row in rows:
+        key = (row.equity, row.equity_currency, row.holdings, row.holdings_scope)
+        if (row.equity is not None or row.holdings) and key not in seen:
+            snapshots.append(row)
+            seen.append(key)
+    lines = []
+    for index, row in enumerate(snapshots, 1):
+        observation = []
+        if _finite_number(row.equity) and re.fullmatch(r"[A-Z]{3,5}", row.equity_currency):
+            observation.append(("总资产 " if locale == "zh" else "Total assets ") + f"{row.equity_currency} {row.equity:,.2f}")
+        observation.extend(_account_holdings(row, locale))
+        if observation and len(snapshots) > 1:
+            observation.insert(0, f"运行快照 {index}" if locale == "zh" else f"Run snapshot {index}")
+        lines.extend(observation)
+    return lines
+
+
 def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
-    """One selected language and one message, including healthy zero-order runs."""
-    if not payload.runs:
-        return ""
+    """Flat account blocks for trading activity; retain evidence diagnostics."""
     locale = normalize_locale(payload.locale)
     zh = locale == "zh"
     summary = payload.notification_summary or {}
     coverage = payload.evidence_coverage
     complete = bool(coverage and coverage.is_complete_for_verified_idle and not summary.get("counts_scope_unknown", summary.get("counts_unknown")))
+    if complete and all(_verified_no_trade(row) for row in payload.runs):
+        return "今日全部账号无交易" if zh else "No trades across all accounts today"
     lines = [f"每日交易摘要 · {payload.business_day}" if zh else f"Daily trading digest · {payload.business_day}"]
     lines.append(_window_text(payload.business_day, locale))
     lines.append(("窗口内运行次数未知" if zh else "Run count in window unknown") if summary.get("run_count_unknown") else
@@ -195,81 +256,91 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         value = str(sum(values)) if known else ("全窗口统计未知" if zh else "whole-window count unknown")
         counts.append(f"{label}：{value}" if zh else f"{label}: {value}")
     lines.append(" · ".join(counts))
-    if complete and all(_known_count(row, "order") and row.order_count == 0 for row in payload.runs):
-        lines.append(("本轮 0 单" if len(payload.runs) == 1 else "窗口内各轮均为 0 单") if zh else
-                     ("0 orders this run" if len(payload.runs) == 1 else "0 orders in every observed run"))
+    inventory = []
     for platform, source in summary.get("source_inventory", {}).items():
         fallback = ("管理站" if zh else "Management console") if platform == "qrs" else ""
         label = display_name("platforms", platform, locale, fallback=fallback)
         expected, covered, runs = source["expected_targets"], source["covered_targets"], source["runs"]
         if not expected:
-            lines.append(f"{label}：未纳入本期汇总，运行状态未知" if zh else
+            inventory.append(f"{label}：未纳入本期汇总，运行状态未知" if zh else
                          f"{label}: not included in this digest; run state unknown")
             continue
         # Inventory counts describe included evidence, not every actual run.
         observed = (("已收录运行次数未知" if zh else "Included run count unknown") if runs is None else
                     f"已收录 {runs} 次运行" if zh else f"Included runs: {runs}")
         state = f"{covered}/{expected}"
-        lines.append(f"{label}：{observed}，目标覆盖 {state}" if zh else
+        inventory.append(f"{label}：{observed}，目标覆盖 {state}" if zh else
                      f"{label}: {observed}; expected target coverage {state}")
     immediate = summary.get("immediate_events", 0)
     if immediate:
         lines.append(f"紧急事项 {immediate} 项（日报留档）" if zh else f"Urgent items: {immediate} (daily record)")
-    attention_lines, healthy_lines, routine_lines, seen = [], [], [], set()
-    for row, label in zip(payload.runs, _run_display_labels(payload.runs, locale)):
-        needs_attention = row.status == "alert" or _presentation_needs_attention(row)
-        evidence_detail = _evidence_attention_text(row, locale)
-        decision = routine_decision_text(row, locale)
-        if decision:
-            routine_lines.extend(f"• {label}：{line}" if zh else f"• {label}: {line}"
-                                 for line in decision.splitlines())
-        observations = routine_observation_text(row, locale)
-        if observations:
-            routine_lines.append(f"• {label}：{observations}" if zh else f"• {label}: {observations}")
-        if not is_blocked(row):
-            detail = ("需核对" if zh else "Needs review") if needs_attention else ("已运行" if zh else "Observed run")
-            if row.execution_status == "order_submitted":
-                submitted = "订单已提交" if zh else "Orders submitted"
-                if not _known_count(row, "fill"):
-                    submitted += "，成交待确认" if zh else "; fill confirmation pending"
-                detail = detail + ("，" if zh else "; ") + submitted if needs_attention else submitted
-            elif (not needs_attention and row.execution_status in {"no_action", "no_op", "ok_no_order"}
-                  and _known_count(row, "order") and _known_count(row, "fill")
-                  and row.order_count == row.fill_count == 0):
-                detail += "，无交易" if zh else "; no trades"
-            if evidence_detail:
-                detail += ("，" if zh else "; ") + evidence_detail
-            if counts_not_connected(row):
-                detail += "，统计未接入" if zh else "; counting not connected"
-            elif not all(_known_count(row, name) for name in ("order", "fill")):
-                detail += "，统计未知" if zh else "; counts unknown"
-            else:
-                detail += (f"，本轮 {row.order_count} 单，成交 {row.fill_count}" if zh else
-                           f"; this run: {row.order_count} orders, {row.fill_count} fills")
-            if (not all(_known_count(row, name) for name in ("order", "fill"))
-                    and any(_known_count(row, name) for name in ("order", "fill"))):
-                unknown = "未知" if zh else "unknown"
-                orders = row.order_count if _known_count(row, "order") else unknown
-                fills = row.fill_count if _known_count(row, "fill") else unknown
-                detail += (f"，本轮订单 {orders}，成交 {fills}" if zh else
-                           f"; this run: orders {orders}, fills {fills}")
-            line = f"• {label}：{detail}" if zh else f"• {label}: {detail}"
-            if line not in seen:
-                (attention_lines if needs_attention else healthy_lines).append(line)
-                seen.add(line)
+    accounts = {}
+    for index, (row, (platform, account, strategy)) in enumerate(zip(payload.runs, _run_display_contexts(payload.runs, locale))):
+        header = f"{platform}·{account}"
+        identity = row.opaque_account_uid or row.target_id or row.account_hint or ("row", index)
+        accounts.setdefault((row.platform_id, identity), []).append((row, header, strategy))
+    blocks = []
+    for entries in accounts.values():
+        rows = [row for row, _, _ in entries]
+        if all(_verified_no_trade(row) for row in rows):
             continue
-        from notification_approved_gates import render_reasons
-        detail = render_reasons(row.approved_gate_reasons, locale) or block_reason_text(row, locale)
-        detail = detail or ("已拦截，具体原因未知" if zh else "Blocked; specific reason unknown")
-        if evidence_detail:
-            detail += ("，" if zh else "; ") + evidence_detail
-        lines.append(f"• {label}：{detail}" if zh else f"• {label}: {detail}")
-    # Risk and attention details precede repeated healthy context under the budget.
-    lines.extend(attention_lines)
-    lines.extend(healthy_lines)
-    lines.extend(routine_lines)
-    if not complete:
-        lines.append("覆盖不完整，缺失统计保留未知" if zh else "Coverage incomplete; missing counts remain unknown")
+        header = entries[0][1]
+        needs_attention = any(row.status == "alert" or is_blocked(row) or _presentation_needs_attention(row)
+                              or not all(_known_count(row, name) for name in ("order", "fill")) for row in rows)
+        block = [header]
+        missing_strategy = "未命名策略" if zh else "Unnamed strategy"
+        strategies = list(dict.fromkeys(strategy for _, _, strategy in entries if strategy != missing_strategy))
+        if strategies:
+            block.append(("策略：" if zh else "Strategy: ") + " / ".join(strategies))
+        values = {}
+        for name in ("order", "fill"):
+            values[name] = (str(sum(getattr(row, name + "_count") for row in rows))
+                            if all(_known_count(row, name) for row in rows) else "未知" if zh else "unknown")
+        block.append(f"提交{values['order']}笔/成交{values['fill']}笔" if zh else
+                     f"Submitted {values['order']}/Filled {values['fill']}")
+        if needs_attention:
+            block.append("需核对" if zh else "Needs review")
+        details = []
+        for row in rows:
+            if row.execution_status == "order_submitted":
+                details.append(("订单已提交，成交待确认" if zh else "Orders submitted; fill confirmation pending")
+                               if not _known_count(row, "fill") else "订单已提交" if zh else "Orders submitted")
+            if is_blocked(row):
+                from notification_approved_gates import render_reasons
+                detail = render_reasons(row.approved_gate_reasons, locale) or block_reason_text(row, locale)
+                details.append(detail or ("已拦截，具体原因未知" if zh else "Blocked; specific reason unknown"))
+            evidence = _evidence_attention_text(row, locale)
+            if evidence:
+                details.append(evidence)
+            if counts_not_connected(row):
+                details.append("统计未接入" if zh else "Counting not connected")
+        block.extend(dict.fromkeys(details))
+        optional = list(dict.fromkeys(text for row in rows for text in
+                        (routine_decision_text(row, locale), routine_observation_text(row, locale)) if text))
+        if any(_has_activity(row) for row in rows):
+            optional.extend(_account_observations(rows, locale))
+        blocks.append((needs_attention, block, optional))
+    blocks.sort(key=lambda item: not item[0])
+    footer = [] if complete else ["覆盖不完整，缺失统计保留未知" if zh else "Coverage incomplete; missing counts remain unknown"]
+    omitted = "部分观察字段已省略" if zh else "Some observations omitted"
+    # Reserve every account's counts and diagnostics before optional snapshots.
+    required = lines + [line for _, block, _ in blocks for line in block] + footer
+    potential_lines = len(required) + len(inventory) + sum(len(optional) for _, _, optional in blocks) + 1
+    suffix = f"其余 {potential_lines} 项已省略" if zh else f"{potential_lines} more items omitted"
+    budget = _units("\n".join(required)) + 1 + max(_units(omitted), _units(suffix))
+    observations_omitted = False
+    for _, block, optional in blocks:
+        if budget + _units("\n".join(optional)) + bool(optional) <= max_units:
+            block.extend(optional)
+            budget += _units("\n".join(optional)) + bool(optional)
+        elif optional:
+            observations_omitted = True
+        lines.extend(block)
+    lines.extend(footer)
+    if observations_omitted:
+        lines.append(omitted)
+    # Coverage inventory is supplementary and cannot displace trading accounts.
+    lines.extend(inventory)
     result = [lines[0]]
     for index, line in enumerate(lines[1:], 1):
         remaining = len(lines) - index
