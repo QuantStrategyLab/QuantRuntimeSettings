@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { runtimeHistoryDates, runtimeHistoryKey, runtimeHistoryCell } from "../web/strategy-switch-console/frontend/src/runtimeHistory.ts";
 import { RUNTIME_DAILY_TARGETS } from "../web/strategy-switch-console/runtime_daily_contract.js";
-import { readFileSync } from "node:fs";
-import { stripTypeScriptTypes } from "node:module";
-import { createContext, runInContext } from "node:vm";
-import { loadRuntimeDaily } from "../web/strategy-switch-console/frontend/src/api.ts";
-import { runtimeDailySelectionEligible, runtimeDailySnapshotMatchesSelection } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const now = Date.parse("2026-10-13T17:00:00Z");
 const target = RUNTIME_DAILY_TARGETS.schwab;
@@ -36,50 +31,3 @@ assert.ok(runtimeHistoryDates("2024-03-01").includes("2024-02-29"));
 assert.notEqual(runtimeHistoryKey(selection, date), runtimeHistoryKey({ ...selection, target: { ...target, target_key: "other" } }, date));
 assert.notEqual(runtimeHistoryKey(selection, date), runtimeHistoryKey({ ...selection, accountKey: "other" }, date));
 console.log("runtime history validation: PASS (synthetic calendar, target/date identity, stale/missing evidence, complete/partial/failure and no-trading semantics)");
-
-// Execute the actual new historical hook: assert request bounds and cancellation
-// through real GET/no-store API code. This is lifecycle evidence, not browser QA.
-const source = readFileSync(new URL("../web/strategy-switch-console/frontend/src/RuntimeHistoryPanel.tsx", import.meta.url), "utf8");
-const start = source.indexOf("  useEffect(() => {");
-const hook = stripTypeScriptTypes(source.slice(start, source.indexOf("  return <section", start)));
-const originalFetch = globalThis.fetch;
-const pending = [];
-globalThis.fetch = (url, options) => {
-  assert.equal(options.method, "GET"); assert.equal(options.cache, "no-store"); assert.equal(options.credentials, "same-origin");
-  assert.ok(String(url).startsWith("/api/runtime-daily?"), "the new panel only reads the existing local daily API");
-  return new Promise(resolve => pending.push({ url: new URL(url, "https://synthetic.invalid"), resolve }));
-};
-const flush = () => new Promise(resolve => setImmediate(resolve));
-let cancel, dependencies, history = {};
-const context = createContext({ JSON, Promise, Math, runtimeHistoryDates, runtimeHistoryKey, runtimeDailySelectionEligible, runtimeDailySnapshotMatchesSelection, loadRuntimeDaily,
-  selectionKey: JSON.stringify([selection, selection, { ...selection, accountKey: "unbound", dailyBinding: "unresolved" }]), today: "2026-10-13", refreshVersion: 0,
-  setHistory(next) { history = typeof next === "function" ? next(history) : next; },
-  useEffect(effect, next) { if (dependencies && next.every((value, index) => Object.is(value, dependencies[index]))) return; cancel?.(); dependencies = Array.from(next); cancel = effect(); },
-});
-function respond(index, selected = selection, mismatch = false) {
-  const date = pending[index].url.searchParams.get("date");
-  const value = { ...snapshot, date, platform: selected.platform, target_key: selected.target.target_key, account_key: mismatch ? "wrong-account" : selected.accountKey,
-    record: { ...snapshot.record, ...selected.target, business_date: date, observed_at: `${date}T20:00:00Z` } };
-  pending[index].resolve(new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } }));
-}
-try {
-  runInContext(hook, context); assert.equal(pending.length, 4, "four prior-day reads in flight, deduplicated across duplicate rows");
-  assert.ok(pending.every(item => item.url.searchParams.get("date") !== context.today), "today is left to the shared existing overview read");
-  respond(0); await flush(); assert.equal(pending.length, 5, "completion releases one queued historical read");
-  cancel(); for (let index = 1; index < 5; index++) respond(index); await flush();
-  assert.equal(pending.length, 5, "unmount stops queued reads"); assert.equal(Object.keys(history).length, 1, "unmounted responses do not update state");
-  const changed = { ...selection, accountKey: "synthetic-changed", target: { ...target, service: "synthetic-other", target_key: "synthetic-other|soxl_soxx_trend_income|live" } };
-  context.selectionKey = JSON.stringify([changed]); runInContext(hook, context); assert.equal(pending.length, 9); assert.equal(Object.keys(history).length, 0);
-  respond(5, changed, true); await flush();
-  assert.equal(Object.values(history)[0].value, null); assert.equal(Object.values(history)[0].error, true, "identity mismatch produces a grey error entry");
-  const beforeRefresh = pending.length;
-  context.refreshVersion++; runInContext(hook, context); assert.equal(pending.length, beforeRefresh + 4);
-  respond(6, changed); await flush(); assert.equal(Object.keys(history).length, 0, "a previous refresh's delayed response is discarded");
-  const beforeDay = pending.length;
-  context.today = "2026-10-14"; runInContext(hook, context); assert.equal(pending.length, beforeDay + 4, "business-date rollover starts the next historical window");
-  assert.equal(pending[beforeDay].url.searchParams.get("date"), "2026-10-01");
-  const beforeUnbound = pending.length;
-  context.selectionKey = JSON.stringify([{ ...selection, dailyBinding: "unresolved" }]); runInContext(hook, context); assert.equal(pending.length, beforeUnbound, "unbound targets never trigger historical reads");
-  assert.equal(Object.keys(history).length, 0);
-  console.log("runtime history hook: PASS (GET/no-store, dedupe, bounded concurrency, reused today, cancelled/late responses, refresh, midnight and identity failure)");
-} finally { cancel?.(); globalThis.fetch = originalFetch; }

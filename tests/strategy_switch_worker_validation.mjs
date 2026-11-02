@@ -1,7 +1,7 @@
 import { githubVariableListMock } from './helpers/github_variable_list_mock.mjs';
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,14 +13,17 @@ import worker, { __test } from "./helpers/directory_worker.mjs";
 import { DEFAULT_ACCOUNT_OPTIONS, RUNTIME_CATALOG_PROJECTION, PLATFORM_META } from "../web/strategy-switch-console/config.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const liveFrontendSrc = resolve(root, "web/strategy-switch-console/frontend/src");
+const liveSourceFiles = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  const full = join(dir, entry.name);
+  if (entry.isDirectory()) return liveSourceFiles(full);
+  return /\.(tsx?|css)$/.test(entry.name) && !entry.name.endsWith(".d.ts") ? [full] : [];
+});
+// Live console tree: the app shell, pages, components, lib and i18n sources plus their CSS.
 const indexHtml = [
-  "web/strategy-switch-console/frontend/src/App.tsx",
-  "web/strategy-switch-console/frontend/src/OverviewPage.tsx",
-  "web/strategy-switch-console/frontend/src/AccountsPage.tsx",
-  "web/strategy-switch-console/frontend/src/DecisionsPage.tsx",
-  "web/strategy-switch-console/frontend/src/presentation.ts",
-  "web/strategy-switch-console/frontend/src/styles.css",
-].map((file) => readFileSync(resolve(root, file), "utf8")).join("\n");
+  ...["app", "pages", "components", "lib", "i18n"].flatMap((dir) => liveSourceFiles(join(liveFrontendSrc, dir))),
+  join(liveFrontendSrc, "presentation.ts"),
+].map((file) => readFileSync(file, "utf8")).join("\n");
 const bundledStrategyProfiles = JSON.parse(
   readFileSync(resolve(root, "web/strategy-switch-console/strategy-profiles.example.json"), "utf8"),
 );

@@ -24,6 +24,7 @@ The current package retains configuration and compatibility ownership. Broker cr
 
 ## Console by task
 
+- [Read-only preflight baseline](console-readonly-baseline.md): pinned repository build, exact reconstruction command and pending live verification.
 - [English operator guide](../web/strategy-switch-console/README.md#reading-by-task) · [中文操作入口](../web/strategy-switch-console/README.zh-CN.md#按任务阅读): installation/configuration, interfaces and operations grouped without moving contract text.
 - [Console API](console-api.md): interface details.
 - [Snapshot completeness](snapshot-completeness.md): cloud archive checks, daily Binance detail, and approval-bound activation.

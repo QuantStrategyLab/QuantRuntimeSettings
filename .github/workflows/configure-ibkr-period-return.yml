@@ -79,6 +79,12 @@ jobs:
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
+          # No legacy KV/default comparison may qualify an operational decision.
+          # Binance has a separate source reader and does not read profiles here.
+          if [ "${CONFIGURE_MODE:-}" = "match-daily-binding" ] && [ "${DAILY_COMPARISON_PLATFORM:-}" != "binance" ]; then
+            echo "status=blocked reason=strategy_profiles_consumer_frozen business_writes=0"
+            exit 1
+          fi
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:-}" ]; then
             echo "status=blocked reason=cloudflare_credentials_missing"
             exit 1

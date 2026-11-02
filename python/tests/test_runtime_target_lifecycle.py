@@ -32,13 +32,16 @@ def _snapshot(**overrides: object) -> dict[str, object]:
 
 class RuntimeTargetLifecycleTest(unittest.TestCase):
     def test_console_runtime_status_board_uses_only_the_read_only_central_api(self) -> None:
-        console = (ROOT / "web" / "strategy-switch-console" / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
-        page = (ROOT / "web" / "strategy-switch-console" / "frontend" / "src" / "OverviewPage.tsx").read_text(encoding="utf-8")
+        console = (ROOT / "web" / "strategy-switch-console" / "frontend" / "src" / "app" / "App.tsx").read_text(encoding="utf-8")
+        page = (ROOT / "web" / "strategy-switch-console" / "frontend" / "src" / "pages" / "overview" / "OverviewPage.tsx").read_text(encoding="utf-8")
         self.assertNotIn('id="runtime-target-lifecycle-list"', page)
         self.assertNotIn('requestJson("/api/runtime-target-lifecycle")', console)
         self.assertNotIn("function renderRuntimeTargetLifecycle()", console)
-        self.assertIn("accountStatusView", console)
-        self.assertIn("overviewActivationLabelFromProjection", console)
+        self.assertNotIn("/api/runtime-target-lifecycle", console)
+        self.assertNotIn("/api/runtime-target-lifecycle", page)
+        presentation = (ROOT / "web" / "strategy-switch-console" / "frontend" / "src" / "presentation.ts").read_text(encoding="utf-8")
+        self.assertIn("export function accountStatusView(", presentation)
+        self.assertIn("export function overviewActivationLabelFromProjection(", presentation)
 
     def test_disabled_target_remains_in_no_order_validation_lane(self) -> None:
         snapshot = _snapshot()

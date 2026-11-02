@@ -140,7 +140,7 @@ const workflow = readFileSync(
 assert.match(workflow, /Configure IBKR period-return secrets/);
 assert.match(workflow, /configure_ibkr_period_return\.mjs/);
 assert.match(workflow, /CONFIGURE_MODE.*match-additional-1/);
-assert.match(workflow, /inputs.mode != 'match-additional-1' && secrets.RUNTIME_SETTINGS_GH_TOKEN/);
+assert.match(workflow, /^[ \t]+GH_TOKEN: \$\{\{ inputs\.mode != 'match-additional-1' && inputs\.mode != 'match-daily-binding' && secrets\.RUNTIME_SETTINGS_GH_TOKEN \|\| '' \}\}$/m);
 assert.ok(!workflow.includes("IBKR_FLEX_TOKEN"));
 assert.ok(!workflow.includes("IBKR_PERIOD_RETURN_PUBLISH_ENABLED"));
 
