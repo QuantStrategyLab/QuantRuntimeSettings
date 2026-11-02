@@ -37,6 +37,8 @@ test('fixed-file pipeline preserves all non-target bytes and fails closed on cha
     const active=Buffer.from(historical);
     const candidate=await verify946OnFixed54e(ts,{},active);
     assert.equal(candidate.toString(),historical.replace('old1','new1').replace('old2','new2').replace('old3','new3'));
+    // Read-only recognition of later releases must never widen patch input.
+    await assert.rejects(verify946OnFixed54e(ts,{},Buffer.from('synthetic-reviewed-main')),/active_54e_bytes_mismatch/);
     await assert.rejects(verify946OnFixed54e(ts,{},Buffer.from(historical+'\n//# sourceMappingURL=extra.map')),/active_54e_bytes_mismatch/);
     await assert.rejects(verify946OnFixed54e(ts,{},Buffer.from(historical.replace('function route() {}','function route() { changed(); }'))),/active_54e_bytes_mismatch/);
     await assert.rejects(verify946OnFixed54e(ts,{},Buffer.from(historical.replace(id,'different'))),/active_54e_bytes_mismatch/);

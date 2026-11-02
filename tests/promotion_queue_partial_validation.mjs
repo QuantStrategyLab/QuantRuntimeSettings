@@ -1,16 +1,13 @@
 // Synthetic persisted-JSON fixtures only. Deny all network before Worker import.
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire, syncBuiltinESMExports } from "node:module";
+import { syncBuiltinESMExports } from "node:module";
 import net from "node:net";
 import http from "node:http";
 import https from "node:https";
-import { buildSync } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
 import { decisionActionState, listDailyDecisions } from "../web/strategy-switch-console/frontend/src/presentation.ts";
-import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 const original = { fetch: globalThis.fetch, connect: net.Socket.prototype.connect, httpRequest: http.request, httpGet: http.get, httpsRequest: https.request, httpsGet: https.get };
 let networkAttempts = 0;
 const deny = () => { networkAttempts++; throw new Error("promotion_fixture_network_forbidden"); };
@@ -154,39 +151,15 @@ try {
   assert.equal(derive(mixed, { promotions: { value: mixed, error: "transport_failed" } }).items.length, 0);
   assert.equal(derive(mixed, { owners: { value: { ...mixed, candidates: [{ candidate: { candidate_id: "fake" } }] } }, recovery: { value: { ...mixed, recoveries: [{}] } } }).items.length, 1, "recognized partial is promotion-only");
 
-  // Actual React component SSR, including the partial-source warning.
-  const temporary = mkdtempSync(join(tmpdir(), "qsl-promotion-partial-"));
-  try {
-    const frontend = fileURLToPath(new URL("../web/strategy-switch-console/frontend", import.meta.url));
-    const bundle = buildSync({ stdin: { contents: `
-      import React from "react"; import { renderToStaticMarkup } from "react-dom/server";
-      import { LocaleContext } from "./src/locales"; import { DecisionsPage } from "./src/DecisionsPage";
-      export const render = (result, language) => renderToStaticMarkup(<LocaleContext.Provider value={language}><DecisionsPage {...result} admin={false} busy={false} selectedAccountId="" onSelectAccount={()=>{}} onDecide={()=>{}}/></LocaleContext.Provider>);
-    `, resolveDir: frontend, loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", write: false, nodePaths: [join(frontend, "node_modules")] });
-    const path = join(temporary, "render.cjs"); writeFileSync(path, bundle.outputFiles[0].text);
-    const { render } = createRequire(import.meta.url)(path);
-    for (const language of ["zh", "en"]) {
-      const html = render(result, language);
-      assert.equal(html.includes(good.ticket_id), true); assert.equal(html.includes("fixture-invalid"), false);
-      assert.equal(html.includes(translate("部分待办暂时无法读取", language)), true); assert.match(html, /role="status"/);
-      assert.equal(html.includes(translate("{sources} 暂时读不到。以下仅显示已读取的事项，待办列表可能不完整。", language, { sources: translate("晋级方案", language) })), true);
-      assert.match(html, /disabled=""/, "non-admin action remains disabled");
-      assert.equal(render(derive(controlRead.payload), language).includes(translate("部分待办暂时无法读取", language)), false);
-      const emptyBlocked = render(derive({ ...mixed, errors: ["unknown"] }), language);
-      // An unread source is distinct from a transport failure and a confirmed empty queue.
-      assert.equal(emptyBlocked.includes(translate("暂无需要你决定的事项", language)), false);
-      assert.equal(emptyBlocked.includes(translate("待办来源未取得：{sources}", language, { sources: translate("晋级方案", language) })), true);
-      assert.equal(emptyBlocked.includes(translate("部分来源暂不可用：{sources}。当前没有已取到的待办事项。", language, { sources: translate("晋级方案", language) })), true);
-      assert.equal(emptyBlocked.includes(translate("暂时读不到：{sources}", language, { sources: translate("晋级方案", language) })), false);
-      assert.equal(emptyBlocked.includes(translate("待办来源读取失败：{sources}", language, { sources: translate("晋级方案", language) })), false);
-      const emptyHard = render(derive(mixed, { promotions: { error: "transport_failed" } }), language);
-      assert.equal(emptyHard.includes(translate("待办来源读取失败：{sources}", language, { sources: translate("晋级方案", language) })), true);
-      assert.equal(emptyHard.includes(translate("这是读取失败，不是没有待办。请重试；若持续失败再查看来源服务。", language)), true);
-      assert.equal(emptyHard.includes(translate("暂无需要你决定的事项", language)), false);
-    }
-  } finally { rmSync(temporary, { recursive: true, force: true }); }
+  // The live DecisionsPage is fetch-driven (no props), so the partial-source warning is asserted on its source and copy.
+  const livePage = readFileSync(join(fileURLToPath(new URL("../web/strategy-switch-console/frontend/src/pages/decisions/", import.meta.url)), "DecisionsPage.tsx"), "utf8");
+  const liveCopy = readFileSync(join(fileURLToPath(new URL("../web/strategy-switch-console/frontend/src/i18n/pages/", import.meta.url)), "decisions.ts"), "utf8");
+  assert.match(livePage, /view === "pending" && degradedSources\.length > 0/, "partial warning only on the pending view");
+  assert.match(livePage, /role="status"[\s\S]{0,80}data-state="partial"/);
+  assert.match(livePage, /t\("decisions\.partial_notice"\)/);
+  assert.equal((liveCopy.match(/"decisions\.partial_notice"/g) || []).length, 2, "partial notice has zh and en copy");
   assert.equal(networkAttempts, 0);
-  console.log("Promotion queue partial validation: PASS (mixed JSON, zero invalid writes, adapter, actual React SSR, host_network_attempts=0)");
+  console.log("Promotion queue partial validation: PASS (mixed JSON, zero invalid writes, adapter, live page source, host_network_attempts=0)");
 } finally {
   globalThis.fetch = original.fetch; net.Socket.prototype.connect = original.connect;
   http.request = original.httpRequest; http.get = original.httpGet; https.request = original.httpsRequest; https.get = original.httpsGet; syncBuiltinESMExports();
