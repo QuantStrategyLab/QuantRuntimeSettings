@@ -439,16 +439,13 @@ try {
     const builtInHtml = ui.groups(language, [
       dirRow("synthetic-global"), dirRow("synthetic-russell"), dirRow("synthetic-custom"), dirRow("synthetic-soxl"),
     ], builtInConfig, { rows: [], phase: "ready" });
-    ok(builtInHtml.includes(language === "zh" ? "全球ETF" : "Global ETF"), "Global ETF follows the language switch");
-    ok(builtInHtml.includes(language === "zh" ? "罗素Top50" : "Russell Top 50"), "Russell Top 50 follows the language switch");
+    ok(builtInHtml.includes("Global ETF"), "explicit account labels stay as configured");
+    ok(builtInHtml.includes("Russell Top 50"), "explicit account labels are not replaced by generated aliases");
     ok(builtInHtml.includes("My Custom Alias"), "custom aliases are never translated");
     ok(builtInHtml.includes("SOXL"), "generic tickers keep their identifier");
-    if (language === "zh") ok(!builtInHtml.includes("Russell Top 50") && !builtInHtml.includes("Global ETF"), "known built-ins use Chinese titles");
 
-    // 18d-bis. A single valid native IBKR selector owns the shared account
-    // title: it is complete in both languages, overrides strategy/ticker labels,
-    // and leaves the strategy name in its own row. This runs for zh and en so
-    // the same complete identifier is asserted under both locales.
+    // 18d-bis. Explicit config labels win over native selectors in both
+    // locales; the selectors continue to distinguish the account groups.
     const selectorConfig = {
       accountOptions: { ibkr: [
         { key: "synthetic-soxl-a", label: "SOXL", account_selector: "U00001" },
@@ -463,11 +460,11 @@ try {
     ], selectorConfig, { rows: [], phase: "ready" });
     const selectorTitles = [...selectorHtml.matchAll(/<h3 class="account-broker-title">([^<]*)<\/h3>/g)].map(match => match[1]);
     ok(selectorTitles.length === 3
-      && selectorTitles.includes("U00001") && selectorTitles.includes("U00002") && selectorTitles.includes("DU00003"),
-      "distinct single U/DU selectors produce complete native titles in both zh/en");
+      && selectorTitles.filter(title => title === "SOXL").length === 2 && selectorTitles.includes("Global ETF"),
+      "distinct selectors retain distinct cards with their configured labels in both locales");
     ok(!selectorHtml.includes("••••"), "account titles are not masked");
-    ok(!selectorTitles.includes("SOXL") && !selectorTitles.includes("Global ETF") && !selectorTitles.includes("全球ETF"),
-      "configured or built-in labels never override a valid native selector");
+    ok(!selectorHtml.includes("U00001") && !selectorHtml.includes("U00002") && !selectorHtml.includes("DU00003"),
+      "native selectors cannot override safe account config labels");
     ok(selectorHtml.includes(language === "zh" ? "合成策略" : "Synthetic strategy"),
       "the original strategy name remains visible in its own strategy row");
 
@@ -483,11 +480,11 @@ try {
       dirRow("synthetic-native-alias-a"), dirRow("synthetic-native-alias-b"),
     ], sharedNativeConfig, { rows: [sharedNativeFactsA, sharedNativeFactsB], phase: "ready" });
     const sharedNativeTitles = [...sharedNativeHtml.matchAll(/<h3 class="account-broker-title">([^<]*)<\/h3>/g)].map(match => match[1]);
-    ok(sharedNativeTitles.length === 1 && sharedNativeTitles[0] === "U00004",
-      "two aliases of one native selector render one complete account card");
+    ok(sharedNativeTitles.length === 1 && sharedNativeTitles[0] === "SOXL",
+      "two aliases of one native selector retain one labeled account card");
     ok(sharedNativeHtml.includes("USD 1,234.56") && !sharedNativeHtml.includes("2,469.12")
-      && sharedNativeHtml.includes("U00004"),
-      "native display grouping preserves amount deduplication and the complete title");
+      && !sharedNativeHtml.includes("U00004"),
+      "config labels preserve native grouping and amount deduplication");
 
     // 18d-quater. Multiple, missing, or malformed selectors keep the existing
     // label path and never pick a native account from the selector string.

@@ -814,10 +814,12 @@ def collect_digest_runs(
     # Approved private bindings may supply the broker identity independently of
     # producer rows. Match all binding axes; never borrow another target's label.
     if consolidation_enabled():
-        from display_names import broker_account_identity
+        from display_names import broker_account_identity, configured_account_label
         bindings = {tuple(item.get(key) for key in adapter.IDENTITY[:4]): item for item in expected}
         for row in enriched:
             binding = bindings.get(tuple(row.get(key) for key in adapter.IDENTITY[:4]), {})
+            # Producer-supplied labels are untrusted, including unmatched rows.
+            row['account_label'] = configured_account_label(binding)
             hint = broker_account_identity(row.get("platform_id"), binding.get("account_hint"))
             if hint and not broker_account_identity(row.get("platform_id"), row.get("account_hint")):
                 row["account_hint"] = hint
@@ -850,6 +852,7 @@ def collect_digest_runs(
 
 def _run_receipt_dict(entry: digest.DigestRunEntry) -> dict[str, Any]:
     payload = asdict(entry)
+    payload.pop("account_label", None)  # Private display metadata is never a receipt field.
     if not consolidation_enabled():
         payload.pop("source_run_id", None)
         payload.pop("approved_gate_reasons", None)
