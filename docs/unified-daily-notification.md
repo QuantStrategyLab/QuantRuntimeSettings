@@ -51,6 +51,45 @@ normalizing them before rendering; unsupported or malformed locales fail
 configuration validation. The default is Chinese. Locale does not change the
 recipient/date delivery reservation or permit a second daily send.
 
+## IBKR post-submit settlement
+
+The optional IBKR settlement feature starts with
+`IBKR_ORDER_SETTLEMENT_ENABLED=false`. When enabled in an approved runtime,
+protected pending records bind the original submission to its strategy, client,
+account, symbol, side and quantity. A bounded follow-up and authenticated
+`POST /settle` only read broker orders and executions. They cannot submit,
+modify, cancel or retry an order, release risk/cash reservations or clear an
+execution-authority UNKNOWN fence.
+
+`Submitted` and `PreSubmitted` are acknowledgements. An open partial fill still
+has an unresolved obligation. Only valid broker-confirmed terminal data can
+mark a fill in an execution receipt. A terminal cancellation can retain an
+actual partial fill; a missing response cannot become a zero fill or a rejection.
+Commission and price remain unknown when the broker has not supplied them.
+
+A settlement observation amends its original source run and business day, so it
+never increments order or run totals a second time. Daily fill counts require
+complete order coverage and unique broker execution IDs. Open, missing or
+incomplete outcomes remain `reconciliation_required` at day end. Unrelated risk
+or error incidents remain visible. The existing candidate schema carries final
+status/counts and the masked settlement conclusion with quantity and price. Raw
+account identities and execution IDs stay in protected producer storage.
+
+For this opt-in IBKR final-state correction, one separately reserved completion
+notice reports `filled N @ price`, `partial n/N` followed by cancellation, or a
+cancelled/rejected outcome. It masks order identifiers and uses the configured
+Telegram channel. This correction does not resend the original submission
+message. A successful transport acknowledgement is recorded separately from
+broker settlement. Ambiguous delivery is never blindly retried. Generic trade
+and heartbeat routing above is unchanged.
+
+The feature does not backfill orders submitted while it was off. After a restart,
+a pending record without a durable broker ID stays UNKNOWN and cannot be matched
+by symbol alone. Deployment, authenticated caller configuration, feature
+activation and any future scheduler change need the owner's explicit approval.
+Offline fake/replay tests establish source behavior only; deployed adoption,
+authentic broker outcomes and real notification delivery remain unproven.
+
 ## Cloud Run delivery
 
 The standalone notification image uses `python/Dockerfile.digest`. Cloud Scheduler
