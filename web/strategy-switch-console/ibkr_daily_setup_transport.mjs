@@ -8,6 +8,13 @@ import {matchBinanceDailyFromGitHub} from './binance_daily_source_reader.mjs';
 import {DEFAULT_STRATEGY_PROFILES} from './strategy_profiles_asset.js';
 import {hasRelevantWriter,writtenSecretsHaveFreshMetadata,versionResponseLimit,matchesConfigNamespace,selectInventoryMetadata,writerRunsFromPages} from './ibkr_daily_setup_checks.mjs';
 
+// These legacy consumers are frozen until authority reads, revision-bearing
+// evidence and DO-compatible publishing are qualified. No environment override.
+if (['multi-preflight','multi-execute','execution-preflight','execution-execute'].includes(process.env.DAILY_SETUP_MODE)) {
+  console.log(JSON.stringify({status:'stopped',phase:'consumer_freeze',reason:'strategy_profiles_consumer_frozen',retry:false,business_writes:0}));
+  process.exit(1);
+}
+
 const qrs='QuantStrategyLab/QuantRuntimeSettings', ibkr='QuantStrategyLab/InteractiveBrokersPlatform';
 const oldVersion='2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee';
 const qrsRun='40728959942', ibkrRun='40728951358';

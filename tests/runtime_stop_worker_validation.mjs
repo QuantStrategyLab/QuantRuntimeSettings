@@ -99,15 +99,15 @@ try {
     assert.equal(calls.length, before);
   }
   const { beginNonHkStop, confirmationAccepted, createUnknownSubmitLock } = await import("../web/strategy-switch-console/frontend/src/operations.ts");
-  const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
-  const stop = app.slice(app.indexOf("const submitAccountPlan"), app.indexOf("const decideOwner"));
-  assert.equal(app.includes("runtime-stop-button"), false);
-  assert.equal(app.includes("runtimeStopOnly"), false);
-  assert.ok(stop.indexOf("confirmAction") < stop.indexOf("beginNonHkStop"));
-  assert.ok(stop.indexOf("beginNonHkStop") < stop.indexOf('postJson<any>("/api/runtime-stop"'));
+  const controls = readFileSync(new URL("../web/strategy-switch-console/frontend/src/pages/accounts/ControlsTab.tsx", import.meta.url), "utf8");
+  const stop = controls.slice(controls.indexOf("const submitStop"), controls.indexOf("const submitResume"));
+  assert.equal(controls.includes("runtime-stop-button"), false);
+  assert.equal(controls.includes("runtimeStopOnly"), false);
+  assert.ok(stop.indexOf("await confirm(") > 0);
+  assert.ok(stop.indexOf("await confirm(") < stop.indexOf('postJson("/api/runtime-stop"'), "the operator confirms before the stop request is sent");
+  assert.match(stop, /if \(!accepted\) return;/);
   assert.match(stop, /confirm: "STOP_ONLY"/);
   assert.equal(stop.includes("APPLY_AND_SYNC"), false);
-  assert.equal(stop.slice(stop.indexOf("catch (error)"), stop.indexOf("finally")).includes("switchLocks"), false);
   const lock = createUnknownSubmitLock();
   const stopId = "ibkr:synthetic-one";
   let dispatchAttempts = 0;

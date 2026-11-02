@@ -76,6 +76,13 @@ jobs:
       DAILY_COMPARISON_RUN_3: ${{ inputs.comparison_run_3 }}
       PLATFORM_CONTROL_EXPECTED_VERSION: ${{ secrets.PLATFORM_CONTROL_EXPECTED_VERSION }}
     steps:
+      - name: Freeze unqualified daily setup modes
+        run: |
+          set -euo pipefail
+          if [ "${DAILY_SETUP_MODE:-}" != "preflight" ]; then
+            echo "status=blocked reason=strategy_profiles_consumer_frozen business_writes=0"
+            exit 1
+          fi
       - name: Require the first execution attempt
         run: test "$GITHUB_RUN_ATTEMPT" = 1
       - uses: actions/checkout@v6

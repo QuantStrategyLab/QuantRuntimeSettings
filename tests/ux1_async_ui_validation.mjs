@@ -9,10 +9,10 @@ assert.match(V2_PAGE_HTML, /\/v2\/assets\/index-[\w-]+\.js/, "the shell loads th
 assert.doesNotMatch(V2_PAGE_HTML, /id="ux1-preview-button"|data-ux1-default-view/, "the shell does not embed legacy UX1 markup");
 assert.equal(V2_PAGE_HTML.includes("fonts.googleapis.com"), false);
 
-const frontend = await readFile(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
+const frontend = await readFile(new URL("../web/strategy-switch-console/frontend/src/app/App.tsx", import.meta.url), "utf8");
 assert.equal(frontend.includes('id="ux1-preview-button"'), false);
 assert.equal(frontend.includes(".innerHTML"), false);
-const logout = frontend.slice(frontend.indexOf("const logout"), frontend.indexOf("const currentForm"));
+const logout = frontend.slice(frontend.indexOf("const logout"), frontend.indexOf("useEffect", frontend.indexOf("const logout")));
 assert.match(logout, /\/api\/logout/);
 assert.equal(logout.includes("/api/switch"), false);
 
