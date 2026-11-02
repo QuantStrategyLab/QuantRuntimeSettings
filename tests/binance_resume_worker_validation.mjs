@@ -103,11 +103,14 @@ try {
   assert.equal(canResumeBinance("binance", account, { ...resumeCurrent, runtime_target_enabled: true }), false);
   assert.equal(canResumeBinance("binance", account, { binance_resume_target_sha256: digest }), false);
   assert.equal(canResumeBinance("binance", account, { ...resumeCurrent, binance_resume_target_sha256: "loading" }), false);
-  const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
-  const resumeSource = app.slice(app.indexOf("const resumeBinance"), app.indexOf("const decideOwner"));
-  assert.ok(resumeSource.indexOf("confirmAction") < resumeSource.indexOf('postJson<any>("/api/runtime-resume"'));
+  const controls = readFileSync(new URL("../web/strategy-switch-console/frontend/src/pages/accounts/ControlsTab.tsx", import.meta.url), "utf8");
+  const resumeSource = controls.slice(controls.indexOf("const submitResume"), controls.indexOf("const submitApprove"));
+  assert.ok(resumeSource.length > 0);
+  assert.ok(resumeSource.indexOf("await confirm(") < resumeSource.indexOf('postJson("/api/runtime-resume"'));
   assert.match(resumeSource, /confirm: "RESUME_EXISTING"/);
-  assert.match(resumeSource, /beginOnce\(key\)/);
+  // Busy state is set before the request and cleared only afterwards, so a click cannot be retried in flight.
+  assert.ok(resumeSource.indexOf('setBusy("resume")') < resumeSource.indexOf('postJson("/api/runtime-resume"'));
+  assert.match(resumeSource, /finally \{\s*setBusy\(null\)/);
   for (const [allowed, confirmed] of [[true, true], [true, false], [false, true]]) {
     assert.equal(allowed && confirmationAccepted(confirmed, digest, digest), allowed && confirmed);
   }

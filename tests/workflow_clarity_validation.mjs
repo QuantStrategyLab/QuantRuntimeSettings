@@ -118,20 +118,20 @@ assert.equal(unmatched.fillsLabel, "未接入");
 const unresolved = presentRuntimeDaily(null, { platform: "longbridge", accountKey: "synthetic", dailyBinding: "unresolved" });
 assert.equal(unresolved.statusLabel, "待确认");
 assert.deepEqual(unresolved.statusDetails, ["周期记录目标绑定未确认"]);
-const accountsSource = readFileSync(new URL("../web/strategy-switch-console/frontend/src/AccountsPage.tsx", import.meta.url), "utf8");
-const controls = accountsSource.slice(accountsSource.indexOf('<section className="detail-group runtime-controls">'));
-assert.ok(controls, "independent runtime controls must have their own section");
-assert.match(controls, /actions\.stop && <button[^>]+disabled=\{!stopAllowed\} onClick=\{onStop\}/);
-assert.match(controls, /readState === "ready" && actions\.resume/);
-assert.match(controls, /actions\.refresh && <button[^>]+onClick=\{onRefreshStop\}/);
-assert.doesNotMatch(accountsSource, /readState === "ready" \? <section className="detail-group runtime-controls"/, "settings read availability cannot hide independent stop controls");
-assert.equal((accountsSource.match(/setReadState\("refreshing"\);\s*setReadError\(""\);\s*const result = await refreshAccountSettingsReadback/g) || []).length, 1, "the draft failed-save recovery path blocks saves before awaiting read-back");
-assert.equal((accountsSource.match(/if \(result.status === "superseded"\) return;/g) || []).length, 1, "the draft recovery path ignores interrupted reads");
+const liveSrc = (file) => readFileSync(new URL(`../web/strategy-switch-console/frontend/src/${file}`, import.meta.url), "utf8");
+const controlsSource = liveSrc("pages/accounts/ControlsTab.tsx");
+assert.match(controlsSource, /stop: submitStop,\s*resume: submitResume,/, "independent stop and resume controls must have their own handlers");
+assert.match(controlsSource, /const disabled = busy !== null \|\| [^;]*!action\.enabled;/, "control buttons are gated by the per-action eligibility");
+assert.match(controlsSource, /<button[^>]+disabled=\{disabled\}[^>]+onClick=\{\(\) => void handlers\[name\]\(\)\}/);
+assert.match(controlsSource, /onClick=\{reload\}>\{t\("common\.refresh"\)\}/, "controls keep an explicit refresh action");
+assert.doesNotMatch(controlsSource, /readState/, "settings read availability cannot hide independent stop controls");
+for (const file of ["pages/accounts/RiskPreference.tsx", "pages/accounts/AccountDeclaration.tsx"]) {
+  const source = liveSrc(file);
+  assert.equal((source.match(/const refresh = controller\.start\("refresh"\);\s*const result = await refreshAccountSettingsReadback/g) || []).length, 1, `${file}: the failed-save recovery path re-reads settings before releasing saves`);
+  assert.equal((source.match(/if \(result.status === "superseded"\) return;/g) || []).length, 1, `${file}: the recovery path ignores interrupted reads`);
+}
 for (const key of [...promotionMaterialNotes(null), ...promotionMaterialNotes({ comparison: { status: "comparable" }, limitations: [] }), unmatched.statusDetails[0], accountSettingsOperationReason("strategy_application_not_connected"), accountSettingsSaveBlockReason(settings, "stale", "draft")]) assert.notEqual(translate(key, "en"), key, key);
 
-const decisionSource = readFileSync(new URL("../web/strategy-switch-console/frontend/src/DecisionsPage.tsx", import.meta.url), "utf8");
-assert.match(decisionSource, /selected\.accountChoices\.length === 1 \? <p>\{selected\.accountChoices\[0\]\.label\}<\/p> : selected\.accountLine \? <p>\{t\(selected\.accountLine\)\}<\/p> : null/, "raw single-account labels and translated fixed scope must use distinct paths");
-assert.equal((decisionSource.match(/selected\.accountChoices\[0\]\.label/g) || []).length, 1, "the single-account caption is shown once");
 const dynamicLabels = ["Synthetic account A", "实际账户名称", "{count} 项待办", "<b>account text</b>", "unknown_scope_enum"];
 for (const label of dynamicLabels) {
   const result = listDailyDecisions({ language: "en", profiles: [], promotions: ready({ tickets: [{ ticket_id: "display-label", state: "awaiting_human" }] }), owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [{ platform: "longbridge", key: "display-label", label }] });
@@ -140,34 +140,35 @@ for (const label of dynamicLabels) {
 const scope = listDailyDecisions({ language: "en", profiles: [], promotions: ready({ tickets: [{ ticket_id: "many", state: "awaiting_human" }] }), owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [{ platform: "longbridge", key: "a", label: "Account A" }, { platform: "longbridge", key: "b", label: "Account B" }] }).items[0];
 assert.equal(translate(scope.accountLine, "en"), "Several accounts can be selected");
 
-const css = postcss.parse(readFileSync(new URL("../web/strategy-switch-console/frontend/src/styles.css", import.meta.url), "utf8"));
-const property = (selector, name, mobile = false) => {
+const css = postcss.parse(liveSrc("app/app.css"));
+const property = (selector, name) => {
   let result;
   css.walkRules(selector, rule => {
-    const narrow = rule.parent.type === "atrule" && rule.parent.params === "(max-width: 800px)";
-    if (mobile !== narrow) return;
+    if (rule.parent.type !== "root") return;
     rule.walkDecls(name, declaration => { result = declaration.value; });
   });
   return result;
 };
-assert.equal(property('.accounts-page .preference-choice[aria-pressed="true"]', "color"), "var(--ink)", "selected preference text must not inherit white on the pale selection background");
-assert.equal(property('.accounts-page .preference-choice[aria-pressed="true"]', "background"), "var(--accent-soft)");
-assert.equal(property(".accounts-page .preference-hint", "position"), "static", "tooltip content stays in normal flow instead of obscuring adjacent save controls");
-assert.equal(property(".accounts-page .preference-hint", "max-width"), "100%", "tooltip content cannot expand beyond the choice on a narrow page");
-assert.equal(property(".accounts-page .preference-choice:focus-visible", "outline"), "2px solid var(--amber)", "keyboard focus retains a strong visible indicator");
-assert.equal(property(".overview-runtime-head label", "display", true), "grid", "mobile date caption and input occupy separate rows");
-assert.equal(property('.overview-runtime-head input[type="date"]', "width", true), "100%");
-assert.equal(property('.overview-runtime-head input[type="date"]', "flex-shrink", true), "0");
-assert.equal(property('.overview-runtime-head input[type="date"]', "min-width", true), "0", "full-width date inputs can stay inside the mobile content bounds");
+assert.equal(property(":focus-visible", "outline"), "2px solid var(--accent)", "keyboard focus retains a strong visible indicator");
+assert.equal(property(".segmented .segment.active", "color"), "var(--ink)", "selected segment text uses the primary ink colour");
+assert.equal(property(".segmented .segment.active", "background"), "var(--surface)");
 const luminance = hex => {
   const values = hex.slice(1).match(/../g).map(value => parseInt(value, 16) / 255).map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
   return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722;
 };
-for (const selector of [':root,\n:root[data-theme="light"]', ':root[data-theme="dark"]']) {
+const tokens = postcss.parse(liveSrc("app/tokens.css"));
+const declsFor = selector => {
   let variables;
-  css.walkRules(selector, rule => { variables = Object.fromEntries(rule.nodes.filter(node => node.type === "decl").map(node => [node.prop, node.value])); });
-  assert.ok(variables);
-  const l1 = luminance(variables["--ink"]), l2 = luminance(variables["--accent-soft"]);
-  assert.ok((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05) >= 4.5, `selected risk text meets normal-text contrast in ${selector}`);
+  tokens.walkRules(selector, rule => { if (rule.parent.type === "root") variables = Object.fromEntries(rule.nodes.filter(node => node.type === "decl").map(node => [node.prop, node.value])); });
+  return variables;
+};
+const lightTokens = declsFor(":root");
+for (const selector of [":root", ':root[data-theme="dark"]']) {
+  const themed = declsFor(selector);
+  assert.ok(themed);
+  const variables = { ...lightTokens, ...themed };
+  const resolve = value => { for (let i = 0; i < 8 && /^var\(/.test(value); i++) value = variables[value.match(/^var\((--[\w-]+)/)[1]]; return value; };
+  const l1 = luminance(resolve(variables["--ink"])), l2 = luminance(resolve(variables["--surface"]));
+  assert.ok((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05) >= 4.5, `selected segment text meets normal-text contrast in ${selector}`);
 }
 console.log("workflow clarity validation: PASS (partial sources, explicit materials, read-back/CAS preservation and source eligibility)");

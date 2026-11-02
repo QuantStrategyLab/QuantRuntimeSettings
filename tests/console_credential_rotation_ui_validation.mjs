@@ -1,5 +1,5 @@
 // Credential rotation entry (Health page): SSR copy, write-only guarantees, request
-// identity, response allowlists and the #1034 flat-design rules. Synthetic values only.
+// identity, response allowlists and light/dark theme tokens. Synthetic values only.
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -697,12 +697,16 @@ try {
       ui.translate(language, "cockpit.change_log.subject_kind.other"), `credential subject/${language}: carries its own label`);
   }
 
-  /* ---------- 6. Flat-design rules ---------- */
+  /* ---------- 6. Light and dark themes ---------- */
+  // The flat-design spec is revoked: layout, borders, radius, spacing, shadows and
+  // literal colours are free here. Only the hard light + dark requirement is checked;
+  // hardcoded colours are reported by the advisory check:style-guards script.
 
   const appCss = await readFile(join(root, "src/app/app.css"), "utf8");
   const tokensCss = await readFile(join(root, "src/app/tokens.css"), "utf8");
   const healthCss = await readFile(join(root, "src/pages/health/health.css"), "utf8");
   const darkAt = tokensCss.indexOf(':root[data-theme="dark"]');
+  assert.ok(darkAt > 0, "tokens.css declares a dark theme block");
   const light = tokensCss.slice(0, darkAt);
   const dark = tokensCss.slice(darkAt, tokensCss.indexOf("/* Up/down"));
   const tokens = ["--surface-0", "--surface-1", "--surface-2", "--text-primary", "--text-secondary", "--text-muted",
@@ -712,32 +716,11 @@ try {
     assert.ok(light.includes(token), `light theme declares ${token}`);
     assert.ok(dark.includes(token), `dark theme declares ${token}`);
   }
-  assert.match(tokensCss, /--radius: 8px;/, "--radius is 8px");
-  assert.match(tokensCss, /--radius-card: 12px;/, "--radius-card is 12px");
-  assert.match(tokensCss, /--pad-card: 1rem 1\.25rem;/, "the card padding token resolves to 1rem 1.25rem");
-  assert.match(tokensCss, /--font-sans:/, "the sans stack is a token");
-  assert.match(tokensCss, /--font-mono:/, "the mono stack is a token");
-  assert.match(appCss, /font-family: var\(--font-sans\)/, "the base type uses the token");
-
-  const inputRule = appCss.slice(appCss.indexOf(".input, select.input, textarea.input {"), appCss.indexOf("}", appCss.indexOf(".input, select.input, textarea.input {")));
-  assert.match(inputRule, /min-height: 36px;/, "the shared input base is 36px");
-  assert.match(inputRule, /border: 0\.5px solid var\(--border-strong\)/, "the shared input base uses a hairline border token");
+  // Interaction states of the shared input stay available in both themes.
   assert.match(appCss, /\.input:disabled/, "the shared input base has a disabled state");
-  assert.match(appCss, /\.input:focus \{ outline: 2px solid var\(--focus-ring\)/, "focus uses the focus-ring token");
-  assert.doesNotMatch(inputRule, /#(?:[0-9a-fA-F]{3,8})/, "the input base carries no literal colour");
-
+  assert.match(appCss, /\.input:focus/, "the shared input base has a visible focus state");
   const rotationBlock = healthCss.slice(healthCss.indexOf("/* ---------- Credential rotation panel"));
   assert.ok(rotationBlock.length > 200, "the rotation styles exist");
-  // Comments name the rules they follow; only declarations are scanned for violations.
-  const rotationRules = rotationBlock.slice(rotationBlock.indexOf("*/") + 2).replace(/\/\*[\s\S]*?\*\//g, "");
-  assert.match(rotationRules, /grid-template-columns: repeat\(auto-fit, minmax\(160px, 1fr\)\)/, "the metadata grid is the mandated auto-fit grid");
-  assert.match(rotationRules, /0\.5px solid var\(--border\)/, "the panel uses hairline border tokens");
-  assert.match(rotationRules, /var\(--radius\)|var\(--radius-card\)/, "the panel uses radius tokens");
-  assert.match(rotationRules, /min-height: 44px/, "the panel touch targets stay at 44px");
-  assert.doesNotMatch(rotationRules, /#(?:[0-9a-fA-F]{3,8})|\brgba?\(/, "the panel uses no literal colour");
-  assert.doesNotMatch(rotationRules, /box-shadow|gradient|filter:|text-shadow/, "the panel is flat");
-  assert.doesNotMatch(rotationRules, /border: 1px|border-width: 1px/, "the panel keeps hairline borders");
-  assert.match(rotationRules, /@media \(max-width: 600px\)[\s\S]*grid-template-columns: 1fr/, "narrow screens collapse to one column");
 
   // The prose that explains stage, cancel and unknown outcomes stays outside the
   // metadata and form blocks, as sibling card notes.
