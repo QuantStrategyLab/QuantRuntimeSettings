@@ -138,7 +138,8 @@ export function publicMarketBenchmarkReadModel(points) {
   return {
     ok: true,
     schema_version: MARKET_BENCHMARK_SCHEMA,
-    inception_date: firstObservationDate(filtered),
+    // Preserve the legacy index inception even when ETF history starts earlier.
+    inception_date: firstObservationDate(filtered.filter(point => MARKET_BENCHMARK_SERIES_IDS.includes(point.seriesId))),
     timezone: "Asia/Shanghai",
     points: filtered.map(({ seriesId, observationDate, close }) => ({
       seriesId,

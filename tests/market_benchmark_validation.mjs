@@ -544,3 +544,5 @@ console.log("market_benchmark_historical_sqlite_validation ok");
 
 // Exercise the additive ETF contract in the existing CI benchmark check.
 await import("./performance_benchmarks_validation.mjs");
+
+await import("./market_benchmark_compatibility_validation.mjs");

@@ -737,12 +737,18 @@ The existing Yahoo acquisition script accepts
 cache keys, 64-point batch limit, completed-session filtering and conflict policy.
 Use existing paired history date options for bounded approved acquisition.
 An ETF is stored under its ticker; index levels never substitute for it.
-The new set cannot use the owner-approved index revision operation.
+The new set cannot use the owner-approved index revision operation. The shared
+apply planner validates every replacement against the four index identities at
+both the Worker receiver and producer payload boundary, including explicit
+payloads in default overview mode. Any ETF or unknown target rejects the entire
+batch with `benchmark_revision_series_unsupported` before writes.
 This patch does not schedule or run ETF acquisition; an empty cache remains
 unavailable until the existing producer is operated under its normal authorization.
 
 Compatibility: `/api/market-benchmark` may add ETF rows to its existing points
-array; existing index consumers select the original index identities. The legacy
+array; `inception_date` remains the earliest valid index observation (null when
+there are no index rows), independently of ETF history. Existing index consumers
+select the original index identities. The legacy
 performance routes remain index-only. Meridian's existing `EquitySeries.benchmark`
 is unchanged: the frontend implementer consumes this separate contract for four
 series, using the actual strategy window. Frontend types, mock fixtures and page
