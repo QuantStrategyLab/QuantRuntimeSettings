@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/switch-targets.json",
+  "title": "switch-targets",
+  "description": "API-CONTRACT.md §3.6 step 1",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.switch_targets.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+          "platform": {"type": "string"},
+          "platform_label": {"type": "string"},
+          "account_ref": {"type": "string"},
+          "account_suffix": {"type": "string"},
+          "mode": {
+            "allOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+              {
+                "type": "object",
+                "properties": {"value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"}}
+              }
+            ]
+          },
+          "domains": {"type": "array", "items": {"type": "string"}},
+          "current_strategy": {
+            "allOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+              {
+                "type": "object",
+                "properties": {"value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Strategy"}}
+              }
+            ]
+          },
+          "execution_modes": {
+            "type": "array",
+            "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"}
+          },
+          "switchable": {
+            "type": "object",
+            "properties": {
+              "allowed": {"const": false},
+              "reason_code": {
+                "type": "string",
+                "enum": ["switch_not_connected", "request_in_flight", "no_domain_declared", "identity_incomplete"]
+              }
+            },
+            "required": ["allowed", "reason_code"],
+            "additionalProperties": false
+          },
+          "pending_request_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+          "stop": {
+            "type": "object",
+            "properties": {"supported": {"type": "boolean"}, "resume_supported": {"type": "boolean"}},
+            "required": ["supported", "resume_supported"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "target_id",
+          "platform",
+          "platform_label",
+          "account_ref",
+          "account_suffix",
+          "mode",
+          "domains",
+          "current_strategy",
+          "execution_modes",
+          "switchable",
+          "pending_request_id",
+          "stop"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["ok", "schema_version", "generated_at", "targets"],
+  "additionalProperties": false
+}

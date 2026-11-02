@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/readback-job.json",
+  "title": "readback-job",
+  "description": "API-CONTRACT.md §3.5",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.readback_job.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "readback_id": {"type": "string"},
+    "state": {"type": "string", "enum": ["running", "done", "partial", "failed"]},
+    "started_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "retry_after_ms": {"type": "integer", "minimum": 0},
+    "results": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+              "state": {"const": "done"},
+              "overall": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Comparison"},
+              "readback_id": {"type": "string"}
+            },
+            "required": ["target_id", "state", "overall", "readback_id"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+              "state": {"const": "failed"},
+              "error": {"type": "string"}
+            },
+            "required": ["target_id", "state", "error"],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": ["ok", "schema_version", "generated_at", "readback_id", "state"],
+  "additionalProperties": false
+}

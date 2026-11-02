@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "target_id": "longbridge/hk",
+  "platform": "longbridge",
+  "account_ref": "LB•••0001",
+  "mode": {"status": "known", "value": "live", "observed_at": "2030-01-07T14:31:12Z"},
+  "nav": {
+    "currency": "HKD",
+    "amount": "1113000.00",
+    "usd": "142700.00",
+    "status": "known",
+    "observed_at": "2030-01-07T09:06:00Z"
+  },
+  "holdings": {
+    "status": "known",
+    "scope": "strategy_symbols_only",
+    "observed_at": "2030-01-07T09:06:00Z",
+    "rows": [
+      {
+        "symbol": "3033.HK",
+        "name": "Hang Seng TECH ETF",
+        "quantity": "18200",
+        "last_price": {"status": "unknown", "reason": "not_supported"},
+        "day_change_ratio": {"status": "unknown", "reason": "not_supported"},
+        "market_value": "87724.00",
+        "currency": "HKD",
+        "weight_ratio": "0.298"
+      },
+      {
+        "symbol": "CASH",
+        "name": "HKD",
+        "quantity": null,
+        "last_price": null,
+        "day_change_ratio": null,
+        "market_value": "133560.00",
+        "currency": "HKD",
+        "weight_ratio": "0.12"
+      }
+    ]
+  },
+  "facts": {
+    "environment": "live",
+    "strategy_domains": ["us_equity", "hk_equity"],
+    "facts_binding": {"status": "known", "value": "verified", "observed_at": "2030-01-07T13:02:00Z"},
+    "service": "demo-hk-service",
+    "alert_route": "QuantSentinel · Telegram",
+    "cash": [{"currency": "HKD", "available_cash": "133560.00", "frozen_cash": "0.00", "settling_cash": "0.00"}],
+    "financing": []
+  },
+  "schema_version": "qsl.desk.account_detail.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

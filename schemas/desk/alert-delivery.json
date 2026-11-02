@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/alert-delivery.json",
+  "title": "alert-delivery",
+  "description": "API-CONTRACT.md §3.18",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.alert_delivery.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "channel": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "status": {
+          "allOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+            {"type": "object", "properties": {"value": {"type": "string", "enum": ["ok", "failing"]}}}
+          ]
+        }
+      },
+      "required": ["name", "status"],
+      "additionalProperties": false
+    },
+    "last_delivery": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+            "outcome": {"type": "string", "enum": ["ok", "failed"]},
+            "recipients": {"type": "integer", "minimum": 0}
+          },
+          "required": ["at", "outcome", "recipients"],
+          "additionalProperties": false
+        },
+        {"type": "null"}
+      ]
+    },
+    "digest": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "schedule_utc": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Clock"},
+            "last_composed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+            "targets": {"type": "integer", "minimum": 0},
+            "runs": {"type": "integer", "minimum": 0}
+          },
+          "required": ["schedule_utc", "last_composed_at", "targets", "runs"],
+          "additionalProperties": false
+        },
+        {"type": "null"}
+      ]
+    }
+  },
+  "required": ["ok", "schema_version", "generated_at", "channel", "last_delivery", "digest"],
+  "additionalProperties": false
+}

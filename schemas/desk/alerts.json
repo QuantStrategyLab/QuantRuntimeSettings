@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/alerts.json",
+  "title": "alerts",
+  "description": "API-CONTRACT.md §3.17",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.alerts.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "counts": {
+      "type": "object",
+      "properties": {
+        "open": {"type": "integer", "minimum": 0},
+        "critical": {"type": "integer", "minimum": 0},
+        "warning": {"type": "integer", "minimum": 0},
+        "info": {"type": "integer", "minimum": 0},
+        "last_7d_total": {"type": "integer", "minimum": 0}
+      },
+      "required": ["open", "critical", "warning", "info", "last_7d_total"],
+      "additionalProperties": false
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "severity": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Severity"},
+          "status": {"type": "string", "enum": ["open", "resolved"]},
+          "kind": {
+            "type": "string",
+            "enum": [
+              "config_drift",
+              "credential_expiring",
+              "decision_pending",
+              "drawdown_near_limit",
+              "run_missed",
+              "data_stale",
+              "other",
+              "digest",
+              "delivery_failed",
+              "candidate_ready"
+            ]
+          },
+          "target_id": {
+            "anyOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+              {"type": "null"}
+            ]
+          },
+          "title": {"type": "string"},
+          "detail": {"type": "string"},
+          "first_seen_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+          "last_seen_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+          "resolved_at": {
+            "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+          },
+          "source": {"type": "string"},
+          "route": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+          "log_ref": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {"run_id": {"type": "string"}},
+                "required": ["run_id"],
+                "additionalProperties": false
+              },
+              {"type": "null"}
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "severity",
+          "status",
+          "kind",
+          "target_id",
+          "title",
+          "detail",
+          "first_seen_at",
+          "last_seen_at",
+          "resolved_at",
+          "source",
+          "route",
+          "log_ref"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+  },
+  "required": ["ok", "schema_version", "generated_at", "counts", "items", "next_cursor"],
+  "additionalProperties": false
+}

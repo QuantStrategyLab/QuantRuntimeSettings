@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/switch-create.json",
+  "title": "switch-create",
+  "description": "API-CONTRACT.md §3.6 step 4",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.switch_create.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "request_id": {"type": "string"},
+    "state": {"type": "string", "enum": ["scheduled", "dispatched"]},
+    "created_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "reused": {"type": "boolean"},
+    "no_order": {"const": true},
+    "retry_after_ms": {"type": "integer", "minimum": 0},
+    "actions_url": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "request_id",
+    "state",
+    "created_at",
+    "reused",
+    "no_order",
+    "retry_after_ms",
+    "actions_url"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,70 @@
+{
+  "ok": true,
+  "generated_at": "2030-01-07T14:35:00Z",
+  "range": "6M",
+  "scope": "strategy",
+  "history": {
+    "first_date": "2029-11-14",
+    "requested_from": "2029-07-02",
+    "truncated_by": "retention",
+    "retention_days": 366
+  },
+  "return_basis": {"kind": "mixed", "per_target": {"ibkr/tqqq": "native_ibkr_twr", "longbridge/hk": "nav_change_unadjusted"}},
+  "equity": {
+    "dates": ["2029-12-09", "2029-12-10"],
+    "portfolio_indexed": ["100.00", "100.41"],
+    "benchmark": {"id": "nasdaq100", "label": "Nasdaq 100", "indexed": ["100.00", "100.52"]},
+    "drawdown_ratio": ["0.000", "-0.002"],
+    "gap_dates": []
+  },
+  "risk": {
+    "return_ratio": {"status": "known", "value": "0.184", "observed_at": "2030-01-07T14:26:00Z"},
+    "vs_benchmark_pts": {"status": "known", "value": "0.041", "observed_at": "2030-01-07T14:26:00Z"},
+    "volatility_ann_ratio": {"status": "unknown", "reason": "insufficient_history"},
+    "sharpe": {"status": "unknown", "reason": "insufficient_history"},
+    "sortino": {"status": "unknown", "reason": "insufficient_history"},
+    "max_drawdown_ratio": {"status": "known", "value": "-0.098", "observed_at": "2030-01-07T14:26:00Z"},
+    "time_under_water_days": {"status": "known", "value": 41, "observed_at": "2030-01-07T14:26:00Z"},
+    "best_day_ratio": {"status": "known", "value": "0.042", "observed_at": "2030-01-07T14:26:00Z"},
+    "worst_day_ratio": {"status": "known", "value": "-0.039", "observed_at": "2030-01-07T14:26:00Z"}
+  },
+  "scorecard": [
+    {
+      "target_id": "ibkr/tqqq",
+      "strategy_label": "TQQQ Growth Income",
+      "since": "2029-07-04",
+      "days": 182,
+      "cagr_ratio": {"status": "known", "value": "0.318", "observed_at": "2030-01-07T14:35:00Z"},
+      "max_dd_ratio": {"status": "known", "value": "-0.264", "observed_at": "2030-01-07T14:35:00Z"},
+      "sharpe": {"status": "known", "value": "1.12", "observed_at": "2030-01-07T14:35:00Z"},
+      "vol_ratio": {"status": "known", "value": "0.84", "observed_at": "2030-01-07T14:35:00Z"},
+      "capital_share_ratio": "0.41",
+      "return_basis": "native_ibkr_twr"
+    }
+  ],
+  "contribution": {
+    "period": "MTD",
+    "unit": "pts_of_nav",
+    "rows": [{"target_id": "ibkr/tqqq", "label": "TQQQ Growth Income", "points": "0.042"}]
+  },
+  "monthly": {
+    "unit": "ratio",
+    "rows": [
+      {
+        "year": 2026,
+        "months": ["-0.000", "0.000", "0.100", null, null, null, null, null, null, null, null, null],
+        "ytd": "0.47"
+      }
+    ]
+  },
+  "schema_version": "qsl.desk.performance.v1",
+  "equity_by_target": {
+    "ibkr/tqqq": {
+      "dates": ["2029-12-09", "2029-12-10"],
+      "portfolio_indexed": ["100.00", "100.41"],
+      "benchmark": {"id": "nasdaq100", "label": "Nasdaq 100", "indexed": ["100.00", "100.52"]},
+      "drawdown_ratio": ["0.000", "-0.002"],
+      "gap_dates": []
+    }
+  }
+}

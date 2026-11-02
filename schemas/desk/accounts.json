@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/accounts.json",
+  "title": "accounts",
+  "description": "API-CONTRACT.md §3.13",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.accounts.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "brokers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "platform": {"type": "string"},
+          "label": {"type": "string"},
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+                "account_ref": {"type": "string"}
+              },
+              "required": ["target_id", "account_ref"],
+              "additionalProperties": false
+            }
+          },
+          "connectivity": {
+            "allOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+              {
+                "type": "object",
+                "properties": {"value": {"type": "string", "enum": ["up", "degraded", "down"]}}
+              }
+            ]
+          },
+          "connectivity_detail": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+          "heartbeat": {
+            "allOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+              {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "object",
+                    "properties": {"at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}},
+                    "required": ["at"],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            ]
+          },
+          "data_freshness": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Freshness"},
+          "config": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Config"},
+          "credential": {
+            "type": "object",
+            "properties": {
+              "kind": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/CredentialKind"},
+              "expiry": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Expiry"},
+              "phase": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Phase"},
+              "requires_action": {"type": "boolean"},
+              "note": {"type": "string"}
+            },
+            "required": ["kind", "expiry", "phase", "requires_action"],
+            "additionalProperties": false,
+            "allOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/CredentialAction"}]
+          },
+          "last_order": {
+            "allOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+              {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "object",
+                    "properties": {
+                      "at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+                      "count": {"type": "integer", "minimum": 0}
+                    },
+                    "required": ["at", "count"],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "required": [
+          "platform",
+          "label",
+          "targets",
+          "connectivity",
+          "connectivity_detail",
+          "heartbeat",
+          "data_freshness",
+          "config",
+          "credential",
+          "last_order"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["ok", "schema_version", "generated_at", "brokers"],
+  "additionalProperties": false
+}

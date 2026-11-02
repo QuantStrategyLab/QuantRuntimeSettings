@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "targets": [
+    {
+      "target_id": "ibkr/tqqq",
+      "platform": "ibkr",
+      "platform_label": "IBKR",
+      "account_ref": "U•••0001",
+      "account_suffix": "0001",
+      "mode": {"status": "known", "value": "live", "observed_at": "2030-01-07T14:31:12Z"},
+      "domains": ["us_equity", "hk_equity"],
+      "current_strategy": {
+        "status": "known",
+        "value": {"profile": "tqqq_growth_income", "label": "TQQQ Growth Income"},
+        "observed_at": "2030-01-07T14:31:12Z"
+      },
+      "execution_modes": ["dry_run", "paper", "live"],
+      "switchable": {"allowed": false, "reason_code": "switch_not_connected"},
+      "pending_request_id": null,
+      "stop": {"supported": false, "resume_supported": false}
+    }
+  ],
+  "schema_version": "qsl.desk.switch_targets.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

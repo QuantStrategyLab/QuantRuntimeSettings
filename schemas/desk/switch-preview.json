@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/switch-preview.json",
+  "title": "switch-preview",
+  "description": "API-CONTRACT.md §3.6 step 3",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.switch_preview.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "preview_id": {"type": "string"},
+    "created_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "expires_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+    "base": {
+      "type": "object",
+      "properties": {
+        "readback_id": {"type": "string"},
+        "saved_revision": {"type": "integer", "minimum": 0},
+        "platform_overall": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Comparison"}
+      },
+      "required": ["readback_id", "saved_revision", "platform_overall"],
+      "additionalProperties": false
+    },
+    "diff": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {"type": "string"},
+          "platform_now": {
+            "allOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+              {"type": "object", "properties": {"value": {"type": "string"}}}
+            ]
+          },
+          "after": {"type": "string"},
+          "changed": {"type": "boolean"}
+        },
+        "required": ["key", "platform_now", "after", "changed"],
+        "additionalProperties": false
+      }
+    },
+    "estimates": {
+      "type": "object",
+      "properties": {
+        "turnover_ratio": {
+          "allOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+            {
+              "type": "object",
+              "properties": {"value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}}
+            }
+          ]
+        },
+        "orders": {
+          "allOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+            {"type": "object", "properties": {"value": {"type": "integer", "minimum": 0}}}
+          ]
+        },
+        "leveraged_etf_ratio_after": {
+          "allOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+            {
+              "type": "object",
+              "properties": {"value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}}
+            }
+          ]
+        },
+        "backtest_max_drawdown_ratio": {
+          "allOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+            {
+              "type": "object",
+              "properties": {"value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}}
+            }
+          ]
+        }
+      },
+      "required": ["turnover_ratio", "orders", "leveraged_etf_ratio_after", "backtest_max_drawdown_ratio"],
+      "additionalProperties": false
+    },
+    "preflight": {
+      "type": "array",
+      "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Preflight"}
+    },
+    "blocking_count": {"type": "integer", "minimum": 0},
+    "unknown_count": {"type": "integer", "minimum": 0},
+    "confirm": {
+      "type": "object",
+      "properties": {
+        "required": {"const": true},
+        "allowed": {"const": false},
+        "suffix_length": {"const": 4},
+        "account_suffix_hint": {"type": "string"},
+        "schedule_options": {"type": "array", "items": {"type": "string", "enum": ["now", "after_us_close"]}}
+      },
+      "required": ["required", "allowed", "suffix_length", "account_suffix_hint", "schedule_options"],
+      "additionalProperties": false
+    },
+    "no_order": {"const": true},
+    "reused": {"type": "boolean"}
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "preview_id",
+    "created_at",
+    "expires_at",
+    "target_id",
+    "base",
+    "diff",
+    "estimates",
+    "preflight",
+    "blocking_count",
+    "unknown_count",
+    "confirm",
+    "no_order"
+  ],
+  "additionalProperties": false
+}

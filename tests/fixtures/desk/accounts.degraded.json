@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "generated_at": "2030-01-07T14:35:00Z",
+  "brokers": [
+    {
+      "platform": "ibkr",
+      "label": "IBKR",
+      "targets": [
+        {"target_id": "ibkr/tqqq", "account_ref": "U•••0001"},
+        {"target_id": "ibkr/soxl", "account_ref": "U•••0002"}
+      ],
+      "connectivity": {"status": "unknown", "reason": "source_unavailable"},
+      "connectivity_detail": "gateway",
+      "heartbeat": {"status": "unknown", "reason": "source_unavailable"},
+      "data_freshness": {"data_status": "ready", "age_seconds": 11040},
+      "config": {"state": "synced", "drift_count": 0},
+      "credential": {"kind": "session", "expiry": {"status": "none"}, "phase": "not_due", "requires_action": false},
+      "last_order": {"status": "unknown", "reason": "source_unavailable"}
+    },
+    {
+      "platform": "binance",
+      "label": "Binance",
+      "targets": [{"target_id": "binance/spot", "account_ref": "BN•••0001"}],
+      "connectivity": {"status": "unknown", "reason": "source_unavailable"},
+      "connectivity_detail": null,
+      "heartbeat": {"status": "unknown", "reason": "source_unavailable"},
+      "data_freshness": {"data_status": "unavailable", "age_seconds": null},
+      "config": {"state": "unknown", "drift_count": 0},
+      "credential": {
+        "kind": "api_key",
+        "expiry": {"status": "none"},
+        "phase": "not_due",
+        "requires_action": false,
+        "note": "IP-restricted"
+      },
+      "last_order": {"status": "unknown", "reason": "source_unavailable"}
+    }
+  ],
+  "schema_version": "qsl.desk.accounts.v1"
+}

@@ -1,0 +1,367 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/common.json",
+  "$defs": {
+    "Time": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "Date": {"type": "string", "format": "date"},
+    "Clock": {"type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"},
+    "Decimal": {"type": "string", "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$"},
+    "Currency": {"type": "string", "pattern": "^[A-Z]{3,4}$"},
+    "TargetId": {"type": "string", "pattern": "^[a-z0-9_-]+/[a-z0-9_-]+$"},
+    "ReadReason": {
+      "type": "string",
+      "enum": ["never_read", "read_failed", "source_unavailable", "identity_unverified", "not_supported"]
+    },
+    "RuntimeState": {"type": "string", "enum": ["running", "stopped", "unknown"]},
+    "PreflightState": {"type": "string", "enum": ["pass", "warn", "block", "unknown"]},
+    "SwitchState": {
+      "type": "string",
+      "enum": ["scheduled", "dispatched", "applying", "readback_pending", "verified", "mismatch", "unknown", "failed"]
+    },
+    "Read": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "known"},
+            "value": {},
+            "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}
+          },
+          "required": ["status", "value", "observed_at"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "stale"},
+            "value": {},
+            "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+            "age_seconds": {"type": "integer", "minimum": 0}
+          },
+          "required": ["status", "value", "observed_at", "age_seconds"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "unknown"},
+            "reason": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadReason"},
+            "observed_at": {
+              "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+            }
+          },
+          "required": ["status", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "MetricRead": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "known"},
+            "value": {},
+            "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}
+          },
+          "required": ["status", "value", "observed_at"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "stale"},
+            "value": {},
+            "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+            "age_seconds": {"type": "integer", "minimum": 0}
+          },
+          "required": ["status", "value", "observed_at", "age_seconds"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "unknown"},
+            "reason": {
+              "type": "string",
+              "enum": [
+                "never_read",
+                "read_failed",
+                "source_unavailable",
+                "identity_unverified",
+                "not_supported",
+                "insufficient_history"
+              ]
+            },
+            "observed_at": {
+              "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+            }
+          },
+          "required": ["status", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Mode": {"type": "string", "enum": ["dry_run", "paper", "live"]},
+    "Freshness": {
+      "type": "object",
+      "properties": {
+        "data_status": {"type": "string", "enum": ["ready", "stale", "unavailable"]},
+        "age_seconds": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]}
+      },
+      "required": ["data_status", "age_seconds"],
+      "additionalProperties": false
+    },
+    "ReturnBasis": {"type": "string", "enum": ["native_ibkr_twr", "nav_change_unadjusted", "unavailable"]},
+    "PortfolioBasis": {"type": "string", "enum": ["native_ibkr_twr", "nav_change_unadjusted", "mixed", "unavailable"]},
+    "Config": {
+      "type": "object",
+      "properties": {
+        "state": {"type": "string", "enum": ["synced", "drift", "unknown"]},
+        "drift_count": {"type": "integer", "minimum": 0},
+        "checked_at": {
+          "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+        }
+      },
+      "required": ["state", "drift_count"],
+      "additionalProperties": false
+    },
+    "Outcome": {
+      "anyOf": [
+        {"type": "string", "enum": ["filled", "orders_submitted", "no_op", "drift", "error", "skipped"]},
+        {"type": "null"}
+      ]
+    },
+    "Comparison": {"type": "string", "enum": ["match", "drift", "unknown"]},
+    "Severity": {"type": "string", "enum": ["critical", "warning", "info"]},
+    "NeedKind": {
+      "type": "string",
+      "enum": [
+        "config_drift",
+        "credential_expiring",
+        "decision_pending",
+        "drawdown_near_limit",
+        "run_missed",
+        "data_stale",
+        "other"
+      ]
+    },
+    "Phase": {"type": "string", "enum": ["unknown", "not_due", "30", "7", "1", "expired"]},
+    "CredentialKind": {
+      "type": "string",
+      "enum": ["oauth_refresh", "flex_token", "access_token", "api_key", "password", "session", "other"]
+    },
+    "Expiry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "known"},
+            "at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+            "source": {"type": "string"}
+          },
+          "required": ["status", "at", "source"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"status": {"const": "none"}},
+          "required": ["status"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "unknown"},
+            "reason": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadReason"}
+          },
+          "required": ["status", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Strategy": {
+      "type": "object",
+      "properties": {"profile": {"type": "string"}, "label": {"type": "string"}},
+      "required": ["profile", "label"],
+      "additionalProperties": false
+    },
+    "Nav": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "known"},
+            "currency": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Currency"},
+            "amount": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+            "usd": {
+              "anyOf": [
+                {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                {"type": "null"}
+              ]
+            },
+            "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}
+          },
+          "required": ["status", "currency", "amount", "usd", "observed_at"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "stale"},
+            "currency": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Currency"},
+            "amount": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+            "usd": {
+              "anyOf": [
+                {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                {"type": "null"}
+              ]
+            },
+            "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+            "age_seconds": {"type": "integer", "minimum": 0}
+          },
+          "required": ["status", "currency", "amount", "usd", "observed_at", "age_seconds"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "unknown"},
+            "reason": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadReason"},
+            "observed_at": {
+              "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+            }
+          },
+          "required": ["status", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Benchmark": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {"type": "string", "enum": ["sp500", "nasdaq100", "djia", "russell2000"]},
+            "label": {"type": "string"},
+            "indexed": {
+              "type": "array",
+              "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}
+            }
+          },
+          "required": ["id", "label", "indexed"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {"type": "null"},
+            "label": {"type": "null"},
+            "indexed": {
+              "type": "array",
+              "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+              "maxItems": 0
+            }
+          },
+          "required": ["id", "label", "indexed"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "DisabledAction": {
+      "type": "object",
+      "properties": {"allowed": {"const": false}, "reason_code": {"const": "not_enabled"}},
+      "required": ["allowed", "reason_code"],
+      "additionalProperties": false
+    },
+    "Preflight": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "state": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/PreflightState"},
+        "required": {"type": "boolean"},
+        "title": {"type": "string"},
+        "detail": {"type": "string"},
+        "source": {"type": "string"},
+        "observed_at": {
+          "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+        }
+      },
+      "required": ["id", "state", "required", "title", "detail", "source", "observed_at"],
+      "additionalProperties": false
+    },
+    "ReadbackField": {
+      "type": "object",
+      "properties": {
+        "key": {"type": "string"},
+        "label": {"type": "string"},
+        "saved": {
+          "allOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+            {"type": "object", "properties": {"value": {"type": "string"}}}
+          ]
+        },
+        "platform": {
+          "allOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+            {"type": "object", "properties": {"value": {"type": "string"}}}
+          ]
+        },
+        "state": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Comparison"}
+      },
+      "required": ["key", "label", "saved", "platform", "state"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {"key": {"pattern": "(^|_)(ratio|floor)$|^dca_base_investment_usd$"}},
+            "required": ["key"]
+          },
+          "then": {
+            "properties": {
+              "saved": {
+                "allOf": [
+                  {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                  {
+                    "type": "object",
+                    "properties": {"value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}}
+                  }
+                ]
+              },
+              "platform": {
+                "allOf": [
+                  {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                  {
+                    "type": "object",
+                    "properties": {"value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "VerifyField": {
+      "type": "object",
+      "properties": {
+        "key": {"type": "string"},
+        "expected": {"type": "string"},
+        "platform": {
+          "allOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+            {"type": "object", "properties": {"value": {"type": "string"}}}
+          ]
+        },
+        "state": {"type": "string", "enum": ["pending", "match", "mismatch", "unknown"]}
+      },
+      "required": ["key", "expected", "platform", "state"],
+      "additionalProperties": false
+    },
+    "CredentialAction": {
+      "if": {"properties": {"phase": {"enum": ["30", "7", "1", "expired"]}}, "required": ["phase"]},
+      "then": {"properties": {"requires_action": {"const": true}}},
+      "else": {"properties": {"requires_action": {"const": false}}}
+    }
+  }
+}

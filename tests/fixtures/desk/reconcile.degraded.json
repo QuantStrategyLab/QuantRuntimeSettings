@@ -1,0 +1,47 @@
+{
+  "ok": true,
+  "request_id": "swr_demo_0001",
+  "target_id": "ibkr/tqqq",
+  "state": "unknown",
+  "terminal": true,
+  "created_at": "2030-01-07T14:33:10Z",
+  "updated_at": "2030-01-07T14:33:42Z",
+  "retry_after_ms": 2000,
+  "timeout_at": "2030-01-07T14:48:10Z",
+  "workflow": {
+    "status": "completed",
+    "conclusion": "success",
+    "run_url": "https://github.com/example-org/example-repo/actions/runs/1000001"
+  },
+  "expected": [
+    {"key": "strategy_profile", "value": "soxl_soxx_trend_income"},
+    {"key": "income_layer_max_ratio", "value": "0.50"}
+  ],
+  "readback": {
+    "readback_id": "rb_demo_0004",
+    "read_at": "2030-01-07T14:33:40Z",
+    "fields": [
+      {
+        "key": "strategy_profile",
+        "expected": "soxl_soxx_trend_income",
+        "platform": {"status": "unknown", "reason": "read_failed"},
+        "state": "unknown"
+      },
+      {
+        "key": "income_layer_max_ratio",
+        "expected": "0.50",
+        "platform": {"status": "unknown", "reason": "read_failed"},
+        "state": "unknown"
+      }
+    ]
+  },
+  "timeline": [
+    {"at": "2030-01-07T14:33:10Z", "step": "dispatched", "detail": "Workflow dispatch accepted (HTTP 204)."},
+    {"at": "2030-01-07T14:33:38Z", "step": "workflow_completed", "detail": "success"},
+    {"at": "2030-01-07T14:33:40Z", "step": "readback_started", "detail": null}
+  ],
+  "kind": "apply_saved",
+  "schema_version": "qsl.desk.reconcile.v1",
+  "generated_at": "2030-01-07T14:35:00Z",
+  "no_order": true
+}

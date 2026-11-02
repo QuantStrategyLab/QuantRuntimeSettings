@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "items": [
+    {
+      "id": "log_demo_0001",
+      "at": "2030-01-07T14:31:12Z",
+      "level": "warn",
+      "source": "longbridge/hk",
+      "run_id": "r-20261102-hk",
+      "message": "readback mismatch enabled: saved=true platform=false"
+    },
+    {
+      "id": "log_demo_0002",
+      "at": "2030-01-07T14:30:03Z",
+      "level": "info",
+      "source": "binance/spot",
+      "run_id": "r-20261102-bn",
+      "message": "BTC DCA order 7c1e… FILLED qty=0.00112"
+    }
+  ],
+  "next_cursor": "c_demo_0002",
+  "retention": {"days": 90, "truncated": true},
+  "redaction": "applied",
+  "schema_version": "qsl.desk.logs.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}
