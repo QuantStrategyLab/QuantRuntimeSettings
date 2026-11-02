@@ -1,0 +1,40 @@
+{
+  "name": "example-console",
+  "main": "worker.js",
+  "compatibility_date": "2026-06-08",
+  "workers_dev": true,
+  "placement": {
+    "mode": "off"
+  },
+  "vars": {
+    "ACCOUNT_FACTS_READ_MODEL_ENABLED": "false",
+    "RUNTIME_DAILY_READ_MODEL_ENABLED": "false",
+    "CONSOLE_EXTERNAL_FLOW_ENABLED": "false",
+    "STRATEGY_SWITCH_HIDDEN_PLATFORMS": "qmt",
+    "RUNTIME_SETTINGS_REPO": "example/runtime-settings",
+    "RUNTIME_SETTINGS_WORKFLOW": "manual-strategy-switch.yml",
+    "RUNTIME_SETTINGS_REF": "main",
+    "CONTROL_PLANE_STALE_TTL_SECONDS": "129600"
+  },
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "STRATEGY_SWITCH_RUNTIME_INSTANCES",
+        "class_name": "RuntimeInstances"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "runtime-instances-v1",
+      "new_sqlite_classes": [
+        "RuntimeInstances"
+      ]
+    }
+  ]
+}
