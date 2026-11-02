@@ -700,10 +700,11 @@ try {
   /* ---------- 6. Flat-design rules ---------- */
 
   const appCss = await readFile(join(root, "src/app/app.css"), "utf8");
+  const tokensCss = await readFile(join(root, "src/app/tokens.css"), "utf8");
   const healthCss = await readFile(join(root, "src/pages/health/health.css"), "utf8");
-  const darkAt = appCss.indexOf(':root[data-theme="dark"]');
-  const light = appCss.slice(0, darkAt);
-  const dark = appCss.slice(darkAt, appCss.indexOf("/* Up/down"));
+  const darkAt = tokensCss.indexOf(':root[data-theme="dark"]');
+  const light = tokensCss.slice(0, darkAt);
+  const dark = tokensCss.slice(darkAt, tokensCss.indexOf("/* Up/down"));
   const tokens = ["--surface-0", "--surface-1", "--surface-2", "--text-primary", "--text-secondary", "--text-muted",
     "--border:", "--border-strong", "--border-stronger", "--danger", "--danger-tint", "--success", "--success-tint",
     "--warning", "--warning-tint", "--accent"];
@@ -711,11 +712,11 @@ try {
     assert.ok(light.includes(token), `light theme declares ${token}`);
     assert.ok(dark.includes(token), `dark theme declares ${token}`);
   }
-  assert.match(appCss, /--radius: 8px;/, "--radius is 8px");
-  assert.match(appCss, /--radius-card: 12px;/, "--radius-card is 12px");
-  assert.match(appCss, /--pad-card: 1rem 1\.25rem;/, "the card padding token resolves to 1rem 1.25rem");
-  assert.match(appCss, /--font-sans:/, "the sans stack is a token");
-  assert.match(appCss, /--font-mono:/, "the mono stack is a token");
+  assert.match(tokensCss, /--radius: 8px;/, "--radius is 8px");
+  assert.match(tokensCss, /--radius-card: 12px;/, "--radius-card is 12px");
+  assert.match(tokensCss, /--pad-card: 1rem 1\.25rem;/, "the card padding token resolves to 1rem 1.25rem");
+  assert.match(tokensCss, /--font-sans:/, "the sans stack is a token");
+  assert.match(tokensCss, /--font-mono:/, "the mono stack is a token");
   assert.match(appCss, /font-family: var\(--font-sans\)/, "the base type uses the token");
 
   const inputRule = appCss.slice(appCss.indexOf(".input, select.input, textarea.input {"), appCss.indexOf("}", appCss.indexOf(".input, select.input, textarea.input {")));

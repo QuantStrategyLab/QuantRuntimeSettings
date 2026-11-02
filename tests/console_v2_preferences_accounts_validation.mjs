@@ -81,9 +81,9 @@ for(const dir of active) for(const file of fs.readdirSync(new URL(dir+'/',root),
  }visit(source);
 }
 // Text needs 4.5:1; chart series need 3:1 against their card surface.
-const css=fs.readFileSync(new URL('app/app.css',root),'utf8');
+const css=fs.readFileSync(new URL('app/tokens.css',root),'utf8');
 const light=css.slice(0,css.indexOf(':root[data-theme="dark"]')),dark=css.slice(css.indexOf(':root[data-theme="dark"]'),css.indexOf('/* Up/down'));
-const color=(section,name)=>section.match(new RegExp(`--${name}: (#[a-fA-F0-9]{6})`))?.[1];
+const color=(section,name)=>{const hex=section.match(new RegExp(`--${name}: (#[a-fA-F0-9]{6});`))?.[1];if(hex)return hex;const alias=light.match(new RegExp(`--${name}: var\\(--([a-z0-9-]+)\\);`))?.[1];return alias?color(section,alias):undefined;};
 const luminance=hex=>{const v=hex.slice(1).match(/../g).map(n=>parseInt(n,16)/255).map(n=>n<=.04045?n/12.92:((n+.055)/1.055)**2.4);return v[0]*.2126+v[1]*.7152+v[2]*.0722;};
 const ratio=(a,b)=>{const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);};
 for(const section of [light,dark]) {
