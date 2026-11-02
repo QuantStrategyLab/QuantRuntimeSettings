@@ -690,3 +690,60 @@ explicitly retains `event_id` and `operation_id` for this variant alongside the
 legacy `id`/`ref` event parser. Internal denial reasons are not projected. No notification is sent by these endpoints; any later
 notification integration must occur after audit commit and use only these fixed
 fields, without retrying the secret mutation.
+
+
+## Performance benchmark ETF curves
+
+`GET /api/market-benchmark/performance?start=2026-10-12&end=2026-10-14`
+(and `HEAD`) reads the existing Durable Object market-price cache. This public
+market-only endpoint requires no account identifier or strategy credential.
+Supply the actual first and last observation dates of the selected strategy's
+performance curve, after range selection, rather than a nominal range boundary.
+Dates must be valid ISO dates, occur once each, and satisfy `start <= end`.
+
+The additive `qsl.performance_benchmarks.v1` response contains:
+
+| Field | Meaning |
+| --- | --- |
+| `window.start`, `window.end` | Requested strategy observation window |
+| `status` | `available` for four usable series, `partial` for one to three, otherwise `unavailable` |
+| `series[].id` / `symbol` | `sp500` / `SPY`, `nasdaq100` / `QQQ`, `russell2000` / `IWM`, `djia` / `DIA` |
+| `series[].label_en`, `label_zh` | Display names for each language |
+| `series[].status`, `unavailable_reason` | Independent coverage for each ETF |
+| `series[].base_date`, `last_date` | Exact requested anchors, or null when unavailable |
+| `series[].points[]` | `{date, cumulative_return_ratio}`; first value is 0; 0.10 means 10% |
+| `return_basis` | `etf_close_price_return`: unadjusted daily close, excludes dividend reinvestment |
+| `currency`, `timezone` | USD, America/New_York exchange observation dates |
+| `calendar_coverage`, `missing_date_policy` | `not_verified`, `omit_without_fill` |
+
+Each usable series is sorted, clipped inclusively and rebased with
+`close / base_close - 1`. Both exact anchors must exist; missing anchors never
+shift the comparison window. No in-range prices gives `benchmark_history_missing`;
+an absent anchor gives `window_anchor_missing`. Invalid prices or duplicate
+in-range keys give `invalid_cached_price`. Unavailable series have empty points,
+not zero returns. Missing interior observations remain absent; calendar completeness
+is not asserted without an exchange-calendar source. Clients must preserve gaps
+and must not infer an observation or return from an absent date.
+
+Invalid queries return HTTP 400; unsupported methods return 405. Store, transport
+and response-integrity failures return 503 with a fixed error code. A successful
+cache read with incomplete coverage returns HTTP 200 and explicit coverage status.
+Responses use `Cache-Control: no-store`; every request re-reads the existing cache.
+No request fetches external prices, creates history, or changes execution state.
+
+The existing Yahoo acquisition script accepts
+`MARKET_BENCHMARK_SERIES_SET=performance` for SPY/QQQ/IWM/DIA; its default remains
+`overview` (the four price indices). Both modes share the existing source, frozen
+cache keys, 64-point batch limit, completed-session filtering and conflict policy.
+Use existing paired history date options for bounded approved acquisition.
+An ETF is stored under its ticker; index levels never substitute for it.
+The new set cannot use the owner-approved index revision operation.
+This patch does not schedule or run ETF acquisition; an empty cache remains
+unavailable until the existing producer is operated under its normal authorization.
+
+Compatibility: `/api/market-benchmark` may add ETF rows to its existing points
+array; existing index consumers select the original index identities. The legacy
+performance routes remain index-only. Meridian's existing `EquitySeries.benchmark`
+is unchanged: the frontend implementer consumes this separate contract for four
+series, using the actual strategy window. Frontend types, mock fixtures and page
+wiring are separate frontend ownership; this endpoint does not prove their adoption.

@@ -9,6 +9,7 @@
  * Env:
  *   MARKET_BENCHMARK_SYNC_URL  required HTTPS sync endpoint
  *   MARKET_BENCHMARK_SYNC_TOKEN  required bearer
+ *   MARKET_BENCHMARK_SERIES_SET  overview (default) or performance (SPY/QQQ/IWM/DIA)
  *   MARKET_BENCHMARK_RANGE     Yahoo range query, default 10d
  *   MARKET_BENCHMARK_FROM_DATE / MARKET_BENCHMARK_THROUGH_DATE  optional paired
  *     inclusive New York dates; both must be completed days, at most 64 points
@@ -28,6 +29,7 @@ import { pathToFileURL } from "node:url";
 import {
   MARKET_BENCHMARK_SCHEMA,
   MARKET_BENCHMARK_YAHOO_SYMBOLS,
+  benchmarkSymbolsForSet,
   MARKET_BENCHMARK_MAX_POINTS,
   isMarketBenchmarkDate,
   parseYahooChartDailyCloses,
@@ -201,8 +203,9 @@ export function buildUpstreamRevisionPayload(candidatePoints, storedPoints, appr
 }
 
 async function fetchCandidatePoints(window = null) {
+  const symbols = benchmarkSymbolsForSet(process.env.MARKET_BENCHMARK_SERIES_SET || "overview");
   const points = [];
-  for (const [seriesId, symbol] of Object.entries(MARKET_BENCHMARK_YAHOO_SYMBOLS)) {
+  for (const [seriesId, symbol] of Object.entries(symbols)) {
     const fetched = await fetchSeries(seriesId, symbol, window);
     const closed = closedSessionPoints(fetched);
     const seriesPoints = closed.filter(point => !window
@@ -252,6 +255,9 @@ async function readStoredPoints() {
 }
 
 export async function main() {
+  const seriesSet = process.env.MARKET_BENCHMARK_SERIES_SET || "overview";
+  benchmarkSymbolsForSet(seriesSet);
+  if (seriesSet !== "overview" && APPLY_REVISION) throw new Error("benchmark_revision_series_set_unsupported");
   if (!SYNC_URL) throw new Error("MARKET_BENCHMARK_SYNC_URL is required");
   const window = benchmarkHistoryWindow(FROM_DATE, THROUGH_DATE);
   if (window && APPLY_REVISION) throw new Error("benchmark_history_revision_exclusive");

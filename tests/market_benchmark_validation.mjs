@@ -541,3 +541,6 @@ try {
   assert.equal(outbound, 0);
 } finally { await mf.dispose(); }
 console.log("market_benchmark_historical_sqlite_validation ok");
+
+// Exercise the additive ETF contract in the existing CI benchmark check.
+await import("./performance_benchmarks_validation.mjs");

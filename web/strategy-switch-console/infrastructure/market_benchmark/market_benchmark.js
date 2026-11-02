@@ -39,7 +39,7 @@ export class MarketBenchmarkError extends Error {
 }
 
 export function isMarketBenchmarkSeriesId(value) {
-  return typeof value === "string" && MARKET_BENCHMARK_SERIES_IDS.includes(value);
+  return typeof value === "string" && (MARKET_BENCHMARK_SERIES_IDS.includes(value) || Object.hasOwn(PERFORMANCE_BENCHMARK_SYMBOLS, value));
 }
 
 /** Reject zero and non-positive closes; keep decimal text as stored. */
@@ -200,4 +200,16 @@ export function parseYahooChartDailyCloses(payload, { seriesId } = {}) {
     }
   }
   return points;
+}
+
+
+/** Separate ETF identities: index levels must never stand in for ETF prices. */
+export const PERFORMANCE_BENCHMARK_SYMBOLS = Object.freeze({
+  SPY: "SPY", QQQ: "QQQ", IWM: "IWM", DIA: "DIA",
+});
+
+export function benchmarkSymbolsForSet(name = "overview") {
+  if (name === "overview") return MARKET_BENCHMARK_YAHOO_SYMBOLS;
+  if (name === "performance") return PERFORMANCE_BENCHMARK_SYMBOLS;
+  throw new MarketBenchmarkError("invalid_market_benchmark_series_set");
 }
