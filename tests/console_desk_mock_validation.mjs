@@ -55,6 +55,36 @@ bad = clone(overview.ok); bad.schema_version = "qsl.desk.overview.v2"; assert.eq
 bad = clone(ribbon.ok); bad.console_state.gateways = { status: "unknown", reason: "read_failed", value: "down" }; assert.equal(isRibbon(bad), false, "unknown gateway is not down");
 bad = clone(session.ok); delete bad.server_time; assert.equal(isSession(bad), false, "session needs server_time");
 
+// Calendar-invalid times must fail at every trusted live/mock boundary.
+for (const invalid of [
+  "2026-99-99T99:99:99Z", "2026-02-29T12:00:00Z", "2026-04-31T12:00:00Z",
+  "2026-01-00T12:00:00Z", "2026-01-01T24:00:00Z", "2026-01-01T00:60:00Z",
+  "2026-01-01T00:00:60Z", "2026-01-01T00:00:00.Z", "2026-01-01T00:00:00+00:00",
+]) {
+  for (const status of ["known", "stale", "unknown"]) {
+    const read = status === "unknown" ? { status, reason: "read_failed", observed_at: invalid }
+      : { status, value: "all_reachable", observed_at: invalid, age_seconds: 1 };
+    assert.equal(isRead(read), false, `${status} rejects calendar-invalid time`);
+  }
+  const badSession = clone(session.ok); badSession.server_time = invalid;
+  assert.equal(isSession(badSession), false, "session rejects impossible server time");
+  const badRibbon = clone(ribbon.ok); badRibbon.generated_at = invalid;
+  assert.equal(isRibbon(badRibbon), false, "envelope rejects impossible generation time");
+  badRibbon.generated_at = ribbon.ok.generated_at;
+  badRibbon.console_state.gateways.observed_at = invalid;
+  assert.equal(isRibbon(badRibbon), false, "gateway rejects impossible observation time");
+  const live = createDeskApi({ forcedScenario: null, sources: { ribbon: "live" }, delayMs: 0, fetchJson: async () => badRibbon });
+  await assert.rejects(live.ribbon(), DeskContractError, "live endpoint rejects malformed time");
+}
+for (const valid of ["2024-02-29T23:59:59Z", "2000-02-29T00:00:00.123456Z", "2026-12-31T23:59:59.001Z"]) {
+  assert.equal(isRead({ status: "known", value: 1, observed_at: valid }), true, "valid UTC calendar time");
+}
+
+for (const invalid of ["24:00", "12:60", "99:99", "1:30"]) {
+  const badClock = clone(ribbon.ok); badClock.sessions[0].open_utc = invalid;
+  assert.equal(isRibbon(badClock), false, "market clock rejects impossible UTC time");
+}
+
 // Invalid calendar/time fields must fail at every trusted timestamp boundary.
 for (const at of ["2026-99-99T99:99:99Z", "2026-02-29T12:00:00Z", "2026-04-31T00:00:00Z",
   "2026-01-00T00:00:00Z", "2026-00-01T00:00:00Z", "2026-11-02T24:00:00Z",
