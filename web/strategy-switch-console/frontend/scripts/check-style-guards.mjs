@@ -1,5 +1,6 @@
-// Tokens-only style guard for the console CSS: no hardcoded colours or font sizes, no legacy token aliases.
-// Visual design (shadows, gradients, radius, borders, grids) is free; the former flat-design spec is revoked.
+// Advisory token check for the console CSS: flags hardcoded colour values outside tokens.css and
+// colour tokens that lack a light or dark value. The only hard design requirements are zh-CN/en and light/dark;
+// everything else is free. Never blocking.
 // Warn-only by default: prints violations and exits 0. Pass --strict to exit 1 on any violation.
 // Other flags: --markdown (grouped report for a PR body), --json.
 // The dead legacy file src/styles.css is skipped; P0-2 deletes it.
@@ -7,23 +8,12 @@ import { readFile, readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const LEGACY_ALIASES = [
-  "surface-default", "surface-subtle", "border-divider", "border-control", "status-attention",
-  "status-blocked", "status-verified", "accent-foreground", "canvas", "ink", "muted", "line",
-  "up-green", "down-green", "shadow", "surface", "radius-m",
-  "background-canvas", "background-chrome", "accent-surface", "status-attention-bg",
-  "status-blocked-bg", "status-verified-bg", "status-info", "status-info-bg", "status-ok",
-  "status-warn", "status-error", "status-unknown", "chart-primary", "chart-secondary",
-  "up", "down", "radius-s", "gap-1", "gap-2", "gap-3", "gap-4",
-];
-const ALIAS_RE = new RegExp(`--(?:${LEGACY_ALIASES.join("|")})(?![\\w-])`);
 const SKIP_FILES = new Set(["src/styles.css"]);
 const COLOR_FILES = new Set(["tokens.css"]);
 
 export const RULES = {
   "color-literal": "colour literal outside tokens.css (use a token)",
-  "font-size-px": "literal px font size (use a type token)",
-  "legacy-token": "legacy token alias or --benchmark-N (use the canonical token)",
+  "theme-parity": "colour token defined in only one of the light and dark blocks of tokens.css",
 };
 
 function stripComments(text) {
@@ -74,10 +64,26 @@ export function checkCss(source, file = "x.css") {
   for (const d of parseDeclarations(source)) {
     const { prop, value } = d;
     if (!COLOR_FILES.has(base) && /#[0-9a-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/i.test(value)) add("color-literal", d);
-    if (prop === "font-size" && /(?<![\w.-])\d*\.?\d+px/.test(value)) add("font-size-px", d);
-    if (ALIAS_RE.test(prop) || ALIAS_RE.test(value) || /--benchmark-\d/.test(prop + value)) add("legacy-token", d);
   }
+  if (COLOR_FILES.has(base)) found.push(...checkThemeParity(source, file));
   return found;
+}
+
+/** Colour tokens (literal colour values) must exist in both the light and the dark block. */
+export function checkThemeParity(source, file = "tokens.css") {
+  const light = new Map();
+  const dark = new Map();
+  for (const d of parseDeclarations(source)) {
+    if (!d.prop.startsWith("--") || !/#[0-9a-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/i.test(d.value)) continue;
+    const isDark = /data-theme=["']?dark/.test(d.selector);
+    (isDark ? dark : light).set(d.prop, d);
+  }
+  const out = [];
+  for (const [name, d] of [...light, ...dark]) {
+    if (light.has(name) && dark.has(name)) continue;
+    out.push({ rule: "theme-parity", file, line: d.line, selector: d.selector, text: `${name} (${light.has(name) ? "no dark value" : "no light value"})` });
+  }
+  return out;
 }
 
 async function listCss(dir) {

@@ -9,7 +9,7 @@ assert.deepEqual(rules(".a { color: #fff; }"), ["color-literal"]);
 assert.deepEqual(rules(".a { color: rgba(0,0,0,.5); }"), ["color-literal"]);
 assert.deepEqual(rules(".a { color: #fff; }", "src/app/tokens.css"), []);
 assert.deepEqual(rules("/* #fff box-shadow: 0 0 1px red */ .a { color: var(--text-primary); }"), []);
-// Visual-design properties are free: only hardcoded values and legacy aliases are checked.
+// Visual-design properties are free: only hardcoded colours are checked.
 for (const css of [
   ".a { box-shadow: 0 1px 2px var(--shadow-sm); }",
   ".a { background: linear-gradient(var(--c1), var(--c2)); }",
@@ -19,16 +19,13 @@ for (const css of [
 ]) assert.deepEqual(rules(css), [], css);
 assert.deepEqual(rules(".a { box-shadow: 0 1px 2px rgba(0,0,0,.2); }"), ["color-literal"]);
 assert.deepEqual(rules(".a { background: linear-gradient(#fff, #000); }"), ["color-literal"]);
-assert.deepEqual(rules(".a { font-size: 13px; }"), ["font-size-px"]);
-assert.deepEqual(rules(".a { font-size: var(--text-sm); }"), []);
-assert.deepEqual(rules(".a { color: var(--ink); }"), ["legacy-token"]);
-assert.deepEqual(rules(":root { --shadow: none; }"), ["legacy-token"]);
-assert.deepEqual(rules(".a { color: var(--benchmark-3); }"), ["legacy-token"]);
-for (const name of ["background-canvas", "background-chrome", "accent-surface", "status-attention-bg", "status-blocked-bg", "status-verified-bg", "status-info", "status-info-bg", "status-ok", "status-warn", "status-error", "status-unknown", "chart-primary", "chart-secondary", "up", "down", "radius-s", "gap-1", "gap-2", "gap-3", "gap-4"]) {
-  assert.deepEqual(rules(`.a { color: var(--${name}); }`), ["legacy-token"], name);
-}
-assert.deepEqual(rules(".a { color: var(--inkwell); }"), []);
-assert.deepEqual(rules(".a { color: var(--text-muted); }"), []);
+// Other hardcoded values (font size, legacy aliases) are not checked.
+for (const css of [".a { font-size: 13px; }", ".a { color: var(--ink); }", ":root { --shadow: none; }"]) assert.deepEqual(rules(css), [], css);
+
+// Tokens need both a light and a dark value.
+const tokens = (css) => rules(css, "src/app/tokens.css");
+assert.deepEqual(tokens(':root { --c: #fff; }\n:root[data-theme="dark"] { --c: #000; }'), []);
+assert.deepEqual(tokens(':root { --c: #fff; }\n:root[data-theme="dark"] { --d: #000; }'), ["theme-parity", "theme-parity"]);
 
 // Line numbers point at the declaration.
 assert.equal(checkCss(".a {\n  color: red;\n  color: #fff;\n}", "a.css")[0].line, 3);
