@@ -335,7 +335,9 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
                 self.assertEqual(private["status"], "dry_run")
                 if env["DIGEST_CANDIDATES_STORE_STATUS"] == "loaded":
                     self.assertIn("private-target-account", json.dumps(private))
-                    self.assertIn("123,456.78", (root / "digest-message-private.log").read_text())
+                    preview_log = (root / "digest-message-private.log").read_text()
+                    self.assertNotIn("123,456.78", preview_log)
+                    self.assertIn("private message body withheld", preview_log)
                 else:
                     self.assertEqual(private["evidence_status"], "evidence_unknown")
                     self.assertTrue(private["business_digest_failed"])

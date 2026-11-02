@@ -811,6 +811,16 @@ def collect_digest_runs(
     else:
         merged = merge_candidates(file_rows, github_result.rows)
     enriched = enrich_candidate_labels(merged, config, locale=locale)
+    # Approved private bindings may supply the broker identity independently of
+    # producer rows. Match all binding axes; never borrow another target's label.
+    if consolidation_enabled():
+        from display_names import broker_account_identity
+        bindings = {tuple(item.get(key) for key in adapter.IDENTITY[:4]): item for item in expected}
+        for row in enriched:
+            binding = bindings.get(tuple(row.get(key) for key in adapter.IDENTITY[:4]), {})
+            hint = broker_account_identity(row.get("platform_id"), binding.get("account_hint"))
+            if hint and not broker_account_identity(row.get("platform_id"), row.get("account_hint")):
+                row["account_hint"] = hint
     for row in enriched:
         if all(digest.resolve_count_field(row, name)[1] == "known" for name in ("fill_count", "order_count")):
             continue
@@ -987,7 +997,7 @@ def main(argv: list[str] | None = None) -> int:
         "--write-text",
         type=Path,
         default=None,
-        help="Optional path to write rendered Telegram body.",
+        help="Optional path to write a public digest summary (body withheld).",
     )
     args = parser.parse_args(argv)
 
@@ -1000,15 +1010,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.write_text:
         args.write_text.parent.mkdir(parents=True, exist_ok=True)
-        args.write_text.write_text(text + "\n", encoding="utf-8")
+        args.write_text.write_text("Daily digest rendered; private message body withheld.\n", encoding="utf-8")
     if args.write_json:
+        from project_public_digest_receipt import project_public_receipt
         receipt = build_receipt(payload, collected, message_chars=len(text))
         args.write_json.parent.mkdir(parents=True, exist_ok=True)
         args.write_json.write_text(
-            json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
+            json.dumps(project_public_receipt(receipt), ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-    print(text)
+    print("Daily digest rendered; private message body withheld from logs.")
     return 0
 
 

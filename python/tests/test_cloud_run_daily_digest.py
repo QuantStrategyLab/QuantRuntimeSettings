@@ -139,7 +139,7 @@ class CloudRunDigestTests(unittest.TestCase):
         with patch.dict(os.environ, {'DIGEST_CANDIDATES_GCS_URI': 'gs://synthetic/candidates'}):
             _, result = self.run_request(configuration=self.enable())
         self.assertEqual(result['coverage'], 'complete')
-        self.assertIn('订单：0', self.sent[0])
+        self.assertEqual(self.sent[0], '😴 今日全部账号无交易')
         self.assertNotIn('覆盖不完整', self.sent[0])
 
     def test_disabled_real_delivery_does_not_read_or_reserve(self):
@@ -181,7 +181,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertEqual((result['coverage'], result['delivery']), ('partial', 'accepted'))
         self.assertIn('全窗口统计未知', self.sent[0])
         self.assertIn('未找到当日报告', self.sent[0])
-        self.assertIn('本轮 0 单', self.sent[0])
+        self.assertNotIn('Schwab·', self.sent[0])
         self.assertIn('Binance：未纳入本期汇总，运行状态未知', self.sent[0])
         self.assertNotIn('Binance：运行 0', self.sent[0])
 
@@ -221,7 +221,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.store.rows[next(iter(self.store.rows))] = {'runs': [idle]}
         _, result = self.run_request(configuration=self.enable())
         self.assertEqual(result['coverage'], 'complete')
-        self.assertIn('报告注明未运行', self.sent[0])
+        self.assertEqual(self.sent[0], '😴 今日全部账号无交易')
         self.assertNotIn('休市', self.sent[0])
 
     def test_retry_keeps_original_report_date_and_rejects_another_day(self):
@@ -373,6 +373,55 @@ class CloudRunDigestTests(unittest.TestCase):
             self.run_request(configuration=self.enable())
         self.assertNotIn(ROW['opaque_account_uid'], stream.getvalue())
         self.assertNotIn('每日交易摘要', stream.getvalue())
+
+    def test_five_platform_private_ids_reach_only_mock_transport(self):
+        from contextlib import redirect_stdout, redirect_stderr
+        from dataclasses import replace
+        identities = {'ibkr': 'U0000001', 'schwab': '00000002', 'firstrade': '00000003',
+                      'longbridge': 'LB000004', 'binance': 'fake-binance-user'}
+        expected, sources, mappings = [], {}, {}
+        for platform, identity in identities.items():
+            item = {**ROW, 'platform_id': platform, 'order_count': 1, 'fill_count': 1}
+            item.pop('notification_event')
+            expected.append({**{key: item[key] for key in app.IDENTITY}, 'candidate_slot': 'synthetic-slot'})
+            sources[f'{platform}/2026-10-15/synthetic-slot.json'] = {'runs': [item]}
+            mappings[platform] = {item['opaque_account_uid']: identity}
+        self.store = MemoryStore(sources)
+        configuration = replace(self.enable(), expected=expected)
+        output, errors = io.StringIO(), io.StringIO()
+        with (patch.dict(os.environ, QSL_DISPLAY_NAMES_JSON=json.dumps({'accounts': mappings})),
+              redirect_stdout(output), redirect_stderr(errors)):
+            code, result = self.run_request(configuration=configuration)
+        self.assertEqual((code, result['delivery']), (200, 'accepted'))
+        public = output.getvalue() + errors.getvalue() + json.dumps(result) + json.dumps(self.store.records)
+        for identity in identities.values():
+            self.assertIn('·' + identity, self.sent[0])
+            self.assertNotIn(identity, public)
+        self.assertEqual(self.sent[0].count('📝 提交1笔/成交1笔'), 5)
+
+    def test_approved_private_binding_hint_is_applied_to_its_exact_target(self):
+        from dataclasses import replace
+        active = {**ROW, 'order_count': 1, 'fill_count': 1}
+        active.pop('notification_event')
+        self.store = MemoryStore({'schwab/2026-10-15/synthetic-slot.json': {'runs': [active]}})
+        configured = replace(self.enable(), expected=[{**EXPECTED[0], 'account_hint': '00000007'}])
+        self.run_request(configuration=configured)
+        self.assertIn('Schwab·***07', self.sent[0])
+        self.assertNotIn('00000007', self.sent[0])
+
+    def test_binding_hint_cannot_replace_valid_producer_identity(self):
+        from dataclasses import replace
+        for hint in ('****0007', 'XXXX0007', '00000007'):
+            with self.subTest(binding_hint=hint):
+                active = {**ROW, 'order_count': 1, 'fill_count': 1, 'account_hint': '00000008'}
+                active.pop('notification_event')
+                self.store = MemoryStore({'schwab/2026-10-15/synthetic-slot.json': {'runs': [active]}})
+                self.sent = []
+                configured = replace(self.enable(), expected=[{**EXPECTED[0], 'account_hint': hint}])
+                self.run_request(configuration=configured)
+                self.assertIn('Schwab·***08', self.sent[0])
+                self.assertNotIn('00000008', self.sent[0])
+                self.assertNotIn('·' + hint, self.sent[0])
 
     def test_deadline_check_confirms_persisted_receipt_without_another_send(self):
         self.run_request(configuration=self.enable())

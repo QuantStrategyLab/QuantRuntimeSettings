@@ -119,6 +119,7 @@ Required protected configuration:
 | `TELEGRAM_TOKEN` | Existing Bot secret reference |
 | `QSL_GLOBAL_TELEGRAM_CHAT_ID` | Existing approved recipient |
 | `QSL_NOTIFY_LANG` | `zh` or `en`, including normalized regional variants |
+| `QSL_DISPLAY_NAMES_JSON` | Protected runtime account identity mapping for v3 headers; see [account identity sources](display-names.md#private-account-identities-in-the-v3-daily-digest) |
 
 ### Separate candidate buckets
 

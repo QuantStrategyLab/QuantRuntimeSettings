@@ -312,8 +312,8 @@ def send_telegram_message(*, token: str, chat_id: str, text: str) -> bool:
         with urllib.request.urlopen(request, timeout=30) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:200]
-        print(f"Telegram send failed HTTP {exc.code}: {detail}", file=sys.stderr)
+        # Telegram/proxy errors may echo the request body, including account IDs.
+        print(f"Telegram send failed HTTP {exc.code}; response body withheld.", file=sys.stderr)
         return False
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         print(f"Telegram send failed: {type(exc).__name__}", file=sys.stderr)
@@ -552,8 +552,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if payload is not None:
-        print(text)
-        print("---")
+        print("Daily digest rendered; private message body withheld from logs.")
 
     if dry_run:
         missing = list(route.get("missing") or [])
