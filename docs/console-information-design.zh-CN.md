@@ -2,20 +2,13 @@
 
 本次只调整信息组织和操作呈现，保留现有账户、策略权限及确认流程，不增加服务、依赖或费用。
 
-## Mandatory frontend design rules
+## Frontend design rules
 
-These rules apply to all future frontend plans and implementations.
+One rule is mandatory for all frontend plans and implementations: **use design tokens, no hardcoded values.** Colours, type sizes, radius, spacing and shadows come from CSS variables (for example `--surface-*`, `--text-*`, `--border*`, `--radius*`, `--font-sans`, `--font-mono`), never literals. Every colour must also work in light and dark mode. The warn-only `npm run check:style-guards` flags colour literals, literal `px` font sizes and legacy token aliases.
 
-- **Flat:** Do not use gradients, shadows (except focus rings), noise, or decorative effects. Use 0.5px hairline borders and generous whitespace.
-- **Design tokens:** All colors, type, radius, and spacing must come from CSS variables, never hardcoded values. Use `--surface-0`, `--surface-1`, and `--surface-2`; `--text-primary`, `--text-secondary`, and `--text-muted`; `--border`, `--border-strong`, and `--border-stronger`; semantic accent, danger, success, and warning colors and tints; `--radius` (8px) and `--radius-card` (12px); padding and gap scales; and `--font-sans` and `--font-mono`.
-- **Dark mode:** Dark mode is mandatory. Every color must work in both light and dark modes.
-- **Cards:** Use a surface background token, a 0.5px border, `--radius-card` (12px), and padding tokens resolving to `1rem 1.25rem`.
-- **Responsive grid:** Use `repeat(auto-fit, minmax(160px, 1fr))`. Show at most four boxes per row; otherwise wrap them or split the content into an overview plus detail.
-- **Complexity budget:** Use at most two color ramps per chart. Whenever color encodes meaning, provide a one-line legend. Keep box subtitles to five words or fewer and put detail on click-through.
-- **Explanatory prose:** Keep explanatory prose outside visual components.
-- **Form elements:** All form elements must share one pre-styled base, with inputs 36px high and built-in hover and focus states.
+Everything else about visual design is free: layout, shadows, gradients, borders, radius, grids, colour use and chart styling are the designer's choice within the tokens.
 
-Source: the owner's adopted guidance (2026-11-01). Existing pages are migrated incrementally; all new work must comply.
+History: the owner adopted a flat design spec on 2026-11-01 (no gradients or shadows, 0.5px hairline borders, fixed radius and card padding, at most four boxes per row, at most two colour ramps per chart, 36px form inputs). The owner revoked it on 2026-11-02. It no longer applies, and no check enforces it. Existing pages need no migration for it.
 
 ## 日常需要回答的问题
 

@@ -44,6 +44,10 @@ Regenerate projections instead of editing them by hand.
 
 Organization documentation rules are checked by `python scripts/check_style.py`, which also runs in CI as the `Documentation check` job.
 
+## Frontend design
+
+Design tokens only: no hardcoded colours, type sizes or other literal values in console CSS; take them from the CSS variables in `tokens.css`. Beyond that, frontend design has full creative freedom. The 2026-11-01 flat design spec (no gradients or shadows, hairline borders, radius, grid and colour-ramp limits) is revoked. See `docs/console-information-design.zh-CN.md`. `npm run check:style-guards` is warn-only.
+
 ## Naming and documentation
 
 - Developer documentation is English by default; Chinese siblings use
