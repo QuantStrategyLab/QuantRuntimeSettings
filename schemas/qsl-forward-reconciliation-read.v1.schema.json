@@ -1,0 +1,338 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Informational forward reconciliation read v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "informational_only",
+    "generated_at",
+    "forward_start_date",
+    "source_status",
+    "source",
+    "baseline_status",
+    "baseline_reason",
+    "baseline",
+    "later_anchor",
+    "dimensions",
+    "notification"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "qsl.forward_reconciliation_read.v1"
+    },
+    "informational_only": {
+      "const": true
+    },
+    "generated_at": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date-time"
+        }
+      ]
+    },
+    "forward_start_date": {
+      "const": "2026-11-03"
+    },
+    "source_status": {
+      "enum": [
+        "unknown",
+        "stale",
+        "present"
+      ]
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/snapshot"
+        }
+      ]
+    },
+    "baseline_status": {
+      "enum": [
+        "missing",
+        "present"
+      ]
+    },
+    "baseline_reason": {
+      "enum": [
+        null,
+        "opening_snapshot_missing"
+      ]
+    },
+    "baseline": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/snapshot"
+        }
+      ]
+    },
+    "later_anchor": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/snapshot"
+        }
+      ]
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "positions",
+        "cash",
+        "events"
+      ],
+      "properties": {
+        "positions": {
+          "const": "UNRECONCILED"
+        },
+        "cash": {
+          "const": "UNRECONCILED"
+        },
+        "events": {
+          "const": "UNRECONCILED"
+        }
+      }
+    },
+    "notification": {
+      "$ref": "#/$defs/notification"
+    }
+  },
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_as_of",
+        "timezone",
+        "capture_started_at",
+        "capture_finished_at"
+      ],
+      "properties": {
+        "source_as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "timezone": {
+          "enum": [
+            "UTC",
+            "America/New_York",
+            "Asia/Hong_Kong",
+            "Asia/Singapore"
+          ]
+        },
+        "capture_started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "capture_finished_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "notification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "requested_at",
+        "confirmed_at"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "unknown",
+            "pending",
+            "confirmed"
+          ]
+        },
+        "requested_at": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
+          ]
+        },
+        "confirmed_at": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "unknown"
+            },
+            "requested_at": {
+              "const": null
+            },
+            "confirmed_at": {
+              "const": null
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "pending"
+            },
+            "requested_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "confirmed_at": {
+              "const": null
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "confirmed"
+            },
+            "requested_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "confirmed_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "baseline",
+        "later_anchor",
+        "notification"
+      ],
+      "properties": {
+        "source": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/snapshot"
+            }
+          ]
+        },
+        "baseline": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/snapshot"
+            }
+          ]
+        },
+        "later_anchor": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/snapshot"
+            }
+          ]
+        },
+        "notification": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/notification"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source_status": {
+            "const": "unknown"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": null
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "source": {
+            "$ref": "#/$defs/snapshot"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "baseline_status": {
+            "const": "missing"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "baseline": {
+            "const": null
+          },
+          "baseline_reason": {
+            "const": "opening_snapshot_missing"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "baseline": {
+            "$ref": "#/$defs/snapshot"
+          },
+          "baseline_reason": {
+            "const": null
+          }
+        }
+      }
+    }
+  ]
+}

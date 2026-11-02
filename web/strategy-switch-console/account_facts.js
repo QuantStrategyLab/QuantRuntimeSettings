@@ -1,3 +1,5 @@
+import { projectForwardReconciliation } from "./forward_reconciliation.js";
+
 // Pure account-facts projection helpers. Keeps broker snapshot history out of
 // runtime-daily and never invents FX totals, returns, or historical backfill.
 
@@ -1015,6 +1017,8 @@ export function buildAccountFactsReadModel({
           : {}),
         return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
       };
+      // Account snapshots do not contain source-qualified forward financial evidence.
+      accountRow.forward_reconciliation = projectForwardReconciliation(null, { now });
       accounts.push(accountRow);
       const physicalIdentity = physicalIdentityForProjection(platform, projected, binding);
       if (physicalIdentity) physicalIdentities.set(accountRow, physicalIdentity);
