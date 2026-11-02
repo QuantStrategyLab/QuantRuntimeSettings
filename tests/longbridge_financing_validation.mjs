@@ -355,14 +355,6 @@ for (const rejected of [
   assert.equal(longBridgeFinancingDetails(rejected), null);
 }
 
-const overview = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
-assert.match(overview, /longBridgeFinancingDetails\(account\.facts\)/);
-assert.match(overview, /overview-financing-details/);
-assert.match(overview, /t\("融资详情"\)/);
-assert.match(overview, /t\(longBridgeRiskLevelLabel\(row\.risk_level\)\)/);
-assert.doesNotMatch(overview, /CashMargin|max_finance_amount\s*-|Number\(|parseFloat|toFixed/);
-assert.match(overview, /longBridgeCashDetails\(account\.facts\)/);
-
 const locales = readFileSync(join(root, "web/strategy-switch-console/frontend/src/locales.ts"), "utf8");
 for (const key of [
   "融资详情", "最大融资金额", "剩余融资金额", "初始保证金", "维持保证金",

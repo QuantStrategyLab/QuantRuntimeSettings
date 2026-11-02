@@ -295,55 +295,18 @@ assert.match(shortObserved || "", /21:00/);
 assert.doesNotMatch(shortObserved || "", /2026|America\/New_York/,
   "compact time uses the existing timezone without leaving the long IANA name on the card");
 
-const overview = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
+const overview = readFileSync(join(root, "web/strategy-switch-console/frontend/src/pages/overview/OverviewPage.tsx"), "utf8");
 const apiSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/api.ts"), "utf8");
-const overviewStyles = readFileSync(join(root, "web/strategy-switch-console/frontend/src/styles.css"), "utf8");
-const performanceSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/PerformanceCharts.tsx"), "utf8");
-const performanceDataSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/performanceData.ts"), "utf8");
-assert.match(performanceSource, /epoch.current/);
-assert.match(overview, /useState\("all"\)/);
-assert.match(overview, /const visible = accountId === "all" \? displayAccounts : displayAccounts\.filter/);
-assert.match(overview, /facts: accountFactsForDisplay\(account\.facts, factsNow\)/, "all visible amount/type/detail reads share the local expiry projection");
-assert.match(overview, /const totalAssets = accountId === "all"/);
-assert.match(overview, /const totalCash = accountId === "all"/);
-assert.doesNotMatch(overview, /chartAccountId|图表账户/);
-assert.match(overview, /<PerformanceCharts accounts=\{accounts\} accountId=\{accountId\}/);
-assert.match(performanceDataSource, /loaders.account\(account.platformKey, account.accountKey, currency\)/);
-assert.match(performanceDataSource, /loaders.wallet\(account.accountKey\)/);
-assert.match(performanceSource, /loaded\?\.key === requestKey/,
-  "old history is hidden as soon as scope or refresh metadata changes");
 assert.match(apiSource, /\/api\/binance-account-facts\/history\?account_key=/);
 assert.doesNotMatch(overview, /walletHistory\.points[\s\S]{0,160}net_assets/,
   "Binance wallet amounts stay separate from the account NAV field");
-assert.match(overview, /formatBinanceWalletAmount\(walletCardValuation\.amount\)/);
-assert.match(overview, /selectedWalletValuation\s*\?\s*formatBinanceWalletAmount\(selectedWalletValuation\.amount\)/,
-  "a qualified selected Binance wallet valuation supplies the main asset metric");
-assert.match(overview, /showSelectedCashMetric = !selectedWalletValuation \|\| totalCash !== null/,
-  "the Binance cash metric stays visible only when an actual cash value exists");
-assert.match(overview, /showWallet && !walletValuation[\s\S]{0,140}id="binance-account-facts-board"/,
-  "the native-quantity panel remains only when the wallet valuation is unavailable");
-const walletCardSource = overview.slice(overview.lastIndexOf("visible.map(account => {"));
-assert.match(walletCardSource, /<\/button>[\s\S]*?\{walletCardValuation \? <BinanceWalletDetails/,
-  "keyboard-operable details stay outside the account navigation button");
-assert.match(walletCardSource, /amount=\{walletCardValuation\.amount\}[\s\S]{0,220}observedAt=\{walletCardValuation\.observed_at\}/,
-  "full source amount and observation timestamp remain available in details");
-assert.match(overview, /function BinanceQuantity[\s\S]{0,260}<summary title=\{amount\}[\s\S]{0,120}\{display\}[\s\S]{0,100}<span><em>\{originalLabel\}<\/em>\{amount\}/,
-  "native quantity details expose both the compact value and the original precision");
-assert.match(overview, /overview-figures-wallet/);
-assert.match(overview, /!walletCardValuation \? <span>[\s\S]{0,180}amountOrDash\(cash\)/,
-  "cash column shows the plain cash amount without financing classification tip");
-assert.match(overview, /<BinanceQuantity amount=\{item\.spot_free\} originalLabel=\{t\("原始值"\)\}/);
-assert.match(overview, /account\.facts\.binding_status === "bound" && account\.facts\.identity_mismatch !== true/,
-  "cash negative styling stays gated on fresh, uniquely bound identity");
-assert.match(overview, /const verifiedFreshCashRows = account\.facts\?\.data_status === "fresh"[\s\S]{0,150}identity_mismatch !== true/);
 assert.doesNotMatch(overview, /融资占用（已核实）|负现金未核实|可能是借的钱|融资状态待确认|cashSignText|classifyAccountCashSign|cashSignNote/,
   "overview cash shows amount only; financing classification stays off the page");
-assert.match(overviewStyles, /\.overview-figures-wallet \{ grid-template-columns: minmax\(0, 1fr\); \}/);
-assert.match(overviewStyles, /\.wallet-card-valuation strong \{ white-space: nowrap; overflow-wrap: normal;/,
-  "wallet total gets a full-width non-wrapping amount instead of sharing a narrow cash column");
-// Daily response isolation is exercised by overview_refresh_validation.mjs;
-// presentation checks do not require a particular cancellation implementation.
-assert.match(overview, /runtimeDateBounds/);
+// Dropped with the legacy tree (no live counterpart; the live pages read server-side performance
+// endpoints): PerformanceCharts epoch/requestKey/common-start/PerformancePlot checks, overview
+// account-scope state, wallet-card/BinanceQuantity markup and its CSS, the daily runtime date
+// picker and its accessible name, and the runtimeDateBounds/accountNativeReadout wiring.
+// The raw "not_connected" token is no longer banned: live code branches on the API reason runtime_daily_not_connected.
 const runtimeDateLabel = "业务日期（纽约业务日，America/New_York）";
 assert.equal(translate(runtimeDateLabel, "zh"), runtimeDateLabel);
 assert.equal(translate(runtimeDateLabel, "en"), "Business date (New York business day, America/New_York)");
@@ -351,25 +314,11 @@ assert.equal(translate("运行计划资料未确认", "en"), "Run schedule data 
 assert.equal(translate("周期记录不完整，结果待确认", "en"), "Cycle record is incomplete; result is unconfirmed");
 assert.equal(translate("重复账户配置键 {count} 组已去重；资料冲突的 {conflicts} 组不计金额。", "en", { count: 2, conflicts: 1 }),
   "Repeated account configuration keys (2 groups) are counted once; conflicting groups excluded from amounts: 1.");
-assert.match(overview, /const runtimeDateLabel = "业务日期（纽约业务日，America\/New_York）"/);
-assert.match(overview, /<span>\{t\(runtimeDateLabel\)\}<\/span>\s*<input type="date" aria-label=\{t\(runtimeDateLabel\)\}/,
-  "the daily runtime date picker and its accessible name both identify the New York business day");
-assert.match(overview, /runtimeDailySelectionEligible/);
-assert.match(overview, /platform:\s*account\.platformKey/);
-assert.match(overview, /accountNativeReadout/);
-assert.match(overview, /overviewRuntimeHealth/);
-assert.doesNotMatch(walletCardSource.slice(walletCardSource.indexOf("<button"), walletCardSource.indexOf("</button>")), /<details/, "disclosures stay outside the navigation button");
-assert.match(overview, /formatOverviewInstant/);
-assert.match(performanceSource, /epoch.current === current/);
-assert.match(overview, /setRuntimeDaily\(\{\}\)/, "invalid or unbound selections clear every account/date slot");
 assert.doesNotMatch(overview, /only_cash|假比较|forged_return/);
 assert.doesNotMatch(overview, /t\(account\.environmentSource\)|account\.environmentSource/);
 assert.doesNotMatch(overview, /t\(account\.environment\)|t\(account\.statusDetail\)/);
-assert.doesNotMatch(overview, /source-binding|partial_identity|not_connected|未知不等于零|尚未接通|外部资金流未接入|原金额保留字符串|不保留旧|未由券商原生核实|映射重复/);
-assert.match(overview, /已取得资产合计（不含已标记模拟账户）/);
-assert.match(performanceSource, /共同起点：\{date\}/);
+assert.doesNotMatch(overview, /source-binding|partial_identity|未知不等于零|尚未接通|外部资金流未接入|原金额保留字符串|不保留旧|未由券商原生核实|映射重复/);
 assert.doesNotMatch(overview, /全部账户只显示最新分币种估值；历史变化需选择单个账户。/);
-assert.match(performanceSource, /PerformancePlot/);
 
 console.log("account_history_presentation_validation ok");
 

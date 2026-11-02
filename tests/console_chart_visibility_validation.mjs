@@ -36,10 +36,10 @@ const require = createRequire(join(frontend, "package.json"));
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { buildSync } = require("esbuild");
-const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { PerformanceCharts } from "./PerformanceCharts"; export { CalendarHeatmap } from "./charts/CalendarHeatmap"; export { LocaleContext } from "./locales"; export { prepareChartSeries } from "./charts/LineChart";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
+const bundled = buildSync({ stdin: { contents: 'export { CalendarHeatmap } from "./charts/CalendarHeatmap"; export { I18nProvider } from "./i18n"; export { prepareChartSeries } from "./charts/LineChart";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
 const component = { exports: {} };
 new Function("require", "module", "exports", bundled)(require, component, component.exports);
-const { OverviewPage, PerformanceCharts, CalendarHeatmap, LocaleContext, prepareChartSeries } = component.exports;
+const { CalendarHeatmap, I18nProvider, prepareChartSeries } = component.exports;
 
 // Native TWR percentages are already cumulative: +10% then -5% must plot as 10% → 4.5%,
 // keeping the first observation and the final compounded value instead of rebasing to 0.
@@ -121,42 +121,15 @@ assert.deepEqual(missingNative.series[0].points, [],
   "an out-of-range or absent native field is a gap, never a compounded guess");
 const account = { id: "synthetic", platformKey: binding.platform, accountKey: option.key, runtimeDailyBinding: "not_applicable", title: "Synthetic live", platform: "LongBridge", environment: "Live", brokerEnvironment: "live", environmentSource: "config", strategy: "Synthetic strategy", statusLabel: "", statusDetail: "", activation: "待确认", preference: null, facts: model.accounts[0], runtime: null };
 const initialData = { accounts: [{ id: account.id, points: series.points.map(p => ({ date: p.observation_date, value: Number(p.net_assets), externalFlow: null })) }], failed: [], omittedCurrencies: [], truncated: false, referenceFx: false, incompleteDates: 0 };
-const render = (Component, props, language = "zh") => renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: language }, React.createElement(Component, props)));
+const render = (Component, props, language = "zh") => renderToStaticMarkup(React.createElement(I18nProvider, { language }, React.createElement(Component, props)));
 const originalNow = Date.now;
 Date.now = () => now;
 try {
-  const home = render(OverviewPage, { accounts: [account], accountFacts: model, marketBenchmarkPoints: points, onOpenAccount() {} });
-  assert.match(home, /performance-panel/, "the unified chart panel must be reachable from the actual homepage");
-  assert.match(home, /累计收益/);
-  assert.doesNotMatch(home, /benchmark-chart-grid|benchmark-chart-line/, "old separate benchmark charts are removed");
-  const props = { accounts: [account], accountId: "synthetic", onSelectAccount() {}, benchmarks: points, rates: {}, refreshVersion: 0, now, initialData };
-  const html = render(PerformanceCharts, props);
-  assert.equal((html.match(/<svg /g) || []).length, 2, "exactly one return plot and one total-assets plot");
-  assert.match(html, /<svg[^>]+aria-label="累计收益"/);
-  assert.match(html, /<svg[^>]+aria-label="总资产"/);
-  const returns = html.slice(html.indexOf('data-testid="returns-plot"'), html.indexOf('data-testid="assets-plot"'));
-  const assets = html.slice(html.indexOf('data-testid="assets-plot"'));
-  for (const id of seriesIds) {
-    assert.match(returns, new RegExp(`data-series="${id}"`));
-    assert.doesNotMatch(assets, new RegExp(`data-series="${id}"`));
-  }
-  assert.match(html, /现金流未知/);
-  assert.match(html, /0\.00%/);
-  assert.match(html, /console-performance-charts\.md/);
-  assert.equal((html.match(/aria-pressed="(?:true|false)"/g) || []).length, 9, "five shared ranges and four benchmark toggles");
-  const en = render(PerformanceCharts, props, "en");
-  assert.match(en, /Partial data: cash flows are unknown/);
-  assert.doesNotMatch(en, /Information unavailable/);
-  const empty = render(PerformanceCharts, { ...props, initialData: { ...initialData, accounts: [] } });
-  assert.match(empty, /所选范围暂无数据/);
-  assert.doesNotMatch(empty, /<svg/);
-  const partial = render(PerformanceCharts, { ...props, now: now + 10 * 86400000, initialData: { ...initialData, failed: ['missing'], referenceFx: true, truncated: true } });
-  assert.match(partial, /数据已过期/);
-  assert.match(partial, /部分覆盖/);
-  assert.match(partial, /非历史汇率/);
-  const noCommon = render(PerformanceCharts, { ...props, benchmarks: points.map(p=>({...p,observationDate:'2026-10-10'})) });
-  assert.match(noCommon, /比较数据不足或没有共同日期/);
-
+  // Dropped with the legacy tree (the live Overview/Performance pages self-load through useApi
+  // and server endpoints, so the old prop-driven SSR no longer exists): unified chart panel on the
+  // homepage, return/asset SVG plots and aria-labels, 现金流未知/partial/stale/no-common-date notices,
+  // aria-pressed range and benchmark toggles, and the empty-range state. prepareChartSeries and
+  // CalendarHeatmap (live code) keep their assertions below.
   // Calendar tone is driven by finite returns only: 0% stays neutral (and still
   // reads 0.00%), while null/undefined/NaN cells claim neither a value nor a tone.
   const calendarCell = (date, returnPercent, amount) => ({
