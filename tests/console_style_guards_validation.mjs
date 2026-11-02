@@ -19,6 +19,26 @@ assert.deepEqual(rules(".a:focus-visible,\n.b:focus-visible { box-shadow: 0 0 0 
 assert.deepEqual(rules("@media (x) { .a:hover, .b:focus-visible { box-shadow: 0 0 0 2px var(--accent); } }"), ["box-shadow"]);
 assert.deepEqual(rules(".a:not(.b, .c):focus-visible { box-shadow: 0 0 0 2px var(--accent); }"), []);
 assert.deepEqual(rules(".a:hover, .b { box-shadow: none; }"), []);
+// Bypass attempts: only a positive top-level :focus-visible on every selector is exempt.
+const SH = "box-shadow: 0 1px 2px var(--accent);";
+for (const sel of [
+  ".a:focus-visible, :is(.b:hover, .b:focus-visible)",
+  ":is(.a:hover, .a:focus-visible)",
+  ":where(.a:hover, .a:focus-visible)",
+  ".a:not(:focus-visible)",
+  '[data-note=":focus-visible"]',
+  "[data-note=':focus-visible']",
+  '.a[data-note="("]:focus-visible, .b:hover',
+  '.a[data-note=")"]:focus-visible, .b:hover',
+  ".a:focus-visible .child",
+  ".a:focus-visible-not",
+]) {
+  assert.deepEqual(rules(`${sel} { ${SH} }`), ["box-shadow"], sel);
+  assert.deepEqual(rules(`@media (x) {\n  ${sel} {\n    ${SH}\n  }\n}`), ["box-shadow"], sel);
+}
+assert.deepEqual(rules('.a[data-note="("]:focus-visible, .b[data-x=")"]:focus-visible { ' + SH + " }"), []);
+assert.deepEqual(rules(":is(.a, .b):focus-visible { " + SH + " }"), []);
+assert.deepEqual(rules(".x > .a:FOCUS-VISIBLE::after { " + SH + " }"), []);
 assert.deepEqual(rules(".a { background: linear-gradient(red, blue); }"), ["gradient"]);
 assert.deepEqual(rules(".a { border: 1px solid var(--border); }"), ["border-1px"]);
 assert.deepEqual(rules(".a { border-bottom: 1px solid var(--border); }"), ["border-1px"]);

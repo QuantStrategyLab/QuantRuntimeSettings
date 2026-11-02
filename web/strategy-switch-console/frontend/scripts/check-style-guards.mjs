@@ -72,23 +72,38 @@ export function parseDeclarations(source) {
   return out;
 }
 
-// Split a selector list on top-level commas (not inside parens/brackets), so grouped and multiline lists are judged per branch.
-function selectorBranches(list) {
-  const branches = [];
-  let depth = 0;
+// Reduce a selector to its top level: quoted strings, [attr] contents and (...) contents are removed
+// (backslash escapes honoured), and top-level commas become `split` points when requested.
+function topLevel(list, splitOnComma) {
+  const parts = [];
   let cur = "";
-  for (const ch of list) {
-    if ("([".includes(ch)) depth += 1;
-    else if (")]".includes(ch)) depth = Math.max(0, depth - 1);
-    if (ch === "," && depth === 0) { branches.push(cur.trim()); cur = ""; } else cur += ch;
+  let depth = 0;
+  let quote = "";
+  for (let i = 0; i < list.length; i += 1) {
+    const ch = list[i];
+    if (ch === "\\") { i += 1; if (depth === 0) cur += "x"; continue; }
+    if (quote) { if (ch === quote) quote = ""; continue; }
+    if (ch === '"' || ch === "'") { quote = ch; continue; }
+    if ("([".includes(ch)) { if (depth === 0) cur += ch; depth += 1; continue; }
+    if (")]".includes(ch)) { depth = Math.max(0, depth - 1); if (depth === 0) cur += ch; continue; }
+    if (depth > 0) continue;
+    if (ch === "," && splitOnComma) { parts.push(cur.trim()); cur = ""; } else cur += ch;
   }
-  branches.push(cur.trim());
-  return branches;
+  parts.push(cur.trim());
+  return parts;
 }
 
-// Shadows are only allowed when every branch of the rule's own selector list is a :focus-visible ring.
+// True only if the selector's subject (last compound) carries a top-level, positive :focus-visible.
+// :not(:focus-visible), :is()/:where() contents, attribute values and quoted text never count.
+function isFocusVisibleBranch(branch) {
+  const [flat] = topLevel(branch, false);
+  const subject = flat.split(/[\s>+~]+/).filter(Boolean).pop() || "";
+  return /:focus-visible(?![\w-])/i.test(subject);
+}
+
+// Shadows are only allowed when every selector in the rule's own list targets a :focus-visible element.
 function shadowOutsideFocus(d) {
-  return !selectorBranches(d.own).every((b) => /:focus-visible/.test(b));
+  return !topLevel(d.own, true).every(isFocusVisibleBranch);
 }
 
 export function checkCss(source, file = "x.css") {
