@@ -406,7 +406,8 @@ class CloudRunDigestTests(unittest.TestCase):
         self.store = MemoryStore({'schwab/2026-10-15/synthetic-slot.json': {'runs': [active]}})
         configured = replace(self.enable(), expected=[{**EXPECTED[0], 'account_hint': '00000007'}])
         self.run_request(configuration=configured)
-        self.assertIn('Schwab·00000007', self.sent[0])
+        self.assertIn('Schwab·***07', self.sent[0])
+        self.assertNotIn('00000007', self.sent[0])
 
     def test_binding_hint_cannot_replace_valid_producer_identity(self):
         from dataclasses import replace
@@ -418,7 +419,8 @@ class CloudRunDigestTests(unittest.TestCase):
                 self.sent = []
                 configured = replace(self.enable(), expected=[{**EXPECTED[0], 'account_hint': hint}])
                 self.run_request(configuration=configured)
-                self.assertIn('Schwab·00000008', self.sent[0])
+                self.assertIn('Schwab·***08', self.sent[0])
+                self.assertNotIn('00000008', self.sent[0])
                 self.assertNotIn('·' + hint, self.sent[0])
 
     def test_deadline_check_confirms_persisted_receipt_without_another_send(self):

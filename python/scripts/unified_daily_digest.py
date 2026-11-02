@@ -146,11 +146,12 @@ def _account_identity_label(row, locale):
         account = broker_account_identity(row.platform_id, value)
         if account:
             return account
-    # IBKR producers normalize runtime_target.account_selector into account_hint.
-    # Numeric hints on Schwab/Firstrade are also explicit broker identifiers.
-    # Never extract an identity from a scope, hash, target or execution mode.
+    # A producer hint is not authorization to display the full identity.
+    # Keep at most two trailing characters when no private mapping resolves it.
     if row.platform_id in {"ibkr", "schwab", "firstrade"}:
-        return broker_account_identity(row.platform_id, row.account_hint)
+        account = broker_account_identity(row.platform_id, row.account_hint)
+        if account:
+            return "***" + account[-2:]
     return ""
 
 
@@ -297,7 +298,7 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         header = f"{platform}·{account}"
         identity = row.opaque_account_uid or row.target_id or row.account_hint or ("row", index)
         accounts.setdefault((row.platform_id, identity), []).append((row, header, strategy))
-    blocks = []
+    blocks, diagnostics, diagnostic_observations = [], [], []
     for entries in accounts.values():
         rows = [row for row, _, _ in entries]
         if all(_verified_no_trade(row) for row in rows):
@@ -337,7 +338,15 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
                         (routine_decision_text(row, locale), routine_observation_text(row, locale)) if text))
         if any(_has_activity(row) for row in rows):
             optional.extend(_account_observations(rows, locale))
-        blocks.append((needs_attention, block, optional))
+            blocks.append((needs_attention, block, optional))
+        else:
+            # Unknown counts are not trading activity. Keep safe diagnostics
+            # without an account header, strategy block or account observations.
+            diagnostics.extend(details)
+            diagnostic_observations.extend(optional)
+    if diagnostics or diagnostic_observations:
+        blocks.append((True, ["需关注" if zh else "Diagnostics"] + list(dict.fromkeys(diagnostics)),
+                       list(dict.fromkeys(diagnostic_observations))))
     blocks.sort(key=lambda item: not item[0])
     footer = [] if complete else ["覆盖不完整，缺失统计保留未知" if zh else "Coverage incomplete; missing counts remain unknown"]
     omitted = "部分观察字段已省略" if zh else "Some observations omitted"

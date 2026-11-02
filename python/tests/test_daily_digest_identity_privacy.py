@@ -22,6 +22,8 @@ class DigestIdentityPrivacyTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.identity = 'U0000099'
+        os.environ['QSL_DISPLAY_NAMES_JSON'] = json.dumps({
+            'accounts': {'ibkr': {'opaque-' + self.identity: self.identity}}})
         self.payload = payload(row(self.identity, platform_id='ibkr'))
         self.text = render(self.payload)
         self.collected = aggregator.CollectResult(list(self.payload.runs), self.payload.evidence_coverage)

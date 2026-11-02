@@ -183,14 +183,16 @@ class UnifiedPresentationTests(unittest.TestCase):
                 self.assertNotIn(protected, text)
                 self.assertNotIn("策略：", text)
 
-    def test_both_approved_risk_reasons_and_unknown_fills_survive_context(self):
+    def test_both_approved_risk_reasons_and_unknown_fills_survive_without_account_block(self):
         item = row(order_count=0, fill_count=None, fill_count_status="unknown",
             rebalance_conclusion="blocked", block_reason={"reason_code": "strategy_risk_rejected", "observed_value": None, "limit": None},
             approved_gate_reasons=({"reason_code": "consecutive_loss_limit_exceeded", "observed_value": 6, "limit": 5},
                 {"reason_code": "daily_loss_limit_exceeded", "observed_value": 80, "limit": 60, "equity_usd": 2000}))
         with self.display_names({"accounts": {"schwab": {"synthetic-a": "00000055"}}}):
             text = render(payload(item))
-        self.assertIn("00000055\n🎯 策略：半导体趋势收益", text)
+        self.assertNotIn("00000055", text)
+        self.assertNotIn("🏦 ", text)
+        self.assertNotIn("🎯 ", text)
         self.assertIn("6>5", text)
         self.assertIn("80≥60", text)
         self.assertIn("核对基准净值和资金进出", text)

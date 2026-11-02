@@ -98,25 +98,80 @@ class DigestV3Tests(unittest.TestCase):
         self.assertEqual(text.count('🏦 '), 5)
         self.assertNotIn('opaque-synthetic-a', text)
 
-    def test_full_runtime_hint_is_used_without_guessing_scope_or_binding_ids(self):
+    def test_unmapped_runtime_hints_are_masked_when_private_mapping_is_unusable(self):
+        for platform, identity in (('ibkr', 'U0000099'), ('schwab', '00000099'),
+                                   ('firstrade', '00000099')):
+            for mapping in (None, '{}', '{invalid', json.dumps({'accounts': {
+                    platform: {'synthetic-other': identity}}})):
+                for locale in ('zh', 'en'):
+                    with self.subTest(platform=platform, mapping=mapping, locale=locale), patch.dict(os.environ):
+                        os.environ.pop('QSL_DISPLAY_NAMES_JSON', None)
+                        if mapping is not None:
+                            os.environ['QSL_DISPLAY_NAMES_JSON'] = mapping
+                        text = render(payload(row(identity, platform_id=platform), locale=locale))
+                        self.assertIn('·***99', text)
+                        self.assertNotIn(identity, text)
+
+    def test_scope_and_binding_ids_are_lookup_keys_only(self):
         item = row('U0000099', platform_id='ibkr')
-        self.assertIn('IBKR·U0000099', render(payload(item)))
         for field in ('account_scope', 'opaque_account_uid', 'target_id', 'account_alias'):
             with self.subTest(field=field):
                 text = render(payload(replace(item, account_hint='', **{field: 'U0000099'})))
                 self.assertNotIn('U0000099', text)
 
-    def test_placeholder_names_and_public_lane_aliases_cannot_hide_runtime_identity(self):
+    def test_placeholder_names_and_public_lane_aliases_keep_runtime_hint_masked(self):
         for alias in ('增长***甲', 'UXXXX0099', 'U···0099', 'Growth account', '实盘', 'live', 'https://synthetic.invalid', 'fake\naccount'):
             names = {'accounts': {'ibkr': {'opaque-U0000099': alias}}}
             with self.subTest(alias=alias), patch.dict(os.environ, QSL_DISPLAY_NAMES_JSON=json.dumps(names)):
                 text = render(payload(row('U0000099', platform_id='ibkr')))
-                self.assertIn('IBKR·U0000099', text)
+                self.assertIn('IBKR·***99', text)
+                self.assertNotIn('U0000099', text)
                 self.assertNotIn('·' + alias, text)
         with patch.dict(os.environ, QSL_DISPLAY_NAMES_JSON='{}'):
             text = render(payload(row('crypto_combo', platform_id='binance', execution_mode='live')))
             self.assertIn('Binance·账户', text)
             self.assertNotIn('实盘', text)
+
+    def test_accounts_without_known_activity_are_omitted_without_claiming_idle(self):
+        unknown_runs = (
+            row('synthetic-idle', order_count=0, fill_count=None, fill_count_status='unknown'),
+            row('synthetic-idle', order_count=None, order_count_status='unknown', fill_count=0),
+            row('synthetic-idle', order_count=None, order_count_status='unknown',
+                fill_count=None, fill_count_status='unknown'),
+            row('synthetic-idle', order_count=2, order_count_status='unknown',
+                fill_count=3, fill_count_status='unknown'),
+        )
+        for item in unknown_runs:
+            for locale in ('zh', 'en'):
+                for active in ((), (row(),)):
+                    with self.subTest(orders=item.order_count, fills=item.fill_count,
+                                      locale=locale, active=bool(active)):
+                        text = render(payload(*active, item, locale=locale))
+                        self.assertNotIn('00000003', text)
+                        self.assertEqual(text.count('🏦 '), len(active))
+                        self.assertIn('全窗口统计未知' if locale == 'zh' else 'whole-window count unknown', text)
+                        self.assertNotIn('今日全部账号无交易', text)
+                        self.assertNotIn('No trades across all accounts today', text)
+
+    def test_active_account_retains_unknown_counts_from_another_run(self):
+        active = row(order_count=1, fill_count=0)
+        unknown = replace(active, source_run_id='synthetic-unknown-run', order_count=0,
+                          fill_count=None, fill_count_status='unknown')
+        text = render(payload(active, unknown))
+        self.assertEqual(text.count('🏦 '), 1)
+        self.assertIn('提交1笔/成交未知笔', text)
+
+    def test_nontrading_observations_cannot_displace_active_account(self):
+        decisions = tuple(dict(reason_code='min_notional', observed_value=i, limit=1000,
+                               currency='USD', symbol=f'SYN{i}') for i in range(100))
+        unknown = row('synthetic-idle', order_count=0, fill_count=None,
+                      fill_count_status='unknown', routine_decisions=decisions)
+        text = render(payload(unknown, row()), max_units=600)
+        self.assertEqual(text.count('🏦 '), 1)
+        self.assertIn('提交1笔/成交1笔', text)
+        self.assertNotIn('00000003', text)
+        self.assertIn('省略', text)
+        self.assertLessEqual(len(text.encode('utf-16-le')) // 2, 600)
 
     def test_private_uid_mapping_precedes_legacy_alias_and_is_platform_scoped(self):
         names = {'accounts': {'ibkr': {'opaque-synthetic-a': 'U0000001', 'synthetic-a': 'U0000002'},

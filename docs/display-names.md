@@ -28,9 +28,9 @@ The following mapping is entirely synthetic:
 
 | Platform | Runtime source and digest lookup |
 | --- | --- |
-| IBKR | The producer projects `runtime_target.account_selector` from its report or protected `CLOUD_RUN_SERVICE_TARGETS_JSON` into `account_hint`. The digest uses the private mapping first, then a normalized `U`/`DU` account hint. |
-| Schwab | The producer supplies `SCHWAB_DIGEST_OPAQUE_ACCOUNT_UID`, falling back to its configured runtime account hash. Map this key to the actual account number in the central service; the hash cannot supply the number. An explicit numeric `account_hint` is also supported. |
-| Firstrade | The producer's protected binding supplies `DIGEST_OPAQUE_ACCOUNT_UID`. Map it to the configured `FIRSTRADE_ACCOUNT` / runtime account selector in the central service. An explicit numeric `account_hint` is also supported. |
+| IBKR | The producer projects `runtime_target.account_selector` from its report or protected `CLOUD_RUN_SERVICE_TARGETS_JSON` into `account_hint`. Only the central private mapping may supply a full identity; an unmapped `U`/`DU` account hint is masked. |
+| Schwab | The producer supplies `SCHWAB_DIGEST_OPAQUE_ACCOUNT_UID`, falling back to its configured runtime account hash. Map this key to the actual account number in the central service; the hash cannot supply the number. An unmapped numeric `account_hint` is masked. |
+| Firstrade | The producer's protected binding supplies `DIGEST_OPAQUE_ACCOUNT_UID`. Map it to the configured `FIRSTRADE_ACCOUNT` / runtime account selector in the central service. An unmapped numeric `account_hint` is masked. |
 | LongBridge | The producer supplies `DIGEST_OPAQUE_ACCOUNT_UID`. Map it to the actual configured broker account identity in the central service. Regions, channels and token secret names are not account numbers. |
 | Binance | The producer supplies `DIGEST_OPAQUE_ACCOUNT_UID` or `BINANCE_DIGEST_OPAQUE_ACCOUNT_UID`. Map it to the actual configured account UID/name in the central service. `default`, `crypto_combo` and `live` do not identify the account. |
 
@@ -40,10 +40,19 @@ target and strategy all match, the hint has a valid format, and the producer
 has not already supplied a valid identity. IBKR mapping values must be full
 `U`/`DU` account IDs; Schwab and Firstrade mapping values must be numeric account
 IDs (with optional separators or an `Account` prefix). No account number is inferred from a scope,
-opaque ID, target ID or execution mode. Without a usable private identity the
-notification uses a generic account label, with ordinals for collisions.
+opaque ID, target ID or execution mode. When the private mapping is missing,
+invalid or has no usable entry, a valid IBKR, Schwab or Firstrade hint is shown
+as `***` plus its final two characters. Otherwise the notification uses a generic
+account label, with ordinals for collisions. Full producer hints are never used
+as display identities without a usable private mapping.
 Bundled/public account aliases and global lane aliases do not identify v3
 accounts. Other notification formats retain their existing masked-label rules.
+
+An account block requires at least one known positive order or fill count across
+its runs. Account blocks with only zero or unknown counts are omitted; safe risk
+and evidence diagnostics remain visible without account headers or observations.
+Unknown counts remain unknown in window totals; they do not establish the
+verified all-idle state needed for the single-line no-trades message.
 
 Never put real identities in this file, generated snapshots, frontend build
 variables, tests, PR text or artifacts. Read private mappings only at runtime.
