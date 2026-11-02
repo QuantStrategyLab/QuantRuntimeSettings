@@ -2,7 +2,10 @@ import { loadAccountFactsHistory, loadBinanceWalletHistory } from "./api.ts";
 import { amountToUsd, parseMoneyForChart } from "./presentation.ts";
 import { aggregateEquity } from "./performanceMath.ts";
 import type { AccountEquity, EquityPoint } from "./performanceMath.ts";
-import type { OverviewAccount } from "./OverviewPage";
+import type { AccountFactsAccount } from "./types.ts";
+
+/** The account fields history loading reads. */
+export type OverviewAccount = { id: string; platformKey: string; accountKey: string; facts: AccountFactsAccount | null };
 
 export type PerformanceData = {
   accounts: AccountEquity[];

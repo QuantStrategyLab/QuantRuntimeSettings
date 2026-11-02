@@ -609,13 +609,17 @@ for (const asset of ['\u115f', '\u1160', '\u3164', '\uffa0']) {
   assert.notEqual(response.status, 200, `Worker POST must reject default-ignorable Hangul filler U+${asset.codePointAt(0).toString(16).toUpperCase()}`);
 }
 assert.equal(puts.length, writesBeforeFillerChecks, 'rejected Hangul fillers must not be persisted');
-const overviewSource = readFileSync(new URL('../web/strategy-switch-console/frontend/src/OverviewPage.tsx', import.meta.url), 'utf8');
-assert.match(overviewSource, /wallet\.assets\.map\([\s\S]*?<strong>\{item\.asset\}<\/strong>/,
-  'overview wallet rows must render the native asset string without filtering');
-assert.match(overviewSource, /binanceProviderProductTypeForDisplay\([\s\S]*?showWallet && walletAccount\?\.id === account\.id/,
-  'overview product type requires the existing fresh and mapped-account eligibility gate');
-assert.match(overviewSource, /API账户类型：现货/,
-  'overview labels Spot only from the native provider type');
+const frontendSrc = new URL('../web/strategy-switch-console/frontend/src/', import.meta.url);
+const walletUi = readFileSync(new URL('components/BinanceWalletFacts.tsx', frontendSrc), 'utf8');
+const walletLib = readFileSync(new URL('lib/binanceWalletFacts.ts', frontendSrc), 'utf8');
+assert.match(walletLib, /if \(!report\.assets\.every\(validAsset\)\) return \{ kind: "unavailable" \}/,
+  'a report with any malformed native asset row yields no wallet valuation');
+assert.match(walletUi, /resolveBinanceWallet\(view, platform, accountKey\)/,
+  'the wallet card resolves only the exact platform + account_key report');
+assert.equal(/\.innerHTML|item\.asset\b/.test(walletUi), false,
+  'live wallet card renders no per-asset native strings, only the valuation');
+// Dropped with the legacy tree: overview wallet asset rows rendering native asset strings
+// unfiltered, and the "API账户类型：现货" product-type label; neither exists in the live UI.
 console.log(`Binance account facts: native decimals, ${invalid.length + invalidNativeAssets.length} rejection cases, privacy, token isolation, binding and worker tests PASS`);
 await mf.dispose();
 rmSync(persist, { recursive: true, force: true });
