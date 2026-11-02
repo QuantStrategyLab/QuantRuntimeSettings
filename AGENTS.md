@@ -51,7 +51,7 @@ Only two frontend design requirements are hard:
 1. Bilingual UI: zh-CN is the primary language, with en alongside it.
 2. Both light and dark mode.
 
-All other design choices (layout, colour, shadows, gradients, borders, radius, grids, charts, components) are free. The 2026-11-01 flat design spec is revoked. `npm run check:style-guards` is advisory and warn-only; it never blocks. See `docs/console-information-design.zh-CN.md`.
+All other design choices (layout, colour, shadows, gradients, borders, radius, grids, charts, components) are free. The 2026-11-01 flat design spec is revoked; #1046 removes its last test assertions. Hardcoded colours are reported only by `npm run check:style-guards`, which is advisory and warn-only and never blocks. Blocking design checks cover only bilingual copy and light/dark tokens. See `docs/console-information-design.zh-CN.md`.
 
 ## Naming and documentation
 

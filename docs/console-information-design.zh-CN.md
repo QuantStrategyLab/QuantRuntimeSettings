@@ -9,9 +9,11 @@ Only two frontend design requirements are hard, for all plans and implementation
 1. **Bilingual:** zh-CN is the primary language, with en alongside it.
 2. **Light and dark mode:** every screen works in both.
 
-All other design choices are free: layout, colour, shadows, gradients, borders, radius, grids, charts, components and tokens usage. The warn-only `npm run check:style-guards` is advisory and never blocks.
+All other design choices are free: layout, colour, shadows, gradients, borders, radius, grids, charts, components and tokens usage. Hardcoded colours are reported only by `npm run check:style-guards` (in `web/strategy-switch-console/frontend`, added by #1046), which is advisory and warn-only and never blocks.
 
-History: the owner adopted a flat design spec on 2026-11-01 (#1034) and revoked it on 2026-11-02. It no longer applies, and no check enforces it. Existing pages need no migration for it.
+Blocking design checks cover only the two hard requirements: `tests/console_frontend_i18n_validation.mjs` for zh-CN and en, and `tests/console_tokens_css_validation.mjs` plus the theme section of `tests/console_credential_rotation_ui_validation.mjs` for light and dark colour tokens. To keep that light/dark check reliable, `tests/console_tokens_css_validation.mjs` also requires `tokens.css` to stay the only stylesheet that declares `:root` tokens and every `var()` in it to resolve.
+
+History: the owner adopted a flat design spec on 2026-11-01 (#1034) and revoked it on 2026-11-02. It no longer applies, and existing pages need no migration for it. Its last assertions (fixed grid, hairline borders, paddings, control heights, no shadows and a ban on literal colours) lived in `tests/console_credential_rotation_ui_validation.mjs`; #1046 removes them. Until #1046 merges, that test on `main` still enforces them.
 
 ## 日常需要回答的问题
 
