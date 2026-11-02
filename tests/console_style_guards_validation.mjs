@@ -32,6 +32,9 @@ assert.deepEqual(rules(".calendar-month-grid { grid-template-columns: repeat(7, 
 assert.deepEqual(rules(".a { color: var(--ink); }"), ["legacy-token"]);
 assert.deepEqual(rules(":root { --shadow: none; }"), ["legacy-token"]);
 assert.deepEqual(rules(".a { color: var(--benchmark-3); }"), ["legacy-token"]);
+for (const name of ["background-canvas", "background-chrome", "accent-surface", "status-attention-bg", "status-blocked-bg", "status-verified-bg", "status-info", "status-info-bg", "status-ok", "status-warn", "status-error", "status-unknown", "chart-primary", "chart-secondary", "up", "down", "radius-s", "gap-1", "gap-2", "gap-3", "gap-4"]) {
+  assert.deepEqual(rules(`.a { color: var(--${name}); }`), ["legacy-token"], name);
+}
 assert.deepEqual(rules(".a { color: var(--inkwell); }"), []);
 assert.deepEqual(rules(".a { color: var(--text-muted); }"), []);
 

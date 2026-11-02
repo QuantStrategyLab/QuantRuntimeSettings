@@ -10,6 +10,10 @@ export const LEGACY_ALIASES = [
   "surface-default", "surface-subtle", "border-divider", "border-control", "status-attention",
   "status-blocked", "status-verified", "accent-foreground", "canvas", "ink", "muted", "line",
   "up-green", "down-green", "shadow", "surface", "radius-m",
+  "background-canvas", "background-chrome", "accent-surface", "status-attention-bg",
+  "status-blocked-bg", "status-verified-bg", "status-info", "status-info-bg", "status-ok",
+  "status-warn", "status-error", "status-unknown", "chart-primary", "chart-secondary",
+  "up", "down", "radius-s", "gap-1", "gap-2", "gap-3", "gap-4",
 ];
 const ALIAS_RE = new RegExp(`--(?:${LEGACY_ALIASES.join("|")})(?![\\w-])`);
 const SKIP_FILES = new Set(["src/styles.css"]);

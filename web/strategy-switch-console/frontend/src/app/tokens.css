@@ -1,0 +1,159 @@
+/* Canonical design tokens for the console (single source of truth).
+   Literal colours live only in the light and dark blocks of this file.
+   Adding a token needs a light value, a dark value and a row in the design doc.
+   Legacy names at the bottom are aliases that resolve to the canonical tokens;
+   new code uses canonical names. No visual change versus the previous app.css. */
+
+:root {
+  /* Colour, light. */
+  --surface-0: #F7F8FA;
+  --surface-1: #FFFFFF;
+  --surface-2: #F0F2F5;
+  --surface-hover: #E8EBF0;
+  --text-primary: #18181B;
+  --text-secondary: #525763;
+  --text-muted: #646B78;
+  --border: #DFE2E8;
+  --border-strong: #858B98;
+  --border-stronger: #525763;
+  --accent: #5B4FD6;
+  --accent-tint: #EEEBFC;
+  --on-accent: #FFFFFF;
+  --success: #19624D;
+  --success-tint: #EAF6EF;
+  --warning: #805000;
+  --warning-tint: #FFF4DD;
+  --danger: #A72E42;
+  --danger-tint: #FCECEF;
+  --info: #136C9F;
+  --info-tint: #EAF4FC;
+  --focus-ring: #5B4FD6;
+  --chart-1: #5B4FD6;
+  --chart-2: #136C9F;
+  --chart-grid: #DFE2E8;
+
+  /* Component and chrome colours with no canonical equivalent yet. */
+  --chrome: #FFFFFF;
+  --button-primary-bg: #18181B;
+  --button-primary-fg: #FFFFFF;
+  --button-primary-hover: #303034;
+  --button-primary-pressed: #0F1012;
+  --overlay-scrim: #00000066;
+  --on-warn: #FFFFFF;
+  --chart-benchmark: #646B78;
+  --shadow: 0 12px 32px #18181B1A;
+
+  /* Type, space, shape: theme independent. */
+  --font-sans: "Geist", "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "Geist Mono", "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 26px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --pad-card: 1rem 1.25rem;
+  --radius: 8px;
+  --radius-card: 12px;
+  --hairline: 0.5px;
+  --control-h: 36px;
+  --bottom-tabs-height: 64px;
+  color-scheme: light;
+
+  /* Legacy aliases (to be removed as pages migrate). */
+  --background-canvas: var(--surface-0);
+  --background-chrome: var(--chrome);
+  --surface-default: var(--surface-1);
+  --surface-subtle: var(--surface-2);
+  --border-divider: var(--border);
+  --border-control: var(--border-strong);
+  --accent-foreground: var(--accent);
+  --accent-surface: var(--accent-tint);
+  --status-attention: var(--warning);
+  --status-attention-bg: var(--warning-tint);
+  --status-blocked: var(--danger);
+  --status-blocked-bg: var(--danger-tint);
+  --status-verified: var(--success);
+  --status-verified-bg: var(--success-tint);
+  --status-info: var(--info);
+  --status-info-bg: var(--info-tint);
+  --chart-primary: var(--chart-1);
+  --chart-secondary: var(--chart-2);
+  --canvas: var(--surface-0);
+  --surface: var(--surface-1);
+  --ink: var(--text-primary);
+  --muted: var(--text-muted);
+  --line: var(--border);
+  --up-green: var(--success);
+  --down-green: var(--danger);
+  --up: var(--up-green);
+  --down: var(--down-green);
+  --status-ok: var(--success);
+  --status-warn: var(--warning);
+  --status-error: var(--danger);
+  --status-unknown: var(--text-muted);
+  --benchmark-1: var(--chart-1);
+  --benchmark-2: var(--chart-2);
+  --benchmark-3: var(--success);
+  --benchmark-4: var(--chart-benchmark);
+  --radius-s: var(--radius);
+  --radius-m: var(--radius-card);
+  --gap-1: var(--space-1);
+  --gap-2: var(--space-2);
+  --gap-3: var(--space-3);
+  --gap-4: var(--space-4);
+}
+
+:root[data-theme="dark"] {
+  /* Colour, dark. Same names as the light block. */
+  --surface-0: #0F1012;
+  --surface-1: #17181C;
+  --surface-2: #1D1F24;
+  --surface-hover: #23262C;
+  --text-primary: #F4F4F5;
+  --text-secondary: #B4B6BF;
+  --text-muted: #8D919E;
+  --border: #303238;
+  --border-strong: #717684;
+  --border-stronger: #B4B6BF;
+  --accent: #B7ADFF;
+  --accent-tint: #29243B;
+  --on-accent: #17181C;
+  --success: #8DCFB6;
+  --success-tint: #182C25;
+  --warning: #F3C677;
+  --warning-tint: #302718;
+  --danger: #F1A5AD;
+  --danger-tint: #321F23;
+  --info: #89C9EF;
+  --info-tint: #192B38;
+  --focus-ring: #B7ADFF;
+  --chart-1: #B7ADFF;
+  --chart-2: #89C9EF;
+  --chart-grid: #303238;
+
+  --chrome: #0F1012;
+  --button-primary-bg: #F4F4F5;
+  --button-primary-fg: #17181C;
+  --button-primary-hover: #FFFFFF;
+  --button-primary-pressed: #DEDEE4;
+  --overlay-scrim: #00000099;
+  --on-warn: #17181C;
+  --chart-benchmark: #9AA0AE;
+  --shadow: 0 12px 32px #00000066;
+
+  color-scheme: dark;
+}
+
+/* Up/down preference: default green-up; red-up swaps the two tokens everywhere. */
+:root[data-updown="red-up"] {
+  --up: var(--down-green);
+  --down: var(--up-green);
+}
