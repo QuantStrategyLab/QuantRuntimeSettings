@@ -80,9 +80,8 @@ assert.equal(classifyAccountCashSign("ibkr", null, true).detail, "负现金未�
 assert.equal(classifyAccountCashSign("longbridge", lbFacts({ negative: false }), false).kind, "non_negative");
 assert.equal(cashSignNote(classifyAccountCashSign("longbridge", lbFacts({ negative: false }), false)), "");
 
-const overview = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
+const overview = readFileSync(join(root, "web/strategy-switch-console/frontend/src/pages/overview/OverviewPage.tsx"), "utf8");
 assert.doesNotMatch(overview, /classifyAccountCashSign|cashSignNote|融资占用（已核实）|负现金未核实/);
-assert.match(overview, /overviewActivationLabel/);
 assert.doesNotMatch(overview, /presentActivation/);
 assert.doesNotMatch(overview, /可能是借的钱/);
 const adapters = readFileSync(join(root, "web/strategy-switch-console/frontend/src/platformAdapters.ts"), "utf8");

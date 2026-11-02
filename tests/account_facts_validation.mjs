@@ -978,29 +978,20 @@ assert.ok(paperHistoryStill.series.points.some((row) => row.net_assets === "13")
 await saveAccounts([account, otherAccount]);
 await saveBindings([trustedBinding()]);
 
-const overviewPage = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
-assert.match(overviewPage, /已取得资产合计（不含已标记模拟账户）/);
-assert.match(overviewPage, /summarizeCurrentAccountFacts/);
-assert.match(overviewPage, /formatCurrentAmounts\(verifiedAssets \|\| currentFactsSummary\.excludingPaper\.assets\)/);
-assert.match(overviewPage, /accountId === "all"/);
-assert.match(overviewPage, /PerformanceCharts/);
-assert.match(overviewPage, /loadRuntimeDaily|每日运行记录/);
-assert.match(overviewPage, /const freshCashRows = accountFactsDisplayReady\(account\.facts\) \? account\.facts!\.cash : null/);
-assert.match(overviewPage, /formatOverviewAccountCash\(\{/);
-assert.match(overviewPage, /factsCash: freshCashRows/);
-assert.match(overviewPage, /formatOverviewAccountCash,/);
-assert.match(overviewPage, /cashFieldForPlatform,/);
-assert.match(overviewPage, /cashFieldForPlatform\(platform\) === "cash_balance" \? "现金余额"/);
-assert.match(overviewPage, /accountNativeReadout\(account\.platformKey, account\.accountKey, account\.facts,/);
-assert.match(overviewPage, /native\.nativeType\s*\? `\$\{t\("账户类型"\)\}: \$\{native\.nativeType\}`/);
-assert.match(overviewPage, /const paperConfigured = account\.brokerEnvironment === "paper"/);
-assert.match(overviewPage, /t\("模拟账户"\)/);
+const frontendSrc = "web/strategy-switch-console/frontend/src/";
+const overviewPage = readFileSync(join(root, frontendSrc, "pages/overview/OverviewPage.tsx"), "utf8");
+const healthPage = readFileSync(join(root, frontendSrc, "pages/health/HealthPage.tsx"), "utf8");
+const accountGroups = readFileSync(join(root, frontendSrc, "components/AccountGroups.tsx"), "utf8");
+const accountFactsLib = readFileSync(join(root, frontendSrc, "lib/accountFacts.ts"), "utf8");
+assert.match(healthPage, /loadRuntimeDaily/);
+// Paper accounts are excluded from live totals and listed separately.
+assert.match(accountFactsLib, /export function isPaperFact/);
+assert.match(accountGroups, /paper is\s+\/\/ excluded inside platformCurrencyTotals/);
+assert.match(accountGroups, /ENVIRONMENT_ORDER: readonly EnvironmentSection\[\] = \["live", "paper", "unknown"\]/);
+const appSource = readFileSync(join(root, frontendSrc, "app/App.tsx"), "utf8");
+assert.match(appSource, /\?\.broker_environment === "paper"/);
 assert.doesNotMatch(overviewPage, /已取得资产金额|覆盖按配置条目统计|账户资料依据/);
-assert.match(overviewPage, /view\.historyDays > 0/);
-assert.match(overviewPage, /t\("历史数据范围"\)/);
 assert.doesNotMatch(overviewPage, /t\("账户配置"\)/);
-const appSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/App.tsx"), "utf8");
-assert.match(appSource, /brokerEnvironment: typeof row\.account\.broker_environment === "string" \? row\.account\.broker_environment : null/);
 assert.doesNotMatch(overviewPage, /source-binding|尚未接通|外部资金流未接入|未知不等于零/);
 assert.equal(overviewPage.includes('totals?.status === "by_currency"'), false);
 assert.equal(overviewPage.includes('id: "cash"'), false);
@@ -1714,10 +1705,6 @@ const wrongHistoricalOwner = await namespace.get(namespace.idFromName("runtime-i
 assert.equal(wrongHistoricalOwner.status,409,"qualified source does not authorize a different native account");
 
 
-assert.match(overviewPage, /selectedCashLabel/);
-assert.match(overviewPage, /cashFieldForPlatform,/);
-assert.match(overviewPage, /longBridgeFinancingDetails\(account\.facts\)/);
-assert.match(overviewPage, /overview-financing-details/);
 const locales = readFileSync(join(root, "web/strategy-switch-console/frontend/src/locales.ts"), "utf8");
 assert.match(locales, /"现金余额": "Cash balance"/);
 assert.match(locales, /"融资详情": "Financing details"/);

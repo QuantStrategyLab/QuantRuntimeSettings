@@ -98,123 +98,58 @@ assert.equal(schwabModel.accounts[0].data_status, "fresh");
 const historySeries = projectAccountFactsHistorySeries({ binding, currency: "USD", days: [{ target_id: binding.target_id, source_binding_id: binding.source_binding.id, account_scope: binding.account_scope, observation_date: payload.observation_date, payload }] });
 assert.equal(historySeries.points.length, 1);
 
+// The legacy OverviewPage/AccountsPage (props-driven) were removed with the dead UI tree. The live
+// pages load their own data through useApi, so the account-facts display is exercised through the
+// live AccountFactsAmounts component, fed by the actual receiver/read-model output above.
+// Dropped with the legacy renders (no live counterpart): the all-accounts return panel
+// ("暂无合格收益", benchmark names), the first-screen paper/coverage-copy negatives, the Binance wallet
+// card valuation (covered by binance_account_facts_validation), the native-return no-curve check,
+// the AccountsPage settings copy negatives, and the render-time 36h expiry (accountFactsForDisplay above).
 const frontend = fileURLToPath(new URL("../web/strategy-switch-console/frontend/", import.meta.url));
 const require = createRequire(join(frontend, "package.json"));
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { buildSync } = require("esbuild");
-const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { AccountsPage } from "./AccountsPage"; export { LocaleContext } from "./locales";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
-let selected = "all";
-const hookedReact = { ...React, useState(initial) {
-  return React.useState(initial === "all" ? selected : initial);
-} };
+const bundled = buildSync({ stdin: { contents: 'export { AccountFactsAmounts } from "./components/AccountFactsAmounts"; export { I18nProvider } from "./i18n";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", write: false, loader: { ".css": "empty" }, external: ["react", "react-dom"], jsx: "automatic", logLevel: "silent" }).outputFiles[0].text;
 const component = { exports: {} };
-new Function("require", "module", "exports", bundled)((name) => name === "react" ? hookedReact : require(name), component, component.exports);
-const { OverviewPage, AccountsPage, LocaleContext } = component.exports;
-const baseAccount = { id: "paper", platformKey: "longbridge", accountKey: option.key, runtimeDailyBinding: "not_applicable", title: "Synthetic paper", platform: "LongBridge", environment: "Paper", brokerEnvironment: "paper", environmentSource: "config", strategy: "Synthetic strategy", statusLabel: "", statusDetail: "", activation: "待确认", preference: null, facts: fresh, runtime: null };
-const walletReport = { platform: "binance", account_key: "synthetic-wallet", observed_finished_at: "2026-10-07T07:59:00Z", provider_product_type: { value: "SPOT", source: "GET /api/v3/account.accountType", observed_at: "2026-10-07T07:58:00Z" }, assets: [], wallet_valuation: { status: "available", wallet_count: 1, amount: "44.55", currency: "USDT", observed_at: "2026-10-07T07:58:00Z", scope: "provider_returned_wallet_rows", source: "GET /sapi/v1/asset/wallet/balance" } };
-const walletAccount = { ...baseAccount, id: "wallet", platformKey: "binance", accountKey: "synthetic-wallet", title: "Synthetic wallet", brokerEnvironment: "live", environment: "Live", facts: null };
-const originalNow = Date.now;
+new Function("require", "module", "exports", bundled)(require, component, component.exports);
+const { AccountFactsAmounts, I18nProvider } = component.exports;
 const originalFetch = globalThis.fetch;
-export const metadataRenderFixtures = {};
 let externalAttempts = 0;
-let browserNow = now;
-Date.now = () => browserNow;
 globalThis.fetch = async () => { externalAttempts += 1; throw new Error("external fetch forbidden"); };
-function render(accounts, props = {}, language = "zh") {
-  return renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: language }, React.createElement(OverviewPage, { accounts, accountFacts: model, onOpenAccount() {}, ...props })));
+function render(fact, props = {}, language = "zh") {
+  return renderToStaticMarkup(React.createElement(I18nProvider, { language }, React.createElement(AccountFactsAmounts, { fact, phase: "ready", ...props })));
 }
 try {
-  const html = render([baseAccount]);
-  metadataRenderFixtures.account = html;
-  assert.match(html, /没读到/);
-  assert.match(html, /暂无合格收益/);
-  assert.match(html, /没有记录/);
-  assert.doesNotMatch(html, /USD 101\.25|已取得资产合计|配置为模拟|覆盖按配置条目统计|历史数据范围/,
-    "paper accounts and engineering coverage stay off the first screen");
-  for (const name of ["全部账户", "标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.match(html, new RegExp(name));
-  assert.match(html, /aria-label="收益率"/);
-  assert.doesNotMatch(html, /<path |fred\.stlouisfed|暂无组合历史/);
+  const html = render(fresh);
+  assert.match(html, /101\.25/);
   assert.doesNotMatch(html, new RegExp(bindingId), "private source identity is not rendered");
-  assert.doesNotMatch(render([{ ...baseAccount, facts: { ...fresh, data_status: "stale" } }]), /USD 101\.25/);
-  for (const patch of [{ binding_status: "duplicate" }, { binding_status: "missing" }, { identity_mismatch: true }, { identity_status: "missing_identity" }]) {
-    assert.doesNotMatch(render([{ ...baseAccount, facts: { ...fresh, ...patch } }]), /USD 101\.25/);
+  assert.match(render({ ...fresh, data_status: "stale" }), /101\.25/, "stale evidence keeps its amount but is marked stale");
+  assert.match(render({ ...fresh, data_status: "stale" }), /account-facts-freshness/);
+  for (const patch of [{ binding_status: "duplicate" }, { binding_status: "missing" }, { identity_mismatch: true }, { data_status: "unavailable" }, { data_status: "mystery" }]) {
+    assert.doesNotMatch(render({ ...fresh, ...patch }), /101\.25/, JSON.stringify(patch));
+    assert.match(render({ ...fresh, ...patch }), /data-state="state\.|data-state="facts\./, JSON.stringify(patch));
   }
-  const schwabAccount = { ...baseAccount, id: "schwab", platformKey: "schwab", accountKey: schwabOption.key, brokerEnvironment: "live", facts: schwabModel.accounts[0] };
-  const schwabHtml = render([schwabAccount]);
-  assert.match(schwabHtml, /data-label="账号"/);
-  assert.match(schwabHtml, /data-label="资产"/);
-  assert.match(schwabHtml, /真实/);
+  assert.doesNotMatch(render(null), /\d/, "no fact renders no amount");
+  const schwabFact = schwabModel.accounts[0];
+  const schwabHtml = render(schwabFact);
   assert.match(schwabHtml, /208\.5/);
   assert.match(schwabHtml, /-2/);
-  assert.doesNotMatch(schwabHtml, /负现金未核实|融资占用（已核实）|可能是借的钱|融资状态待确认/);
-  assert.doesNotMatch(schwabHtml, /SYNTHETIC_PRIVATE_HASH|账户类型: CASH/);
-  const zeroHtml = render([{ ...schwabAccount, facts: { ...schwabAccount.facts, balances: [{ currency: "USD", net_assets: "0" }], cash: [{ currency: "USD", cash_balance: null }] } }]);
-  assert.match(zeroHtml, />0<\/td>/);
+  assert.doesNotMatch(schwabHtml, /SYNTHETIC_PRIVATE_HASH|账户类型: CASH|负现金未核实|可能是借的钱/);
+  const zeroHtml = render({ ...schwabFact, balances: [{ currency: "USD", net_assets: "0" }], cash: [{ currency: "USD", cash_balance: null }] });
+  assert.match(zeroHtml, /account-facts-assets[\s\S]*USD 0\.00/, "a reported zero is a real zero");
   assert.doesNotMatch(zeroHtml, /208\.5/);
-  const missingHtml = render([{ ...schwabAccount, facts: { ...schwabAccount.facts, balances: [{ currency: "USD", net_assets: null }], cash: [] } }]);
-  assert.match(missingHtml, /没读到/);
-  assert.doesNotMatch(missingHtml, /208\.5/);
-  assert.doesNotMatch(render([{ ...baseAccount, brokerEnvironment: "live", facts: fresh }]), /101\.25/, "a paper snapshot is not relabeled as a real account");
-  selected = "paper";
-  const historyHtml = render([baseAccount]);
-  metadataRenderFixtures.history = historyHtml;
-  assert.match(historyHtml, /performance-panel/, "selected account reaches the shared performance panel; actual history rendering is tested in console_chart_visibility_validation");
-  browserNow = expiry;
-  assert.match(render([schwabAccount]), /208\.5/);
-  browserNow = expiry + 1;
-  const expiredPage = render([schwabAccount]);
-  const expiredCard = expiredPage.slice(expiredPage.indexOf('class="overview-account-entry"'));
-  assert.doesNotMatch(expiredCard, /208\.5|现金详情|融资详情/);
-  assert.match(expiredCard, /没读到/);
-  browserNow = now;
-  for (const timestamp of [null, "not-a-time", new Date(now + 5 * 60 * 1000 + 1).toISOString()]) {
-    assert.doesNotMatch(render([{ ...schwabAccount, facts: { ...schwabAccount.facts, observed_finished_at: timestamp } }]), /208\.5/);
-  }
-  selected = "wallet";
-  const walletHtml = render([walletAccount], { binanceFacts: { value: { report: walletReport }, error: null } });
-  metadataRenderFixtures.wallet = walletHtml;
-  const accountCard = walletHtml.slice(walletHtml.indexOf('class="overview-account-entry"'));
-  assert.match(accountCard, /美元 44\.55/, "USDT wallet valuation displays under the overview USD reporting unit");
-  assert.match(accountCard, /真实/);
-  assert.doesNotMatch(accountCard, /券商账户类别：SPOT|API账户类型：现货/);
-  const wrongWallet = render([walletAccount], { binanceFacts: { value: { report: { ...walletReport, account_key: "other" } }, error: null } });
-  assert.doesNotMatch(wrongWallet, /44\.55/);
-  const staleWallet = render([walletAccount], { binanceFacts: { value: { report: { ...walletReport, observed_finished_at: "2026-10-04T07:59:00Z" } }, error: null } });
-  assert.doesNotMatch(staleWallet, /44\.55/);
-  assert.match(staleWallet, /没读到/);
-  selected = "all";
-  const nativeReturnAccount = { ...baseAccount, platformKey: "ibkr", brokerEnvironment: "live", facts: { ...fresh, account_scope: "live", broker_environment: "live", return: {
-    status: "available", method: "native_ibkr_twr", currency: "EUR", period: {from:"2026-09-01",to:"2026-09-30"},
-    source_value: "-2.5", source_unit: "percent", value: "-0.025", unit: "ratio", source: "ChangeInNAV.twr", observed_at: "2026-10-08T08:00:00Z",
-  } } };
-  const nativeReturnHtml = render([nativeReturnAccount]);
-  assert.doesNotMatch(nativeReturnHtml, /-2\.5%|USD -2\.5|<path /, "a single broker percent is not drawn as a benchmark curve");
-  assert.match(nativeReturnHtml, /暂无合格收益/);
-  const returnHtml = render([baseAccount]);
-  metadataRenderFixtures.returns = returnHtml;
-  assert.doesNotMatch(returnHtml, /数据来源与网站使用权限待核|<path /);
-  assert.match(returnHtml, /aria-label="收益率"/);
-  assert.match(returnHtml, /暂无合格收益/);
-  const settingsRow = { id: "paper", platform: "longbridge", key: option.key, title: "Synthetic paper", platformLabel: "LongBridge", environment: "Paper", facts: fresh, strategy: "Synthetic strategy", strategyNote: "", statusLabel: "待确认", activation: "待确认" };
-  const noop = () => {};
-  const settingsHtml = renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: "zh" }, React.createElement(AccountsPage, {
-    rows: [settingsRow], selectedId: "paper", detailOpen: true, settingsEpoch: 0, refreshToken: 0,
-    stopAllowed: false, stopLabel: "", stopRefreshVisible: false, resumeVisible: false,
-    onSelect: noop, onBack: noop, onDirty: noop, onStop: noop, onRefreshStop: noop, onResume: noop, onSettingsRead: noop,
-    resolveStrategy: () => ({ name: "Synthetic strategy", note: "" }),
-  })));
-  metadataRenderFixtures.settings = settingsHtml;
-  assert.doesNotMatch(settingsHtml, /当前配置来自设置读回|草案与风险偏好分别保存|运行端生效需另行验证/);
-  assert.match(settingsHtml, /账户设置/);
-  assert.doesNotMatch(settingsHtml, /选择这个账号跑什么策略，以及要不要开启期权收入层。/);
-  assert.doesNotMatch(settingsHtml, /风险偏好|沿用当前/);
-  const english = render([schwabAccount], {}, "en");
-  assert.doesNotMatch(english, /Information unavailable/);
-  assert.match(english, /Nasdaq-100/);
-  assert.match(english, /Not read|Real/);
-  assert.doesNotMatch(english, /Asset amounts available:|Coverage counts configured entries|Account data basis|The current source range|Physical accounts have not been deduplicated/);
-} finally { Date.now = originalNow; globalThis.fetch = originalFetch; }
+  const missingHtml = render({ ...schwabFact, balances: [{ currency: "USD", net_assets: null }], cash: [] });
+  assert.match(missingHtml, /—/, "a missing amount is an em dash, never zero");
+  assert.doesNotMatch(missingHtml, /208\.5|USD 0\.00/);
+  assert.match(render(schwabFact, { phase: "error" }), /data-state="state\.read_failed"/);
+  assert.doesNotMatch(render(schwabFact, { phase: "error" }), /208\.5/);
+  assert.doesNotMatch(render(schwabFact, { conflict: true }), /208\.5/);
+  assert.doesNotMatch(render(schwabFact, { ambiguous: true }), /208\.5/);
+  const english = render(schwabFact, {}, "en");
+  assert.match(english, /Assets/);
+  assert.doesNotMatch(english, /Information unavailable|资产/);
+} finally { globalThis.fetch = originalFetch; }
 for (const key of ["账户身份不匹配", "账户资料绑定重复", "账户资料尚未绑定", "账户资产资料已过期", "尚未取得账户资产资料", "账户身份待核实", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.notEqual(translate(key, "en"), "Information unavailable");
 assert.equal(externalAttempts, 0);
 console.log("overview_account_metadata_validation: PASS (actual validators/read-model → React render, synthetic only, external_attempts=0)");
