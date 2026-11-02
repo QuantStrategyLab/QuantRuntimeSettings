@@ -1,0 +1,116 @@
+// Desk (Meridian) mock layer: fixtures match schemas/desk (BE-0), guards accept them and reject
+// corrupted shapes, and the live/mock switch behaves. Synthetic data only.
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
+import * as session from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/session.ts";
+import * as ribbon from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/ribbon.ts";
+import * as overview from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/overview.ts";
+import { days } from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/shared.ts";
+import { isOverview, isRead, isRibbon, isSession } from "../web/strategy-switch-console/frontend/src/desk/api/guards.ts";
+import { MOCK_FAILURE, loadMock, resolveMockScenario } from "../web/strategy-switch-console/frontend/src/desk/api/mock.ts";
+import { DESK_SOURCES, DeskContractError, createDeskApi } from "../web/strategy-switch-console/frontend/src/desk/api/endpoints.ts";
+import { HttpError } from "../web/strategy-switch-console/frontend/src/api/client.ts";
+
+// 1. Fixtures validate against the BE-0 JSON schemas (Ajv comes from the Worker package, as in desk_contract_validation).
+const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
+const Ajv2020 = require("ajv/dist/2020").default;
+const addFormats = require("ajv-formats");
+const ajv = new Ajv2020({ allErrors: true, strict: true, strictTypes: false });
+addFormats(ajv);
+const schemaDir = new URL("../schemas/desk/", import.meta.url);
+const ids = {};
+for (const file of readdirSync(schemaDir).filter(f => f.endsWith(".json") && f !== "manifest.json")) {
+  const schema = JSON.parse(readFileSync(new URL(file, schemaDir), "utf8"));
+  ajv.addSchema(schema);
+  ids[file.slice(0, -5)] = schema.$id;
+}
+const validate = (name, value, label) => {
+  const check = ajv.getSchema(ids[name]);
+  assert.ok(check(value), `${label}: ${ajv.errorsText(check.errors)}`);
+};
+const fixtures = { session, ribbon, overview };
+for (const [name, module] of Object.entries(fixtures)) {
+  for (const scenario of ["ok", "degraded"]) validate(name, module[scenario], `${name}.${scenario}`);
+}
+validate("error", MOCK_FAILURE, "fail scenario body");
+
+// 2. Guards accept every fixture and reject shapes the UI must not render.
+for (const scenario of ["ok", "degraded"]) {
+  assert.ok(isSession(session[scenario]), `session.${scenario}`);
+  assert.ok(isRibbon(ribbon[scenario]), `ribbon.${scenario}`);
+  assert.ok(isOverview(overview[scenario]), `overview.${scenario}`);
+}
+const clone = value => structuredClone(value);
+assert.equal(isRead({ status: "unknown", reason: "read_failed", value: "0" }), false, "unknown never carries a value");
+assert.equal(isRead({ status: "known", value: "x" }), false, "known needs observed_at");
+assert.equal(isRead({ status: "unknown", reason: "made_up" }), false, "reason enum");
+assert.equal(isRead({ status: "stale", value: 1, observed_at: "2026-11-02T14:00:00Z" }), false, "stale needs age");
+assert.equal(isRead({ status: "known", value: "stopped", observed_at: "2026-11-02T14:00:00Z" }, v => v === "running"), false, "value guard");
+let bad = clone(overview.ok); bad.totals.nav = 1189800; assert.equal(isOverview(bad), false, "money must be a decimal string");
+bad = clone(overview.ok); bad.book[0].runtime = { status: "unknown", reason: "read_failed", value: "stopped" }; assert.equal(isOverview(bad), false, "unknown runtime cannot claim stopped");
+bad = clone(overview.ok); bad.needs_you = Array(6).fill(overview.ok.needs_you[0]); assert.equal(isOverview(bad), false, "needs_you max 5");
+bad = clone(overview.ok); bad.equity_curve.portfolio.indexed.pop(); assert.equal(isOverview(bad), false, "curve arrays align");
+bad = clone(overview.ok); bad.schema_version = "qsl.desk.overview.v2"; assert.equal(isOverview(bad), false, "schema version pinned");
+bad = clone(ribbon.ok); bad.console_state.gateways = { status: "unknown", reason: "read_failed", value: "down" }; assert.equal(isRibbon(bad), false, "unknown gateway is not down");
+bad = clone(session.ok); delete bad.server_time; assert.equal(isSession(bad), false, "session needs server_time");
+
+// 3. Fixtures are internally consistent and synthetic.
+const cents = text => BigInt(text.replace(".", ""));
+const usd = overview.ok.book.reduce((sum, row) => sum + cents(row.nav.usd), 0n);
+assert.equal(usd, cents(overview.ok.totals.nav), "ok totals equal the sum of book USD");
+const dayChange = overview.ok.book.reduce((sum, row) => sum + cents(row.day_change.amount), 0n);
+assert.equal(dayChange, cents(overview.ok.totals.day_change.amount), "day change adds up");
+const included = overview.degraded.book.filter(row => row.nav.status === "known" && row.nav.usd !== null);
+assert.equal(included.length, overview.degraded.totals.coverage.included, "partial coverage counts included accounts");
+assert.equal(included.reduce((sum, row) => sum + cents(row.nav.usd), 0n), cents(overview.degraded.totals.nav), "partial total is not silent");
+for (const scenario of ["ok", "degraded"]) for (const row of overview[scenario].book) {
+  const spark = row.sparkline_30d;
+  if (spark.points.length) {
+    const span = days(spark.dates_from, Math.round((Date.parse(spark.dates_to) - Date.parse(spark.dates_from)) / 86400000) + 1);
+    assert.equal(spark.points.length, span.length - spark.gap_dates.length, `${row.target_id}: points = days − gaps`);
+    for (const gap of spark.gap_dates) assert.ok(span.includes(gap), `${row.target_id}: gap inside range`);
+  } else {
+    assert.equal(spark.dates_from, null, "no history has no dates");
+  }
+  assert.match(row.account_ref, /^[A-Z]{1,2}•••000[1-6]$/, "fake masked refs only");
+  assert.equal(row.account_ref.slice(-4), row.account_suffix);
+}
+const text = JSON.stringify(fixtures, (_k, v) => v) + JSON.stringify([session, ribbon, overview]);
+assert.doesNotMatch(text, /@|https?:\/\/(?!example)/, "no emails or real hosts");
+for (const match of text.matchAll(/"(\d{4}-\d{2}-\d{2})T/g)) assert.ok(match[1] >= "2026-09-01" && match[1] <= "2026-11-03", `synthetic time ${match[1]}`);
+
+// 4. Mock switch: ?mock= beats storage; 0/unknown values turn it off.
+assert.equal(resolveMockScenario("", null), null);
+assert.equal(resolveMockScenario("?mock=1", null), "ok");
+assert.equal(resolveMockScenario("?mock=degraded", "fail"), "degraded");
+assert.equal(resolveMockScenario("?mock=0", "ok"), null);
+assert.equal(resolveMockScenario("?page=overview", "fail"), "fail");
+assert.equal(resolveMockScenario("?mock=<script>", null), null);
+
+// 5. Endpoint sources: session live, ribbon/overview mock until BE-4/BE-3.
+assert.deepEqual(DESK_SOURCES, { session: "live", ribbon: "mock", overview: "mock" });
+const calls = [];
+const fetchJson = async path => { calls.push(path); return structuredClone(session.ok); };
+const api = createDeskApi({ forcedScenario: null, delayMs: 0, fetchJson });
+const s = await api.session();
+assert.deepEqual([s.source, s.scenario, calls], ["live", null, ["/api/session"]]);
+const r = await api.ribbon("2026-11-02");
+assert.deepEqual([r.source, r.scenario], ["mock", "ok"]);
+assert.equal(calls.length, 1, "mock endpoints never hit the network");
+r.data.tape.length = 0;
+assert.ok((await api.ribbon()).data.tape.length > 0, "mock responses are copies");
+const forced = createDeskApi({ forcedScenario: "degraded", delayMs: 0, fetchJson });
+assert.equal((await forced.session()).source, "mock");
+assert.equal((await forced.overview()).data.totals.status, "partial");
+assert.equal(calls.length, 1);
+const failing = createDeskApi({ forcedScenario: "fail", delayMs: 0, fetchJson });
+await assert.rejects(failing.overview(), error => error instanceof HttpError && error.status === 503 && error.payload.error === "store_unavailable");
+const allLive = createDeskApi({ forcedScenario: null, delayMs: 0, sources: { session: "live", ribbon: "live", overview: "live" },
+  fetchJson: async path => { calls.push(path); return path.startsWith("/api/desk/ribbon") ? { ok: true } : structuredClone(overview.ok); } });
+await assert.rejects(allLive.ribbon("2026-11-02&x=1"), error => error instanceof DeskContractError && error.endpoint === "ribbon", "a bad live shape is rejected");
+assert.equal(calls.at(-1), "/api/desk/ribbon", "a malformed date is dropped, not passed through");
+assert.equal((await allLive.overview()).source, "live");
+await assert.rejects(loadMock("overview", "fail", 0), HttpError);
+
+console.log("console_desk_mock_validation: PASS (session/ribbon/overview fixtures vs schemas/desk, guards, totals, gaps, mock switch; synthetic only)");
