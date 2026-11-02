@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test:contracts": "node ../../tests/desk_contract_validation.mjs",
-    "test:operations": "npm --prefix frontend run test:operations"
+    "test:operations": "node ../../tests/desk_helpers_validation.mjs && npm --prefix frontend run test:operations"
   },
   "devDependencies": {
     "ajv": "8.17.1",

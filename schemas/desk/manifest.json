@@ -5,7 +5,7 @@
     "endpoints": ["All endpoints: non-2xx"],
     "scenarios": ["ok", "degraded"]
   },
-  {"name": "session", "section": "3.1", "endpoints": ["GET /api/session"], "scenarios": ["ok", "degraded"]},
+  {"name": "session", "section": "3.1", "endpoints": ["GET /api/session"], "scenarios": ["ok", "degraded", "anonymous"]},
   {
     "name": "ribbon",
     "section": "3.2",

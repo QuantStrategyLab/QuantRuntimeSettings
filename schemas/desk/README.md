@@ -92,3 +92,44 @@ localization system; examples keep the contract's display vocabulary.
 No live Worker, source availability, account binding or stored retention is
 verified here. Auth, headers, idempotency, redaction and execution gating need
 route tests in the later tasks.
+
+## BE-1 shared backend helpers
+
+`application/desk/read.js` provides constructors and `readSource`, which wraps
+each dependency independently. It uses the existing account-facts 36-hour TTL
+by default and five-minute future-skew limit. `classifyAge` returns a status
+classification; invalid timestamps or excessive future skew return
+`unknown/read_failed`. Exactly at the TTL remains known. Callers supply an
+explicit TTL for sources with another established freshness policy.
+
+`application/desk/http.js` builds desk envelopes, no-store JSON and safe errors.
+Only `DeskError` codes are exposed; unexpected exception text is discarded.
+Auth helpers wrap the Worker's existing session and same-origin checks. The
+contract's explicit login/admin error text is retained. The legacy session
+envelope gains only `server_time`; its schema and synthetic fixtures already
+describe this additive field.
+
+`application/desk/idempotency.js` uses **Durable Object storage transactions**,
+intended for the existing `RuntimeInstances` object. KV is not a safe concurrent
+claim store. Future desk handlers call `withIdempotency(ctx.storage, ...)` inside
+that object, with a server-derived scope of authenticated actor, method and
+route, a parsed JSON body and a callback returning a public `{status, body}`
+success response. The callback receives the stable request ID and puts it in
+the route's documented ID field (`request_id`, `readback_id` or `preview_id`);
+the helper does not add undocumented fields to the original response. No new public
+route or generic command that executes callbacks is exposed by BE-1.
+
+The helper hashes the scope/key and canonical JSON body; object-key order is
+ignored, while array order and types matter. It reserves the key transactionally
+before invoking the callback, persists the original status/envelope/request ID,
+and replays that response with `reused:true`. Different content conflicts with
+409 `idempotency_key_conflict`. Concurrent or uncertain incomplete requests
+return 409 `request_in_progress` and never rerun the callback. Records have no
+automatic expiry: later request-ledger work must define recovery/retention
+without silently repeating an uncertain operation. Callbacks must return only
+public read-model/request data, never credentials or private raw source bodies.
+
+Run `npm run test:operations --prefix web/strategy-switch-console` for these
+helpers and the existing operations suite. The helper tests use a synthetic
+SQLite-backed Miniflare Durable Object, plus real Worker session/auth checks.
+They verify local behavior, not production persistence or live broker reads.
