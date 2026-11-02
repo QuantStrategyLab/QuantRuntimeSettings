@@ -1,3 +1,4 @@
+import "./forward_reconciliation_read_validation.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
