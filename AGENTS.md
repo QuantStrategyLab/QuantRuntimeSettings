@@ -46,7 +46,12 @@ Organization documentation rules are checked by `python scripts/check_style.py`,
 
 ## Frontend design
 
-Design tokens only: no hardcoded colours, type sizes or other literal values in console CSS; take them from the CSS variables in `tokens.css`. Beyond that, frontend design has full creative freedom. The 2026-11-01 flat design spec (no gradients or shadows, hairline borders, radius, grid and colour-ramp limits) is revoked. See `docs/console-information-design.zh-CN.md`. `npm run check:style-guards` is warn-only.
+Only two frontend design requirements are hard:
+
+1. Bilingual UI: zh-CN is the primary language, with en alongside it.
+2. Both light and dark mode.
+
+All other design choices (layout, colour, shadows, gradients, borders, radius, grids, charts, components) are free. The 2026-11-01 flat design spec is revoked. `npm run check:style-guards` is advisory and warn-only; it never blocks. See `docs/console-information-design.zh-CN.md`.
 
 ## Naming and documentation
 

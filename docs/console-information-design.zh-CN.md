@@ -4,11 +4,14 @@
 
 ## Frontend design rules
 
-One rule is mandatory for all frontend plans and implementations: **use design tokens, no hardcoded values.** Colours, type sizes, radius, spacing and shadows come from CSS variables (for example `--surface-*`, `--text-*`, `--border*`, `--radius*`, `--font-sans`, `--font-mono`), never literals. Every colour must also work in light and dark mode. The warn-only `npm run check:style-guards` flags colour literals, literal `px` font sizes and legacy token aliases.
+Only two frontend design requirements are hard, for all plans and implementations:
 
-Everything else about visual design is free: layout, shadows, gradients, borders, radius, grids, colour use and chart styling are the designer's choice within the tokens.
+1. **Bilingual:** zh-CN is the primary language, with en alongside it.
+2. **Light and dark mode:** every screen works in both.
 
-History: the owner adopted a flat design spec on 2026-11-01 (no gradients or shadows, 0.5px hairline borders, fixed radius and card padding, at most four boxes per row, at most two colour ramps per chart, 36px form inputs). The owner revoked it on 2026-11-02. It no longer applies, and no check enforces it. Existing pages need no migration for it.
+All other design choices are free: layout, colour, shadows, gradients, borders, radius, grids, charts, components and tokens usage. The warn-only `npm run check:style-guards` is advisory and never blocks.
+
+History: the owner adopted a flat design spec on 2026-11-01 (#1034) and revoked it on 2026-11-02. It no longer applies, and no check enforces it. Existing pages need no migration for it.
 
 ## 日常需要回答的问题
 
