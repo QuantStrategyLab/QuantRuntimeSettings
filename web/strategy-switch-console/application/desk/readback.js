@@ -8,6 +8,10 @@ export const READBACK_KEYS = Object.freeze(["strategy_profile", "broker_environm
 const booleans = new Set(["enabled", "income_layer_enabled", "option_overlay_enabled"]);
 const decimals = new Set(["reserved_cash_floor", "reserved_cash_ratio", "dca_base_investment_usd"]);
 const TTL = 86400_000;
+const REFRESH_INTERVAL = 30_000;
+const admissionPrefix = "desk:readbacks:admission:";
+// GitHub login is stable across sessions and case-insensitive.
+const admissionKey = actor => admissionPrefix + actor.toLowerCase();
 const prefix = "desk:readbacks:record:";
 
 export function normalizeReadbackValue(key, value, cleanRatio) {
@@ -83,8 +87,7 @@ export async function deskReadbackResponse(request, env, deps) {
       const targets = await targetsForRequest();
       const target = targets.find(item => item.id === decodeURIComponent(targetMatch[1]));
       if (!target) throw new DeskError("not_found", 404);
-      const payload = await deps.read(env, target, session.login);
-      await command({ action: "desk_readback_put", payload });
+      const { payload } = await command({ action: "desk_readback_fresh", id: target.id });
       return deskResponse("readback", payload);
     }
     const pollMatch = url.pathname.match(/^\/api\/desk\/readbacks\/([A-Za-z0-9_-]+)$/);
@@ -121,19 +124,46 @@ export async function deskReadbackResponse(request, env, deps) {
 // a time, survive Worker lifetimes, and physically expire snapshots after 24h.
 export class DeskReadbackStore {
   constructor(storage, read, now = () => Date.now()) { this.storage = storage; this.read = read; this.now = now; }
+  async claim(txn, actor, id, now) {
+    const key = admissionKey(actor);
+    const current = await txn.get(key);
+    if (current?.expires > now) {
+      if (current.active) throw new DeskError("readback_in_progress", 429);
+      if (current.nextAllowed > now) throw new DeskError("readback_rate_limited", 429);
+    }
+    await txn.put(key, { active: id, nextAllowed: now + REFRESH_INTERVAL, expires: now + TTL });
+    const alarm = await txn.getAlarm();
+    if (alarm === null || alarm > now + TTL) await txn.setAlarm(now + TTL);
+  }
+  async release(actor, id) {
+    await this.storage.transaction(async txn => {
+      const key = admissionKey(actor);
+      if ((await txn.get(key))?.active === id) {
+        const now = this.now();
+        await txn.put(key, { active: null, nextAllowed: now + REFRESH_INTERVAL, expires: now + TTL });
+      }
+    });
+  }
   async command(command) {
     const { storage } = this;
     const now = this.now();
     if (!command.owner || !command.actor) throw new DeskError("login_required", 401);
+    if (command.action === "desk_readback_fresh") {
+      const id = crypto.randomUUID();
+      await storage.transaction(txn => this.claim(txn, command.actor, id, now));
+      try {
+        const payload = await this.read(command.id, command.actor);
+        await this.command({ ...command, action: "desk_readback_put", payload });
+        return { payload };
+      } finally { await this.release(command.actor, id); }
+    }
     if (command.action === "desk_readback_start") {
       const payloadFor = id => ({ readback_id: `rbj_${id}`, state: "running", started_at: new Date(now).toISOString(), retry_after_ms: 2000 });
       return withIdempotency(storage, {
         scope: `${command.owner}:POST:/api/desk/readbacks`, body: command.body,
         reserve: async (txn, id) => {
           const payload = payloadFor(id);
-          const active = await txn.get(`desk:readbacks:active:${command.owner}`);
-          if (active && active.expires > now) throw new DeskError("readback_in_progress", 429);
-          await txn.put(`desk:readbacks:active:${command.owner}`, { id: payload.readback_id, expires: now + TTL });
+          await this.claim(txn, command.actor, payload.readback_id, now);
           await txn.put(prefix + payload.readback_id, { owner: command.owner, actor: command.actor, expires: now + TTL, payload, pending: command.ids, results: [] });
           await txn.setAlarm(now + 1);
         },
@@ -163,11 +193,7 @@ export class DeskReadbackStore {
     let ran = false;
     for (const [key, record] of records) {
       if (record.expires <= now) {
-        await storage.transaction(async txn => {
-          await txn.delete(key);
-          const activeKey = `desk:readbacks:active:${record.owner}`;
-          if ((await txn.get(activeKey))?.id === record.payload.readback_id) await txn.delete(activeKey);
-        });
+        await storage.delete(key);
         continue;
       }
       if (record.payload.state !== "running" || ran) continue;
@@ -184,7 +210,7 @@ export class DeskReadbackStore {
       if (!record.pending.length) {
         const failures = record.results.filter(result => result.state === "failed").length;
         record.payload = { readback_id: record.payload.readback_id, state: failures === record.results.length ? "failed" : failures ? "partial" : "done", results: record.results };
-        await storage.delete(`desk:readbacks:active:${record.owner}`);
+        await this.release(record.actor, record.payload.readback_id);
       }
       await storage.put(key, record);
     }
@@ -193,6 +219,10 @@ export class DeskReadbackStore {
       let next = Infinity;
       for (const record of (await txn.list({ prefix })).values()) {
         next = Math.min(next, record.payload.state === "running" ? this.now() + 1 : record.expires);
+      }
+      for (const [key, admission] of await txn.list({ prefix: admissionPrefix })) {
+        if (admission.expires <= this.now()) await txn.delete(key);
+        else next = Math.min(next, admission.expires);
       }
       if (Number.isFinite(next)) await txn.setAlarm(next);
       else await txn.deleteAlarm();

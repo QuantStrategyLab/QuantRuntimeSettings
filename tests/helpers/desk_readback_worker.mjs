@@ -11,7 +11,8 @@ export class SyntheticRuntimeInstances extends RuntimeInstances {
   async alarm() {} // Prevent the host clock from advancing the synthetic clock.
   async fetch(request) {
     const url = new URL(request.url);
-    if (url.pathname === "/test/count") return Response.json({ count: (await this.storage.list({ prefix: "desk:readbacks:record:" })).size });
+    if (url.pathname === "/test/count") return Response.json({ count: (await this.storage.list({ prefix: "desk:readbacks:record:" })).size, admissions: (await this.storage.list({ prefix: "desk:readbacks:admission:" })).size });
+    if (url.pathname === "/test/advance") { now += 30_000; return Response.json({ ok: true }); }
     if (url.pathname === "/test/alarm") { await super.alarm(); return Response.json({ ok: true }); }
     if (url.pathname === "/test/expire") { now += 86400_001; await super.alarm(); return Response.json({ ok: true }); }
     return super.fetch(request);

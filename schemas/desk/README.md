@@ -164,10 +164,17 @@ canonical field name in §3.4's field list, instead of the example's alias.
 
 The existing RuntimeInstances Durable Object stores snapshots and jobs for
 24 hours, with alarm-based physical expiry. Cookie fingerprints scope jobs,
-active-job claims and BE-1 idempotency records; raw cookies are never stored.
-One active refresh per session is claimed in the idempotency reservation
-transaction through an optional local `reserve` callback; a busy rejection
-rolls back both claims so the same key can be retried. Alarms read one
+snapshots and BE-1 idempotency records; raw cookies are never stored.
+Every fresh GET and POST refresh claims the same durable admission slot for
+its authenticated, case-insensitive GitHub login, across sessions and targets.
+An active read/job returns 429 `readback_in_progress`; after completion (including
+source failure), a 30-second cooldown returns 429 `readback_rate_limited`.
+GET source reads execute inside the DO after claiming admission. POST claims
+join the idempotency reservation transaction through the local `reserve`
+callback; rejected requests create neither snapshots nor ledger reservations.
+Idempotent replays and snapshot/job polling remain available during cooldown.
+Admission records expire physically after 24 hours; interrupted reads fail closed
+until that expiry. A job reads at most 20 configured targets. Alarms read one
 target at a time and re-arm before source I/O, so interrupted reads are safe to
 retry. Each target succeeds independently; all-unreadable platform results are
 listed as failed. Polling another session's ID returns 404. Snapshot IDs can

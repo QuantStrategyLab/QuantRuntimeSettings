@@ -53,18 +53,22 @@ try {
 const bindings = { SESSION_SECRET: "synthetic-session-only", ALLOWED_GITHUB_LOGINS: "synthetic-admin,synthetic-reader",
   STRATEGY_SWITCH_ADMIN_LOGINS: "synthetic-admin", RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-upstream-only",
   STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ longbridge: [config, { ...config, key: "failed", target_name: "failed", account_selector: "FAKE0002", deployment_selector: "failed", account_scope: "FAKE0002", service_name: "synthetic-failed" }] }) };
-let cookie, otherCookie;
+let cookie, otherCookie, renewedCookie;
 Date.now = () => now;
 try {
   cookie = `qsl_switch_session=${await __test.makeSession("synthetic-admin", [], bindings)}`;
   otherCookie = `qsl_switch_session=${await __test.makeSession("synthetic-reader", [], bindings)}`;
+  Date.now = () => now + 1000;
+  renewedCookie = `qsl_switch_session=${await __test.makeSession("synthetic-reader", [], bindings)}`;
 } finally { Date.now = nativeNow; }
-let failure = false, upstreamReads = 0;
+assert.notEqual(otherCookie, renewedCookie);
+let failure = false, upstreamReads = 0, heldRead;
 const mf = new Miniflare({ modules: true, compatibilityDate: "2026-06-08", modulesRoot: fileURLToPath(new URL("../", import.meta.url)),
   modulesRules: [{ type: "ESModule", include: ["**/*.js"] }], scriptPath: fileURLToPath(new URL("./helpers/desk_readback_worker.mjs", import.meta.url)), bindings,
   durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: "SyntheticRuntimeInstances", useSQLite: true } }, kvNamespaces: ["STRATEGY_SWITCH_CONFIG"],
-  outboundService: request => {
+  outboundService: async request => {
     assert.equal(request.method, "GET", "readbacks cannot write to an upstream"); upstreamReads++;
+    if (heldRead) { heldRead.started(); await heldRead.wait; }
     if (failure === "timeout") throw new Error("synthetic timeout private details");
     if (failure) return new Response("synthetic private details", { status: 503 });
     const targets = [{ runtime_target: { target_name: "demo", account_selector: "FAKE0001", broker_environment: "paper", strategy_profile: "demo_profile" }, service_name: "synthetic-service", runtime_target_enabled: false }];
@@ -94,6 +98,7 @@ try {
   assert.equal((await call(`/api/desk/readbacks/${first.body.readback_id}`)).body.readback_id, first.body.readback_id);
   assert.equal((await call(`/api/desk/readbacks/${first.body.readback_id}`, { auth: otherCookie })).status, 404);
   for (failure of [true, "timeout"]) {
+    await call("/test/advance");
     const degraded = await call("/api/desk/targets/longbridge/demo/readback");
     assert.equal(degraded.status, 200); conforms("readback", degraded.body);
     assert.ok(degraded.body.fields.every(row => row.platform.status === "unknown" && row.platform.reason === "read_failed"));
@@ -106,6 +111,42 @@ try {
   assert.equal((await call("/api/desk/readbacks", { body: { idempotency_key: "bad key" } })).status, 400);
   assert.equal((await call("/api/desk/readbacks", { body: { target_ids: ["hidden/demo"], idempotency_key: "hidden" } })).status, 404);
   assert.equal((await call("/api/desk/readbacks", { body: { idempotency_key: "cross" }, origin: "https://other.invalid" })).status, 403);
+  // A non-admin cannot bypass an active refresh by GET or by renewing a session.
+  const readerJob = await call("/api/desk/readbacks", { body: { idempotency_key: "reader-job", target_ids: ["longbridge/demo"] }, auth: otherCookie });
+  assert.equal(readerJob.status, 202);
+  const readsBeforeBurst = upstreamReads;
+  const recordsBeforeBurst = (await call("/test/count")).body.count;
+  const burst = await Promise.all(Array.from({ length: 12 }, (_, i) => call("/api/desk/targets/longbridge/demo/readback", { auth: i % 2 ? otherCookie : renewedCookie })));
+  assert.ok(burst.every(result => result.status === 429 && result.body.reason_code === "readback_in_progress"));
+  assert.equal(upstreamReads, readsBeforeBurst, "blocked GETs must not read upstream");
+  assert.equal((await call("/test/count")).body.count, recordsBeforeBurst, "blocked GETs must not create snapshots");
+  await call("/test/alarm");
+  assert.equal((await call(`/api/desk/readbacks/${readerJob.body.readback_id}`, { auth: otherCookie })).body.state, "done");
+  const cooldown = await call("/api/desk/targets/longbridge/demo/readback", { auth: renewedCookie });
+  assert.equal(cooldown.status, 429);
+  assert.equal(cooldown.body.reason_code, "readback_rate_limited");
+  assert.equal((await call("/api/desk/readbacks", { body: { idempotency_key: "reader-cooldown" }, auth: renewedCookie })).status, 429);
+  await call("/test/advance");
+  const idleReads = upstreamReads;
+  const idleRecords = (await call("/test/count")).body.count;
+  let releaseRead, markStarted;
+  heldRead = { wait: new Promise(resolve => { releaseRead = resolve; }), started: () => markStarted() };
+  const startedRead = new Promise(resolve => { markStarted = resolve; });
+  const pendingBurst = Promise.all(Array.from({ length: 12 }, (_, i) => call("/api/desk/targets/longbridge/demo/readback", { auth: i % 2 ? otherCookie : renewedCookie })));
+  await startedRead;
+  try {
+    const busyPost = await call("/api/desk/readbacks", { body: { idempotency_key: "get-active" }, auth: renewedCookie });
+    assert.equal(busyPost.status, 429);
+    assert.equal(busyPost.body.reason_code, "readback_in_progress", "an active GET also blocks POST across sessions");
+    assert.equal((await call(`/api/desk/readbacks/${readerJob.body.readback_id}`, { auth: otherCookie })).status, 200, "polling remains cheap and available during fresh I/O");
+  } finally { releaseRead(); }
+  const idleBurst = await pendingBurst;
+  heldRead = null;
+  assert.equal(idleBurst.filter(result => result.status === 200).length, 1);
+  assert.equal(idleBurst.filter(result => result.status === 429).length, 11);
+  assert.equal(upstreamReads, idleReads + 1);
+  assert.equal((await call("/test/count")).body.count, idleRecords + 1);
+  assert.equal((await call("/api/desk/readbacks", { body: { idempotency_key: "reader-cooldown" }, auth: otherCookie })).status, 429, "GET and POST share the principal's budget");
   const before = upstreamReads;
   const body = { idempotency_key: "synthetic-job" };
   const start = await call("/api/desk/readbacks", { body });
@@ -129,7 +170,10 @@ try {
   assert.equal(done.body.state, "partial");
   assert.deepEqual(done.body.results.map(row => row.state), ["done", "failed"]);
   assert.equal(done.body.results[1].error, "read_failed");
+  assert.equal((await call("/api/desk/targets/longbridge/failed/readback")).status, 429);
+  await call("/test/advance");
   assert.equal((await call("/api/desk/targets/longbridge/failed/readback")).body.overall, "unknown");
+  await call("/test/advance");
   const attempts = await Promise.all(["next", "concurrent"].map(idempotency_key => call("/api/desk/readbacks", { body: { idempotency_key, target_ids: ["longbridge/failed"] } })));
   assert.deepEqual(attempts.map(result => result.status).sort(), [202, 429]);
   const next = attempts.find(result => result.status === 202);
@@ -137,9 +181,11 @@ try {
   assert.equal((await call(`/api/desk/readbacks/${next.body.readback_id}`)).body.state, "failed");
   assert.ok((await call("/test/count")).body.count > 0);
   failure = false;
+  await call("/test/advance");
   const afterBusy = await call("/api/desk/readbacks", { body: { idempotency_key: "busy" } });
   assert.equal(afterBusy.status, 202, "429 must not poison a retry's idempotency key");
   await call("/test/alarm"); await call("/test/alarm");
+  await call("/test/advance");
   const success = await call("/api/desk/readbacks", { body: { idempotency_key: "success", target_ids: ["longbridge/demo"] } });
   assert.equal(success.status, 202);
   await call("/test/alarm");
@@ -147,6 +193,7 @@ try {
   assert.equal(successful.body.state, "done"); conforms("readback-job", successful.body);
   await call("/test/expire");
   assert.equal((await call("/test/count")).body.count, 0, "expired snapshots and jobs are physically removed");
+  assert.equal((await call("/test/count")).body.admissions, 0, "expired admission records are physically removed");
   // Use the internal DO command after session expiry to verify physical TTL.
   const ns = await mf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
   const storage = ns.get(ns.idFromName("runtime-instances"));
