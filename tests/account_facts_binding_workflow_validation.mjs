@@ -626,6 +626,7 @@ for (const test of cases) {
     const binDir = join(temp, "bin");
     mkdirSync(binDir);
     writeFileSync(join(binDir, "gh"), `#!/bin/sh
+cat >/dev/null
 case "$*" in
   *"actions/secrets?per_page=100"*) printf '%s' '{"total_count":1,"secrets":[{"name":"FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID"}]}' ;;
   *"FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON"*) printf '%s' '{"name":"FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON"}' ;;
