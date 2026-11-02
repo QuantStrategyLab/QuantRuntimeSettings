@@ -31,4 +31,3 @@ assert.ok(runtimeHistoryDates("2024-03-01").includes("2024-02-29"));
 assert.notEqual(runtimeHistoryKey(selection, date), runtimeHistoryKey({ ...selection, target: { ...target, target_key: "other" } }, date));
 assert.notEqual(runtimeHistoryKey(selection, date), runtimeHistoryKey({ ...selection, accountKey: "other" }, date));
 console.log("runtime history validation: PASS (synthetic calendar, target/date identity, stale/missing evidence, complete/partial/failure and no-trading semantics)");
-
