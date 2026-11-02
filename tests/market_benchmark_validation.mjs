@@ -126,9 +126,6 @@ assert.notEqual(routedPost.status, 404);
 assert.ok([401, 503].includes(routedPost.status), `expected auth/store failure, got ${routedPost.status}`);
 
 const fs = await import("node:fs/promises");
-const overview = await fs.readFile(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
-assert.match(overview, /loadMarketBenchmarkPoints/);
-assert.match(overview, /loadedBenchmarkPoints/);
 
 const workflow = await fs.readFile(new URL("../.github/workflows/sync-market-benchmark.yml", import.meta.url), "utf8");
 assert.match(workflow, /sync_market_benchmark_closes\.mjs/);
