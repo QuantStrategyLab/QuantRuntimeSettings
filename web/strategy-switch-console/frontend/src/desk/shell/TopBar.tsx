@@ -1,7 +1,7 @@
 import type { Language } from "../../lib/prefs";
 import type { GatewayState, Read } from "../contract/types";
 import type { MockScenario } from "../api/mock.ts";
-import { formatUtcDayLabel, formatUtcHm } from "../format.ts";
+import { formatAge, formatUtcDayLabel, formatUtcHm } from "../format.ts";
 import type { DeskKey, DeskTranslate } from "../i18n/index.ts";
 import type { DeskPage } from "../router.ts";
 import { Icon } from "./icons";
@@ -24,12 +24,12 @@ interface TopBarProps {
   onTheme: () => void;
 }
 
-function gatewayView(chip: GatewayChip): { key: DeskKey; tone: string } {
+function gatewayView(chip: GatewayChip): { key: DeskKey; tone: string; ageSeconds?: number } {
   if (chip.kind === "loading") return { key: "gateway.loading", tone: "muted" };
   if (chip.kind === "failed") return { key: "gateway.failed", tone: "unknown" };
   const read = chip.read;
   if (read.status === "unknown") return { key: "gateway.unknown", tone: "unknown" };
-  if (read.status === "stale") return { key: "gateway.stale", tone: "unknown" };
+  if (read.status === "stale") return { key: "gateway.stale", tone: "unknown", ageSeconds: read.age_seconds };
   const tone = read.value === "all_reachable" ? "ok" : read.value === "degraded" ? "warn" : "risk";
   return { key: `gateway.${read.value}` as DeskKey, tone };
 }
@@ -53,7 +53,7 @@ export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock,
         ) : null}
         <span className="mrd-chip" data-tone={chip.tone} role="status">
           <i aria-hidden="true" />
-          {t(chip.key)}
+          {t(chip.key, { age: formatAge(chip.ageSeconds, language) ?? "—" })}
         </span>
         <span className="mrd-chip mrd-clock">
           {day ? <span className="mrd-clock-day">{day} · </span> : null}

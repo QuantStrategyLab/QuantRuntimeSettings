@@ -76,7 +76,7 @@ export const zh = {
   "gateway.all_reachable": "网关可达",
   "gateway.degraded": "网关部分可达",
   "gateway.down": "网关不可达",
-  "gateway.stale": "网关观测已过期，当前状态未知",
+  "gateway.stale": "网关数据已过期 · {age}前",
   "gateway.unknown": "网关状态未知",
   "gateway.loading": "正在读取运行状态",
   "gateway.failed": "运行状态读取失败",
