@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "readback_id": "rbj_demo_0001",
+  "state": "running",
+  "started_at": "2030-01-07T14:33:00Z",
+  "retry_after_ms": 2000,
+  "schema_version": "qsl.desk.readback_start.v1",
+  "generated_at": "2030-01-07T14:35:00Z",
+  "no_order": true
+}

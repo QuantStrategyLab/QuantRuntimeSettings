@@ -1,0 +1,77 @@
+{
+  "ok": true,
+  "generated_at": "2030-01-07T14:35:00Z",
+  "date": "2030-01-07",
+  "console_state": {"mode": "live", "gateways": {"status": "unknown", "reason": "source_unavailable"}},
+  "alert_badge": {"open_count": 3, "critical_count": 1},
+  "sessions": [
+    {
+      "market": "US",
+      "state": "unknown",
+      "open_utc": null,
+      "close_utc": null,
+      "next_change_at": null,
+      "holiday": null
+    },
+    {
+      "market": "HK",
+      "state": "unknown",
+      "open_utc": null,
+      "close_utc": null,
+      "next_change_at": null,
+      "holiday": null
+    },
+    {
+      "market": "CN",
+      "state": "unknown",
+      "open_utc": null,
+      "close_utc": null,
+      "next_change_at": null,
+      "holiday": null
+    }
+  ],
+  "next_run": null,
+  "tape": [
+    {
+      "id": "run_demo_0001",
+      "at": "2030-01-07T14:30:00Z",
+      "target_id": "binance/spot",
+      "label": "BTC DCA",
+      "kind": "dca",
+      "outcome": null,
+      "outcome_detail": null,
+      "state": "unknown"
+    },
+    {
+      "id": "run_demo_0002",
+      "at": "2030-01-07T13:55:00Z",
+      "target_id": "ibkr/tqqq",
+      "label": "rebalance check",
+      "kind": "rebalance_check",
+      "outcome": "no_op",
+      "outcome_detail": null,
+      "state": "done"
+    },
+    {
+      "id": "run_demo_0003",
+      "at": "2030-01-07T09:05:00Z",
+      "target_id": "longbridge/hk",
+      "label": "HK close cycle",
+      "kind": "close_cycle",
+      "outcome": "drift",
+      "outcome_detail": "2 fields differ",
+      "state": "done"
+    },
+    {
+      "id": "sched_demo_0004",
+      "at": "2030-01-07T20:55:00Z",
+      "target_id": "ibkr/tqqq",
+      "label": "pre-close check",
+      "kind": "pre_close_check",
+      "outcome": null,
+      "outcome_detail": null,
+      "state": "scheduled"
+    }
+  ],
+  "schema_version": "qsl.desk.ribbon.v1"
+}

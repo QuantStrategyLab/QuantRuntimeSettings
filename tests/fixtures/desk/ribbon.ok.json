@@ -1,0 +1,80 @@
+{
+  "ok": true,
+  "generated_at": "2030-01-07T14:35:00Z",
+  "date": "2030-01-07",
+  "console_state": {
+    "mode": "live",
+    "gateways": {"status": "known", "value": "all_reachable", "observed_at": "2030-01-07T14:31:48Z"}
+  },
+  "alert_badge": {"open_count": 3, "critical_count": 1},
+  "sessions": [
+    {
+      "market": "US",
+      "state": "open",
+      "open_utc": "14:30",
+      "close_utc": "21:00",
+      "next_change_at": "2030-01-07T21:00:00Z",
+      "holiday": null
+    },
+    {
+      "market": "HK",
+      "state": "closed",
+      "open_utc": "01:30",
+      "close_utc": "08:00",
+      "next_change_at": "2030-01-07T01:30:00Z",
+      "holiday": null
+    },
+    {
+      "market": "CN",
+      "state": "closed",
+      "open_utc": "01:30",
+      "close_utc": "07:00",
+      "next_change_at": "2030-01-07T01:30:00Z",
+      "holiday": null
+    }
+  ],
+  "next_run": {"target_id": "ibkr/tqqq", "kind": "pre_close_check", "due_at": "2030-01-07T20:55:00Z"},
+  "tape": [
+    {
+      "id": "run_demo_0001",
+      "at": "2030-01-07T14:30:00Z",
+      "target_id": "binance/spot",
+      "label": "BTC DCA",
+      "kind": "dca",
+      "outcome": "filled",
+      "outcome_detail": "1 fill",
+      "state": "done"
+    },
+    {
+      "id": "run_demo_0002",
+      "at": "2030-01-07T13:55:00Z",
+      "target_id": "ibkr/tqqq",
+      "label": "rebalance check",
+      "kind": "rebalance_check",
+      "outcome": "no_op",
+      "outcome_detail": null,
+      "state": "done"
+    },
+    {
+      "id": "run_demo_0003",
+      "at": "2030-01-07T09:05:00Z",
+      "target_id": "longbridge/hk",
+      "label": "HK close cycle",
+      "kind": "close_cycle",
+      "outcome": "drift",
+      "outcome_detail": "2 fields differ",
+      "state": "done"
+    },
+    {
+      "id": "sched_demo_0004",
+      "at": "2030-01-07T20:55:00Z",
+      "target_id": "ibkr/tqqq",
+      "label": "pre-close check",
+      "kind": "pre_close_check",
+      "outcome": null,
+      "outcome_detail": null,
+      "state": "scheduled"
+    }
+  ],
+  "schema_version": "qsl.desk.ribbon.v1"
+}

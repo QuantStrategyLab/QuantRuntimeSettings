@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/readback-start.json",
+  "title": "readback-start",
+  "description": "API-CONTRACT.md §3.5",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.readback_start.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "readback_id": {"type": "string"},
+    "state": {"const": "running"},
+    "started_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "retry_after_ms": {"type": "integer", "minimum": 0},
+    "no_order": {"const": true},
+    "reused": {"type": "boolean"}
+  },
+  "required": ["ok", "schema_version", "generated_at", "readback_id", "state", "started_at", "retry_after_ms", "no_order"],
+  "additionalProperties": false
+}

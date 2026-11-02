@@ -1,0 +1,53 @@
+{
+  "ok": true,
+  "target_id": "longbridge/hk",
+  "readback_id": "rb_demo_0001",
+  "read_at": "2030-01-07T14:31:12Z",
+  "saved_revision": 42,
+  "overall": "drift",
+  "summary": {"match": 1, "drift": 2, "unknown": 1},
+  "fields": [
+    {
+      "key": "strategy_profile",
+      "label": "strategy_profile",
+      "saved": {"status": "known", "value": "hk_global_etf_tactical_rotation", "observed_at": "2030-01-07T13:00:00Z"},
+      "platform": {"status": "known", "value": "hk_global_etf_tactical_rotation", "observed_at": "2030-01-07T14:31:12Z"},
+      "state": "match"
+    },
+    {
+      "key": "enabled",
+      "label": "enabled",
+      "saved": {"status": "known", "value": "true", "observed_at": "2030-01-07T13:00:00Z"},
+      "platform": {"status": "known", "value": "false", "observed_at": "2030-01-07T14:31:12Z"},
+      "state": "drift"
+    },
+    {
+      "key": "cash_reserve_ratio",
+      "label": "cash_reserve_ratio",
+      "saved": {"status": "known", "value": "0.08", "observed_at": "2030-01-07T13:00:00Z"},
+      "platform": {"status": "known", "value": "0.12", "observed_at": "2030-01-07T14:31:12Z"},
+      "state": "drift"
+    },
+    {
+      "key": "income_layer_enabled",
+      "label": "income_layer_enabled",
+      "saved": {"status": "known", "value": "false", "observed_at": "2030-01-07T13:00:00Z"},
+      "platform": {"status": "unknown", "reason": "read_failed"},
+      "state": "unknown"
+    }
+  ],
+  "identity": {
+    "account_suffix": "0001",
+    "broker_environment": "live",
+    "service": "demo-hk-service",
+    "runtime_status_target_id": "longbridge.hk"
+  },
+  "facts_binding": {"status": "known", "value": "verified", "observed_at": "2030-01-07T13:02:00Z"},
+  "alert_route": "QuantSentinel · Telegram",
+  "actions": {
+    "reapply_saved": {"allowed": false, "reason_code": "not_enabled"},
+    "adopt_platform": {"allowed": false, "reason_code": "not_enabled"}
+  },
+  "schema_version": "qsl.desk.readback.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

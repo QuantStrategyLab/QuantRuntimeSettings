@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/runtime-stop.json",
+  "title": "runtime-stop",
+  "description": "API-CONTRACT.md §3.11",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "configured": {"type": "boolean"},
+    "platform_applied": {"type": "boolean"},
+    "request_succeeded": {"type": "boolean"},
+    "stop_confirmed": {"type": "boolean"},
+    "in_flight_state": {"type": "string"},
+    "request_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    "phase": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    "dispatch_result": {"anyOf": [{"type": "string", "enum": ["accepted", "rejected", "unknown"]}, {"type": "null"}]},
+    "requested_at": {
+      "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+    },
+    "updated_at": {
+      "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+    },
+    "actions_url": {"type": "string"},
+    "runtime_observation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "unknown"},
+            "observed_at": {
+              "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+            },
+            "reason": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadReason"}
+          },
+          "required": ["status", "observed_at", "reason"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {"type": "string", "enum": ["running", "stopped"]},
+            "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}
+          },
+          "required": ["status", "observed_at"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "no_order": {"const": true},
+    "reused": {"type": "boolean"}
+  },
+  "required": [
+    "ok",
+    "configured",
+    "platform_applied",
+    "request_succeeded",
+    "stop_confirmed",
+    "in_flight_state",
+    "phase",
+    "runtime_observation",
+    "no_order"
+  ],
+  "additionalProperties": false
+}

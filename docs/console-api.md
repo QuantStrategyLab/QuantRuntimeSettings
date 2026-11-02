@@ -8,6 +8,11 @@ JSON Schemas are in
 under `$defs`. Types and schemas describe successful reads, unavailable reads,
 draft saves and conflicts. All responses use `Cache-Control: no-store`.
 
+The proposed QSL Desk response contracts are documented in
+[`schemas/desk/README.md`](../schemas/desk/README.md). BE-0 adds schemas,
+synthetic fixtures and validation only; it does not connect new routes or
+enable switching.
+
 ## Endpoints
 
 | Method and path | Parameters or body | Response contract |

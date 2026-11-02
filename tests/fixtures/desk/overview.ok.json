@@ -1,0 +1,106 @@
+{
+  "ok": true,
+  "generated_at": "2030-01-07T14:35:00Z",
+  "snapshot_at": "2030-01-07T14:26:00Z",
+  "freshness": {"data_status": "ready", "age_seconds": 367},
+  "reporting_currency": "USD",
+  "totals": {
+    "status": "complete",
+    "coverage": {"included": 7, "total": 7, "excluded_reasons": []},
+    "fx": {"status": "known", "as_of": "2030-01-07T14:00:00Z", "source": "overview_fx"},
+    "nav": "1189800.00",
+    "day_change": {"amount": "11120.00", "ratio": "0.0094"},
+    "drawdown": {"ratio": "-0.049", "limit_ratio": "-0.15", "peak_date": "2029-11-18"},
+    "gross_exposure_ratio": "0.964",
+    "leveraged_etf_exposure_ratio": "0.412",
+    "runs_today": {"done": 11, "expected": 12, "pending": [{"target_id": "ibkr/tqqq", "due_at": "2030-01-07T20:55:00Z"}]},
+    "config_drift": {"count": 1, "target_ids": ["longbridge/hk"]},
+    "data_age_seconds": 22320
+  },
+  "book": [
+    {
+      "target_id": "ibkr/tqqq",
+      "platform": "ibkr",
+      "platform_label": "IBKR",
+      "account_ref": "U•••0001",
+      "account_suffix": "0001",
+      "strategy": {
+        "status": "known",
+        "value": {"profile": "tqqq_growth_income", "label": "TQQQ Growth Income"},
+        "observed_at": "2030-01-07T14:31:12Z"
+      },
+      "mode": {"status": "known", "value": "live", "observed_at": "2030-01-07T14:31:12Z"},
+      "runtime": {"status": "known", "value": "running", "observed_at": "2030-01-07T14:31:48Z"},
+      "nav": {
+        "currency": "USD",
+        "amount": "412380.00",
+        "usd": "412380.00",
+        "status": "known",
+        "observed_at": "2030-01-07T14:26:00Z"
+      },
+      "day_change": {"ratio": "0.0184", "amount": "7588.00", "currency": "USD"},
+      "sparkline_30d": {
+        "points": ["398100.00", "399400.00", "404200.00"],
+        "dates_from": "2029-12-04",
+        "dates_to": "2030-01-07",
+        "gap_dates": []
+      },
+      "drawdown": {"ratio": "-0.062", "limit_ratio": "-0.15", "state": "ok"},
+      "config": {"state": "synced", "drift_count": 0, "checked_at": "2030-01-07T14:31:12Z"},
+      "last_run": {"at": "2030-01-07T14:25:00Z", "outcome": "no_op"},
+      "return_basis": "native_ibkr_twr"
+    },
+    {
+      "target_id": "longbridge/hk",
+      "platform": "longbridge",
+      "platform_label": "LongBridge",
+      "account_ref": "LB•••0001",
+      "account_suffix": "0001",
+      "strategy": {
+        "status": "known",
+        "value": {"profile": "hk_global_etf_tactical_rotation", "label": "HK ETF Tactical Rotation"},
+        "observed_at": "2030-01-07T14:31:12Z"
+      },
+      "mode": {"status": "known", "value": "live", "observed_at": "2030-01-07T14:31:12Z"},
+      "runtime": {"status": "unknown", "reason": "identity_unverified"},
+      "nav": {
+        "currency": "HKD",
+        "amount": "1113000.00",
+        "usd": "142700.00",
+        "status": "known",
+        "observed_at": "2030-01-07T09:06:00Z"
+      },
+      "day_change": {"ratio": "-0.0088", "amount": "-1256.00", "currency": "USD"},
+      "sparkline_30d": {
+        "points": ["1130000.00", "1120000.00", "1113000.00"],
+        "dates_from": "2029-12-04",
+        "dates_to": "2030-01-07",
+        "gap_dates": ["2029-12-12"]
+      },
+      "drawdown": {"ratio": "-0.059", "limit_ratio": "-0.15", "state": "ok"},
+      "config": {"state": "drift", "drift_count": 2, "checked_at": "2030-01-07T14:31:12Z"},
+      "last_run": {"at": "2030-01-07T09:05:00Z", "outcome": "drift"},
+      "return_basis": "nav_change_unadjusted"
+    }
+  ],
+  "equity_curve": {
+    "range": "6M",
+    "portfolio": {"dates": ["2029-12-09", "2029-12-10"], "indexed": ["100.00", "100.41"]},
+    "benchmark": {"id": "nasdaq100", "label": "Nasdaq 100", "indexed": ["100.00", "100.52"]},
+    "drawdown": ["0.000", "-0.002"],
+    "history_starts": "2029-12-09",
+    "return_basis": "mixed"
+  },
+  "needs_you": [
+    {
+      "id": "alr_demo_0001",
+      "kind": "config_drift",
+      "severity": "critical",
+      "target_id": "longbridge/hk",
+      "title": "Platform read-back differs from saved config",
+      "detail": "2 fields: enabled, cash_reserve_ratio. Platform shows older values.",
+      "action": {"label": "Review diff", "route": "/accounts?target=longbridge/hk"}
+    }
+  ],
+  "schema_version": "qsl.desk.overview.v1"
+}

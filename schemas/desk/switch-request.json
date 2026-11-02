@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/switch-request.json",
+  "title": "switch-request",
+  "description": "API-CONTRACT.md §3.6 step 5",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.switch_request.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "request_id": {"type": "string"},
+    "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+    "kind": {"type": "string", "enum": ["switch", "apply_saved", "adopt_platform"]},
+    "state": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/SwitchState"},
+    "terminal": {"type": "boolean"},
+    "created_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "updated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "retry_after_ms": {"type": "integer", "minimum": 0},
+    "timeout_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "workflow": {
+      "type": "object",
+      "properties": {
+        "status": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "conclusion": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "run_url": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "required": ["status", "conclusion", "run_url"],
+      "additionalProperties": false
+    },
+    "expected": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {"key": {"type": "string"}, "value": {"type": "string"}},
+        "required": ["key", "value"],
+        "additionalProperties": false
+      }
+    },
+    "readback": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "readback_id": {"type": "string"},
+            "read_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+            "fields": {
+              "type": "array",
+              "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/VerifyField"}
+            }
+          },
+          "required": ["readback_id", "read_at", "fields"],
+          "additionalProperties": false
+        },
+        {"type": "null"}
+      ]
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+          "step": {"type": "string"},
+          "detail": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        },
+        "required": ["at", "step", "detail"],
+        "additionalProperties": false
+      }
+    },
+    "no_order": {"const": true},
+    "reused": {"type": "boolean"}
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "request_id",
+    "target_id",
+    "state",
+    "terminal",
+    "created_at",
+    "updated_at",
+    "retry_after_ms",
+    "timeout_at",
+    "workflow",
+    "expected",
+    "readback",
+    "timeline",
+    "no_order"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {"state": {"enum": ["verified", "mismatch", "unknown", "failed"]}},
+        "required": ["state"]
+      },
+      "then": {"properties": {"terminal": {"const": true}}},
+      "else": {"properties": {"terminal": {"const": false}}}
+    }
+  ]
+}

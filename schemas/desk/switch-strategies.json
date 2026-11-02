@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/switch-strategies.json",
+  "title": "switch-strategies",
+  "description": "API-CONTRACT.md §3.6 step 2",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.switch_strategies.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+    "domain": {"type": "string"},
+    "catalog_revision": {"type": "string"},
+    "strategies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "profile": {"type": "string"},
+          "label": {"type": "string"},
+          "domain": {"type": "string"},
+          "eligibility": {"type": "string", "enum": ["eligible", "no_live", "blocked"]},
+          "reason": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+          "allowed_execution_modes": {
+            "type": "array",
+            "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"}
+          },
+          "lifecycle_stage": {"type": "string"},
+          "option_overlay_enabled": {"type": "boolean"},
+          "dca_supported": {"type": "boolean"}
+        },
+        "required": ["profile", "label", "domain", "eligibility", "reason", "allowed_execution_modes", "lifecycle_stage"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["ok", "schema_version", "generated_at", "target_id", "domain", "catalog_revision", "strategies"],
+  "additionalProperties": false
+}

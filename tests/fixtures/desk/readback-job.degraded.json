@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "readback_id": "rbj_demo_0001",
+  "state": "partial",
+  "results": [
+    {"target_id": "longbridge/hk", "state": "done", "overall": "drift", "readback_id": "rb_demo_0002"},
+    {"target_id": "schwab/core", "state": "failed", "error": "read_failed"}
+  ],
+  "schema_version": "qsl.desk.readback_job.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

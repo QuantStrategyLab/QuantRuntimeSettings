@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "generated_at": "2030-01-07T14:35:00Z",
+  "counts": {"open": 0, "critical": 0, "warning": 0, "info": 0, "last_7d_total": 0},
+  "items": [],
+  "next_cursor": null,
+  "schema_version": "qsl.desk.alerts.v1"
+}

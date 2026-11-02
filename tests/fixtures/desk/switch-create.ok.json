@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "request_id": "swr_demo_0001",
+  "state": "dispatched",
+  "created_at": "2030-01-07T14:33:10Z",
+  "reused": false,
+  "no_order": true,
+  "retry_after_ms": 2000,
+  "actions_url": "https://github.com/example-org/example-repo/actions/workflows/switch.yml",
+  "schema_version": "qsl.desk.switch_create.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

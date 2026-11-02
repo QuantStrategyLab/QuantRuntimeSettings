@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "target_id": "longbridge/hk",
+  "platform": "longbridge",
+  "account_ref": "LB•••0001",
+  "mode": {"status": "known", "value": "live", "observed_at": "2030-01-07T14:31:12Z"},
+  "nav": {
+    "currency": "HKD",
+    "amount": "0.00",
+    "usd": "0.00",
+    "status": "known",
+    "observed_at": "2030-01-07T09:06:00Z"
+  },
+  "holdings": {"status": "known", "scope": "strategy_symbols_only", "observed_at": "2030-01-07T09:06:00Z", "rows": []},
+  "facts": {
+    "environment": "live",
+    "strategy_domains": ["us_equity", "hk_equity"],
+    "facts_binding": {"status": "known", "value": "verified", "observed_at": "2030-01-07T13:02:00Z"},
+    "service": "demo-hk-service",
+    "alert_route": "QuantSentinel · Telegram",
+    "cash": [],
+    "financing": []
+  },
+  "schema_version": "qsl.desk.account_detail.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

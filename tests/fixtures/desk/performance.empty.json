@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "generated_at": "2030-01-07T14:35:00Z",
+  "range": "6M",
+  "scope": "all",
+  "history": {"first_date": null, "requested_from": "2029-07-02", "truncated_by": "retention", "retention_days": 366},
+  "return_basis": {"kind": "unavailable", "per_target": {}},
+  "equity": {
+    "dates": [],
+    "portfolio_indexed": [],
+    "benchmark": {"id": null, "label": null, "indexed": []},
+    "drawdown_ratio": [],
+    "gap_dates": []
+  },
+  "risk": {
+    "return_ratio": {"status": "unknown", "reason": "insufficient_history"},
+    "vs_benchmark_pts": {"status": "unknown", "reason": "insufficient_history"},
+    "volatility_ann_ratio": {"status": "unknown", "reason": "insufficient_history"},
+    "sharpe": {"status": "unknown", "reason": "insufficient_history"},
+    "sortino": {"status": "unknown", "reason": "insufficient_history"},
+    "max_drawdown_ratio": {"status": "unknown", "reason": "insufficient_history"},
+    "time_under_water_days": {"status": "unknown", "reason": "insufficient_history"},
+    "best_day_ratio": {"status": "unknown", "reason": "insufficient_history"},
+    "worst_day_ratio": {"status": "unknown", "reason": "insufficient_history"}
+  },
+  "scorecard": [],
+  "contribution": {"period": "MTD", "unit": "pts_of_nav", "rows": []},
+  "monthly": {"unit": "ratio", "rows": []},
+  "schema_version": "qsl.desk.performance.v1"
+}

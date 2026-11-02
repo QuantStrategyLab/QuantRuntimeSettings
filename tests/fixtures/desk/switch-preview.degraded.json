@@ -1,0 +1,108 @@
+{
+  "ok": true,
+  "preview_id": "pv_demo_0001",
+  "created_at": "2030-01-07T14:32:30Z",
+  "expires_at": "2030-01-07T14:37:30Z",
+  "target_id": "ibkr/tqqq",
+  "base": {"readback_id": "rb_demo_0003", "saved_revision": 42, "platform_overall": "unknown"},
+  "diff": [
+    {
+      "key": "strategy_profile",
+      "platform_now": {"status": "unknown", "reason": "read_failed"},
+      "after": "soxl_soxx_trend_income",
+      "changed": true
+    },
+    {
+      "key": "income_layer_max_ratio",
+      "platform_now": {"status": "known", "value": "0.55", "observed_at": "2030-01-07T14:35:00Z"},
+      "after": "0.50",
+      "changed": true
+    },
+    {
+      "key": "option_overlay",
+      "platform_now": {"status": "unknown", "reason": "not_supported"},
+      "after": "off",
+      "changed": true
+    },
+    {
+      "key": "execution_mode",
+      "platform_now": {"status": "known", "value": "live", "observed_at": "2030-01-07T14:35:00Z"},
+      "after": "live",
+      "changed": false
+    }
+  ],
+  "estimates": {
+    "turnover_ratio": {"status": "unknown", "reason": "not_supported"},
+    "orders": {"status": "unknown", "reason": "not_supported"},
+    "leveraged_etf_ratio_after": {"status": "unknown", "reason": "not_supported"},
+    "backtest_max_drawdown_ratio": {"status": "unknown", "reason": "not_supported"}
+  },
+  "preflight": [
+    {
+      "id": "domain_supported",
+      "state": "unknown",
+      "title": "Domain supported",
+      "detail": "us_equity is routed for ibkr/tqqq.",
+      "source": "config",
+      "observed_at": null,
+      "required": true
+    },
+    {
+      "id": "lifecycle_runtime_enabled",
+      "state": "pass",
+      "title": "Lifecycle: runtime_enabled",
+      "detail": "Live switch allowed on ibkr.",
+      "source": "lifecycle",
+      "observed_at": "2030-01-07T14:31:48Z",
+      "required": true
+    },
+    {
+      "id": "no_open_orders",
+      "state": "unknown",
+      "title": "No open orders",
+      "detail": "Broker read not available.",
+      "source": "broker",
+      "observed_at": null,
+      "required": true
+    },
+    {
+      "id": "market_open",
+      "state": "warn",
+      "title": "Market is open",
+      "detail": "US session until 20:00 UTC. Switching now reallocates intraday.",
+      "source": "calendar",
+      "observed_at": "2030-01-07T14:32:30Z",
+      "required": false
+    },
+    {
+      "id": "saved_equals_platform",
+      "state": "pass",
+      "title": "Saved = platform on 0 fields",
+      "detail": "Clean baseline.",
+      "source": "readback",
+      "observed_at": "2030-01-07T14:31:12Z",
+      "required": true
+    },
+    {
+      "id": "auth_owner",
+      "state": "pass",
+      "title": "Signed in as allow-listed owner",
+      "detail": "Same-origin POST; an audit entry will be written.",
+      "source": "auth",
+      "observed_at": "2030-01-07T14:32:30Z",
+      "required": true
+    }
+  ],
+  "blocking_count": 2,
+  "unknown_count": 2,
+  "confirm": {
+    "required": true,
+    "suffix_length": 4,
+    "account_suffix_hint": "last 4 characters of the account number",
+    "schedule_options": ["now", "after_us_close"],
+    "allowed": false
+  },
+  "schema_version": "qsl.desk.switch_preview.v1",
+  "generated_at": "2030-01-07T14:35:00Z",
+  "no_order": true
+}

@@ -1,0 +1,367 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/overview.json",
+  "title": "overview",
+  "description": "API-CONTRACT.md §3.3",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.overview.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "snapshot_at": {
+      "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+    },
+    "freshness": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Freshness"},
+    "reporting_currency": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Currency"},
+    "totals": {
+      "type": "object",
+      "properties": {
+        "status": {"type": "string", "enum": ["complete", "partial", "unavailable"]},
+        "coverage": {
+          "type": "object",
+          "properties": {
+            "included": {"type": "integer", "minimum": 0},
+            "total": {"type": "integer", "minimum": 0},
+            "excluded_reasons": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "physical_identity_unverified",
+                  "coverage_incomplete",
+                  "no_non_paper_accounts",
+                  "fx_unavailable",
+                  "paper_excluded"
+                ]
+              }
+            }
+          },
+          "required": ["included", "total", "excluded_reasons"],
+          "additionalProperties": false
+        },
+        "fx": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "status": {"const": "known"},
+                "as_of": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+                "source": {"type": "string"}
+              },
+              "required": ["status", "as_of", "source"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {"const": "unknown"},
+                "reason": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadReason"}
+              },
+              "required": ["status", "reason"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "nav": {
+          "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}, {"type": "null"}]
+        },
+        "day_change": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "amount": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                "ratio": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}
+              },
+              "required": ["amount", "ratio"],
+              "additionalProperties": false
+            },
+            {"type": "null"}
+          ]
+        },
+        "drawdown": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "ratio": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                "limit_ratio": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                "peak_date": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"}
+              },
+              "required": ["ratio", "limit_ratio", "peak_date"],
+              "additionalProperties": false
+            },
+            {"type": "null"}
+          ]
+        },
+        "gross_exposure_ratio": {
+          "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}, {"type": "null"}]
+        },
+        "leveraged_etf_exposure_ratio": {
+          "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}, {"type": "null"}]
+        },
+        "runs_today": {
+          "type": "object",
+          "properties": {
+            "done": {"type": "integer", "minimum": 0},
+            "expected": {"type": "integer", "minimum": 0},
+            "pending": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+                  "due_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}
+                },
+                "required": ["target_id", "due_at"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["done", "expected", "pending"],
+          "additionalProperties": false
+        },
+        "config_drift": {
+          "type": "object",
+          "properties": {
+            "count": {"type": "integer", "minimum": 0},
+            "target_ids": {
+              "type": "array",
+              "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"}
+            }
+          },
+          "required": ["count", "target_ids"],
+          "additionalProperties": false
+        },
+        "data_age_seconds": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]}
+      },
+      "required": [
+        "status",
+        "coverage",
+        "fx",
+        "nav",
+        "day_change",
+        "drawdown",
+        "gross_exposure_ratio",
+        "leveraged_etf_exposure_ratio",
+        "runs_today",
+        "config_drift",
+        "data_age_seconds"
+      ],
+      "additionalProperties": false
+    },
+    "book": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+          "platform": {"type": "string"},
+          "platform_label": {"type": "string"},
+          "account_ref": {"type": "string"},
+          "account_suffix": {"type": "string"},
+          "strategy": {
+            "allOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+              {
+                "type": "object",
+                "properties": {"value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Strategy"}}
+              }
+            ]
+          },
+          "mode": {
+            "allOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+              {
+                "type": "object",
+                "properties": {"value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"}}
+              }
+            ]
+          },
+          "runtime": {
+            "allOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+              {
+                "type": "object",
+                "properties": {
+                  "value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/RuntimeState"}
+                }
+              }
+            ]
+          },
+          "nav": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Nav"},
+          "day_change": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "ratio": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                  "amount": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                  "currency": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Currency"}
+                },
+                "required": ["ratio", "amount", "currency"],
+                "additionalProperties": false
+              },
+              {"type": "null"}
+            ]
+          },
+          "sparkline_30d": {
+            "type": "object",
+            "properties": {
+              "points": {
+                "type": "array",
+                "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}
+              },
+              "dates_from": {
+                "anyOf": [
+                  {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"},
+                  {"type": "null"}
+                ]
+              },
+              "dates_to": {
+                "anyOf": [
+                  {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"},
+                  {"type": "null"}
+                ]
+              },
+              "gap_dates": {
+                "type": "array",
+                "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"}
+              }
+            },
+            "required": ["points", "dates_from", "dates_to", "gap_dates"],
+            "additionalProperties": false
+          },
+          "drawdown": {
+            "type": "object",
+            "properties": {
+              "ratio": {
+                "anyOf": [
+                  {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                  {"type": "null"}
+                ]
+              },
+              "limit_ratio": {
+                "anyOf": [
+                  {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                  {"type": "null"}
+                ]
+              },
+              "state": {"type": "string", "enum": ["ok", "near_limit", "breached", "unknown"]}
+            },
+            "required": ["ratio", "limit_ratio", "state"],
+            "additionalProperties": false
+          },
+          "config": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Config"},
+          "last_run": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+                  "outcome": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Outcome"}
+                },
+                "required": ["at", "outcome"],
+                "additionalProperties": false
+              },
+              {"type": "null"}
+            ]
+          },
+          "return_basis": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReturnBasis"}
+        },
+        "required": [
+          "target_id",
+          "platform",
+          "platform_label",
+          "account_ref",
+          "account_suffix",
+          "strategy",
+          "mode",
+          "runtime",
+          "nav",
+          "day_change",
+          "sparkline_30d",
+          "drawdown",
+          "config",
+          "last_run",
+          "return_basis"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Risk order: breached/near-limit drawdown, drift, unknown, then NAV."
+    },
+    "equity_curve": {
+      "type": "object",
+      "properties": {
+        "range": {"type": "string", "enum": ["1M", "3M", "6M", "YTD", "1Y", "ALL"]},
+        "portfolio": {
+          "type": "object",
+          "properties": {
+            "dates": {
+              "type": "array",
+              "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"}
+            },
+            "indexed": {
+              "type": "array",
+              "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}
+            }
+          },
+          "required": ["dates", "indexed"],
+          "additionalProperties": false
+        },
+        "benchmark": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Benchmark"},
+        "drawdown": {
+          "type": "array",
+          "items": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}
+        },
+        "history_starts": {
+          "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"}, {"type": "null"}]
+        },
+        "return_basis": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/PortfolioBasis"}
+      },
+      "required": ["range", "portfolio", "benchmark", "drawdown", "history_starts", "return_basis"],
+      "additionalProperties": false
+    },
+    "needs_you": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "kind": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/NeedKind"},
+          "severity": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Severity"},
+          "target_id": {
+            "anyOf": [
+              {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+              {"type": "null"}
+            ]
+          },
+          "title": {"type": "string"},
+          "detail": {"type": "string"},
+          "action": {
+            "type": "object",
+            "properties": {"label": {"type": "string"}, "route": {"type": "string"}},
+            "required": ["label", "route"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "kind", "severity", "target_id", "title", "detail", "action"],
+        "additionalProperties": false
+      },
+      "maxItems": 5
+    }
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "snapshot_at",
+    "freshness",
+    "reporting_currency",
+    "totals",
+    "book",
+    "equity_curve",
+    "needs_you"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "target_id": "ibkr/tqqq",
+  "domain": "us_equity",
+  "catalog_revision": "2029-12-28",
+  "strategies": [
+    {
+      "profile": "soxl_soxx_trend_income",
+      "label": "Semiconductor Trend Income",
+      "domain": "us_equity",
+      "eligibility": "blocked",
+      "reason": "source_unavailable",
+      "allowed_execution_modes": [],
+      "lifecycle_stage": "live",
+      "option_overlay_enabled": false,
+      "dca_supported": false
+    },
+    {
+      "profile": "us_equity_combo_core",
+      "label": "US Core Combo",
+      "domain": "us_equity",
+      "eligibility": "blocked",
+      "reason": "source_unavailable",
+      "allowed_execution_modes": [],
+      "lifecycle_stage": "paper"
+    },
+    {
+      "profile": "cn_industry_etf_rotation_aggressive",
+      "label": "CN ETF Rotation",
+      "domain": "cn_equity",
+      "eligibility": "blocked",
+      "reason": "source_unavailable",
+      "allowed_execution_modes": [],
+      "lifecycle_stage": "research"
+    }
+  ],
+  "schema_version": "qsl.desk.switch_strategies.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

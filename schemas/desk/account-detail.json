@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/account-detail.json",
+  "title": "account-detail",
+  "description": "API-CONTRACT.md §3.14",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.account_detail.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+    "platform": {"type": "string"},
+    "account_ref": {"type": "string"},
+    "mode": {
+      "allOf": [
+        {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+        {
+          "type": "object",
+          "properties": {"value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"}}
+        }
+      ]
+    },
+    "nav": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Nav"},
+    "holdings": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "known"},
+            "scope": {"type": "string", "enum": ["stocks_only", "strategy_symbols_only"]},
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "symbol": {"type": "string"},
+                  "name": {"type": "string"},
+                  "quantity": {
+                    "anyOf": [
+                      {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                      {"type": "null"}
+                    ]
+                  },
+                  "last_price": {
+                    "anyOf": [
+                      {
+                        "allOf": [
+                          {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                          {
+                            "type": "object",
+                            "properties": {
+                              "value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}
+                            }
+                          }
+                        ]
+                      },
+                      {"type": "null"}
+                    ]
+                  },
+                  "day_change_ratio": {
+                    "anyOf": [
+                      {
+                        "allOf": [
+                          {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                          {
+                            "type": "object",
+                            "properties": {
+                              "value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}
+                            }
+                          }
+                        ]
+                      },
+                      {"type": "null"}
+                    ]
+                  },
+                  "market_value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                  "currency": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Currency"},
+                  "weight_ratio": {
+                    "anyOf": [
+                      {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                      {"type": "null"}
+                    ]
+                  }
+                },
+                "required": [
+                  "symbol",
+                  "name",
+                  "quantity",
+                  "last_price",
+                  "day_change_ratio",
+                  "market_value",
+                  "currency",
+                  "weight_ratio"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {"properties": {"symbol": {"const": "CASH"}}, "required": ["symbol"]},
+                    "then": {
+                      "properties": {
+                        "last_price": {
+                          "anyOf": [
+                            {
+                              "allOf": [
+                                {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            {"type": "null"}
+                          ]
+                        },
+                        "day_change_ratio": {
+                          "anyOf": [
+                            {
+                              "allOf": [
+                                {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            {"type": "null"}
+                          ]
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "last_price": {
+                          "allOf": [
+                            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        "day_change_ratio": {
+                          "allOf": [
+                            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}
+          },
+          "required": ["status", "scope", "rows", "observed_at"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "stale"},
+            "scope": {"type": "string", "enum": ["stocks_only", "strategy_symbols_only"]},
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "symbol": {"type": "string"},
+                  "name": {"type": "string"},
+                  "quantity": {
+                    "anyOf": [
+                      {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                      {"type": "null"}
+                    ]
+                  },
+                  "last_price": {
+                    "anyOf": [
+                      {
+                        "allOf": [
+                          {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                          {
+                            "type": "object",
+                            "properties": {
+                              "value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}
+                            }
+                          }
+                        ]
+                      },
+                      {"type": "null"}
+                    ]
+                  },
+                  "day_change_ratio": {
+                    "anyOf": [
+                      {
+                        "allOf": [
+                          {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                          {
+                            "type": "object",
+                            "properties": {
+                              "value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}
+                            }
+                          }
+                        ]
+                      },
+                      {"type": "null"}
+                    ]
+                  },
+                  "market_value": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                  "currency": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Currency"},
+                  "weight_ratio": {
+                    "anyOf": [
+                      {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+                      {"type": "null"}
+                    ]
+                  }
+                },
+                "required": [
+                  "symbol",
+                  "name",
+                  "quantity",
+                  "last_price",
+                  "day_change_ratio",
+                  "market_value",
+                  "currency",
+                  "weight_ratio"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {"properties": {"symbol": {"const": "CASH"}}, "required": ["symbol"]},
+                    "then": {
+                      "properties": {
+                        "last_price": {
+                          "anyOf": [
+                            {
+                              "allOf": [
+                                {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            {"type": "null"}
+                          ]
+                        },
+                        "day_change_ratio": {
+                          "anyOf": [
+                            {
+                              "allOf": [
+                                {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            {"type": "null"}
+                          ]
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "last_price": {
+                          "allOf": [
+                            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        "day_change_ratio": {
+                          "allOf": [
+                            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "observed_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+            "age_seconds": {"type": "integer", "minimum": 0}
+          },
+          "required": ["status", "scope", "rows", "observed_at", "age_seconds"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {"const": "unknown"},
+            "reason": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadReason"},
+            "observed_at": {
+              "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+            }
+          },
+          "required": ["status", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "facts": {
+      "type": "object",
+      "properties": {
+        "environment": {
+          "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"}, {"type": "null"}]
+        },
+        "strategy_domains": {"type": "array", "items": {"type": "string"}},
+        "facts_binding": {
+          "allOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+            {"type": "object", "properties": {"value": {"type": "string"}}}
+          ]
+        },
+        "service": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "alert_route": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "cash": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "currency": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Currency"},
+              "available_cash": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+              "frozen_cash": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"},
+              "settling_cash": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"}
+            },
+            "required": ["currency", "available_cash", "frozen_cash", "settling_cash"],
+            "additionalProperties": false
+          }
+        },
+        "financing": {"type": "array", "items": false}
+      },
+      "required": ["environment", "strategy_domains", "facts_binding", "service", "alert_route", "cash", "financing"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "target_id",
+    "platform",
+    "account_ref",
+    "mode",
+    "nav",
+    "holdings",
+    "facts"
+  ],
+  "additionalProperties": false
+}
