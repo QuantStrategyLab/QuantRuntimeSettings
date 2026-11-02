@@ -1,4 +1,5 @@
 import { binanceDetailCommand } from "./binance_detail_archive.js";
+import { createDeskAuth } from "./application/desk/http.js";
 import { auditPageQuery, auditEventInPage, auditEventOrder, auditNextCursor } from "./application/console_api/audit_pagination.js";
 import { runtimeReadbackProjection } from "./application/console_api/runtime_readback.js";
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
@@ -5427,6 +5428,8 @@ function loginTimeoutResponse(stage) {
   );
 }
 
+const deskAuth = createDeskAuth({ readSession, requireSameOrigin });
+
 async function sessionPayload(request, env) {
   const session = await readSession(request, env);
   return {
@@ -5434,6 +5437,7 @@ async function sessionPayload(request, env) {
     login: session?.login || null,
     allowed: Boolean(session?.allowed),
     admin: Boolean(session?.admin),
+    server_time: new Date().toISOString(),
   };
 }
 
@@ -18553,6 +18557,7 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  deskAuth,
   credentialRotationResponse, runtimeInstanceCommand,
   auditEventAction,
   effectiveAccountSettings,
