@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/session.json",
+  "title": "session",
+  "description": "API-CONTRACT.md §3.1: additive UTC server_time for anonymous and authenticated legacy sessions; no desk envelope.",
+  "type": "object",
+  "properties": {
+    "authenticated": {"type": "boolean"},
+    "login": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    "allowed": {"type": "boolean"},
+    "admin": {"type": "boolean"},
+    "server_time": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}
+  },
+  "required": ["authenticated", "login", "allowed", "admin", "server_time"],
+  "additionalProperties": false
+}

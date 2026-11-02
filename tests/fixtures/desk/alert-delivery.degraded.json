@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "channel": {"name": "QuantSentinel · Telegram", "status": {"status": "unknown", "reason": "never_read"}},
+  "last_delivery": null,
+  "digest": null,
+  "schema_version": "qsl.desk.alert_delivery.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

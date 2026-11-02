@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/readback.json",
+  "title": "readback",
+  "description": "API-CONTRACT.md §3.4",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.readback.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+    "readback_id": {"type": "string"},
+    "read_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "saved_revision": {"type": "integer", "minimum": 0},
+    "overall": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Comparison"},
+    "summary": {
+      "type": "object",
+      "properties": {
+        "match": {"type": "integer", "minimum": 0},
+        "drift": {"type": "integer", "minimum": 0},
+        "unknown": {"type": "integer", "minimum": 0}
+      },
+      "required": ["match", "drift", "unknown"],
+      "additionalProperties": false
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/ReadbackField"},
+          {"properties": {"key": {"enum": ["strategy_profile", "broker_environment", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio", "dca_mode", "dca_base_investment_usd", "enabled", "account_selector", "cash_currency", "runtime_status_target_id"]}}}
+        ]
+      }
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "account_suffix": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "broker_environment": {
+          "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"}, {"type": "null"}]
+        },
+        "service": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "runtime_status_target_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "required": ["account_suffix", "broker_environment", "service", "runtime_status_target_id"],
+      "additionalProperties": false
+    },
+    "facts_binding": {
+      "allOf": [
+        {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+        {"type": "object", "properties": {"value": {"type": "string"}}}
+      ]
+    },
+    "alert_route": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    "actions": {
+      "type": "object",
+      "properties": {
+        "reapply_saved": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/DisabledAction"},
+        "adopt_platform": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/DisabledAction"}
+      },
+      "required": ["reapply_saved", "adopt_platform"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "target_id",
+    "readback_id",
+    "read_at",
+    "saved_revision",
+    "overall",
+    "summary",
+    "fields",
+    "identity",
+    "facts_binding",
+    "alert_route",
+    "actions"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "generated_at": "2030-01-07T14:35:00Z",
+  "counts": {"open": 3, "critical": 1, "warning": 2, "info": 1, "last_7d_total": 34},
+  "items": [
+    {
+      "id": "alr_demo_0001",
+      "severity": "critical",
+      "status": "open",
+      "kind": "config_drift",
+      "target_id": "longbridge/hk",
+      "title": "Drift: saved ≠ platform",
+      "detail": "enabled, cash_reserve_ratio differ. Detected by daily read-back.",
+      "first_seen_at": "2030-01-07T14:26:00Z",
+      "last_seen_at": "2030-01-07T14:31:12Z",
+      "resolved_at": null,
+      "source": "readback",
+      "route": "/accounts?target=longbridge/hk",
+      "log_ref": {"run_id": "r-20261102-hk"}
+    },
+    {
+      "id": "alr_demo_0005",
+      "severity": "info",
+      "status": "resolved",
+      "kind": "digest",
+      "target_id": null,
+      "title": "Daily digest sent · Telegram",
+      "detail": "QuantSentinel delivered to 1 chat. 7 targets, 11 runs.",
+      "first_seen_at": "2030-01-07T06:00:00Z",
+      "last_seen_at": "2030-01-07T06:00:04Z",
+      "resolved_at": "2030-01-07T06:00:04Z",
+      "source": "digest",
+      "route": null,
+      "log_ref": null
+    }
+  ],
+  "next_cursor": null,
+  "schema_version": "qsl.desk.alerts.v1"
+}

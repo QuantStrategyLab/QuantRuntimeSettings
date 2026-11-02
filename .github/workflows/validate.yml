@@ -157,7 +157,7 @@ jobs:
           npm run build --prefix web/strategy-switch-console/frontend
           npm run sync:v2-assets --prefix web/strategy-switch-console/frontend
           node tests/console_v2_assets_validation.mjs
-          npm run test:operations --prefix web/strategy-switch-console/frontend
+          npm run test:operations --prefix web/strategy-switch-console
           npm run check:style-guards --prefix web/strategy-switch-console/frontend  # warn-only until P5-5
           node tests/console_candidate_readiness_validation.mjs
           node tests/console_acceptance_budget_validation.mjs

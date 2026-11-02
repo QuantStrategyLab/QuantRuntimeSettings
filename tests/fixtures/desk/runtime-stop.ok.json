@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "configured": false,
+  "platform_applied": false,
+  "request_succeeded": false,
+  "stop_confirmed": false,
+  "in_flight_state": "unknown",
+  "request_id": "hkstop_demo_0001",
+  "phase": "accepted",
+  "dispatch_result": "accepted",
+  "requested_at": "2030-01-07T14:40:00Z",
+  "updated_at": "2030-01-07T14:40:01Z",
+  "actions_url": "https://github.com/example-org/example-repo/actions/workflows/manual-runtime-stop.yml",
+  "runtime_observation": {"status": "unknown", "reason": "identity_unverified", "observed_at": null},
+  "no_order": true
+}

@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "targets": [
+    {
+      "target_id": "ibkr/tqqq",
+      "platform": "ibkr",
+      "platform_label": "IBKR",
+      "account_ref": "U•••0001",
+      "account_suffix": "0001",
+      "mode": {"status": "unknown", "reason": "source_unavailable"},
+      "domains": ["us_equity", "hk_equity"],
+      "current_strategy": {"status": "unknown", "reason": "source_unavailable"},
+      "execution_modes": ["dry_run", "paper", "live"],
+      "switchable": {"allowed": false, "reason_code": "switch_not_connected"},
+      "pending_request_id": null,
+      "stop": {"supported": false, "resume_supported": false}
+    }
+  ],
+  "schema_version": "qsl.desk.switch_targets.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

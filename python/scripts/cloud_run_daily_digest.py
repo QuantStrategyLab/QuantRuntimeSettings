@@ -20,12 +20,22 @@ import daily_digest_aggregator as aggregator
 import merge_digest_candidates as candidate_contract
 import notification_candidate_adapter as adapter
 from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
-from display_names import display_name
+from display_names import configured_account_label, display_name
 from unified_daily_digest import _safe_display_text, render
 
 SGT = ZoneInfo('Asia/Singapore')
 IDENTITY = adapter.IDENTITY[:4]
 SLOT = re.compile(r'[a-z0-9][a-z0-9_-]{0,40}')
+
+
+def project_expected_target_label(binding, account_option):
+    """Copy display fields from the selected config; never derive identity."""
+    result = deepcopy(binding)
+    result.pop('account_label', None)
+    label = configured_account_label({key: account_option.get(key) for key in ('label', 'key', 'target_name')})
+    if label:
+        result['account_label'] = label
+    return result
 
 
 @dataclass(frozen=True)
@@ -40,6 +50,20 @@ class Configuration:
 
     def __post_init__(self):
         adapter.validate_expected(self.expected)
+        expected = []
+        for row in self.expected:
+            if 'account_label' in row:
+                value = row['account_label']
+                if (not isinstance(value, str) or len(value) > 70
+                        or (value and (not value.isprintable() or not _safe_display_text(value)))):
+                    raise ValueError('digest_account_label_invalid')
+            # Existing config generators can carry the selected option's fields
+            # on the binding. Normalize them at the actual environment intake.
+            projected = project_expected_target_label(row, row)
+            if row.get('account_label'):
+                projected['account_label'] = _safe_display_text(row['account_label'])
+            expected.append(projected)
+        object.__setattr__(self, 'expected', expected)
         platforms = {row['platform_id'] for row in self.expected}
         if not isinstance(self.candidate_uris, dict) or any(
                 platform not in platforms for platform in self.candidate_uris):

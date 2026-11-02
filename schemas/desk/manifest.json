@@ -1,0 +1,141 @@
+[
+  {
+    "name": "error",
+    "section": "1.2",
+    "endpoints": ["All endpoints: non-2xx"],
+    "scenarios": ["ok", "degraded"]
+  },
+  {"name": "session", "section": "3.1", "endpoints": ["GET /api/session"], "scenarios": ["ok", "degraded", "anonymous"]},
+  {
+    "name": "ribbon",
+    "section": "3.2",
+    "endpoints": ["GET /api/desk/ribbon"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "overview",
+    "section": "3.3",
+    "endpoints": ["GET /api/desk/overview"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "readback",
+    "section": "3.4",
+    "endpoints": ["GET /api/desk/targets/{target_id}/readback"],
+    "scenarios": ["ok", "degraded", "unavailable"]
+  },
+  {
+    "name": "readback-start",
+    "section": "3.5",
+    "endpoints": ["POST /api/desk/readbacks"],
+    "scenarios": ["ok", "degraded"]
+  },
+  {
+    "name": "readback-job",
+    "section": "3.5",
+    "endpoints": ["GET /api/desk/readbacks/{readback_id}"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "switch-targets",
+    "section": "3.6 step 1",
+    "endpoints": ["GET /api/desk/switch/targets"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "switch-strategies",
+    "section": "3.6 step 2",
+    "endpoints": ["GET /api/desk/switch/targets/{target_id}/strategies"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "switch-preview",
+    "section": "3.6 step 3",
+    "endpoints": ["POST /api/desk/switch/previews"],
+    "scenarios": ["ok", "degraded"]
+  },
+  {
+    "name": "switch-create",
+    "section": "3.6 step 4",
+    "endpoints": ["POST /api/desk/switch/requests"],
+    "scenarios": ["ok", "degraded"]
+  },
+  {
+    "name": "switch-request",
+    "section": "3.6 step 5",
+    "endpoints": ["GET /api/desk/switch/requests/{request_id}"],
+    "scenarios": ["ok", "degraded"]
+  },
+  {
+    "name": "reconcile",
+    "section": "3.12",
+    "endpoints": ["POST /api/desk/reconcile"],
+    "scenarios": ["ok", "degraded"]
+  },
+  {
+    "name": "runtime-stop",
+    "section": "3.11",
+    "endpoints": ["GET /api/runtime-stop", "POST /api/runtime-stop"],
+    "scenarios": ["ok", "degraded"]
+  },
+  {
+    "name": "runtime-resume",
+    "section": "3.11",
+    "endpoints": ["POST /api/runtime-resume"],
+    "scenarios": ["ok", "degraded"]
+  },
+  {
+    "name": "accounts",
+    "section": "3.13",
+    "endpoints": ["GET /api/desk/accounts"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "account-detail",
+    "section": "3.14",
+    "endpoints": ["GET /api/desk/accounts/{target_id}"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "performance",
+    "section": "3.15",
+    "endpoints": ["GET /api/desk/performance"],
+    "scenarios": ["ok", "degraded", "empty", "strategy"]
+  },
+  {
+    "name": "market-benchmark",
+    "section": "3.16",
+    "endpoints": ["GET /api/market-benchmark"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "alerts",
+    "section": "3.17",
+    "endpoints": ["GET /api/desk/alerts"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "alert-delivery",
+    "section": "3.18",
+    "endpoints": ["GET /api/desk/alerts/delivery"],
+    "scenarios": ["ok", "degraded"]
+  },
+  {
+    "name": "logs",
+    "section": "3.19",
+    "endpoints": ["GET /api/desk/logs"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "credentials",
+    "section": "3.20",
+    "endpoints": ["GET /api/desk/credentials"],
+    "scenarios": ["ok", "degraded", "empty"]
+  },
+  {
+    "name": "credential-maintenance",
+    "section": "3.21",
+    "endpoints": ["GET /api/credential-maintenance", "POST /api/credential-maintenance"],
+    "scenarios": ["ok", "degraded"]
+  }
+]

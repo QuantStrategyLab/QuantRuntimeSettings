@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/ribbon.json",
+  "title": "ribbon",
+  "description": "API-CONTRACT.md §3.2",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "schema_version": {"const": "qsl.desk.ribbon.v1"},
+    "generated_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+    "date": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"},
+    "console_state": {
+      "type": "object",
+      "properties": {
+        "mode": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"},
+        "gateways": {
+          "allOf": [
+            {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Read"},
+            {
+              "type": "object",
+              "properties": {"value": {"type": "string", "enum": ["all_reachable", "degraded", "down"]}}
+            }
+          ]
+        }
+      },
+      "required": ["mode", "gateways"],
+      "additionalProperties": false
+    },
+    "alert_badge": {
+      "type": "object",
+      "properties": {"open_count": {"type": "integer", "minimum": 0}, "critical_count": {"type": "integer", "minimum": 0}},
+      "required": ["open_count", "critical_count"],
+      "additionalProperties": false
+    },
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "market": {"type": "string", "enum": ["US", "HK", "CN"]},
+          "state": {"type": "string", "enum": ["open", "closed", "pre", "post", "unknown"]},
+          "open_utc": {
+            "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Clock"}, {"type": "null"}]
+          },
+          "close_utc": {
+            "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Clock"}, {"type": "null"}]
+          },
+          "next_change_at": {
+            "anyOf": [{"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}, {"type": "null"}]
+          },
+          "holiday": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        },
+        "required": ["market", "state", "open_utc", "close_utc", "next_change_at", "holiday"],
+        "additionalProperties": false
+      }
+    },
+    "next_run": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+            "kind": {"type": "string"},
+            "due_at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"}
+          },
+          "required": ["target_id", "kind", "due_at"],
+          "additionalProperties": false
+        },
+        {"type": "null"}
+      ]
+    },
+    "tape": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "at": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"},
+          "target_id": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"},
+          "label": {"type": "string"},
+          "kind": {"type": "string"},
+          "outcome": {"$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Outcome"},
+          "outcome_detail": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+          "state": {"type": "string", "enum": ["done", "running", "scheduled", "missed", "unknown"]}
+        },
+        "required": ["id", "at", "target_id", "label", "kind", "outcome", "outcome_detail", "state"],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    }
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "date",
+    "console_state",
+    "alert_badge",
+    "sessions",
+    "next_run",
+    "tape"
+  ],
+  "additionalProperties": false
+}

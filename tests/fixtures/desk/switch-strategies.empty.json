@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "target_id": "ibkr/tqqq",
+  "domain": "us_equity",
+  "catalog_revision": "2029-12-28",
+  "strategies": [],
+  "schema_version": "qsl.desk.switch_strategies.v1",
+  "generated_at": "2030-01-07T14:35:00Z"
+}

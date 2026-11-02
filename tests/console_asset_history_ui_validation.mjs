@@ -59,9 +59,18 @@ test("P1: healthy balances keep one compact independent partial-history status i
       "partial history states its affected account count");
     assert.ok(html.includes(language === "zh" ? "部分日期包含沿用的此前余额，这些余额并非当日观测。" : "Some dates include earlier balances; those balances were not observed on those dates."),
       "carried balances are distinguished from same-day observations");
-    assert.ok(html.includes(language === "zh" ? "合成账户甲" : "Synthetic Alpha"), "account coverage exposes display names in an expandable detail");
+    // Current-balance coverage has its own account detail; inspect only the
+    // history notice between those totals and the chart.
+    const historyNotice = html.slice(html.indexOf('<span class="history-notice"'), html.indexOf('<div class="chart-frame"'));
+    assert.match(historyNotice, /data-affected-count="2"/, "affected accounts are deduplicated");
+    // Coverage is intentionally count-only; account-title resolution is tested
+    // separately in account_config_label_validation.mjs.
+    assert.doesNotMatch(historyNotice, /合成账户甲|合成账户乙|Synthetic Alpha|Synthetic Beta/,
+      "compact history coverage does not expose individual account display names");
+    assert.doesNotMatch(historyNotice, /<details\b/, "history coverage stays compact");
     assert.doesNotMatch(html, /前值填充|Forward-filled|不代表当日新估值|not a new valuation/i);
-    assert.doesNotMatch(html, /synthetic-a|synthetic-b|perf\.|reason\.|state\./);
+    assert.doesNotMatch(historyNotice, /synthetic-a|synthetic-b/);
+    assert.doesNotMatch(html, /perf\.|reason\.|state\./);
     if (language === "en") assert.doesNotMatch(html, /[\u4e00-\u9fff]/);
     const { curve_coverage, history_per_currency, ...legacy } = assets;
     assert.ok(notice(ui.assets(language, legacy), "partial"), "curve_status alone still reports partial history");

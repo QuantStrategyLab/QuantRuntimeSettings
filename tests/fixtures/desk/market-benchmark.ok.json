@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "schema_version": "qsl.market_benchmark_points.v1",
+  "inception_date": "2029-12-09",
+  "timezone": "Asia/Shanghai",
+  "points": [{"seriesId": "纳斯达克100", "observationDate": "2029-12-09", "close": "17000.12", "source": "demo_source"}],
+  "series": [
+    {"id": "sp500", "legacy_id": "标普500", "label_en": "S&P 500", "label_zh": "标普500", "kind": "index"},
+    {
+      "id": "nasdaq100",
+      "legacy_id": "纳斯达克100",
+      "label_en": "Nasdaq 100",
+      "label_zh": "纳斯达克100",
+      "kind": "index"
+    },
+    {
+      "id": "djia",
+      "legacy_id": "道琼斯工业平均指数",
+      "label_en": "Dow Jones Industrial Average",
+      "label_zh": "道琼斯工业平均指数",
+      "kind": "index"
+    },
+    {
+      "id": "russell2000",
+      "legacy_id": "罗素2000",
+      "label_en": "Russell 2000",
+      "label_zh": "罗素2000",
+      "kind": "index"
+    }
+  ]
+}

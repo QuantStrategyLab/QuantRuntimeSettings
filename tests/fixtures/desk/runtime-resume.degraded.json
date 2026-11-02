@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "configured": false,
+  "platform_applied": false,
+  "actions_url": "https://github.com/example-org/example-repo/actions/workflows/manual-resume.yml",
+  "no_order": true
+}

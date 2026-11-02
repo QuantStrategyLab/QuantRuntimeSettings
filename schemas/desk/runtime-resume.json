@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/runtime-resume.json",
+  "title": "runtime-resume",
+  "description": "API-CONTRACT.md §3.11",
+  "type": "object",
+  "properties": {
+    "ok": {"const": true},
+    "configured": {"const": false},
+    "platform_applied": {"const": false},
+    "actions_url": {"type": "string"},
+    "no_order": {"const": true}
+  },
+  "required": ["ok", "configured", "platform_applied", "actions_url", "no_order"],
+  "additionalProperties": false
+}

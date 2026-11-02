@@ -1107,7 +1107,7 @@ jobs:
           npm run build --prefix web/strategy-switch-console/frontend
           npm run sync:v2-assets --prefix web/strategy-switch-console/frontend
           node tests/console_v2_assets_validation.mjs
-          npm run test:operations --prefix web/strategy-switch-console/frontend
+          npm run test:operations --prefix web/strategy-switch-console
           node tests/console_v2_i18n_validation.mjs
           node tests/console_v2_worker_validation.mjs
           node tests/ibkr_period_return_validation.mjs

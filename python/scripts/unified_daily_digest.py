@@ -6,7 +6,7 @@ import re
 from datetime import date, datetime, time
 from notification_mode import consolidation_enabled, routine_mode
 from notification_snapshot.unified_contract import SGT, sgt_business_window
-from display_names import broker_account_identity, display_name, runtime_account_names
+from display_names import broker_account_identity, display_name, runtime_account_names, safe_display_text as _safe_display_text
 from daily_digest_notify import DailyDigestInput, _presentation_needs_attention, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale, routine_decision_text, routine_observation_text
 
 
@@ -85,21 +85,6 @@ def render(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
     return "\n".join(lines)
 
 
-def _safe_display_text(value: object) -> str:
-    """Only display labels; never fall back to broker, storage or binding IDs."""
-    if not isinstance(value, str):
-        return ""
-    text = " ".join(value.split())
-    if (not text.isprintable() or "://" in text
-            or re.search(r"[Dd]?[Uu][0-9]{5,}", text)
-            or text.isdecimal()
-            or re.search(r"\d{5,}", text)
-            or re.search(r"\d(?:[\s.-]*\d){4,}", text)
-            or re.fullmatch(r"[0-9a-fA-F-]{12,}", text)):
-        return ""
-    return text[:70]
-
-
 def _run_display_contexts(rows, locale, *, runtime_accounts=False):
     """Resolve names with existing mappings; ordinals distinguish collisions."""
     parts, accounts = [], {}
@@ -138,6 +123,11 @@ def _run_display_contexts(rows, locale, *, runtime_accounts=False):
 
 
 def _account_identity_label(row, locale):
+    label = row.account_label
+    if isinstance(label, str) and len(label) <= 70 and label.isprintable():
+        safe = _safe_display_text(label)
+        if safe:
+            return safe
     # Opaque keys are lookup keys only, never labels. Only the runtime override
     # may translate one to a full broker identity; generated lane aliases cannot.
     keys = (row.opaque_account_uid, row.target_id, row.account_alias,

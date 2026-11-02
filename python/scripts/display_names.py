@@ -86,3 +86,28 @@ def broker_account_identity(platform, value):
     if platform in {"schwab", "firstrade"}:
         return value if re.fullmatch(r"(?:Account )?[0-9][0-9 .-]{4,24}[0-9]", value) else ""
     return value if platform in {"longbridge", "binance"} else ""
+
+
+def safe_display_text(value: object) -> str:
+    """Only display labels; never fall back to broker, storage or binding IDs."""
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split())
+    if (not text.isprintable() or "://" in text
+            or re.search(r"[Dd]?[Uu][0-9]{5,}", text)
+            or text.isdecimal()
+            or re.search(r"\d{5,}", text)
+            or re.search(r"\d(?:[\s.-]*\d){4,}", text)
+            or re.fullmatch(r"[0-9a-fA-F-]{12,}", text)):
+        return ""
+    return text[:70]
+
+
+def configured_account_label(option):
+    """Selected account config only; invalid fields fall through in order."""
+    for name in ('account_label', 'label', 'key', 'target_name'):
+        value = option.get(name)
+        if (isinstance(value, str) and len(value.strip()) <= 70
+                and value.isprintable() and (label := safe_display_text(value))):
+            return label
+    return ''
