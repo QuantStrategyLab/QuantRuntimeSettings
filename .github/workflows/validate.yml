@@ -158,6 +158,7 @@ jobs:
           npm run sync:v2-assets --prefix web/strategy-switch-console/frontend
           node tests/console_v2_assets_validation.mjs
           npm run test:operations --prefix web/strategy-switch-console
+          npm run check:style-guards --prefix web/strategy-switch-console/frontend  # warn-only until P5-5
           node tests/console_candidate_readiness_validation.mjs
           node tests/console_acceptance_budget_validation.mjs
           node tests/kv_directory_validation.mjs
@@ -207,6 +208,7 @@ jobs:
           node tests/ibkr_daily_setup_validation.mjs
           node tests/execution_daily_registration_validation.mjs
           node tests/ibkr_daily_transport_validation.mjs
+          node tests/strategy_profiles_consumer_freeze_validation.mjs
           node --experimental-strip-types tests/account_history_presentation_validation.mjs
           node --experimental-strip-types tests/console_chart_visibility_validation.mjs
           node tests/console_synthetic_development_validation.mjs

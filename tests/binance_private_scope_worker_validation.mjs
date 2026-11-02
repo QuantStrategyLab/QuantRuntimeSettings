@@ -161,28 +161,28 @@ for (const response of ordinaryResponses) {
   assert.equal(text.includes("private_binance_scope_report"), false);
 }
 
-const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
-const api = readFileSync(new URL("../web/strategy-switch-console/frontend/src/api.ts", import.meta.url), "utf8");
-const overview = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
-assert.match(api, /session\.admin[\s\S]*\/api\/binance-private-scope/);
-assert.match(app, /isAdmin=\{model\?\.session\.admin === true\}[\s\S]*privateScope=\{model\?\.privateScope \|\| null\}/);
-assert.match(overview, /allAccounts: accountId === "all"/);
-assert.match(overview, /binancePrivateScope\?\.assets\.length/);
-assert.match(overview, /item\.asset/);
-assert.match(overview, /item\.free/);
-assert.match(overview, /item\.locked/);
-assert.match(overview, /binancePrivateScope\.observed_at/);
-assert.equal(overview.includes("source_run_id"), false);
-assert.equal(overview.includes("source_sha"), false);
-assert.equal(overview.includes("account_scope_sha256"), false);
-assert.equal(overview.includes(".innerHTML"), false);
+const frontendSrc = new URL("../web/strategy-switch-console/frontend/src/", import.meta.url);
+const app = readFileSync(new URL("app/App.tsx", frontendSrc), "utf8");
+const liveUi = ["pages/overview/OverviewPage.tsx", "components/BinanceWalletFacts.tsx", "lib/binanceWalletFacts.ts"]
+  .map(file => readFileSync(new URL(file, frontendSrc), "utf8")).join("\n");
+// The live console has no admin private-scope panel; it must stay that way unless this
+// validator is extended with the matching Worker contract checks.
+assert.equal(liveUi.includes("binance-private-scope"), false);
+assert.equal(app.includes("binance-private-scope"), false);
+for (const leaked of ["source_run_id", "source_sha", "account_scope_sha256"]) {
+  assert.equal(liveUi.includes(leaked), false, `UI never renders ${leaked}`);
+}
+assert.equal(liveUi.includes(".innerHTML"), false);
 assert.equal(app.includes(".innerHTML"), false);
-const logout = app.slice(app.indexOf("const logout"), app.indexOf("const currentForm"));
-assert.ok(logout.indexOf("clearPrivateState") < logout.indexOf('postJson("/api/logout"'));
+const logout = app.slice(app.indexOf("const logout"), app.indexOf("useEffect(() => {\n    document.title"));
+assert.ok(logout.indexOf("invalidatePrivateSession") !== -1 && logout.indexOf("invalidatePrivateSession") < logout.indexOf('postJson("/api/logout"'),
+  "private state is cleared before the logout request");
 assert.equal(logout.includes("/api/switch"), false);
 
 assert.equal(app.includes("refreshBinancePrivateScope"), false);
-assert.equal(overview.includes("0.01000000"), false);
+assert.equal(liveUi.includes("0.01000000"), false);
 assert.equal(app.includes("0.01000000"), false);
+// Dropped with the legacy tree: positive admin-only private-scope rendering checks
+// (session.admin gating, privateScope prop, asset/free/locked rows); the live UI has no such panel.
 
 console.log("Binance private scope: admin-only read, dedicated write, strict payload, TTL/staleness, isolation and UI clearing checks passed");

@@ -11,6 +11,10 @@ test('rejects every other byte sequence, including matching prefix or extra trai
     Buffer.from('synthetic-approved-candidat'),Buffer.from('other')])
     assert.throws(()=>classify946Readonly(input,original,candidate),/active_54e_bytes_mismatch/);
 });
+test('unknown module hashes cannot claim a reviewed main release',()=>{
+  for(const input of [Buffer.from('synthetic-reviewed-main'),Buffer.alloc(32,0),Buffer.alloc(32,255)])
+    assert.throws(()=>classify946Readonly(input,original,candidate),/active_54e_bytes_mismatch/);
+});
 test('rejects invalid or indistinguishable reference and candidate',()=>{
   assert.throws(()=>classify946Readonly(original,original,original),/readonly_baseline_invalid/);
   assert.throws(()=>classify946Readonly(original,Buffer.alloc(0),candidate),/readonly_baseline_invalid/);

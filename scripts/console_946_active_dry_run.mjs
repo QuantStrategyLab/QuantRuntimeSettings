@@ -31,6 +31,9 @@ try {
     getVerified=true;
     stage='patch';
     // Construct the only allowed patched bytes from the same-job fixed build.
+    // A reviewed later release is recognized by full module hash only. It
+    // never becomes patch input; the runtime check below still tests #946's
+    // historical candidate, not the later release's behavior or live config.
     // The release verifier remains strict and is never called with patched live bytes.
     const reference=await readFile(join(process.env.RUNNER_TEMP,'qrs54e-baseline/worker.js'));
     const candidate=await verify946OnFixed54e(ts,trace,reference);
