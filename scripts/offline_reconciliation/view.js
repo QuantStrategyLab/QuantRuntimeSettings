@@ -189,12 +189,53 @@
     return '—';
   }
 
+  const exact = (value, keys) => value !== null && typeof value === 'object'
+    && !Array.isArray(value) && Object.keys(value).length === keys.length
+    && keys.every(key => Object.hasOwn(value, key));
+
+  function validInstant(value) {
+    if (typeof value !== 'string'
+        || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)$/.test(value)
+        || /[+-]14:(?!00)/.test(value)) return false;
+    const local = value.slice(0, 19);
+    const localMs = Date.parse(`${local}Z`);
+    return Number.isFinite(Date.parse(value)) && Number.isFinite(localMs)
+      && new Date(localMs).toISOString().slice(0, 19) === local;
+  }
+
+  function validSnapshot(value) {
+    return exact(value, ['source_as_of', 'timezone', 'capture_started_at', 'capture_finished_at'])
+      && ['UTC', 'America/New_York', 'Asia/Hong_Kong', 'Asia/Singapore'].includes(value.timezone)
+      && ['source_as_of', 'capture_started_at', 'capture_finished_at'].every(key => validInstant(value[key]))
+      && Date.parse(value.capture_started_at) <= Date.parse(value.capture_finished_at)
+      && Date.parse(value.source_as_of) <= Date.parse(value.capture_finished_at);
+  }
+
+  // Validate the read contract, without treating imported metadata as authentic
+  // evidence or recomputing an explicit stale status from the wrapper timestamp.
   function isForward(value) {
-    return value !== null && typeof value === 'object' && !Array.isArray(value)
-      && value.schema_version === 'qsl.forward_reconciliation_read.v1'
-      && value.informational_only === true
-      && value.dimensions !== null && typeof value.dimensions === 'object'
-      && !Array.isArray(value.dimensions);
+    if (!exact(value, ['schema_version', 'informational_only', 'generated_at', 'forward_start_date',
+      'source_status', 'source', 'baseline_status', 'baseline_reason', 'baseline', 'later_anchor',
+      'dimensions', 'notification'])
+        || value.schema_version !== 'qsl.forward_reconciliation_read.v1'
+        || value.informational_only !== true || value.forward_start_date !== START_DATE
+        || (value.generated_at !== null && !validInstant(value.generated_at))
+        || !['unknown', 'stale', 'present'].includes(value.source_status)
+        || (value.source_status === 'unknown' ? value.source !== null : !validSnapshot(value.source))
+        || !['missing', 'present'].includes(value.baseline_status)
+        || (value.baseline_status === 'missing'
+          ? value.baseline !== null || value.baseline_reason !== 'opening_snapshot_missing'
+          : !validSnapshot(value.baseline) || value.baseline_reason !== null)
+        || (value.later_anchor !== null && !validSnapshot(value.later_anchor))
+        || !exact(value.dimensions, ['positions', 'cash', 'events'])
+        || !Object.values(value.dimensions).every(status => status === 'UNRECONCILED')) return false;
+    const notice = value.notification;
+    if (!exact(notice, ['status', 'requested_at', 'confirmed_at'])) return false;
+    if (notice.status === 'unknown') return notice.requested_at === null && notice.confirmed_at === null;
+    if (!validInstant(notice.requested_at)) return false;
+    if (notice.status === 'pending') return notice.confirmed_at === null;
+    return notice.status === 'confirmed' && validInstant(notice.confirmed_at)
+      && Date.parse(notice.requested_at) <= Date.parse(notice.confirmed_at);
   }
 
   function cellStatus(forward, dim) {
@@ -215,8 +256,9 @@
     return accounts.map((account, index) => {
       const platform = account && typeof account.platform === 'string' && account.platform
         ? account.platform : 'unknown';
-      const forward = account && isForward(account.forward_reconciliation)
+      const forward = account && account.forward_reconciliation != null
         ? account.forward_reconciliation : null;
+      if (forward !== null && !isForward(forward)) throw new Error('invalid_forward_metadata');
       return {
         platform,
         platformLabel: platformLabel(platform),
@@ -479,7 +521,11 @@
 
   function renderCards(doc, t) {
     const cards = appState.rows.map(row => {
-      const marks = DIMS.map(dim => markHtml(row.cells[dim], t, true)).join('');
+      const marks = DIMS.map(dim => {
+        const label = esc(t(DIM_KEYS[dim]));
+        return `<div class="dimension" role="group" aria-label="${label}">`
+          + `<span class="dimension-label">${label}</span>${markHtml(row.cells[dim], t, true)}</div>`;
+      }).join('');
       const label = esc(format(t('account_label'), { n: row.ordinal }));
       return `<div class="card"><div class="top pf"><b>${esc(row.platformLabel)}</b>`
         + `<span>${label}</span></div><div class="row">${marks}</div></div>`;
@@ -592,13 +638,22 @@
 
   function renderAll(doc) {
     const t = translator();
-    renderStatic(doc, t);
-    renderChrome(doc, t);
-    if (appState.error || !appState.rows) {
+    try {
+      renderStatic(doc, t);
+      renderChrome(doc, t);
+      if (appState.error || !appState.rows) {
+        renderError(doc, t);
+        return;
+      }
+      renderData(doc, t);
+    } catch {
+      appState.rows = null;
+      appState.generatedAt = null;
+      appState.error = true;
+      appState.errorCode = 'render_failed';
       renderError(doc, t);
-      return;
+      renderChrome(doc, t);
     }
-    renderData(doc, t);
   }
 
   function bindToggles(doc, win) {

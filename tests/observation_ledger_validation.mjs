@@ -291,4 +291,67 @@ for (const payload of [null, {}, { ok: false, accounts: [] }, { ok: true, accoun
   assert.equal(elements.get('mx').innerHTML, '');
 }
 
+// Imported metadata must satisfy the same nested read contract before rendering.
+const invalidEvidence = [
+  f => { f.source_status = 'present'; },
+  f => { f.source_status = 'stale'; },
+  f => { f.baseline_status = 'present'; f.baseline_reason = null; },
+  f => { f.baseline_reason = null; },
+  f => { f.notification.status = 'confirmed'; },
+  f => { f.notification.status = 'pending'; },
+  f => { f.notification.requested_at = '2026-11-03T00:00:00Z'; },
+  f => { f.forward_start_date = 'invalid-date'; },
+  f => { f.forward_start_date = '2026-11-04'; },
+  f => { f.dimensions.cash = 'RECONCILED'; },
+  f => { f.later_anchor = {}; },
+  f => { f.generated_at = '2026-02-30T00:00:00Z'; },
+  f => { f.source = structuredClone(fixture.accounts[2].forward_reconciliation.source); },
+  f => { f.source_status = 'present'; f.source = { source_as_of: 'invalid' }; },
+  f => { f.notification = { status: 'confirmed', requested_at: '2026-11-03T02:00:00Z',
+    confirmed_at: '2026-11-03T01:00:00Z' }; },
+];
+for (const mutate of invalidEvidence) {
+  const { document, elements } = makeDocument();
+  await ledger.main({ document, window: makeWindow(), search: '?sample=1', now });
+  const payload = structuredClone({ ok: true, accounts: [fixture.accounts[0]] });
+  mutate(payload.accounts[0].forward_reconciliation);
+  const result = await ledger.main({ document, window: makeWindow(), search: '', now,
+    fetchImpl: async () => ({ ok: true, json: async () => payload }) });
+  assert.equal(result.error, true, 'inconsistent evidence must fail closed');
+  assert.equal(result.rows, null);
+  assert.equal(elements.get('error-banner').hidden, false);
+  assert.equal(elements.get('tally').hidden, true);
+  for (const id of ['mx', 'cards', 'ev', 'entry-body', 'days', 'note-source', 'note-baseline', 'note-notice']) {
+    assert.equal(elements.get(id).innerHTML, '', 'invalid input clears previous metadata');
+  }
+}
+
+// Even an unexpected rendering exception must clear already populated tables.
+{
+  const { document, elements } = makeDocument();
+  const days = document.getElementById('days');
+  Object.defineProperty(days, 'innerHTML', {
+    get: () => '', set(value) { if (value) throw new Error('synthetic acct-9999 render failure'); },
+  });
+  const result = await ledger.main({ document, window: makeWindow(), search: '?sample=1', now });
+  assert.equal(result.error, true);
+  assert.equal(result.rows, null);
+  assert.equal(elements.get('error-banner').hidden, false);
+  assert.equal(elements.get('tally').hidden, true);
+  for (const id of ['mx', 'cards', 'ev', 'entry-body']) assert.equal(elements.get(id).innerHTML, '');
+  assert.doesNotMatch(elements.get('error-detail').textContent, /acct-9999|synthetic render failure/);
+}
+
+// At mobile widths the replacement cards retain localized dimension/status groups.
+for (const lang of ['zh-CN', 'en']) {
+  const { document, elements } = makeDocument();
+  await ledger.main({ document, window: makeWindow(), search: `?sample=1&lang=${lang}`, now });
+  const cards = elements.get('cards').innerHTML;
+  for (const key of ['col_opening', 'col_positions', 'col_cash', 'col_fills', 'col_events', 'col_fees']) {
+    const label = ledger.LOCALES[lang][key];
+    assert.ok(cards.includes(`role="group" aria-label="${label}"`));
+    assert.ok(cards.includes(`>${label}</span>`));
+  }
+}
+
 console.log('observation_ledger_validation: PASS (honest states, tally identity, error banner, i18n parity, read-only)');
