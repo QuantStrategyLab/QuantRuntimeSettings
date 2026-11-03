@@ -321,6 +321,7 @@ try {
     const bodies = [];
     globalThis.fetch = stopFetch({ outcome: "unknown" }, bodies);
     const env = {
+      HK_STOP_GCP_PROJECT_ID: "example-longbridge-project",
       ...unknownRun.bindings,
       STRATEGY_SWITCH_RUNTIME_INSTANCES: unknownRun.namespace,
       STRATEGY_SWITCH_CONFIG: unknownRun.kv,
@@ -422,6 +423,7 @@ try {
     const bodies = [];
     globalThis.fetch = stopFetch({ outcome: "reject" }, bodies);
     const env = {
+      HK_STOP_GCP_PROJECT_ID: "example-longbridge-project",
       ...rejectedRun.bindings,
       STRATEGY_SWITCH_RUNTIME_INSTANCES: rejectedRun.namespace,
       STRATEGY_SWITCH_CONFIG: rejectedRun.kv,
@@ -521,6 +523,7 @@ try {
     const bodies = [];
     globalThis.fetch = stopFetch({ outcome: "accept" }, bodies);
     const env = {
+      HK_STOP_GCP_PROJECT_ID: "example-longbridge-project",
       ...lostRecord.bindings,
       STRATEGY_SWITCH_CONFIG: lostRecord.kv,
       STRATEGY_SWITCH_RUNTIME_INSTANCES: throwOnAction(lostRecord.namespace, "hk_stop_record"),
@@ -574,6 +577,7 @@ try {
     const bodies = [];
     globalThis.fetch = stopFetch({ outcome: "accept" }, bodies);
     const env = {
+      HK_STOP_GCP_PROJECT_ID: "example-longbridge-project",
       ...confirmed.bindings,
       STRATEGY_SWITCH_RUNTIME_INSTANCES: confirmed.namespace,
       STRATEGY_SWITCH_CONFIG: confirmed.kv,
@@ -601,7 +605,7 @@ try {
       },
       observed_at: posted.body.requested_at,
       readback: {
-        project: "longbridgequant",
+        project: "example-longbridge-project",
         region: "asia-east2",
         service: "longbridge-quant-hk-service",
         revision_name: "longbridge-quant-hk-service-00001-abc",
@@ -630,6 +634,17 @@ try {
     const withSession = { Cookie: confirmed.cookie, Authorization: "Bearer wrong-token" };
     assert.equal((await postResult(resultBody(), { Cookie: confirmed.cookie })).status, 401);
     assert.equal((await postResult(resultBody(), withSession)).status, 401);
+    const configuredProject = env.HK_STOP_GCP_PROJECT_ID;
+    for (const value of [undefined, "", "../../invalid", " invalid "]) {
+      env.HK_STOP_GCP_PROJECT_ID = value;
+      const rejected = await postResult(resultBody(), { Authorization: "Bearer synthetic-lifecycle-token" });
+      assert.equal(rejected.status, 503);
+      assert.equal(rejected.body.error, "hk_stop_project_not_configured");
+      assert.ok(!JSON.stringify(rejected.body).includes(configuredProject));
+    }
+    env.HK_STOP_GCP_PROJECT_ID = "example-wrong-project";
+    assert.equal((await postResult(resultBody(), { Authorization: "Bearer synthetic-lifecycle-token" })).status, 400);
+    env.HK_STOP_GCP_PROJECT_ID = configuredProject;
     const missingRequest = await postResult(resultBody({ request_id: crypto.randomUUID() }), { Authorization: "Bearer synthetic-lifecycle-token" });
     assert.equal(missingRequest.status, 409);
     assert.equal(missingRequest.body.error, "hk_stop_request_conflict");
@@ -727,6 +742,7 @@ try {
     try {
       const restartedNamespace = await restarted.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
       const restartedEnv = {
+        HK_STOP_GCP_PROJECT_ID: configuredProject,
         ...confirmed.bindings,
         STRATEGY_SWITCH_RUNTIME_INSTANCES: restartedNamespace,
         STRATEGY_SWITCH_CONFIG: await restarted.getKVNamespace("STRATEGY_SWITCH_CONFIG"),
@@ -755,6 +771,7 @@ try {
     const bodies = [];
     globalThis.fetch = stopFetch({ outcome: "accept" }, bodies);
     const env = {
+      HK_STOP_GCP_PROJECT_ID: "example-longbridge-project",
       ...changedIdentity.bindings,
       STRATEGY_SWITCH_RUNTIME_INSTANCES: changedIdentity.namespace,
       STRATEGY_SWITCH_CONFIG: changedIdentity.kv,
@@ -795,7 +812,7 @@ try {
         },
         observed_at: posted.body.requested_at,
         readback: {
-          project: "longbridgequant", region: "asia-east2", service: "longbridge-quant-hk-service",
+          project: "example-longbridge-project", region: "asia-east2", service: "longbridge-quant-hk-service",
           revision_name: "longbridge-quant-hk-service-00002-abc", runtime_enabled: false,
           scheduler_state: "paused", scheduler_count: 1, scheduler_set_sha256: "d".repeat(64), complete: true,
         },
@@ -821,6 +838,7 @@ try {
     mode.hold = new Promise((resolve) => { releaseHold = resolve; });
     globalThis.fetch = stopFetch(mode, bodies);
     const env = {
+      HK_STOP_GCP_PROJECT_ID: "example-longbridge-project",
       ...earlyResult.bindings,
       STRATEGY_SWITCH_RUNTIME_INSTANCES: earlyResult.namespace,
       STRATEGY_SWITCH_CONFIG: earlyResult.kv,
@@ -855,7 +873,7 @@ try {
         },
         observed_at: reserved.body.requested_at,
         readback: {
-          project: "longbridgequant", region: "asia-east2", service: "longbridge-quant-hk-service",
+          project: "example-longbridge-project", region: "asia-east2", service: "longbridge-quant-hk-service",
           revision_name: "longbridge-quant-hk-service-00003-abc", runtime_enabled: false,
           scheduler_state: "paused", scheduler_count: 1, scheduler_set_sha256: "f".repeat(64), complete: true,
         },
@@ -897,6 +915,7 @@ try {
     assert.equal(claimed.status, 200);
     assert.equal(claimedBody.record.phase, "reserved");
     const env = {
+      HK_STOP_GCP_PROJECT_ID: "example-longbridge-project",
       ...legacy.bindings,
       STRATEGY_SWITCH_RUNTIME_INSTANCES: legacy.namespace,
       STRATEGY_SWITCH_CONFIG: legacy.kv,
@@ -924,7 +943,7 @@ try {
         },
         observed_at: new Date().toISOString(),
         readback: {
-          project: "longbridgequant", region: "asia-east2", service: "longbridge-quant-hk-service",
+          project: "example-longbridge-project", region: "asia-east2", service: "longbridge-quant-hk-service",
           revision_name: "longbridge-quant-hk-service-00004-abc", runtime_enabled: false,
           scheduler_state: "paused", scheduler_count: 1, scheduler_set_sha256: "2".repeat(64), complete: true,
         },

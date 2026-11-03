@@ -35,6 +35,11 @@ def generate(platform, source, now):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     template = json.loads((FIXTURES / f"{platform}-report.json").read_text())
+    if platform == "schwab":
+        # The pinned historical producer uses a module-level deployment setting.
+        # Configure that setting synthetically; keep its pinned source bytes,
+        # identity checks and real projection functions unchanged.
+        module.PROJECT_ID = "example-schwab-project"
     slot = "account_facts" if platform == "ibkr" else "account_observation"
 
     def project(report, observed):
@@ -58,6 +63,11 @@ def generate(platform, source, now):
             report_prefix=prefix, expected_service_name="synthetic-service",
             expected_runtime_revision="synthetic-00001-abc", expected_target_id="synthetic-target", now=now,
         )
+
+    wrong_project = deepcopy(template)
+    wrong_project["project_id"] = "example-wrong-producer-project"
+    rejected = project(wrong_project, now - timedelta(minutes=1))
+    assert rejected["status"] == "skipped", rejected
 
     expanded = project(deepcopy(template), now - timedelta(hours=24, minutes=1))
     current = project(deepcopy(template), now - timedelta(minutes=1))

@@ -1,7 +1,7 @@
 {
   "schema_version": "runtime_report.v1",
   "platform": "charles_schwab",
-  "project_id": "charlesschwabquant",
+  "project_id": "example-schwab-project",
   "service_name": "synthetic-service",
   "strategy_profile": "soxl_soxx_trend_income",
   "account_scope": null,

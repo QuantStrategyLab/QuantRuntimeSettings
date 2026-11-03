@@ -43,7 +43,7 @@ class PromotionSignatureTests(unittest.TestCase):
         root["trusted_policy_root_sha256"] = calculate_trusted_policy_root_sha256(root)
         (self.tmp / "example-longbridge-project.json").write_text(json.dumps(root))
         self.pins = {"longbridge": root["trusted_policy_root_sha256"]}
-        self.enterContext(patch.object(sig, "ROOTS_DIR", self.tmp))
+        self.enterContext(patch.dict(os.environ, {"QSL_PROMOTION_ROOT_RECORDS_JSON": json.dumps({"longbridge": root})}))
         self.manifest = builder.build(
             platform="longbridge", target_name="sg", execution_mode="live", strategy_profile="tqqq_growth_income",
             source_revision="a" * 40, artifact_sha256="b" * 64, config_sha256="c" * 64, risk_sha256="d" * 64,
@@ -98,6 +98,44 @@ class PromotionSignatureTests(unittest.TestCase):
             builder.build(platform="longbridge", target_name="sg", execution_mode="live",
                           strategy_profile="tqqq_growth_income", source_revision="a" * 40,
                           artifact_sha256="b" * 64, config_sha256="c" * 64, risk_sha256="d" * 64, ttl_hours=48)
+
+
+class PrivatePromotionRootTests(PromotionSignatureTests):
+    def setUp(self):
+        super().setUp()
+        root = json.loads((self.tmp / "example-longbridge-project.json").read_text())
+        self.enterContext(patch.dict(os.environ, {
+            "QSL_PROMOTION_ROOT_RECORDS_JSON": json.dumps({"longbridge": root}),
+        }))
+        self.enterContext(patch.object(sig, "ROOTS_DIR", self.tmp / "absent", create=True))
+
+    def test_verification_result_omits_private_root_binding(self):
+        result = sig.verify(self.manifest, self.sign(self.manifest), platform="longbridge", pinned_roots=self.pins)
+        self.assertNotIn("example-longbridge-project", json.dumps(result))
+        self.assertNotIn("root_id", result)
+
+    def test_missing_invalid_or_wrong_platform_private_record_fails_closed(self):
+        for value in ("", "[]", "{}", '{"longbridge":null}', '{"ibkr":{}}'):
+            with self.subTest(value=value), patch.dict(os.environ, {"QSL_PROMOTION_ROOT_RECORDS_JSON": value}):
+                with self.assertRaises(ValueError):
+                    sig.load_trusted_root("longbridge", self.pins)
+
+    def test_private_record_does_not_override_independently_pinned_digest(self):
+        with self.assertRaises(ValueError):
+            sig.load_trusted_root("longbridge", {"longbridge": "f" * 64})
+
+    def test_private_root_project_must_match_platform_mapping(self):
+        with patch.dict(os.environ, {"QSL_PROMOTION_ROOT_PROJECTS_JSON": '{"longbridge":"example-other-project"}'}):
+            with self.assertRaises(ValueError):
+                sig.load_trusted_root("longbridge", self.pins)
+
+    def test_changed_private_record_is_revalidated_each_time(self):
+        sig.load_trusted_root("longbridge", self.pins)
+        root = json.loads(os.environ["QSL_PROMOTION_ROOT_RECORDS_JSON"])
+        root["longbridge"]["kms_key_version"] += "0"
+        with patch.dict(os.environ, {"QSL_PROMOTION_ROOT_RECORDS_JSON": json.dumps(root)}):
+            with self.assertRaises(ValueError):
+                sig.load_trusted_root("longbridge", self.pins)
 
 
 def _response(status, body=None):
