@@ -6961,7 +6961,11 @@ function hkStopExactObject(value, keys) {
     && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
 }
 
-function normalizeHkStopResult(raw) {
+function normalizeHkStopResult(raw, env) {
+  const expectedProject = env?.HK_STOP_GCP_PROJECT_ID;
+  if (typeof expectedProject !== "string" || !/^[a-z][a-z0-9-]{4,61}[a-z0-9]$/.test(expectedProject)) {
+    throw new HttpError("hk_stop_project_not_configured", 503);
+  }
   const top = ["schema_version", "request_id", "source_revision", "source_identity_sha256", "target_id", "runtime_identity_sha256", "producer", "observed_at", "readback", "no_order", "in_flight_state", "retirement_complete"];
   const producerKeys = ["repository", "workflow_path", "run_id", "run_attempt", "head_sha"];
   const readbackKeys = ["project", "region", "service", "revision_name", "runtime_enabled", "scheduler_state", "scheduler_count", "scheduler_set_sha256", "complete"];
@@ -6979,7 +6983,7 @@ function normalizeHkStopResult(raw) {
     || !/^[0-9a-f]{40}$/.test(raw.producer.head_sha)
     || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(raw.observed_at)
     || !hkStopExactObject(raw.readback, readbackKeys)
-    || raw.readback.project !== "longbridgequant"
+    || raw.readback.project !== expectedProject
     || raw.readback.region !== "asia-east2"
     || raw.readback.service !== "longbridge-quant-hk-service"
     || typeof raw.readback.revision_name !== "string"
@@ -7019,7 +7023,7 @@ function normalizeHkStopResult(raw) {
 async function acceptHkStopResult(request, env) {
   requireDedicatedExecutionEvidenceSyncToken(request, env);
   if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const result = normalizeHkStopResult(await readBoundedJson(request, 8192));
+  const result = normalizeHkStopResult(await readBoundedJson(request, 8192), env);
   const recorded = await runtimeInstanceCommand(env, {
     action: "hk_stop_accept_result",
     result,

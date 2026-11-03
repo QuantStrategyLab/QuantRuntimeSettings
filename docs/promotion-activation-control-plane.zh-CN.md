@@ -8,7 +8,7 @@
 3. `Verify Promotion Manifest KMS signature`：在 `promotion_signature.py` 里验证分离式 DER 签名。
    - 签名内容：`b"qsl.promotion_signature.v1\n" + canonical_promotion_json(manifest)`。
    - 加这个域前缀，是为了让同一把 KMS root 签的 promotion 签名和 autonomy policy 签名互相不能冒用。
-   - 信任根是 `docs/p0_control_roots/gcp/<project>.json`（每个平台一个项目，不能借用别的平台的根）。只有当它的 `trusted_policy_root_sha256` 等于 `runtime-strategy-switch` Environment 变量 `QSL_PROMOTION_TRUSTED_ROOTS_JSON`（`{platform: sha256}`）里钉住的值时才接受。
+   - 信任根是 私有 secret `QSL_PROMOTION_ROOT_RECORDS_JSON`（`{platform: root_record}`）（每个平台一个项目，不能借用别的平台的根）。只有当它的 `trusted_policy_root_sha256` 等于 `runtime-strategy-switch` Environment 变量 `QSL_PROMOTION_TRUSTED_ROOTS_JSON`（`{platform: sha256}`）里钉住的值时才接受。
    - 这个值没钉住、不匹配、签名不对、或有效期超过 24 小时，都拒绝。
 4. `Consume single_use_id`：在 `promotion_ledger.py` 里，在 QRS 创建 annotated tag `qsl-promotion-consumed/<id>`。
    - 为什么用这个存储：`POST git/refs` 在 ref 已存在时返回 422，天然是原子的"不存在才创建"；不用新建任何云资源；tag 对象里记了 promotion_sha256、签名摘要、run id，可审计，也不含秘密。
@@ -46,5 +46,5 @@ candidate 各字段约定：
 ## 启用前置（owner）
 1. 建 tag ruleset（见交接提示词）。
 2. 新增 secret `QSL_PROMOTION_LEDGER_TOKEN`：fine-grained token，只给 QRS 的 contents 读写权限。
-3. Environment 变量 `QSL_PROMOTION_TRUSTED_ROOTS_JSON` 设为 `{"longbridge":"a8ea86116ab3286ae7d19970b7d3c5d60849bfcaf95976e86669a0e35bff6f91"}`。
+3. Environment 变量 `QSL_PROMOTION_TRUSTED_ROOTS_JSON` 设置为独立核验后固定的摘要（`{platform: sha256}`）；不能从待验记录动态生成信任值。项目映射和完整根记录分别通过 secrets `QSL_PROMOTION_ROOT_PROJECTS_JSON`、`QSL_PROMOTION_ROOT_RECORDS_JSON` 提供。
 4. 运行 KMS IAM 提示词，创建 signer SA 并授权。
