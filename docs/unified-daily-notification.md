@@ -306,5 +306,5 @@ coverage rules as other brokers. Platform support does not create production
 bindings or turn a disabled target into a verified zero-activity window.
 
 Future broker-side confirmation is described in
-[FILL-CONFIRM-DESIGN.md](FILL-CONFIRM-DESIGN.md). It is design only and grants no
+[Fill confirmation design](fill-confirm-design.md). It is design only and grants no
 runtime, broker, deployment or notification authority.
