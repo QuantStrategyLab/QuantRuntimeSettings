@@ -179,9 +179,12 @@ def _verified_no_trade(row):
 
 
 def _execution_unconfirmed(row):
-    return (not _execution_blocked(row) and row.execution_status.strip().lower() not in {
+    # A run-level block does not establish finality of submitted orders.
+    status = row.execution_status.strip().lower()
+    return status not in {
         "", "executed", "completed", "no_action", "no_op", "no_signal", "no_rebalance", "ok_no_order",
-    })
+        "blocked", "strategy_risk_rejected",
+    } and not status.endswith("_blocked")
 
 
 def _execution_blocked(row):
@@ -313,26 +316,20 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         block = ["🏦 " + header]
         missing_strategy = "未命名策略" if zh else "Unnamed strategy"
         strategies = list(dict.fromkeys(strategy for _, _, strategy in entries if strategy != missing_strategy))
-        if strategies:
-            block.append("🎯 " + ("策略：" if zh else "Strategy: ") + " / ".join(strategies))
         values = {}
         for name in ("order", "fill"):
             values[name] = (str(sum(getattr(row, name + "_count") for row in rows))
                             if all(_known_count(row, name) for row in rows) else "未知" if zh else "unknown")
         confirmation = (" · 最终状态待确认" if zh else " · final state unconfirmed") if any(
             _execution_unconfirmed(row) for row in rows) else ""
-        block.append("📝 " + (f"提交{values['order']}笔/成交{values['fill']}笔" if zh else
-                     f"Submitted {values['order']}/Filled {values['fill']}") + confirmation)
-        if needs_attention:
-            block.append("需核对" if zh else "Needs review")
-        details = []
+        details, pending = [], []
         for row in rows:
             if _execution_unconfirmed(row):
                 if row.execution_status == "order_submitted":
-                    details.append("订单已提交，成交待确认；最终状态待确认" if zh else
+                    pending.append("订单已提交，成交待确认；最终状态待确认" if zh else
                                    "Orders submitted; fill confirmation pending; final state unconfirmed")
                 else:
-                    details.append("订单最终状态待确认" if zh else "Final order state unconfirmed")
+                    pending.append("订单最终状态待确认" if zh else "Final order state unconfirmed")
             if row.status == "alert":
                 details.append("执行异常，需核对" if zh else "Execution issue; needs review")
             if _execution_blocked(row):
@@ -344,7 +341,17 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
                 details.append(evidence)
             if counts_not_connected(row):
                 details.append("统计未接入" if zh else "Counting not connected")
+        # Reserve failure diagnostics before repeated counts, strategy context
+        # and pending-order prose. Separate lines retain each fitting diagnostic.
         block.extend(dict.fromkeys(details))
+        if strategies:
+            block.append("🎯 " + ("策略：" if zh else "Strategy: ") + " / ".join(strategies))
+        block.append("📝 " + (f"提交{values['order']}笔/成交{values['fill']}笔" if zh else
+                     f"Submitted {values['order']}/Filled {values['fill']}") + confirmation)
+        if needs_attention:
+            block.append("需核对" if zh else "Needs review")
+        block.extend(dict.fromkeys(pending))
+        details.extend(pending)
         optional = list(dict.fromkeys(text for row in rows for text in
                         (routine_decision_text(row, locale), routine_observation_text(row, locale)) if text))
         if any(_has_activity(row) for row in rows):

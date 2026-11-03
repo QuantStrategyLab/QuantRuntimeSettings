@@ -105,3 +105,77 @@ class NotifyProjectionTests(unittest.TestCase):
         self.assertIsNone(receipt["total_fills"])
         self.assertIn("全窗口统计未知", text)
         self.assertIn("目标覆盖 0/1", text)
+
+    def test_same_run_evidence_failure_survives_both_orders_and_locales(self):
+        for axis, failure, healthy, zh, en in (
+                ("evidence_delivery_status", "delivery_failed", "delivered_to_central",
+                 "证据传递失败", "Evidence delivery failed"),
+                ("evidence_persistence_status", "persistence_failed", "persisted",
+                 "证据留存失败", "Evidence persistence failed")):
+            bad = candidate(execution_status="completed", **{axis: failure})
+            good = candidate(execution_status="completed", **{axis: healthy})
+            for order, observations in enumerate(([bad, good], [good, bad], [good, bad, good])):
+                for locale, diagnostic in (("zh", zh), ("en", en)):
+                    with self.subTest(axis=axis, order=order, locale=locale):
+                        projected, text, _, _ = build(deepcopy(observations), locale=locale)
+                        self.assertEqual(getattr(projected.runs[0], axis), failure)
+                        self.assertIn(diagnostic, text)
+                        self.assertNotIn("无交易" if locale == "zh" else "No trades", text)
+
+    def test_explicit_unknown_evidence_cannot_be_replaced_by_healthy_replays(self):
+        for axis, healthy in (("evidence_delivery_status", "delivered_to_central"),
+                              ("evidence_persistence_status", "persisted")):
+            for uncertain in ("unknown", "synthetic_unrecognized"):
+                a = candidate(execution_status="completed", **{axis: uncertain})
+                b = candidate(execution_status="completed", **{axis: healthy})
+                for observations in ([a, b, b], [b, a, b]):
+                    for locale, diagnostic in (("zh", "状态未知"), ("en", "status unknown")):
+                        with self.subTest(axis=axis, uncertain=uncertain, locale=locale):
+                            projected, text, _, _ = build(deepcopy(observations), locale=locale)
+                            self.assertEqual(getattr(projected.runs[0], axis), "unknown")
+                            self.assertIn(diagnostic, text)
+
+    def test_block_and_unconfirmed_finality_survive_both_render_paths(self):
+        for status in ("order_submitted", "execution_unknown"):
+            for unified in ("false", "true"):
+                for locale in ("zh", "en"):
+                    with self.subTest(status=status, unified=unified, locale=locale), patch.dict(
+                            os.environ, {"QRS_UNIFIED_NOTIFICATION_ENABLED": unified}, clear=True):
+                        text = render(replace(payload(row(order_count=1, fill_count=1, status="alert",
+                            execution_status=status, rebalance_conclusion="blocked")), locale=locale))
+                        self.assertIn("待确认" if locale == "zh" else "unconfirmed", text.lower())
+                        self.assertIn("已拦截" if locale == "zh" else "Blocked", text)
+        submitted = candidate(order_count=1, fill_count=1, execution_status="order_submitted",
+                              status="alert", rebalance_conclusion="blocked")
+        for observations in ([submitted], [submitted, dict(submitted, execution_status="completed")]):
+            for locale in ("zh", "en"):
+                projected, text, _, _ = build(observations, locale=locale)
+                self.assertEqual(projected.runs[0].execution_status,
+                                 "order_submitted" if len(observations) == 1 else "execution_unknown")
+                self.assertIn("待确认" if locale == "zh" else "unconfirmed", text.lower())
+                self.assertIn("已拦截" if locale == "zh" else "Blocked", text)
+
+    def test_terminal_block_status_does_not_invent_pending_orders(self):
+        for status in ("blocked", "strategy_risk_rejected", "risk_blocked", "completed"):
+            with self.subTest(status=status), patch.dict(os.environ,
+                    {"QRS_UNIFIED_NOTIFICATION_ENABLED": "true"}, clear=True):
+                text = render(replace(payload(row(order_count=1, fill_count=1,
+                    execution_status=status, rebalance_conclusion="blocked")), locale="en"))
+                self.assertNotIn("unconfirmed", text)
+                self.assertIn("Blocked", text)
+
+    def test_short_budget_retains_execution_and_evidence_failure_diagnostics(self):
+        for axis, failure, zh, en in (
+                ("evidence_delivery_status", "delivery_failed", "证据传递失败", "Evidence delivery failed"),
+                ("evidence_persistence_status", "persistence_failed", "证据留存失败", "Evidence persistence failed")):
+            for locale, diagnostic in (("zh", zh), ("en", en)):
+                for budget in (300, 3900):
+                    with self.subTest(axis=axis, locale=locale, budget=budget), patch.dict(os.environ,
+                            {"QRS_UNIFIED_NOTIFICATION_ENABLED": "true"}, clear=True):
+                        text = render(replace(payload(row(order_count=1, fill_count=1,
+                            execution_status="order_submitted", status="alert", **{axis: failure})),
+                            locale=locale), max_units=budget)
+                        self.assertIn("执行异常" if locale == "zh" else "Execution issue", text)
+                        self.assertIn(diagnostic, text)
+                        self.assertIn("待确认" if locale == "zh" else "unconfirmed", text)
+                        self.assertLessEqual(len(text.encode("utf-16-le")) // 2, budget)

@@ -195,6 +195,17 @@ def aggregate(rows: Sequence[Mapping[str, Any]], expected: Sequence[Mapping[str,
             elif old_status != "known" and status == "known":
                 merged[name] = value
                 merged["field_status"] = {**merged.get("field_status", {}), name: "known"}
+        # Evidence axes have no revision authority: failures and disagreements
+        # cannot be cleared by a healthy replay or by deterministic sort order.
+        for name, failure in (("evidence_delivery_status", "delivery_failed"),
+                              ("evidence_persistence_status", "persistence_failed")):
+            old_value, value = previous.get(name), row.get(name)
+            if old_value == failure or value == failure:
+                merged[name] = failure
+            elif old_value and value and old_value != value:
+                merged[name] = "unknown"
+            elif old_value or value:
+                merged[name] = old_value or value
         # Candidate, archive and heartbeat observations describe the same run.
         # A repeated category is never added twice; a disagreement stays unknown.
         old_observations = previous.get("routine_observation_counts")
