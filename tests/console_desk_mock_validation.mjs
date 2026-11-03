@@ -137,7 +137,7 @@ assert.equal(resolveMockScenario("?page=overview", "fail"), "fail");
 assert.equal(resolveMockScenario("?mock=<script>", null), null);
 
 // 5. Endpoint sources: session live, ribbon/overview mock until BE-4/BE-3.
-assert.deepEqual(DESK_SOURCES, { session: "live", ribbon: "mock", overview: "mock" });
+assert.deepEqual(DESK_SOURCES, { session: "live", ribbon: "mock", overview: "mock", performance: "mock" });
 const calls = [];
 const fetchJson = async path => { calls.push(path); return structuredClone(session.ok); };
 const api = createDeskApi({ forcedScenario: null, delayMs: 0, fetchJson });

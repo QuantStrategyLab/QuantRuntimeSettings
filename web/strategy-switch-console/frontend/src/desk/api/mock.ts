@@ -36,6 +36,7 @@ const FIXTURES = {
   session: () => import("./fixtures/session.ts"),
   ribbon: () => import("./fixtures/ribbon.ts"),
   overview: () => import("./fixtures/overview.ts"),
+  performance: () => import("./fixtures/performance.ts"),
 };
 export type MockEndpoint = keyof typeof FIXTURES;
 

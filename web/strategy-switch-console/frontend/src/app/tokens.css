@@ -58,6 +58,15 @@
   --mrd-violet: #5646D4;
   --mrd-sky: #16699F;
   --mrd-unknown: #6C6A80;
+  /* Chart lines per series: p portfolio, b1-b4 main benchmarks, x1-x3 SOXX URTH EEM. */
+  --mrd-p: #6250D6;
+  --mrd-b1: #1A8CA8;
+  --mrd-b2: #D04F86;
+  --mrd-b3: #B8860B;
+  --mrd-b4: #2F7D00;
+  --mrd-x1: #2563C9;
+  --mrd-x2: #33303F;
+  --mrd-x3: #6F7C8C;
   --mrd-button: #1B1A24;
   --mrd-button-ink: #FFFFFF;
   --mrd-on-accent: #FFFFFF;
@@ -186,6 +195,15 @@
   --mrd-violet: #A99CFF;
   --mrd-sky: #6CC7FF;
   --mrd-unknown: #9D9BB4;
+  /* Chart lines per series: p portfolio, b1-b4 main benchmarks, x1-x3 SOXX URTH EEM. */
+  --mrd-p: #9085E9;
+  --mrd-b1: #22A3B3;
+  --mrd-b2: #D55181;
+  --mrd-b3: #C98500;
+  --mrd-b4: #008300;
+  --mrd-x1: #5B9CF2;
+  --mrd-x2: #E6E3F2;
+  --mrd-x3: #8A97A8;
   --mrd-button: #ECEAF4;
   --mrd-button-ink: #14131C;
   --mrd-on-accent: #0A0C13;

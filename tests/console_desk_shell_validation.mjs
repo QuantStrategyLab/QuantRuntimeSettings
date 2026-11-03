@@ -58,7 +58,7 @@ assert.equal(deskAccess(ready({ authenticated: true, allowed: "true" })), "denie
 assert.equal(deskAccess(ready({ authenticated: false, allowed: true })), "login");
 assert.equal(deskAccess(ready({})), "login");
 const app = src("desk/DeskApp.tsx");
-assert.match(app, /access === "open" \? <PageStub/, "page content renders only when the gate is open");
+assert.match(app, /access === "open" \? \(page === "performance" \? <PerformancePage[^]*?: <PageStub/, "page content renders only when the gate is open");
 // A failed ribbon refresh must not keep an old gateway/alert read on screen.
 assert.match(app, /\(\) => alive && setRibbon\(\{ state: "failed" \}\)/, "failed ribbon refresh drops the stale read");
 assert.doesNotMatch(app, /previous\.state === "ready" \? previous/, "no keep-last-good fallback for the ribbon");
