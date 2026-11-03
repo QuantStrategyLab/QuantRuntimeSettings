@@ -203,17 +203,25 @@
       && new Date(localMs).toISOString().slice(0, 19) === local;
   }
 
-  function validSnapshot(value) {
-    return exact(value, ['source_as_of', 'timezone', 'capture_started_at', 'capture_finished_at'])
+  function validSnapshot(value, now) {
+    if (!(exact(value, ['source_as_of', 'timezone', 'capture_started_at', 'capture_finished_at'])
       && ['UTC', 'America/New_York', 'Asia/Hong_Kong', 'Asia/Singapore'].includes(value.timezone)
       && ['source_as_of', 'capture_started_at', 'capture_finished_at'].every(key => validInstant(value[key]))
       && Date.parse(value.capture_started_at) <= Date.parse(value.capture_finished_at)
-      && Date.parse(value.source_as_of) <= Date.parse(value.capture_finished_at);
+      && Date.parse(value.source_as_of) <= Date.parse(value.capture_finished_at)
+      && Date.parse(value.capture_finished_at) <= now)) return false;
+    // Match producer eligibility while preserving the native timestamp spelling.
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone: value.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(value.source_as_of)).map(part => [part.type, part.value]));
+    const local = `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
+    return local === value.source_as_of.slice(0, 19) && local.slice(0, 10) >= START_DATE;
   }
 
   // Validate the read contract, without treating imported metadata as authentic
   // evidence or recomputing an explicit stale status from the wrapper timestamp.
-  function isForward(value) {
+  function isForward(value, now) {
     if (!exact(value, ['schema_version', 'informational_only', 'generated_at', 'forward_start_date',
       'source_status', 'source', 'baseline_status', 'baseline_reason', 'baseline', 'later_anchor',
       'dimensions', 'notification'])
@@ -221,22 +229,26 @@
         || value.informational_only !== true || value.forward_start_date !== START_DATE
         || (value.generated_at !== null && !validInstant(value.generated_at))
         || !['unknown', 'stale', 'present'].includes(value.source_status)
-        || (value.source_status === 'unknown' ? value.source !== null : !validSnapshot(value.source))
+        || (value.source_status === 'unknown' ? value.source !== null : !validSnapshot(value.source, now))
         || !['missing', 'present'].includes(value.baseline_status)
         || (value.baseline_status === 'missing'
           ? value.baseline !== null || value.baseline_reason !== 'opening_snapshot_missing'
-          : !validSnapshot(value.baseline) || value.baseline.source_as_of.slice(0, 10) !== START_DATE
+          : !validSnapshot(value.baseline, now) || value.baseline.source_as_of.slice(0, 10) !== START_DATE
             || value.baseline_reason !== null)
-        || (value.later_anchor !== null && !validSnapshot(value.later_anchor))
+        || (value.later_anchor !== null && !validSnapshot(value.later_anchor, now))
         || !exact(value.dimensions, ['positions', 'cash', 'events'])
         || !Object.values(value.dimensions).every(status => status === 'UNRECONCILED')) return false;
     const notice = value.notification;
     if (!exact(notice, ['status', 'requested_at', 'confirmed_at'])) return false;
     if (notice.status === 'unknown') return notice.requested_at === null && notice.confirmed_at === null;
-    if (!validInstant(notice.requested_at)) return false;
+    if (!validInstant(notice.requested_at)
+        // Earliest forward boundary among supported native zones (HK/SG).
+        || Date.parse(notice.requested_at) < Date.parse('2026-11-02T16:00:00Z')
+        || Date.parse(notice.requested_at) > now) return false;
     if (notice.status === 'pending') return notice.confirmed_at === null;
     return notice.status === 'confirmed' && validInstant(notice.confirmed_at)
-      && Date.parse(notice.requested_at) <= Date.parse(notice.confirmed_at);
+      && Date.parse(notice.requested_at) <= Date.parse(notice.confirmed_at)
+      && Date.parse(notice.confirmed_at) <= now;
   }
 
   function cellStatus(forward, dim) {
@@ -253,13 +265,14 @@
     return 'np';
   }
 
-  function buildRows(accounts) {
+  function buildRows(accounts, now = Date.now()) {
+    if (!Number.isSafeInteger(now) || !Number.isFinite(new Date(now).getTime())) throw new Error('invalid_observation_clock');
     return accounts.map((account, index) => {
       const platform = account && typeof account.platform === 'string' && account.platform
         ? account.platform : 'unknown';
       const forward = account && account.forward_reconciliation != null
         ? account.forward_reconciliation : null;
-      if (forward !== null && !isForward(forward)) throw new Error('invalid_forward_metadata');
+      if (forward !== null && !isForward(forward, now)) throw new Error('invalid_forward_metadata');
       return {
         platform,
         platformLabel: platformLabel(platform),
@@ -693,7 +706,7 @@
     appState.errorCode = null;
     try {
       const payload = await loadPayload(params, options.fetchImpl || win.fetch);
-      appState.rows = buildRows(payload.accounts);
+      appState.rows = buildRows(payload.accounts, appState.now);
       appState.generatedAt = latestGenerated(appState.rows);
     } catch (error) {
       appState.rows = null;

@@ -372,6 +372,64 @@ for (const date of ['2026-11-02', '2026-11-03', '2026-11-04']) {
   }
 }
 
+// Imported temporal evidence must satisfy the producer's eligibility rules.
+// Exercise the real source path after sample rendering to protect error clearing.
+const { projectForwardReconciliation } = await import('../web/strategy-switch-console/forward_reconciliation.js');
+const temporalNow = Date.parse('2026-11-05T12:00:00Z');
+const temporalSnapshot = (date, timezone = 'Asia/Singapore') => ({
+  source_as_of: `${date}T00:10:00+08:00`, timezone,
+  capture_started_at: `${date}T00:08:00+08:00`,
+  capture_finished_at: `${date}T00:10:00+08:00`,
+});
+const temporalCases = [];
+for (const field of ['source', 'baseline', 'later_anchor']) {
+  temporalCases.push([`${field} timezone mismatch`, { [field]: temporalSnapshot('2026-11-03', 'UTC') }, false]);
+  temporalCases.push([`${field} future capture`, { [field]: temporalSnapshot('2026-11-06') }, false]);
+  temporalCases.push([`${field} historical source`, { [field]: temporalSnapshot('2026-11-02') }, false]);
+  temporalCases.push([`${field} valid native opening date`, { [field]: temporalSnapshot('2026-11-03') }, true]);
+}
+for (const [name, status, requested_at, confirmed_at, eligible] of [
+  ['future receipt', 'confirmed', '2026-11-05T11:00:00Z', '2026-11-06T11:00:00Z', false],
+  ['valid receipt', 'confirmed', '2026-11-05T11:00:00Z', '2026-11-05T11:01:00Z', true],
+  ['future request', 'pending', '2026-11-06T11:00:00Z', null, false],
+  ['historical request', 'pending', '2026-11-02T15:59:59Z', null, false],
+  ['earliest request', 'pending', '2026-11-02T16:00:00Z', null, true],
+  ['receipt at observation clock', 'confirmed', '2026-11-05T11:00:00Z', '2026-11-05T12:00:00Z', true],
+]) temporalCases.push([name, { notification: { status, requested_at, confirmed_at } }, eligible]);
+for (const [name, fields, eligible] of temporalCases) {
+  const evidence = { source: null, baseline: null, later_anchor: null, notification: null, ...fields };
+  if (eligible) assert.doesNotThrow(() => projectForwardReconciliation(evidence, { now: temporalNow }), name);
+  else assert.throws(() => projectForwardReconciliation(evidence, { now: temporalNow }),
+    /invalid_forward_reconciliation_evidence/, name);
+  const { document, elements } = makeDocument();
+  const win = makeWindow();
+  await ledger.main({ document, window: win, search: '?sample=1&lang=en', now: temporalNow });
+  const payload = structuredClone({ ok: true, accounts: [fixture.accounts[0]] });
+  Object.assign(payload.accounts[0].forward_reconciliation, {
+    generated_at: '2026-11-05T12:00:00Z',
+    source_status: evidence.source ? 'present' : 'unknown', source: evidence.source,
+    baseline_status: evidence.baseline ? 'present' : 'missing',
+    baseline_reason: evidence.baseline ? null : 'opening_snapshot_missing', baseline: evidence.baseline,
+    later_anchor: evidence.later_anchor,
+    notification: evidence.notification || { status: 'unknown', requested_at: null, confirmed_at: null },
+  });
+  const result = await ledger.main({ document, window: win, search: '?source=synthetic.json&lang=en',
+    now: temporalNow, fetchImpl: async () => ({ ok: true, json: async () => payload }) });
+  assert.equal(result.error, !eligible, name);
+  if (eligible) {
+    if (evidence.baseline) assert.match(elements.get('ev').innerHTML, /Present \(metadata only\)/, name);
+    if (evidence.source) assert.match(elements.get('ev').innerHTML, />Present<\/span>/, name);
+    if (evidence.notification?.status === 'confirmed') assert.match(elements.get('ev').innerHTML, />Confirmed<\/span>/, name);
+  } else {
+    assert.equal(result.rows, null, name);
+    assert.equal(elements.get('error-banner').hidden, false, name);
+    assert.equal(elements.get('tally').hidden, true, name);
+    for (const id of ['mx', 'cards', 'ev', 'entry-body', 'days', 'note-source', 'note-baseline', 'note-notice']) {
+      assert.equal(elements.get(id).innerHTML, '', `${name}: invalid evidence clears previous metadata`);
+    }
+  }
+}
+
 // Even an unexpected rendering exception must clear already populated tables.
 {
   const { document, elements } = makeDocument();
