@@ -1,0 +1,160 @@
+{
+  "ok": true,
+  "accounts": [
+    {
+      "platform": "ibkr",
+      "account_key": "acct-0001",
+      "forward_reconciliation": {
+        "schema_version": "qsl.forward_reconciliation_read.v1",
+        "informational_only": true,
+        "generated_at": null,
+        "forward_start_date": "2026-11-03",
+        "source_status": "unknown",
+        "source": null,
+        "baseline_status": "missing",
+        "baseline_reason": "opening_snapshot_missing",
+        "baseline": null,
+        "later_anchor": null,
+        "dimensions": {
+          "positions": "UNRECONCILED",
+          "cash": "UNRECONCILED",
+          "events": "UNRECONCILED"
+        },
+        "notification": {
+          "status": "unknown",
+          "requested_at": null,
+          "confirmed_at": null
+        }
+      }
+    },
+    {
+      "platform": "binance",
+      "account_key": "acct-0002",
+      "forward_reconciliation": {
+        "schema_version": "qsl.forward_reconciliation_read.v1",
+        "informational_only": true,
+        "generated_at": "2026-11-03T00:40:00+08:00",
+        "forward_start_date": "2026-11-03",
+        "source_status": "stale",
+        "source": {
+          "source_as_of": "2026-11-03T00:05:00+08:00",
+          "timezone": "Asia/Singapore",
+          "capture_started_at": "2026-11-03T00:04:00+08:00",
+          "capture_finished_at": "2026-11-03T00:05:00+08:00"
+        },
+        "baseline_status": "missing",
+        "baseline_reason": "opening_snapshot_missing",
+        "baseline": null,
+        "later_anchor": null,
+        "dimensions": {
+          "positions": "UNRECONCILED",
+          "cash": "UNRECONCILED",
+          "events": "UNRECONCILED"
+        },
+        "notification": {
+          "status": "pending",
+          "requested_at": "2026-11-03T00:30:00+08:00",
+          "confirmed_at": null
+        }
+      }
+    },
+    {
+      "platform": "schwab",
+      "account_key": "acct-0003",
+      "forward_reconciliation": {
+        "schema_version": "qsl.forward_reconciliation_read.v1",
+        "informational_only": true,
+        "generated_at": "2026-11-03T00:40:00+08:00",
+        "forward_start_date": "2026-11-03",
+        "source_status": "present",
+        "source": {
+          "source_as_of": "2026-11-03T00:35:00+08:00",
+          "timezone": "Asia/Singapore",
+          "capture_started_at": "2026-11-03T00:33:00+08:00",
+          "capture_finished_at": "2026-11-03T00:35:00+08:00"
+        },
+        "baseline_status": "present",
+        "baseline_reason": null,
+        "baseline": {
+          "source_as_of": "2026-11-03T00:10:00+08:00",
+          "timezone": "Asia/Singapore",
+          "capture_started_at": "2026-11-03T00:08:00+08:00",
+          "capture_finished_at": "2026-11-03T00:10:00+08:00"
+        },
+        "later_anchor": {
+          "source_as_of": "2026-11-03T00:35:00+08:00",
+          "timezone": "Asia/Singapore",
+          "capture_started_at": "2026-11-03T00:33:00+08:00",
+          "capture_finished_at": "2026-11-03T00:35:00+08:00"
+        },
+        "dimensions": {
+          "positions": "UNRECONCILED",
+          "cash": "UNRECONCILED",
+          "events": "UNRECONCILED"
+        },
+        "notification": {
+          "status": "confirmed",
+          "requested_at": "2026-11-03T00:31:00+08:00",
+          "confirmed_at": "2026-11-03T00:38:00+08:00"
+        }
+      }
+    },
+    {
+      "platform": "longbridge",
+      "account_key": "acct-0004",
+      "forward_reconciliation": {
+        "schema_version": "qsl.forward_reconciliation_read.v1",
+        "informational_only": true,
+        "generated_at": "2026-11-03T00:40:00+08:00",
+        "forward_start_date": "2026-11-03",
+        "source_status": "present",
+        "source": {
+          "source_as_of": "2026-11-03T00:36:00+08:00",
+          "timezone": "Asia/Hong_Kong",
+          "capture_started_at": "2026-11-03T00:35:00+08:00",
+          "capture_finished_at": "2026-11-03T00:36:00+08:00"
+        },
+        "baseline_status": "missing",
+        "baseline_reason": "opening_snapshot_missing",
+        "baseline": null,
+        "later_anchor": null,
+        "dimensions": {
+          "positions": "UNRECONCILED",
+          "cash": "UNRECONCILED",
+          "events": "UNRECONCILED"
+        },
+        "notification": {
+          "status": "unknown",
+          "requested_at": null,
+          "confirmed_at": null
+        }
+      }
+    },
+    {
+      "platform": "firstrade",
+      "account_key": "acct-0005",
+      "forward_reconciliation": {
+        "schema_version": "qsl.forward_reconciliation_read.v1",
+        "informational_only": true,
+        "generated_at": null,
+        "forward_start_date": "2026-11-03",
+        "source_status": "unknown",
+        "source": null,
+        "baseline_status": "missing",
+        "baseline_reason": "opening_snapshot_missing",
+        "baseline": null,
+        "later_anchor": null,
+        "dimensions": {
+          "positions": "UNRECONCILED",
+          "cash": "UNRECONCILED",
+          "events": "UNRECONCILED"
+        },
+        "notification": {
+          "status": "unknown",
+          "requested_at": null,
+          "confirmed_at": null
+        }
+      }
+    }
+  ]
+}

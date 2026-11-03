@@ -1,24 +1,100 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>离线对账观察</title>
+<title>对账观测簿</title>
 <link rel="stylesheet" href="/offline-reconciliation.css">
-<main>
-  <header><h1>离线对账观察</h1><p>合成数据演示。观察结果不授予交易或恢复权限。</p></header>
-  <section aria-labelledby="current-title">
-    <h2 id="current-title">当前观察</h2>
-    <p id="current-status" role="status">读取中…</p>
-    <dl id="current-fields"></dl>
-    <details><summary>查看观察 JSON</summary><pre id="current-json"></pre></details>
+</head>
+<body>
+<div class="wrap">
+  <div class="util">
+    <span data-i18n="u_left"></span>
+    <div class="tg" role="group" aria-label="Language and theme">
+      <button type="button" class="js-l" data-v="zh-CN" data-i18n="u_zh" aria-pressed="true">中文</button>
+      <button type="button" class="js-l" data-v="en" data-i18n="u_en" aria-pressed="false">EN</button>
+      <span class="sep" aria-hidden="true"></span>
+      <button type="button" class="js-t" data-v="light" data-i18n="u_light" aria-pressed="true">浅色</button>
+      <button type="button" class="js-t" data-v="dark" data-i18n="u_dark" aria-pressed="false">深色</button>
+    </div>
+  </div>
+
+  <div id="error-banner" class="banner banner-error" role="alert" hidden>
+    <strong data-i18n="err_title"></strong>
+    <span data-i18n="err_body"></span>
+    <span id="error-detail"></span>
+  </div>
+  <div id="sample-banner" class="banner banner-info" role="status" hidden>
+    <span data-i18n="sample_banner"></span>
+  </div>
+
+  <header class="mast">
+    <div class="l" id="mast-left"></div>
+    <h1 data-i18n="m_title"></h1>
+    <div class="r" id="mast-right"></div>
+  </header>
+  <div class="dek">
+    <span data-i18n="d1"></span>
+    <span data-i18n="d2"></span>
+    <span data-i18n="d3"></span>
+    <span data-i18n="d4"></span>
+  </div>
+
+  <section class="lead" aria-labelledby="lead-title">
+    <div>
+      <span class="cap" data-i18n="l_cap"></span>
+      <h2 id="lead-title"></h2>
+      <p data-i18n="l_p"></p>
+    </div>
+    <div class="tally" id="tally">
+      <div><span class="cap" data-i18n="s_ok"></span><span class="n c-ok" id="n-ok">—</span><small data-i18n="t_ok"></small></div>
+      <div><span class="cap" data-i18n="s_bad"></span><span class="n c-bad" id="n-bad">—</span><small data-i18n="t_bad"></small></div>
+      <div><span class="cap" data-i18n="s_open"></span><span class="n c-open" id="n-open">—</span><small data-i18n="t_open"></small></div>
+      <div><span class="cap" data-i18n="s_np"></span><span class="n c-np" id="n-np">—</span><small data-i18n="t_np"></small></div>
+    </div>
   </section>
-  <section aria-labelledby="historical-title">
-    <h2 id="historical-title">历史恢复审批材料</h2>
-    <p id="historical-status" role="status">读取中…</p>
-    <p>历史材料保留原有时间、决定和过期提示。</p>
-    <details open><summary>查看原始材料</summary><pre id="historical-json"></pre></details>
-  </section>
-  <footer><a href="/api/reconciliation-overview">查看分区 API</a></footer>
-</main>
+
+  <div class="body">
+    <main>
+      <div class="sec-h"><h3 data-i18n="x_title"></h3><span class="cap" id="x-cap"></span></div>
+      <div class="table-wrap"><table class="mx" id="mx"></table></div>
+      <div class="cards" id="cards"></div>
+      <div class="legend">
+        <span class="mk ok"><i aria-hidden="true">✓</i><span data-i18n="s_ok"></span></span>
+        <span class="mk bad"><i aria-hidden="true">✕</i><span data-i18n="s_bad"></span></span>
+        <span class="mk open"><i aria-hidden="true">–</i><span data-i18n="s_open"></span></span>
+        <span class="mk np"><i aria-hidden="true">?</i><span data-i18n="s_np"></span></span>
+      </div>
+
+      <div class="sec-h ev-h"><h3 data-i18n="v_title"></h3><span class="cap" data-i18n="v_cap"></span></div>
+      <div class="table-wrap"><table class="ev" id="ev"></table></div>
+
+      <div class="entry">
+        <div>
+          <span class="cap" data-i18n="e_cap"></span>
+          <h4 data-i18n="e_h"></h4>
+          <p data-i18n="e_p"></p>
+        </div>
+        <div id="entry-body"></div>
+      </div>
+    </main>
+
+    <aside>
+      <div class="sec-h"><h3 data-i18n="a_title"></h3></div>
+      <div class="note">
+        <span class="cap" data-i18n="a_days"></span>
+        <div class="days" id="days"></div>
+        <div class="days-note" data-i18n="a_days_n"></div>
+      </div>
+      <p class="pull" data-i18n="a_pull"></p>
+      <div class="note" id="note-source"></div>
+      <div class="note" id="note-baseline"></div>
+      <div class="note" id="note-notice"></div>
+    </aside>
+  </div>
+
+  <footer><span data-i18n="f_l"></span><span data-i18n="f_r"></span></footer>
+</div>
 <script type="module" src="/offline-reconciliation.js"></script>
+</body>
 </html>
