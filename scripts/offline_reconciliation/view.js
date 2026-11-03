@@ -238,6 +238,11 @@
         || (value.later_anchor !== null && !validSnapshot(value.later_anchor, now))
         || !exact(value.dimensions, ['positions', 'cash', 'events'])
         || !Object.values(value.dimensions).every(status => status === 'UNRECONCILED')) return false;
+    // Match producer chronology after each supplied snapshot is validated.
+    if (value.later_anchor && value.baseline
+        && Date.parse(value.later_anchor.source_as_of) <= Date.parse(value.baseline.source_as_of)) return false;
+    if (value.source && [value.baseline, value.later_anchor].some(anchor => anchor
+        && Date.parse(anchor.source_as_of) > Date.parse(value.source.source_as_of))) return false;
     const notice = value.notification;
     if (!exact(notice, ['status', 'requested_at', 'confirmed_at'])) return false;
     if (notice.status === 'unknown') return notice.requested_at === null && notice.confirmed_at === null;

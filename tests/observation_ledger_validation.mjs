@@ -396,6 +396,21 @@ for (const [name, status, requested_at, confirmed_at, eligible] of [
   ['earliest request', 'pending', '2026-11-02T16:00:00Z', null, true],
   ['receipt at observation clock', 'confirmed', '2026-11-05T11:00:00Z', '2026-11-05T12:00:00Z', true],
 ]) temporalCases.push([name, { notification: { status, requested_at, confirmed_at } }, eligible]);
+// Cross-snapshot chronology must match the producer, including optional anchors.
+const anchorAt = time => ({
+  source_as_of: `2026-11-03T${time}:00+08:00`, timezone: 'Asia/Singapore',
+  capture_started_at: `2026-11-03T${time}:00+08:00`,
+  capture_finished_at: `2026-11-03T${time}:00+08:00`,
+});
+temporalCases.push(
+  ['later anchor before opening', { baseline: anchorAt('00:10'), later_anchor: anchorAt('00:09') }, false],
+  ['later anchor equals opening', { baseline: anchorAt('00:10'), later_anchor: anchorAt('00:10') }, false],
+  ['opening newer than source', { source: anchorAt('00:05'), baseline: anchorAt('00:10') }, false],
+  ['later anchor newer than source', { source: anchorAt('00:05'), later_anchor: anchorAt('00:10') }, false],
+  ['ordered anchors and source', { source: anchorAt('00:20'), baseline: anchorAt('00:10'), later_anchor: anchorAt('00:15') }, true],
+  ['source equals latest anchor', { source: anchorAt('00:20'), baseline: anchorAt('00:10'), later_anchor: anchorAt('00:20') }, true],
+  ['source equals opening without later anchor', { source: anchorAt('00:10'), baseline: anchorAt('00:10') }, true],
+);
 for (const [name, fields, eligible] of temporalCases) {
   const evidence = { source: null, baseline: null, later_anchor: null, notification: null, ...fields };
   if (eligible) assert.doesNotThrow(() => projectForwardReconciliation(evidence, { now: temporalNow }), name);
