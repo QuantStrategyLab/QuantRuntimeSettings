@@ -5,8 +5,9 @@
  * every endpoint, so the desk can be reviewed without a session.
  */
 import { getJson } from "../../api/client.ts";
-import type { DeskSession, Overview, Ribbon } from "../contract/types";
-import { isOverview, isRibbon, isSession } from "./guards.ts";
+import type { DeskSession, Overview, Performance, Ribbon } from "../contract/types";
+import { isOverview, isPerformance, isRibbon, isSession } from "./guards.ts";
+import { PERF_BENCH_API } from "../performance/benchmarks.ts";
 import { loadMock, type MockEndpoint, type MockScenario } from "./mock.ts";
 
 export type DeskSource = "live" | "mock";
@@ -16,6 +17,8 @@ export const DESK_SOURCES: Record<MockEndpoint, DeskSource> = {
   session: "live",
   ribbon: "mock",
   overview: "mock",
+  // /api/desk/performance has no backend yet; the benchmark curves follow this source (see benchmarks()).
+  performance: "mock",
 };
 
 export interface DeskResult<T> {
@@ -47,6 +50,9 @@ export interface DeskApi {
   session(): Promise<DeskResult<DeskSession>>;
   ribbon(date?: string): Promise<DeskResult<Ribbon>>;
   overview(): Promise<DeskResult<Overview>>;
+  performance(): Promise<DeskResult<Performance>>;
+  /** Raw `qsl.performance_benchmarks.v1` body for the strategy window; the caller validates it. */
+  benchmarks(window: { start: string; end: string }, source: DeskSource, scenario: MockScenario | null): Promise<unknown>;
 }
 
 export function createDeskApi(options: DeskApiOptions): DeskApi {
@@ -65,5 +71,15 @@ export function createDeskApi(options: DeskApiOptions): DeskApi {
     session: () => read("session", "/api/session", isSession),
     ribbon: date => read("ribbon", `/api/desk/ribbon${date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? `?date=${date}` : ""}`, isRibbon),
     overview: () => read("overview", "/api/desk/overview", isOverview),
+    performance: () => read("performance", "/api/desk/performance", isPerformance),
+    async benchmarks(window, source, scenario) {
+      if (source === "mock") {
+        if (scenario === "fail") throw new Error("benchmarks_mock_failure");
+        const fixtures = await import("./fixtures/performance.ts");
+        return fixtures.benchmarkResponse(window.start, window.end, scenario === "degraded" ? "degraded" : "ok");
+      }
+      // Public, market-only GET with the strategy curve's actual first and last observation dates.
+      return fetchJson(`${PERF_BENCH_API}?start=${window.start}&end=${window.end}`);
+    },
   };
 }

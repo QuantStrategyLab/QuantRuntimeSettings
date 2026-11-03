@@ -11,6 +11,7 @@ import { deskAccess } from "./shell/access.ts";
 import { AccessCard, DeskShell } from "./shell/DeskShell";
 import type { GatewayChip } from "./shell/TopBar";
 import { PageStub } from "./pages/PageStub";
+import { PerformancePage } from "./pages/PerformancePage";
 import "./styles/desk.css";
 
 type Loadable<T> = { state: "loading" } | { state: "ready"; result: T } | { state: "failed" };
@@ -136,7 +137,7 @@ export default function DeskApp() {
 
   const access = deskAccess(session);
   const retry = () => setSessionEpoch(value => value + 1);
-  const content = access === "open" ? <PageStub page={page} t={t} />
+  const content = access === "open" ? (page === "performance" ? <PerformancePage api={api} t={t} language={language} /> : <PageStub page={page} t={t} />)
     : access === "loading" ? <section className="mrd-card mrd-access" aria-busy="true"><p>{t("access.loading")}</p></section>
     : <AccessCard t={t} kind={access} onRetry={retry} />;
 

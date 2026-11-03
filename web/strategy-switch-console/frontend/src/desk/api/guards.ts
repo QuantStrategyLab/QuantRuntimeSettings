@@ -3,7 +3,7 @@
  * UI relies on, not every rule in schemas/desk; a response that fails is rejected instead
  * of being rendered with defaults.
  */
-import type { DeskSession, Overview, Read, Ribbon } from "../contract/types";
+import type { DeskSession, Overview, Performance, Read, Ribbon } from "../contract/types";
 
 type Guard<T> = (value: unknown) => value is T;
 
@@ -98,4 +98,12 @@ export function isOverview(value: unknown): value is Overview {
     isObject(curve) && isObject(curve.portfolio) && Array.isArray(curve.portfolio.dates) && Array.isArray(curve.portfolio.indexed) &&
     curve.portfolio.dates.length === curve.portfolio.indexed.length && isObject(curve.benchmark) &&
     Array.isArray(value.needs_you) && value.needs_you.length <= 5 && value.needs_you.every(isNeed);
+}
+
+/** Performance: the page needs the equity curve; the rest is read defensively by the UI. */
+export function isPerformance(value: unknown): value is Performance {
+  if (!envelope(value, "qsl.desk.performance.v1")) return false;
+  const equity = value.equity;
+  return isObject(equity) && Array.isArray(equity.dates) && Array.isArray(equity.portfolio_indexed) &&
+    equity.dates.length === equity.portfolio_indexed.length && Array.isArray(equity.gap_dates) && isObject(value.risk);
 }
