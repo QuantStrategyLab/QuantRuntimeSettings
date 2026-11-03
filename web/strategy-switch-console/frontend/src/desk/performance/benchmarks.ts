@@ -107,6 +107,8 @@ function parsePoints(raw: unknown, baseDate: string, lastDate: string): Point[] 
  */
 export function parseBenchmarks(raw: unknown, requested: { start: string; end: string }): BenchmarkModel | null {
   if (!isObject(raw) || raw.schema_version !== "qsl.performance_benchmarks.v1") return null;
+  // Envelope first: an error flag or non-contract coverage status invalidates every nested series.
+  if (raw.ok !== true || (raw.status !== "available" && raw.status !== "partial")) return null;
   const window = raw.window;
   if (!isObject(window) || window.start !== requested.start || window.end !== requested.end) return null;
   if (typeof raw.return_basis !== "string" || raw.return_basis === "" || !Array.isArray(raw.series)) return null;

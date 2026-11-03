@@ -44,6 +44,18 @@ model = B.parseBenchmarks(body([series("SPY", "sp500"), series("SPY", "sp500")])
 assert.equal(model.series.spx.coverage, "unavailable", "duplicate symbol");
 
 // 3. Fail closed on the envelope and on each series.
+const noOk = body(four()); delete noOk.ok;
+const noStatus = body(four()); delete noStatus.status;
+const badEnvelopes = {
+  error_envelope: body(four(), { ok: false, error: "performance_benchmark_unavailable" }),
+  ok_not_boolean_true: body(four(), { ok: "true" }),
+  missing_ok: noOk,
+  status_unavailable: body(four(), { status: "unavailable" }),
+  status_unknown: body(four(), { status: "unknown" }),
+  status_missing: noStatus,
+};
+for (const [name, raw] of Object.entries(badEnvelopes)) assert.equal(B.parseBenchmarks(raw, W), null, `envelope rejected: ${name}`);
+assert.notEqual(B.parseBenchmarks(body(four(), { status: "partial" }), W), null, "partial envelope still accepted");
 assert.equal(B.parseBenchmarks(null, W), null);
 assert.equal(B.parseBenchmarks(body(four(), { schema_version: "other" }), W), null);
 assert.equal(B.parseBenchmarks(body(four(), { window: { start: "2026-01-03", end: W.end } }), W), null, "other window");
@@ -222,6 +234,13 @@ try {
     assert.match(plain(failed), /No benchmark has data for this window\./);
     assert.ok(!/data-sign="(pos|neg|zero)"/.test(failed));
   }
+  for (const [name, raw] of Object.entries(badEnvelopes)) {
+    const html = render("en", raw, DEFAULT);
+    assert.deepEqual(lineIds(html), ["pf"], `rendered: no benchmark line for ${name}`);
+    assert.ok(!/data-sign="(pos|neg|zero)"/.test(row(html, "spx")), `rendered: no SPY stats for ${name}`);
+    assert.match(plain(html), /Benchmark data could not be loaded\. The portfolio is shown alone\./, name);
+  }
+  assert.deepEqual(lineIds(render("en", body(four(), { status: "partial" }), DEFAULT)).includes("spx"), true, "valid partial envelope still renders");
 } finally { await rm(directory, { recursive: true, force: true }); }
 
 console.log("console desk benchmarks validation passed");
