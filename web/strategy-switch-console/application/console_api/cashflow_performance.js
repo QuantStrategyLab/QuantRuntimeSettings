@@ -81,7 +81,8 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
     if (flows.some(f => f === null)) return unavailable("external_cashflow_required");
     const v0 = prev.reduce((s, p) => s + p.value, 0), v1 = next.reduce((s, p) => s + p.value, 0);
     const records = flows.flat();
-    approximate ||= records.some(record => instant(record.effective_at) !== instant(end));
+    const periodApproximate = records.some(record => instant(record.effective_at) !== instant(end));
+    approximate ||= periodApproximate;
     // A cross-account transfer needs both marked legs in this exact cohort and
     // interval. Unpaired legs and unsettled in-transit capital stay unavailable.
     const transfers = new Map();
@@ -103,7 +104,7 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
     growth *= 1 + r;
     if (!Number.isFinite(growth)) return unavailable("invalid_return_period");
     periods.push({ date: common[i], previous_date: common[i - 1], opening_value: v0, amount: v1 - v0 - net,
-      net_flow: net, return_percent: r * 100, daily_eligible: next.every(point => point.membership_changed !== true),
+      approximate: periodApproximate, net_flow: net, return_percent: r * 100, daily_eligible: next.every(point => point.membership_changed !== true),
       value_kind: "pnl", status: "ok", unavailable_reason: null });
     index.push({ date: common[i], value: growth,
       breakBefore: hasGap(index.at(-1), { date: common[i] }) || next.some(point => point.breakBefore === true) });
@@ -175,11 +176,14 @@ export function applyCashflowPerformance(blocks, input, env) {
     const amount = periods.reduce((sum, period) => sum + period.amount, 0);
     const compounded = periods.reduce((value, period) => value * (1 + period.return_percent / 100), 1);
     return [{ date, amount, return_percent: (compounded - 1) * 100,
+      approximate: periods.some(period => period.approximate),
       value_kind: "pnl", status: "ok", unavailable_reason: null }];
   });
   const byDate = new Map(daily.map(period => [period.date, period]));
   blocks.calendar.cells = blocks.calendar.cells.map(cell => byDate.has(cell.date)
-    ? { ...cell, ...byDate.get(cell.date), currency: r.currency } : cell);
+    ? { ...cell, ...byDate.get(cell.date), currency: r.currency,
+      return_method: "modified_dietz", cashflow_method: "modified_dietz", method_version: null,
+      return_unit: "percent", amount_unit: "native_currency" } : cell);
   if (blocks.calendar.cells.some(cell => byDate.has(cell.date))) {
     const unresolved = blocks.calendar.cells.find(cell => cell.amount !== null && (cell.value_kind !== "pnl" || cell.status !== "ok"));
     const missing = blocks.calendar.cells.some(cell => cell.date > r.index[0].date && cell.date <= r.index.at(-1).date
@@ -189,7 +193,7 @@ export function applyCashflowPerformance(blocks, input, env) {
       unavailable_reason: unresolved?.unavailable_reason || (missing ? "snapshot_history_missing" : null),
       coverage: { ...blocks.calendar.coverage, cashflows: unresolved ? "unknown" : "complete" } });
   }
-  const ranked = [...byDate.values()].filter(period => period.return_percent !== null)
+  const ranked = [...byDate.values()].map(({ approximate, ...period }) => period).filter(period => period.return_percent !== null)
     .sort((first, second) => second.return_percent - first.return_percent);
   blocks.summary.best_day = ranked[0] || null;
   blocks.summary.worst_day = ranked.at(-1) || null;

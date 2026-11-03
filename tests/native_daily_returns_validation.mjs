@@ -372,6 +372,16 @@ try {
     assert.equal(dietz.cashflow_method,'modified_dietz','absent or rejected native retains genuine Dietz metadata');
     assert.equal(dietz.approximate,true);
     assert.equal(dietz.coverage.native_return_source,undefined);
+    const calendar=await readRoute('calendar',daily);
+    for(const [date,approximate] of [['2026-10-01',true],['2026-10-02',false]]){
+      const cell=calendar.cells.find(item=>item.date===date);
+      assert.equal(cell.return_method,'modified_dietz');
+      assert.equal(cell.cashflow_method,'modified_dietz');
+      assert.equal(cell.method_version,null);
+      assert.equal(cell.return_unit,'percent');
+      assert.equal(cell.amount_unit,'native_currency');
+      assert.equal(cell.approximate,approximate);
+    }
   }
   for(const enabled of [true,false]){
     const summary=await readRoute('summary',routeDaily,enabled);
@@ -386,6 +396,16 @@ try {
       assert.equal(block.coverage.native_amount_method,null);
     }
     assert.equal(summary.amount,null,'native percentage alone cannot invent money P/L');
+    const calendar=await readRoute('calendar',routeDaily,enabled);
+    for(const date of ['2026-10-01','2026-10-02']){
+      const cell=calendar.cells.find(item=>item.date===date);
+      assertNoDietz(cell);
+      assert.equal(cell.return_method,'native_ibkr_twr');
+      assert.equal(cell.method_version,null);
+      assert.equal(cell.return_unit,'percent');
+      assert.equal(cell.amount_unit,'native_currency');
+      assert.equal(cell.amount,null);
+    }
   }
   const gapDaily=[row('2026-09-30','0.07'),row('2026-10-02','-0.02')];
   const gapSummary=await readRoute('summary',gapDaily);

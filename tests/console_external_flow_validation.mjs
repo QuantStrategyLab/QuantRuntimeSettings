@@ -1,3 +1,4 @@
+import "./daily_calendar_method_validation.mjs";
 import "./console_history_only_return_validation.mjs";
 import assert from "node:assert/strict";
 import { normalizeExternalFlow, mergeExternalFlow, externalFlowEnabled, readExternalFlow } from "../web/strategy-switch-console/application/account_facts/external_flow.js";
