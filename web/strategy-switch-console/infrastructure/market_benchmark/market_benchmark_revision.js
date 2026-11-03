@@ -3,6 +3,8 @@
  * Pure: no I/O. Digest is injected so Node and the Worker share one path.
  * Prices never appear in returned ledger rows (hashes only).
  */
+import { MARKET_BENCHMARK_SERIES_IDS } from "./market_benchmark.js";
+
 export const MARKET_BENCHMARK_REVISION_PATH = "/api/market-benchmark/revision";
 export const REVISION_APPLY_SCHEMA = "qsl.market_benchmark_revision_apply.v1";
 export const REVISION_LEDGER_SCHEMA = "qsl.market_benchmark_revision_ledger.v1";
@@ -92,6 +94,10 @@ export function planRevisionApply(input) {
     const { seriesId, observationDate, close, source } = replacement;
     if (typeof seriesId !== "string" || typeof observationDate !== "string" || typeof close !== "string") {
       throw new MarketBenchmarkRevisionError("benchmark_revision_replacement_invalid");
+    }
+    // Shared receiver/producer boundary: ETF cache admission never grants revision authority.
+    if (!MARKET_BENCHMARK_SERIES_IDS.includes(seriesId)) {
+      throw new MarketBenchmarkRevisionError("benchmark_revision_series_unsupported");
     }
     const seriesHash = digest(seriesId);
     const entry = byEntryKey.get(`${seriesHash}\0${observationDate}`);

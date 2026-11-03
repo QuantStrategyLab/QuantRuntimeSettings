@@ -1,3 +1,4 @@
+import { performanceBenchmarkResponse } from "./application/console_api/performance_benchmarks.js";
 import { binanceDetailCommand } from "./binance_detail_archive.js";
 import { createDeskAuth, DeskError, deskErrorResponse } from "./application/desk/http.js";
 import { DeskReadbackStore, deskReadbackResponse, buildReadback, readbackTargets } from "./application/desk/readback.js";
@@ -874,6 +875,9 @@ export default {
       }
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
       if (url.pathname === OVERVIEW_FX_PROXY_PATH) return await overviewFxResponse(request);
+      if (url.pathname === "/api/market-benchmark/performance") {
+        return await performanceBenchmarkResponse(request, env, { command: runtimeInstanceCommand });
+      }
       if (url.pathname === MARKET_BENCHMARK_API_PATH && (request.method === "GET" || request.method === "HEAD")) {
         return await marketBenchmarkResponse(request, env);
       }
@@ -2912,7 +2916,7 @@ export class RuntimeInstances {
     throw new HttpError("unsupported_market_benchmark_action", 400);
   }
 
-  readMarketBenchmarkPoints() {
+  readMarketBenchmarkPoints(command = {}) {
     const rows = this.sql.exec(
       `SELECT series_id, observation_date, close, source FROM market_benchmark_daily
        ORDER BY series_id ASC, observation_date ASC`,
@@ -2923,6 +2927,7 @@ export class RuntimeInstances {
       close: row.close,
       ...(row.source ? { source: row.source } : {}),
     }));
+    if (command.performance === true) return { ok: true, points };
     return { ok: true, ...publicMarketBenchmarkReadModel(points) };
   }
 

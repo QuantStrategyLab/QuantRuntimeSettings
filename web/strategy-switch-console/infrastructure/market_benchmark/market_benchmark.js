@@ -39,7 +39,7 @@ export class MarketBenchmarkError extends Error {
 }
 
 export function isMarketBenchmarkSeriesId(value) {
-  return typeof value === "string" && MARKET_BENCHMARK_SERIES_IDS.includes(value);
+  return typeof value === "string" && (MARKET_BENCHMARK_SERIES_IDS.includes(value) || Object.hasOwn(PERFORMANCE_BENCHMARK_SYMBOLS, value));
 }
 
 /** Reject zero and non-positive closes; keep decimal text as stored. */
@@ -138,7 +138,8 @@ export function publicMarketBenchmarkReadModel(points) {
   return {
     ok: true,
     schema_version: MARKET_BENCHMARK_SCHEMA,
-    inception_date: firstObservationDate(filtered),
+    // Preserve the legacy index inception even when ETF history starts earlier.
+    inception_date: firstObservationDate(filtered.filter(point => MARKET_BENCHMARK_SERIES_IDS.includes(point.seriesId))),
     timezone: "Asia/Shanghai",
     points: filtered.map(({ seriesId, observationDate, close }) => ({
       seriesId,
@@ -200,4 +201,16 @@ export function parseYahooChartDailyCloses(payload, { seriesId } = {}) {
     }
   }
   return points;
+}
+
+
+/** Separate ETF identities: index levels must never stand in for ETF prices. */
+export const PERFORMANCE_BENCHMARK_SYMBOLS = Object.freeze({
+  SPY: "SPY", QQQ: "QQQ", IWM: "IWM", DIA: "DIA",
+});
+
+export function benchmarkSymbolsForSet(name = "overview") {
+  if (name === "overview") return MARKET_BENCHMARK_YAHOO_SYMBOLS;
+  if (name === "performance") return PERFORMANCE_BENCHMARK_SYMBOLS;
+  throw new MarketBenchmarkError("invalid_market_benchmark_series_set");
 }

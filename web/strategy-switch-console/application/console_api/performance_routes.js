@@ -308,12 +308,8 @@ export async function performanceResponse(request, env, deps) {
       );
       if (!response.ok) throw new Error("unavailable");
       const body = await response.json();
-      const ids = [
-        ...new Set([
-          ...MARKET_BENCHMARK_SERIES_IDS,
-          ...(body.points || []).map((p) => p.seriesId),
-        ]),
-      ];
+      // ETF cache additions do not change the legacy index-only comparison.
+      const ids = MARKET_BENCHMARK_SERIES_IDS;
       benchmarks = ids.map((id) => ({
         id,
         points: body.points
