@@ -306,6 +306,7 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         identity = row.opaque_account_uid or row.target_id or row.account_hint or ("row", index)
         accounts.setdefault((row.platform_id, identity), []).append((row, header, strategy))
     blocks, diagnostics, diagnostic_observations = [], [], []
+    required_diagnostics, compact_pending = set(), {}
     for entries in accounts.values():
         rows = [row for row, _, _ in entries]
         if all(_verified_no_trade(row) for row in rows):
@@ -351,6 +352,9 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         if needs_attention:
             block.append("需核对" if zh else "Needs review")
         block.extend(dict.fromkeys(pending))
+        required_diagnostics.update(details)
+        required_diagnostics.update(pending)
+        compact_pending.update((text, "订单最终状态待确认" if zh else "Final order state unconfirmed") for text in pending)
         details.extend(pending)
         optional = list(dict.fromkeys(text for row in rows for text in
                         (routine_decision_text(row, locale), routine_observation_text(row, locale)) if text))
@@ -386,12 +390,21 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         lines.append(omitted)
     # Coverage inventory is supplementary and cannot displace trading accounts.
     lines.extend(inventory)
-    result = [lines[0]]
-    for index, line in enumerate(lines[1:], 1):
-        remaining = len(lines) - index
-        suffix = f"其余 {remaining} 项已省略" if zh else f"{remaining} more items omitted"
-        if _units("\n".join(result + [line, suffix])) > max_units:
-            result.append(suffix)
-            break
+    # Compact finality before dropping context, and reserve every pending
+    # diagnostic before accepting dispensable window/count/account lines.
+    if _units("\n".join(lines)) > max_units:
+        lines = [compact_pending.get(line, line) for line in lines]
+        required_diagnostics = {compact_pending.get(line, line) for line in required_diagnostics}
+    pending_units = sum(_units(line) + 1 for line in lines[1:] if line in required_diagnostics)
+    result, skipped = [lines[0]], 0
+    suffix = f"其余 {len(lines)} 项已省略" if zh else f"{len(lines)} more items omitted"
+    for line in lines[1:]:
+        if line in required_diagnostics:
+            pending_units -= _units(line) + 1
+        if _units("\n".join(result + [line, suffix])) + pending_units > max_units:
+            skipped += 1
+            continue
         result.append(line)
+    if skipped:
+        result.append(f"其余 {skipped} 项已省略" if zh else f"{skipped} more items omitted")
     return "\n".join(result)

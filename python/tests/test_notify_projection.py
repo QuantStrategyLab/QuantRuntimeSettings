@@ -179,3 +179,30 @@ class NotifyProjectionTests(unittest.TestCase):
                         self.assertIn(diagnostic, text)
                         self.assertIn("待确认" if locale == "zh" else "unconfirmed", text)
                         self.assertLessEqual(len(text.encode("utf-16-le")) // 2, budget)
+
+    def test_blocked_submitted_run_keeps_each_evidence_failure_within_budget(self):
+        failures = (
+            {"evidence_delivery_status": "delivery_failed"},
+            {"evidence_persistence_status": "persistence_failed"},
+            {"evidence_delivery_status": "delivery_failed",
+             "evidence_persistence_status": "persistence_failed"},
+        )
+        for evidence in failures:
+            for locale in ("en", "zh"):
+                for budget in (300, 3900):
+                    for intake in (False, True):
+                        with self.subTest(evidence=evidence, locale=locale, budget=budget, intake=intake), patch.dict(
+                                os.environ, {"QRS_UNIFIED_NOTIFICATION_ENABLED": "true"}, clear=True):
+                            facts = dict(order_count=1, fill_count=1, status="alert",
+                                         execution_status="order_submitted", rebalance_conclusion="blocked", **evidence)
+                            source = build([candidate(**facts)], locale=locale)[0] if intake else replace(
+                                payload(row(**facts)), locale=locale)
+                            text = render(source, max_units=budget)
+                            for marker in (("执行异常", "待确认", "已拦截") if locale == "zh" else
+                                           ("Execution issue", "unconfirmed", "Blocked")):
+                                self.assertIn(marker, text)
+                            for axis in evidence:
+                                marker = (("证据传递失败" if "delivery" in axis else "证据留存失败") if locale == "zh" else
+                                          ("Evidence delivery failed" if "delivery" in axis else "Evidence persistence failed"))
+                                self.assertIn(marker, text)
+                            self.assertLessEqual(len(text.encode("utf-16-le")) // 2, budget)
