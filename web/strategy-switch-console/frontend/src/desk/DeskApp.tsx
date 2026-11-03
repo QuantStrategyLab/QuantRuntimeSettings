@@ -4,17 +4,22 @@ import { loadPreferences, resolveTheme, savePreferences, type Language, type The
 import { createDeskApi, type DeskResult } from "./api/endpoints.ts";
 import { MOCK_STORAGE_KEY, resolveMockScenario } from "./api/mock.ts";
 import type { DeskSession, Ribbon } from "./contract/types";
-import { clockOffsetMs, serverNowIso } from "./format.ts";
+import { clockOffsetMs, secondsBetween, serverNowIso } from "./format.ts";
 import { deskTranslator, resolveDeskLanguage } from "./i18n/index.ts";
 import { deskHash, hotkeyPage, isDeskHash, parseDeskHash, urlOverrides, type DeskPage } from "./router.ts";
-import { deskAccess } from "./shell/access.ts";
+import { classifySessionFailure, deskAccess, type SessionFailure } from "./shell/access.ts";
 import { AccessCard, DeskShell } from "./shell/DeskShell";
 import type { GatewayChip } from "./shell/TopBar";
+import { freshnessFromAge } from "./components/stateModel.ts";
+import type { FreshnessChipState } from "./components/stateModel.ts";
 import { PageStub } from "./pages/PageStub";
 import { PerformancePage } from "./pages/PerformancePage";
+import { OverviewPage } from "./pages/OverviewPage";
+import { AccountsPage } from "./pages/AccountsPage";
+import { StrategiesPage } from "./pages/StrategiesPage";
 import "./styles/desk.css";
 
-type Loadable<T> = { state: "loading" } | { state: "ready"; result: T } | { state: "failed" };
+type Loadable<T> = { state: "loading" } | { state: "ready"; result: T } | { state: "failed"; failure?: SessionFailure };
 
 const LANGUAGE_KEY = "qsl-switch-lang";
 const RIBBON_POLL_MS = 60_000;
@@ -41,7 +46,9 @@ export default function DeskApp() {
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => overrides.theme ?? loadPreferences().theme);
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
   const theme = resolveTheme(themePreference, systemDark);
-  const [page, setPage] = useState<DeskPage>(() => parseDeskHash(window.location.hash).page);
+  const [route, setRoute] = useState(() => parseDeskHash(window.location.hash));
+  const page = route.page;
+  const params = route.params;
   const [session, setSession] = useState<Loadable<DeskResult<DeskSession>>>({ state: "loading" });
   const [ribbon, setRibbon] = useState<Loadable<DeskResult<Ribbon>>>({ state: "loading" });
   const [offsetMs, setOffsetMs] = useState<number | null>(null);
@@ -68,7 +75,7 @@ export default function DeskApp() {
     const onHash = () => {
       // Leaving #/desk returns to the existing console, which boots from main.tsx.
       if (!isDeskHash(window.location.hash)) window.location.reload();
-      else setPage(parseDeskHash(window.location.hash).page);
+      else setRoute(parseDeskHash(window.location.hash));
     };
     const onKey = (event: KeyboardEvent) => {
       const next = hotkeyPage(event);
@@ -91,7 +98,7 @@ export default function DeskApp() {
         setSession({ state: "ready", result });
         setOffsetMs(clockOffsetMs(result.data.server_time, Date.now()));
       },
-      () => alive && setSession({ state: "failed" }),
+      error => alive && setSession({ state: "failed", failure: classifySessionFailure(error) }),
     );
     return () => { alive = false; };
   }, [api, sessionEpoch]);
@@ -137,7 +144,27 @@ export default function DeskApp() {
 
   const access = deskAccess(session);
   const retry = () => setSessionEpoch(value => value + 1);
-  const content = access === "open" ? (page === "performance" ? <PerformancePage api={api} t={t} language={language} /> : <PageStub page={page} t={t} />)
+  const admin = session.state === "ready" && session.result.data.admin === true;
+  const freshness: FreshnessChipState = ribbon.state === "loading" ? { kind: "loading" }
+    : ribbon.state === "failed" ? { kind: "failed" }
+    : freshnessFromAge(secondsBetween(ribbon.result.data.generated_at, nowIso));
+
+  const pageContent = page === "performance" ? <PerformancePage api={api} t={t} language={language} />
+    : page === "overview" ? <OverviewPage api={api} t={t} language={language} />
+    : page === "accounts" ? <AccountsPage api={api} t={t} language={language} initialTab={params.get("tab") === "credentials" ? "credentials" : "brokers"} />
+    : page === "switch" ? (
+      <StrategiesPage
+        api={api}
+        t={t}
+        language={language}
+        admin={admin}
+        initialTarget={params.get("target")}
+        initialProfile={params.get("strategy") ?? params.get("profile")}
+      />
+    )
+    : <PageStub page={page} t={t} />;
+
+  const content = access === "open" ? pageContent
     : access === "loading" ? <section className="mrd-card mrd-access" aria-busy="true"><p>{t("access.loading")}</p></section>
     : <AccessCard t={t} kind={access} onRetry={retry} />;
 
@@ -152,6 +179,7 @@ export default function DeskApp() {
       nowIso={nowIso}
       serverClock={serverClock}
       mock={mock}
+      freshness={freshness}
       onNavigate={navigate}
       onLanguage={setLanguage}
       onTheme={toggleTheme}

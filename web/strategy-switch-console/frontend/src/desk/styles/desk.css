@@ -18,7 +18,7 @@
 }
 /* While the desk is mounted the page itself carries the desk background, so no console canvas shows below it. */
 html:has(.mrd), html:has(.mrd) body { background: var(--mrd-bg); }
-.mrd *, .mrd *::before, .mrd *::after { box-sizing: border-box; }
+.mrd *::before, .mrd *::after { box-sizing: border-box; }
 .mrd :focus-visible { outline: 2px solid var(--mrd-violet); outline-offset: 2px; }
 .mrd code { font: 11.5px var(--font-mono); color: var(--mrd-ink-2); }
 .mrd-serif { font-family: var(--mrd-font-serif); font-weight: 400; letter-spacing: -0.02em; }
@@ -192,6 +192,20 @@ html:has(.mrd), html:has(.mrd) body { background: var(--mrd-bg); }
 
 @keyframes mrd-up { from { opacity: 0; transform: translateY(14px); } }
 
+/* Skeleton loading: bars only, never a number. */
+.mrd-skeleton {
+  display: block;
+  border-radius: 8px;
+  background: var(--mrd-panel-2);
+  box-shadow: inset 0 0 0 1px var(--mrd-line);
+  animation: mrd-pulse 1.4s ease-in-out infinite;
+}
+@keyframes mrd-pulse { 50% { opacity: 0.55; } }
+
+/* The embedded IBKR Flex rotation panel keeps its own health.css styling. The
+   desk only wraps it in a card, so no console classes are restyled here. */
+
+
 /* Phone: the dock becomes a floating bottom tab bar. */
 @media (max-width: 760px) {
   .mrd { grid-template-columns: minmax(0, 1fr); padding: 14px 14px 96px; gap: 12px; --mrd-pad: 16px; }
@@ -216,8 +230,4 @@ html:has(.mrd), html:has(.mrd) body { background: var(--mrd-bg); }
   .mrd-stub-hero h1 { font-size: 34px; }
   .mrd:lang(zh) .mrd-stub-hero h1 { font-size: 28px; }
   .mrd-stub-grid { grid-template-columns: minmax(0, 1fr); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mrd-main > * { animation: none; }
 }

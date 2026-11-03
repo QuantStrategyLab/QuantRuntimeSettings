@@ -13,7 +13,7 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-.num, .kpi-value, td.num, .money, .percent { font-variant-numeric: tabular-nums; }
+.num, .kpi-value, .money, .percent { font-variant-numeric: tabular-nums; }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -100,7 +100,6 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   white-space: nowrap;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  transition: color 120ms cubic-bezier(0.2, 0, 0, 1), background-color 120ms cubic-bezier(0.2, 0, 0, 1);
 }
 .topnav-item:hover { color: var(--text-primary); background: var(--surface-subtle); }
 .topnav-item.active { color: var(--accent-foreground); border-bottom-color: var(--accent-foreground); }
@@ -117,8 +116,8 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   color: var(--text-secondary);
   text-align: left;
   position: relative;
-  transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), color 120ms cubic-bezier(0.2, 0, 0, 1);
 }
+.topnav-item, .nav-item { transition: color 120ms cubic-bezier(0.2, 0, 0, 1), background-color 120ms cubic-bezier(0.2, 0, 0, 1); }
 .nav-item:hover { background: var(--surface-hover); color: var(--text-primary); }
 .nav-item.active { background: var(--accent-surface); color: var(--accent-foreground); font-weight: 600; }
 .nav-item svg { flex: 0 0 auto; }
@@ -327,7 +326,6 @@ button.kpi-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(
   color: var(--muted);
   background: color-mix(in srgb, var(--muted) 9%, transparent);
 }
-.state-icon-error { color: var(--muted); }
 .state-copy {
   flex: 1 1 180px;
   min-width: 0;
@@ -339,9 +337,7 @@ button.kpi-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(
 .state-copy > .state-details { flex: 0 1 auto; min-width: 0; margin-top: 0; }
 .state-copy > .state-details[open] { flex: 1 1 auto; }
 .empty-state .empty-title,
-.error-state .error-title { margin: 0; font-weight: 600; line-height: 1.4; }
-.empty-state .empty-title { color: var(--ink); }
-.error-state .error-title { color: var(--ink); }
+.error-state .error-title { margin: 0; font-weight: 600; line-height: 1.4; color: var(--ink); }
 .state-action { flex: none; margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 
 .state-details { margin-top: 3px; }
@@ -413,15 +409,11 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .data-table tbody tr { transition: background-color 100ms ease; }
 .data-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
 .data-table tbody tr:last-child td { border-bottom: none; }
-.table-sort { border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: inherit; }
-.table-sort { min-height: 24px; }
+.table-sort { border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: inherit; min-height: 24px; }
 .data-table th.sortable { cursor: pointer; user-select: none; }
 .data-table th.sortable:hover { color: var(--ink); }
 .data-table td.num, .data-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
-.card-details { margin-top: 6px; font-size: 12px; color: var(--muted); }
-.card-details > summary { cursor: pointer; }
-.card-details p { margin: 4px 0 0; }
 .account-facts-notes { margin-top: 4px; font-size: 12px; color: var(--muted); }
 .account-facts-notes summary { cursor: pointer; }
 
@@ -472,7 +464,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .field > span { font-size: 12px; color: var(--muted); }
 /* One shared form base (#1034): single-line controls are 36px with a hairline
    border and built-in hover, focus and disabled states. */
-.input, select.input, textarea.input {
+.input {
   min-height: 36px;
   padding: var(--space-2) var(--space-3);
   border: 0.5px solid var(--border-strong);
@@ -482,9 +474,9 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   font: inherit;
   width: 100%;
 }
-.input:hover:not(:disabled), select.input:hover:not(:disabled), textarea.input:hover:not(:disabled) { border-color: var(--accent-foreground); }
+.input:hover:not(:disabled) { border-color: var(--accent-foreground); }
 .input:focus { outline: 2px solid var(--focus-ring); outline-offset: 0; border-color: transparent; }
-.input:disabled, select.input:disabled, textarea.input:disabled {
+.input:disabled {
   border-color: var(--border);
   background: var(--surface-2);
   color: var(--text-muted);
@@ -713,22 +705,6 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* Account cards follow their actual count: a single card fills the row, and
    two to four cards share the available tracks without an empty fourth slot. */
 .account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-.account-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-m);
-  padding: 14px 16px;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.account-card:hover { border-color: var(--accent); }
-.account-card .account-title { font-weight: 700; display: flex; align-items: center; gap: 8px; }
-.account-card .account-row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
-.account-card .account-row span:first-child { color: var(--muted); }
-
-.accounts-layout { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; gap: 16px; align-items: start; }
 
 /* ---------- Strategy cards ---------- */
 
@@ -902,7 +878,6 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 @media (max-width: 1024px) {
   .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .grid-2 { grid-template-columns: 1fr; }
-  .accounts-layout { grid-template-columns: 1fr; }
   .inbox { grid-template-columns: 1fr; }
   .inbox-detail { position: static; }
 }
@@ -1025,7 +1000,6 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .account-strategy-link:focus-visible .account-strategy-chevron { color: var(--accent); transform: translateX(2px); }
 .account-strategy-name { font-weight: 600; overflow-wrap: anywhere; }
 .account-broker-title { margin: 0 0 8px; font-size: 15px; overflow-wrap: anywhere; }
-.account-identity-note { color: var(--muted); font-size: 12px; }
 @media (max-width: 768px) {
   .topbar { gap: 8px; padding-inline: 12px; }
   /* The scope trigger takes the free space; its own label truncates, but the

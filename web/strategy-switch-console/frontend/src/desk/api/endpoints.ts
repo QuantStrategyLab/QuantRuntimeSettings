@@ -5,18 +5,26 @@
  * every endpoint, so the desk can be reviewed without a session.
  */
 import { getJson } from "../../api/client.ts";
-import type { DeskSession, Overview, Performance, Ribbon } from "../contract/types";
-import { isOverview, isPerformance, isRibbon, isSession } from "./guards.ts";
+import type {
+  Accounts, Credentials, DeskSession, Overview, Performance, Ribbon, SwitchStrategies, SwitchTargets,
+} from "../contract/types";
+import {
+  isAccounts, isCredentials, isOverview, isPerformance, isRibbon, isSession, isSwitchStrategies, isSwitchTargets,
+} from "./guards.ts";
 import { PERF_BENCH_API } from "../performance/benchmarks.ts";
 import { loadMock, type MockEndpoint, type MockScenario } from "./mock.ts";
 
 export type DeskSource = "live" | "mock";
 
-/** Session is live (server_time landed in #1051); ribbon waits for BE-4, overview for BE-3. */
+/** Session is live (server_time landed in #1051); the rest wait for their backend routes. */
 export const DESK_SOURCES: Record<MockEndpoint, DeskSource> = {
   session: "live",
   ribbon: "mock",
   overview: "mock",
+  accounts: "mock",
+  credentials: "mock",
+  switchTargets: "mock",
+  switchStrategies: "mock",
   // /api/desk/performance has no backend yet; the benchmark curves follow this source (see benchmarks()).
   performance: "mock",
 };
@@ -50,6 +58,10 @@ export interface DeskApi {
   session(): Promise<DeskResult<DeskSession>>;
   ribbon(date?: string): Promise<DeskResult<Ribbon>>;
   overview(): Promise<DeskResult<Overview>>;
+  accounts(): Promise<DeskResult<Accounts>>;
+  credentials(): Promise<DeskResult<Credentials>>;
+  switchTargets(): Promise<DeskResult<SwitchTargets>>;
+  switchStrategies(targetId: string): Promise<DeskResult<SwitchStrategies>>;
   performance(): Promise<DeskResult<Performance>>;
   /** Raw `qsl.performance_benchmarks.v1` body for the strategy window; the caller validates it. */
   benchmarks(window: { start: string; end: string }, source: DeskSource, scenario: MockScenario | null): Promise<unknown>;
@@ -71,6 +83,24 @@ export function createDeskApi(options: DeskApiOptions): DeskApi {
     session: () => read("session", "/api/session", isSession),
     ribbon: date => read("ribbon", `/api/desk/ribbon${date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? `?date=${date}` : ""}`, isRibbon),
     overview: () => read("overview", "/api/desk/overview", isOverview),
+    accounts: () => read("accounts", "/api/desk/accounts", isAccounts),
+    credentials: () => read("credentials", "/api/desk/credentials", isCredentials),
+    switchTargets: () => read("switchTargets", "/api/desk/switch/targets", isSwitchTargets),
+    async switchStrategies(targetId) {
+      const scenario = options.forcedScenario ?? (sources.switchStrategies === "mock" ? "ok" : null);
+      if (scenario) {
+        // The mock catalog follows the selected target; the request still goes through
+        // the same failure/delay path as every other mock endpoint.
+        await loadMock("switchStrategies", scenario, delayMs);
+        const fixtures = await import("./fixtures/switchStrategies.ts");
+        const data = fixtures.forTarget(targetId, scenario === "degraded" ? "degraded" : "ok");
+        if (!isSwitchStrategies(data)) throw new DeskContractError("switchStrategies");
+        return { data, source: "mock", scenario };
+      }
+      const payload = await fetchJson(`/api/desk/switch/targets/${encodeURIComponent(targetId)}/strategies`);
+      if (!isSwitchStrategies(payload)) throw new DeskContractError("switchStrategies");
+      return { data: payload, source: "live", scenario: null };
+    },
     performance: () => read("performance", "/api/desk/performance", isPerformance),
     async benchmarks(window, source, scenario) {
       if (source === "mock") {

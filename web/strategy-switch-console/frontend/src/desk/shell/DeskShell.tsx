@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import type { Language } from "../../lib/prefs";
 import type { MockScenario } from "../api/mock.ts";
+import type { FreshnessChipState } from "../components/stateModel.ts";
 import type { DeskTranslate } from "../i18n/index.ts";
 import type { DeskPage } from "../router.ts";
+import { AuthPage } from "../pages/AuthPage";
 import { Dock } from "./Dock";
 import { TopBar, type GatewayChip } from "./TopBar";
 
@@ -16,6 +18,7 @@ export interface DeskShellProps {
   nowIso: string;
   serverClock: boolean;
   mock: MockScenario | null;
+  freshness?: FreshnessChipState | null;
   onNavigate: (page: DeskPage) => void;
   onLanguage: (language: Language) => void;
   onTheme: () => void;
@@ -38,12 +41,5 @@ export function DeskShell(props: DeskShellProps) {
 
 /** Shown in the page area when the live session is not allowed or cannot be read. */
 export function AccessCard({ t, kind, onRetry }: { t: DeskTranslate; kind: "login" | "denied" | "error"; onRetry: () => void }) {
-  return (
-    <section className="mrd-card mrd-access" role="alert">
-      <h1 className="mrd-serif">{t("access.title")}</h1>
-      <p>{t(kind === "login" ? "access.body" : kind === "denied" ? "access.denied" : "access.error")}</p>
-      {kind === "login" ? <a className="mrd-button" href="/login">{t("access.login")}</a> : null}
-      {kind === "error" ? <button type="button" className="mrd-button" onClick={onRetry}>{t("access.retry")}</button> : null}
-    </section>
-  );
+  return <AuthPage kind={kind === "login" ? "unauthorized" : kind === "denied" ? "forbidden" : "error"} t={t} onRetry={onRetry} />;
 }

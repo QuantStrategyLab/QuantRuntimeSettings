@@ -6,8 +6,14 @@ import { createRequire } from "node:module";
 import * as session from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/session.ts";
 import * as ribbon from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/ribbon.ts";
 import * as overview from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/overview.ts";
+import * as accounts from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/accounts.ts";
+import * as credentials from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/credentials.ts";
+import * as switchTargets from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/switchTargets.ts";
+import * as switchStrategies from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/switchStrategies.ts";
 import { days } from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/shared.ts";
-import { isOverview, isRead, isRibbon, isSession } from "../web/strategy-switch-console/frontend/src/desk/api/guards.ts";
+import {
+  isAccounts, isCredentials, isOverview, isRead, isRibbon, isSession, isSwitchStrategies, isSwitchTargets,
+} from "../web/strategy-switch-console/frontend/src/desk/api/guards.ts";
 import { MOCK_FAILURE, loadMock, resolveMockScenario } from "../web/strategy-switch-console/frontend/src/desk/api/mock.ts";
 import { DESK_SOURCES, DeskContractError, createDeskApi } from "../web/strategy-switch-console/frontend/src/desk/api/endpoints.ts";
 import { HttpError } from "../web/strategy-switch-console/frontend/src/api/client.ts";
@@ -33,6 +39,14 @@ const fixtures = { session, ribbon, overview };
 for (const [name, module] of Object.entries(fixtures)) {
   for (const scenario of ["ok", "degraded"]) validate(name, module[scenario], `${name}.${scenario}`);
 }
+const schemaFixtures = [
+  ["accounts", accounts],
+  ["switch-targets", switchTargets],
+  ["switch-strategies", switchStrategies],
+];
+for (const [schemaName, module] of schemaFixtures) {
+  for (const scenario of ["ok", "degraded", "empty"]) validate(schemaName, module[scenario], `${schemaName}.${scenario}`);
+}
 validate("error", MOCK_FAILURE, "fail scenario body");
 
 // 2. Guards accept every fixture and reject shapes the UI must not render.
@@ -40,6 +54,16 @@ for (const scenario of ["ok", "degraded"]) {
   assert.ok(isSession(session[scenario]), `session.${scenario}`);
   assert.ok(isRibbon(ribbon[scenario]), `ribbon.${scenario}`);
   assert.ok(isOverview(overview[scenario]), `overview.${scenario}`);
+  assert.ok(isAccounts(accounts[scenario]), `accounts.${scenario}`);
+  assert.ok(isCredentials(credentials[scenario]), `credentials.${scenario}`);
+  assert.ok(isSwitchTargets(switchTargets[scenario]), `switchTargets.${scenario}`);
+  assert.ok(isSwitchStrategies(switchStrategies[scenario]), `switchStrategies.${scenario}`);
+}
+for (const scenario of ["empty"]) {
+  assert.ok(isAccounts(accounts[scenario]), `accounts.${scenario}`);
+  assert.ok(isCredentials(credentials[scenario]), `credentials.${scenario}`);
+  assert.ok(isSwitchTargets(switchTargets[scenario]), `switchTargets.${scenario}`);
+  assert.ok(isSwitchStrategies(switchStrategies[scenario]), `switchStrategies.${scenario}`);
 }
 const clone = value => structuredClone(value);
 assert.equal(isRead({ status: "unknown", reason: "read_failed", value: "0" }), false, "unknown never carries a value");
@@ -124,9 +148,24 @@ for (const scenario of ["ok", "degraded"]) for (const row of overview[scenario].
   assert.match(row.account_ref, /^[A-Z]{1,2}•••000[1-6]$/, "fake masked refs only");
   assert.equal(row.account_ref.slice(-4), row.account_suffix);
 }
-const text = JSON.stringify(fixtures, (_k, v) => v) + JSON.stringify([session, ribbon, overview]);
+for (const scenario of ["ok", "degraded"]) {
+  for (const broker of accounts[scenario].brokers) {
+    for (const target of broker.targets) assert.match(target.account_ref, /^[A-Z]{1,2}•••000[1-6]$/, "fake masked refs only");
+  }
+  for (const target of switchTargets[scenario].targets) assert.match(target.account_ref, /^[A-Z]{1,2}•••000[1-6]$/, "fake masked refs only");
+  for (const item of credentials[scenario].items) {
+    assert.notEqual(item.phase, "14", "the desk reminder enum has no 14");
+    assert.ok(["unknown", "not_due", "30", "7", "1", "expired"].includes(item.phase), `credential phase ${item.phase}`);
+  }
+}
+const allFixtures = { session, ribbon, overview, accounts, credentials, switchTargets, switchStrategies };
+const text = JSON.stringify(allFixtures);
 assert.doesNotMatch(text, /@|https?:\/\/(?!example)/, "no emails or real hosts");
-for (const match of text.matchAll(/"(\d{4}-\d{2}-\d{2})T/g)) assert.ok(match[1] >= "2026-09-01" && match[1] <= "2026-11-03", `synthetic time ${match[1]}`);
+const coreText = JSON.stringify({ session, ribbon, overview });
+for (const match of coreText.matchAll(/"(\d{4}-\d{2}-\d{2})T/g)) assert.ok(match[1] >= "2026-09-01" && match[1] <= "2026-11-03", `synthetic time ${match[1]}`);
+// Expiry fixtures may sit in the future; they are still synthetic.
+const extraText = JSON.stringify({ accounts, credentials, switchTargets, switchStrategies });
+for (const match of extraText.matchAll(/"(\d{4}-\d{2}-\d{2})T/g)) assert.ok(match[1] >= "2026-09-01" && match[1] <= "2026-12-31", `synthetic time ${match[1]}`);
 
 // 4. Mock switch: ?mock= beats storage; 0/unknown values turn it off.
 assert.equal(resolveMockScenario("", null), null);
@@ -136,8 +175,11 @@ assert.equal(resolveMockScenario("?mock=0", "ok"), null);
 assert.equal(resolveMockScenario("?page=overview", "fail"), "fail");
 assert.equal(resolveMockScenario("?mock=<script>", null), null);
 
-// 5. Endpoint sources: session live, ribbon/overview mock until BE-4/BE-3.
-assert.deepEqual(DESK_SOURCES, { session: "live", ribbon: "mock", overview: "mock", performance: "mock" });
+// 5. Endpoint sources: session live, every other desk route mock until its backend lands.
+assert.deepEqual(DESK_SOURCES, {
+  session: "live", ribbon: "mock", overview: "mock", accounts: "mock", credentials: "mock",
+  switchTargets: "mock", switchStrategies: "mock", performance: "mock",
+});
 const calls = [];
 const fetchJson = async path => { calls.push(path); return structuredClone(session.ok); };
 const api = createDeskApi({ forcedScenario: null, delayMs: 0, fetchJson });
@@ -145,6 +187,18 @@ const s = await api.session();
 assert.deepEqual([s.source, s.scenario, calls], ["live", null, ["/api/session"]]);
 const r = await api.ribbon("2026-11-02");
 assert.deepEqual([r.source, r.scenario], ["mock", "ok"]);
+const acc = await api.accounts();
+assert.deepEqual([acc.source, acc.scenario], ["mock", "ok"]);
+assert.equal(acc.data.brokers.length, 5);
+const cred = await api.credentials();
+assert.deepEqual([cred.source, cred.scenario], ["mock", "ok"]);
+assert.ok(cred.data.items.some(item => item.phase === "7"), "fixture covers the 7-day phase");
+const st = await api.switchTargets();
+assert.deepEqual([st.source, st.scenario], ["mock", "ok"]);
+const sc = await api.switchStrategies("schwab/core");
+assert.deepEqual([sc.source, sc.scenario], ["mock", "ok"]);
+assert.equal(sc.data.target_id, "schwab/core");
+assert.equal(sc.data.domain, "us_equity");
 assert.equal(calls.length, 1, "mock endpoints never hit the network");
 r.data.tape.length = 0;
 assert.ok((await api.ribbon()).data.tape.length > 0, "mock responses are copies");
@@ -154,6 +208,7 @@ assert.equal((await forced.overview()).data.totals.status, "partial");
 assert.equal(calls.length, 1);
 const failing = createDeskApi({ forcedScenario: "fail", delayMs: 0, fetchJson });
 await assert.rejects(failing.overview(), error => error instanceof HttpError && error.status === 503 && error.payload.error === "store_unavailable");
+await assert.rejects(failing.switchStrategies("ibkr/tqqq"), HttpError);
 const allLive = createDeskApi({ forcedScenario: null, delayMs: 0, sources: { session: "live", ribbon: "live", overview: "live" },
   fetchJson: async path => { calls.push(path); return path.startsWith("/api/desk/ribbon") ? { ok: true } : structuredClone(overview.ok); } });
 await assert.rejects(allLive.ribbon("2026-11-02&x=1"), error => error instanceof DeskContractError && error.endpoint === "ribbon", "a bad live shape is rejected");
@@ -161,4 +216,4 @@ assert.equal(calls.at(-1), "/api/desk/ribbon", "a malformed date is dropped, not
 assert.equal((await allLive.overview()).source, "live");
 await assert.rejects(loadMock("overview", "fail", 0), HttpError);
 
-console.log("console_desk_mock_validation: PASS (session/ribbon/overview fixtures vs schemas/desk, guards, totals, gaps, mock switch; synthetic only)");
+console.log("console_desk_mock_validation: PASS (session/ribbon/overview/accounts/credentials/switch fixtures vs schemas/desk, guards, totals, gaps, mock switch; synthetic only)");

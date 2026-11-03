@@ -1,6 +1,8 @@
 import type { Language } from "../../lib/prefs";
 import type { GatewayState, Read } from "../contract/types";
 import type { MockScenario } from "../api/mock.ts";
+import { FreshnessChip } from "../components/StateBlocks.tsx";
+import type { FreshnessChipState } from "../components/stateModel.ts";
 import { formatAge, formatUtcDayLabel, formatUtcHm } from "../format.ts";
 import type { DeskKey, DeskTranslate } from "../i18n/index.ts";
 import type { DeskPage } from "../router.ts";
@@ -20,6 +22,8 @@ interface TopBarProps {
   serverClock: boolean;
   /** Non-null when any data on screen came from fixtures. */
   mock: MockScenario | null;
+  /** Optional global freshness chip; omitted in contexts that do not have a read. */
+  freshness?: FreshnessChipState | null;
   onLanguage: (language: Language) => void;
   onTheme: () => void;
 }
@@ -34,7 +38,7 @@ function gatewayView(chip: GatewayChip): { key: DeskKey; tone: string; ageSecond
   return { key: `gateway.${read.value}` as DeskKey, tone };
 }
 
-export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock, mock, onLanguage, onTheme }: TopBarProps) {
+export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock, mock, freshness, onLanguage, onTheme }: TopBarProps) {
   const chip = gatewayView(gateway);
   const time = formatUtcHm(nowIso) ?? "--:--";
   const day = formatUtcDayLabel(nowIso, language);
@@ -51,6 +55,7 @@ export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock,
             {mock === "ok" ? t("mock.badge") : t("mock.scenario", { scenario: mock })}
           </span>
         ) : null}
+        {freshness ? <FreshnessChip state={freshness} t={t} language={language} /> : null}
         <span className="mrd-chip" data-tone={chip.tone} role="status">
           <i aria-hidden="true" />
           {t(chip.key, { age: formatAge(chip.ageSeconds, language) ?? "—" })}
