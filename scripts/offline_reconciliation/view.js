@@ -225,7 +225,8 @@
         || !['missing', 'present'].includes(value.baseline_status)
         || (value.baseline_status === 'missing'
           ? value.baseline !== null || value.baseline_reason !== 'opening_snapshot_missing'
-          : !validSnapshot(value.baseline) || value.baseline_reason !== null)
+          : !validSnapshot(value.baseline) || value.baseline.source_as_of.slice(0, 10) !== START_DATE
+            || value.baseline_reason !== null)
         || (value.later_anchor !== null && !validSnapshot(value.later_anchor))
         || !exact(value.dimensions, ['positions', 'cash', 'events'])
         || !Object.values(value.dimensions).every(status => status === 'UNRECONCILED')) return false;

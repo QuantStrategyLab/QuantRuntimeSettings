@@ -326,6 +326,52 @@ for (const mutate of invalidEvidence) {
   }
 }
 
+// Imported openings use the native source date, not the UTC conversion or a later anchor.
+for (const date of ['2026-11-02', '2026-11-03', '2026-11-04']) {
+  const { document, elements } = makeDocument();
+  const win = makeWindow();
+  await ledger.main({ document, window: win, search: '?sample=1', now });
+  const payload = structuredClone({ ok: true, accounts: [fixture.accounts[0]] });
+  const forward = payload.accounts[0].forward_reconciliation;
+  const snapshot = {
+    source_as_of: `${date}T00:10:00+08:00`, timezone: 'Asia/Singapore',
+    capture_started_at: `${date}T00:08:00+08:00`,
+    capture_finished_at: `${date}T00:10:00+08:00`,
+  };
+  forward.generated_at = '2026-11-05T00:40:00+08:00';
+  forward.baseline_status = 'present';
+  forward.baseline_reason = null;
+  forward.baseline = snapshot;
+  const run = () => ledger.main({ document, window: win, search: '?source=synthetic.json&lang=en',
+    now: Date.parse('2026-11-05T12:00:00Z'),
+    fetchImpl: async () => ({ ok: true, json: async () => payload }) });
+  const result = await run();
+  const eligible = date === '2026-11-03';
+  assert.equal(result.error, !eligible, `opening eligibility for ${date}`);
+  if (eligible) {
+    assert.match(elements.get('ev').innerHTML, /Present \(metadata only\)/);
+    assert.match(elements.get('note-baseline').innerHTML, /1 present/);
+  } else {
+    assert.equal(result.rows, null);
+    assert.equal(elements.get('error-banner').hidden, false);
+    assert.equal(elements.get('tally').hidden, true);
+    for (const id of ['mx', 'cards', 'ev', 'entry-body', 'days', 'note-source', 'note-baseline', 'note-notice']) {
+      assert.equal(elements.get(id).innerHTML, '', 'ineligible opening clears previous metadata');
+    }
+  }
+  if (date === '2026-11-04') {
+    // A later snapshot remains usable as a later anchor without inventing an opening.
+    forward.baseline_status = 'missing';
+    forward.baseline_reason = 'opening_snapshot_missing';
+    forward.baseline = null;
+    forward.later_anchor = snapshot;
+    assert.equal((await run()).error, false);
+    assert.doesNotMatch(elements.get('ev').innerHTML, /Present \(metadata only\)/);
+    assert.match(elements.get('note-baseline').innerHTML, /0 present/);
+    assert.match(elements.get('ev').innerHTML, /2026-11-04/);
+  }
+}
+
 // Even an unexpected rendering exception must clear already populated tables.
 {
   const { document, elements } = makeDocument();
