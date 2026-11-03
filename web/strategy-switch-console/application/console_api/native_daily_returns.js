@@ -172,6 +172,8 @@ export function applyNativeDailyReturns(blocks, input) {
     if (!row) return cell;
     displayed++;
     return { ...cell, amount: navAmountSum([row]), observed_amount: null, return_percent: row.value * 100, currency,
+      return_method: "native_ibkr_twr", method_version: null, return_unit: "percent", amount_unit: "native_currency",
+      cashflow_method: undefined, approximate: undefined,
       value_kind: "pnl", status: "ok", unavailable_reason: null };
   });
   if (displayed) Object.assign(blocks.calendar, { status, unavailable_reason: reason, currency,

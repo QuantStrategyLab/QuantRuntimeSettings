@@ -97,6 +97,23 @@ cashflows as zero. Crypto observation dates remain calendar days, including
 weekends. Other performance endpoints retain their existing multi-currency
 response and do not inherit the calendar selection.
 
+Daily calendar cells actually replaced by the timed-flow or qualified native
+calculation include `return_method` (`modified_dietz` or `native_ibkr_twr`),
+`method_version: null`, `return_unit: "percent"` (10 means 10%) and
+`amount_unit: "native_currency"` (the cell's `currency`). The null version means
+that no estimator version is registered or verified; it is not the API envelope
+or input schema version. These units describe fields even when their value is
+null and do not establish amount availability or cost inclusion.
+Dietz cells also include `cashflow_method: "modified_dietz"` and an explicit
+`approximate` boolean, true only when a contributing interval contains a flow
+before its end. Stock daily groups can include weekend intervals; the boolean
+covers those contributing intervals, not the whole return chain. Native daily
+replacement sets its own method and removes inherited Dietz flags. Untouched
+legacy/unavailable cells have no new metadata. Monthly cells retain their existing
+values and shape; no monthly Dietz calculation or metadata is added. These are
+additive backend fields; frontend consumers may continue reading the existing
+fields, and frontend types and rendering are unchanged by this contract addition.
+
 `limit` defaults to 25 and accepts 1–100. `next_cursor` is an opaque string or
 `null`. Pass it unchanged as `cursor`. Histories sort newest first. Decision
 history uses timestamp and a stored key as a tie-breaker. These are offset pages;
