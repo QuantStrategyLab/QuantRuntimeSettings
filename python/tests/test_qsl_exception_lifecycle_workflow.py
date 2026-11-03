@@ -142,7 +142,7 @@ class QslExceptionLifecycleWorkflowTest(unittest.TestCase):
         cases = [
             {"ref": "main"}, {"ref": AI_REF[:12]},
             {"repository": "QuantStrategyLab/UnknownAI"},
-            {"repository": "Pigbibi/PersonalAIService"},
+            {"repository": "example-owner/PersonalAIService"},
             {"duplicate": True}, {"base": True}, {"lock_ref": "a" * 40},
             {"marker": "extra == 'ai' or extra == 'test'"},
         ]
@@ -165,7 +165,7 @@ class QslExceptionLifecycleWorkflowTest(unittest.TestCase):
             self.assertEqual(calls, [])
 
     def test_identity_checkout_attestation_is_fail_closed(self) -> None:
-        for case in ({"actual": "a" * 40}, {"origin": "https://github.com/Pigbibi/QuantAIService.git"},
+        for case in ({"actual": "a" * 40}, {"origin": "https://github.com/example-owner/QuantAIService.git"},
                      {"qsl": AI_QSL.replace('false', 'true')},
                      {"qsl": AI_QSL.replace('false', '0')},
                      {"qsl": AI_QSL.replace('ops/tooling', 'core')},

@@ -188,7 +188,8 @@ jobs:
       SERVICE_TARGETS_MODE: ${{ inputs.service_targets_mode }}
       PROMOTION_MANIFEST_JSON: ${{ inputs.promotion_manifest_json }}
       PROMOTION_SINGLE_USE_ID: ${{ inputs.promotion_single_use_id }}
-      QSL_PROMOTION_ROOT_PROJECTS_JSON: ${{ vars.QSL_PROMOTION_ROOT_PROJECTS_JSON }}
+      QSL_PROMOTION_ROOT_PROJECTS_JSON: ${{ secrets.QSL_PROMOTION_ROOT_PROJECTS_JSON }}
+      QSL_PROMOTION_ROOT_RECORDS_JSON: ${{ secrets.QSL_PROMOTION_ROOT_RECORDS_JSON }}
       QSL_PROMOTION_TRUSTED_ROOTS_JSON: ${{ vars.QSL_PROMOTION_TRUSTED_ROOTS_JSON }}
       APPLY_SWITCH: ${{ inputs.apply }}
       TRIGGER_PLATFORM_SYNC: ${{ inputs.trigger_platform_sync }}

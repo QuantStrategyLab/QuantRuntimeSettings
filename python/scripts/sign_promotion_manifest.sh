@@ -7,15 +7,18 @@ set -euo pipefail
 platform="$1"; manifest="$2"; out="$3"
 here="$(cd "$(dirname "$0")" && pwd)"
 case "$platform" in
-  longbridge) project=longbridgequant ;;
-  *) echo "no signer configured for ${platform}" >&2; exit 2 ;;
+  longbridge) ;;
+  *) echo "no signer configured for platform" >&2; exit 2 ;;
 esac
+# Explicit private project selection; no repository default.
+project="${GCP_PROJECT_ID:?GCP_PROJECT_ID is required}"
+[[ "$project" =~ ^[a-z][a-z0-9-]{4,61}[a-z0-9]$ ]] || { echo "invalid project configuration" >&2; exit 2; }
 signer="qsl-promotion-signer@${project}.iam.gserviceaccount.com"
 key_version="projects/${project}/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 python3 "$here/promotion_signature.py" payload --manifest "$manifest" --output "$work/payload.bin"
 gcloud kms asymmetric-sign --version="$key_version" --digest-algorithm=sha256 \
   --input-file="$work/payload.bin" --signature-file="$work/sig.der" \
-  --impersonate-service-account="$signer" --quiet
+  --impersonate-service-account="$signer" --quiet >/dev/null 2>&1 || { echo "KMS signing failed" >&2; exit 2; }
 base64 < "$work/sig.der" | tr -d '\n' > "$out"
-echo "signature written to $out"
+echo "signature written"

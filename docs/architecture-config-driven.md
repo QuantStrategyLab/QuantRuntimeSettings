@@ -214,3 +214,30 @@ migration path remain available. Eligible legacy continuity is restricted to
 reconciliation or risk reduction, with its existing baseline checks. A target
 fingerprint confirms matching fields; it does not independently prove a past
 authorization or account state.
+
+
+## Private infrastructure inputs
+
+The notification inventory uses `notifications.quant_sentinel.gcp_projects_ref`
+instead of a public project list. Its private input is
+`QSL_NOTIFICATION_GCP_PROJECTS_JSON` (JSON array of project IDs); inventory
+consumers must resolve that input in their protected runtime. The console
+projection does not consume or expose this inventory. No consumer adoption is
+implied by this source change.
+
+The digest permission and artifact evidence workflows require secrets
+`GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER` and
+`GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT` before authentication. The permission
+probe also requires `DIGEST_STORE_BUCKET`. Existing object prefixes and gates
+are retained. Missing inputs stop the workflow before cloud authentication.
+
+The Worker requires private binding `HK_STOP_GCP_PROJECT_ID` before accepting
+an HK stop result and still requires an exact project match. No stop action is
+enabled by setting this binding. Optional daily setup health diagnostics use
+`STRATEGY_SWITCH_CONSOLE_URL`, an HTTPS origin; missing/invalid input leaves the
+observation unknown without affecting the independent setup decision.
+
+The human-run promotion signer requires explicit `GCP_PROJECT_ID`. Promotion
+verification uses private root records and an independently pinned digest; see
+[promotion roots](p0_control_roots/gcp/README.md). Configure approved private
+inputs before adoption. This change neither installs secrets nor rotates keys.

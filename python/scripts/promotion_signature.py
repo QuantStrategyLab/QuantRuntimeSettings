@@ -8,8 +8,8 @@ Payload = b"qsl.promotion_signature.v1\\n" + canonical_promotion_json(manifest)
 
 Domain separation keeps a promotion signature from ever being valid as an
 autonomy-policy signature made with the same per-project KMS root key, and
-vice versa. Trust comes from the public root record in
-docs/p0_control_roots/gcp/<project>.json, accepted only when its self digest
+vice versa. Trust comes from a private root record supplied through
+QSL_PROMOTION_ROOT_RECORDS_JSON, accepted only when its self digest
 equals a digest pinned outside the workflow inputs (protected Environment
 variable QSL_PROMOTION_TRUSTED_ROOTS_JSON). Private keys never leave Cloud KMS.
 """
@@ -33,7 +33,6 @@ from gcp_kms_policy_gate import GcpKmsPolicyValidationError, validate_gcp_kms_po
 
 PAYLOAD_PREFIX = b"qsl.promotion_signature.v1\n"
 ROOT = Path(__file__).resolve().parents[2]
-ROOTS_DIR = ROOT / "docs" / "p0_control_roots" / "gcp"
 # One trust domain per platform; never borrow another platform's root.
 PROMOTION_PLATFORMS = frozenset(('longbridge', 'ibkr', 'schwab', 'firstrade', 'binance'))
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
@@ -70,14 +69,18 @@ def load_trusted_root(platform: str, pinned_roots: Mapping[str, Any], *, as_of: 
     pinned = pinned_roots.get(platform) if isinstance(pinned_roots, Mapping) else None
     if not isinstance(pinned, str) or not _SHA256.fullmatch(pinned):
         _fail("platform promotion trust root is not pinned")
-    path = ROOTS_DIR / f"{project}.json"
-    if path.is_symlink() or not path.is_file():
-        _fail("platform promotion trust root record is missing")
     try:
-        root = json.loads(path.read_text(encoding="utf-8"))
-        return validate_gcp_kms_policy_root(root, expected_root_sha256=pinned, as_of=as_of)
-    except (OSError, ValueError, GcpKmsPolicyValidationError) as exc:
-        raise PromotionSignatureError("platform promotion trust root is invalid") from exc
+        records = json.loads(os.environ.get("QSL_PROMOTION_ROOT_RECORDS_JSON", ""))
+        root = records.get(platform) if isinstance(records, dict) else None
+        if not isinstance(root, dict):
+            _fail("platform promotion trust root record is missing")
+        validated = validate_gcp_kms_policy_root(root, expected_root_sha256=pinned, as_of=as_of)
+        if str(validated["kms_key_version"]).split("/")[1] != project:
+            _fail("platform promotion trust root project does not match")
+        return validated
+    except (ValueError, KeyError, TypeError, GcpKmsPolicyValidationError):
+        # Do not retain an exception containing a private resource binding.
+        raise PromotionSignatureError("platform promotion trust root is invalid") from None
 
 
 def decode_signature(signature_b64: str) -> bytes:
@@ -123,7 +126,7 @@ def verify(manifest: Mapping[str, Any], signature_b64: str, *, platform: str,
         _fail("promotion manifest validity window is too long")
     root = load_trusted_root(platform, pinned_roots, as_of=as_of)
     signature_sha256 = verify_signature(manifest, decode_signature(signature_b64), root)
-    return {"root_id": str(root["root_id"]), "signature_sha256": signature_sha256,
+    return {"signature_sha256": signature_sha256,
             "promotion_sha256": str(manifest["promotion_sha256"])}
 
 
