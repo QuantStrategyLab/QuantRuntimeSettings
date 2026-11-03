@@ -60,20 +60,20 @@ class ProvisionGcpKmsPolicyRootsTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_build_root_is_pinned_to_one_project_key_version_and_one_year_window(self):
-        root = bootstrap.build_root_record(project="firstradequant", public_key_pem=self.public_key_pem, as_of=AS_OF)
+        root = bootstrap.build_root_record(project="example-longbridge-project", public_key_pem=self.public_key_pem, as_of=AS_OF)
 
-        self.assertEqual(root["root_id"], "qsl-firstradequant-p0-root-v1")
+        self.assertEqual(root["root_id"], "qsl-example-longbridge-project-p0-root-v1")
         self.assertEqual(root["signature_algorithm"], "EC_SIGN_P256_SHA256")
         self.assertEqual(
             root["kms_key_version"],
-            "projects/firstradequant/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1",
+            "projects/example-longbridge-project/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1",
         )
         self.assertEqual(root["effective_at"], "2026-08-19T12:00:00Z")
         self.assertEqual(root["expires_at"], "2027-08-19T12:00:00Z")
 
     def test_existing_public_record_is_idempotent_but_a_changed_public_key_is_rejected(self):
-        root = bootstrap.build_root_record(project="binancequant", public_key_pem=self.public_key_pem, as_of=AS_OF)
-        destination = self.directory / "roots" / "binancequant.json"
+        root = bootstrap.build_root_record(project="example-ibkr-project", public_key_pem=self.public_key_pem, as_of=AS_OF)
+        destination = self.directory / "roots" / "example-ibkr-project.json"
 
         first = bootstrap.write_or_validate_root_record(destination=destination, root=root, as_of=AS_OF)
         second = bootstrap.write_or_validate_root_record(destination=destination, root=root, as_of=AS_OF)
@@ -87,29 +87,16 @@ class ProvisionGcpKmsPolicyRootsTest(unittest.TestCase):
         with self.assertRaisesRegex(bootstrap.BootstrapError, "conflicts on public_key_pem"):
             bootstrap.write_or_validate_root_record(destination=destination, root=altered, as_of=AS_OF)
 
-    def test_checked_in_public_root_records_are_closed_and_self_validating(self):
-        root_directory = ROOT.parent / "docs" / "p0_control_roots" / "gcp"
-        records = {path.stem: json.loads(path.read_text(encoding="utf-8")) for path in root_directory.glob("*.json")}
-        self.assertEqual(
-            set(records),
-            {
-                "binancequant",
-                "charlesschwabquant",
-                "firstradequant",
-                "interactivebrokersquant",
-                "longbridgequant",
-                "qslresearchquant",
-            },
-        )
-        for project, root in records.items():
-            with self.subTest(project=project):
+    def test_private_root_records_are_closed_and_self_validating(self):
+        for platform in ("longbridge", "ibkr", "schwab", "firstrade", "binance", "runtime"):
+            project = f"example-{platform}-project"
+            with self.subTest(platform=platform):
+                root = bootstrap.build_root_record(project=project, public_key_pem=self.public_key_pem, as_of=AS_OF)
                 self.assertEqual(root["root_id"], f"qsl-{project}-p0-root-v1")
                 self.assertEqual(root["signature_algorithm"], "EC_SIGN_P256_SHA256")
                 self.assertNotIn("private", json.dumps(root).lower())
                 bootstrap.validate_gcp_kms_policy_root(
-                    root,
-                    expected_root_sha256=root["trusted_policy_root_sha256"],
-                    as_of=root["effective_at"],
+                    root, expected_root_sha256=root["trusted_policy_root_sha256"], as_of=root["effective_at"],
                 )
 
     def test_default_invocation_is_an_apply_required_plan_without_cloud_mutation(self):
@@ -118,9 +105,9 @@ class ProvisionGcpKmsPolicyRootsTest(unittest.TestCase):
                 sys.executable,
                 str(SCRIPTS / "provision_gcp_kms_policy_roots.py"),
                 "--project",
-                "binancequant",
+                "example-ibkr-project",
                 "--project",
-                "firstradequant",
+                "example-longbridge-project",
                 "--root-record-dir",
                 str(self.directory / "planned-roots"),
             ],
@@ -133,7 +120,7 @@ class ProvisionGcpKmsPolicyRootsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         plan = json.loads(result.stdout)
         self.assertTrue(plan["apply_required"])
-        self.assertEqual([item["project"] for item in plan["operations"]], ["binancequant", "firstradequant"])
+        self.assertEqual([item["project"] for item in plan["operations"]], ["example-ibkr-project", "example-longbridge-project"])
         self.assertFalse((self.directory / "planned-roots").exists())
 
     def test_only_known_kms_api_propagation_errors_are_retryable(self):

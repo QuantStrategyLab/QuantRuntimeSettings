@@ -54,21 +54,26 @@ try {
   assert.deepEqual(await fetch(base + '/api/reconciliation-recovery').then(r => r.json()), historical);
   assert.equal((await fetch(base + '/api/reconciliation-observations').then(r => r.json())).data_status, 'ready');
   const html = await fetch(base).then(r => r.text());
-  assert.match(html, /当前观察/);
-  assert.match(html, /历史恢复审批材料/);
+  assert.match(html, /id="mx"/);
+  assert.match(html, /offline-reconciliation\.js/);
+  assert.match(html, /data-theme="light"/);
   const script = await fetch(base + '/offline-reconciliation.js').then(r => r.text());
   const elements = new Map();
   const document = {
     getElementById(id) {
-      if (!elements.has(id)) elements.set(id, { textContent: '', append() {} });
+      if (!elements.has(id)) elements.set(id, { textContent: '', innerHTML: '', hidden: false, append() {} });
       return elements.get(id);
     },
     createElement() { return { textContent: '' }; },
   };
-  await vm.runInNewContext(`(async () => {${script}\n})()`, { document, fetch: path => fetch(base + path) });
-  assert.match(elements.get('current-status').textContent, /资料可用 · 一致/);
-  assert.match(elements.get('historical-status').textContent, /stale/);
-  assert.deepEqual(JSON.parse(elements.get('historical-json').textContent), historical);
+  const sandbox = { fetch: path => fetch(base + path), console, URLSearchParams };
+  vm.createContext(sandbox);
+  vm.runInContext(script, sandbox);
+  sandbox.document = document;
+  await sandbox.ObservationLedger.main({ document, window: sandbox, search: '' });
+  assert.equal(elements.get('error-banner').hidden, false);
+  assert.equal(elements.get('mx').innerHTML, '');
+  assert.equal(elements.get('tally').hidden, true);
   for (const path of ['/api/reconciliation-observations', '/api/internal/sync-reconciliation-observation-source', '/api/reconciliation-recovery-confirmations', '/api/switch', '/api/runtime-stop']) {
     assert.equal((await fetch(base + path, { method: 'POST', body: '{}' })).status, 405);
   }
@@ -93,20 +98,9 @@ for (const [current, recovery, available] of [[observation, null, 'current_obser
     assert.equal(split[available].data_status, available === 'current_observation' ? 'ready' : 'stale');
     const missing = available === 'current_observation' ? '/api/reconciliation-recovery' : '/api/reconciliation-observations';
     assert.equal((await fetch(base + missing)).status, 503);
-    const script = await fetch(base + '/offline-reconciliation.js').then(r => r.text());
-    const elements = new Map();
-    const document = {
-      getElementById(id) {
-        if (!elements.has(id)) elements.set(id, { textContent: '', append() {} });
-        return elements.get(id);
-      },
-      createElement() { return { textContent: '' }; },
-    };
-    await vm.runInNewContext(`(async () => {${script}\n})()`, { document, fetch: path => fetch(base + path) });
-    assert.match(elements.get(available === 'current_observation' ? 'current-status' : 'historical-status').textContent,
-      available === 'current_observation' ? /资料可用/ : /stale/);
   } finally {
     await new Promise(resolve => isolated.close(resolve));
   }
 }
 console.log('offline_reconciliation_console_validation: PASS (synthetic contract, split, independent freshness, read-only loopback)');
+await import('./observation_ledger_validation.mjs');

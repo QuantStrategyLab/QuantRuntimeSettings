@@ -84,11 +84,11 @@ jobs:
       # Optional producer store: gs://<bucket>/digest-candidates.
       # Layout: <uri>/<platform_id>/<business_day>/<target>.json
       DIGEST_CANDIDATES_GCS_URI: ${{ vars.DIGEST_CANDIDATES_GCS_URI || '' }}
-      DIGEST_CANDIDATES_READER_WIF_PROVIDER: ${{ vars.DIGEST_CANDIDATES_READER_WIF_PROVIDER || vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
+      DIGEST_CANDIDATES_READER_WIF_PROVIDER: ${{ vars.DIGEST_CANDIDATES_READER_WIF_PROVIDER || vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER }}
       DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT: ${{ vars.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT || vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
       # GCP project that hosts a sentinel bot-token replica (LongBridge path).
       GCP_PROJECT_ID: ${{ vars.DIGEST_GCP_PROJECT_ID }}
-      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER }}
       GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
     steps:
       - name: Require explicit manual preview

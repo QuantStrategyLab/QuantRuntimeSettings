@@ -1,39 +1,60 @@
-# Offline reconciliation split preview
+# Offline reconciliation Observation Ledger preview
 
-This companion consumer accepts the synthetic observation envelope emitted by
-BinancePlatform. It runs on loopback with Node.js 22 or later and built-in modules
-only. It does not import or change production Worker routing, embedded console
-assets, account configuration, recovery schemas, or decision handlers. Its files
-are outside the production console deployment path filter. Only ordinary test CI
-is needed; no deployment, credentials, IAM or cloud resources are part of it.
+This companion consumer serves the **Observation Ledger** page: a read-only,
+forward-only view of `accounts[].forward_reconciliation` from the account facts
+read model. It also validates the synthetic observation envelope emitted by
+BinancePlatform, exposed through separate split API routes. It runs on loopback
+with Node.js 22 or later and built-in modules only. It does not import or change
+production Worker routing, embedded console assets, account configuration,
+recovery schemas, or decision handlers. Its files are outside the production
+console deployment path filter. Only ordinary test CI is needed; no deployment,
+credentials, IAM or cloud resources are part of it.
 
-## Open the split page
+## Open the Observation Ledger
 
-From this repository:
+The page is `scripts/offline_reconciliation/index.html`; it loads external
+`/offline-reconciliation.css` and `/offline-reconciliation.js` so it satisfies
+the loopback server's CSP (`script-src 'self'; style-src 'self'`). It is
+bilingual (zh-CN primary, en alongside) and supports light and dark themes via
+`?lang=zh-CN|en`, `?theme=light|dark`, or the on-page toggles, which persist in
+`localStorage` (`ol-lang`, `ol-theme`).
+
+Its only data source is the existing `GET /api/account-facts` response field
+`accounts[].forward_reconciliation` (`qsl.forward_reconciliation_read.v1`).
+Rows come from the response, never from hard-coded account data. Account
+identifiers are never rendered: rows show the platform and a neutral ordinal
+(`Account 1`, `账户 1`) because no shared masking helper exists under `scripts/`.
+Only known platform names are displayed; unrecognized platform values use a dash.
+
+For a design review without a running account-facts service, use the inline
+synthetic fixture:
 
 ```sh
-node scripts/offline_reconciliation_console.mjs \
-  --mode mock \
-  --observation tests/fixtures/reconciliation_observation/matched.json \
-  --historical tests/fixtures/reconciliation_observation/historical-recovery.json \
-  --now 2000-01-01T00:02:00Z
+node scripts/offline_reconciliation_console.mjs --mode mock
 ```
 
-Open `http://127.0.0.1:4185/`. The page shows **当前观察** (current observation)
-and **历史恢复审批材料** (historical recovery approval materials) separately.
-Each section loads independently and has its own status. Expand the JSON views
-to inspect the exact payload. There are no approve, prepare or activate actions.
+Open `http://127.0.0.1:4185/?sample=1`. The loopback server serves the page but
+not `/api/account-facts` (and only the page, its CSS and its JS), so without
+`?sample=1` the page shows its read-failure banner and clears any tally and
+tables. With a static server that serves the checked-in fixture, use a
+same-origin relative override against the page instead:
 
-Use `--observation /path/to/observation.json` to consume output from the producer
-instead of the checked-in golden fixture. Paths are local synthetic files only;
-do not download real account data or September production records to this mock.
-For additional scenarios replace `matched.json` with `mismatched.json`,
-`missing-ledger.json`, `missing-reference.json` or `busy.json`.
-Missing ledger/reference displays **无法比较** (not comparable), never invented
-balances. All examples are fictional, including the September 1999 recovery.
-The actual September production pack is never read or modified.
+```text
+/?source=tests/fixtures/forward_reconciliation/sample-account-facts.json
+```
 
-Read APIs:
+`?source=` accepts only same-origin relative paths; absolute URLs, protocol
+relative paths, backslashes, control characters and any URI scheme are rejected
+before a fetch is attempted.
+There are no approve, prepare, activate or other mutating controls. Unknown and
+missing values stay visibly unknown or missing, and a stale source stays stale
+even when the wrapper `generated_at` is fresh.
+
+## Split API preview
+
+The same loopback server keeps the earlier synthetic observation preview as API
+routes. The Observation Ledger page does not render these routes; they remain
+for contract validation:
 
 | Local route | Response |
 | --- | --- |
@@ -53,6 +74,15 @@ observations become stale; timestamps are never refreshed. This mock consumer
 uses a 1,800-second age budget, 300-second acquisition window and 300-second
 future-clock allowance. Historical status is never recomputed or auto-cleared.
 These constants neither inspect nor change deployed recovery TTL settings.
+
+Use `--observation /path/to/observation.json` to consume output from the producer
+instead of the checked-in golden fixture. Paths are local synthetic files only;
+do not download real account data or September production records to this mock.
+For additional scenarios replace `matched.json` with `mismatched.json`,
+`missing-ledger.json`, `missing-reference.json` or `busy.json`.
+Missing ledger/reference displays **无法比较** (not comparable), never invented
+balances. All examples are fictional, including the September 1999 recovery.
+The actual September production pack is never read or modified.
 
 ## Contract and fixture provenance
 
@@ -82,10 +112,19 @@ fixture. No external data, production identity, hashes or account aliases are us
 node tests/offline_reconciliation_console_validation.mjs
 ```
 
-The validation job runs this test. It exercises strict contract rejection,
-freshness, UI rendering, the split API, preserved historical JSON, unavailable
-sections and rejected mutation paths. Existing production recovery tests continue
-unchanged in the normal repository CI.
+The validation job runs this command. It also imports
+`tests/observation_ledger_validation.mjs`, so both suites run in the same CI
+step; run `node tests/observation_ledger_validation.mjs` alone for a faster
+loop. The ledger suite exercises honest cell mapping (missing stays
+Unreconciled, unprovable stays Not proven), the four-state tally identity,
+locale key parity and non-empty copy, read-only page markup with no form or
+mutating control, fixture account ordinals instead of `account_key`, sample
+rendering, theme/language persistence, browser defaults, the relative
+`?source=` override, rejection of absolute sources, and the page-level error
+banner that clears stale tallies and tables. The console suite retains strict
+contract rejection, freshness, the split API, preserved historical JSON,
+unavailable sections and rejected mutation paths. Existing production recovery
+tests continue unchanged in the normal repository CI.
 
 ## Replace mock with live later
 

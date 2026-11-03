@@ -338,7 +338,9 @@ if (process.env.DAILY_SETUP_MODE==='preflight') {
     healthVersion=current.version;
   } catch { /* Independent read-only diagnostic; unknown remains null. */ }
   try {
-    const response=await fetch('https://qsl-strategy-switch-console.pigbibi.workers.dev/api/strategy-health',
+    const origin=new URL(process.env.STRATEGY_SWITCH_CONSOLE_URL || '');
+    if (origin.protocol!=='https:' || origin.username || origin.password || origin.pathname!=='/' || origin.search || origin.hash) throw Error('invalid_console_origin');
+    const response=await fetch(new URL('/api/strategy-health',origin),
       {method:'GET',redirect:'error',signal:AbortSignal.timeout(10000)});
     const body=await response.json();
     healthRouteReachable=response.status===401 && body?.ok===false && body?.error==='login required';

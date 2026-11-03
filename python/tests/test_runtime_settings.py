@@ -208,7 +208,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertIn("id-token: write", workflow)
         self.assertIn("--runtime-artifact-evidence-registry", workflow)
         self.assertIn("verify_runtime_artifact_evidence.py", workflow)
-        self.assertIn("qsl-artifact-evidence@", workflow)
+        self.assertIn("GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ secrets.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}", workflow)
         self.assertIn("no publishing, runtime change, or order submission", workflow)
         self.assertIn("Keep affected routes parked", workflow)
         self.assertNotIn("gcloud storage cp", workflow)

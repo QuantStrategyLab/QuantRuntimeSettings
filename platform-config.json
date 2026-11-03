@@ -33,12 +33,10 @@
           "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"
         ]
       },
-      "gcp_projects": [
-        "firstradequant",
-        "longbridgequant",
-        "charlesschwabquant",
-        "interactivebrokersquant"
-      ],
+      "gcp_projects_ref": {
+        "source": "runtime_environment",
+        "preferred_env": "QSL_NOTIFICATION_GCP_PROJECTS_JSON"
+      },
       "env_aliases": {
         "bot_token": [
           "TELEGRAM_TOKEN",
