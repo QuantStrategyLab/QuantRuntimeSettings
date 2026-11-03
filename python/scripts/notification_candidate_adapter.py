@@ -142,7 +142,10 @@ def aggregate(rows: Sequence[Mapping[str, Any]], expected: Sequence[Mapping[str,
     run_counts = defaultdict(int)
     unknown_run_platforms = set()
     allowed = {tuple(str(row[name]) for name in IDENTITY[:4]) for row in expected}
-    for index, raw in enumerate(rows):
+    # Arrival order is not chronology. Stable input order also keeps optional
+    # display observations and account ordinals reproducible across replays.
+    ordered = sorted(rows, key=lambda row: json.dumps(row, sort_keys=True, allow_nan=False))
+    for index, raw in enumerate(ordered):
         row = validate_run_row(raw)
         events = events_for(row)
         _bind_identity(row, events)
@@ -192,6 +195,17 @@ def aggregate(rows: Sequence[Mapping[str, Any]], expected: Sequence[Mapping[str,
             elif old_status != "known" and status == "known":
                 merged[name] = value
                 merged["field_status"] = {**merged.get("field_status", {}), name: "known"}
+        # Evidence axes have no revision authority: failures and disagreements
+        # cannot be cleared by a healthy replay or by deterministic sort order.
+        for name, failure in (("evidence_delivery_status", "delivery_failed"),
+                              ("evidence_persistence_status", "persistence_failed")):
+            old_value, value = previous.get(name), row.get(name)
+            if old_value == failure or value == failure:
+                merged[name] = failure
+            elif old_value and value and old_value != value:
+                merged[name] = "unknown"
+            elif old_value or value:
+                merged[name] = old_value or value
         # Candidate, archive and heartbeat observations describe the same run.
         # A repeated category is never added twice; a disagreement stays unknown.
         old_observations = previous.get("routine_observation_counts")
@@ -221,6 +235,10 @@ def aggregate(rows: Sequence[Mapping[str, Any]], expected: Sequence[Mapping[str,
         for name in ("block_reason", "rebalance_conclusion", "execution_status"):
             if row.get(name) and (not merged.get(name) or name == "block_reason"):
                 merged[name] = row[name]
+        old_status, status = previous.get("execution_status"), row.get("execution_status")
+        if previous.get("_conflict_execution_status") or (old_status and status and old_status != status):
+            merged.update(execution_status="execution_unknown", status="alert",
+                          _conflict_execution_status=True, _approved_gate_conflict=True)
         merge_reasons(previous, row, merged)
         grouped[key] = merged
     # Classification follows the final per-run evidence, just like counts.

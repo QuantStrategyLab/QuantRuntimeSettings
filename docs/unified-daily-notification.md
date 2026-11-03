@@ -288,3 +288,23 @@ and the central reader observes it. Cloud Scheduler accepting a job execution,
 a successful test, or an English draft PR does not establish that result.
 See the platform notification documents for the proposed job configuration and
 [Google's scheduled-job instructions](https://docs.cloud.google.com/run/docs/execute/jobs-on-schedule).
+
+## Deterministic summary projection
+
+The summary counts archive-projected runs once by platform, account, target,
+strategy and source run. Input arrival order does not establish chronology.
+Conflicting known counters remain unknown; conflicting non-empty execution
+statuses remain `execution_unknown` with attention. A submission, broker
+acknowledgement, pending state or partial fill is explicitly unconfirmed even
+when some execution records have already been counted. `completed` describes
+execution processing and cannot replace an unknown fill count.
+
+Known zero counters suppress a row only when its execution and evidence state
+are healthy. Blocked or failed runs remain visible with zero observed orders.
+LongBridge and Binance use the same identity, window, deduplication and unknown
+coverage rules as other brokers. Platform support does not create production
+bindings or turn a disabled target into a verified zero-activity window.
+
+Future broker-side confirmation is described in
+[Fill confirmation design](fill-confirm-design.md). It is design only and grants no
+runtime, broker, deployment or notification authority.
