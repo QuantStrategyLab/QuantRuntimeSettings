@@ -121,12 +121,12 @@ class UnifiedScheduleTests(unittest.TestCase):
 
 
 class UnifiedFillFactsTests(unittest.TestCase):
-    def test_confirmed_order_without_execution_count_is_not_a_diagnostic_or_fake_fill(self):
+    def test_completed_execution_without_fill_count_keeps_fill_uncertainty_visible(self):
         text = render(payload(row(order_count=1, fill_count=None, fill_count_status="unknown", execution_status="executed")))
         self.assertIn("订单 Orders 1", text)
-        self.assertIn("Completed", text)
+        self.assertIn("Fill count unknown", text)
         self.assertNotIn("Fills 1", text)
-        self.assertNotIn("Diagnostics", text)
+        self.assertIn("Diagnostics", text)
 
 
 class UnifiedCoverageTests(unittest.TestCase):

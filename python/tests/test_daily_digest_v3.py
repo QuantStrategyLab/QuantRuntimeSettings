@@ -38,8 +38,9 @@ class DigestV3Tests(unittest.TestCase):
         item = row(order_count=0, fill_count=0, cycle_count=24, equity=1234, holdings=(DigestHolding('SYN', quantity=2),))
         self.assertEqual(render(payload(item)), '😴 今日全部账号无交易')
         self.assertEqual(render(payload()), '😴 今日全部账号无交易')
-        self.assertEqual(render(payload(replace(item, status='alert', rebalance_conclusion='blocked'))),
-                         '😴 今日全部账号无交易')
+        blocked = render(payload(replace(item, status='alert', rebalance_conclusion='blocked')))
+        self.assertNotIn('今日全部账号无交易', blocked)
+        self.assertIn('已拦截', blocked)
 
     def test_only_provided_observation_fields_are_rendered_without_mutation(self):
         item = row(order_count=1, fill_count=1, equity=569.2,

@@ -91,11 +91,11 @@ class RoutineNotificationContractTests(unittest.TestCase):
                 before = copy.deepcopy(raw)
                 payload, text, collected = self.render([raw], locale=locale, unified=unified)
                 if unified:
-                    self.assertEqual(text, "😴 今日全部账号无交易" if locale == "zh" else "😴 No trades across all accounts today")
-                else:
-                    self.assertIn("12.5 USD", text)
-                    self.assertIn("50.0 USD", text)
-                    self.assertIn("跳过该计划" if locale == "zh" else "skip this plan", text)
+                    self.assertNotIn("😴", text)
+                    self.assertIn("已拦截" if locale == "zh" else "Blocked", text)
+                self.assertIn("12.5 USD", text)
+                self.assertIn("50.0 USD", text)
+                self.assertIn("跳过该计划" if locale == "zh" else "skip this plan", text)
                 self.assertEqual(raw, before)
                 self.assertEqual(payload.runs[0].status, "alert")
                 self.assertEqual((payload.runs[0].order_count, payload.runs[0].fill_count), (0, 0))
