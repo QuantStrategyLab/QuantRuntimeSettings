@@ -25,7 +25,7 @@ class QSLCompatCheckerTest(unittest.TestCase):
             ("AIAuditBridge", "AIAuditBridge", "QuantStrategyLab/QuantAIService", ref, False, False, "unmanaged"),
             ("QuantAIService", None, None, ref, False, False, "unmanaged"),
             ("QuantAIService", "AIAuditBridge", "QuantStrategyLab/QuantAIService", ref, False, False, "unmanaged"),
-            ("QuantAIService", "QuantAIService", "Pigbibi/QuantAIService", ref, False, False, "unmanaged"),
+            ("QuantAIService", "QuantAIService", "example-owner/QuantAIService", ref, False, False, "unmanaged"),
             ("UnknownAI", "QuantAIService", "QuantStrategyLab/QuantAIService", ref, False, False, "unmanaged"),
             ("QuantAIService", "QuantAIService", "QuantStrategyLab/QuantAIService", ref, False, True, None),
             ("QuantAIService", "QuantAIService", "QuantStrategyLab/QuantAIService", ref, True, False, "forbidden dependency direction"),

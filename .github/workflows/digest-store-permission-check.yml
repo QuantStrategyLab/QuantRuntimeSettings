@@ -1,7 +1,7 @@
 name: Digest Store Permission Check
 
 # NOTIFY-04 B2 (read-only): probe whether this repo's GitHub identity can write /
-# read the shared digest-candidate prefix in gs://qsl-runtime-logs-shared, and
+# read the shared digest-candidate prefix in the privately configured bucket, and
 # whether the bucket is private. Uses testIamPermissions / metadata reads only;
 # never creates, overwrites or deletes objects. Prints booleans and HTTP codes.
 on:
@@ -16,14 +16,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      GCP_PROJECT_ID: longbridgequant
-      GCP_WORKLOAD_IDENTITY_PROVIDER: projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main
-      GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: qsl-artifact-evidence@longbridgequant.iam.gserviceaccount.com
-      DIGEST_STORE_BUCKET: qsl-runtime-logs-shared
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ secrets.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+      DIGEST_STORE_BUCKET: ${{ secrets.DIGEST_STORE_BUCKET }}
       DIGEST_STORE_PREFIX: digest-candidates/
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Require private infrastructure configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${GCP_PROJECT_ID:-}" ] || { echo "GCP_PROJECT_ID is required" >&2; exit 2; }
+          [ -n "${GCP_WORKLOAD_IDENTITY_PROVIDER:-}" ] || { echo "GCP_WORKLOAD_IDENTITY_PROVIDER is required" >&2; exit 2; }
+          [ -n "${GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT:-}" ] || { echo "GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT is required" >&2; exit 2; }
+          [ -n "${DIGEST_STORE_BUCKET:-}" ] || { echo "DIGEST_STORE_BUCKET is required" >&2; exit 2; }
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3

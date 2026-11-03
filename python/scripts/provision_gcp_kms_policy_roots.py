@@ -261,8 +261,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--root-record-dir",
         type=Path,
-        default=Path("docs/p0_control_roots/gcp"),
-        help="repository-relative directory for public root JSON records",
+        default=Path.home() / ".config" / "qsl" / "promotion-roots",
+        help="private directory for root JSON records; never commit these files",
     )
     parser.add_argument("--apply", action="store_true", help="enable KMS and create missing key rings/keys")
     args = parser.parse_args(argv)

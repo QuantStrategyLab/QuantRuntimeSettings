@@ -132,7 +132,7 @@ try {
     assert.equal((await create()).status, 503); assert.equal(nativeCalls.length, 0); assert.equal(rechecks.length, 0);
     await reset({ transport: false }); await seed();
     assert.equal((await create()).status, 503); assert.equal(posts(), 0);
-    await reset({ extra: { ACCOUNT_DIAGNOSIS_NATIVE_BINDING_JSON: JSON.stringify({ ...nativeBinding, project: "Pigbibi/PersonalAIService" }) } });
+    await reset({ extra: { ACCOUNT_DIAGNOSIS_NATIVE_BINDING_JSON: JSON.stringify({ ...nativeBinding, project: "example-owner/PersonalAIService" }) } });
     await seed(); assert.equal((await create()).status, 503); assert.equal(posts(), 0);
   });
   await group("original auth, same-origin, body and target qualification gates", async () => {
@@ -183,7 +183,7 @@ try {
     complete(taskFor(id)); assert.equal((await readback(id)).body.task.status, "succeeded");
   });
   await group("wrong service project/provider/revision/request/task/claim never adopts", async () => {
-    for (const [field, value] of [["owner", "Pigbibi/PhotoStory"], ["provider", "wrong"], ["revision", 2], ["request", {}], ["id", "wrong"], ["worker", "wrong"], ["attempt", "changed"]]) {
+    for (const [field, value] of [["owner", "example-owner/PhotoStory"], ["provider", "wrong"], ["revision", 2], ["request", {}], ["id", "wrong"], ["worker", "wrong"], ["attempt", "changed"]]) {
       await reset(); await seed(); const made = await create(), id = made.body.request_id, record = taskFor(id);
       running(record); assert.equal((await readback(id)).status, 200); complete(record);
       mutate = reply => ({ ...reply, [field]: value });
