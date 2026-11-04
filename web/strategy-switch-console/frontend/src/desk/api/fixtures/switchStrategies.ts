@@ -98,8 +98,33 @@ export const empty = {
   strategies: [],
 } satisfies SwitchStrategies;
 
-/** The mock catalog follows the selected target; only the domain and target id change. */
+// Non-US catalogs preserve the existing profiles' research-only execution modes.
+const NON_US_CATALOGS: Record<string, StrategyOption[]> = {
+  crypto: [option({
+    profile: "crypto_btc_dca",
+    label: "BTC DCA",
+    domain: "crypto",
+    eligibility: "no_live",
+    reason: "shadow_candidate_requires_evidence_package",
+    allowed_execution_modes: ["paper", "dry_run"],
+    lifecycle_stage: "shadow_active",
+    dca_supported: true,
+  })],
+  hk_equity: [option({
+    profile: "hk_global_etf_tactical_rotation",
+    label: "HK ETF Tactical Rotation",
+    domain: "hk_equity",
+    eligibility: "blocked",
+    reason: "research_backtest_only_requires_evidence_package",
+    allowed_execution_modes: ["dry_run"],
+    lifecycle_stage: "research_active",
+    dca_supported: false,
+  })],
+};
+
+/** The mock catalog and eligibility follow the selected target's domain. */
 export function forTarget(targetId: string, scenario: "ok" | "degraded"): SwitchStrategies {
   const base = scenario === "degraded" ? degraded : ok;
-  return { ...base, target_id: targetId, domain: domainFor(targetId) };
+  const domain = domainFor(targetId);
+  return { ...base, target_id: targetId, domain, strategies: NON_US_CATALOGS[domain] ?? base.strategies };
 }

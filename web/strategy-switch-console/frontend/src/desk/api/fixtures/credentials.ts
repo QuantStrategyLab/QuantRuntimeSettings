@@ -17,7 +17,7 @@ export const ok = {
       limit_days: 30,
       phase: "7",
       requires_action: true,
-      rotation: { supported: true, route: "/health#credential-rotation" },
+      rotation: { supported: true, route: "/?page=health#credential-rotation" },
       runbook: "docs/credential-maintenance.zh-CN.md",
       last_rotated_at: "2026-09-09T17:30:00Z",
     }),
