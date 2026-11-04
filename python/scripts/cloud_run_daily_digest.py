@@ -49,7 +49,7 @@ class Configuration:
     candidate_uris: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        adapter.validate_expected(self.expected)
+        aggregator.expected_notification_targets(self.expected)
         expected = []
         for row in self.expected:
             if 'account_label' in row:
@@ -143,6 +143,9 @@ def _sources(configuration, store, day, end, *, now, monotonic):
     rows, outcomes = [], []
     budget_end = monotonic() + min(120, max(0, (end - now()).total_seconds()))
     for binding in configuration.expected:
+        if binding.get('notification_state', 'active') == 'disabled':
+            outcomes.append('disabled')
+            continue
         timeout = min(20, budget_end - monotonic(), (end - now()).total_seconds())
         outcome = 'read_failed'
         if timeout > 0:
@@ -187,7 +190,7 @@ def _report(configuration, rows, outcomes, day, platform_config):
             business_day=day, locale=configuration.locale, candidates_path=path,
             include_github=False, config=config, candidate_failures=failures,
         )
-    covered = sum(value in {'present', 'not_run'} for value in outcomes)
+    covered = sum(value in {'present', 'not_run', 'disabled'} for value in outcomes)
     coverage = 'complete' if covered == len(outcomes) else 'partial' if covered else 'unavailable'
     if coverage == 'complete' and (payload.notification_summary or {}).get('counts_unknown'):
         coverage = 'partial'
@@ -199,7 +202,7 @@ def _report(configuration, rows, outcomes, day, platform_config):
               'not_run': '报告注明未运行；不推断成交统计' if zh else 'Explicitly did not run; no inferred fills'}
     details = []
     for binding, outcome in zip(configuration.expected, outcomes):
-        if outcome == 'present':
+        if outcome in {'present', 'disabled'}:
             continue
         platform = _safe_display_text(display_name('platforms', binding['platform_id'], configuration.locale))
         strategy = _safe_display_text(display_name('strategies', binding['strategy_profile'], configuration.locale,
@@ -214,12 +217,6 @@ def _report(configuration, rows, outcomes, day, platform_config):
             break
         trailer.append(detail)
     base = render(payload, max_units=max(256, 3850 - _units('\n'.join(trailer))))
-    idle = '😴 今日全部账号无交易' if zh else '😴 No trades across all accounts today'
-    if coverage == 'complete' and (not base or base == idle):
-        return idle, coverage
-    if not base:
-        base = (f'每日交易摘要 · {day}\n未收录实际运行；订单及成交统计未知。' if zh else
-                f'Daily trading digest · {day}\nNo observed runs; order and fill counts unknown.')
     return base + '\n' + '\n'.join(trailer), coverage
 
 

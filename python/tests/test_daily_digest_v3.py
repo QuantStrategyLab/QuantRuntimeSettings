@@ -23,7 +23,7 @@ class DigestV3Tests(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
 
-    def test_active_accounts_are_flat_and_idle_account_is_omitted(self):
+    def test_active_and_idle_accounts_share_the_same_report(self):
         text = render(payload(row(platform_id='ibkr', order_count=1, fill_count=1, section='us_daily'),
             row('synthetic-b', order_count=1, fill_count=0, section='dca'),
             row('synthetic-idle', order_count=0, fill_count=0, cycle_count=24, section='crypto_intraday')))
@@ -31,13 +31,18 @@ class DigestV3Tests(unittest.TestCase):
         self.assertIn('Schwab·00000002', text)
         self.assertIn('提交1笔/成交1笔', text)
         self.assertIn('提交1笔/成交0笔', text)
-        for absent in ('00000003', '美股日策略', '定投', '加密小时策略', '提交订单', '单1/成1'):
+        self.assertIn('00000003', text)
+        self.assertIn('已核实无交易', text)
+        for absent in ( '美股日策略', '定投', '加密小时策略', '提交订单', '单1/成1'):
             self.assertNotIn(absent, text)
 
-    def test_verified_idle_is_exactly_one_line_even_with_cycles_or_observations(self):
+    def test_verified_idle_keeps_sections_cycles_and_observations(self):
         item = row(order_count=0, fill_count=0, cycle_count=24, equity=1234, holdings=(DigestHolding('SYN', quantity=2),))
-        self.assertEqual(render(payload(item)), '😴 今日全部账号无交易')
-        self.assertEqual(render(payload()), '😴 今日全部账号无交易')
+        self.assertIn('已核实无交易', render(payload(item)))
+        self.assertIn('账户观察', render(payload(item)))
+        self.assertIn('总资产 USD 1,234.00', render(payload(item)))
+        self.assertIn('已收录运行 0 次', render(payload()))
+        self.assertIn('证据与缺口', render(payload()))
         blocked = render(payload(replace(item, status='alert', rebalance_conclusion='blocked')))
         self.assertNotIn('今日全部账号无交易', blocked)
         self.assertIn('已拦截', blocked)
@@ -53,8 +58,9 @@ class DigestV3Tests(unittest.TestCase):
         self.assertIn('4股', text)
         self.assertIn('$312.40', text)
         bare = render(payload(replace(item, equity=None, holdings=())))
-        for absent in ('总资产', '持仓', '现金', '较昨'):
+        for absent in ('总资产', '持仓', '较昨'):
             self.assertNotIn(absent, bare)
+        self.assertIn('现金、观察时间、对账：未知（未核实）', bare)
         self.assertEqual(asdict(item), before)
 
     def test_multiple_runs_of_one_account_have_one_header_and_summed_counts(self):
@@ -185,7 +191,7 @@ class DigestV3Tests(unittest.TestCase):
 
     def test_emoji_preserve_exact_trade_count_wording(self):
         text = render(payload(row(equity=100, holdings=(DigestHolding('SYN', quantity=1),))))
-        for marker in ('📊 每日交易摘要', '🕒 统计区间', '🏦 Schwab·', '🎯 策略：',
+        for marker in ('【资产管理日报｜', '统计区间', '🏦 Schwab·', '🎯 策略：',
                        '📝 提交1笔/成交1笔', '💰 总资产', '💼 持仓'):
             self.assertIn(marker, text)
         self.assertNotIn('💼 💼', text)
@@ -195,7 +201,7 @@ class DigestV3Tests(unittest.TestCase):
         rows = [row(f'synthetic-{index}', order_count=1, fill_count=1, equity=1000, holdings=holdings)
                 for index in range(6)]
         text = render(payload(*rows), max_units=600)
-        self.assertEqual(text.count('Schwab·'), 6)
+        self.assertEqual(text.count('🏦 Schwab·'), 6)
         self.assertEqual(text.count('提交1笔/成交1笔'), 6)
         self.assertIn('省略', text)
         self.assertLessEqual(len(text.encode('utf-16-le')) // 2, 600)

@@ -24,10 +24,17 @@ zero-fill run can say no trades; an unknown count cannot. Independent evidence
 persistence or delivery issues remain visible alongside the submission status.
 
 The production compact template, with `QRS_UNIFIED_NOTIFICATION_ENABLED=true`,
-uses one selected language: report business day, observed
-run count, independently verified order/fill totals, source coverage, attention
-items, then routine decisions and observations. Healthy zero-trade runs still
-produce a daily report. Unknown coverage never becomes a successful idle day.
+uses one selected language and a fixed structure: report date (the day after
+its business day), the completed 06:00–06:00 SGT window, completeness and observed
+run count, attention, runs and trades, account observations, and evidence and gaps.
+A complete zero-trade report uses those same sections and retains the verified
+zero-trade runs and their supplied observations. It never collapses to a single
+idle sentence. Legacy manual preview renderers remain compatible; their layouts
+cannot select an alternative production Cloud Run template.
+Cash, observation time, reconciliation and run links remain explicitly unverified
+or unavailable when the current producer projection does not supply validated
+fields. Equity and holdings are separate producer snapshots, not current account
+facts or a combined multi-currency balance. Unknown coverage never becomes a successful idle day.
 The existing UTF-16 budget keeps delivery to one message and prioritizes issues.
 Internal exception text, account identifiers, private paths and plugin prose
 are not display fallbacks.
@@ -253,7 +260,14 @@ a workflow conclusion alone is never an order or fill fact.
 
 Unified mode requires a nonempty protected `DIGEST_EXPECTED_TARGETS_JSON` list
 (or the existing `aggregator.expected_targets` contract). Declare only approved
-active targets, with platform/profile and protected target/account identity.
+targets, with platform/profile and protected target/account identity.
+The optional `notification_state` is `active` by default; only explicit `disabled`
+excludes a target from candidate reads and required active coverage. Other values
+fail configuration validation. A disabled target stays in the display inventory
+with runs, orders and fills not applicable; absence of a target never implies
+it is disabled. This notification inventory does not change an execution switch
+or prove the deployed runtime is off. A current candidate for a binding declared
+disabled is a conflict and fails intake, rather than being hidden.
 Missing due targets remain diagnostics; an absent inventory stops construction
 rather than silently claiming coverage of all platforms. Configured closed
 sessions provide an `actually_ran=false` candidate without a no-trade heartbeat.

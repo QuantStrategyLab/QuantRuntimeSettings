@@ -781,8 +781,12 @@ def collect_digest_runs(
         raise ValueError("digest_expected_targets_required")
     if not isinstance(expected, list):
         raise ValueError("digest_expected_targets_invalid")
+    disabled = []
     if consolidation_enabled():
-        adapter.validate_expected(expected)
+        expected, disabled = expected_notification_targets(expected)
+        disabled_keys = {tuple(row.get(name) for name in adapter.IDENTITY[:4]) for row in disabled}
+        if any(tuple(row.get(name) for name in adapter.IDENTITY[:4]) in disabled_keys for row in file_rows):
+            raise ValueError("digest_disabled_target_has_candidate")
         # In unified mode a different strategy/account on the same target is
         # not evidence for the protected expected binding.
         observed = {tuple(row.get(name) for name in adapter.IDENTITY[:4]) for row in file_rows}
@@ -808,6 +812,12 @@ def collect_digest_runs(
     notification_summary = None
     if consolidation_enabled():
         merged, notification_summary = adapter.aggregate(file_rows, expected)
+        notification_summary["counts_not_applicable"] = not expected
+        for platform in {row["platform_id"] for row in disabled}:
+            inventory = notification_summary["source_inventory"][platform]
+            inventory["disabled_targets"] = sum(row["platform_id"] == platform for row in disabled)
+            if not inventory["expected_targets"]:
+                inventory.update(state="disabled", runs=None)
     else:
         merged = merge_candidates(file_rows, github_result.rows)
     enriched = enrich_candidate_labels(merged, config, locale=locale)
@@ -894,6 +904,19 @@ def _run_receipt_dict(entry: digest.DigestRunEntry) -> dict[str, Any]:
     return payload
 
 
+def expected_notification_targets(expected):
+    """Partition explicit notification inventory without inferring runtime state."""
+    import notification_candidate_adapter as adapter
+    adapter.validate_expected(expected)
+    active, disabled = [], []
+    for row in expected:
+        state = row.get("notification_state", "active")
+        if not isinstance(state, str) or state not in {"active", "disabled"}:
+            raise ValueError("digest_expected_state_invalid")
+        (disabled if state == "disabled" else active).append(row)
+    return active, disabled
+
+
 def build_digest_payload(
     *,
     business_day: str | None = None,
@@ -968,6 +991,10 @@ def build_receipt(
         receipt["notification_summary"] = dict(collected.notification_summary or {})
         if receipt["notification_summary"].get("run_count_unknown"):
             receipt["run_count"] = None
+        if receipt["notification_summary"].get("counts_not_applicable"):
+            # Existing receipt types use null/unknown; the additive summary
+            # distinguishes inapplicable scope from unavailable active counts.
+            receipt.update(run_count=None, total_fills=None, total_fills_status="unknown")
     # B11-b: additive dual-write of delivery axes (projection only).
     return delivery_axes.attach_delivery_axes(receipt)
 
