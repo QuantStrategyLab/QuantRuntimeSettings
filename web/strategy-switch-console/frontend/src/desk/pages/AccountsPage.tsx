@@ -114,9 +114,14 @@ export function AccountsPage({ api, t, language, initialTab = "brokers" }: {
   // A deep link such as ?tab=credentials wins when it changes while the page is mounted.
   useEffect(() => { setTab(initialTab); }, [initialTab]);
 
+  // Frame N1: the credentials tab carries the credential count once the read is back.
+  const credentialCount = credentials.load.state === "ready" ? credentials.load.result.data.items.length : null;
+  const credentialsLabel = credentialCount === null
+    ? t("accounts.tabs.credentials")
+    : t("accounts.tabs.credentials_count", { label: t("accounts.tabs.credentials"), count: credentialCount });
   const tabs = [
     { id: "brokers", label: t("accounts.tabs.brokers") },
-    { id: "credentials", label: t("accounts.tabs.credentials") },
+    { id: "credentials", label: credentialsLabel },
   ];
 
   let body;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { invalidatePrivateSession, postJson } from "../api/client";
 import { loadPreferences, resolveTheme, savePreferences, type Language, type ThemePreference } from "../lib/prefs";
 import { createDeskApi, type DeskResult } from "./api/endpoints.ts";
 import { MOCK_STORAGE_KEY, resolveMockScenario } from "./api/mock.ts";
@@ -9,7 +10,7 @@ import { deskTranslator, resolveDeskLanguage } from "./i18n/index.ts";
 import { deskHash, hotkeyPage, isDeskHash, parseDeskHash, urlOverrides, type DeskPage } from "./router.ts";
 import { classifySessionFailure, deskAccess, type SessionFailure } from "./shell/access.ts";
 import { AccessCard, DeskShell } from "./shell/DeskShell";
-import type { GatewayChip } from "./shell/TopBar";
+import type { GatewayChip, ShellLock } from "./shell/TopBar";
 import { freshnessFromAge } from "./components/stateModel.ts";
 import type { FreshnessChipState } from "./components/stateModel.ts";
 import { PageStub } from "./pages/PageStub";
@@ -55,6 +56,12 @@ export default function DeskApp() {
   const [clientNow, setClientNow] = useState(() => Date.now());
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const t = useMemo(() => deskTranslator(language), [language]);
+  const access = deskAccess(session);
+  // 401 / 403 / unreadable session: the frame keeps its shape but carries no data.
+  const lock: ShellLock | null = access === "login" ? { crumb: "access.title", chip: "access.chip.login" }
+    : access === "denied" ? { crumb: "access.denied_title", chip: "access.chip.denied" }
+    : access === "error" ? { crumb: "access.error_title", chip: "access.chip.error" }
+    : null;
 
   useEffect(() => {
     const html = document.documentElement;
@@ -77,16 +84,8 @@ export default function DeskApp() {
       if (!isDeskHash(window.location.hash)) window.location.reload();
       else setRoute(parseDeskHash(window.location.hash));
     };
-    const onKey = (event: KeyboardEvent) => {
-      const next = hotkeyPage(event);
-      if (next) window.location.hash = deskHash(next);
-    };
     window.addEventListener("hashchange", onHash);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("hashchange", onHash);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
   useEffect(() => {
@@ -104,6 +103,19 @@ export default function DeskApp() {
   }, [api, sessionEpoch]);
 
   useEffect(() => {
+    // Number hotkeys switch pages, so they are inert exactly when the dock is.
+    if (lock) return;
+    const onKey = (event: KeyboardEvent) => {
+      const next = hotkeyPage(event);
+      if (next) window.location.hash = deskHash(next);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lock]);
+
+  useEffect(() => {
+    // Fail closed: without a confirmed session the runtime ribbon is not even read.
+    if (access !== "open") return;
     let alive = true;
     const load = () => api.ribbon().then(
       result => alive && setRibbon({ state: "ready", result }),
@@ -118,7 +130,7 @@ export default function DeskApp() {
       window.clearInterval(poll);
       window.clearInterval(tick);
     };
-  }, [api]);
+  }, [api, access]);
 
   const setLanguage = useCallback((next: Language) => {
     setLanguageState(next);
@@ -142,8 +154,16 @@ export default function DeskApp() {
   const serverClock = session.state === "ready" && offsetMs !== null;
   const nowIso = serverNowIso(serverClock ? offsetMs : null, clientNow);
 
-  const access = deskAccess(session);
   const retry = () => setSessionEpoch(value => value + 1);
+  const signOut = useCallback(async () => {
+    invalidatePrivateSession();
+    try {
+      await postJson("/api/logout", {});
+    } catch {
+      // Local state is already cleared; the redirect is what the owner can see.
+    }
+    window.location.assign("/login");
+  }, []);
   const admin = session.state === "ready" && session.result.data.admin === true;
   const freshness: FreshnessChipState = ribbon.state === "loading" ? { kind: "loading" }
     : ribbon.state === "failed" ? { kind: "failed" }
@@ -166,7 +186,7 @@ export default function DeskApp() {
 
   const content = access === "open" ? pageContent
     : access === "loading" ? <section className="mrd-card mrd-access" aria-busy="true"><p>{t("access.loading")}</p></section>
-    : <AccessCard t={t} kind={access} onRetry={retry} />;
+    : <AccessCard t={t} kind={access} onRetry={retry} onSignOut={signOut} />;
 
   return (
     <DeskShell
@@ -179,7 +199,8 @@ export default function DeskApp() {
       nowIso={nowIso}
       serverClock={serverClock}
       mock={mock}
-      freshness={freshness}
+      freshness={lock ? null : freshness}
+      lock={lock}
       onNavigate={navigate}
       onLanguage={setLanguage}
       onTheme={toggleTheme}

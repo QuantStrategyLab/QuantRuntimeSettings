@@ -24,7 +24,7 @@ export const P = {
   rowBetween: { ...row, justifyContent: "space-between" } as CSSProperties,
   column: { ...col, gap: 4 } as CSSProperties,
   muted: { margin: 0, color: "var(--mrd-ink-3)", fontSize: 12 } as CSSProperties,
-  mono: { fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--mrd-ink-3)" } as CSSProperties,
+  mono: { fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--mrd-ink-3)", overflowWrap: "anywhere" } as CSSProperties,
   strip: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 } as CSSProperties,
   stripCol: { ...col, gap: 6, padding: 14, borderRadius: 16, background: "var(--mrd-panel)", border: "1px solid var(--mrd-line)" } as CSSProperties,
   filterRow: { ...row, gap: 6 } as CSSProperties,
@@ -76,4 +76,21 @@ export const P = {
   detailItem: { ...col, gap: 2 } as CSSProperties,
   detailLabel: { margin: 0, color: "var(--mrd-ink-3)", fontSize: 11 } as CSSProperties,
   detailValue: { margin: 0, fontSize: 13, overflowWrap: "anywhere" } as CSSProperties,
+  chips: { display: "flex", flexWrap: "wrap", gap: 6 } as CSSProperties,
+  tableWrap: { overflowX: "auto" } as CSSProperties,
+  legendGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 } as CSSProperties,
+  sr: { position: "absolute", width: 1, height: 1, margin: -1, padding: 0, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap", border: 0 } as CSSProperties,
+  mark: (tone: "ok" | "warn" | "risk" | "unknown"): CSSProperties => ({
+    color: tone === "risk" ? "var(--mrd-coral)" : tone === "warn" ? "var(--mrd-amber)" : tone === "ok" ? "var(--mrd-mint)" : "var(--mrd-unknown)",
+  }),
+  banner: { ...row, alignItems: "baseline", gap: 8, padding: "14px 16px", borderRadius: 16, border: "1px solid var(--mrd-line)", background: "color-mix(in srgb, var(--mrd-amber) 10%, var(--mrd-panel))" } as CSSProperties,
+  lockChip: { color: "var(--mrd-unknown)", borderColor: "var(--mrd-unknown)" } as CSSProperties,
+  /** Row tint for the credentials table; the urgency is also carried as text and as data. */
+  tint: (urgency: "expired" | "due" | "unknown"): CSSProperties => ({
+    background: urgency === "expired"
+      ? "color-mix(in srgb, var(--mrd-coral) 12%, transparent)"
+      : urgency === "due"
+        ? "color-mix(in srgb, var(--mrd-amber) 12%, transparent)"
+        : "color-mix(in srgb, var(--mrd-unknown) 12%, transparent)",
+  }),
 };
