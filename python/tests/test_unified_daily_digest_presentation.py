@@ -111,7 +111,7 @@ class UnifiedPresentationTests(unittest.TestCase):
                     self.assertIn("00000011\n🎯 策略：半导体趋势收益", text)
                     self.assertNotIn("Account 00000011", text)
             text = render(payload(row(), locale=" en-US "))
-            self.assertIn("Daily trading digest", text)
+            self.assertIn("Asset management daily report", text)
             self.assertIn("Account 00000011\n🎯 Strategy: Semiconductor Trend Income", text)
             self.assertNotIn("Schwab·00000011\n", text)
 

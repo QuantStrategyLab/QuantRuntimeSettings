@@ -98,8 +98,8 @@ class ConfigLabelTests(unittest.TestCase):
             self.assertIn('IBKR·sg 2', text)
             self.assertNotIn('U0000099', text)
             self.assertIn('IBKR·***99', render(payload(replace(active, account_label=''))))
-            self.assertEqual(render(payload(replace(active, order_count=0, fill_count=0))),
-                             '😴 今日全部账号无交易')
+            self.assertIn('已核实无交易', render(payload(replace(active, order_count=0, fill_count=0))))
+            self.assertIn('证据与缺口', render(payload(replace(active, order_count=0, fill_count=0))))
 
     def test_cli_withholds_private_labels_and_fake_ids(self):
         with patch.dict(os.environ, {'QRS_UNIFIED_NOTIFICATION_ENABLED': 'true'}, clear=True):
