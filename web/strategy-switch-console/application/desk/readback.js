@@ -14,7 +14,13 @@ const admissionPrefix = "desk:readbacks:admission:";
 const admissionKey = actor => admissionPrefix + actor.toLowerCase();
 const prefix = "desk:readbacks:record:";
 
-export function normalizeReadbackValue(key, value, cleanRatio) {
+export function normalizeReadbackValue(key, value, cleanRatio, splitSelectorValues) {
+  if (key === "account_selector") {
+    const values = Array.isArray(value) ? value : [value];
+    if (!values.length || values.some(item => typeof item !== "string" || !item.trim())) return null;
+    const selectors = splitSelectorValues(value);
+    return selectors.length ? [...new Set(selectors)].sort() : null;
+  }
   if (value === null || value === undefined || !["string", "boolean", "number"].includes(typeof value)) return null;
   const text = String(value).trim();
   if (booleans.has(key)) return /^(true|1)$/i.test(text) ? "true" : /^(false|0)$/i.test(text) ? "false" : null;
@@ -23,12 +29,10 @@ export function normalizeReadbackValue(key, value, cleanRatio) {
     // Canonical decimal spelling without floating-point rounding.
     return text.replace(/^\./, "0.").replace(/^0+(?=\d)/, "").replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
   }
-  // account_selector may contain a physical account number. Compare privately,
-  // expose only its suffix; a matching suffix alone must never certify a match.
   return text || null;
 }
 
-export function buildReadback({ target, observed, platform = {}, platformReason = "never_read", now, cleanRatio }) {
+export function buildReadback({ target, observed, platform = {}, platformReason = "never_read", now, cleanRatio, splitSelectorValues }) {
   const time = new Date(now).toISOString();
   const revision = observed?.instance_revision ?? target.revision;
   if (!Number.isSafeInteger(revision) || revision < 0) throw new DeskError("store_unavailable", 503);
@@ -37,13 +41,15 @@ export function buildReadback({ target, observed, platform = {}, platformReason 
   const saved = { ...config, strategy_profile: config.default_strategy_profile, enabled: observed?.enabled };
   if (draft?.status === "current") Object.assign(saved, draft.overrides);
   const fields = READBACK_KEYS.map(key => {
-    const left = normalizeReadbackValue(key, saved[key], cleanRatio);
-    const right = normalizeReadbackValue(key, platform[key], cleanRatio);
+    const left = normalizeReadbackValue(key, saved[key], cleanRatio, splitSelectorValues);
+    const right = normalizeReadbackValue(key, platform[key], cleanRatio, splitSelectorValues);
     const savedUnknown = !observed ? "source_unavailable" : draft?.status === "identity_conflict" ? "identity_unverified" : "never_read";
-    const wrap = (value, reason) => value === null ? unknown(reason) : known(key === "account_selector" ? `•••${value.slice(-4)}` : value, time);
+    const wrap = (value, reason) => value === null ? unknown(reason) : known(key === "account_selector" ? value.map(selector => `•••${selector.slice(-4)}`).join(", ") : value, time);
+    // Compare complete selector identities before exposing only masked suffixes.
+    const equal = key === "account_selector" ? JSON.stringify(left) === JSON.stringify(right) : left === right;
     const a = draft?.status === "identity_conflict" || !observed ? null : left;
     return { key, label: key, saved: wrap(a, savedUnknown), platform: wrap(right, platformReason),
-      state: a === null || right === null ? "unknown" : a === right ? "match" : "drift" };
+      state: a === null || right === null ? "unknown" : equal ? "match" : "drift" };
   });
   const summary = { match: 0, drift: 0, unknown: 0 };
   for (const field of fields) summary[field.state]++;
