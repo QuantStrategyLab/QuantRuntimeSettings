@@ -15,6 +15,8 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 ROOT = SCRIPT_DIR.parents[1]
 
+from cloud_run_name_budget import validate_service_inventory, validate_service_name  # noqa: E402
+
 from runtime_settings import (  # noqa: E402
     LIVE_CONTINUITY_STATES,
     SUPPORTED_PLATFORMS,
@@ -826,6 +828,7 @@ def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
     )
     account_selector = _split_csv(args.account_selector) or _account_selector_default(platform, account_scope)
     service_name = args.service_name.strip() if args.service_name else _default_service_name(platform, target_name)
+    validate_service_name(service_name)
     strategy_profile = args.strategy_profile.strip().lower()
     _validate_requested_execution_mode(strategy_profile, args.execution_mode)
     _validate_dca_platform(platform, strategy_profile)
@@ -1100,6 +1103,9 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
         target["plugin_mounts"] = top_level_mounts
     if repository_variables:
         target["repository_variables"] = repository_variables
+    for variables in (extra_variables, repository_variables):
+        if "CLOUD_RUN_SERVICE_TARGETS_JSON" in variables:
+            validate_service_inventory(variables["CLOUD_RUN_SERVICE_TARGETS_JSON"])
     errors = validate_target(target)
     if errors:
         raise ValueError("; ".join(errors))
@@ -1117,7 +1123,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--deployment-selector", default="")
     parser.add_argument("--account-selector", default="")
     parser.add_argument("--account-scope", default="")
-    parser.add_argument("--service-name", default="")
+    parser.add_argument(
+        "--service-name", default="",
+        help="Exact service name; must fit the 46-character budget with cand-{sha8} (13 characters).",
+    )
     parser.add_argument("--execution-windows-json", default="")
     parser.add_argument(
         "--decision-data-json",
