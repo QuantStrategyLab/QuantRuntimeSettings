@@ -70,7 +70,7 @@ on:
         required: false
         type: string
       service_name:
-        description: "Runtime service name. blank = platform default."
+        description: "Exact service name; max 33 characters for cand-{sha8} (13). blank = platform default."
         required: false
         type: string
       plugin_mode:
@@ -491,7 +491,12 @@ jobs:
           if [ "${SERVICE_TARGETS_MODE}" = "allow_create" ]; then
             args+=(--allow-create-service-target)
           fi
-          python3 python/scripts/build_runtime_switch.py "${args[@]}"
+          # The builder validates defaults, overrides and all retained inventory names.
+          # Forward only a successful cand-{sha8} (13-character tag) contract result.
+          if ! python3 python/scripts/build_runtime_switch.py "${args[@]}"; then
+            echo "::error::Switch target refused: check service_name syntax and the 46-character service+tag budget (cand tag: 13). No inventory was published."
+            exit 2
+          fi
           python3 python/scripts/runtime_settings.py validate "${target_file}"
           echo "TARGET_FILE=${target_file}" >> "$GITHUB_ENV"
 

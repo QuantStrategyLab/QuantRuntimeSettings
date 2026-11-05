@@ -108,3 +108,17 @@
 - deployment branch 限制只允许 `main`
 - token 90 天轮换
 - 独立记录每次切换的 Actions run URL
+
+## Cloud Run 服务命名
+
+生成器和手动 workflow 使用固定的 `cand-{sha8}` 标签约定：标签长 13 个字符，
+服务名与标签合计最多 46 个字符，因此生成的默认名和 `--service-name` 覆盖值
+均须符合小写服务名语法且最长 33 个字符。沿用输入首尾空白处理，保留服务名，
+不会自动重命名服务。
+
+标签剩余空间小于 1 时为 `TAG_IMPOSSIBLE`，1–12 时为此约定下的 `TAG_TIGHT`
+（包括 9–12），两者均在生成输出或发布前拒绝。输出的
+`CLOUD_RUN_SERVICE_TARGETS_JSON` 中保留项的所有名称别名也接受检查。已有长名
+服务需要另行批准迁移；通过此检查只证明离线命名兼容。各 broker 的
+`build_cloud_run_env_sync_plan.py` 应按各自部署约定检查最终名称；其代码和线上
+配置不属于本次 QRS 修改范围。
