@@ -18093,7 +18093,7 @@ async function deskTargetReadback(env, target, actor, suppliedObserved = undefin
       platformReason = "never_read";
     } catch { platform = {}; platformReason = "read_failed"; }
   }
-  return buildReadback({ target, observed, platform, platformReason, now: Date.now(), cleanRatio: cleanCurrentRatio });
+  return buildReadback({ target, observed, platform, platformReason, now: Date.now(), cleanRatio: cleanCurrentRatio, splitSelectorValues });
 }
 
 async function effectiveAccountSettings(env, observed) {
@@ -18639,6 +18639,7 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  splitSelectorValues,
   deskAuth,
   credentialRotationResponse, runtimeInstanceCommand,
   auditEventAction,
