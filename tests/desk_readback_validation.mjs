@@ -20,7 +20,7 @@ const config = { key: "demo", label: "Synthetic", target_name: "demo", default_s
   service_name: "synthetic-service", runtime_status_target_id: "longbridge.demo", supported_domains: ["us_equity"], default_execution_mode: "live" };
 const target = { id: "longbridge/demo", platform: "longbridge", key: "demo", config, revision: 3 };
 const observed = { config, instance_revision: 3, enabled: true, draft: { status: "current", overrides: { reserved_cash_ratio: "0.0800" } }, account_options: { longbridge: [config] } };
-const build = (extra = {}) => buildReadback({ target, observed, now, cleanRatio: ratio, ...extra });
+const build = (extra = {}) => buildReadback({ target, observed, now, cleanRatio: ratio, splitSelectorValues: __test.splitSelectorValues, ...extra });
 for (const [saved, platform, state] of [[" a ", "a", "match"], ["a", "b", "drift"], ["a", undefined, "unknown"], [undefined, "a", "unknown"], [undefined, undefined, "unknown"]]) {
   const rb = build({ observed: { ...observed, config: { ...config, default_strategy_profile: saved } }, platform: { strategy_profile: platform } });
   assert.equal(rb.fields.find(row => row.key === "strategy_profile").state, state);
@@ -41,6 +41,39 @@ assert.ok(!JSON.stringify(poisoned).includes("FAKE0001"));
 assert.ok(!JSON.stringify(poisoned).includes("synthetic-poison"));
 assert.deepEqual(poisoned.fields.map(row => row.key), READBACK_KEYS);
 assert.equal(build({ observed: { ...observed, draft: { status: "identity_conflict", overrides: { strategy_profile: "untrusted" } } } }).fields[0].saved.reason, "identity_unverified");
+// Compare the complete selector set before displaying masked suffixes.
+const selectorCases = [
+  ["single-array-match", "<PROJECT_ID>0001", ["<PROJECT_ID>0001"], "match"],
+  ["single-array-drift", "<PROJECT_ID>0001", ["<PROJECT_ID>-other0001"], "drift"],
+  ["multi-array-match", "<PROJECT_ID>0001, <PROJECT_ID>0002", [" <PROJECT_ID>0002 ", "<PROJECT_ID>0001"], "match"],
+  ["multi-array-drift", "<PROJECT_ID>0001 <PROJECT_ID>0002", ["<PROJECT_ID>0001", "<PROJECT_ID>-other0002"], "drift"],
+  ["scalar-match", "<PROJECT_ID>0001", " <project_id>0001 ", "match"],
+  ["scalar-drift", "<PROJECT_ID>0001", "<PROJECT_ID>-other0001", "drift"],
+];
+const selectorFailures = [];
+for (const [name, saved, platform, state] of selectorCases) {
+  try {
+    const rb = build({ observed: { ...observed, config: { ...config, account_selector: saved } }, platform: { account_selector: platform } });
+    const field = rb.fields.find(row => row.key === "account_selector");
+    assert.equal(field.platform.status, "known", `${name}: valid selectors are known`);
+    assert.equal(field.saved.status, "known", `${name}: saved selectors are known`);
+    assert.equal(field.state, state, `${name}: compare the full identity`);
+    assert.ok(!JSON.stringify(rb).toLowerCase().includes("<project_id>"), `${name}: every complete selector is masked`);
+    assert.ok(field.platform.value.startsWith("•••"), `${name}: display suffixes only`);
+  } catch (error) { selectorFailures.push(error.message); }
+}
+for (const invalid of [[], [""], [" "], ["<PROJECT_ID>0001", ""], ["<PROJECT_ID>0001", 1], [null], [false], [{}], [["<PROJECT_ID>0001"]], 1, true, {}, "", " , "]) {
+  for (const side of ["saved", "platform"]) {
+    const rb = build({ observed: { ...observed, config: { ...config, account_selector: side === "saved" ? invalid : "<PROJECT_ID>0001" } },
+      platform: { account_selector: side === "platform" ? invalid : ["<PROJECT_ID>0001"] } });
+    const field = rb.fields.find(row => row.key === "account_selector");
+    try {
+      assert.equal(field[side].status, "unknown", `malformed-${side}: invalid selectors stay unknown`);
+      assert.equal(field.state, "unknown", `malformed-${side}: invalid selectors cannot match`);
+    } catch (error) { selectorFailures.push(error.message); }
+  }
+}
+assert.deepEqual(selectorFailures, [], "selector regression failures");
 const nativeNow = Date.now;
 Date.now = () => now;
 try {
@@ -71,7 +104,7 @@ const mf = new Miniflare({ modules: true, compatibilityDate: "2026-06-08", modul
     if (heldRead) { heldRead.started(); await heldRead.wait; }
     if (failure === "timeout") throw new Error("synthetic timeout private details");
     if (failure) return new Response("synthetic private details", { status: 503 });
-    const targets = [{ runtime_target: { target_name: "demo", account_selector: "FAKE0001", broker_environment: "paper", strategy_profile: "demo_profile" }, service_name: "synthetic-service", runtime_target_enabled: false }];
+    const targets = [{ runtime_target: { target_name: "demo", account_selector: ["FAKE0001"], broker_environment: "paper", strategy_profile: "demo_profile" }, service_name: "synthetic-service", runtime_target_enabled: false }];
     return Response.json({ variables: [{ name: "CLOUD_RUN_SERVICE_TARGETS_JSON", value: JSON.stringify(targets) },
       { name: "RUNTIME_TARGET_JSON", value: JSON.stringify(targets[0].runtime_target) }, { name: "RUNTIME_TARGET_ENABLED", value: "false" },
       { name: "LONGBRIDGE_RESERVED_CASH_RATIO", value: "0.0800" }, { name: "TOKEN", value: "synthetic-poison" }] });
@@ -90,6 +123,8 @@ try {
   const first = await call("/api/desk/targets/longbridge%2Fdemo/readback");
   assert.equal(first.status, 200); conforms("readback", first.body);
   assert.equal(first.body.fields.find(row => row.key === "strategy_profile").state, "match");
+  assert.equal(first.body.fields.find(row => row.key === "account_selector").platform.status, "known");
+  assert.equal(first.body.fields.find(row => row.key === "account_selector").state, "match");
   assert.equal(first.body.fields.find(row => row.key === "enabled").platform.value, "false");
   assert.equal(first.body.identity.account_suffix, "0001");
   assert.equal(first.body.actions.reapply_saved.allowed, false);
