@@ -34,12 +34,12 @@ class DigestV3Tests(unittest.TestCase):
         for absent in ('00000003', '美股日策略', '定投', '加密小时策略', '提交订单', '单1/成1'):
             self.assertNotIn(absent, text)
 
-    def test_verified_idle_is_exactly_one_line_even_with_cycles_or_observations(self):
+    def test_verified_idle_keeps_scoped_summary_with_cycles_or_observations(self):
         item = row(order_count=0, fill_count=0, cycle_count=24, equity=1234, holdings=(DigestHolding('SYN', quantity=2),))
-        self.assertEqual(render(payload(item)), '😴 今日全部账号无交易')
-        self.assertEqual(render(payload()), '😴 今日全部账号无交易')
+        self.assertIn('😴 已核验目标无交易', render(payload(item)))
+        self.assertIn('😴 已核验目标无交易', render(payload()))
         blocked = render(payload(replace(item, status='alert', rebalance_conclusion='blocked')))
-        self.assertNotIn('今日全部账号无交易', blocked)
+        self.assertNotIn('已核验目标无交易', blocked)
         self.assertIn('已拦截', blocked)
 
     def test_only_provided_observation_fields_are_rendered_without_mutation(self):
@@ -66,10 +66,10 @@ class DigestV3Tests(unittest.TestCase):
     def test_unknown_evidence_cannot_be_reported_as_idle(self):
         text = render(payload(row(order_count=1, fill_count=None, fill_count_status='unknown')))
         self.assertIn('提交1笔/成交未知笔', text)
-        self.assertNotIn('今日全部账号无交易', text)
+        self.assertNotIn('已核验目标无交易', text)
         from daily_digest_notify import EvidenceCoverage
         text = render(replace(payload(), evidence_coverage=EvidenceCoverage(candidate_failures=({'reason': 'read_failed'},))))
-        self.assertNotIn('今日全部账号无交易', text)
+        self.assertNotIn('已核验目标无交易', text)
         self.assertIn('未知', text)
 
     def test_holdings_are_sorted_capped_and_counted(self):
@@ -151,8 +151,8 @@ class DigestV3Tests(unittest.TestCase):
                         self.assertNotIn('00000003', text)
                         self.assertEqual(text.count('🏦 '), len(active))
                         self.assertIn('全窗口统计未知' if locale == 'zh' else 'whole-window count unknown', text)
-                        self.assertNotIn('今日全部账号无交易', text)
-                        self.assertNotIn('No trades across all accounts today', text)
+                        self.assertNotIn('已核验目标无交易', text)
+                        self.assertNotIn('No trades in verified targets', text)
 
     def test_active_account_retains_unknown_counts_from_another_run(self):
         active = row(order_count=1, fill_count=0)

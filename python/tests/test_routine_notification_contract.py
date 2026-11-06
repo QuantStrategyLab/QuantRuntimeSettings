@@ -124,7 +124,7 @@ class RoutineNotificationContractTests(unittest.TestCase):
                 payload, text, _ = self.render([row(routine_decision=first,
                     routine_decisions=[first, second, first])], locale=locale, unified=unified)
                 if unified:
-                    self.assertEqual(text, "😴 今日全部账号无交易" if locale == "zh" else "😴 No trades across all accounts today")
+                    self.assertIn("😴 已核验目标无交易" if locale == "zh" else "😴 No trades in verified targets", text)
                 else:
                     self.assertEqual(text.count("12.5 USD"), 1)
                     self.assertEqual(text.count("17.5 HKD"), 1)

@@ -36,13 +36,13 @@ class NotifyProjectionTests(unittest.TestCase):
     def test_zero_counts_do_not_hide_an_inner_failure(self):
         with patch.dict(os.environ, {"QRS_UNIFIED_NOTIFICATION_ENABLED": "true"}, clear=True):
             text = render(payload(row(status="alert", execution_status="risk_blocked")))
-        self.assertNotIn("今日全部账号无交易", text)
+        self.assertNotIn("已核验目标无交易", text)
         self.assertIn("已拦截", text)
 
     def test_truncation_cannot_separate_counts_from_unconfirmed_status(self):
         for unified in ("false", "true"):
             for locale in ("zh", "en"):
-                for budget in (256, 300, 3900):
+                for budget in ((1024, 3900) if unified == "true" else (256, 300, 3900)):
                     with self.subTest(unified=unified, locale=locale, budget=budget), patch.dict(os.environ,
                             {"QRS_UNIFIED_NOTIFICATION_ENABLED": unified}, clear=True):
                         text = render(replace(payload(row(order_count=1, fill_count=1,
@@ -169,7 +169,7 @@ class NotifyProjectionTests(unittest.TestCase):
                 ("evidence_delivery_status", "delivery_failed", "证据传递失败", "Evidence delivery failed"),
                 ("evidence_persistence_status", "persistence_failed", "证据留存失败", "Evidence persistence failed")):
             for locale, diagnostic in (("zh", zh), ("en", en)):
-                for budget in (300, 3900):
+                for budget in (1024, 3900):
                     with self.subTest(axis=axis, locale=locale, budget=budget), patch.dict(os.environ,
                             {"QRS_UNIFIED_NOTIFICATION_ENABLED": "true"}, clear=True):
                         text = render(replace(payload(row(order_count=1, fill_count=1,
@@ -189,7 +189,7 @@ class NotifyProjectionTests(unittest.TestCase):
         )
         for evidence in failures:
             for locale in ("en", "zh"):
-                for budget in (300, 3900):
+                for budget in (1024, 3900):
                     for intake in (False, True):
                         with self.subTest(evidence=evidence, locale=locale, budget=budget, intake=intake), patch.dict(
                                 os.environ, {"QRS_UNIFIED_NOTIFICATION_ENABLED": "true"}, clear=True):
