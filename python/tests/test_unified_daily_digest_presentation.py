@@ -163,7 +163,7 @@ class UnifiedPresentationTests(unittest.TestCase):
                 self.assertIn("账户", text)
                 if isinstance(value, str):
                     self.assertNotIn(value, text)
-                self.assertNotIn("nan", text.lower())
+                self.assertNotRegex(text.lower(), r"(?<![a-z])nan(?![a-z])")
 
     def test_missing_names_use_localized_fallbacks_not_machine_keys(self):
         for locale, expected in (("zh", "未命名策略"), ("en", "Unnamed strategy")):
@@ -214,7 +214,7 @@ class UnifiedPresentationTests(unittest.TestCase):
                 self.assertIn("成交：全窗口统计未知", text)
                 self.assertNotIn("本轮 0 单", text)
                 for token in ("nan", "inf", "True", "False"):
-                    self.assertNotIn(token, text)
+                    self.assertNotRegex(text, rf"(?<![A-Za-z]){token}(?![A-Za-z])")
 
     def test_partially_known_run_counts_remain_visible_under_unknown_totals(self):
         cases = (

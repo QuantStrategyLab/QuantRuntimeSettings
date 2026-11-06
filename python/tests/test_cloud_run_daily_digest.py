@@ -139,7 +139,7 @@ class CloudRunDigestTests(unittest.TestCase):
         with patch.dict(os.environ, {'DIGEST_CANDIDATES_GCS_URI': 'gs://synthetic/candidates'}):
             _, result = self.run_request(configuration=self.enable())
         self.assertEqual(result['coverage'], 'complete')
-        self.assertEqual(self.sent[0], '😴 今日全部账号无交易')
+        self.assertIn('😴 已核验目标无交易', self.sent[0])
         self.assertNotIn('覆盖不完整', self.sent[0])
 
     def test_disabled_real_delivery_does_not_read_or_reserve(self):
@@ -221,7 +221,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.store.rows[next(iter(self.store.rows))] = {'runs': [idle]}
         _, result = self.run_request(configuration=self.enable())
         self.assertEqual(result['coverage'], 'complete')
-        self.assertEqual(self.sent[0], '😴 今日全部账号无交易')
+        self.assertIn('😴 已核验目标无交易', self.sent[0])
         self.assertNotIn('休市', self.sent[0])
 
     def test_retry_keeps_original_report_date_and_rejects_another_day(self):

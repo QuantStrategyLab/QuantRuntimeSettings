@@ -6,6 +6,7 @@ import re
 from datetime import date, datetime, time
 from notification_mode import consolidation_enabled, routine_mode
 from notification_snapshot.unified_contract import SGT, sgt_business_window
+from notification_snapshot.presentation import next_step_text, render_operator_message
 from display_names import broker_account_identity, display_name, runtime_account_names, safe_display_text as _safe_display_text
 from daily_digest_notify import DailyDigestInput, _presentation_needs_attention, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale, routine_decision_text, routine_observation_text
 
@@ -267,8 +268,7 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
     summary = payload.notification_summary or {}
     coverage = payload.evidence_coverage
     complete = bool(coverage and coverage.is_complete_for_verified_idle and not summary.get("counts_scope_unknown", summary.get("counts_unknown")))
-    if complete and all(_verified_no_trade(row) for row in payload.runs):
-        return "😴 今日全部账号无交易" if zh else "😴 No trades across all accounts today"
+    verified_idle = complete and all(_verified_no_trade(row) for row in payload.runs)
     lines = ["📊 " + (f"每日交易摘要 · {payload.business_day}" if zh else f"Daily trading digest · {payload.business_day}")]
     lines.append("🕒 " + _window_text(payload.business_day, locale))
     lines.append(("窗口内运行次数未知" if zh else "Run count in window unknown") if summary.get("run_count_unknown") else
@@ -283,9 +283,15 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         _execution_unconfirmed(row) for row in payload.runs) else ""
     lines.append(" · ".join(counts) + confirmation)
     inventory = []
-    for platform, source in summary.get("source_inventory", {}).items():
+    sources = summary.get("source_inventory", {})
+    platforms = dict.fromkeys(("ibkr", "schwab", "firstrade", "longbridge", "binance", "qrs", *sources))
+    for platform in platforms:
+        source = sources.get(platform)
         fallback = ("管理站" if zh else "Management console") if platform == "qrs" else ""
         label = display_name("platforms", platform, locale, fallback=fallback)
+        if source is None:
+            inventory.append(f"{label}：来源覆盖未知" if zh else f"{label}: source coverage unknown")
+            continue
         expected, covered, runs = source["expected_targets"], source["covered_targets"], source["runs"]
         if not expected:
             inventory.append(f"{label}：未纳入本期汇总，运行状态未知" if zh else
@@ -306,7 +312,7 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         identity = row.opaque_account_uid or row.target_id or row.account_hint or ("row", index)
         accounts.setdefault((row.platform_id, identity), []).append((row, header, strategy))
     blocks, diagnostics, diagnostic_observations = [], [], []
-    required_diagnostics, compact_pending = set(), {}
+    required_diagnostics = []
     for entries in accounts.values():
         rows = [row for row, _, _ in entries]
         if all(_verified_no_trade(row) for row in rows):
@@ -352,9 +358,8 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         if needs_attention:
             block.append("需核对" if zh else "Needs review")
         block.extend(dict.fromkeys(pending))
-        required_diagnostics.update(details)
-        required_diagnostics.update(pending)
-        compact_pending.update((text, "订单最终状态待确认" if zh else "Final order state unconfirmed") for text in pending)
+        required_diagnostics.extend(details)
+        required_diagnostics.extend(pending)
         details.extend(pending)
         optional = list(dict.fromkeys(text for row in rows for text in
                         (routine_decision_text(row, locale), routine_observation_text(row, locale)) if text))
@@ -370,41 +375,20 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         blocks.append((True, ["需关注" if zh else "Diagnostics"] + list(dict.fromkeys(diagnostics)),
                        list(dict.fromkeys(diagnostic_observations))))
     blocks.sort(key=lambda item: not item[0])
-    footer = [] if complete else ["覆盖不完整，缺失统计保留未知" if zh else "Coverage incomplete; missing counts remain unknown"]
-    omitted = "部分观察字段已省略" if zh else "Some observations omitted"
-    # Reserve every account's counts and diagnostics before optional snapshots.
-    required = lines + [line for _, block, _ in blocks for line in block] + footer
-    potential_lines = len(required) + len(inventory) + sum(len(optional) for _, _, optional in blocks) + 1
-    suffix = f"其余 {potential_lines} 项已省略" if zh else f"{potential_lines} more items omitted"
-    budget = _units("\n".join(required)) + 1 + max(_units(omitted), _units(suffix))
-    observations_omitted = False
-    for _, block, optional in blocks:
-        if budget + _units("\n".join(optional)) + bool(optional) <= max_units:
-            block.extend(optional)
-            budget += _units("\n".join(optional)) + bool(optional)
-        elif optional:
-            observations_omitted = True
-        lines.extend(block)
-    lines.extend(footer)
-    if observations_omitted:
-        lines.append(omitted)
-    # Coverage inventory is supplementary and cannot displace trading accounts.
-    lines.extend(inventory)
-    # Compact finality before dropping context, and reserve every pending
-    # diagnostic before accepting dispensable window/count/account lines.
-    if _units("\n".join(lines)) > max_units:
-        lines = [compact_pending.get(line, line) for line in lines]
-        required_diagnostics = {compact_pending.get(line, line) for line in required_diagnostics}
-    pending_units = sum(_units(line) + 1 for line in lines[1:] if line in required_diagnostics)
-    result, skipped = [lines[0]], 0
-    suffix = f"其余 {len(lines)} 项已省略" if zh else f"{len(lines)} more items omitted"
-    for line in lines[1:]:
-        if line in required_diagnostics:
-            pending_units -= _units(line) + 1
-        if _units("\n".join(result + [line, suffix])) + pending_units > max_units:
-            skipped += 1
-            continue
-        result.append(line)
-    if skipped:
-        result.append(f"其余 {skipped} 项已省略" if zh else f"{skipped} more items omitted")
-    return "\n".join(result)
+    coverage_lines = ["统计范围：已绑定目标；缺失统计保留未知" if zh else
+                      "Counts cover bound targets; missing counts remain unknown"]
+    coverage_lines.extend(inventory)
+    evidence = [line for _, block, _ in blocks for line in block]
+    evidence.extend(line for _, _, optional in blocks for line in optional)
+    needs_review = (not complete or any(priority for priority, _, _ in blocks) or bool(immediate)
+                    or any(not _known_count(row, name) for row in payload.runs for name in ("order", "fill")))
+    result = [("证据需核对" if needs_review else "已收录窗口记录") if zh else
+              ("Evidence needs review" if needs_review else "Window observations recorded"), *lines[2:]]
+    if verified_idle:
+        result.insert(0, "😴 已核验目标无交易" if zh else "😴 No trades in verified targets")
+    return render_operator_message(
+        title=lines[0], locale=locale, result=result, scope=[lines[1]],
+        evidence=evidence, coverage=coverage_lines,
+        next_step=[next_step_text(locale, needs_review=needs_review)], max_units=max_units,
+        required_evidence=required_diagnostics,
+    )
