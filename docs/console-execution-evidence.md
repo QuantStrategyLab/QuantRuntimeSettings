@@ -34,6 +34,10 @@ commit, its ancestry in the workflow control revision, its tree and its embedded
 asset map before checking out the source. The build must reproduce that map and
 leave no tracked or untracked changes; the legacy frontend overlay is not applied.
 
+Publication uses version-pinned inheritance from the active Worker version for
+every binding, including secrets. Latest-version lineage checks reject concurrent
+uploads; module and configuration readbacks must match before activation.
+
 This mode requires `release_frontend_assets=true`, `sync_secrets=false`,
 `sync_strategy_profiles=false`, `skip_binance_receiver_checks=false`,
 `external_flow_enable=false` and `ibkr_candidate_resume=off`. Existing job gates

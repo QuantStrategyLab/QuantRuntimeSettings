@@ -1629,7 +1629,8 @@ jobs:
             const statusCandidate = process.env.RELEASE_SOURCE_SHA === '68e3d4b69e706e2100f860c473ec657e9baf05ba';
             const cpuCandidate = process.env.RELEASE_SOURCE_SHA === '974354b98ebe0cd55931baa03034d887d4fac560';
             const integrated = controlRuntimeCandidate || controlAdminCandidate || historyCandidate || declarationCandidate || returnsCandidate || settingsCandidate || dailyCandidate || statusCandidate || cpuCandidate || process.env.RELEASE_SOURCE_SHA === '0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a';
-            const betaRelease = ibkrDaily || integrated;
+            const reviewedMain = process.env.RELEASE_SOURCE_SHA === 'c1b737d6e721eb9fe71a12c613fbb49d3fa51563';
+            const betaRelease = ibkrDaily || integrated || reviewedMain;
             const flowMode = process.env.EXTERNAL_FLOW_ENABLE === 'true';
             if (flowMode && process.env.RELEASE_SOURCE_SHA !== '1174db8e143f2a3689ca8e86cd547dc08461ff29') fail('external_flow_source_invalid');
             const resume = process.env.IBKR_CANDIDATE_RESUME ?? 'off';
@@ -1836,7 +1837,7 @@ jobs:
             // version; the older script-version API only supports latest.
             const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name, ...(betaRelease ? {version_id: prior} : {}) })),
               compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
-              annotations: { 'workers/message': controlRuntimeCandidate ? 'Reviewed runtime control candidate; retained configuration' : controlAdminCandidate ? 'Reviewed runtime control admin candidate 5db5153e; retained configuration' : historyCandidate ? 'Reviewed history return candidate 21829dda; retained configuration' : declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a with fixed frontend 96363633; retained bindings' } };
+              annotations: { 'workers/message': reviewedMain ? 'Reviewed merged main frontend; retained configuration' : controlRuntimeCandidate ? 'Reviewed runtime control candidate; retained configuration' : controlAdminCandidate ? 'Reviewed runtime control admin candidate 5db5153e; retained configuration' : historyCandidate ? 'Reviewed history return candidate 21829dda; retained configuration' : declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a with fixed frontend 96363633; retained bindings' } };
             if (flowMode) {
               metadata.bindings = metadata.bindings.filter(binding => binding.name !== 'CONSOLE_EXTERNAL_FLOW_ENABLED');
               metadata.bindings.push({ name: 'CONSOLE_EXTERNAL_FLOW_ENABLED', type: 'plain_text', text: 'true' });
@@ -1861,7 +1862,7 @@ jobs:
             } else {
               uploaded = '2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee';
             }
-            if (resume !== 'off' || integrated) {
+            if (resume !== 'off' || integrated || reviewedMain) {
               stage = 'candidate_module';
               const candidate = await request(`/versions/${uploaded}?include=modules`, 'GET', undefined, true);
               if (candidate?.id !== uploaded) fail('candidate_id_mismatch');
@@ -1888,7 +1889,7 @@ jobs:
               desired.bindings.push({ name: 'CONSOLE_EXTERNAL_FLOW_ENABLED', type: 'plain_text', text: 'true' });
             }
             const configBefore = configHash(desired), configUploaded = configHash(next);
-            if (resume !== 'off' || integrated) {
+            if (resume !== 'off' || integrated || reviewedMain) {
               const oldTag = old.script_runtime.migration_tag, newTag = next.script_runtime.migration_tag;
               if (typeof oldTag !== 'string' || !oldTag || (newTag !== undefined && newTag !== oldTag)) fail('migration_tag_mismatch');
               const normalized = structuredClone(next); normalized.script_runtime.migration_tag = oldTag;
@@ -1917,7 +1918,7 @@ jobs:
             } else {
             stage = 'activate'; deployAttempted = true;
             const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
-              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': controlRuntimeCandidate ? 'Reviewed runtime control candidate; retained configuration' : controlAdminCandidate ? 'Reviewed runtime control admin candidate 5db5153e; retained configuration' : historyCandidate ? 'Reviewed history return candidate 21829dda; retained configuration' : declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a and frontend 96363633; retained configuration' } }));
+              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': reviewedMain ? 'Reviewed merged main frontend; retained configuration' : controlRuntimeCandidate ? 'Reviewed runtime control candidate; retained configuration' : controlAdminCandidate ? 'Reviewed runtime control admin candidate 5db5153e; retained configuration' : historyCandidate ? 'Reviewed history return candidate 21829dda; retained configuration' : declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a and frontend 96363633; retained configuration' } }));
             if (!object(deployment) || !Object.hasOwn(deployment, 'id')) fail('missing_id');
             if (!isUuid(deployment.id)) fail('invalid_id');
             const deploymentId = deployment.id;
@@ -1932,14 +1933,14 @@ jobs:
               if (deployment.versions[0]?.percentage !== 100) fail('percentage_mismatch');
             }
             stage = 'readback'; await active(deploymentId, uploaded);
-            if (pr764 || integrated || resume !== 'off') {
+            if (pr764 || integrated || reviewedMain || resume !== 'off') {
               stage = 'post_release_configuration';
               const configAfter = configHash(resources(await request(`/versions/${uploaded}`), uploaded));
               if (configAfter !== configBefore) fail('post_release_configuration_hash_mismatch');
               // Version metadata hides secret values. Hash all comparable bindings/runtime/
               // handlers/placement, never code etag or provider bookkeeping. No KV writes.
               if (controlRuntimeCandidate) console.log(JSON.stringify({ status: 'integrated_configuration_verified', bindings_equal: true, runtime_equal: true, secret_values_read: false }));
-              else console.log(JSON.stringify({ status: integrated ? 'integrated_configuration_verified' : resume !== 'off' ? 'ibkr_candidate_configuration_verified' : 'pr764_configuration_verified', config_before_sha256: configBefore,
+              else console.log(JSON.stringify({ status: reviewedMain ? 'reviewed_main_configuration_verified' : integrated ? 'integrated_configuration_verified' : resume !== 'off' ? 'ibkr_candidate_configuration_verified' : 'pr764_configuration_verified', config_before_sha256: configBefore,
                 config_uploaded_sha256: configUploaded, config_after_sha256: configAfter, secret_values_read: false }));
             }
             if (controlRuntimeCandidate) console.log(JSON.stringify({ status: 'frontend_release_verified', matched: true,
