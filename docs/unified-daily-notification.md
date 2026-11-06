@@ -51,6 +51,39 @@ normalizing them before rendering; unsupported or malformed locales fail
 configuration validation. The default is Chinese. Locale does not change the
 recipient/date delivery reservation or permit a second daily send.
 
+## Unified operator display
+
+The consolidated renderer uses the shared QPK five-section display contract:
+Result, Scope, Evidence, Coverage and Next step. Chinese and English render the
+same facts. The pure helper is vendored under `notification_snapshot` with its
+own source manifest. The manifest records the upstream revision and hash,
+the local account-context changes, and the current file hash. The existing
+event and routing snapshots retain their original source revisions.
+
+Financial observations remain inside their originating active account block.
+Required diagnostics retain that account's display header, including when
+multiple accounts share the same failure text. Budget selection keeps account
+summaries before optional observations and never retains an observation after
+omitting its account context.
+
+Every daily report lists IBKR, Schwab, Firstrade, LongBridge, Binance and the
+management console. An explicitly unbound source says it is not included and
+its run state is unknown. A missing inventory says coverage is unknown. This
+display does not bind a new source, collect another platform, or make unknown
+orders/fills zero. Existing totals cover bound targets only.
+
+Verified idle reports retain the business window, independently known counts,
+source coverage and next action. Their result says “No trades in verified
+targets”; unbound sources do not support an all-account claim. The one-message
+3900 UTF-16-unit budget reserves these sections and reports omitted evidence.
+An artificially small budget that cannot contain the mandatory fields fails
+with `notification_required_fields_exceed_budget` rather than dropping them.
+
+Existing receipt, delivery, routing, business-window and execution semantics
+are unchanged. QPK risk/guard/receipt templates adopt the same sections at
+source level; consumers need separate reviewed adoption. No source PR proves
+runtime adoption, a complete data connection or actual notification delivery.
+
 ## IBKR post-submit settlement
 
 The optional IBKR settlement feature starts with

@@ -6,7 +6,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from daily_digest_notify import DailyDigestInput, DigestRunEntry, EvidenceCoverage
+from daily_digest_notify import DailyDigestInput, DigestHolding, DigestRunEntry, EvidenceCoverage
 from unified_daily_digest import render
 
 
@@ -102,6 +102,48 @@ class UnifiedPresentationTests(unittest.TestCase):
             self.assertNotIn(item.target_id, text)
             self.assertNotIn(item.source_run_id, text)
 
+    def test_financial_observations_stay_in_their_account_block(self):
+        runs = (row(equity=100, equity_currency="USD",
+                    holdings=(DigestHolding("SYN_A", quantity=1),)),
+                row("synthetic-b", equity=900, equity_currency="USD",
+                    holdings=(DigestHolding("SYN_B", quantity=9),)))
+        for locale in ("zh", "en"):
+            with self.subTest(locale=locale):
+                text = render(payload(*runs, locale=locale))
+                blocks = text.split("🏦 ")[1:]
+                self.assertEqual(len(blocks), 2)
+                self.assertIn("USD 100.00", blocks[0])
+                self.assertIn("SYN_A", blocks[0])
+                self.assertNotIn("SYN_B", blocks[0])
+                self.assertIn("USD 900.00", blocks[1])
+                self.assertIn("SYN_B", blocks[1])
+                self.assertNotIn("SYN_A", blocks[1])
+                for item in runs:
+                    for private in (item.account_hint, item.opaque_account_uid, item.target_id, item.source_run_id):
+                        self.assertNotIn(private, text)
+
+    def test_required_diagnostics_keep_account_context_with_and_without_truncation(self):
+        runs = (row(rebalance_conclusion="blocked",
+                    block_reason={"reason_code": "consecutive_loss_limit_exceeded",
+                                  "observed_value": 6, "limit": 5}),
+                row("synthetic-b", evidence_persistence_status="persistence_failed"))
+        for locale in ("zh", "en"):
+            for budget in (3900, 1024):
+                with self.subTest(locale=locale, budget=budget):
+                    text = render(payload(*runs, *(row("synthetic-extra-" + str(i))
+                        for i in range(20)), locale=locale), max_units=budget)
+                    blocks = text.split("🏦 ")[1:]
+                    self.assertGreaterEqual(len(blocks), 2)
+                    reason = "连续亏损 6 次" if locale == "zh" else "Consecutive losses 6"
+                    evidence = "证据留存失败" if locale == "zh" else "Evidence persistence failed"
+                    self.assertIn(reason, blocks[0])
+                    self.assertNotIn(evidence, blocks[0])
+                    self.assertIn(evidence, blocks[1])
+                    self.assertNotIn(reason, blocks[1])
+                    self.assertLessEqual(len(text.encode("utf-16-le")) // 2, budget)
+                    if budget == 1024:
+                        self.assertIn("省略" if locale == "zh" else "omitted", text)
+
     def test_selected_locale_reaches_alias_and_strategy_for_variants(self):
         mapping = {"accounts": {"schwab": {"synthetic-a": {"zh": "00000011", "en": "Account 00000011"}}}}
         with self.display_names(mapping):
@@ -163,7 +205,7 @@ class UnifiedPresentationTests(unittest.TestCase):
                 self.assertIn("账户", text)
                 if isinstance(value, str):
                     self.assertNotIn(value, text)
-                self.assertNotIn("nan", text.lower())
+                self.assertNotRegex(text.lower(), r"(?<![a-z])nan(?![a-z])")
 
     def test_missing_names_use_localized_fallbacks_not_machine_keys(self):
         for locale, expected in (("zh", "未命名策略"), ("en", "Unnamed strategy")):
@@ -214,7 +256,7 @@ class UnifiedPresentationTests(unittest.TestCase):
                 self.assertIn("成交：全窗口统计未知", text)
                 self.assertNotIn("本轮 0 单", text)
                 for token in ("nan", "inf", "True", "False"):
-                    self.assertNotIn(token, text)
+                    self.assertNotRegex(text, rf"(?<![A-Za-z]){token}(?![A-Za-z])")
 
     def test_partially_known_run_counts_remain_visible_under_unknown_totals(self):
         cases = (
