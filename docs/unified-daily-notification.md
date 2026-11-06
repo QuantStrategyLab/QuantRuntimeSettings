@@ -56,8 +56,15 @@ recipient/date delivery reservation or permit a second daily send.
 The consolidated renderer uses the shared QPK five-section display contract:
 Result, Scope, Evidence, Coverage and Next step. Chinese and English render the
 same facts. The pure helper is vendored under `notification_snapshot` with its
-own source manifest; the existing event and routing snapshots retain their
-original source revisions.
+own source manifest. The manifest records the upstream revision and hash,
+the local account-context changes, and the current file hash. The existing
+event and routing snapshots retain their original source revisions.
+
+Financial observations remain inside their originating active account block.
+Required diagnostics retain that account's display header, including when
+multiple accounts share the same failure text. Budget selection keeps account
+summaries before optional observations and never retains an observation after
+omitting its account context.
 
 Every daily report lists IBKR, Schwab, Firstrade, LongBridge, Binance and the
 management console. An explicitly unbound source says it is not included and

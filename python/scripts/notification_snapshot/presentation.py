@@ -34,10 +34,12 @@ def next_step_text(locale: str, *, needs_review: bool) -> str:
 def render_operator_message(*, title: str, locale: str, result: Sequence[str],
                             scope: Sequence[str], evidence: Sequence[str], coverage: Sequence[str],
                             next_step: Sequence[str], max_units: int | None = None,
-                            required_evidence: Sequence[str] = ()) -> str:
+                            required_evidence: Sequence[str] = (),
+                            optional_evidence: Sequence[Sequence[str]] = ()) -> str:
     """Keep result, scope, coverage and next step before optional evidence.
 
     Truncation is explicit and cannot remove a section or imply full coverage.
+    Optional observations correspond to evidence entries in the same order.
     Callers put urgent evidence before optional observations. Financial facts
     must already have been validated by the producer; this helper infers none.
     """
@@ -52,29 +54,49 @@ def render_operator_message(*, title: str, locale: str, result: Sequence[str],
             lines.extend([f"【{name}】" if locale == "zh" else f"[{name}]", *group])
         return "\n".join(lines)
 
+    contexts = groups[2]
+
+    def observations(index):
+        return optional_evidence[index] if index < len(optional_evidence) else ()
+
+    groups[2] = [line for index, context in enumerate(contexts)
+                 for line in (context, *observations(index))]
     if max_units is None:
         return assemble()
     if max_units < 256:
         raise ValueError("notification_budget_too_small")
-    omitted = 0
-    original = [line for line in groups[2] if line not in required_evidence]
-    required = list(dict.fromkeys(required_evidence))
-    groups[2] = required.copy()
-    suffix = "部分证据已省略；请查看运行记录。" if locale == "zh" else "Some evidence omitted; inspect the source run."
-    groups[2] = required + [suffix]
+    if len(assemble().encode("utf-16-le")) // 2 <= max_units:
+        return assemble()
+    original = contexts
+    # Retain caller order and duplicate reasons belonging to distinct accounts.
+    kept = {index for index, line in enumerate(original) if line in required_evidence}
+    suffix = "部分证据已省略；请查看运行记录。" if locale == "zh" else "Some evidence omitted; inspect source run."
+
+    def select_evidence():
+        groups[2] = [line for index, line in enumerate(original) if index in kept] + [suffix]
+
+    select_evidence()
     if len(assemble().encode("utf-16-le")) // 2 > max_units:
         raise ValueError("notification_required_fields_exceed_budget")
-    groups[2] = required.copy()
-    for line in original:
-        groups[2].append(line)
-        groups[2].append(suffix)
-        fits = len(assemble().encode("utf-16-le")) // 2 <= max_units
-        groups[2].pop()
-        if not fits:
-            groups[2].pop()
-            omitted += 1
-    if omitted:
-        groups[2].append(suffix)
-    if not groups[2]:
-        groups[2] = [unknown]
+    for index in range(len(original)):
+        if index in kept:
+            continue
+        kept.add(index)
+        select_evidence()
+        if len(assemble().encode("utf-16-le")) // 2 > max_units:
+            kept.remove(index)
+    # Add observations only after their retained account context, after all
+    # account summaries have had a chance to fit.
+    details = {}
+    for index, context in enumerate(original):
+        if index not in kept:
+            continue
+        for line in observations(index):
+            details.setdefault(index, []).append(line)
+            groups[2] = [item for i, entry in enumerate(original) if i in kept
+                         for item in (entry, *details.get(i, ()))] + [suffix]
+            if len(assemble().encode("utf-16-le")) // 2 > max_units:
+                details[index].pop()
+    groups[2] = [item for i, entry in enumerate(original) if i in kept
+                 for item in (entry, *details.get(i, ()))] + [suffix]
     return assemble()

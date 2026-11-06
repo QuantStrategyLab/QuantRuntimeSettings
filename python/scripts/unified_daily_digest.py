@@ -358,14 +358,14 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         if needs_attention:
             block.append("需核对" if zh else "Needs review")
         block.extend(dict.fromkeys(pending))
-        required_diagnostics.extend(details)
-        required_diagnostics.extend(pending)
         details.extend(pending)
         optional = list(dict.fromkeys(text for row in rows for text in
                         (routine_decision_text(row, locale), routine_observation_text(row, locale)) if text))
         if any(_has_activity(row) for row in rows):
             optional.extend(_account_observations(rows, locale))
-            blocks.append((needs_attention, block, optional))
+            # Keep the header and required reasons atomic under truncation.
+            required = [block[0], *dict.fromkeys(details)] if details else []
+            blocks.append((needs_attention, block, optional, required))
         else:
             # Unknown counts are not trading activity. Keep safe diagnostics
             # without an account header, strategy block or account observations.
@@ -373,14 +373,20 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
             diagnostic_observations.extend(optional)
     if diagnostics or diagnostic_observations:
         blocks.append((True, ["需关注" if zh else "Diagnostics"] + list(dict.fromkeys(diagnostics)),
-                       list(dict.fromkeys(diagnostic_observations))))
+                       list(dict.fromkeys(diagnostic_observations)), list(dict.fromkeys(diagnostics))))
     blocks.sort(key=lambda item: not item[0])
     coverage_lines = ["统计范围：已绑定目标；缺失统计保留未知" if zh else
                       "Counts cover bound targets; missing counts remain unknown"]
     coverage_lines.extend(inventory)
-    evidence = [line for _, block, _ in blocks for line in block]
-    evidence.extend(line for _, _, optional in blocks for line in optional)
-    needs_review = (not complete or any(priority for priority, _, _ in blocks) or bool(immediate)
+    evidence, optional_evidence = [], []
+    for _, block, optional, required in blocks:
+        context = "\n".join(required or block)
+        evidence.append(context)
+        optional_evidence.append(([line for line in block if line not in required]
+                                  if required else []) + optional)
+        if required:
+            required_diagnostics.append(context)
+    needs_review = (not complete or any(priority for priority, _, _, _ in blocks) or bool(immediate)
                     or any(not _known_count(row, name) for row in payload.runs for name in ("order", "fill")))
     result = [("证据需核对" if needs_review else "已收录窗口记录") if zh else
               ("Evidence needs review" if needs_review else "Window observations recorded"), *lines[2:]]
@@ -390,5 +396,5 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
         title=lines[0], locale=locale, result=result, scope=[lines[1]],
         evidence=evidence, coverage=coverage_lines,
         next_step=[next_step_text(locale, needs_review=needs_review)], max_units=max_units,
-        required_evidence=required_diagnostics,
+        required_evidence=required_diagnostics, optional_evidence=optional_evidence,
     )

@@ -37,4 +37,6 @@ class OperatorFormatTests(unittest.TestCase):
         source = json.loads((root / "presentation-source.json").read_text())
         self.assertEqual(source["repository"], "QuantStrategyLab/QuantPlatformKit")
         self.assertRegex(source["commit"], r"^[a-f0-9]{40}$")
+        self.assertRegex(source["upstream_sha256"], r"^[a-f0-9]{64}$")
+        self.assertIn("account context", source["local_changes"])
         self.assertEqual(hashlib.sha256((root / "presentation.py").read_bytes()).hexdigest(), source["sha256"])
