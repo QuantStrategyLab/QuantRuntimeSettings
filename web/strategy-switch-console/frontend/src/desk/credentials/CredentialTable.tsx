@@ -3,7 +3,7 @@
  * credential, the legend that explains the three expiry states, and the summary chips.
  * Expiry order comes from credentials/table.ts, never from fixture order.
  *
- * Above 1100 px this renders as a table; below it the very same rows re-flow into
+ * Above 1280 px this renders as a table; below it the very same rows re-flow into
  * one card per credential, because even a tablet-width table overflows horizontally.
  * That card layout is applied inline from useNarrow, so
  * the cells keep their explicit table/row/cell roles and carry their own column label.
@@ -23,7 +23,7 @@ type CredentialColumn = (typeof COLUMNS)[number];
 
 const chipTone = { due: "warn", known: "ok", none: "ok", unknown: "unknown" } as const;
 
-/* Card layout for the same table rows below the 1100 px breakpoint, kept inline so
+/* Card layout for the same table rows below the 1280 px breakpoint, kept inline so
    the responsive styles travel with the component instead of growing desk.css. The roles stay untouched. */
 const mobileTable: CSSProperties = { display: "block" };
 const mobileRow: CSSProperties = {
@@ -124,7 +124,7 @@ export function CredentialTable({ items, generatedAt, t, language }: {
   t: DeskTranslate;
   language: Language;
 }) {
-  const narrow = useNarrow(1100);
+  const narrow = useNarrow(1280);
   const zh = language === "zh";
   return (
     <div style={narrow ? { ...P.tableWrap, overflowX: "visible" } : P.tableWrap}>
