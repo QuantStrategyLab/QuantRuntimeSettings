@@ -134,17 +134,17 @@ export const ok = {
   },
   needs_you: [
     { id: "alr_demo_0001", kind: "config_drift", severity: "critical", target_id: "longbridge/hk",
-      title: "Platform read-back differs from saved config",
-      detail: "2 fields: enabled, reserved_cash_ratio. Nothing was changed automatically.",
-      action: { label: "Review diff", route: "/accounts?target=longbridge/hk" } },
+      title: "needs_you.config_drift.title",
+      detail: "needs_you.config_drift.detail",
+      action: { label: "needs_you.config_drift.action", route: "/accounts?target=longbridge/hk" } },
     { id: "alr_demo_0002", kind: "credential_expiring", severity: "warning", target_id: "schwab/core",
-      title: "Schwab refresh token expires in 2 days",
-      detail: "Refresh it by hand before 2026-11-04 17:30 UTC.",
-      action: { label: "Open account", route: "/accounts?target=schwab/core" } },
+      title: "needs_you.credential_expiring.title",
+      detail: "needs_you.credential_expiring.detail",
+      action: { label: "needs_you.credential_expiring.action", route: "/accounts?tab=credentials&credential=cred_schwab_oauth" } },
     { id: "alr_demo_0003", kind: "drawdown_near_limit", severity: "warning", target_id: "ibkr/soxl",
-      title: "Drawdown near limit",
-      detail: "-14.1% against a -15.0% limit. Nothing was done automatically.",
-      action: { label: "View strategy", route: "/overview?target=ibkr/soxl" } },
+      title: "needs_you.drawdown_near_limit.title",
+      detail: "needs_you.drawdown_near_limit.detail",
+      action: { label: "needs_you.drawdown_near_limit.action", route: "/overview?target=ibkr/soxl" } },
   ],
 } satisfies Overview;
 
@@ -180,7 +180,7 @@ export const degraded = {
   needs_you: [
     ok.needs_you[0],
     { id: "alr_demo_0004", kind: "data_stale", severity: "warning", target_id: null,
-      title: "Account facts are 39 hours old", detail: "Totals cover 4 of 6 accounts until facts refresh.",
-      action: { label: "Open accounts", route: "/accounts" } },
+      title: "needs_you.data_stale.title", detail: "needs_you.data_stale.detail",
+      action: { label: "needs_you.data_stale.action", route: "/accounts" } },
   ],
 } satisfies Overview;

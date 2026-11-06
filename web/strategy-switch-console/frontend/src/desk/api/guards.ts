@@ -3,7 +3,9 @@
  * UI relies on, not every rule in schemas/desk; a response that fails is rejected instead
  * of being rendered with defaults.
  */
-import type { DeskSession, Overview, Performance, Read, Ribbon } from "../contract/types";
+import type {
+  Accounts, Credentials, DeskSession, Overview, Performance, Read, Ribbon, SwitchStrategies, SwitchTargets,
+} from "../contract/types";
 
 type Guard<T> = (value: unknown) => value is T;
 
@@ -106,4 +108,102 @@ export function isPerformance(value: unknown): value is Performance {
   const equity = value.equity;
   return isObject(equity) && Array.isArray(equity.dates) && Array.isArray(equity.portfolio_indexed) &&
     equity.dates.length === equity.portfolio_indexed.length && Array.isArray(equity.gap_dates) && isObject(value.risk);
+}
+
+// ---------------------------------------------------------------- accounts / credentials
+
+const CREDENTIAL_PHASES = oneOf("unknown", "not_due", "30", "7", "1", "expired");
+const CREDENTIAL_KINDS = oneOf("oauth_refresh", "flex_token", "access_token", "api_key", "password", "session", "other");
+const phaseRequiresAction = (phase: string): boolean => phase === "30" || phase === "7" || phase === "1" || phase === "expired";
+
+const isExpiry = (value: unknown): boolean => {
+  if (!isObject(value)) return false;
+  if (value.status === "known") return isIso(value.at) && isString(value.source);
+  if (value.status === "none") return true;
+  if (value.status === "unknown") return READ_REASONS(value.reason);
+  return false;
+};
+
+const isCredentialSummary = (value: unknown): boolean => {
+  if (!isObject(value)) return false;
+  if (!CREDENTIAL_KINDS(value.kind) || !isExpiry(value.expiry) || !CREDENTIAL_PHASES(value.phase)) return false;
+  if (typeof value.requires_action !== "boolean") return false;
+  if (value.requires_action !== phaseRequiresAction(String(value.phase))) return false;
+  return value.note === undefined || isString(value.note);
+};
+
+const isBrokerHealth = (value: unknown): boolean => {
+  if (!isObject(value)) return false;
+  const targets = value.targets;
+  const lastOrder = value.last_order;
+  const heartbeat = value.heartbeat;
+  return isString(value.platform) && isString(value.label) &&
+    Array.isArray(targets) && targets.every(entry => isObject(entry) && isString(entry.target_id) && isString(entry.account_ref)) &&
+    isRead(value.connectivity, oneOf("up", "degraded", "down")) &&
+    (value.connectivity_detail === null || isString(value.connectivity_detail)) &&
+    isRead(heartbeat, (v): v is unknown => isObject(v) && isIso(v.at)) &&
+    isObject(value.data_freshness) && oneOf("ready", "stale", "unavailable")(value.data_freshness.data_status) &&
+    (value.data_freshness.age_seconds === null || isCount(value.data_freshness.age_seconds)) &&
+    isObject(value.config) && oneOf("synced", "drift", "unknown")(value.config.state) && isCount(value.config.drift_count) &&
+    isCredentialSummary(value.credential) &&
+    isRead(lastOrder, (v): v is unknown => isObject(v) && isIso(v.at) && isCount(v.count));
+};
+
+export function isAccounts(value: unknown): value is Accounts {
+  return envelope(value, "qsl.desk.accounts.v1") && Array.isArray(value.brokers) && value.brokers.every(isBrokerHealth);
+}
+
+const isCredentialItem = (value: unknown): boolean => {
+  if (!isObject(value)) return false;
+  const rotation = value.rotation;
+  return isString(value.id) && isString(value.platform) && isString(value.label) &&
+    CREDENTIAL_KINDS(value.kind) && isExpiry(value.expiry) &&
+    (value.limit_days === null || isCount(value.limit_days)) &&
+    CREDENTIAL_PHASES(value.phase) && typeof value.requires_action === "boolean" &&
+    value.requires_action === phaseRequiresAction(String(value.phase)) &&
+    isObject(rotation) && typeof rotation.supported === "boolean" && (rotation.route === null || isString(rotation.route)) &&
+    (value.runbook === null || isString(value.runbook)) &&
+    (value.last_rotated_at === null || isIso(value.last_rotated_at));
+};
+
+export function isCredentials(value: unknown): value is Credentials {
+  return envelope(value, "qsl.desk.credentials.v1") && Array.isArray(value.items) && value.items.every(isCredentialItem);
+}
+
+// ---------------------------------------------------------------- switch targets / catalog
+
+const isSwitchTarget = (value: unknown): boolean => {
+  if (!isObject(value)) return false;
+  const switchable = value.switchable;
+  const stop = value.stop;
+  return isString(value.target_id) && isString(value.platform) && isString(value.platform_label) &&
+    isString(value.account_ref) && isString(value.account_suffix) &&
+    isRead(value.mode, oneOf("dry_run", "paper", "live")) &&
+    Array.isArray(value.domains) && value.domains.every(isString) &&
+    isRead(value.current_strategy, (v): v is unknown => isObject(v) && isString(v.profile) && isString(v.label)) &&
+    Array.isArray(value.execution_modes) && value.execution_modes.every(oneOf("dry_run", "paper", "live")) &&
+    isObject(switchable) && typeof switchable.allowed === "boolean" &&
+    (switchable.reason_code === null || isString(switchable.reason_code)) &&
+    (value.pending_request_id === null || isString(value.pending_request_id)) &&
+    isObject(stop) && typeof stop.supported === "boolean" && typeof stop.resume_supported === "boolean";
+};
+
+export function isSwitchTargets(value: unknown): value is SwitchTargets {
+  return envelope(value, "qsl.desk.switch_targets.v1") && Array.isArray(value.targets) && value.targets.every(isSwitchTarget);
+}
+
+const isStrategyOption = (value: unknown): boolean => {
+  if (!isObject(value)) return false;
+  return isString(value.profile) && isString(value.label) && isString(value.domain) &&
+    oneOf("eligible", "no_live", "blocked")(value.eligibility) &&
+    (value.reason === null || isString(value.reason)) &&
+    Array.isArray(value.allowed_execution_modes) && value.allowed_execution_modes.every(oneOf("dry_run", "paper", "live")) &&
+    isString(value.lifecycle_stage) &&
+    (value.option_overlay_enabled === undefined || typeof value.option_overlay_enabled === "boolean") &&
+    (value.dca_supported === undefined || typeof value.dca_supported === "boolean");
+};
+
+export function isSwitchStrategies(value: unknown): value is SwitchStrategies {
+  return envelope(value, "qsl.desk.switch_strategies.v1") && isString(value.target_id) && isString(value.domain) &&
+    isString(value.catalog_revision) && Array.isArray(value.strategies) && value.strategies.every(isStrategyOption);
 }

@@ -1,20 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { invalidatePrivateSession, postJson } from "../api/client";
 import { loadPreferences, resolveTheme, savePreferences, type Language, type ThemePreference } from "../lib/prefs";
 import { createDeskApi, type DeskResult } from "./api/endpoints.ts";
 import { MOCK_STORAGE_KEY, resolveMockScenario } from "./api/mock.ts";
 import type { DeskSession, Ribbon } from "./contract/types";
-import { clockOffsetMs, serverNowIso } from "./format.ts";
+import { clockOffsetMs, secondsBetween, serverNowIso } from "./format.ts";
 import { deskTranslator, resolveDeskLanguage } from "./i18n/index.ts";
 import { deskHash, hotkeyPage, isDeskHash, parseDeskHash, urlOverrides, type DeskPage } from "./router.ts";
-import { deskAccess } from "./shell/access.ts";
+import { classifySessionFailure, deskAccess, type SessionFailure } from "./shell/access.ts";
 import { AccessCard, DeskShell } from "./shell/DeskShell";
-import type { GatewayChip } from "./shell/TopBar";
+import type { GatewayChip, ShellLock } from "./shell/TopBar";
+import { freshnessFromAge } from "./components/stateModel.ts";
+import type { FreshnessChipState } from "./components/stateModel.ts";
 import { PageStub } from "./pages/PageStub";
 import { PerformancePage } from "./pages/PerformancePage";
+import { OverviewPage } from "./pages/OverviewPage";
+import { AccountsPage } from "./pages/AccountsPage";
+import { StrategiesPage } from "./pages/StrategiesPage";
 import "./styles/desk.css";
 
-type Loadable<T> = { state: "loading" } | { state: "ready"; result: T } | { state: "failed" };
+type Loadable<T> = { state: "loading" } | { state: "ready"; result: T } | { state: "failed"; failure?: SessionFailure };
 
 const LANGUAGE_KEY = "qsl-switch-lang";
 const RIBBON_POLL_MS = 60_000;
@@ -41,13 +47,21 @@ export default function DeskApp() {
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => overrides.theme ?? loadPreferences().theme);
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
   const theme = resolveTheme(themePreference, systemDark);
-  const [page, setPage] = useState<DeskPage>(() => parseDeskHash(window.location.hash).page);
+  const [route, setRoute] = useState(() => parseDeskHash(window.location.hash));
+  const page = route.page;
+  const params = route.params;
   const [session, setSession] = useState<Loadable<DeskResult<DeskSession>>>({ state: "loading" });
   const [ribbon, setRibbon] = useState<Loadable<DeskResult<Ribbon>>>({ state: "loading" });
   const [offsetMs, setOffsetMs] = useState<number | null>(null);
   const [clientNow, setClientNow] = useState(() => Date.now());
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const t = useMemo(() => deskTranslator(language), [language]);
+  const access = deskAccess(session);
+  // 401 / 403 / unreadable session: the frame keeps its shape but carries no data.
+  const lock: ShellLock | null = access === "login" ? { crumb: "access.title", chip: "access.chip.login" }
+    : access === "denied" ? { crumb: "access.denied_title", chip: "access.chip.denied" }
+    : access === "error" ? { crumb: "access.error_title", chip: "access.chip.error" }
+    : null;
 
   useEffect(() => {
     const html = document.documentElement;
@@ -68,18 +82,10 @@ export default function DeskApp() {
     const onHash = () => {
       // Leaving #/desk returns to the existing console, which boots from main.tsx.
       if (!isDeskHash(window.location.hash)) window.location.reload();
-      else setPage(parseDeskHash(window.location.hash).page);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      const next = hotkeyPage(event);
-      if (next) window.location.hash = deskHash(next);
+      else setRoute(parseDeskHash(window.location.hash));
     };
     window.addEventListener("hashchange", onHash);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("hashchange", onHash);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
   useEffect(() => {
@@ -91,12 +97,25 @@ export default function DeskApp() {
         setSession({ state: "ready", result });
         setOffsetMs(clockOffsetMs(result.data.server_time, Date.now()));
       },
-      () => alive && setSession({ state: "failed" }),
+      error => alive && setSession({ state: "failed", failure: classifySessionFailure(error) }),
     );
     return () => { alive = false; };
   }, [api, sessionEpoch]);
 
   useEffect(() => {
+    // Number hotkeys switch pages, so they are inert exactly when the dock is.
+    if (lock) return;
+    const onKey = (event: KeyboardEvent) => {
+      const next = hotkeyPage(event);
+      if (next) window.location.hash = deskHash(next);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lock]);
+
+  useEffect(() => {
+    // Fail closed: without a confirmed session the runtime ribbon is not even read.
+    if (access !== "open") return;
     let alive = true;
     const load = () => api.ribbon().then(
       result => alive && setRibbon({ state: "ready", result }),
@@ -111,7 +130,7 @@ export default function DeskApp() {
       window.clearInterval(poll);
       window.clearInterval(tick);
     };
-  }, [api]);
+  }, [api, access]);
 
   const setLanguage = useCallback((next: Language) => {
     setLanguageState(next);
@@ -135,11 +154,39 @@ export default function DeskApp() {
   const serverClock = session.state === "ready" && offsetMs !== null;
   const nowIso = serverNowIso(serverClock ? offsetMs : null, clientNow);
 
-  const access = deskAccess(session);
   const retry = () => setSessionEpoch(value => value + 1);
-  const content = access === "open" ? (page === "performance" ? <PerformancePage api={api} t={t} language={language} /> : <PageStub page={page} t={t} />)
+  const signOut = useCallback(async () => {
+    invalidatePrivateSession();
+    try {
+      await postJson("/api/logout", {});
+    } catch {
+      // Local state is already cleared; the redirect is what the owner can see.
+    }
+    window.location.assign("/login");
+  }, []);
+  const admin = session.state === "ready" && session.result.data.admin === true;
+  const freshness: FreshnessChipState = ribbon.state === "loading" ? { kind: "loading" }
+    : ribbon.state === "failed" ? { kind: "failed" }
+    : freshnessFromAge(secondsBetween(ribbon.result.data.generated_at, nowIso));
+
+  const pageContent = page === "performance" ? <PerformancePage api={api} t={t} language={language} />
+    : page === "overview" ? <OverviewPage api={api} t={t} language={language} />
+    : page === "accounts" ? <AccountsPage api={api} t={t} language={language} initialTab={params.get("tab") === "credentials" ? "credentials" : "brokers"} />
+    : page === "switch" ? (
+      <StrategiesPage
+        api={api}
+        t={t}
+        language={language}
+        admin={admin}
+        initialTarget={params.get("target")}
+        initialProfile={params.get("strategy") ?? params.get("profile")}
+      />
+    )
+    : <PageStub page={page} t={t} />;
+
+  const content = access === "open" ? pageContent
     : access === "loading" ? <section className="mrd-card mrd-access" aria-busy="true"><p>{t("access.loading")}</p></section>
-    : <AccessCard t={t} kind={access} onRetry={retry} />;
+    : <AccessCard t={t} kind={access} onRetry={retry} onSignOut={signOut} />;
 
   return (
     <DeskShell
@@ -152,6 +199,8 @@ export default function DeskApp() {
       nowIso={nowIso}
       serverClock={serverClock}
       mock={mock}
+      freshness={lock ? null : freshness}
+      lock={lock}
       onNavigate={navigate}
       onLanguage={setLanguage}
       onTheme={toggleTheme}
