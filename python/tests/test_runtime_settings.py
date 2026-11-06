@@ -896,6 +896,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         [
                             "--platform",
                             "ibkr",
+                            "--service-name", "demo-service",
                             "--target-name",
                             f"legacy-{profile}",
                             "--strategy-profile",
@@ -1331,6 +1332,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             [
                 "--platform",
                 "ibkr",
+                "--service-name", "demo-service",
                 "--target-name",
                 "ibkr-primary",
                 "--strategy-profile",
@@ -1351,14 +1353,14 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             "runtime_target": {
                 "platform_id": "ibkr",
                 "strategy_profile": "nasdaq_sp500_smart_dca",
-                "service_name": "interactive-brokers-demo-ibkr-dca-service",
+                "service_name": "ibkr-demo-ibkr-dca-service",
                 "account_scope": "demo-ibkr-dca",
             },
             "extra_variables": {
                 "CLOUD_RUN_SERVICE_TARGETS_JSON": {
                     "targets": [
                         {
-                            "service": "interactive-brokers-demo-ibkr-dca-service",
+                            "service": "ibkr-demo-ibkr-dca-service",
                             "ACCOUNT_GROUP": "demo-ibkr-dca",
                             "DCA_MODE": "smart",
                             "DCA_BASE_INVESTMENT_USD": "500",
@@ -1385,19 +1387,19 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             "runtime_target": {
                 "platform_id": "ibkr",
                 "strategy_profile": "nasdaq_sp500_smart_dca",
-                "service_name": "interactive-brokers-shared-b-service",
+                "service_name": "ibkr-shared-b-service",
                 "account_scope": "shared-account",
             },
             "extra_variables": {
                 "CLOUD_RUN_SERVICE_TARGETS_JSON": {
                     "targets": [
                         {
-                            "service": "interactive-brokers-shared-a-service",
+                            "service": "ibkr-shared-a-service",
                             "ACCOUNT_GROUP": "shared-account",
                             "DCA_MODE": "fixed",
                         },
                         {
-                            "service": "interactive-brokers-shared-b-service",
+                            "service": "ibkr-shared-b-service",
                             "ACCOUNT_GROUP": "shared-account",
                             "DCA_MODE": "smart",
                         },
@@ -2043,6 +2045,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                     parser.parse_args(
                         [
                             "--platform", platform,
+                            "--service-name", "demo-service",
                             "--target-name", target_name,
                             "--strategy-profile", profile,
                             "--execution-mode", "dry_run",
@@ -2068,6 +2071,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         parser.parse_args(
                             [
                                 "--platform", platform,
+                                "--service-name", "demo-service",
                                 "--target-name", f"coverage-{platform}",
                                 "--strategy-profile", profile,
                                 "--execution-mode", "dry_run",
@@ -2096,6 +2100,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                     parser.parse_args(
                         [
                             "--platform", platform,
+                            "--service-name", "demo-service",
                             "--target-name", f"snapshot-{platform}",
                             "--strategy-profile", "hk_low_vol_dividend_quality_snapshot",
                             "--execution-mode", "dry_run",
@@ -2504,6 +2509,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             [
                 "--platform",
                 "ibkr",
+                "--service-name", "demo-service",
                 "--target-name",
                 "ibkr-primary",
                 "--strategy-profile",
@@ -2610,7 +2616,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         existing = {
             "targets": [
                 {
-                    "service": "interactive-brokers-demo-ibkr-dca-service",
+                    "service": "ibkr-demo-ibkr-dca-service",
                     "ACCOUNT_GROUP": "demo-ibkr-dca",
                     "IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI": "gs://signals/index.json",
                     "IBKR_MARKET_SIGNAL_REQUIRED": "true",
@@ -2622,7 +2628,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         "deployment_selector": "demo-ibkr-dca",
                         "account_selector": ["DEMO_IBKR_DCA"],
                         "account_scope": "demo-ibkr-dca",
-                        "service_name": "interactive-brokers-demo-ibkr-dca-service",
+                        "service_name": "ibkr-demo-ibkr-dca-service",
                         "execution_mode": "live",
                     },
                 },
@@ -2643,7 +2649,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 "--account-selector",
                 "DEMO_IBKR_DCA",
                 "--service-name",
-                "interactive-brokers-demo-ibkr-dca-service",
+                "ibkr-demo-ibkr-dca-service",
                 "--plugin-mode",
                 "none",
                 "--existing-service-targets-json-file",
@@ -3185,7 +3191,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             "defaults": {"NOTIFY_LANG": "zh"},
             "targets": [
                 {
-                    "service": "interactive-brokers-demo-ibkr-tqqq-service",
+                    "service": "ibkr-demo-ibkr-tqqq-service",
                     "ACCOUNT_GROUP": "demo-ibkr-tqqq",
                     "IBKR_MIN_RESERVED_CASH_USD": "150",
                     "IBKR_RESERVED_CASH_RATIO": "0.03",
@@ -3206,12 +3212,12 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         "deployment_selector": "demo-ibkr-tqqq",
                         "account_selector": ["DEMO_IBKR_PRIMARY"],
                         "account_scope": "demo-ibkr-tqqq",
-                        "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
+                        "service_name": "ibkr-demo-ibkr-tqqq-service",
                         "execution_mode": "live",
                     },
                 },
                 {
-                    "service": "interactive-brokers-demo-ibkr-soxl-service",
+                    "service": "ibkr-demo-ibkr-soxl-service",
                     "ACCOUNT_GROUP": "demo-ibkr-soxl",
                     "runtime_target": {
                         "platform_id": "ibkr",
@@ -3220,7 +3226,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         "deployment_selector": "demo-ibkr-soxl",
                         "account_selector": ["DEMO_IBKR_SOXL"],
                         "account_scope": "demo-ibkr-soxl",
-                        "service_name": "interactive-brokers-demo-ibkr-soxl-service",
+                        "service_name": "ibkr-demo-ibkr-soxl-service",
                         "execution_mode": "live",
                     },
                 },
@@ -3241,7 +3247,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 "--account-selector",
                 "DEMO_IBKR_PRIMARY",
                 "--service-name",
-                "interactive-brokers-demo-ibkr-tqqq-service",
+                "ibkr-demo-ibkr-tqqq-service",
                 "--existing-service-targets-json-file",
                 str(path),
             ]
@@ -3273,7 +3279,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         existing = {
             "targets": [
                 {
-                    "service": "interactive-brokers-shared-a-service",
+                    "service": "ibkr-shared-a-service",
                     "ACCOUNT_GROUP": "shared-account",
                     "runtime_target": {
                         "platform_id": "ibkr",
@@ -3282,12 +3288,12 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         "deployment_selector": "shared-a",
                         "account_selector": ["SHARED_ACCOUNT"],
                         "account_scope": "shared-account",
-                        "service_name": "interactive-brokers-shared-a-service",
+                        "service_name": "ibkr-shared-a-service",
                         "execution_mode": "live",
                     },
                 },
                 {
-                    "service": "interactive-brokers-shared-b-service",
+                    "service": "ibkr-shared-b-service",
                     "ACCOUNT_GROUP": "shared-account",
                     "runtime_target": {
                         "platform_id": "ibkr",
@@ -3296,7 +3302,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         "deployment_selector": "shared-b",
                         "account_selector": ["SHARED_ACCOUNT"],
                         "account_scope": "shared-account",
-                        "service_name": "interactive-brokers-shared-b-service",
+                        "service_name": "ibkr-shared-b-service",
                         "execution_mode": "live",
                     },
                 },
@@ -3318,7 +3324,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 "--account-scope",
                 "shared-account",
                 "--service-name",
-                "interactive-brokers-shared-b-service",
+                "ibkr-shared-b-service",
                 "--existing-service-targets-json-file",
                 str(path),
             ]
@@ -3334,13 +3340,13 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
     def test_build_switch_target_allow_create_appends_service_with_shared_scope(self):
         existing = [
             {
-                "service": "interactive-brokers-shared-a-service",
+                "service": "ibkr-shared-a-service",
                 "ACCOUNT_GROUP": "shared-account",
                 "runtime_target": {
                     "platform_id": "ibkr",
                     "strategy_profile": "global_etf_rotation",
                     "account_scope": "shared-account",
-                    "service_name": "interactive-brokers-shared-a-service",
+                    "service_name": "ibkr-shared-a-service",
                 },
             }
         ]
@@ -3358,7 +3364,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 "--account-scope",
                 "shared-account",
                 "--service-name",
-                "interactive-brokers-shared-b-service",
+                "ibkr-shared-b-service",
                 "--existing-service-targets-json-file",
                 str(path),
                 "--allow-create-service-target",
@@ -3373,11 +3379,11 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(len(patched), 2)
         self.assertEqual(
             patched[0]["runtime_target"]["service_name"],
-            "interactive-brokers-shared-a-service",
+            "ibkr-shared-a-service",
         )
         self.assertEqual(
             patched[1]["runtime_target"]["service_name"],
-            "interactive-brokers-shared-b-service",
+            "ibkr-shared-b-service",
         )
 
     def test_service_target_selection_does_not_treat_scope_as_service_identity(self):
@@ -3387,7 +3393,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         }
         entries = [
             {
-                "service": "interactive-brokers-existing-service",
+                "service": "ibkr-existing-service",
                 "ACCOUNT_GROUP": "shared-account",
             }
         ]
@@ -3526,7 +3532,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         existing = {
             "targets": [
                 {
-                    "service": "interactive-brokers-demo-ibkr-tqqq-service",
+                    "service": "ibkr-demo-ibkr-tqqq-service",
                     "ACCOUNT_GROUP": "demo-ibkr-tqqq",
                     "IBKR_MIN_RESERVED_CASH_USD": "150",
                     "IBKR_RESERVED_CASH_RATIO": "0.03",
@@ -3537,7 +3543,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         "deployment_selector": "demo-ibkr-tqqq",
                         "account_selector": ["DEMO_IBKR_PRIMARY"],
                         "account_scope": "demo-ibkr-tqqq",
-                        "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
+                        "service_name": "ibkr-demo-ibkr-tqqq-service",
                         "execution_mode": "live",
                     },
                 },
@@ -3558,7 +3564,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 "--account-selector",
                 "DEMO_IBKR_PRIMARY",
                 "--service-name",
-                "interactive-brokers-demo-ibkr-tqqq-service",
+                "ibkr-demo-ibkr-tqqq-service",
                 "--existing-service-targets-json-file",
                 str(path),
                 "--extra-variables-json",
@@ -3578,7 +3584,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         existing = {
             "targets": [
                 {
-                    "service": "interactive-brokers-demo-ibkr-tqqq-service",
+                    "service": "ibkr-demo-ibkr-tqqq-service",
                     "ACCOUNT_GROUP": "demo-ibkr-tqqq",
                     "runtime_target": {
                         "platform_id": "ibkr",
@@ -3587,7 +3593,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         "deployment_selector": "demo-ibkr-tqqq",
                         "account_selector": ["DEMO_IBKR_PRIMARY"],
                         "account_scope": "demo-ibkr-tqqq",
-                        "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
+                        "service_name": "ibkr-demo-ibkr-tqqq-service",
                         "execution_mode": "live",
                     },
                     "IBKR_STRATEGY_PLUGIN_MOUNTS_JSON": {
@@ -3619,7 +3625,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 "--account-selector",
                 "DEMO_IBKR_PRIMARY",
                 "--service-name",
-                "interactive-brokers-demo-ibkr-tqqq-service",
+                "ibkr-demo-ibkr-tqqq-service",
                 "--existing-service-targets-json-file",
                 str(path),
             ]
@@ -3637,7 +3643,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         existing = {
             "targets": [
                 {
-                    "service": "interactive-brokers-demo-ibkr-soxl-service",
+                    "service": "ibkr-demo-ibkr-soxl-service",
                     "ACCOUNT_GROUP": "demo-ibkr-soxl",
                     "env": {
                         "RUNTIME_TARGET_ENABLED": "false",
@@ -3650,7 +3656,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         "deployment_selector": "demo-ibkr-soxl",
                         "account_selector": ["DEMO_IBKR_SOXL"],
                         "account_scope": "demo-ibkr-soxl",
-                        "service_name": "interactive-brokers-demo-ibkr-soxl-service",
+                        "service_name": "ibkr-demo-ibkr-soxl-service",
                         "execution_mode": "live",
                     },
                 },
@@ -3671,7 +3677,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 "--account-selector",
                 "DEMO_IBKR_SOXL",
                 "--service-name",
-                "interactive-brokers-demo-ibkr-soxl-service",
+                "ibkr-demo-ibkr-soxl-service",
                 "--existing-service-targets-json-file",
                 str(path),
                 "--extra-variables-json",
@@ -3697,6 +3703,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             [
                 "--platform",
                 "ibkr",
+                "--service-name", "demo-service",
                 "--target-name",
                 "new-account",
                 "--strategy-profile",
@@ -3766,6 +3773,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             [
                 "--platform",
                 "ibkr",
+                "--service-name", "demo-service",
                 "--target-name",
                 "new-account",
                 "--strategy-profile",

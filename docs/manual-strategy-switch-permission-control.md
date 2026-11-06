@@ -64,3 +64,20 @@ verified.
    Single-operator mode removes the need for extra team reviewers, not investment authorization.
 
 See the Chinese note for the full checklist, fork guidance, and threat-model notes.
+
+## Cloud Run service naming
+
+The builder and manual workflow use a fixed `cand-{sha8}` tagged-URL contract:
+the tag is 13 characters and service plus tag must fit within 46 characters.
+Generated defaults and explicit `--service-name` overrides therefore need valid
+lowercase service syntax and at most 33 characters. Names are preserved exactly
+after the existing input whitespace trimming; no service is automatically renamed.
+
+Headroom below 1 is `TAG_IMPOSSIBLE`; headroom 1–12 is `TAG_TIGHT` for this
+contract (including 9–12); both refuse generation before output or publication.
+Every retained name alias in an emitted `CLOUD_RUN_SERVICE_TARGETS_JSON` inventory
+is also checked. Existing long service identities require a separately approved
+migration; passing this check proves only offline naming compatibility. Broker
+`build_cloud_run_env_sync_plan.py` callers must validate their resolved exact name
+under their own deployment contract; their code and live configuration are outside
+this QRS change.
