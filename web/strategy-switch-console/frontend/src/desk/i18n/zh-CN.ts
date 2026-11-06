@@ -374,6 +374,18 @@ export const zh = {
   "strategies.reason.no_domain_declared": "未声明策略域",
   "strategies.reason.identity_incomplete": "身份信息不完整",
   "strategies.reason.config_drift": "需要处理配置偏离",
+  "needs_you.config_drift.title": "平台回读与保存配置不一致",
+  "needs_you.config_drift.detail": "2 个字段：enabled、reserved_cash_ratio。未自动修改任何设置。",
+  "needs_you.config_drift.action": "检查差异",
+  "needs_you.credential_expiring.title": "Schwab refresh token 将在 1 天内到期",
+  "needs_you.credential_expiring.detail": "请在 2026-11-03 17:30 UTC 前手动轮换。",
+  "needs_you.credential_expiring.action": "打开凭据",
+  "needs_you.drawdown_near_limit.title": "回撤接近限制",
+  "needs_you.drawdown_near_limit.detail": "-14.1%，限制为 -15.0%。未自动执行任何操作。",
+  "needs_you.drawdown_near_limit.action": "查看策略",
+  "needs_you.data_stale.title": "账户事实已过期 39 小时",
+  "needs_you.data_stale.detail": "事实刷新前，汇总仅覆盖 6 个账户中的 4 个。",
+  "needs_you.data_stale.action": "打开账户",
 } as const;
 
 export type DeskKey = keyof typeof zh;

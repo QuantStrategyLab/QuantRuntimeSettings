@@ -18,14 +18,14 @@ export function NeedsYouCard({ items, t }: { items: readonly NeedsYouItem[]; t: 
           {items.map(entry => (
             <li key={entry.id} style={item} data-need-kind={entry.kind} data-severity={entry.severity}>
               <div style={P.rowBetween}>
-                <b style={{ fontSize: 13.5 }}>{entry.title}</b>
+                <b style={{ fontSize: 13.5 }}>{t(entry.title as DeskKey)}</b>
                 <span style={P.badge(entry.severity === "critical" ? "risk" : entry.severity === "warning" ? "warn" : "unknown")}>
                   {t(`severity.${entry.severity}` as DeskKey)}
                 </span>
               </div>
-              <p style={{ margin: 0, color: "var(--mrd-ink-2)", fontSize: 12.5 }}>{entry.detail}</p>
+              <p style={{ margin: 0, color: "var(--mrd-ink-2)", fontSize: 12.5 }}>{t(entry.detail as DeskKey)}</p>
               <div style={P.actionRow}>
-                <a style={P.link} href={deskRoute(entry.action.route)}>{entry.action.label}</a>
+                <a style={P.link} href={deskRoute(entry.action.route)}>{t(entry.action.label as DeskKey)}</a>
               </div>
             </li>
           ))}

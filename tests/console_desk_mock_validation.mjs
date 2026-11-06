@@ -159,7 +159,17 @@ for (const scenario of ["ok", "degraded"]) {
   }
 }
 const allFixtures = { session, ribbon, overview, accounts, credentials, switchTargets, switchStrategies };
-const text = JSON.stringify(allFixtures);
+// The offered runbook is public product documentation, never account data.
+// Exempt only this exact URL and only in the runbook field; keep all other host checks.
+const publicRunbook = "https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/main/docs/credential-maintenance.zh-CN.md";
+const fixtureText = fixtures => JSON.stringify(fixtures, (key, value) => key === "runbook" && value === publicRunbook ? "repository-runbook" : value);
+const text = fixtureText(allFixtures);
+for (const fixtures of [
+  { runbook: "https://private.example.invalid/runbook" },
+  { runbook: `${publicRunbook}?account=fake-account` },
+  { credential_host: publicRunbook },
+  { login: "fake@example.invalid" },
+]) assert.match(fixtureText(fixtures), /@|https?:\/\/(?!example)/, "all non-runbook hosts and emails remain rejected");
 assert.doesNotMatch(text, /@|https?:\/\/(?!example)/, "no emails or real hosts");
 const coreText = JSON.stringify({ session, ribbon, overview });
 for (const match of coreText.matchAll(/"(\d{4}-\d{2}-\d{2})T/g)) assert.ok(match[1] >= "2026-09-01" && match[1] <= "2026-11-03", `synthetic time ${match[1]}`);

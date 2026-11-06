@@ -18,7 +18,7 @@ export const ok = {
       phase: "7",
       requires_action: true,
       rotation: { supported: true, route: "/?page=health#credential-rotation" },
-      runbook: "docs/credential-maintenance.zh-CN.md",
+      runbook: "https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/main/docs/credential-maintenance.zh-CN.md",
       last_rotated_at: "2026-09-09T17:30:00Z",
     }),
     item({

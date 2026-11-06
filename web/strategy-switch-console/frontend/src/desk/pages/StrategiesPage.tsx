@@ -145,7 +145,8 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
     dispatch({ type: "select_target", targetId: first.target_id });
   }, [targetId, targets.load]);
 
-  const catalog: StrategyOption[] = strategies.load.state === "ready" && strategies.load.result
+  const catalogMatchesTarget = strategies.load.state === "ready" && strategies.load.result?.data.target_id === targetId;
+  const catalog: StrategyOption[] = catalogMatchesTarget && strategies.load.state === "ready" && strategies.load.result
     ? strategies.load.result.data.strategies
     : [];
 
@@ -235,8 +236,8 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
       : targets.load.state === "failed"
         ? <RecoverableErrorState t={t} onRetry={targets.reload} />
         : <EmptyState t={t} title={t("strategies.catalog.pick_target")} body={t("strategies.catalog.pick_target_note")} />;
-  } else if (strategies.load.state === "loading") {
-    catalogBody = <LoadingState t={t} label={t("strategies.catalog.title")} startedAt={strategies.load.startedAt} onRetry={strategies.reload} />;
+  } else if (strategies.load.state === "loading" || (strategies.load.state === "ready" && !catalogMatchesTarget)) {
+    catalogBody = <LoadingState t={t} label={t("strategies.catalog.title")} startedAt={strategies.load.state === "loading" ? strategies.load.startedAt : undefined} onRetry={strategies.reload} />;
   } else if (strategies.load.state === "failed") {
     catalogBody = <RecoverableErrorState t={t} onRetry={strategies.reload} />;
   } else if (filtered.length === 0) {
@@ -255,7 +256,7 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
 
   const readyTargets = targets.load.state === "ready" ? targets.load.result.data.targets : null;
   const eligible = readyTargets ? readyTargets.filter(target => target.switchable.allowed === true).length : 0;
-  const catalogRevision = strategies.load.state === "ready" && strategies.load.result
+  const catalogRevision = catalogMatchesTarget && strategies.load.state === "ready" && strategies.load.result
     ? strategies.load.result.data.catalog_revision
     : t("read.unknown");
 
