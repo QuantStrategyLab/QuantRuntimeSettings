@@ -245,17 +245,17 @@ const fakeGit = `git() {
     'fetch --no-tags origin refs/heads/fix/runtime-daily-multi-release-20261030'|'fetch --no-tags origin refs/heads/fix/qrs-runtime-daily-serving-20261030'|'fetch --no-tags origin refs/heads/codex/website-account-settings-reviewed-20261029'|'fetch --no-tags origin refs/heads/codex/website-native-daily-fixed-clock-20261029'|'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-history-cpu-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-incomplete-release-candidate-20261029') return 0 ;;
     'rev-parse FETCH_HEAD') printf '%s' "$FAKE_FETCH_HEAD" ;;
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
-    'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
+    'cat-file -e c1b737d6e721eb9fe71a12c613fbb49d3fa51563^{commit}'|'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
     'cat-file -e ${frontend}^{commit}') return "$FAKE_FRONTEND_OBJECT_EXIT" ;;
-    'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
+    'merge-base --is-ancestor c1b737d6e721eb9fe71a12c613fbb49d3fa51563 ${control}'|'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${integratedSource} ${cpuSource}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${frontend} ${control}') return "$FAKE_FRONTEND_ANCESTRY_EXIT" ;;
-    'rev-parse ${runtimeDailyMultiSource}^{tree}'|'rev-parse ${runtimeDailySource}^{tree}'|'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse ${cpuSource}^{tree}'|'rev-parse ${settingsSource}^{tree}'|'rev-parse ${dailySource}^{tree}'|'rev-parse ${statusSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse c1b737d6e721eb9fe71a12c613fbb49d3fa51563^{tree}'|'rev-parse ${runtimeDailyMultiSource}^{tree}'|'rev-parse ${runtimeDailySource}^{tree}'|'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse ${cpuSource}^{tree}'|'rev-parse ${settingsSource}^{tree}'|'rev-parse ${dailySource}^{tree}'|'rev-parse ${statusSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
     'rev-parse ${runtimeDailyMultiSource}^'|'rev-parse ${runtimeDailySource}^'|'rev-parse ${ibkrSource}^'|'rev-parse ${integratedSource}^'|'rev-parse ${settingsSource}^'|'rev-parse ${dailySource}^'|'rev-parse ${statusSource}^') printf '%s' "$FAKE_PARENT" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
-    'rev-parse ${runtimeDailyMultiSource}:${assetPath}'|'rev-parse ${runtimeDailySource}:${assetPath}'|'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}'|'rev-parse ${cpuSource}:${assetPath}'|'rev-parse ${settingsSource}:${assetPath}'|'rev-parse ${dailySource}:${assetPath}'|'rev-parse ${statusSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
+    'rev-parse c1b737d6e721eb9fe71a12c613fbb49d3fa51563:${assetPath}'|'rev-parse ${runtimeDailyMultiSource}:${assetPath}'|'rev-parse ${runtimeDailySource}:${assetPath}'|'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}'|'rev-parse ${cpuSource}:${assetPath}'|'rev-parse ${settingsSource}:${assetPath}'|'rev-parse ${dailySource}:${assetPath}'|'rev-parse ${statusSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
     'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
-    '-c advice.detachedHead=false checkout --detach ${runtimeDailyMultiSource}'|'-c advice.detachedHead=false checkout --detach ${runtimeDailySource}'|'-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}'|'-c advice.detachedHead=false checkout --detach ${cpuSource}'|'-c advice.detachedHead=false checkout --detach ${statusSource}'|'-c advice.detachedHead=false checkout --detach ${settingsSource}'|'-c advice.detachedHead=false checkout --detach ${dailySource}') touch "$SELECTED" ;;
+    '-c advice.detachedHead=false checkout --detach c1b737d6e721eb9fe71a12c613fbb49d3fa51563'|'-c advice.detachedHead=false checkout --detach ${runtimeDailyMultiSource}'|'-c advice.detachedHead=false checkout --detach ${runtimeDailySource}'|'-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}'|'-c advice.detachedHead=false checkout --detach ${cpuSource}'|'-c advice.detachedHead=false checkout --detach ${statusSource}'|'-c advice.detachedHead=false checkout --detach ${settingsSource}'|'-c advice.detachedHead=false checkout --detach ${dailySource}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -277,6 +277,25 @@ function sourceCase(delta, expected) {
     return { calls, selected: existsSync(selected) };
   } finally { rmSync(temp, { recursive: true, force: true }); }
 }
+// The merged reviewed main release retains receiver checks and never syncs secrets.
+const mergedSource = "c1b737d6e721eb9fe71a12c613fbb49d3fa51563";
+const mergedTree = "5dcdab977ec72e32f99cd3ef4956cebff90ba107";
+const mergedBlob = "b4ef57a6830011f78d0aa0270729e17d05a4d230";
+const mergedEnv = { RELEASE_SOURCE_SHA: mergedSource, RELEASE_FRONTEND_ASSETS: "true",
+  SKIP_BINANCE_RECEIVER_CHECKS: "false", FAKE_SELECTED_HEAD: mergedSource,
+  FAKE_TREE: mergedTree, FAKE_PR764_BLOB: mergedBlob };
+assert.equal(sourceCase(mergedEnv, true).selected, true);
+for (const delta of [{RELEASE_FRONTEND_ASSETS:"false"}, {SYNC_SECRETS:"true"},
+  {SYNC_STRATEGY_PROFILES:"true"}, {SKIP_BINANCE_RECEIVER_CHECKS:"true"},
+  {GITHUB_REF:"refs/heads/other"}, {IBKR_CANDIDATE_RESUME:"verify"}, {EXTERNAL_FLOW_ENABLE:"true"}]) {
+  assert.deepEqual(sourceCase({...mergedEnv,...delta}, false).calls, []);
+}
+for (const delta of [{FAKE_CONTROL_HEAD:"b".repeat(40)}, {FAKE_OBJECT_EXIT:"1"},
+  {FAKE_ANCESTRY_EXIT:"1"}, {FAKE_TREE:"b".repeat(40)}, {FAKE_PR764_BLOB:"b".repeat(40)}]) {
+  assert.equal(sourceCase({...mergedEnv,...delta}, false).selected, false);
+}
+assert.equal(sourceCase({...mergedEnv,FAKE_SELECTED_HEAD:"b".repeat(40)}, false).selected, true);
+
 const validSource = sourceCase({}, true);
 assert.equal(validSource.selected, true);
 assert.ok(validSource.calls.indexOf(`merge-base --is-ancestor ${approved} ${control}`) < validSource.calls.findIndex(line => line.includes("checkout --detach")));
@@ -432,7 +451,7 @@ const fakeOverlayGit = `git() {
     'show ${ibkrSource}:${assetPath}') cat "$FROZEN_MAP" ;;
     hash-object*) command git "$@" ;;
     'diff --name-only ${approved}') printf '%s' "$FAKE_DIFF" ;;
-    'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}'|'diff --name-only ${settingsSource}'|'diff --name-only ${dailySource}'|'diff --name-only ${statusSource}') printf '%s' "$FAKE_DIFF" ;;
+    'diff --name-only ${mergedSource}'|'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}'|'diff --name-only ${settingsSource}'|'diff --name-only ${dailySource}'|'diff --name-only ${statusSource}') printf '%s' "$FAKE_DIFF" ;;
     'ls-files --others --exclude-standard') printf '%s' "$FAKE_UNTRACKED" ;;
     *) return 91 ;;
   esac
@@ -451,6 +470,29 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
     if (expected) assert.deepEqual(readFileSync(dest), reviewedMap);
     overlayCases++;
   } finally { rmSync(temp, { recursive: true, force: true }); }
+}
+// The merged release must preserve its own map, reject tampering and dirty output.
+{
+  const assetResult = spawnSync("git", ["show", `${mergedSource}:${assetPath}`], {maxBuffer:16*1024*1024});
+  assert.equal(assetResult.status, 0);
+  const asset = assetResult.stdout;
+  assert.equal(spawnSync("git", ["hash-object", "--stdin"], {input:asset,encoding:"utf8",maxBuffer:16*1024*1024}).stdout.trim(), mergedBlob);
+  const temp = mkdtempSync(join(tmpdir(), "console-merged-overlay-"));
+  try {
+    const dest = join(temp, assetPath);
+    mkdirSync(join(temp, "web/strategy-switch-console"), {recursive:true});
+    const env = {PATH:process.env.PATH, GITHUB_REF:"refs/heads/main", FAKE_HEAD:mergedSource,
+      FAKE_TREE:mergedTree, FAKE_DIFF:"", FAKE_UNTRACKED:""};
+    for (const delta of [{}, {FAKE_DIFF:"fake-file"}, {FAKE_UNTRACKED:"fake-file"},
+      {FAKE_TREE:"a".repeat(40)}, {GITHUB_REF:"refs/heads/other"}]) {
+      writeFileSync(dest, asset);
+      const result = spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env:{...env,...delta}});
+      assert.equal(result.status === 0, Object.keys(delta).length === 0);
+      assert.deepEqual(readFileSync(dest), asset, "never overlay an older asset");
+    }
+    writeFileSync(dest, "fake modified asset");
+    assert.notEqual(spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env}).status, 0);
+  } finally {rmSync(temp, {recursive:true,force:true});}
 }
 // The CPU candidate carries its own exact generated map, never the older overlay.
 {

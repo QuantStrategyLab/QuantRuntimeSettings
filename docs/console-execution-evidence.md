@@ -25,3 +25,18 @@ The account and overview cards display the reason for unknown, broker environmen
 页面展示未知原因、券商环境、配置来源与检查时间。确认配置仅表示已读到明确配置，不能证明当前生效、真实运行或成交。此变更不授予执行权限。
 
 未获准的会话读取 `/api/config`，可能得到 HTTP 200 和 `accountOptions=null`；这是账户资料不可见，不能当作账户目录为空。
+
+## Reviewed main frontend release source
+
+The manual console deployment entry accepts the pinned, reviewed merged main
+frontend release with receiver checks retained. The selector verifies the exact
+commit, its ancestry in the workflow control revision, its tree and its embedded
+asset map before checking out the source. The build must reproduce that map and
+leave no tracked or untracked changes; the legacy frontend overlay is not applied.
+
+This mode requires `release_frontend_assets=true`, `sync_secrets=false`,
+`sync_strategy_profiles=false`, `skip_binance_receiver_checks=false`,
+`external_flow_enable=false` and `ibkr_candidate_resume=off`. Existing job gates
+exclude backend-only, rollback, private-release and read-only modes. An arbitrary
+main commit is not an accepted release source. Deployment still requires separate
+scoped authorization; accepting a source does not grant deployment authority.
