@@ -67,6 +67,22 @@ def read_budget(seconds, reason='digest_read_budget_exhausted'):
 
 
 def failure_text(env, *, is_late, locale='zh'):
+    from notification_mode import consolidation_enabled
+    if consolidation_enabled():
+        from notification_snapshot.presentation import render_operator_message
+        zh = not str(locale).startswith('en')
+        return render_operator_message(
+            title=(f"⚠️ QRS 日报{' late' if is_late else ''}｜{env['DIGEST_REPORT_DATE']}" if zh else
+                   f"QRS daily digest{' late' if is_late else ''} | {env['DIGEST_REPORT_DATE']}"),
+            locale='zh' if zh else 'en',
+            result=['本次日报未完成验证，已停止等待上游；成交与资产状态未知。' if zh else
+                    'The digest was not verified in time. Upstream waiting has stopped. Trades and asset state remain unknown.'],
+            scope=[f"业务日：{env['DIGEST_BUSINESS_DAY']}；截止：07:30 Asia/Singapore。" if zh else
+                   f"Business day: {env['DIGEST_BUSINESS_DAY']}; deadline: 07:30 Asia/Singapore."],
+            evidence=['运行链接：不可用' if zh else 'Run link: unavailable'],
+            coverage=['来源覆盖未核验' if zh else 'Source coverage unverified'],
+            next_step=['本窗口仅发送本条通知，不再自动补发。' if zh else
+                       'No automatic follow-up will be sent in this window.'], max_units=3900)
     title = ' late' if is_late else ''
     if str(locale).startswith('en'):
         return (f"QRS daily digest{title} | {env['DIGEST_REPORT_DATE']}\n"

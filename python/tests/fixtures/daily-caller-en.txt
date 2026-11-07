@@ -1,0 +1,21 @@
+📊 Daily trading digest · <PROJECT_ID>
+[Result]
+😴 No trades in verified targets
+Window observations recorded
+Observed runs in window: 1
+Orders: 0 · Fills: 0
+[Scope]
+🕒 Reporting window: <PROJECT_ID> 06:00 – <PROJECT_ID> 06:00 (UTC+8)
+[Evidence]
+Run link: unavailable
+[Coverage]
+Bound targets; missing is unknown
+IBKR: not included in this digest; run state unknown
+Schwab: Included runs: 1; expected target coverage 1/1
+Firstrade: not included in this digest; run state unknown
+LongBridge: not included in this digest; run state unknown
+Binance: disabled; runs/orders/fills N/A
+Management console: not included in this digest; run state unknown
+Data coverage: complete
+[Next step]
+No action required; await the next reporting window.

@@ -934,7 +934,10 @@ def build_digest_payload(
         notification_summary=collected.notification_summary,
     )
     from unified_daily_digest import enabled, render
-    return payload, render(payload) if enabled() else digest.render_daily_digest(payload), collected
+    text = (render(payload, source_repositories={key: value.get("repository")
+                                               for key, value in config.get("platforms", {}).items()})
+            if enabled() else digest.render_daily_digest(payload))
+    return payload, text, collected
 
 
 def build_receipt(
