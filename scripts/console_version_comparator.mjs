@@ -162,6 +162,7 @@ function deployments(envelope) {
   for (const item of result) {
     keysOnly(item, ['id', 'source', 'strategy', 'author_email', 'annotations', 'created_on', 'versions']);
     check(typeof item.id === 'string' && !ids.has(item.id) && typeof item.created_on === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(item.created_on) && Number.isFinite(Date.parse(item.created_on)), 'schema_unknown');
+    check(item.strategy === 'percentage', 'schema_unknown');
     ids.add(item.id);
     check(Array.isArray(item.versions) && item.versions.length > 0 && item.versions.length <= 10, 'schema_unknown');
     const versions = new Set();

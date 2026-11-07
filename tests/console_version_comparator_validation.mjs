@@ -7,7 +7,7 @@ const C = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-2
 const sha = 'a'.repeat(40), secret = 'PRIVATE_SENTINEL';
 const env = { GITHUB_SHA: sha, RO_COMPARATOR_EXECUTOR_SHA: sha, CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32), CLOUDFLARE_READ_ONLY_API_TOKEN: secret, CANDIDATE_COMMITMENT: hash(C), BASELINE_MODE: 'saved', BASELINE_COMMITMENT: hash(B) };
 const resources = () => ({ bindings: [{name:'STRATEGY_SWITCH_CONFIG',type:'kv_namespace',namespace_id:'b'.repeat(32)}, {name:'STRATEGY_SWITCH_RUNTIME_INSTANCES',type:'durable_object_namespace',namespace_id:'c'.repeat(32),class_name:'FakeClass'}, {name:'PRIVATE_BINDING',type:'plain_text',text:secret}], script_runtime:{compatibility_date:'2026-01-01',usage_model:'standard',migration_tag:'fake-tag'}, script:{etag:'fake-etag',handlers:['fetch'],named_handlers:[]} });
-const deployment = () => ({deployments:[{id: 'fake-deployment',created_on:'2026-11-06T00:00:00Z',versions:[{version_id:B,percentage:100}]}]});
+const deployment = () => ({deployments:[{id: 'fake-deployment',strategy:'percentage',created_on:'2026-11-06T00:00:00Z',versions:[{version_id:B,percentage:100}]}]});
 const fixtures = () => [deployment(),{items:[{id:C},{id:B}]},{id:C,resources:resources()},{id:B,resources:resources()},{id:C,resources:resources()},deployment()];
 let cases = 0;
 async function run({change, envDelta={}, stop, expectedGets, expectedCode=1}={}) {
@@ -58,6 +58,7 @@ assert.equal((await run({envDelta:{BASELINE_MODE:'derived',BASELINE_COMMITMENT:'
 assert.equal((await run({change:b=>b[2].resources.bindings[2].text='changed-fake-value',expectedCode:1,expectedGets:5})).drift_observed,true);
 const different=await run({change:b=>{b[2].resources.bindings[2].text='changed-fake-value';b[4].resources.bindings[2].text='changed-fake-value';b[2].resources.script.etag='different';b[4].resources.script.etag='different';},expectedCode:0});
 assert.equal(different.normalized_config_equal,false);assert.equal(different.etag_equal,false);
+await run({change:b=>{b[0].deployments[0].strategy='unknown';b[5].deployments[0].strategy='unknown';},expectedGets:1});
 let clock=0,calls=0;
 const deadlineRead=boundedReader({account:'a'.repeat(32),token:secret,now:()=>clock,fetchImpl:async()=>{calls++;return new Response('{"success":true,"result":[]}',{headers:{'content-type':'application/json'}})}});
 clock=120000;await assert.rejects(()=>deadlineRead('/deployments?page=1&per_page=10'),/budget/);assert.equal(calls,0);
