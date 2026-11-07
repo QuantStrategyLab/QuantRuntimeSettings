@@ -1,0 +1,49 @@
+name: Compare Console Versions (GET only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_commitment:
+        description: SHA-256 commitment of the exact candidate reference
+        required: true
+        type: string
+      baseline_mode:
+        description: Evidence source for the baseline
+        required: true
+        type: choice
+        options: [saved, derived, none]
+        default: none
+      baseline_commitment:
+        description: SHA-256 commitment (required only for saved mode)
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: console-version-comparator
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: runtime-strategy-switch
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Compare bounded metadata
+        env:
+          CANDIDATE_COMMITMENT: ${{ inputs.candidate_commitment }}
+          BASELINE_MODE: ${{ inputs.baseline_mode }}
+          BASELINE_COMMITMENT: ${{ inputs.baseline_commitment }}
+          RO_COMPARATOR_EXECUTOR_SHA: ${{ vars.RO_COMPARATOR_EXECUTOR_SHA }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_READ_ONLY_API_TOKEN: ${{ secrets.CLOUDFLARE_READ_ONLY_API_TOKEN }}
+        run: node scripts/console_version_comparator.mjs

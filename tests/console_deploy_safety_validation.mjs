@@ -1394,3 +1394,6 @@ const zeroTotal = await failure([{ success: true, result: { deployments: [{ ...d
 ] }] } }]);
 assert.equal(zeroTotal.checkpoint, "deployment_percentage_total", "all-zero traffic is still invalid");
 console.log(`console_deploy_safety_validation: PASS (manual-only; 16 original write gates; exclusive preflight/deploy/restore; 2 exact Binance gates; ${cases} offline reader cases; ${sourceCases} source cases; ${restoreCases} restore cases; ${overlayCases} overlay cases; ${configCases} config cases; ${releaseCases} isolated release cases; ${schemaCases} schema readback cases)`);
+
+// Offline-only comparator coverage is part of the existing release safety gate.
+await import('./console_version_comparator_validation.mjs');

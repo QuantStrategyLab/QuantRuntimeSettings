@@ -44,3 +44,44 @@ This mode requires `release_frontend_assets=true`, `sync_secrets=false`,
 exclude backend-only, rollback, private-release and read-only modes. An arbitrary
 main commit is not an accepted release source. Deployment still requires separate
 scoped authorization; accepting a source does not grant deployment authority.
+
+
+### Manual version comparison (GET only)
+
+`compare-console-versions.yml` is a separate, manual-only evidence executor. It
+never uploads, activates or changes a candidate. A reviewed and merged executor
+is a prerequisite, not permission to run it. A separate read-only card must bind
+its exact revision, candidate commitment and baseline choice, with at most six
+GET requests. No execution or Environment approval is implied by this document.
+
+Inputs are SHA-256 commitments of the exact UTF-8 provider references, with no
+trimming or case conversion. `saved` requires a baseline commitment; `derived`
+uses the newest deployment before the incident start, cross-checked against the
+version immediately preceding the candidate on page one; `none` produces partial
+candidate evidence. Missing derived evidence also produces partial evidence.
+A missing saved baseline stops. Derivation never recovers an original saved
+baseline. No pagination or retry is permitted.
+
+The Environment must supply a dedicated read-only credential through
+`CLOUDFLARE_READ_ONLY_API_TOKEN`, the existing account binding, and
+`RO_COMPARATOR_EXECUTOR_SHA` matching the card's executor revision. Their
+availability and Environment review policy are unverified; provisioning or
+changing bindings needs separate authority. The deploy-capable token is not
+used. Checkout runs at the dispatch revision and does not persist credentials.
+The required SG egress route and guard must be verified independently before any
+future dispatch; hosted-runner egress is not established by this change.
+
+The fixed request order is deployments, version list, candidate, optional
+baseline, candidate again, deployments again. Reads stop on schema, identity,
+transport, size, timeout or drift failures. Each response is capped at 512 KiB,
+with a six-GET / 3 MiB / 120-second ceiling. There is no persistent result cache
+or resume path. Concurrent observations are separate; window drift fails.
+
+The output contains only fixed keys, enum kinds, booleans and the executor SHA.
+Bindings and runtime groups expose equality booleans, never names, values or
+provider references. Configuration equality uses the release workflow's exact
+canonicalization, comparable projection and migration-tag normalization; etag
+equality is emitted separately. Node major 22 is selected. Historical ICU and
+`localeCompare` compatibility remain unproven. Secret metadata equality does not
+prove secret-value equality. A stable read window does not prove historical
+inactivity, recover transient conditions or authorize candidate reuse.
