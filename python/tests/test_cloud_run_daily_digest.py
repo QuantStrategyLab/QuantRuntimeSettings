@@ -182,7 +182,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertIn('全窗口统计未知', self.sent[0])
         self.assertIn('未找到当日报告', self.sent[0])
         self.assertNotIn('Schwab·', self.sent[0])
-        self.assertIn('Binance：未纳入本期汇总，运行状态未知', self.sent[0])
+        self.assertIn('Binance：已停用；运行／订单／成交不适用', self.sent[0])
         self.assertNotIn('Binance：运行 0', self.sent[0])
 
     def test_invalid_or_unreadable_target_does_not_discard_another_platform(self):

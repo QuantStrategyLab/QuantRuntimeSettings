@@ -21,7 +21,7 @@ import merge_digest_candidates as candidate_contract
 import notification_candidate_adapter as adapter
 from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
 from display_names import configured_account_label, display_name
-from unified_daily_digest import _safe_display_text, render
+from unified_daily_digest import _safe_display_text, _render_consolidated as render
 
 SGT = ZoneInfo('Asia/Singapore')
 IDENTITY = adapter.IDENTITY[:4]
@@ -213,14 +213,13 @@ def _report(configuration, rows, outcomes, day, platform_config):
             trailer.append(f'另有 {len(details) - index} 项缺口' if zh else f'{len(details) - index} more gaps')
             break
         trailer.append(detail)
-    base = render(payload, max_units=max(256, 3850 - _units('\n'.join(trailer))))
-    idle = '😴 今日全部账号无交易' if zh else '😴 No trades across all accounts today'
-    if coverage == 'complete' and (not base or base == idle):
-        return idle, coverage
-    if not base:
-        base = (f'每日交易摘要 · {day}\n未收录实际运行；订单及成交统计未知。' if zh else
-                f'Daily trading digest · {day}\nNo observed runs; order and fill counts unknown.')
-    return base + '\n' + '\n'.join(trailer), coverage
+    # Presentation-only standing owner OFF, applied solely to an unbound
+    # Binance inventory. A contradictory binding retains its real coverage.
+    text = render(payload, max_units=3850, known_disabled_platforms={"binance"},
+                  source_repositories={key: value.get("repository")
+                                       for key, value in config.get("platforms", {}).items()},
+                  coverage_details=trailer)
+    return text, coverage
 
 
 def execute(headers, configuration, store, send, *, preview=False, now=utc_now,

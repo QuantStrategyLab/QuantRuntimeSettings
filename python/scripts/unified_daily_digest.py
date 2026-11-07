@@ -6,7 +6,7 @@ import re
 from datetime import date, datetime, time
 from notification_mode import consolidation_enabled, routine_mode
 from notification_snapshot.unified_contract import SGT, sgt_business_window
-from notification_snapshot.presentation import next_step_text, render_operator_message
+from notification_snapshot.presentation import next_step_text, render_operator_message, safe_run_url
 from display_names import broker_account_identity, display_name, runtime_account_names, safe_display_text as _safe_display_text
 from daily_digest_notify import DailyDigestInput, _presentation_needs_attention, _trade_counts, block_reason_text, counts_not_connected, is_blocked, normalize_locale, routine_decision_text, routine_observation_text
 
@@ -27,11 +27,11 @@ def _window_text(business_day: str, locale: str) -> str:
     return f"统计区间：{interval}" if locale == "zh" else f"Reporting window: {interval}"
 
 
-def render(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
+def render(payload: DailyDigestInput, *, max_units: int = 3900, source_repositories=None) -> str:
     if max_units < 256:
         raise ValueError("digest_budget_too_small")
     if consolidation_enabled():
-        return _render_consolidated(payload, max_units=max_units)
+        return _render_consolidated(payload, max_units=max_units, source_repositories=source_repositories)
     trades, problems = [], []
     for row in payload.runs:
         label = " / ".join(" ".join(str(v).split())[:70] for v in
@@ -261,7 +261,9 @@ def _account_observations(rows, locale):
     return lines
 
 
-def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
+def _render_consolidated(payload: DailyDigestInput, *, max_units: int,
+                         known_disabled_platforms=(), source_repositories=None,
+                         coverage_details=()) -> str:
     """Flat account blocks for trading activity; retain evidence diagnostics."""
     locale = normalize_locale(payload.locale)
     zh = locale == "zh"
@@ -293,6 +295,10 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
             inventory.append(f"{label}：来源覆盖未知" if zh else f"{label}: source coverage unknown")
             continue
         expected, covered, runs = source["expected_targets"], source["covered_targets"], source["runs"]
+        if not expected and platform in known_disabled_platforms:
+            inventory.append(f"{label}：已停用；运行／订单／成交不适用" if zh else
+                             f"{label}: disabled; runs/orders/fills N/A")
+            continue
         if not expected:
             inventory.append(f"{label}：未纳入本期汇总，运行状态未知" if zh else
                          f"{label}: not included in this digest; run state unknown")
@@ -376,8 +382,9 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
                        list(dict.fromkeys(diagnostic_observations)), list(dict.fromkeys(diagnostics))))
     blocks.sort(key=lambda item: not item[0])
     coverage_lines = ["统计范围：已绑定目标；缺失统计保留未知" if zh else
-                      "Counts cover bound targets; missing counts remain unknown"]
+                      "Bound targets; missing is unknown"]
     coverage_lines.extend(inventory)
+    coverage_lines.extend(coverage_details)
     evidence, optional_evidence = [], []
     for _, block, optional, required in blocks:
         context = "\n".join(required or block)
@@ -386,6 +393,24 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int) -> str:
                                   if required else []) + optional)
         if required:
             required_diagnostics.append(context)
+    # A run ID is not a URL. Only retain a supplied canonical Actions link
+    # belonging to this platform's configured repository; never build one.
+    links = []
+    for row, (platform, account, strategy) in zip(payload.runs, _run_display_contexts(payload.runs, locale, runtime_accounts=True)):
+        url = safe_run_url(row.source_run_id)
+        repository = (source_repositories or {}).get(row.platform_id)
+        if (url and isinstance(repository, str)
+                and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
+                and re.fullmatch(r"https://github\.com/" + re.escape(repository) + r"/actions/runs/[1-9][0-9]*", url)):
+            links.append(f"{platform} / {account} / {strategy}: {url}")
+    link_status = (("运行链接：部分不可用" if links else "运行链接：不可用") if zh else
+                   ("Run link: partially unavailable" if links else "Run link: unavailable"))
+    if not payload.runs or len(links) < len(payload.runs):
+        evidence.append(link_status)
+        optional_evidence.append(())
+        required_diagnostics.append(link_status)
+    evidence.extend(links)
+    optional_evidence.extend(() for _ in links)
     needs_review = (not complete or any(priority for priority, _, _, _ in blocks) or bool(immediate)
                     or any(not _known_count(row, name) for row in payload.runs for name in ("order", "fill")))
     result = [("证据需核对" if needs_review else "已收录窗口记录") if zh else

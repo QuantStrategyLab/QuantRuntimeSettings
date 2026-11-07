@@ -70,7 +70,27 @@ Every daily report lists IBKR, Schwab, Firstrade, LongBridge, Binance and the
 management console. An explicitly unbound source says it is not included and
 its run state is unknown. A missing inventory says coverage is unknown. This
 display does not bind a new source, collect another platform, or make unknown
-orders/fills zero. Existing totals cover bound targets only.
+orders/fills zero. Existing totals cover bound targets only. The central Cloud Run caller presents
+an unbound Binance inventory as disabled under the standing owner OFF decision:
+runs, orders and fills are N/A. This display-only decision does not change any
+switch or collect data. A missing inventory remains unknown; a bound Binance
+target retains its observed coverage rather than being hidden by the OFF label.
+Other unbound platforms retain unknown run state.
+
+The central caller and its deadline fallback use the same five sections,
+including missing-source and verified-idle reports. Coverage details stay inside
+the Coverage section. The deadline fallback keeps trades and assets unknown and
+retains the existing single reservation and no-follow-up behavior.
+
+For each actual source run, a supplied `source_run_id` may already be a full
+Actions run URL. The renderer accepts that URL only when it matches the
+platform's configured repository and the canonical HTTPS GitHub Actions run
+path; query and fragment are stripped by the shared URL helper. It never
+constructs a URL from a numeric or opaque run ID. Missing or rejected links
+produce an explicit unavailable marker; optional links may be omitted under
+the existing evidence budget. Run identity, counts and receipt fields are
+unchanged. An accepted link is navigation evidence, not a new claim that the
+run succeeded, remains active or delivered a message.
 
 Verified idle reports retain the business window, independently known counts,
 source coverage and next action. Their result says “No trades in verified
