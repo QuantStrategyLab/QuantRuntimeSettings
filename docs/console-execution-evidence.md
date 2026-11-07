@@ -63,11 +63,13 @@ A missing saved baseline stops. Derivation never recovers an original saved
 baseline. No pagination or retry is permitted.
 
 The Environment must supply a dedicated read-only credential through
-`CLOUDFLARE_READ_ONLY_API_TOKEN`, the existing account binding, and
+`CLOUDFLARE_READ_ONLY_API_TOKEN`, the existing Secret-backed account binding, and
 `RO_COMPARATOR_EXECUTOR_SHA` matching the card's executor revision. Their
 availability and Environment review policy are unverified; provisioning or
 changing bindings needs separate authority. The deploy-capable token is not
-used. Checkout runs at the dispatch revision and does not persist credentials.
+used. Account variables are not used as a fallback because runner step headers
+can print ordinary variables before the executor starts. Missing account Secrets
+stop before any GET. Checkout runs at the dispatch revision and does not persist credentials.
 The required SG egress route and guard must be verified independently before any
 future dispatch; hosted-runner egress is not established by this change.
 

@@ -31,6 +31,7 @@ await run({envDelta:{BASELINE_COMMITMENT:''},expectedGets:0});
 await run({envDelta:{BASELINE_MODE:'bad'},expectedGets:0});
 await run({envDelta:{CANDIDATE_COMMITMENT:'bad'},expectedGets:0});
 await run({envDelta:{CLOUDFLARE_READ_ONLY_API_TOKEN:''},expectedGets:0});
+await run({envDelta:{CLOUDFLARE_ACCOUNT_ID:''},expectedGets:0});
 await run({change:b=>b[1].items=[{id:B}],expectedGets:2});
 await run({change:b=>b[1].items.push({id:C}),expectedGets:2});
 await run({change:b=>b[2].id=B,expectedGets:3});
@@ -76,6 +77,7 @@ const workflow=readFileSync(new URL('../.github/workflows/compare-console-versio
 assert.deepEqual([...workflow.slice(workflow.indexOf('\non:'),workflow.indexOf('\npermissions:')).matchAll(/^  (\w+):/gm)].map(m=>m[1]),['workflow_dispatch']);
 assert.equal((workflow.match(/runs-on:/g)||[]).length,1);
 assert.match(workflow,/contents: read/);
+assert.ok(!workflow.includes('vars.CLOUDFLARE_ACCOUNT_ID'), 'account binding must be a masked Secret in runner step headers');
 assert.ok(!/secrets\.CLOUDFLARE_API_TOKEN\b|upload-artifact|wrangler|curl|sync_secrets|sync_strategy_profiles/.test(workflow));
 console.log(`console version comparator: ${cases} provider cases and budget/output/static assertions passed`);
 
