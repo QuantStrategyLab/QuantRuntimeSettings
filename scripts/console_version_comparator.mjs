@@ -97,16 +97,17 @@ export function safeOutput(output) {
   return JSON.stringify(output);
 }
 
-export function boundedReader({account, token, fetchImpl, now = () => performance.now()}) {
+export function boundedReader({account, token, worker, fetchImpl, now = () => performance.now()}) {
+  check(typeof worker === 'string' && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(worker), 'configuration');
   const start = now(); let count = 0, total = 0;
   const read = async path => {
     check(count < 6 && now() - start < 120000, 'budget');
     check(path === '/deployments?page=1&per_page=10' || path === '/versions?page=1&per_page=10' || /^\/versions\/[0-9a-f-]{36}$/i.test(path), 'configuration');
     count++;
-    const signal = AbortSignal.timeout(Math.min(20000, 120000 - (now() - start)));
+    const signal = AbortSignal.timeout(Math.max(0, Math.floor(Math.min(20000, 120000 - (now() - start)))));
     let response;
     try {
-      response = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/qsl-strategy-switch-console${path}`, {
+      response = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${worker}${path}`, {
         method: 'GET', redirect: 'error', signal,
         headers: {Authorization: `Bearer ${token}`, Accept: 'application/json', 'Accept-Encoding': 'identity'},
       });
@@ -186,7 +187,7 @@ export async function compareVersions(env, fetchImpl = fetch) {
     check(['saved','derived','none'].includes(env.BASELINE_MODE), 'configuration'); output.baseline_mode=env.BASELINE_MODE;
     check(/^[0-9a-f]{64}$/.test(env.CANDIDATE_COMMITMENT ?? '') && (env.BASELINE_MODE === 'saved' ? /^[0-9a-f]{64}$/.test(env.BASELINE_COMMITMENT ?? '') : !env.BASELINE_COMMITMENT), 'configuration');
     check(/^[0-9a-f]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID ?? '') && env.CLOUDFLARE_READ_ONLY_API_TOKEN, 'configuration');
-    read=boundedReader({account:env.CLOUDFLARE_ACCOUNT_ID,token:env.CLOUDFLARE_READ_ONLY_API_TOKEN,fetchImpl});
+    read=boundedReader({worker:env.CLOUDFLARE_WORKER_NAME,account:env.CLOUDFLARE_ACCOUNT_ID,token:env.CLOUDFLARE_READ_ONLY_API_TOKEN,fetchImpl});
     const start=deployments(await read('/deployments?page=1&per_page=10'));
     const listed=await read('/versions?page=1&per_page=10');
     keysOnly(listed,['items']); check(Array.isArray(listed.items) && listed.items.length > 0 && listed.items.length <= 10, 'schema_unknown');
