@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Read-only preflight or fixed backend release
+        description: Read-only preflight, asset comparison, or fixed backend release
         type: choice
-        options: [preflight, release]
+        options: [preflight, asset-compare, release]
         default: preflight
         required: true
       control_sha:
@@ -74,6 +74,43 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
           [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
           node scripts/console_m09_release.mjs preflight
+  compare-assets:
+    if: github.repository == 'QuantStrategyLab/QuantRuntimeSettings' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && inputs.action == 'asset-compare'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: runtime-strategy-switch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Build the fixed candidate and check parser availability
+        env:
+          CONTROL_SHA: ${{ inputs.control_sha }}
+          WRANGLER_SEND_METRICS: 'false'
+          CLOUDFLARE_CF_FETCH_ENABLED: 'false'
+        run: |
+          set -euo pipefail
+          [[ "$CONTROL_SHA" == "$GITHUB_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          source="$(node scripts/console_m09_release.mjs asset-candidate-source)"
+          npm ci --ignore-scripts --prefix web/strategy-switch-console/frontend
+          npx --yes wrangler@4.106.0 --version
+          bash scripts/console_m09_offline_bundle.sh "$RUNNER_TEMP/qrs-backend-candidate" "$source"
+          module="$RUNNER_TEMP/qrs-backend-candidate/worker.js"
+          node scripts/console_m09_asset_compare.mjs "$module" "$module"
+      - name: Compare compiled asset declarations using fixed reads
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          node scripts/console_m09_release.mjs asset-compare "$RUNNER_TEMP/qrs-backend-candidate/worker.js"
   provider:
     if: inputs.action == 'release'
     needs: prepare
