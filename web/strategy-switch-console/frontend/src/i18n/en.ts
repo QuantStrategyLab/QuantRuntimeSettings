@@ -283,6 +283,8 @@ export const en: Record<CoreMessageKey, string> = {
   "decisions.status.pending": "Pending",
   "decisions.status.decided": "Decided",
   "decisions.status.expired": "Expired",
+  "decisions.status.approved": "Approved",
+  "decisions.status.rejected": "Rejected",
   "decisions.question": "Your decision",
   "decisions.diff_title": "Before → after",
   "decisions.col.field": "Field",

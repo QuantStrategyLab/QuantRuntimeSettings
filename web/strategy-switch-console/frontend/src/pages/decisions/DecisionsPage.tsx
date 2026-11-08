@@ -34,7 +34,15 @@ import { useToast } from "../../components/Toast";
 import { expiryState, isRiskTier, loadOperation, normalizeEvidenceSummary } from "../../api/cockpit";
 import type { EvidenceSummary as EvidenceSummaryData } from "../../api/cockpit";
 import { ApplicationStatus, EvidenceSummary, ExpiryIndicator, tierLabel } from "../../components/cockpit";
-import { decisionActionAllowed, promotionDecisionBody, resolveAccountChoice } from "./helpers";
+import {
+  decisionActionAllowed,
+  decisionStatusKey,
+  deepLinkTarget,
+  inboxBlockers,
+  promotionDecisionBody,
+  resolveAccountChoice,
+  type DecisionStatusKey,
+} from "./helpers";
 import { fieldLabel } from "../accounts/helpers";
 import { sourceConsequenceKey, sourceLabelKey } from "./sources";
 import { InitialEnrollmentFacts } from "./InitialEnrollmentFacts";
@@ -59,7 +67,16 @@ type ExpandedInboxItem = InboxItem & {
   allowed_actions?: unknown[];
   operation_reference?: { id?: string | null } | null;
   evidence_summary?: Record<string, unknown> | null;
+  /** Server actionability; read through `inboxBlockers`, never trusted raw. */
+  actionable?: unknown;
+  blocking_reason_codes?: unknown;
+  /** Recorded decision; `action` splits approved from rejected. */
+  decision_state?: { status?: unknown; action?: unknown; decided_at?: unknown } | null;
 };
+
+function statusTone(key: DecisionStatusKey): "ok" | "unknown" | "warn" {
+  return key === "decided" || key === "approved" || key === "rejected" ? "ok" : key === "expired" ? "unknown" : "warn";
+}
 
 const CATEGORY_TABS: Category[] = [
   "reconciliation_recovery",
@@ -358,12 +375,12 @@ export default function DecisionsPage({ decision }: { decision: string | null })
   // A deep link arrives before the inbox does and may point at a decision the
   // current filters hide, so the target tab is restored when it resolves.
   useEffect(() => {
-    if (!decision || consumedDeepLink.current === decision || inbox.phase !== "ready") return;
-    if (!items.some(item => item.id === decision)) return;
-    consumedDeepLink.current = decision;
+    const target = deepLinkTarget(decision, consumedDeepLink.current, inbox.phase === "ready", items);
+    if (!target) return;
+    consumedDeepLink.current = target;
     setView("pending");
     setCategory("all");
-    setSelectedId(decision);
+    setSelectedId(target);
   }, [decision, inbox.phase, items]);
 
   // Account options for promotion categories come from the legacy ticket payload.
@@ -667,7 +684,9 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     if (!selected) return null;
     const item = selected;
     const expired = isExpired(item);
-    const pending = item.status === "pending" && !expired;
+    const statusKey = decisionStatusKey(item as ExpandedInboxItem, expired);
+    // A recorded decision_state closes the item even if the coarse status lags.
+    const pending = item.status === "pending" && statusKey === "pending";
     const diffRows = item.diff.map(row => {
       return { field: row.field, label: fieldLabel(t, row), before: row.before, after: row.after, affectsLive: row.affects_live };
     });
@@ -686,6 +705,9 @@ export default function DecisionsPage({ decision }: { decision: string | null })
     const reviewedStrategy = item.presentation?.strategy_profile
       || (strategyRow && typeof strategyRow.after === "string" ? strategyRow.after : null);
     const expanded = item as ExpandedInboxItem;
+    // Server blocker codes; the enrollment and credential views carry their own explanation.
+    const serverBlockers = pending && !initialEnrollmentMode && item.category !== "credential_maintenance"
+      ? inboxBlockers(expanded) : null;
     const approveAllowed = decisionActionAllowed(item, "adopt");
     const rejectAllowed = decisionActionAllowed(item, "decline");
     // The review envelope's evidence_summary wins over the coarse inbox freshness.
@@ -798,7 +820,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
               >
                 {busyIntent ? t("decisions.submitting") : t("decisions.decline_intent")}
               </button>
-              {!approveAllowed && <p className="decision-note">{t("cockpit.blocker.not_allowed")}</p>}
+              {!approveAllowed && !serverBlockers?.blocked && <p className="decision-note">{t("cockpit.blocker.not_allowed")}</p>}
               {promotionUnbound && <p className="decision-note">{t("decisions.policy_unbound")}</p>}
               <p className="decision-note">{t("decisions.intent_note")}</p>
             </div>
@@ -817,9 +839,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
             <Badge tone={item.category === "reconciliation_recovery" ? "warn" : "accent"}>
               {t(`category.${item.category}`)}
             </Badge>
-            <Badge tone={item.status === "decided" ? "ok" : expired ? "unknown" : "warn"}>
-              {t(`decisions.status.${expired ? "expired" : item.status}`)}
-            </Badge>
+            <Badge tone={statusTone(statusKey)}>{t(`decisions.status.${statusKey}`)}</Badge>
             {item.affects_live && <Badge tone="warn">{t("decisions.col.affects_live")}</Badge>}
           </div>
           <h2 className="card-title" style={{ margin: 0 }}>{itemTitle(item, t)}</h2>
@@ -891,6 +911,16 @@ export default function DecisionsPage({ decision }: { decision: string | null })
             <AsOfStamp value={item.evidence_freshness.as_of} />
           </details>
         )}
+        {serverBlockers?.blocked && (
+          <ul className="cockpit-blockers" aria-label={t("cockpit.decision.blocked")}>
+            {serverBlockers.blockers.map(blocker => (
+              <li key={`${blocker.key}:${blocker.code ?? ""}`}>
+                {t(blocker.key)}
+                {blocker.code && <code>{blocker.code}</code>}
+              </li>
+            ))}
+          </ul>
+        )}
         {actions}
       </div>
     );
@@ -920,6 +950,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
             <div className="inbox-list">
               {visibleItems.map(item => {
                 const expired = isExpired(item);
+                const statusKey = decisionStatusKey(item as ExpandedInboxItem, expired);
                 const fresh = relativeFreshness(item.created_at, language);
                 const hintKey = staleHintKey(item);
                 return (
@@ -950,8 +981,8 @@ export default function DecisionsPage({ decision }: { decision: string | null })
                         </span>
                       )}
                     </span>
-                    <Badge tone={expired ? "unknown" : "warn"}>
-                      {t(`decisions.status.${expired ? "expired" : item.status}`)}
+                    <Badge tone={statusTone(statusKey)}>
+                      {t(`decisions.status.${statusKey}`)}
                     </Badge>
                   </button>
                 );

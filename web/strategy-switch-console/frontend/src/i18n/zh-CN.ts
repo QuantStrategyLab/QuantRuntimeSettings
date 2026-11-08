@@ -281,6 +281,8 @@ export const zhCN = {
   "decisions.status.pending": "待处理",
   "decisions.status.decided": "已处理",
   "decisions.status.expired": "已过期",
+  "decisions.status.approved": "已批准",
+  "decisions.status.rejected": "已拒绝",
   "decisions.question": "需要你决定",
   "decisions.diff_title": "改前 → 改后",
   "decisions.col.field": "字段",
