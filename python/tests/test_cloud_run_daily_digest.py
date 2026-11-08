@@ -72,6 +72,61 @@ class CloudRunDigestTests(unittest.TestCase):
         from dataclasses import replace
         return replace(self.configuration, enabled=True)
 
+    def test_account_snapshot_keeps_independently_verified_fields(self):
+        position = {'symbol': 'TQQQ', 'asset_type': 'etf', 'quantity': 3}
+        snapshot = {'as_of': '2026-10-16T05:10:00+08:00', 'equity': 250,
+                    'equity_currency': 'USD', 'holdings_scope': 'account',
+                    'holdings_complete': True, 'holdings': [position]}
+        cases = (
+            ({'equity_currency': None}, ('总资产：未知', 'TQQQ 3股'), ('USD 250.00',)),
+            ({'holdings': None}, ('总资产：USD 250.00', '持仓：未知'), ('空仓',)),
+            ({'holdings': [position, {'symbol': 'BOXX'}]},
+             ('总资产：USD 250.00', '仅列已核实持仓', 'TQQQ 3股'), ('空仓',)),
+        )
+        for changes, included, excluded in cases:
+            with self.subTest(changes=changes):
+                key = 'schwab/2026-10-15/synthetic-slot.json'
+                row = {**ROW, 'account_daily_facts': {'snapshots': [{**snapshot, **changes}]}}
+                self.store, self.sent = MemoryStore({key: {'runs': [row]}}), []
+                status, result = self.run_request(configuration=self.enable())
+                self.assertEqual((status, result['delivery']), (200, 'accepted'))
+                self.assertIn('2026-10-16 05:10 UTC+8', self.sent[0])
+                for part in included:
+                    self.assertIn(part, self.sent[0])
+                for part in excluded:
+                    self.assertNotIn(part, self.sent[0])
+
+    def test_ibkr_account_report_uses_only_the_existing_candidate(self):
+        from dataclasses import replace
+        binding = {**EXPECTED[0], 'platform_id': 'ibkr'}
+        configuration = replace(self.enable(), expected=[binding])
+        key = f"ibkr/{ROW['business_day']}/{binding['candidate_slot']}.json"
+        snapshot = {'as_of': (NOW - timedelta(hours=2)).isoformat(),
+                    'equity': 250, 'equity_currency': 'USD',
+                    'holdings': [{'symbol': 'TQQQ', 'quantity': 3, 'asset_type': 'etf'}]}
+        row = {**ROW, 'platform_id': 'ibkr', 'fill_count': None,
+               'account_daily_facts': {'snapshots': [snapshot]}}
+        row.pop('notification_event')
+        self.store = MemoryStore({key: {'runs': [row]}})
+        read = self.store.candidate
+
+        def ordinary_candidate(requested, timeout):
+            self.assertEqual(requested, key)
+            return read(requested, timeout)
+
+        self.store.candidate = ordinary_candidate
+        self.assertEqual(self.run_request(configuration=configuration)[1]['delivery'], 'accepted')
+        self.assertEqual(self.run_request(configuration=configuration)[1]['delivery'], 'duplicate')
+        self.now = NOW + timedelta(minutes=30)
+        headers = {**HEADERS, 'X-CloudScheduler-ScheduleTime': self.now.isoformat()}
+        self.store.candidate = lambda *args: self.fail('deadline check read financial inputs')
+        self.assertEqual(self.run_request(configuration=configuration, headers=headers)[1]['delivery'], 'confirmed')
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('总资产：USD 250.00', self.sent[0])
+        self.assertIn('TQQQ 3股', self.sent[0])
+        self.assertIn('成交回报 未知', self.sent[0])
+        self.assertNotIn('成交回报 0笔', self.sent[0])
+
     def test_locale_variants_are_normalized_at_the_production_boundary(self):
         from dataclasses import replace
         for locale, expected in (("zh", "zh"), ("zh-CN", "zh"), (" ZH_hans ", "zh"),
@@ -139,7 +194,7 @@ class CloudRunDigestTests(unittest.TestCase):
         with patch.dict(os.environ, {'DIGEST_CANDIDATES_GCS_URI': 'gs://synthetic/candidates'}):
             _, result = self.run_request(configuration=self.enable())
         self.assertEqual(result['coverage'], 'complete')
-        self.assertIn('😴 已核验目标无交易', self.sent[0])
+        self.assertIn('😴 无交易（已核验策略范围）', self.sent[0])
         self.assertNotIn('覆盖不完整', self.sent[0])
 
     def test_disabled_real_delivery_does_not_read_or_reserve(self):
@@ -179,11 +234,11 @@ class CloudRunDigestTests(unittest.TestCase):
         configuration = replace(self.enable(), expected=[*EXPECTED, another])
         _, result = self.run_request(configuration=configuration)
         self.assertEqual((result['coverage'], result['delivery']), ('partial', 'accepted'))
-        self.assertIn('全窗口统计未知', self.sent[0])
-        self.assertIn('未找到当日报告', self.sent[0])
-        self.assertNotIn('Schwab·', self.sent[0])
-        self.assertIn('Binance：已停用；运行／订单／成交不适用', self.sent[0])
-        self.assertNotIn('Binance：运行 0', self.sent[0])
+        self.assertIn('成交回报 未知', self.sent[0])
+        self.assertIn('报告缺失', self.sent[0])
+        self.assertIn('成交回报 0笔', self.sent[0])
+        self.assertEqual(self.sent[0].count('🏦 Schwab · '), 2)
+        self.assertNotIn('全部已核验账户无交易', self.sent[0])
 
     def test_invalid_or_unreadable_target_does_not_discard_another_platform(self):
         from dataclasses import replace
@@ -221,8 +276,27 @@ class CloudRunDigestTests(unittest.TestCase):
         self.store.rows[next(iter(self.store.rows))] = {'runs': [idle]}
         _, result = self.run_request(configuration=self.enable())
         self.assertEqual(result['coverage'], 'complete')
-        self.assertIn('😴 已核验目标无交易', self.sent[0])
+        self.assertIn('策略未运行，账户交易未知', self.sent[0])
+        self.assertIn('未运行', self.sent[0])
+        self.assertNotIn('无交易', self.sent[0])
+        self.assertNotIn('成交回报 0笔', self.sent[0])
         self.assertNotIn('休市', self.sent[0])
+
+    def test_partial_non_run_reports_do_not_establish_window_outcome(self):
+        from dataclasses import replace
+        idle = {**ROW, 'actually_ran': False}
+        for key in ('notification_event', 'source_run_id'):
+            idle.pop(key, None)
+        self.store.rows[next(iter(self.store.rows))] = {'runs': [idle]}
+        missing = {**EXPECTED[0], 'target_id': 'fixture-missing', 'candidate_slot': 'fixture-missing'}
+        _, result = self.run_request(configuration=replace(self.enable(), expected=[*EXPECTED, missing]))
+        self.assertEqual(result['coverage'], 'partial')
+        text = self.sent[0]
+        self.assertIn('未运行', text)
+        self.assertIn('报告缺失', text)
+        self.assertIn('成交回报 未知', text)
+        self.assertNotIn('全部已核验账户无交易', text)
+        self.assertNotIn('无交易', text)
 
     def test_retry_keeps_original_report_date_and_rejects_another_day(self):
         self.now = NOW + timedelta(days=1)
@@ -322,7 +396,7 @@ class CloudRunDigestTests(unittest.TestCase):
         for _ in range(2):
             self.run_request(configuration=self.enable())
         self.assertEqual(len(self.sent), 1)
-        self.assertIn('late', self.sent[0])
+        self.assertIn('交易、资产和持仓无法确认', self.sent[0])
 
     def test_different_language_or_release_does_not_bypass_daily_reservation(self):
         from dataclasses import replace
@@ -372,9 +446,9 @@ class CloudRunDigestTests(unittest.TestCase):
         with redirect_stdout(stream):
             self.run_request(configuration=self.enable())
         self.assertNotIn(ROW['opaque_account_uid'], stream.getvalue())
-        self.assertNotIn('每日交易摘要', stream.getvalue())
+        self.assertNotIn('昨日账户日报', stream.getvalue())
 
-    def test_five_platform_private_ids_reach_only_mock_transport(self):
+    def test_five_platform_raw_account_ids_are_not_rendered(self):
         from contextlib import redirect_stdout, redirect_stderr
         from dataclasses import replace
         identities = {'ibkr': 'U0000001', 'schwab': '00000002', 'firstrade': '00000003',
@@ -395,9 +469,9 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertEqual((code, result['delivery']), (200, 'accepted'))
         public = output.getvalue() + errors.getvalue() + json.dumps(result) + json.dumps(self.store.records)
         for identity in identities.values():
-            self.assertIn('·' + identity, self.sent[0])
+            self.assertNotIn(identity, self.sent[0])
             self.assertNotIn(identity, public)
-        self.assertEqual(self.sent[0].count('📝 提交1笔/成交1笔'), 5)
+        self.assertEqual(self.sent[0].count('提交订单 1笔｜成交回报 1笔'), 5)
 
     def test_approved_private_binding_hint_is_applied_to_its_exact_target(self):
         from dataclasses import replace
@@ -406,7 +480,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.store = MemoryStore({'schwab/2026-10-15/synthetic-slot.json': {'runs': [active]}})
         configured = replace(self.enable(), expected=[{**EXPECTED[0], 'account_hint': '00000007'}])
         self.run_request(configuration=configured)
-        self.assertIn('Schwab·***07', self.sent[0])
+        self.assertIn('Schwab · ***07', self.sent[0])
         self.assertNotIn('00000007', self.sent[0])
 
     def test_binding_hint_cannot_replace_valid_producer_identity(self):
@@ -419,7 +493,7 @@ class CloudRunDigestTests(unittest.TestCase):
                 self.sent = []
                 configured = replace(self.enable(), expected=[{**EXPECTED[0], 'account_hint': hint}])
                 self.run_request(configuration=configured)
-                self.assertIn('Schwab·***08', self.sent[0])
+                self.assertIn('Schwab · ***08', self.sent[0])
                 self.assertNotIn('00000008', self.sent[0])
                 self.assertNotIn('·' + hint, self.sent[0])
 

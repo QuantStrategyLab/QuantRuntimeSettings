@@ -37,7 +37,9 @@ class DigestV3Tests(unittest.TestCase):
     def test_verified_idle_keeps_scoped_summary_with_cycles_or_observations(self):
         item = row(order_count=0, fill_count=0, cycle_count=24, equity=1234, holdings=(DigestHolding('SYN', quantity=2),))
         self.assertIn('😴 已核验目标无交易', render(payload(item)))
-        self.assertIn('😴 已核验目标无交易', render(payload()))
+        empty = render(payload())
+        self.assertNotIn('已核验目标无交易', empty)
+        self.assertIn('全窗口统计未知', empty)
         blocked = render(payload(replace(item, status='alert', rebalance_conclusion='blocked')))
         self.assertNotIn('已核验目标无交易', blocked)
         self.assertIn('已拦截', blocked)

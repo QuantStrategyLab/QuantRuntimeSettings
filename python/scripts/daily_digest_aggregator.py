@@ -904,6 +904,7 @@ def build_digest_payload(
     layout: str | None = None,
     config: Mapping[str, Any] | None = None,
     candidate_failures: Sequence[Mapping[str, str]] | None = None,
+    render_text: bool = True,
 ) -> tuple[digest.DailyDigestInput, str, CollectResult]:
     config = config if config is not None else load_platform_config(config_path)
     contract = digest_contract(config)
@@ -933,6 +934,8 @@ def build_digest_payload(
         window=digest_window_for(day),
         notification_summary=collected.notification_summary,
     )
+    if not render_text:
+        return payload, "", collected
     from unified_daily_digest import enabled, render
     text = (render(payload, source_repositories={key: value.get("repository")
                                                for key, value in config.get("platforms", {}).items()})

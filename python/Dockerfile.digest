@@ -5,6 +5,8 @@ COPY python/requirements-digest.txt /app/requirements-digest.txt
 RUN pip install --no-cache-dir -r /app/requirements-digest.txt
 COPY platform-config.json display-names.config.json /app/
 COPY python/scripts/cloud_run_daily_digest.py \
+     python/scripts/account_daily_digest.py \
+     python/scripts/account_daily_facts.py \
      python/scripts/daily_digest_delivery_store.py \
      python/scripts/daily_digest_aggregator.py \
      python/scripts/daily_digest_delivery_axes.py \
