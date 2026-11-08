@@ -7,6 +7,7 @@ import {pathToFileURL} from 'node:url';
 import {createFixedApi} from './console_946_backend_release.mjs';
 import {execute} from './console_full_bundle_release.mjs';
 import {RECOVERY_SNAPSHOT} from './console_frontend_candidate_preflight.mjs';
+import {compareAssetDeclarations} from './console_m09_asset_compare.mjs';
 
 export const POLICY = Object.freeze({source:'cabe5a1534e0c992713b084030af313eada758ca',
   tree:'42b404d5755b658deff73100b495ecf26fa3a6b1',
@@ -61,6 +62,24 @@ function readModule(result,id) {
   if(!bytes.length||bytes.length>10*1024*1024||bytes.toString('base64')!==module.content_base64)
     throw Error('invalid_module');
   return bytes;
+}
+// This bounded check is separate from release and never returns the module or IDs.
+export async function inspectActiveAssets(api,candidate,expectedHash=POLICY.candidate) {
+  if(!Buffer.isBuffer(candidate)||hash(candidate)!==expectedHash)
+    return {ok:false,reason:'candidate_mismatch'};
+  let stage='active_before';
+  try {
+    const prior=activeIdentity(await api.deployments());
+    stage='active_module';
+    const active=readModule(await api.betaVersion(prior.version),prior.version);
+    stage='active_after';
+    const after=activeIdentity(await api.deployments());
+    if(after.deployment!==prior.deployment||after.version!==prior.version)
+      return {ok:false,reason:'active_drift'};
+    return {...compareAssetDeclarations(active,candidate),active_identity_unchanged:true};
+  } catch {
+    return {ok:false,reason:stage};
+  }
 }
 function readConfiguration(result,id) {
   const resources=result?.resources;
@@ -142,9 +161,11 @@ export async function preflight(api,rollbackTargets={fixed:[],fixedSuccessor:nul
 }
 async function main() {
   const [action,path,...extra]=process.argv.slice(2);
-  if (extra.length || !['build-source','verify-inputs','preflight','release'].includes(action) ||
-      (['preflight','build-source'].includes(action) ? path!==undefined : !path)) throw Error('arguments');
-  if (action==='preflight' ? !sourcePinned(POLICY) : !pinned(POLICY)) throw Error('hold');
+  const sourceOnly=['build-source','asset-candidate-source','preflight'];
+  const readOnly=['asset-candidate-source','asset-compare','preflight'].includes(action);
+  if (extra.length || ![...sourceOnly,'verify-inputs','asset-compare','release'].includes(action) ||
+      (sourceOnly.includes(action) ? path!==undefined : !path)) throw Error('arguments');
+  if (readOnly ? !sourcePinned(POLICY) : !pinned(POLICY)) throw Error('hold');
   const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
   git('merge-base','--is-ancestor',POLICY.source,'HEAD');
   const evidence={source:git('rev-parse',`${POLICY.source}^{commit}`),tree:git('rev-parse',`${POLICY.source}^{tree}`),
@@ -158,14 +179,15 @@ async function main() {
     if(!result.ok)process.exitCode=1;
     return;
   }
-  if (action==='build-source') {
+  if (action==='build-source'||action==='asset-candidate-source') {
     console.log(POLICY.source);
     return;
   }
   const candidate=await readFile(path);
   if (hash(candidate)!==POLICY.candidate) throw Error('provenance');
   if (action==='verify-inputs') return;
-  const result=await release({api:createFixedApi(),policy:POLICY,evidence,candidate,release:true});
+  const result=action==='asset-compare' ? await inspectActiveAssets(createPreflightApi(),candidate)
+    : await release({api:createFixedApi(),policy:POLICY,evidence,candidate,release:true});
   console.log(JSON.stringify(result));
   if(!result.ok)process.exitCode=1;
 }
