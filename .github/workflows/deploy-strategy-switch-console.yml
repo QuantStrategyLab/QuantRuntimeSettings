@@ -1654,7 +1654,8 @@ jobs:
             const statusCandidate = process.env.RELEASE_SOURCE_SHA === '68e3d4b69e706e2100f860c473ec657e9baf05ba';
             const cpuCandidate = process.env.RELEASE_SOURCE_SHA === '974354b98ebe0cd55931baa03034d887d4fac560';
             const integrated = controlRuntimeCandidate || controlAdminCandidate || historyCandidate || declarationCandidate || returnsCandidate || settingsCandidate || dailyCandidate || statusCandidate || cpuCandidate || process.env.RELEASE_SOURCE_SHA === '0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a';
-            const reviewedMain = process.env.RELEASE_SOURCE_SHA === '084ba4281cfff3304cf226ce511a2fc0a6b67b08'
+            const currentReviewedMain = process.env.RELEASE_SOURCE_SHA === '084ba4281cfff3304cf226ce511a2fc0a6b67b08';
+            const reviewedMain = currentReviewedMain
               || process.env.RELEASE_SOURCE_SHA === 'c1b737d6e721eb9fe71a12c613fbb49d3fa51563';
             const betaRelease = ibkrDaily || integrated || reviewedMain;
             const flowMode = process.env.EXTERNAL_FLOW_ENABLE === 'true';
@@ -1873,13 +1874,22 @@ jobs:
             form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
             const betaBody = betaRelease ? JSON.stringify({ ...metadata, modules: [{name:'worker.js', content_type:'application/javascript+module', content_base64:bundle.toString('base64')}] }) : null;
             let previousLatest = prior;
+            const separateWitness = currentReviewedMain && resume === 'off' && !flowMode;
             if (pr764 || betaRelease) {
-              // Pin the observed latest version as a concurrency boundary. The
-              // legacy path inherits latest; IBKR inherits the active version.
+              // The legacy path inherits latest. IBKR and other beta releases
+              // inherit the active version and require that version to be the
+              // newest upload. Current reviewed main keeps the active version
+              // as the only configuration donor and records the newest upload
+              // separately as a concurrency witness.
               stage = 'inherit_baseline';
               const items = (await request('/versions?page=1&per_page=10'))?.items;
-              previousLatest = resume !== 'off' ? '2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee' : ibkrDaily ? '26996cc3-732a-4774-af02-b46842913d36' : prior;
-              if (!Array.isArray(items) || !items.length || items.length > 10 || items[0]?.id !== previousLatest) fail('inherit_baseline_mismatch');
+              if (separateWitness) {
+                if (!Array.isArray(items) || !items.length || items.length > 10 || !isUuid(items[0]?.id)) fail('inherit_baseline_mismatch');
+                previousLatest = items[0].id;
+              } else {
+                previousLatest = resume !== 'off' ? '2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee' : ibkrDaily ? '26996cc3-732a-4774-af02-b46842913d36' : prior;
+                if (!Array.isArray(items) || !items.length || items.length > 10 || items[0]?.id !== previousLatest) fail('inherit_baseline_mismatch');
+              }
             }
             stage = 'pre_upload_active'; await active(priorDeployment, prior);
             if (resume === 'off') {
@@ -1888,6 +1898,9 @@ jobs:
             } else {
               uploaded = '2b097d2e-ffb5-4f08-af3b-9cc1d4b9e9ee';
             }
+            // A stable unactivated upload may be the witness. Reject it before
+            // any candidate read so it cannot be selected for activation.
+            if (separateWitness && previousLatest !== prior && uploaded === previousLatest) fail('uploaded_matches_witness');
             if (resume !== 'off' || integrated || reviewedMain) {
               stage = 'candidate_module';
               const candidate = await request(`/versions/${uploaded}?include=modules`, 'GET', undefined, true);
@@ -1902,7 +1915,7 @@ jobs:
               if (typeof module.content_base64 !== 'string') fail('candidate_module_content_missing');
               if (module.content_base64 !== bundle.toString('base64')) fail('candidate_module_mismatch');
             }
-            if (uploaded === prior) fail();
+            if (uploaded === prior || (separateWitness && uploaded === previousLatest)) fail();
             stage = 'uploaded_configuration'; const next = resources(await request(`/versions/${uploaded}`), uploaded);
             const comparable = value => ({ bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
               script_runtime: value.script_runtime, handlers: value.script.handlers,
@@ -1934,6 +1947,15 @@ jobs:
             // precondition here. No automatic retry or force fallback on an unknown result.
             stage = 'pre_deploy_active'; await active(priorDeployment, prior);
             stage = 'pre_deploy_latest'; await latest(uploaded);
+            if (separateWitness) {
+              // latest(uploaded) reads one version id. Re-read the bounded list
+              // so the witness observed before upload is still the immediate
+              // predecessor immediately before deployment.
+              stage = 'pre_deploy_lineage';
+              const items = (await request('/versions?page=1&per_page=10'))?.items;
+              if (!Array.isArray(items) || items.length < 2 || items.length > 10
+                || items[0]?.id !== uploaded || items[1]?.id !== previousLatest) fail('inherit_lineage_mismatch');
+            }
             if (resume !== 'off') {
               const items = (await request('/versions?page=1&per_page=10'))?.items;
               if (!Array.isArray(items) || items.length < 2 || items.length > 10 || items[0]?.id !== uploaded

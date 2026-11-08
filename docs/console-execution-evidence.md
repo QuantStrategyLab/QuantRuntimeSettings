@@ -41,9 +41,20 @@ checking out the source. The build must reproduce that map and leave no tracked
 or untracked changes; the legacy frontend overlay is not applied. This pin does
 not enable strategy-profile synchronization or Meridian activation.
 
-Publication uses version-pinned inheritance from the active Worker version for
-every binding, including secrets. Latest-version lineage checks reject concurrent
-uploads; module and configuration readbacks must match before activation.
+Publication for the current pin inherits every binding, including secrets,
+from the sole version receiving 100% traffic. That active version is the
+configuration donor. The newest uploaded version is a separate concurrency
+witness and does not have to be the active version. Missing, invalid or
+oversized witness evidence stops before upload. The witness is never the
+inheritance donor and is never selected for activation. After upload, and again
+immediately before deployment, the bounded newest-first list must be the new
+version followed by that same witness. A competing upload, or any change to the
+sole active deployment, stops activation. Module equality, migration-tag and
+configuration readbacks stay in place. The historical reviewed main still
+requires its newest upload to be the active version. This entry has no
+compare-and-swap. A race after the final read remains possible, and an unknown
+write result is not retried. An older unactivated upload is not activated to
+make the witness check pass.
 
 This mode requires `release_frontend_assets=true`, `sync_secrets=false`,
 `sync_strategy_profiles=false`, `skip_binance_receiver_checks=false`,
