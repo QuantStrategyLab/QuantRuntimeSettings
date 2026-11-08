@@ -401,3 +401,48 @@ assert.equal(offlineStored.read_status,'stored');assert.equal(offlineStored.prec
 assert.equal(offlineStored.record_count,1,'v1 remains inspectable while calculation is off');
 assert.doesNotMatch(JSON.stringify(offlineStored),/123\.45|source_ref|transfer_ref|[abc]{64}/);
 assert.equal(coverage({schema_version:'external_flow.v2',windows:[dated]}).read_status,'read_error','wrong platform source is invalid');
+
+// Equal UTC instants with different valid fractional spellings must pair.
+const pairStart = "2026-10-26T12:00:00.000Z", pairEnd = "2026-10-27T12:00:00.000Z";
+const pairFlow = (type, amount, effective_at, ref) => normalizeExternalFlow({ schema_version: "external_flow.v1", windows: [{
+  currency: "USD", date: "2026-10-27", period_start: pairStart, period_end: pairEnd,
+  source: "longbridge_cashflow", coverage: "complete", records: [{ source_ref: ref.repeat(64), type, amount,
+    effective_at, settlement_date: null, transfer_ref: "c".repeat(64) }],
+}] });
+const { performanceResponse } = await import("../web/strategy-switch-console/application/console_api/performance_routes.js");
+async function transferSummary(incomingTime, other = {}) {
+  const members = [
+    { key: "synthetic-a", begin: 100, end: 50, flow: pairFlow("transfer_out", "-50", "2026-10-27T00:00:00.000Z", "a") },
+    { key: "synthetic-b", begin: 100, end: 150, flow: pairFlow("transfer_in", "50", incomingTime, "b") },
+  ];
+  if (other.amount) members[1].flow.windows[0].records[0].amount = other.amount;
+  if (other.ref) members[1].flow.windows[0].records[0].transfer_ref = other.ref.repeat(64);
+  if (other.type) members[1].flow.windows[0].records[0].type = other.type;
+  const deps = {
+    json: (body, status = 200) => Response.json(body, { status }),
+    readSession: async () => ({ allowed: true }),
+    accountOptions: async () => ({ options: { longbridge: members.map(m => ({ key: m.key, broker_environment: "live" })) } }),
+    facts: async () => Response.json({ accounts: members.map(m => ({ platform: "longbridge", account_key: m.key,
+      binding_status: "bound", aggregation_status: "included", broker_environment: "live", balances: [{ currency: "USD", net_assets: String(m.end) }] })) }),
+    benchmarks: async () => Response.json({ points: [] }),
+    history: async request => {
+      const m = members.find(member => member.key === new URL(request.url).searchParams.get("account_key"));
+      return Response.json({ platform: "longbridge", account_key: m.key, currencies: ["USD"], externalFlow: m.flow,
+        series: { currency: "USD", points: [
+          { currency: "USD", observation_date: "2026-10-26", net_assets: String(m.begin), observed_finished_at: pairStart },
+          { currency: "USD", observation_date: "2026-10-27", net_assets: String(m.end), observed_finished_at: pairEnd },
+        ] } });
+    },
+  };
+  const response = await performanceResponse(new Request("https://synthetic.invalid/api/performance/summary?scope=all&range=ALL"), env, deps);
+  assert.equal(response.status, 200);
+  return response.json();
+}
+const equivalentPair = await transferSummary("2026-10-27T00:00:00Z");
+assert.equal(equivalentPair.twr_return_percent, 0, "same instant and equal opposite transfer leaves cohort return at zero");
+for (const body of [await transferSummary("2026-10-27T00:00:00.001Z"),
+  await transferSummary("2026-10-27T00:00:00Z", { amount: "49" }),
+  await transferSummary("2026-10-27T00:00:00Z", { ref: "d" }),
+  await transferSummary("2026-10-27T00:00:00Z", { type: "deposit" })]) {
+  assert.equal(body.twr_return_percent, null, "different instant, amount, direction, or transfer reference stays unknown");
+}

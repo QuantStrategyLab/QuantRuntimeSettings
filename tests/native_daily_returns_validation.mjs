@@ -134,8 +134,19 @@ assert.equal(missingMoneyBlocks.calendar.cells.find(c=>c.date==='2026-10-23').am
 assert.equal(applyNativeDailyReturns(performanceBlocks({...moneyInput,range:'1M'}),{...moneyInput,range:'1M'}).summary.amount,null,'incomplete range does not claim a full monetary result');
 const yearMoneyInput={...yearInput,accounts:[{...input.accounts[0],return:{daily:[
   moneyRow('2026-10-01','0.1','10'),moneyRow('2026-10-02','-0.05','-5'),moneyRow('2026-10-05','0.02','2')]}}]};
-const yearMoney=applyNativeDailyReturns(performanceBlocks(yearMoneyInput),yearMoneyInput).calendar;
-assert.equal(yearMoney.cells.find(c=>c.month==='2026-10').amount,7);
+const yearMoneyBase=performanceBlocks(yearMoneyInput);
+Object.assign(yearMoneyBase.calendar.cells.find(c=>c.month==='2026-10'), {
+  return_method:'modified_dietz',cashflow_method:'modified_dietz',approximate:true,
+});
+const yearMoney=applyNativeDailyReturns(yearMoneyBase,yearMoneyInput).calendar;
+const octoberMoney=yearMoney.cells.find(c=>c.month==='2026-10');
+assert.equal(octoberMoney.amount,7);
+assert.ok(Math.abs(octoberMoney.return_percent-6.59)<1e-9);
+assert.equal(octoberMoney.return_method,'native_ibkr_twr');
+assert.equal(octoberMoney.return_unit,'percent');
+assert.equal(octoberMoney.amount_unit,'native_currency');
+assert.equal(octoberMoney.cashflow_method,undefined);
+assert.equal(octoberMoney.approximate,undefined);
 assert.equal(yearMoney.cells.find(c=>c.month==='2026-11').amount,null);
 console.log('native NAV money: exact sums, missing money, deposits, independent TWR and calendar PASS');
 
@@ -340,7 +351,8 @@ const originalFetch=globalThis.fetch;
 try {
   Date.now=()=>Date.parse('2026-10-02T16:00:00Z');
   globalThis.fetch=async()=>{throw new Error('Unexpected network request in synthetic regression');};
-  const readRoute=async(endpoint,daily=routeDaily,enabled=true)=>{
+  const readRoute=async(endpoint,daily=routeDaily,enabled=true,query='range=ALL&year=2026&month=10',
+    {points=routePoints, flows=routeFlows}={})=>{
     const account={platform:'ibkr',account_key:'synthetic-account',binding_status:'bound',
       observed_finished_at:routeEnd2,observation_date:'2026-10-02',
       balances:[{currency:'USD',net_assets:'143'}],positions_complete:true,positions:[],
@@ -351,13 +363,13 @@ try {
       accountOptions:async()=>({options:{ibkr:[{key:'synthetic-account'}]}}),
       facts:async()=>Response.json({accounts:[account]}),
       history:async()=>Response.json({platform:'ibkr',account_key:'synthetic-account',
-        currencies:['USD'],externalFlow:routeFlows,series:{currency:'USD',
-          points:routePoints.map(point=>({currency:'USD',observation_date:point.date,
+        currencies:['USD'],externalFlow:flows,series:{currency:'USD',
+          points:points.map(point=>({currency:'USD',observation_date:point.date,
             net_assets:String(point.value),observed_finished_at:point.observed_at}))}}),
       benchmarks:async()=>Response.json({points:[]}),
     };
     const response=await performanceResponse(new Request(
-      `https://fake.invalid/api/performance/${endpoint}?range=ALL&year=2026&month=10`),
+      `https://fake.invalid/api/performance/${endpoint}?${query}`),
       enabled?{CONSOLE_EXTERNAL_FLOW_ENABLED:'true'}:{},deps);
     assert.equal(response.status,200);
     return response.json();
@@ -417,8 +429,54 @@ try {
   assert.equal(gapCurve.points.length,2);
   gapCurve.points.forEach((point,i)=>assert.ok(Math.abs(point.daily_return_percent-[7,-2][i])<1e-10));
   assertNoDietz(gapSummary);assertNoDietz(gapCurve);
+
+  Date.now=()=>Date.parse('2026-11-05T12:00:00Z');
+  const octoberRows=[];
+  for(let day=1;day<=31;day++){
+    const date=new Date(Date.UTC(2026,9,day));
+    if(![0,6].includes(date.getUTCDay())){
+      octoberRows.push(row(date.toISOString().slice(0,10),day===1?'0.07':'0'));
+    }
+  }
+  const fullYear=await readRoute('calendar',octoberRows,true,'range=ALL&year=2026');
+  const shortRangeYear=await readRoute('calendar',octoberRows,true,'range=1M&year=2026');
+  const octoberCell=fullYear.cells.find(cell=>cell.month==='2026-10');
+  assert.ok(Math.abs(octoberCell.return_percent-7)<1e-10);
+  assert.equal(octoberCell.return_method,'native_ibkr_twr');
+  assertNoDietz(octoberCell);
+  assert.equal(shortRangeYear.range,'1M','keep the requested range in the response envelope');
+  assert.deepEqual(shortRangeYear.cells,fullYear.cells,'annual cells must not be clipped by the chart range');
+  const shortRangeMonth=await readRoute('calendar',octoberRows,true,'range=1M&year=2026&month=10');
+  assert.ok(Math.abs(shortRangeMonth.cells.find(cell=>cell.date==='2026-10-01').return_percent-7)<1e-10);
+  const missingSession=octoberRows.filter(item=>item.period.to!=='2026-10-05');
+  const incompleteYear=await readRoute('calendar',missingSession,true,'range=1M&year=2026');
+  const incompleteOctober=incompleteYear.cells.find(cell=>cell.month==='2026-10');
+  assert.equal(incompleteOctober.return_percent,null);
+  assert.equal(incompleteOctober.unavailable_reason,'incomplete_month');
+  assert.equal(incompleteOctober.return_method,'native_ibkr_twr');
+  const points=[
+    {date:'2026-09-01',value:100,observed_at:'2026-09-01T12:00:00.000Z'},
+    {date:'2026-10-05',value:110,observed_at:'2026-10-05T12:00:00.000Z'},
+    {date:'2026-10-06',value:121,observed_at:'2026-10-06T12:00:00.000Z'},
+  ];
+  const flows={schema_version:'external_flow.v1',windows:[{
+    currency:'USD',date:points[2].date,period_start:points[1].observed_at,
+    period_end:points[2].observed_at,source:'ibkr_flex',coverage:'complete',records:[],
+  }]};
+  const dietzOctober=await readRoute('calendar',null,true,'range=1M&year=2026&month=10',{points,flows});
+  const dietzCell=dietzOctober.cells.find(cell=>cell.date==='2026-10-06');
+  assert.equal(dietzCell.return_method,'modified_dietz','older missing flows cannot disqualify the covered interval');
+  assert.ok(Math.abs(dietzCell.return_percent-10)<1e-10);
+
+  const septemberGap=[row('2026-09-01','0'),row('2026-09-03','0')];
+  const boundedMonth=await readRoute('calendar',[...septemberGap,...octoberRows],true,'range=1M&year=2026&month=10');
+  assert.equal(boundedMonth.coverage.period_from,'2026-10-01');
+  assert.equal(boundedMonth.coverage.range_complete,true);
+  assert.equal(boundedMonth.unavailable_reason,null);
+  const shortRangeSummary=await readRoute('summary',octoberRows,true,'range=1M&year=2026');
+  assert.equal(shortRangeSummary.coverage.period_from,'2026-10-05','summary still obeys the chart range');
 } finally {
   Date.now=originalNow;
   globalThis.fetch=originalFetch;
 }
-console.log('native_daily_returns_serialized_metadata: PASS (native over Dietz, fallback, gaps, provenance, no invented P/L)');
+console.log('native_daily_returns_serialized_metadata: PASS (native over Dietz, fallback, gaps, provenance, calendar range independence)');

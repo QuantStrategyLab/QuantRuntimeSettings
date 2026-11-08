@@ -72,17 +72,25 @@ export async function performanceResponse(request, env, deps) {
     };
     const nativeBinanceOnly = matches.length > 0
       && matches.every(option => option.platform === "binance");
-    const factsResponse = nativeBinanceOnly ? Response.json({ accounts: [] }) : await deps.facts(
-      makeRequest("/api/account-facts"),
-      env,
-    );
+    const independentBinanceHoldings = endpoint === "holdings"
+      && matches.some(option => option.platform === "binance");
+    let factsResponse;
+    try {
+      factsResponse = nativeBinanceOnly ? Response.json({ accounts: [] }) : await deps.facts(
+        makeRequest("/api/account-facts"),
+        env,
+      );
+    } catch (error) {
+      if (!independentBinanceHoldings) throw error;
+      factsResponse = Response.json({ error: "account_facts_unavailable" }, { status: 503 });
+    }
     const sourceError = !factsResponse.ok ? await factsResponse.json().catch(() => null) : null;
     const factsDisabled = factsResponse.status === 404 && sourceError?.error === "account_facts_disabled";
     const factsUnreadable = !factsResponse.ok && !factsDisabled;
     const independentWalletCalendar = endpoint === "calendar" && scope === "all"
       && url.searchParams.get("currency") === "USDT"
       && matches.some(option => option.platform === "binance");
-    if (factsUnreadable && !independentWalletCalendar) {
+    if (factsUnreadable && !independentWalletCalendar && !independentBinanceHoldings) {
       return json({ schema_version: "console_api.v1", scope, range,
         status: "unavailable", unavailable_reason: "stored_records_unreadable", as_of: null,
         ...(endpoint === "holdings" ? { rows: [], coverage: [], includes_cost_basis: false }
@@ -193,6 +201,7 @@ export async function performanceResponse(request, env, deps) {
         if (factsUnreadable && independentWalletCalendar) excludedCommonAccounts.push(option.key);
         else failed.push(option.key);
         accounts.push({ account_key: option.key, platform: option.platform,
+          ...(endpoint === "holdings" && factsUnreadable ? { positions_read_error: "stored_records_unreadable" } : {}),
           snapshot_unavailable_reason: !fact ? factsUnreadable ? "stored_records_unreadable"
             : factsDisabled ? "account_facts_disabled" : "no_snapshot"
             : fact.identity_mismatch ? "identity_mismatch"
@@ -355,7 +364,10 @@ export async function performanceResponse(request, env, deps) {
     // an independently qualified historical return chain and its real cash flows.
     const cashflowInput = { ...performanceInput, failed: performanceInput.failed.filter(key =>
       !historyOnlyCandidates.has(key) || readFailures.includes(key)) };
-    const blocks = applyNativeDailyReturns(applyCashflowPerformance(performanceBlocks(performanceInput), cashflowInput, env), performanceInput);
+    const blocks = applyNativeDailyReturns(
+      applyCashflowPerformance(performanceBlocks(performanceInput), cashflowInput, env),
+      { ...performanceInput, nativeCalendar: endpoint === "calendar" },
+    );
     const block = blocks[endpoint];
     if (endpoint === "calendar") {
       block.available_currencies = availableCurrencies;

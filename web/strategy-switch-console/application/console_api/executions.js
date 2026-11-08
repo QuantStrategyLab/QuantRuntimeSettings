@@ -21,8 +21,9 @@ export async function executionStatsResponse(options, { scope, range, today }, e
     }
     connected++;
     coverage.push({ platform: option.platform, account_alias: option.key, status: "partial",
-      unavailable_reason: "execution_coverage_unverified", coverage: source.coverage, reports: source.reports });
-    for (const report of source.reports) if (!asOf || report.observed_at > asOf) asOf = report.observed_at;
+      unavailable_reason: "execution_coverage_unverified", coverage: source.coverage, reports: source.reports, reports_truncated: source.reports_truncated ?? false });
+    const observations = source.as_of ? [source.as_of] : source.reports.map(report => report.observed_at);
+    for (const observedAt of observations) if (!asOf || Date.parse(observedAt) > Date.parse(asOf)) asOf = observedAt;
     for (const row of source.records) {
       if (row.trade_date > today || start && row.trade_date < start) continue;
       rows.push({ platform: option.platform, account_alias: option.key, ...row });

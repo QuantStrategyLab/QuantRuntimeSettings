@@ -17,6 +17,7 @@ import {
   buildAccountFactsHistoryReadModel,
   buildAccountFactsReadModel,
   projectAccountFactsHistoryCurrencies,
+  projectAccountFactsHistoryPositions,
 } from "../../account_facts.js";
 import { externalFlowEnabled, instant } from "./external_flow.js";
 
@@ -218,6 +219,15 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   const projection = url.searchParams.get("projection");
   const currenciesProjection = projection === "currencies";
   const flowCoverage = projection === "external-flow-coverage";
+  const positionsProjection = projection === "positions";
+  const from = url.searchParams.get("from"), to = url.searchParams.get("to");
+  if (positionsProjection && ([...url.searchParams.keys()].some(key => !["platform", "account_key", "projection", "from", "to"].includes(key))
+      || ["platform", "account_key", "projection"].some(key => url.searchParams.getAll(key).length !== 1)
+      || ["from", "to"].some(key => url.searchParams.getAll(key).length > 1)
+      || (from !== null && !accountFactsIdentityDates(from, from))
+      || (to !== null && !accountFactsIdentityDates(to, to)) || (from && to && from > to))) {
+    return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
+  }
   if (flowCoverage && ([...url.searchParams.keys()].some(key => !["platform", "account_key", "projection"].includes(key))
       || ["platform", "account_key", "projection"].some(key => url.searchParams.getAll(key).length !== 1))) {
     return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
@@ -227,18 +237,18 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
       || ["platform", "account_key", "currency", "include_currencies"].some(key => url.searchParams.getAll(key).length !== 1))) {
     return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
   }
-  const requireCurrencies = currenciesProjection || includeCurrencies || flowCoverage;
+  const requireVerifiedBinding = currenciesProjection || includeCurrencies || flowCoverage || positionsProjection;
   const dates = projection === "identity"
     ? accountFactsIdentityDates(url.searchParams.get("from"), url.searchParams.get("to")) : null;
   if (currenciesProjection && (["platform", "account_key", "projection"].some((key) => url.searchParams.getAll(key).length !== 1)
       || ["currency", "from", "to"].some((key) => url.searchParams.has(key)))) {
     return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
   }
-  if (projection !== null && !currenciesProjection && !flowCoverage && (projection !== "identity" || !ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !dates
+  if (projection !== null && !currenciesProjection && !flowCoverage && !positionsProjection && (projection !== "identity" || !ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !dates
       || ["platform", "account_key", "currency", "projection", "from", "to"].some((key) => url.searchParams.getAll(key).length !== 1))) {
     return json({ ok: false, error: "invalid_account_facts_identity_query" }, 400);
   }
-  if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !accountKey || (!currenciesProjection && !flowCoverage && !/^[A-Z]{3}$/.test(currency))) {
+  if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !accountKey || (!currenciesProjection && !flowCoverage && !positionsProjection && !/^[A-Z]{3}$/.test(currency))) {
     return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
   }
   let accountConfig;
@@ -259,7 +269,7 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
   const binding = bindings?.bindings?.find(
     (item) => item.platform === platform && item.account_key === accountKey,
   ) || null;
-  if (requireCurrencies && (!option || !binding || !accountFactsOptionMatchesBinding(option, binding)
+  if (requireVerifiedBinding && (!option || !binding || !accountFactsOptionMatchesBinding(option, binding)
       || bindings.bindings.filter((item) => item.platform === platform && item.account_key === accountKey).length !== 1)) {
     return json({ ok: false, error: "account_facts_identity_unavailable" }, 409);
   }
@@ -339,6 +349,11 @@ export async function accountFactsHistoryResponse(request, env, url, deps) {
     } catch (error) {
       return accountFactsErrorResponse(error);
     }
+  }
+  if (positionsProjection) {
+    return json({ ok: true, platform, account_key: accountKey, projection: "positions",
+      observations: projectAccountFactsHistoryPositions({ days, binding, from, to }),
+      retention_days: ACCOUNT_FACTS_HISTORY_MAX_DAYS });
   }
   if (currenciesProjection) {
     return json({ ok: true, platform, account_key: accountKey, projection: "currencies",

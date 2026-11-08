@@ -97,10 +97,42 @@ export function mergeExecutions(prior, incoming) {
   }, records: [...rows.values()] }, { enforceFresh: false, maxRecords: 2048, maxPeriodDays: 36500 });
 }
 
+// The payload retains the existing merged record contract. Report metadata is
+// stored separately so disjoint input periods do not become a single report.
+const MAX_REPORT_PERIODS = 512;
+function unpackStored(payload, metadata) {
+  const saved = metadata ? JSON.parse(metadata) : { reports: [], reports_truncated: false };
+  if (payload && (!metadata || saved.untracked_payload_write)) {
+    saved.legacy_aggregate = { period: payload.period, observed_at: payload.observed_at,
+      coverage: payload.coverage, period_status: "legacy_aggregate_bounds_unknown" };
+  }
+  return saved;
+}
+function addReport(stored, incoming) {
+  const report = { period: incoming.period, observed_at: incoming.observed_at,
+    coverage: incoming.coverage, period_status: "observed_report" };
+  const key = value => `${value.period.from}/${value.period.to}`;
+  const reports = stored.reports.filter(value => key(value) !== key(report));
+  const previous = stored.reports.find(value => key(value) === key(report));
+  reports.push(previous && Date.parse(previous.observed_at) > Date.parse(report.observed_at) ? previous : report);
+  reports.sort((a, b) => a.period.from.localeCompare(b.period.from) || a.period.to.localeCompare(b.period.to));
+  const truncated = stored.reports_truncated || reports.length > MAX_REPORT_PERIODS;
+  return { reports: reports.slice(-MAX_REPORT_PERIODS), reports_truncated: truncated };
+}
+
 const identity = context => stable([context.platform, context.target_id, context.account_scope,
   context.account_selector, context.broker_account_hash ?? null, context.broker_account_id ?? null]);
 export function initializeExecutions(sql) {
   sql.exec("CREATE TABLE IF NOT EXISTS account_executions (platform TEXT NOT NULL, account_key TEXT NOT NULL, source_binding_id TEXT NOT NULL, context_json TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY(platform, account_key, source_binding_id))");
+  sql.exec("CREATE TABLE IF NOT EXISTS account_execution_reports (platform TEXT NOT NULL, account_key TEXT NOT NULL, source_binding_id TEXT NOT NULL, context_json TEXT NOT NULL, metadata_json TEXT NOT NULL, PRIMARY KEY(platform, account_key, source_binding_id))");
+  // Current writes replace this marker in the same account-facts transaction.
+  // A rollback to a payload-only writer leaves the coverage gap visible.
+  sql.exec(`CREATE TRIGGER IF NOT EXISTS mark_untracked_execution_payload
+    AFTER UPDATE OF payload_json ON account_executions WHEN NEW.payload_json <> OLD.payload_json
+    BEGIN
+      UPDATE account_execution_reports SET metadata_json = json_set(metadata_json, '$.untracked_payload_write', json('true'))
+      WHERE platform = NEW.platform AND account_key = NEW.account_key AND source_binding_id = NEW.source_binding_id;
+    END`);
 }
 export function readExecutions(sql, context) {
   const allowed = [context.source_binding_id, ...(context.history_source_binding_ids || [])];
@@ -109,16 +141,25 @@ export function readExecutions(sql, context) {
   context.platform, context.account_key, ...allowed).toArray();
   const records = new Map();
   const reports = [];
+  let reportsTruncated = false, asOf = null;
   for (const stored of rows) {
     if (stored.context_json !== identity(context)) continue;
-    const payload = normalizeExecutions(JSON.parse(stored.payload_json), { binding: { ...context,
+    const metadataRow = sql.exec("SELECT context_json, metadata_json FROM account_execution_reports WHERE platform = ? AND account_key = ? AND source_binding_id = ?",
+      context.platform, context.account_key, stored.source_binding_id).toArray()[0];
+    const raw = JSON.parse(stored.payload_json);
+    const saved = unpackStored(raw, metadataRow?.context_json === identity(context) ? metadataRow.metadata_json : null);
+    const payload = normalizeExecutions(raw, { binding: { ...context,
       source_binding_id: stored.source_binding_id }, enforceFresh: false, maxRecords: 2048, maxPeriodDays: 36500 });
-    reports.push({ period: payload.period, observed_at: payload.observed_at, coverage: payload.coverage });
+    if (asOf === null || Date.parse(payload.observed_at) > Date.parse(asOf)) asOf = payload.observed_at;
+    if (saved.legacy_aggregate) reports.push(saved.legacy_aggregate);
+    reports.push(...saved.reports);
+    reportsTruncated ||= saved.reports_truncated;
     for (const row of payload.records) records.set(row.execution_ref,
       records.has(row.execution_ref) ? mergeRecord(records.get(row.execution_ref), row) : row);
   }
-  if (!reports.length) return null;
-  return { source: "ibkr_flex", coverage: "reported_executions", reports,
+  if (asOf === null) return null;
+  return { source: "ibkr_flex", coverage: "reported_executions", as_of: asOf,
+    reports, reports_truncated: reportsTruncated,
     records: [...records.values()].sort((a, b) => b.trade_date.localeCompare(a.trade_date) || a.execution_ref.localeCompare(b.execution_ref)) };
 }
 export function putExecutions(sql, context, raw) {
@@ -126,12 +167,19 @@ export function putExecutions(sql, context, raw) {
   if (incoming.records.some(row => row.report_ref !== incoming.source_ref)) throw executionError();
   const stored = sql.exec("SELECT context_json, payload_json FROM account_executions WHERE platform = ? AND account_key = ? AND source_binding_id = ?",
     context.platform, context.account_key, context.source_binding_id).toArray()[0];
-  const prior = stored?.context_json === identity(context)
-    ? normalizeExecutions(JSON.parse(stored.payload_json), { binding: context, enforceFresh: false,
-      maxRecords: 2048, maxPeriodDays: 36500 }) : null;
+  const priorRaw = stored?.context_json === identity(context) ? JSON.parse(stored.payload_json) : null;
+  const metadataRow = sql.exec("SELECT context_json, metadata_json FROM account_execution_reports WHERE platform = ? AND account_key = ? AND source_binding_id = ?",
+    context.platform, context.account_key, context.source_binding_id).toArray()[0];
+  const saved = unpackStored(priorRaw, metadataRow?.context_json === identity(context) ? metadataRow.metadata_json : null);
+  const prior = priorRaw ? normalizeExecutions(priorRaw, { binding: context, enforceFresh: false,
+    maxRecords: 2048, maxPeriodDays: 36500 }) : null;
   const merged = mergeExecutions(prior, incoming);
-  if (stable(prior) === stable(merged)) return { unchanged: true };
+  const metadata = addReport(saved, incoming);
+  const next = { ...metadata, legacy_aggregate: saved.legacy_aggregate ?? null };
+  if (metadataRow && stable(prior) === stable(merged) && stable(saved) === stable(next)) return { unchanged: true };
   sql.exec("INSERT INTO account_executions (platform, account_key, source_binding_id, context_json, payload_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(platform, account_key, source_binding_id) DO UPDATE SET context_json = excluded.context_json, payload_json = excluded.payload_json",
     context.platform, context.account_key, context.source_binding_id, identity(context), stable(merged));
+  sql.exec("INSERT INTO account_execution_reports (platform, account_key, source_binding_id, context_json, metadata_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(platform, account_key, source_binding_id) DO UPDATE SET context_json = excluded.context_json, metadata_json = excluded.metadata_json",
+    context.platform, context.account_key, context.source_binding_id, identity(context), stable(next));
   return { unchanged: false };
 }

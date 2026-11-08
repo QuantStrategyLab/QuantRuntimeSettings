@@ -107,12 +107,10 @@ null and do not establish amount availability or cost inclusion.
 Dietz cells also include `cashflow_method: "modified_dietz"` and an explicit
 `approximate` boolean, true only when a contributing interval contains a flow
 before its end. Stock daily groups can include weekend intervals; the boolean
-covers those contributing intervals, not the whole return chain. Native daily
-replacement sets its own method and removes inherited Dietz flags. Untouched
-legacy/unavailable cells have no new metadata. Monthly cells retain their existing
-values and shape; no monthly Dietz calculation or metadata is added. These are
-additive backend fields; frontend consumers may continue reading the existing
-fields, and frontend types and rendering are unchanged by this contract addition.
+covers those contributing intervals, not the whole return chain. Calendar cells
+replaced by native TWR carry the same method and unit fields at both daily and
+monthly granularity and omit Dietz flags. Incomplete native months retain null
+values and their coverage reason. Legacy cells retain their existing fields.
 
 `limit` defaults to 25 and accepts 1–100. `next_cursor` is an opaque string or
 `null`. Pass it unchanged as `cursor`. Histories sort newest first. Decision
@@ -612,6 +610,20 @@ keep every failure and do not retry failed acceptance into a pass. A timeout sto
 acceptance/promotion. This guard does not claim global propagation is atomic and
 does not remove transient platform responses before readiness.
 
+### Historical positions
+
+Authenticated `GET /api/account-facts/history?platform=…&account_key=…&projection=positions`
+returns account-bound daily observations from verified history. Optional `from` and
+`to` are inclusive ISO dates. Each observation contains the actual
+`observed_finished_at`, `positions`, `positions_scope` and `positions_complete`.
+Position entries carry the stored symbol, quantity, market value and currency.
+They include `currency_source` when the stored observation specifies one.
+A null `positions` means the source did not report positions; an empty array with
+`positions_complete: true` is a reported empty inventory within its stated scope.
+A null completeness value does not establish a complete inventory. Observation
+instants do not assert end-of-day holdings. Only existing observations within the
+history retention limit are returned; missing days are not interpolated.
+
 ### External-flow coverage inspection
 
 Authenticated `GET /api/account-facts/history?platform=…&account_key=…&projection=external-flow-coverage`
@@ -832,3 +844,16 @@ UNRECONCILED dimensions. Render unknown fields without zeros or inferred dates,
 in zh-CN/en and light/dark. Backend/schema/tests remain owned by the backend
 maintainer; frontend files, actions, task-list workflows and assets are outside
 this patch. Runtime collection, deployed adoption and delivery remain NOT_PROVEN.
+
+### Broker execution report intervals
+
+Execution coverage remains partial and does not establish a complete trading history.
+Each `reports` entry with `period_status=observed_report` identifies a received
+report period. Repeated periods are deduplicated, retaining the latest observation.
+At most 512 distinct periods per source binding are retained; `reports_truncated`
+indicates older intervals were omitted. Existing stored aggregates predate interval
+tracking: their `period_status=legacy_aggregate_bounds_unknown` marks bounds only,
+not an individual report or proof of coverage within the bounds. New observations
+are recorded alongside that legacy marker. If a rollback writes a changed
+aggregate without recording intervals, the bounds are marked unknown again
+while the previously observed intervals remain visible.

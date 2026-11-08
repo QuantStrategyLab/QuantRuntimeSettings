@@ -1,4 +1,4 @@
-import { cleanPoints, dateMs, hasGap, rangeStart, sliceRange } from "../../performance_math.js";
+import { cleanPoints, dateMs, hasGap, rangeStart } from "../../performance_math.js";
 import { performanceBlocks } from "./performance.js";
 
 // Amounts have already passed the private period-return receiver. Sum their
@@ -83,22 +83,29 @@ export function applyNativeDailyReturns(blocks, input) {
   const currencies = [...new Set(rows.map(row => row.currency))];
   if (currencies.length !== 1) return blocks;
   const currency = currencies[0];
-  const daily = sliceRange(rows.map(row => ({ date: row.period.to, value: Number(row.value),
+  const { nativeCalendar, year, month } = input;
+  const periodStart = nativeCalendar ? `${year}-${String(month || 1).padStart(2, "0")}-01`
+    : rangeStart(input.range.toLowerCase(), input.today);
+  const calendarEnd = nativeCalendar ? new Date(Date.UTC(year, month || 12, 0)).toISOString().slice(0, 10) : input.today;
+  const through = calendarEnd < input.today ? calendarEnd : input.today;
+  const boundedStart = nativeCalendar || input.range !== "ALL";
+  const daily = cleanPoints(rows.map(row => ({ date: row.period.to, value: Number(row.value),
     navAmount: row.nav_change?.method === "ibkr_nav_reconciliation" && row.nav_change.source === "ChangeInNAV"
-      ? row.nav_change.amount : null })), input.range.toLowerCase(), input.today);
+      ? row.nav_change.amount : null }))).filter(row => row.date >= periodStart && row.date <= through);
   if (!daily.length) return blocks;
-  let expectedStart = rangeStart(input.range.toLowerCase(), input.today);
-  if (input.range !== "ALL") {
+  let expectedStart = periodStart;
+  if (boundedStart) {
     while ([0, 6].includes(new Date(dateMs(expectedStart)).getUTCDay())) expectedStart = new Date(dateMs(expectedStart) + 86400000).toISOString().slice(0, 10);
   }
-  const incompleteRange = input.range !== "ALL" && daily[0].date > expectedStart;
+  const incompleteRange = boundedStart && daily[0].date > expectedStart;
   const gaps = daily.slice(1).some((row, i) => hasGap(daily[i], row));
   // Today may still be pending, but prior unreported weekdays are missing.
-  const trailingGap = hasGap(daily.at(-1), { date: input.today });
+  const trailingBoundary = through === input.today ? through : new Date(dateMs(through) + 86400000).toISOString().slice(0, 10);
+  const trailingGap = hasGap(daily.at(-1), { date: trailingBoundary });
   const incomplete = gaps || incompleteRange;
   let growth = 1;
   const index = daily.map(row => { growth *= 1 + row.value; return { date: row.date, value: growth }; });
-  const stale = dateMs(input.today) - dateMs(daily.at(-1).date) > 3 * 86400000;
+  const stale = dateMs(through) - dateMs(daily.at(-1).date) > 3 * 86400000;
   const status = incomplete ? "partial" : stale ? "stale" : trailingGap ? "partial" : "ok";
   const metricReason = incomplete ? "snapshot_history_missing" : null;
   const reason = incomplete || trailingGap ? "snapshot_history_missing" : null;
@@ -106,7 +113,7 @@ export function applyNativeDailyReturns(blocks, input) {
   const coverage = { ...blocks.returns.coverage, account_aliases: [account.account_key], currencies: [currency],
     cashflows: "complete", native_return_source: "ChangeInNAV.twr", period_from: daily[0].date,
     period_to: daily.at(-1).date, range_complete: !incomplete && !trailingGap,
-    requested_period_from: input.range === "ALL" ? daily[0].date : expectedStart, trading_dates: "broker_reported_daily_returns",
+    requested_period_from: boundedStart ? expectedStart : daily[0].date, trading_dates: "broker_reported_daily_returns",
     ...(gaps ? { native_daily_only: true } : {}),
     native_amount_source: amount === null ? null : "ChangeInNAV", native_amount_method: amount === null ? null : "ibkr_nav_reconciliation" };
   // Native daily returns already have a starting capital boundary. Rebasing the
@@ -164,6 +171,8 @@ export function applyNativeDailyReturns(blocks, input) {
       const complete = expected.length === monthly.length && expected.every(date => byDate.has(date));
       displayed++;
       return { ...cell, amount: complete ? navAmountSum(monthly) : null, observed_amount: null, currency, value_kind: "pnl",
+        return_method: "native_ibkr_twr", method_version: null, return_unit: "percent", amount_unit: "native_currency",
+        cashflow_method: undefined, approximate: undefined,
         return_percent: complete ? (monthly.reduce((growth, row) => growth * (1 + row.value), 1) - 1) * 100 : null,
         status: complete ? "ok" : "partial", unavailable_reason: complete ? null : "incomplete_month",
         coverage: { observed_days: monthly.length, expected_weekdays: expected.length } };

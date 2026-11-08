@@ -94,7 +94,7 @@ export function cashflowCurrencyResult(histories, { range, today, failed = [] })
     for (const pair of transfers.values()) {
       if (normalized.length > 1 && (pair.length !== 2 || pair[0].type === pair[1].type
           || Math.abs(Number(pair[0].amount) + Number(pair[1].amount)) > 1e-8
-          || pair[0].effective_at !== pair[1].effective_at)) return unavailable("external_cashflow_required");
+          || instant(pair[0].effective_at) !== instant(pair[1].effective_at))) return unavailable("external_cashflow_required");
     }
     const net = records.reduce((s, r) => s + Number(r.amount), 0);
     const weighted = records.reduce((s, r) => s + r.weight * Number(r.amount), 0);

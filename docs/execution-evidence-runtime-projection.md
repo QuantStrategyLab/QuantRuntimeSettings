@@ -55,6 +55,19 @@ configured platform prefix, and POSTs only the generated snapshot to
 long-lived GCP key. Credentials and runtime-report object URLs must never be
 added to this repository or emitted to logs.
 
+The Action requests a receipt with a fresh, opaque
+`X-QSL-Execution-Evidence-Receipt` identifier. The receiver echoes it as
+`receipt_id` after saving the snapshot and includes it in the existing
+best-effort audit entry. The Action validates the HTTP status and matches the
+identifier, source, schema, deployment count, and report timestamp against the
+upload. It logs only the status, count, and opaque identifier. A zero count
+means an empty projection. An unverified or missing receipt leaves the upload
+outcome uncertain. The Action does not retry that upload.
+
+Deploy the compatible receiver before changing a caller to the new Action
+version. Requests without the receipt header keep the previous response and
+audit format. The audit remains bounded and can omit a successful upload.
+
 ## 生产端接入边界
 
 执行回执是一个通用接口，但不允许平台为了“看起来完整”而猜测成交。当前接入的
