@@ -58,7 +58,6 @@ export const zh: Record<string, string> = {
   "cockpit.blocker.state": "该决定已不在待处理状态。",
   "cockpit.blocker.state_unknown": "无法读取该决定的状态，当前不可审批。",
   "cockpit.blocker.other": "当前不可审批。",
-  "cockpit.blocker.other_code_label": "当前不可审批，原因代码：",
 
   "cockpit.support.title": "支持资料",
   "cockpit.support.qualified": "合格",
@@ -314,7 +313,6 @@ export const en: Record<string, string> = {
   "cockpit.blocker.state": "This decision is no longer pending.",
   "cockpit.blocker.state_unknown": "The decision state could not be read; approval is unavailable.",
   "cockpit.blocker.other": "Approval is unavailable.",
-  "cockpit.blocker.other_code_label": "Approval is unavailable. Reason code: ",
 
   "cockpit.support.title": "Supporting data",
   "cockpit.support.qualified": "Qualified",

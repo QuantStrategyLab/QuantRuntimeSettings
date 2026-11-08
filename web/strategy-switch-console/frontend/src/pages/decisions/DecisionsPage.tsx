@@ -913,12 +913,7 @@ export default function DecisionsPage({ decision }: { decision: string | null })
         )}
         {serverBlockers?.blocked && (
           <ul className="cockpit-blockers" aria-label={t("cockpit.decision.blocked")}>
-            {serverBlockers.blockers.map(blocker => (
-              <li key={`${blocker.key}:${blocker.code ?? ""}`}>
-                {t(blocker.key)}
-                {blocker.code && <code>{blocker.code}</code>}
-              </li>
-            ))}
+            {serverBlockers.blockers.map(key => <li key={key}>{t(key)}</li>)}
           </ul>
         )}
         {actions}

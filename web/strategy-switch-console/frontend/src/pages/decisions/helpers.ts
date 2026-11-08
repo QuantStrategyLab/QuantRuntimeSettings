@@ -77,37 +77,30 @@ const BLOCKER_COPY: Record<string, string> = {
   recovery_blocked: "cockpit.blocker.other",
   recovery_not_awaiting_confirmation: "cockpit.blocker.other",
 };
-const SAFE_CODE = /^[a-z][a-z0-9_]{0,63}$/;
-
-/** `code` is set only for an unmapped, well-formed code shown verbatim next to the generic copy. */
-export interface InboxBlocker { key: string; code: string | null }
-
 /**
- * Server actionability for an inbox item. `null` means the item carries neither
- * field (legacy behaviour). Fail-closed: a non-boolean `actionable`, a
- * non-array code list or any code at all blocks the item; malformed entries
- * become the generic line and are never shown raw.
+ * Server actionability for an inbox item as blocker copy keys. `null` means the
+ * item carries neither field (legacy behaviour). Fail-closed: anything but
+ * `actionable === true` with an empty code list blocks the item. Unmapped or
+ * malformed codes become the generic line; machine codes never render raw.
  */
-export function inboxBlockers(item: unknown): { blocked: boolean; blockers: InboxBlocker[] } | null {
+export function inboxBlockers(item: unknown): { blocked: boolean; blockers: string[] } | null {
   if (!item || typeof item !== "object") return null;
   const record = item as { actionable?: unknown; blocking_reason_codes?: unknown };
   const hasFlag = "actionable" in record && record.actionable !== undefined;
   const hasCodes = "blocking_reason_codes" in record && record.blocking_reason_codes !== undefined;
   if (!hasFlag && !hasCodes) return null;
-  const blockers: InboxBlocker[] = [];
-  const add = (key: string, code: string | null) => {
-    if (!blockers.some(entry => entry.key === key && entry.code === code)) blockers.push({ key, code });
+  const blockers: string[] = [];
+  const add = (key: string) => {
+    if (!blockers.includes(key)) blockers.push(key);
   };
   if (hasCodes) {
-    if (!Array.isArray(record.blocking_reason_codes)) add("cockpit.blocker.other", null);
+    if (!Array.isArray(record.blocking_reason_codes)) add("cockpit.blocker.other");
     else for (const code of record.blocking_reason_codes) {
-      if (typeof code === "string" && Object.hasOwn(BLOCKER_COPY, code)) add(BLOCKER_COPY[code], null);
-      else if (typeof code === "string" && SAFE_CODE.test(code)) add("cockpit.blocker.other_code_label", code);
-      else add("cockpit.blocker.other", null);
+      add(typeof code === "string" && Object.hasOwn(BLOCKER_COPY, code) ? BLOCKER_COPY[code] : "cockpit.blocker.other");
     }
   }
-  if (hasFlag && record.actionable !== true && blockers.length === 0) {
-    add(record.actionable === false ? "cockpit.blocker.not_allowed" : "cockpit.blocker.other", null);
+  if (record.actionable !== true && blockers.length === 0) {
+    add(record.actionable === false ? "cockpit.blocker.not_allowed" : "cockpit.blocker.other");
   }
   return { blocked: blockers.length > 0, blockers };
 }

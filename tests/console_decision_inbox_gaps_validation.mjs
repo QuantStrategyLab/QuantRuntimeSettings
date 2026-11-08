@@ -52,9 +52,9 @@ const base = {
 };
 const COPY = {
   zh: { stale: "支持资料已过时，当前无法批准。", notAllowed: "服务端当前不允许审批。", other: "当前不可审批。",
-    otherCode: "当前不可审批，原因代码：", blocked: "暂不可审批", approved: "已批准", rejected: "已拒绝", decided: "已处理", pending: "待处理" },
+    blocked: "暂不可审批", approved: "已批准", rejected: "已拒绝", decided: "已处理", pending: "待处理" },
   en: { stale: "Supporting data is stale; approval is unavailable.", notAllowed: "The server does not allow approval right now.",
-    other: "Approval is unavailable.", otherCode: "Approval is unavailable. Reason code: ", blocked: "Approval unavailable",
+    other: "Approval is unavailable.", blocked: "Approval unavailable",
     approved: "Approved", rejected: "Rejected", decided: "Decided", pending: "Pending" },
 };
 const blockerList = html => {
@@ -81,10 +81,11 @@ test("gap 1: inbox blocking_reason_codes render as bilingual blocker copy", () =
     const list = blockerList(html);
     assert.ok(list, `${language}: blocker list renders`);
     assert.ok(list.includes(`aria-label="${c.blocked}"`), `${language}: list is labelled`);
-    assert.equal((list.match(/<li>/g) || []).length, 3, `${language}: duplicates collapse; malformed entries become one generic line`);
+    assert.equal((list.match(/<li>/g) || []).length, 2, `${language}: duplicates collapse; unknown and malformed codes share one generic line`);
     assert.ok(list.includes(c.stale), `${language}: known code maps to cockpit.blocker copy`);
-    assert.ok(list.includes(`${c.otherCode}<code>decision_future_code</code>`), `${language}: unknown well-formed code shows raw code in <code>`);
-    assert.ok(list.includes(`<li>${c.other}</li>`), `${language}: malformed codes fall back to generic copy`);
+    assert.ok(list.includes(`<li>${c.other}</li>`), `${language}: unknown and malformed codes fall back to generic copy`);
+    assert.ok(!html.includes("decision_future_code"), `${language}: an unknown machine code never renders raw`);
+    assert.ok(!html.includes("<code>"), `${language}: no raw code element`);
     assert.ok(!html.includes("script"), `${language}: malformed code text never reaches markup`);
     assert.ok(!html.includes(c.notAllowed), `${language}: specific codes replace the generic server note`);
     assert.ok(approveDisabled(html), `${language}: server-blocked item keeps approve disabled even if allowed_actions lists it`);
@@ -126,6 +127,8 @@ test("gap 1: legacy items without the fields keep current behaviour", () => {
   assert.equal(inboxBlockers({}), null);
   assert.equal(inboxBlockers(null), null);
   assert.deepEqual(inboxBlockers({ actionable: true, blocking_reason_codes: [] }), { blocked: false, blockers: [] });
+  assert.deepEqual(inboxBlockers({ blocking_reason_codes: [] }), { blocked: true, blockers: ["cockpit.blocker.other"] },
+    "codes without actionable === true stay blocked");
 });
 
 test("gap 2: decided items show approved or rejected from decision_state.action", () => {
