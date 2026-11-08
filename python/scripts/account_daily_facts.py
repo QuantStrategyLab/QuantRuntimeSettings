@@ -118,6 +118,7 @@ def _snapshot(raw, end):
         projected.append({'symbol': symbol, 'quantity': quantity, 'asset_type': asset})
     if equity is None and not projected and not complete:
         return None
+    projected.sort(key=lambda item: (item['symbol'], item['asset_type'], item['quantity']))
     return {'as_of': stamp.astimezone(timezone.utc).isoformat(), 'equity': equity, 'equity_currency': currency,
             'holdings': projected, 'holdings_complete': complete}
 

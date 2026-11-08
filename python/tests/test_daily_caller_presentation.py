@@ -206,6 +206,27 @@ class DailyCallerPresentationTests(unittest.TestCase):
         self.assertEqual(text.count("Total assets: USD 50,000.00"), 1)
         self.assertEqual(text.count("TQQQ 300 shares"), 1)
 
+    def test_snapshot_position_order_does_not_mask_real_conflicts(self):
+        second = {**EXPECTED[0], "target_id": "other-strategy", "strategy_profile": "tqqq_growth_income",
+                  "candidate_slot": "other-strategy"}
+        holdings = [*snapshot()["holdings"], {"symbol": "BOXX", "quantity": 100, "asset_type": "etf"}]
+        first = with_facts(ROW, snapshots=[snapshot(holdings=holdings)])
+        second_row = {**ROW, **{key: second[key] for key in app.IDENTITY}, "source_run_id": "other-run"}
+        for change in (False, True):
+            with self.subTest(change=change):
+                reordered = list(reversed(holdings))
+                if change:
+                    reordered[0] = {**reordered[0], "quantity": 101}
+                other = with_facts(second_row, snapshots=[snapshot(holdings=reordered)])
+                text, _ = self.report([first, other], ["present", "present"], locale="en",
+                                      expected=[EXPECTED[0], second])
+                if change:
+                    self.assertIn("Total assets: unknown", text)
+                    self.assertIn("Holdings: unknown", text)
+                else:
+                    for part in ("Total assets: USD 50,000.00", "BOXX 100 shares", "TQQQ 300 shares"):
+                        self.assertEqual(text.count(part), 1)
+
     def test_equivalent_order_instants_and_intervals_keep_order_details(self):
         equivalent_time = datetime.fromisoformat(TIME).astimezone(timezone.utc).isoformat()
         for interval in (False, True):
