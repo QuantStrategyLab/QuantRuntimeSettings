@@ -755,13 +755,18 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
  releaseCases++;return {calls,stdout,stderr};
 }
 // Exact integrated candidate: explicit inheritance, verified module, one non-forced activation.
-async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false } = {}, expected=true) {
+async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false, baselineItems=undefined, preUploadVersion=null, preDeployWitness=null, uploadId=null, ambiguousActive=false, expectFailure=null } = {}, expected=true) {
  const calls=[], stdout=[], stderr=[], prior=settings?"7ffe9227-686a-48ad-baa9-72665969d918":daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
  active ??= prior; latest ??= active;
+ const separateWitness = reviewedMain && reviewedMainSource === inboxSource && !flow;
  const responses=responseSequence(false,active);
- responses.splice(3,0,wrap({items:[{id:latest}]}));
+ if (ambiguousActive) responses[0].result.deployments[0].versions.push({version_id:"00000000-0000-4000-8000-000000000024",percentage:0});
+ responses.splice(3,0,wrap({items:baselineItems===undefined?[{id:latest}]:baselineItems}));
  responses.splice(6,0,wrap({id:newVersion,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:moduleContent}]}));
- responses.splice(8,0,wrap({items:[{id:newVersion},{id:lineage ?? latest}]}));
+ responses.splice(8,0,wrap({items:[{id:uploadId ?? newVersion},{id:lineage ?? latest}]}));
+ if (uploadId) responses[5].result.id = uploadId;
+ if (preUploadVersion) responses[4].result.deployments[0].versions[0].version_id = preUploadVersion;
+ if (separateWitness) responses.splice(11,0,wrap({items:[{id:uploadId ?? newVersion},{id:preDeployWitness ?? lineage ?? latest}]}));
  if (flow) {
   if (oldFlag) responses[1].result.resources.bindings.push(oldFlag);
   for (const i of [7, 10]) responses[i].result.resources.bindings.push({name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"true"});
@@ -786,8 +791,18 @@ async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c
  if(expected){assert.equal(posts.length,2);assert.ok(posts[0].url.endsWith("/versions?deploy=false"));
   assert.ok(!calls.some(c=>c.url.includes("bindings_inherit=strict")), "never use latest-version secret inheritance");
   const upload=JSON.parse(posts[0].options.body);assert.deepEqual(upload.bindings,[...remoteBindings.map(b=>({type:"inherit",name:b.name,version_id:prior})),...(flow?[{name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"true"}]:[])]);
-  assert.ok(posts[1].url.endsWith("/deployments?force=false"));if (flow) assert.equal(JSON.parse(stdout.at(-1)).external_flow_enabled,true); else assert.equal(JSON.parse(stdout.at(-1)).version_id,newVersion);
- } else {if (postTag !== null) assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,0); else { assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,1); assert.equal(JSON.parse(stderr.at(-1)).outcome,"UNKNOWN_REQUIRES_READBACK"); } assert.equal(JSON.parse(stderr.at(-1)).retry,false);}
+  assert.ok(posts[1].url.endsWith("/deployments?force=false"));
+  const activated=JSON.parse(posts[1].options.body).versions[0].version_id;
+  assert.equal(activated,newVersion);
+  if (separateWitness) {
+   assert.ok(upload.bindings.every(binding=>binding.version_id===prior));
+   if (latest!==prior) assert.ok(upload.bindings.every(binding=>binding.version_id!==latest));
+   assert.notEqual(activated,latest);
+   assert.equal(JSON.parse(stdout.at(-1)).prior_version,prior);
+  }
+  if (flow) assert.equal(JSON.parse(stdout.at(-1)).external_flow_enabled,true); else assert.equal(JSON.parse(stdout.at(-1)).version_id,newVersion);
+ } else {if (postTag !== null) assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,0); else { assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,1); assert.equal(JSON.parse(stderr.at(-1)).outcome,"UNKNOWN_REQUIRES_READBACK"); } assert.equal(JSON.parse(stderr.at(-1)).retry,false);
+  if (expectFailure) { const error=JSON.parse(stderr.at(-1)); for (const [key,value] of Object.entries(expectFailure)) assert.equal(error[key],value,key); }}
  assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));
 }
 // Execute the actual publisher for the exact merged source, with fake provider responses.
@@ -797,9 +812,22 @@ await integratedReleaseCase({reviewedMain:true,lineage:priorVersion},false);
 await integratedReleaseCase({reviewedMain:true,moduleContent:Buffer.from("wrong").toString("base64")},false);
 await integratedReleaseCase({reviewedMain:true,uploadedTag:"wrong-tag"},false);
 await integratedReleaseCase({reviewedMain:true,postTag:null},false);
+const orphanWitness="00000000-0000-4000-8000-000000000021";
+const driftedWitness="00000000-0000-4000-8000-000000000022";
+const driftedActive="00000000-0000-4000-8000-000000000023";
+const stopped={retry:false,deploy_attempted:false};
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource});
-await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:priorVersion},false);
-await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,lineage:priorVersion},false);
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness});
+const baselineStop={...stopped,stage:"inherit_baseline",checkpoint:"inherit_baseline_mismatch",upload_attempted:false,outcome:"NOT_ATTEMPTED"};
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness,baselineItems:[],expectFailure:baselineStop},false);
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness,baselineItems:null,expectFailure:baselineStop},false);
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness,baselineItems:[{id:"not-a-uuid"}],expectFailure:baselineStop},false);
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness,baselineItems:Array.from({length:11},(_,i)=>({id:`00000000-0000-4000-8000-${String(i).padStart(12,"0")}`})),expectFailure:baselineStop},false);
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,ambiguousActive:true,expectFailure:{...stopped,stage:"pre_release_active",upload_attempted:false,outcome:"NOT_ATTEMPTED"}},false);
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness,preUploadVersion:driftedActive,expectFailure:{...stopped,stage:"pre_upload_active",upload_attempted:false,outcome:"NOT_ATTEMPTED"}},false);
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness,lineage:driftedWitness,expectFailure:{...stopped,stage:"inherit_lineage",checkpoint:"inherit_lineage_mismatch",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness,preDeployWitness:driftedWitness,expectFailure:{...stopped,stage:"pre_deploy_lineage",checkpoint:"inherit_lineage_mismatch",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness,uploadId:orphanWitness,expectFailure:{...stopped,checkpoint:"uploaded_matches_witness",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,moduleContent:Buffer.from("wrong").toString("base64")},false);
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,uploadedTag:"wrong-tag"},false);
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,postTag:null},false);
