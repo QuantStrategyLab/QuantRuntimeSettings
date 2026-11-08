@@ -29,10 +29,17 @@ The account and overview cards display the reason for unknown, broker environmen
 ## Reviewed main frontend release source
 
 The manual console deployment entry accepts the pinned, reviewed merged main
-frontend release with receiver checks retained. The selector verifies the exact
-commit, its ancestry in the workflow control revision, its tree and its embedded
-asset map before checking out the source. The build must reproduce that map and
-leave no tracked or untracked changes; the legacy frontend overlay is not applied.
+frontend release with receiver checks retained. The current pin is
+`084ba4281cfff3304cf226ce511a2fc0a6b67b08` (parent
+`395ddd561a16d38ae0d145e5a7e9bb7b60c44ae6`, tree
+`23f94567c2e8b631e8ef035bfea497acef795123`, asset map
+`5287f259185ed44f3784aa6374cb00412b3c6238`). The earlier reviewed main
+`c1b737d6e721eb9fe71a12c613fbb49d3fa51563` remains an exact historical source
+under the same gates. The selector verifies the exact commit, its ancestry in
+the workflow control revision, its tree and its embedded asset map before
+checking out the source. The build must reproduce that map and leave no tracked
+or untracked changes; the legacy frontend overlay is not applied. This pin does
+not enable strategy-profile synchronization or Meridian activation.
 
 Publication uses version-pinned inheritance from the active Worker version for
 every binding, including secrets. Latest-version lineage checks reject concurrent
