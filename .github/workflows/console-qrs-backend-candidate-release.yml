@@ -1,0 +1,103 @@
+name: Console fixed backend candidate release
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Read-only preflight or fixed backend release
+        type: choice
+        options: [preflight, release]
+        default: preflight
+        required: true
+      control_sha:
+        description: Reviewed release workflow commit on main
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'QuantStrategyLab/QuantRuntimeSettings' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && inputs.action == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Check reviewed control commit and prepare fixed module
+        env:
+          CONTROL_SHA: ${{ inputs.control_sha }}
+          WRANGLER_SEND_METRICS: 'false'
+          CLOUDFLARE_CF_FETCH_ENABLED: 'false'
+        run: |
+          set -euo pipefail
+          [[ "$CONTROL_SHA" == "$GITHUB_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          source="$(node scripts/console_m09_release.mjs build-source)"
+          npx --yes wrangler@4.106.0 --version
+          bash scripts/console_m09_offline_bundle.sh "$RUNNER_TEMP/qrs-backend-candidate" "$source"
+          node scripts/console_m09_release.mjs verify-inputs "$RUNNER_TEMP/qrs-backend-candidate/worker.js"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: console-fixed-backend-module
+          path: ${{ runner.temp }}/qrs-backend-candidate/worker.js
+          if-no-files-found: error
+          retention-days: 1
+  preflight:
+    if: github.repository == 'QuantStrategyLab/QuantRuntimeSettings' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && inputs.action == 'preflight'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: runtime-strategy-switch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Read fixed Worker state
+        env:
+          CONTROL_SHA: ${{ inputs.control_sha }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$CONTROL_SHA" == "$GITHUB_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          node scripts/console_m09_release.mjs preflight
+  provider:
+    if: inputs.action == 'release'
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: runtime-strategy-switch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: console-fixed-backend-module
+          path: ${{ runner.temp }}/qrs-backend-candidate
+      - name: Verify main and release fixed module
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
+          node scripts/console_m09_release.mjs release "$RUNNER_TEMP/qrs-backend-candidate/worker.js"
