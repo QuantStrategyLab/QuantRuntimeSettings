@@ -118,7 +118,7 @@ def _snapshot(raw, end):
         projected.append({'symbol': symbol, 'quantity': quantity, 'asset_type': asset})
     if equity is None and not projected and not complete:
         return None
-    return {'as_of': stamp.isoformat(), 'equity': equity, 'equity_currency': currency,
+    return {'as_of': stamp.astimezone(timezone.utc).isoformat(), 'equity': equity, 'equity_currency': currency,
             'holdings': projected, 'holdings_complete': complete}
 
 

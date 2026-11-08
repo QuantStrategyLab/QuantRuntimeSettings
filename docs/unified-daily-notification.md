@@ -82,6 +82,9 @@ gaps are noted beside the affected account. No-run reports establish only that
 the specified strategies did not run. A zero count is scoped to verified
 observations. Distinct executions are deduplicated and need their own timestamp
 to be attributed to the reporting window; a settlement update is not a fill time.
+Candidate runs may include the optional `account_daily_facts` object for order,
+fill, and account snapshot observations. Existing candidates without this field
+remain valid; its presence alone does not establish account-wide coverage.
 The first release reads the existing bound candidates only. It reports timed
 fills found in those candidates. A fill stored solely under another business
 day or in a separate supplemental object is outside the observed scope.

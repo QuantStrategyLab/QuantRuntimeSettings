@@ -1,5 +1,6 @@
 """Exercise the authenticated caller with synthetic protected candidates."""
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 import unittest
 
@@ -103,6 +104,16 @@ class DailyCallerPresentationTests(unittest.TestCase):
             self.assertIn(part, text)
         self.assertNotIn("全部已核验账户无交易", text)
 
+    def test_mixed_case_terminal_status_agrees_with_order_details(self):
+        for status, detail in (("Cancelled", "cancelled"), ("REJECTED", "rejected"), ("Expired", "expired")):
+            with self.subTest(status=status):
+                order = record("closed-order", status=status, filled_quantity=0)
+                item = with_facts({**ROW, "order_count": 1, "fill_count": 0}, orders=[order])
+                text, _ = self.report([item], ["present"], locale="en")
+                self.assertIn("Orders closed; statuses below", text)
+                self.assertIn(f" · {detail}", text)
+                self.assertNotIn("Submitted, fills unconfirmed", text)
+
     def test_simulation_does_not_establish_actual_account_trades(self):
         item = with_facts({**ROW, "execution_mode": "dry_run", "fill_count": 1},
                           fills=[record("simulated-fill", price=99)], snapshots=[snapshot()])
@@ -163,6 +174,29 @@ class DailyCallerPresentationTests(unittest.TestCase):
         self.assertEqual(text.count("@ USD 63.00"), 1)
         self.assertIn("策略未知", text)
         self.assertIn("Second Desk", text)
+
+    def test_same_configured_label_keeps_accounts_distinguishable(self):
+        primary = {**EXPECTED[0], "account_label": "Desk  Alpha"}
+        second = {**primary, "target_id": "other-target", "opaque_account_uid": "other-account",
+                  "candidate_slot": "other-slot"}
+        third = {**second, "target_id": "third-target", "opaque_account_uid": "third-account",
+                 "candidate_slot": "third-slot", "account_label": "Desk  Alpha 1"}
+        text, _ = self.report([], ["missing"] * 3, locale="en", expected=[primary, second, third])
+        self.assertIn("🏦 Schwab · Desk  Alpha 2 · ", text)
+        self.assertIn("🏦 Schwab · Desk  Alpha 3 · ", text)
+        self.assertIn("🏦 Schwab · Desk  Alpha 1 · ", text)
+        self.assertNotIn("other-account", text)
+
+    def test_equal_snapshot_instants_keep_verified_assets_and_holdings(self):
+        second = {**EXPECTED[0], "target_id": "other-strategy", "strategy_profile": "tqqq_growth_income",
+                  "candidate_slot": "other-strategy"}
+        equivalent_time = datetime.fromisoformat(TIME).astimezone(timezone.utc).isoformat()
+        one = with_facts(ROW, snapshots=[snapshot()])
+        two = with_facts({**ROW, **{key: second[key] for key in app.IDENTITY}, "source_run_id": "other-run"},
+                         snapshots=[snapshot(as_of=equivalent_time)])
+        text, _ = self.report([one, two], ["present", "present"], locale="en", expected=[EXPECTED[0], second])
+        self.assertEqual(text.count("Total assets: USD 50,000.00"), 1)
+        self.assertEqual(text.count("TQQQ 300 shares"), 1)
 
     def test_budget_discloses_omitted_holdings_without_losing_totals(self):
         hold = [{"symbol": f"TEST{i}", "quantity": i + 1, "asset_type": "option"} for i in range(70)]

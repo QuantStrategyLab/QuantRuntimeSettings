@@ -85,11 +85,14 @@ def render(payload: DailyDigestInput, *, max_units: int = 3900, source_repositor
     return "\n".join(lines)
 
 
-def _run_display_contexts(rows, locale, *, runtime_accounts=False):
+def _run_display_contexts(rows, locale, *, runtime_accounts=False, account_labels=None):
     """Resolve names with existing mappings; ordinals distinguish collisions."""
     parts, accounts = [], {}
     for index, row in enumerate(rows):
-        account = _account_identity_label(row, locale) if runtime_accounts else _legacy_account_label(row, locale)
+        if account_labels is None:
+            account = _account_identity_label(row, locale) if runtime_accounts else _legacy_account_label(row, locale)
+        else:
+            account = account_labels[index]
         account = account or ("账户" if locale == "zh" else "Account")
         # These protected keys stay internal; display ordinals never replace them.
         identity = row.opaque_account_uid or row.target_id or row.account_hint or ("row", index)

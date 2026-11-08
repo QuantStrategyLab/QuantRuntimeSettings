@@ -11,7 +11,7 @@ from notification_snapshot.unified_contract import SGT, sgt_business_window
 from account_daily_facts import SIMULATION_MODES
 from daily_digest_notify import normalize_locale
 from display_names import broker_account_identity, display_name, safe_display_text
-from unified_daily_digest import (_execution_blocked, _execution_unconfirmed, _known_count,
+from unified_daily_digest import (_account_identity_label, _execution_blocked, _execution_unconfirmed, _known_count,
                                   _run_display_contexts, _units, _verified_no_trade, _window_text)
 
 
@@ -50,6 +50,26 @@ def _symbol(value, unknown):
     return value if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.\-^/]{0,19}', value) else unknown
 
 
+def _account_label(row, bindings, locale):
+    private_keys = {row.opaque_account_uid, *(binding.get('target_id') for binding, _ in bindings),
+                    *(binding.get('account_hint') for binding, _ in bindings)}
+    for binding, _ in bindings:
+        label = binding.get('account_label')
+        if (isinstance(label, str) and len(label) <= 70 and label.isprintable()
+                and safe_display_text(label) and label.strip() not in private_keys):
+            return label
+    account = _account_identity_label(row, locale)
+    if account in private_keys:
+        return ''
+    if broker_account_identity(row.platform_id, account):
+        return '' if row.platform_id in {'binance', 'longbridge'} else '***' + account[-2:]
+    return account
+
+
+def _order_status(order):
+    return str(order.get('status') or '').strip().lower()
+
+
 def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3850):
     """Render supplied raw binding outcomes and optional per-account evidence.
 
@@ -85,7 +105,9 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
                 account_label=binding.get('account_label', ''), account_alias=binding.get('account_alias', ''),
                 account_hint=binding.get('account_hint', ''), account_scope=binding.get('account_scope', ''),
                 execution_mode=binding.get('execution_mode', '')))
-    contexts = _run_display_contexts(representatives, locale, runtime_accounts=True)
+    account_labels = [_account_label(row, group['bindings'], locale)
+                      for row, group in zip(representatives, groups.values(), strict=True)]
+    contexts = _run_display_contexts(representatives, locale, account_labels=account_labels)
     all_idle = bool(groups)
     blocks = []
     outcome_text = {
@@ -104,14 +126,6 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
             name = safe_display_text(display_name('strategies', binding.get('strategy_profile', ''), locale, fallback=fallback)) or fallback
             if name not in strategies:
                 strategies.append(name)
-        explicit_label = next((b['account_label'] for b, _ in bindings if safe_display_text(b.get('account_label'))), '')
-        if explicit_label and explicit_label not in {uid, *(b.get('account_hint') for b, _ in bindings),
-                                                       *(b.get('target_id') for b, _ in bindings)}:
-            account = explicit_label
-        elif account in {uid, *(b.get('target_id') for b, _ in bindings)}:
-            account = '账户' if zh else 'Account'
-        elif broker_account_identity(platform, account):
-            account = ('账户' if zh else 'Account') if platform in {'binance', 'longbridge'} else '***' + account[-2:]
         header = '🏦 ' + ' · '.join((platform_label, account, ' / '.join(strategies)))
         details = []
         for binding, outcome in bindings:
@@ -167,7 +181,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
         for order in account_fact.get('orders') or []:
             if not isinstance(order, dict):
                 continue
-            status = str(order.get('status') or '').lower()
+            status = _order_status(order)
             statuses = {'open': ('未完成', 'open'), 'cancelled': ('已取消', 'cancelled'),
                         'canceled': ('已取消', 'cancelled'), 'rejected': ('已拒绝', 'rejected'),
                         'expired': ('已过期', 'expired'), 'filled': ('已成交', 'filled'),
@@ -247,10 +261,10 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
         filled = bool(fills) or (not legacy_fill_window_unreliable
                                  and any(_known_count(row, 'fill') and row.fill_count > 0 for row in rows))
         pending = bool(orders) or any(_known_count(row, 'order') and row.order_count > 0 for row in rows)
-        partial = any(o.get('status') == 'partially_filled' or
+        partial = any(_order_status(o) == 'partially_filled' or
                       (_number(o.get('filled_quantity')) and _number(o.get('quantity'))
                        and 0 < o['filled_quantity'] < o['quantity']) for o in orders)
-        terminal = orders and all(o.get('status') in {'cancelled', 'canceled', 'rejected', 'expired'} for o in orders)
+        terminal = orders and all(_order_status(o) in {'cancelled', 'canceled', 'rejected', 'expired'} for o in orders)
         if unknown_fill_window:
             details.append('结算含已确认成交，发生时段未核实' if zh else
                            'Settlement confirms fills; reporting window unverified')
