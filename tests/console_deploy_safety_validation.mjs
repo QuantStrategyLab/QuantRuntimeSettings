@@ -755,7 +755,7 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
  releaseCases++;return {calls,stdout,stderr};
 }
 // Exact integrated candidate: explicit inheritance, verified module, one non-forced activation.
-async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false, baselineItems=undefined, preUploadVersion=null, preDeployWitness=null, uploadId=null, ambiguousActive=false, expectFailure=null } = {}, expected=true) {
+async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false, baselineItems=undefined, preUploadVersion=null, preDeployWitness=null, uploadId=null, ambiguousActive=false, expectFailure=null, testHandlers=null } = {}, expected=true) {
  const calls=[], stdout=[], stderr=[], prior=settings?"7ffe9227-686a-48ad-baa9-72665969d918":daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
  active ??= prior; latest ??= active;
  const separateWitness = reviewedMain && reviewedMainSource === inboxSource && !flow;
@@ -772,10 +772,16 @@ async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c
   for (const i of [7, 10]) responses[i].result.resources.bindings.push({name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"true"});
   if (drift) responses[7].result.resources.bindings[0].namespace_id="e".repeat(32);
  }
+ if (testHandlers) {
+  if (testHandlers.active) responses[1].result.resources.script.named_handlers.push({name:"__test",handlers:[...testHandlers.active]});
+  if (testHandlers.uploaded) responses[7].result.resources.script.named_handlers.push({name:"__test",handlers:[...testHandlers.uploaded]});
+  if (testHandlers.runtimeUploaded) responses[7].result.resources.script.named_handlers.find(item=>item.name==="RuntimeInstances").handlers=[...testHandlers.runtimeUploaded];
+ }
  const uploadedResources=responses[7].result.resources;
  if (uploadedTag === undefined) delete uploadedResources.script_runtime.migration_tag;
  else uploadedResources.script_runtime.migration_tag=uploadedTag;
  const postResources=resource("new-code");
+ if (testHandlers?.post) postResources.script.named_handlers.push({name:"__test",handlers:[...testHandlers.post]});
  if (flow) postResources.bindings.push({name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"true"});
  if (postTag === null) delete postResources.script_runtime.migration_tag;
  else postResources.script_runtime.migration_tag=postTag;
@@ -804,6 +810,7 @@ async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c
  } else {if (postTag !== null) assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,0); else { assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,1); assert.equal(JSON.parse(stderr.at(-1)).outcome,"UNKNOWN_REQUIRES_READBACK"); } assert.equal(JSON.parse(stderr.at(-1)).retry,false);
   if (expectFailure) { const error=JSON.parse(stderr.at(-1)); for (const [key,value] of Object.entries(expectFailure)) assert.equal(error[key],value,key); }}
  assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));
+ return {stdout,stderr};
 }
 // Execute the actual publisher for the exact merged source, with fake provider responses.
 await integratedReleaseCase({reviewedMain:true});
@@ -812,6 +819,13 @@ await integratedReleaseCase({reviewedMain:true,lineage:priorVersion},false);
 await integratedReleaseCase({reviewedMain:true,moduleContent:Buffer.from("wrong").toString("base64")},false);
 await integratedReleaseCase({reviewedMain:true,uploadedTag:"wrong-tag"},false);
 await integratedReleaseCase({reviewedMain:true,postTag:null},false);
+const configStop={retry:false,deploy_attempted:false,stage:"uploaded_configuration",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"};
+const addedTest=await integratedReleaseCase({reviewedMain:true,testHandlers:{active:["alpha"],uploaded:["alpha","beta"],post:["alpha","beta"]}});
+assert.ok(addedTest.stdout.some(line=>JSON.parse(line).status==="reviewed_main_test_export_handlers_added"),"additive __test handlers are recorded");
+await integratedReleaseCase({reviewedMain:true,testHandlers:{active:["alpha","beta"],uploaded:["alpha"],post:["alpha"]},expectFailure:{...configStop,checkpoint:"test_export_handlers_removed"}},false);
+await integratedReleaseCase({reviewedMain:true,testHandlers:{uploaded:["alpha"],post:["alpha"]},expectFailure:{...configStop,checkpoint:"test_export_shape_mismatch"}},false);
+await integratedReleaseCase({reviewedMain:true,testHandlers:{active:["alpha"],uploaded:["alpha"],post:["alpha"],runtimeUploaded:["other"]},expectFailure:{...configStop,checkpoint:"configuration_hash_mismatch"}},false);
+await integratedReleaseCase({testHandlers:{active:["alpha"],uploaded:["alpha","beta"],post:["alpha","beta"]},expectFailure:{...configStop,checkpoint:"configuration_hash_mismatch"}},false);
 const orphanWitness="00000000-0000-4000-8000-000000000021";
 const driftedWitness="00000000-0000-4000-8000-000000000022";
 const driftedActive="00000000-0000-4000-8000-000000000023";

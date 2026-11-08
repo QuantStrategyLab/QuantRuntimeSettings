@@ -58,10 +58,17 @@ const canonical = value => JSON.stringify(value, function (_key, item) {
       || !value.bindings.some(b => b.name === 'STRATEGY_SWITCH_RUNTIME_INSTANCES' && b.type === 'durable_object_namespace')) fail();
     return value;
   }
-  const comparable = value => ({ bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
-    script_runtime: value.script_runtime, handlers: value.script.handlers,
-    named_handlers: value.script.named_handlers === undefined ? null : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name)),
-    placement_mode: value.script.placement_mode ?? null });
+  // The comparator stays strict: test-only handler changes remain visible as a diff.
+  const allowTestHandlerAdditions = false;
+  const namedHandlers = value => value.script.named_handlers === undefined ? null
+    : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name));
+  const comparable = value => {
+    const named = namedHandlers(value);
+    return { bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
+      script_runtime: value.script_runtime, handlers: value.script.handlers,
+      named_handlers: allowTestHandlerAdditions && Array.isArray(named) ? named.filter(item => item.name !== '__test') : named,
+      placement_mode: value.script.placement_mode ?? null };
+  };
   const configHash = value => createHash('sha256').update(canonical(comparable(value))).digest('hex');
 
 const types = ['plain_text', 'json', 'secret_text', 'kv_namespace', 'durable_object_namespace'];

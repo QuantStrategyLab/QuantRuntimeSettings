@@ -1917,10 +1917,27 @@ jobs:
             }
             if (uploaded === prior || (separateWitness && uploaded === previousLatest)) fail();
             stage = 'uploaded_configuration'; const next = resources(await request(`/versions/${uploaded}`), uploaded);
-            const comparable = value => ({ bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
-              script_runtime: value.script_runtime, handlers: value.script.handlers,
-              named_handlers: value.script.named_handlers === undefined ? null : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name)),
-              placement_mode: value.script.placement_mode ?? null });
+            // A reviewed main release may add test-only handlers behind the __test
+            // export. Treat that export as code, not configuration: every other named
+            // handler stays strictly equal, and test handlers may only be added.
+            const allowTestHandlerAdditions = reviewedMain;
+            const namedHandlers = value => value.script.named_handlers === undefined ? null
+              : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name));
+            const testExport = value => {
+              const named = namedHandlers(value);
+              if (!Array.isArray(named)) return { present: false, handlers: [], ambiguous: false };
+              const entries = named.filter(item => item.name === '__test');
+              const handlers = entries.length === 1 && Array.isArray(entries[0].handlers) ? [...entries[0].handlers].sort() : [];
+              return { present: entries.length > 0, handlers,
+                ambiguous: entries.length > 1 || (entries.length === 1 && entries[0].handlers !== undefined && !Array.isArray(entries[0].handlers)) };
+            };
+            const comparable = value => {
+              const named = namedHandlers(value);
+              return { bindings: [...value.bindings].sort((a, b) => a.name.localeCompare(b.name)),
+                script_runtime: value.script_runtime, handlers: value.script.handlers,
+                named_handlers: allowTestHandlerAdditions && Array.isArray(named) ? named.filter(item => item.name !== '__test') : named,
+                placement_mode: value.script.placement_mode ?? null };
+            };
             const configHash = value => createHash('sha256').update(canonical(comparable(value))).digest('hex');
             const desired = structuredClone(old);
             if (flowMode) {
@@ -1932,6 +1949,14 @@ jobs:
               const oldTag = old.script_runtime.migration_tag, newTag = next.script_runtime.migration_tag;
               if (typeof oldTag !== 'string' || !oldTag || (newTag !== undefined && newTag !== oldTag)) fail('migration_tag_mismatch');
               const normalized = structuredClone(next); normalized.script_runtime.migration_tag = oldTag;
+              if (reviewedMain) {
+                const before = testExport(desired), after = testExport(normalized);
+                if (before.ambiguous || after.ambiguous || before.present !== after.present) fail('test_export_shape_mismatch');
+                const retained = new Set(after.handlers), prior = new Set(before.handlers);
+                if (before.handlers.some(name => !retained.has(name))) fail('test_export_handlers_removed');
+                const added = after.handlers.filter(name => !prior.has(name));
+                if (added.length) console.log(JSON.stringify({ status: 'reviewed_main_test_export_handlers_added', added }));
+              }
               if (configHash(normalized) !== configBefore || (!flowMode && next.script.etag === old.script.etag)) fail('configuration_hash_mismatch');
             } else if (configUploaded !== configBefore || next.script.etag === old.script.etag) fail('configuration_hash_mismatch');
             if (pr764 || betaRelease) {
