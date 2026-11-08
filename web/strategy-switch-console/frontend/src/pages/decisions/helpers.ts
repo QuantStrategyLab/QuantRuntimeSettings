@@ -23,6 +23,8 @@ export function allowedActionIds(raw: unknown): string[] | null {
  * concrete action ids.
  */
 export function decisionActionAllowed(item: unknown, kind: "adopt" | "decline"): boolean {
+  // A server blocker closes both actions, whatever `allowed_actions` says.
+  if (inboxBlockers(item)?.blocked) return false;
   const raw = item && typeof item === "object" && "allowed_actions" in item
     ? (item as { allowed_actions?: unknown }).allowed_actions
     : undefined;
@@ -58,4 +60,79 @@ export function promotionDecisionBody(input: {
     expected_strategy_profile: input.strategyProfile,
     expected_domain: input.domain,
   };
+}
+
+/** Inbox `blocking_reason_codes` (decision_contract.js) mapped to existing cockpit blocker copy. */
+const BLOCKER_COPY: Record<string, string> = {
+  decision_expired: "cockpit.blocker.expired",
+  decision_expiry_unavailable: "cockpit.blocker.expiry",
+  decision_evidence_stale: "cockpit.blocker.support_stale",
+  decision_source_unavailable: "cockpit.blocker.support_unavailable",
+  decision_authority_unavailable: "cockpit.blocker.state_unknown",
+  decision_already_decided: "cockpit.blocker.state",
+  decision_material_ineligible: "cockpit.blocker.unqualified",
+  decision_material_changed: "cockpit.blocker.revision",
+  decision_not_actionable: "cockpit.blocker.not_allowed",
+  decision_legacy_blocked: "cockpit.blocker.not_allowed",
+  recovery_blocked: "cockpit.blocker.other",
+  recovery_not_awaiting_confirmation: "cockpit.blocker.other",
+};
+/**
+ * Server actionability for an inbox item as blocker copy keys. `null` means the
+ * item carries neither field (legacy behaviour). Fail-closed: anything but
+ * `actionable === true` with an empty code list blocks the item. Unmapped or
+ * malformed codes become the generic line; machine codes never render raw.
+ */
+export function inboxBlockers(item: unknown): { blocked: boolean; blockers: string[] } | null {
+  if (!item || typeof item !== "object") return null;
+  const record = item as { actionable?: unknown; blocking_reason_codes?: unknown };
+  const hasFlag = "actionable" in record && record.actionable !== undefined;
+  const hasCodes = "blocking_reason_codes" in record && record.blocking_reason_codes !== undefined;
+  if (!hasFlag && !hasCodes) return null;
+  const blockers: string[] = [];
+  const add = (key: string) => {
+    if (!blockers.includes(key)) blockers.push(key);
+  };
+  if (hasCodes) {
+    if (!Array.isArray(record.blocking_reason_codes)) add("cockpit.blocker.other");
+    else for (const code of record.blocking_reason_codes) {
+      add(typeof code === "string" && Object.hasOwn(BLOCKER_COPY, code) ? BLOCKER_COPY[code] : "cockpit.blocker.other");
+    }
+  }
+  if (record.actionable !== true && blockers.length === 0) {
+    add(record.actionable === false ? "cockpit.blocker.not_allowed" : "cockpit.blocker.other");
+  }
+  return { blocked: blockers.length > 0, blockers };
+}
+
+export type DecisionStatusKey = "pending" | "expired" | "decided" | "approved" | "rejected";
+
+/**
+ * Badge state. A recorded `decision_state` wins and its action splits approved
+ * from rejected; an absent or unknown action stays "decided". Without a
+ * recorded state the legacy expired-then-status order is unchanged.
+ */
+export function decisionStatusKey(item: { status?: unknown; decision_state?: unknown }, expired: boolean): DecisionStatusKey {
+  const state = item.decision_state && typeof item.decision_state === "object"
+    ? item.decision_state as { status?: unknown; action?: unknown } : null;
+  if (state?.status === "decided") {
+    const action = typeof state.action === "string" ? state.action : "";
+    return ADOPT_ACTIONS.has(action) ? "approved" : DECLINE_ACTIONS.has(action) ? "rejected" : "decided";
+  }
+  if (expired) return "expired";
+  return item.status as DecisionStatusKey;
+}
+
+/**
+ * The `?page=decisions&decision=<id>` target to apply now: only once the inbox
+ * is ready, only for an id it contains, and only once per id.
+ */
+export function deepLinkTarget(
+  decision: string | null,
+  consumed: string | null,
+  ready: boolean,
+  items: ReadonlyArray<{ id: string }>,
+): string | null {
+  if (!decision || consumed === decision || !ready) return null;
+  return items.some(item => item.id === decision) ? decision : null;
 }
