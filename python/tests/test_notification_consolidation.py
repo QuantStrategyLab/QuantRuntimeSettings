@@ -148,7 +148,7 @@ class ConsolidationLanguageTests(unittest.TestCase):
 
     def test_zero_runs_and_verified_zero_trade_runs_keep_scoped_idle_summary(self):
         with patch.dict(os.environ, ON, clear=True):
-            self.assertIn("😴 已核验目标无交易", render(payload()))
+            self.assertNotIn("😴 已核验目标无交易", render(payload()))
             self.assertIn("😴 已核验目标无交易", render(payload(row())))
 
     def test_localized_schwab_reason_is_run_scoped_and_does_not_infer_fills(self):
@@ -309,7 +309,8 @@ class ConsolidationCandidateTests(unittest.TestCase):
         idle = candidate(actually_ran=False)
         idle.pop("notification_event")
         _, text, _, receipt = build([idle])
-        self.assertIn("😴 已核验目标无交易", text)
+        self.assertIn("已核验范围本窗口未运行", text)
+        self.assertNotIn("无交易", text)
         self.assertEqual(receipt["evidence_status"], "verified_idle")
 
     def test_missing_expected_binding_is_visible_without_filling_unknown_counts(self):

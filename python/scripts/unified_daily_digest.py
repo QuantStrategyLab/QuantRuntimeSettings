@@ -85,11 +85,14 @@ def render(payload: DailyDigestInput, *, max_units: int = 3900, source_repositor
     return "\n".join(lines)
 
 
-def _run_display_contexts(rows, locale, *, runtime_accounts=False):
+def _run_display_contexts(rows, locale, *, runtime_accounts=False, account_labels=None):
     """Resolve names with existing mappings; ordinals distinguish collisions."""
     parts, accounts = [], {}
     for index, row in enumerate(rows):
-        account = _account_identity_label(row, locale) if runtime_accounts else _legacy_account_label(row, locale)
+        if account_labels is None:
+            account = _account_identity_label(row, locale) if runtime_accounts else _legacy_account_label(row, locale)
+        else:
+            account = account_labels[index]
         account = account or ("账户" if locale == "zh" else "Account")
         # These protected keys stay internal; display ordinals never replace them.
         identity = row.opaque_account_uid or row.target_id or row.account_hint or ("row", index)
@@ -270,7 +273,13 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int,
     summary = payload.notification_summary or {}
     coverage = payload.evidence_coverage
     complete = bool(coverage and coverage.is_complete_for_verified_idle and not summary.get("counts_scope_unknown", summary.get("counts_unknown")))
-    verified_idle = complete and all(_verified_no_trade(row) for row in payload.runs)
+    sources = summary.get("source_inventory", {})
+    expected_sources = [source for source in sources.values() if source["expected_targets"]]
+    verified_no_run = (complete and not payload.runs and not summary.get("run_count_unknown")
+                       and bool(expected_sources) and all(
+                           source["covered_targets"] == source["expected_targets"] and source["runs"] == 0
+                           for source in expected_sources))
+    verified_idle = complete and bool(payload.runs) and all(_verified_no_trade(row) for row in payload.runs)
     lines = ["📊 " + (f"每日交易摘要 · {payload.business_day}" if zh else f"Daily trading digest · {payload.business_day}")]
     lines.append("🕒 " + _window_text(payload.business_day, locale))
     lines.append(("窗口内运行次数未知" if zh else "Run count in window unknown") if summary.get("run_count_unknown") else
@@ -278,14 +287,13 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int,
     counts = []
     for name, label in (("order", "订单" if zh else "Orders"), ("fill", "成交" if zh else "Fills")):
         values = [getattr(row, name + "_count") for row in payload.runs]
-        known = complete and all(_known_count(row, name) for row in payload.runs)
+        known = complete and bool(payload.runs) and all(_known_count(row, name) for row in payload.runs)
         value = str(sum(values)) if known else ("全窗口统计未知" if zh else "whole-window count unknown")
         counts.append(f"{label}：{value}" if zh else f"{label}: {value}")
     confirmation = (" · 最终状态待确认" if zh else " · final state unconfirmed") if any(
         _execution_unconfirmed(row) for row in payload.runs) else ""
     lines.append(" · ".join(counts) + confirmation)
     inventory = []
-    sources = summary.get("source_inventory", {})
     platforms = dict.fromkeys(("ibkr", "schwab", "firstrade", "longbridge", "binance", "qrs", *sources))
     for platform in platforms:
         source = sources.get(platform)
@@ -411,12 +419,16 @@ def _render_consolidated(payload: DailyDigestInput, *, max_units: int,
         required_diagnostics.append(link_status)
     evidence.extend(links)
     optional_evidence.extend(() for _ in links)
-    needs_review = (not complete or any(priority for priority, _, _, _ in blocks) or bool(immediate)
+    needs_review = (not complete or (not payload.runs and not verified_no_run)
+                    or any(priority for priority, _, _, _ in blocks) or bool(immediate)
                     or any(not _known_count(row, name) for row in payload.runs for name in ("order", "fill")))
     result = [("证据需核对" if needs_review else "已收录窗口记录") if zh else
               ("Evidence needs review" if needs_review else "Window observations recorded"), *lines[2:]]
-    if verified_idle:
-        result.insert(0, "😴 已核验目标无交易" if zh else "😴 No trades in verified targets")
+    if verified_no_run:
+        result.insert(0, "已核验范围本窗口未运行" if zh else "No runs in the verified scope")
+    elif verified_idle:
+        result.insert(0, "😴 已核验目标无交易（限已收录运行）" if zh else
+                      "😴 No trades in verified targets (included runs only)")
     return render_operator_message(
         title=lines[0], locale=locale, result=result, scope=[lines[1]],
         evidence=evidence, coverage=coverage_lines,

@@ -19,9 +19,10 @@ from zoneinfo import ZoneInfo
 import daily_digest_aggregator as aggregator
 import merge_digest_candidates as candidate_contract
 import notification_candidate_adapter as adapter
+from account_daily_digest import render_account_daily, render_account_daily_unavailable
+from account_daily_facts import collect_account_facts
 from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
-from display_names import configured_account_label, display_name
-from unified_daily_digest import _safe_display_text, _render_consolidated as render
+from display_names import configured_account_label, safe_display_text as _safe_display_text
 
 SGT = ZoneInfo('Asia/Singapore')
 IDENTITY = adapter.IDENTITY[:4]
@@ -34,7 +35,11 @@ def project_expected_target_label(binding, account_option):
     result.pop('account_label', None)
     label = configured_account_label({key: account_option.get(key) for key in ('label', 'key', 'target_name')})
     if label:
-        result['account_label'] = label
+        configured = account_option.get('label')
+        result['account_label'] = (
+            configured if isinstance(configured, str) and len(configured) <= 70
+            and configured.isprintable() and _safe_display_text(configured) == label else label
+        )
     return result
 
 
@@ -61,7 +66,7 @@ class Configuration:
             # on the binding. Normalize them at the actual environment intake.
             projected = project_expected_target_label(row, row)
             if row.get('account_label'):
-                projected['account_label'] = _safe_display_text(row['account_label'])
+                projected['account_label'] = row['account_label']
             expected.append(projected)
         object.__setattr__(self, 'expected', expected)
         platforms = {row['platform_id'] for row in self.expected}
@@ -135,12 +140,8 @@ def report_slot(headers, configuration, now):
     return report_date, (report_date - timedelta(days=1)).isoformat(), stamp, local.minute == 30
 
 
-def _units(text):
-    return len(text.encode('utf-16-le')) // 2
-
-
 def _sources(configuration, store, day, end, *, now, monotonic):
-    rows, outcomes = [], []
+    rows, outcomes, stale_observations = [], [], []
     budget_end = monotonic() + min(120, max(0, (end - now()).total_seconds()))
     for binding in configuration.expected:
         timeout = min(20, budget_end - monotonic(), (end - now()).total_seconds())
@@ -159,6 +160,8 @@ def _sources(configuration, store, day, end, *, now, monotonic):
                     fresh, stale = adapter.partition(items, day)
                     if stale:
                         outcome = 'stale'
+                        stale_observations.extend(stale)
+                        rows.extend(fresh)
                     elif fresh:
                         outcome = 'present' if any(item['actually_ran'] for item in fresh) else 'not_run'
                         rows.extend(fresh)
@@ -169,10 +172,10 @@ def _sources(configuration, store, day, end, *, now, monotonic):
             except (ValueError, TypeError, KeyError, AttributeError):
                 outcome = 'invalid'
         outcomes.append(outcome)
-    return rows, outcomes
+    return rows, outcomes, stale_observations
 
 
-def _report(configuration, rows, outcomes, day, platform_config):
+def _report(configuration, rows, outcomes, day, platform_config, *, stale_observations=()):
     config = deepcopy(platform_config or aggregator.load_platform_config())
     config['notifications']['quant_sentinel']['daily_digest'].setdefault('aggregator', {})['expected_targets'] = configuration.expected
     failure_reasons = {'read_failed': 'candidate_store_read_failed',
@@ -185,40 +188,14 @@ def _report(configuration, rows, outcomes, day, platform_config):
         path.write_text(json.dumps({'runs': rows}), encoding='utf-8')
         payload, _, _ = aggregator.build_digest_payload(
             business_day=day, locale=configuration.locale, candidates_path=path,
-            include_github=False, config=config, candidate_failures=failures,
+            include_github=False, config=config, candidate_failures=failures, render_text=False,
         )
     covered = sum(value in {'present', 'not_run'} for value in outcomes)
     coverage = 'complete' if covered == len(outcomes) else 'partial' if covered else 'unavailable'
+    facts = collect_account_facts([*rows, *stale_observations], configuration.expected, day)
     if coverage == 'complete' and (payload.notification_summary or {}).get('counts_unknown'):
         coverage = 'partial'
-    zh = configuration.locale == 'zh'
-    labels = {'missing': '未找到当日报告' if zh else 'Report missing',
-              'read_failed': '报告读取失败' if zh else 'Report read failed',
-              'invalid': '报告无效或身份不匹配' if zh else 'Report invalid or identity mismatch',
-              'stale': '报告业务日过期' if zh else 'Report business day stale',
-              'not_run': '报告注明未运行；不推断成交统计' if zh else 'Explicitly did not run; no inferred fills'}
-    details = []
-    for binding, outcome in zip(configuration.expected, outcomes):
-        if outcome == 'present':
-            continue
-        platform = _safe_display_text(display_name('platforms', binding['platform_id'], configuration.locale))
-        strategy = _safe_display_text(display_name('strategies', binding['strategy_profile'], configuration.locale,
-                                                  fallback='未命名策略' if zh else 'Unnamed strategy'))
-        separator = '：' if zh else ': '
-        details.append(f'• {platform} / {strategy}{separator}{labels[outcome]}')
-    coverage_label = {'complete': '完整', 'partial': '部分', 'unavailable': '不可用'}[coverage] if zh else coverage
-    trailer = [f'数据覆盖：{coverage_label}' if zh else f'Data coverage: {coverage_label}']
-    for index, detail in enumerate(details):
-        if _units('\n'.join(trailer + [detail])) > 1200:
-            trailer.append(f'另有 {len(details) - index} 项缺口' if zh else f'{len(details) - index} more gaps')
-            break
-        trailer.append(detail)
-    # Presentation-only standing owner OFF, applied solely to an unbound
-    # Binance inventory. A contradictory binding retains its real coverage.
-    text = render(payload, max_units=3850, known_disabled_platforms={"binance"},
-                  source_repositories={key: value.get("repository")
-                                       for key, value in config.get("platforms", {}).items()},
-                  coverage_details=trailer)
+    text = render_account_daily(payload, configuration.expected, outcomes, facts=facts)
     return text, coverage
 
 
@@ -260,14 +237,13 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
         text, coverage = '', 'unavailable'
     else:
         read_end = now() + timedelta(seconds=120) if preview else stop
-        rows, outcomes = _sources(configuration, store, day, read_end, now=now, monotonic=monotonic)
-        text, coverage = _report(configuration, rows, outcomes, day, platform_config)
+        rows, outcomes, stale = _sources(
+            configuration, store, day, read_end, now=now, monotonic=monotonic)
+        text, coverage = _report(configuration, rows, outcomes, day, platform_config, stale_observations=stale)
     # Recheck after intake/rendering: wall-clock expiry cannot be extended by retries.
     late = late or now() + timedelta(seconds=30) >= deadline_at
     if late and not preview:
-        from daily_digest_deadline import failure_text
-        text = failure_text({'DIGEST_REPORT_DATE': report_date.isoformat(), 'DIGEST_BUSINESS_DAY': day},
-                            is_late=True, locale=configuration.locale)
+        text = render_account_daily_unavailable(day, configuration.locale)
     safe.update(coverage=coverage, late=late)
     if preview:
         return 200, {**safe, 'delivery': 'preview'}

@@ -53,7 +53,7 @@ recipient/date delivery reservation or permit a second daily send.
 
 ## Unified operator display
 
-The consolidated renderer uses the shared QPK five-section display contract:
+The legacy Actions preview and operator notification renderers use the shared QPK five-section display contract:
 Result, Scope, Evidence, Coverage and Next step. Chinese and English render the
 same facts. The pure helper is vendored under `notification_snapshot` with its
 own source manifest. The manifest records the upstream revision and hash,
@@ -66,23 +66,40 @@ multiple accounts share the same failure text. Budget selection keeps account
 summaries before optional observations and never retains an observation after
 omitting its account context.
 
-Every daily report lists IBKR, Schwab, Firstrade, LongBridge, Binance and the
+The legacy consolidated preview lists IBKR, Schwab, Firstrade, LongBridge, Binance and the
 management console. An explicitly unbound source says it is not included and
 its run state is unknown. A missing inventory says coverage is unknown. This
 display does not bind a new source, collect another platform, or make unknown
-orders/fills zero. Existing totals cover bound targets only. The central Cloud Run caller presents
-an unbound Binance inventory as disabled under the standing owner OFF decision:
-runs, orders and fills are N/A. This display-only decision does not change any
-switch or collect data. A missing inventory remains unknown; a bound Binance
-target retains its observed coverage rather than being hidden by the OFF label.
-Other unbound platforms retain unknown run state.
+orders/fills zero. Existing totals cover bound targets only.
 
-The central caller and its deadline fallback use the same five sections,
-including missing-source and verified-idle reports. Coverage details stay inside
-the Coverage section. The deadline fallback keeps trades and assets unknown and
-retains the existing single reservation and no-follow-up behavior.
+The scheduled Cloud Run account report uses a compact account layout instead
+of the five sections. “Yesterday” is the existing completed reporting window:
+06:00 Singapore time on the reported business day through 06:00 the next day,
+with the end excluded for execution events. The report groups bound strategies
+under the same platform and account, retains configured safe labels, and
+shows available assets and positions even for verified idle accounts. Source
+gaps are noted beside the affected account. No-run reports establish only that
+the specified strategies did not run. A zero count is scoped to verified
+observations. Distinct executions are deduplicated and need their own timestamp
+to be attributed to the reporting window; a settlement update is not a fill time.
+Candidate runs may include the optional `account_daily_facts` object for order,
+fill, and account snapshot observations. Existing candidates without this field
+remain valid; its presence alone does not establish account-wide coverage.
+The first release reads the existing bound candidates only. It reports timed
+fills found in those candidates. A fill stored solely under another business
+day or in a separate supplemental object is outside the observed scope.
+Assets and positions come from one bound observation; an earlier snapshot is
+dated and partial positions are labelled as such. Missing assets or positions
+do not suppress the other verified facts from the same observation. Unavailable positions and
+confirmed empty positions remain distinct. The single-message budget preserves
+account summaries and states how many positions are shown and omitted.
 
-For each actual source run, a supplied `source_run_id` may already be a full
+The account report omits runtime links and technical evidence. The compact
+deadline fallback keeps trades, assets and holdings unknown and retains the
+existing single reservation and no-follow-up behavior. Other notification
+types retain their existing layouts and delivery contracts.
+
+In the legacy consolidated preview, a supplied `source_run_id` may already be a full
 Actions run URL. The renderer accepts that URL only when it matches the
 platform's configured repository and the canonical HTTPS GitHub Actions run
 path; query and fragment are stripped by the shared URL helper. It never

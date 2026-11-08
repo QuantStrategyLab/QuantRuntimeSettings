@@ -367,6 +367,274 @@
         "notification_event": {
           "$ref": "#/$defs/notification_event"
         },
+        "account_daily_facts": {
+          "type": "object",
+          "description": "Optional observed account details; presence does not establish account-wide coverage.",
+          "additionalProperties": false,
+          "properties": {
+            "orders": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "symbol": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "side": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "strategy": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "asset_type": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "quantity": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "exclusiveMinimum": 0
+                  },
+                  "price": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "currency": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z]{3}$"
+                  },
+                  "status": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "filled_quantity": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "remaining_quantity": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "average_fill_price": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "occurred_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "submission_window_start": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "submission_window_end": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "anyOf": [
+                  {
+                    "required": [
+                      "occurred_at"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "submission_window_start",
+                      "submission_window_end"
+                    ]
+                  }
+                ]
+              }
+            },
+            "fills": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "occurred_at"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "symbol": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "side": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "strategy": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "asset_type": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "quantity": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "exclusiveMinimum": 0
+                  },
+                  "price": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "currency": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z]{3}$"
+                  },
+                  "order_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "occurred_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            },
+            "snapshots": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "as_of"
+                ],
+                "properties": {
+                  "as_of": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "equity": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "equity_currency": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z]{3}$"
+                  },
+                  "holdings_scope": {
+                    "type": "string"
+                  },
+                  "holdings_complete": {
+                    "type": "boolean"
+                  },
+                  "holdings": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "symbol",
+                        "quantity",
+                        "asset_type"
+                      ],
+                      "properties": {
+                        "symbol": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "quantity": {
+                          "type": "number"
+                        },
+                        "asset_type": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "fills_window_unknown": {
+              "type": "boolean"
+            },
+            "fills_window_mixed": {
+              "type": "boolean"
+            }
+          }
+        },
         "notification_events": {
           "type": "array",
           "items": {

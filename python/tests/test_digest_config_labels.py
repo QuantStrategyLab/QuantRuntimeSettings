@@ -43,7 +43,7 @@ class ConfigLabelTests(unittest.TestCase):
             self.assertEqual(configuration.expected[0]['account_label'], 'paper')
             text, _ = app._report(configuration,
                 [candidate(kind='order_submitted', order_count=1)], ['present'], '2026-10-15', None)
-            self.assertIn('Schwab·paper', text)
+            self.assertIn('Schwab · paper', text)
             self.assertNotIn('Schwab·old', text)
         empty = app.Configuration([{**EXPECTED[0], 'account_label': ''}], JOB, 'synthetic', '2026-10-16')
         self.assertFalse(empty.expected[0].get('account_label'))
@@ -65,7 +65,7 @@ class ConfigLabelTests(unittest.TestCase):
                 text, coverage = app._report(
                     app.Configuration(binding, JOB, 'synthetic', '2026-10-16', locale=locale),
                     [item], ['present'], '2026-10-15', None)
-            self.assertIn('Schwab·paper', text)
+            self.assertIn('Schwab · paper', text)
             self.assertNotIn('spoofed', text)
             self.assertNotIn('00000099', text)
             self.assertEqual(coverage, 'partial')
