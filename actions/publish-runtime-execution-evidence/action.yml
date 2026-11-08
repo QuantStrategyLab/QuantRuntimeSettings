@@ -103,12 +103,34 @@ runs:
           --output "$snapshot_path" \
           "${report_args[@]}"
 
-        if ! curl --fail --silent --show-error \
-          --request POST "${INPUT_SYNC_URL}/api/internal/sync-execution-evidence-source" \
-          --header "Authorization: Bearer ${EXECUTION_EVIDENCE_SYNC_TOKEN}" \
-          --header "Content-Type: application/json" \
-          --data-binary "@$snapshot_path" \
-          >/dev/null 2>&1; then
-          echo "Unable to sync the read-only execution-evidence snapshot." >&2
+        receipt_id="$(python3 -c 'from uuid import uuid4; print(uuid4())')"
+        receipt_path="$work_dir/execution-evidence-receipt.json"
+        if ! http_status="$(printf 'Authorization: Bearer %s\n' "$EXECUTION_EVIDENCE_SYNC_TOKEN" |
+          curl --fail --silent --show-error --max-time 30 --max-filesize 4096 \
+            --request POST "${INPUT_SYNC_URL}/api/internal/sync-execution-evidence-source" \
+            --header @- \
+            --header "Content-Type: application/json" \
+            --header "X-QSL-Execution-Evidence-Receipt: $receipt_id" \
+            --data-binary "@$snapshot_path" \
+            --output "$receipt_path" --write-out '%{http_code}' 2>/dev/null)" ||
+          [[ ! "$http_status" =~ ^2[0-9][0-9]$ ]]; then
+          echo "Unconfirmed execution-evidence upload. Do not replay this upload." >&2
           exit 1
         fi
+
+        if ! deployment_count="$(jq -en --slurpfile request "$snapshot_path" \
+          --slurpfile response "$receipt_path" --arg receipt_id "$receipt_id" '
+          $request[0] as $snapshot
+          | select(($response | length) == 1)
+          | $response[0]
+          | select(.ok == true and .receipt_id == $receipt_id
+            and .source_id == $snapshot.source_id and .schema_version == $snapshot.schema_version
+            and .deployment_count == ($snapshot.deployments | length)
+            and has("generated_at") and .generated_at == $snapshot.generated_at)
+          | .deployment_count
+        ' 2>/dev/null)"; then
+          echo "Unverified execution-evidence receipt. Do not replay this upload." >&2
+          exit 1
+        fi
+        printf 'Execution-evidence receipt: http=%s deployments=%s id=%s\n' \
+          "$http_status" "$deployment_count" "$receipt_id"

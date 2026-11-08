@@ -71,4 +71,46 @@ assert.equal(result.body.rows.length, 1);
 assert.equal(result.body.rows[0].symbol, "SYNTHETIC");
 assert.equal(result.body.status, "partial");
 assert.equal(result.body.coverage.find(x => x.platform === "binance").unavailable_reason, "stored_records_unreadable");
-console.log("console_binance_current_holdings_validation: PASS (native quantities only; no wallet valuation or invented PnL)");
+
+// A common broker-facts failure must not hide the separate Binance source.
+for (const brokenFacts of [
+  async () => Response.json({ error: "private broker failure" }, { status: 503 }),
+  async () => { throw Error("private broker failure"); },
+]) {
+  const mixedDeps = {
+    ...deps,
+    accountOptions: async () => ({ options: { binance: [{ key, broker_environment: "live" }],
+      ibkr: [{ key: ibkr.account_key, broker_environment: "live" }] } }),
+    facts: brokenFacts,
+  };
+  const mixedRequest = new Request("https://synthetic.test/api/performance/holdings?scope=all");
+  const response = await performanceResponse(mixedRequest, {}, mixedDeps);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "partial");
+  validate("holdings", body);
+  assert.equal(body.rows.find(row => row.symbol === "BTC")?.quantity, 0.25);
+  assert.equal(body.coverage.find(row => row.platform === "ibkr")?.unavailable_reason, "stored_records_unreadable");
+  assert.equal(body.coverage.find(row => row.platform === "binance")?.scope, "spot+flexible_earn");
+  assert.ok(!JSON.stringify(body).includes("private broker failure"));
+
+  const bothFailed = await performanceResponse(mixedRequest, {}, {
+    ...mixedDeps, binanceCurrent: async () => { throw Error("private Binance failure"); },
+  });
+  assert.equal(bothFailed.status, 503);
+  assert.equal((await bothFailed.json()).status, "unavailable");
+  const missingBinance = await performanceResponse(mixedRequest, {}, {
+    ...mixedDeps, binanceCurrent: async () => Response.json({ report_status: "missing", report: null }),
+  });
+  assert.equal(missingBinance.status, 503, "a missing Binance report is not a known empty position");
+
+  const brokerOnly = await performanceResponse(
+    new Request("https://synthetic.test/api/performance/holdings?scope=synthetic-equity&platform=ibkr"), {}, mixedDeps,
+  );
+  assert.equal(brokerOnly.status, 503, "a broker-only request cannot fall back to another account");
+  const unauthorized = await performanceResponse(mixedRequest, {}, {
+    ...mixedDeps, readSession: async () => ({ allowed: false }),
+  });
+  assert.equal(unauthorized.status, 401);
+}
+console.log("console_binance_current_holdings_validation: PASS (independent sources, scope and partial coverage)");

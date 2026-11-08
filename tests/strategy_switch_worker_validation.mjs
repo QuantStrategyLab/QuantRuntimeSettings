@@ -3236,7 +3236,51 @@ const executionEvidenceSync = await worker.fetch(
   executionEvidenceEnv,
 );
 assert.equal(executionEvidenceSync.status, 200);
-assert.equal((await executionEvidenceSync.json()).deployment_count, 1);
+const legacyExecutionEvidenceAck = await executionEvidenceSync.json();
+assert.equal(legacyExecutionEvidenceAck.deployment_count, 1);
+assert.equal(Object.hasOwn(legacyExecutionEvidenceAck, "receipt_id"), false);
+
+const syntheticExecutionEvidenceReceiptId = "00000000-0000-4000-8000-000000000001";
+const sendExecutionEvidenceWithReceipt = (receiptId, env = executionEvidenceEnv) => worker.fetch(
+  new Request("https://switch.example/api/internal/sync-execution-evidence-source", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${executionEvidenceSyncValue}`,
+      "Content-Type": "application/json",
+      "X-QSL-Execution-Evidence-Receipt": receiptId,
+    },
+    body: JSON.stringify(executionEvidenceSourcePayload),
+  }),
+  env,
+);
+const beforeMalformedReceipt = controlStore.get("audit_log");
+assert.equal((await sendExecutionEvidenceWithReceipt("not-a-receipt-id")).status, 400);
+assert.equal(controlStore.get("audit_log"), beforeMalformedReceipt);
+
+const receivedExecutionEvidence = await sendExecutionEvidenceWithReceipt(syntheticExecutionEvidenceReceiptId);
+assert.equal(receivedExecutionEvidence.status, 200);
+assert.deepEqual(await receivedExecutionEvidence.json(), {
+  ...legacyExecutionEvidenceAck,
+  receipt_id: syntheticExecutionEvidenceReceiptId,
+});
+const latestExecutionEvidenceAudit = JSON.parse(controlStore.get("audit_log"))[0];
+assert.equal(latestExecutionEvidenceAudit.action, "sync_execution_evidence_source");
+assert.equal(latestExecutionEvidenceAudit.receipt_id, syntheticExecutionEvidenceReceiptId);
+
+const originalStore = executionEvidenceEnv.STRATEGY_SWITCH_CONFIG;
+const failedExecutionEvidenceWrite = await sendExecutionEvidenceWithReceipt(
+  syntheticExecutionEvidenceReceiptId,
+  {
+    ...executionEvidenceEnv,
+    STRATEGY_SWITCH_CONFIG: {
+      ...originalStore,
+      async put() { throw Error("synthetic write failure"); },
+    },
+  },
+);
+assert.equal(failedExecutionEvidenceWrite.ok, false);
+assert.equal(Object.hasOwn(await failedExecutionEvidenceWrite.json(), "receipt_id"), false);
+
 const executionEvidenceRead = await worker.fetch(
   new Request("https://switch.example/api/execution-evidence", { headers: executionEvidenceCookieHeaders }),
   executionEvidenceEnv,

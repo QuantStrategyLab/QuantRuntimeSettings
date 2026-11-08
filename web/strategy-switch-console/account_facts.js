@@ -1179,6 +1179,20 @@ function historyCurrenciesFromQualified(qualified, maxDays) {
     .map(balance => balance.currency)))].sort();
 }
 
+export function projectAccountFactsHistoryPositions({ days = [], binding, from = null, to = null } = {}) {
+  const qualified = qualifiedHistoryDays(days, binding).slice(-ACCOUNT_FACTS_HISTORY_MAX_DAYS);
+  return qualified.filter(({ observation_date: date }) => (!from || date >= from) && (!to || date <= to))
+    .map(({ observation_date, payload }) => ({
+      observation_date,
+      observed_finished_at: payload.observed_finished_at,
+      positions: payload.broker_reported_positions?.map(({ symbol, quantity, market_value, currency, currency_source }) => ({
+        symbol, quantity, market_value, currency, ...(currency_source ? { currency_source } : {}),
+      })) ?? null,
+      positions_scope: payload.broker_reported_positions_scope ?? null,
+      positions_complete: payload.broker_reported_positions_complete === true ? true : null,
+    }));
+}
+
 export function projectAccountFactsHistoryCurrencies({ days = [], binding = null, maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS } = {}) {
   if (!binding) return [];
   return historyCurrenciesFromQualified(qualifiedHistoryDays(days, binding), maxDays);

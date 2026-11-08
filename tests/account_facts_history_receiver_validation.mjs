@@ -204,6 +204,43 @@ try {
   hkd.broker_reported_balances[0].currency = "HKD";
   hkd.cash[0].currency = "HKD";
   assert.equal((await post(first, hkd)).status, 200);
+  // Positions are observations at the stored instant, not end-of-day snapshots.
+  const schwab = fixtures.find(f => f.platform === "schwab");
+  const partial = { ...payload(schwab, 4, currentId), broker_reported_positions_scope: "strategy_symbols_only",
+    broker_reported_positions: [
+      { symbol: "ABC", quantity: "2", market_value: "20", currency: "USD", avg_cost: "8" },
+      { symbol: "XYZ", quantity: "3", market_value: "30", currency: "USD", currency_source: "owner_confirmed" },
+    ] };
+  const empty = { ...payload(schwab, 5, currentId), broker_reported_positions_scope: "stocks_only",
+    broker_reported_positions_complete: true, broker_reported_positions: [] };
+  assert.equal((await post(schwab, partial)).status, 200);
+  assert.equal((await post(schwab, empty)).status, 200);
+  const positionsUrl = `https://synthetic.example/api/account-facts/history?platform=schwab&account_key=${schwab.option.key}&projection=positions`;
+  assert.equal((await worker.fetch(new Request(positionsUrl), env)).status, 401);
+  response = await worker.fetch(new Request(positionsUrl, { headers }), env);
+  const observations = (await response.json()).observations;
+  assert.deepEqual(observations.find(row => row.observation_date === partial.observation_date), {
+    observation_date: partial.observation_date, observed_finished_at: partial.observed_finished_at,
+    positions: [
+      { symbol: "ABC", quantity: "2", market_value: "20", currency: "USD" },
+      { symbol: "XYZ", quantity: "3", market_value: "30", currency: "USD", currency_source: "owner_confirmed" },
+    ],
+    positions_scope: "strategy_symbols_only", positions_complete: null });
+  assert.deepEqual(observations.find(row => row.observation_date === empty.observation_date), {
+    observation_date: empty.observation_date, observed_finished_at: empty.observed_finished_at,
+    positions: [], positions_scope: "stocks_only", positions_complete: true });
+  assert.equal(observations.find(row => row.observation_date === dateAgo(10)).positions, null);
+  response = await worker.fetch(new Request(`${positionsUrl}&from=${partial.observation_date}&to=${partial.observation_date}`, { headers }), env);
+  assert.deepEqual((await response.json()).observations.map(row => row.observation_date), [partial.observation_date]);
+  assert.equal((await worker.fetch(new Request(`${positionsUrl}&from=2026-02-30`, { headers }), env)).status, 400);
+  assert.equal((await worker.fetch(new Request(`${positionsUrl}&from=${partial.observation_date}&to=${empty.observation_date}`, { headers }), env)).status, 400);
+  const otherUrl = `https://synthetic.example/api/account-facts/history?platform=longbridge&account_key=${first.option.key}&projection=positions`;
+  response = await worker.fetch(new Request(otherUrl, { headers }), env);
+  assert.ok((await response.json()).observations.every(row => row.positions === null));
+  await kv.put("account_options", JSON.stringify({ schwab: [{ ...schwab.option, account_scope: "paper" }] }));
+  assert.equal((await worker.fetch(new Request(positionsUrl, { headers }), env)).status, 409);
+  await kv.put("account_options", JSON.stringify(Object.fromEntries(fixtures.map(f => [f.platform, [f.option]]))));
+
   const currenciesUrl = `https://synthetic.example/api/account-facts/history?platform=longbridge&account_key=${first.option.key}&projection=currencies`;
   response = await worker.fetch(new Request(currenciesUrl), env);
   assert.equal(response.status, 401, "currency enumeration retains session authentication");

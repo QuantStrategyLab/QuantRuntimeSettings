@@ -10103,6 +10103,11 @@ async function syncExecutionEvidenceSourceResponse(request, env) {
     return json({ ok: false, error: "execution evidence KV is not configured" }, 503);
   }
 
+  const receiptId = request.headers.get("X-QSL-Execution-Evidence-Receipt");
+  if (receiptId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(receiptId)) {
+    return json({ ok: false, error: "invalid execution evidence receipt identifier" }, 400);
+  }
+
   let raw;
   try {
     raw = await readBoundedJson(request, EXECUTION_EVIDENCE_MAX_BODY_BYTES);
@@ -10127,6 +10132,7 @@ async function syncExecutionEvidenceSourceResponse(request, env) {
       schema_version: source.schema_version,
       deployment_count: source.deployments.length,
       data_status: source.data_status,
+      ...(receiptId === null ? {} : { receipt_id: receiptId }),
     });
   } catch {
     // The source snapshot is accepted independently of optional audit retention.
@@ -10137,6 +10143,7 @@ async function syncExecutionEvidenceSourceResponse(request, env) {
     schema_version: source.schema_version,
     deployment_count: source.deployments.length,
     generated_at: source.generated_at,
+    ...(receiptId === null ? {} : { receipt_id: receiptId }),
   });
 }
 

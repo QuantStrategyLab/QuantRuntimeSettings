@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
-import { normalizeExecutions, mergeExecutions } from "../web/strategy-switch-console/application/account_facts/executions.js";
+import { initializeExecutions, normalizeExecutions, mergeExecutions, putExecutions, readExecutions } from "../web/strategy-switch-console/application/account_facts/executions.js";
 import { executionStatsResponse } from "../web/strategy-switch-console/application/console_api/executions.js";
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
@@ -31,6 +32,37 @@ assert.throws(() => mergeExecutions(payload, { ...payload, records: [{ ...record
 const unknownFee = { ...payload, records: [{ ...record, commission: null, commission_currency: null }] };
 assert.equal(mergeExecutions(unknownFee, payload).records[0].commission, record.commission, "known fee may complete an unknown field");
 assert.equal(mergeExecutions(payload, unknownFee).records[0].commission_currency, "EUR", "unknown cannot erase a known fee currency");
+// Old rows only retain aggregate bounds; they are not evidence of individual reports.
+const legacyContext = { ...binding, source_binding_id: binding.source_binding.id };
+const legacySql = { exec: query => ({ toArray: () => query.includes("account_execution_reports") ? [] : [{ source_binding_id: binding.source_binding.id,
+  context_json: JSON.stringify([binding.platform, binding.target_id, binding.account_scope,
+    binding.account_selector, null, null]), payload_json: JSON.stringify(payload) }] }) };
+const legacy = readExecutions(legacySql, legacyContext);
+assert.equal(legacy.reports[0].period_status, "legacy_aggregate_bounds_unknown");
+assert.deepEqual(legacy.reports[0].period, payload.period);
+
+// A version rollback uses the original payload table without interval metadata.
+const db = new DatabaseSync(":memory:");
+try {
+  const sql = { exec(query, ...params) {
+    if (query.startsWith("SELECT")) return { toArray: () => db.prepare(query).all(...params) };
+    if (params.length) db.prepare(query).run(...params);
+    else db.exec(query);
+  } };
+  initializeExecutions(sql);
+  putExecutions(sql, legacyContext, payload);
+  const rollbackPeriod = { from: "2026-10-25", to: "2026-10-25" };
+  const rollbackPayload = mergeExecutions(payload, { ...payload, period: rollbackPeriod, records: [] });
+  db.prepare("UPDATE account_executions SET payload_json = ?").run(JSON.stringify(rollbackPayload));
+  let reports = readExecutions(sql, legacyContext).reports;
+  assert.deepEqual(reports.map(r => [r.period_status, r.period]), [
+    ["legacy_aggregate_bounds_unknown", rollbackPayload.period], ["observed_report", payload.period],
+  ]);
+  const recoveredPeriod = { from: "2026-10-27", to: "2026-10-27" };
+  putExecutions(sql, legacyContext, { ...payload, period: recoveredPeriod, records: [] });
+  reports = readExecutions(sql, legacyContext).reports;
+  assert.deepEqual(reports.map(r => r.period), [rollbackPayload.period, payload.period, recoveredPeriod]);
+} finally { db.close(); }
 const rangeSource = { coverage: "reported_executions", reports: [{ observed_at: payload.observed_at, period: payload.period }],
   records: [record, { ...record, execution_ref: "e".repeat(64), trade_date: "2026-08-01", local_time: null }] };
 const rangeDeps = { executions: async () => rangeSource, json: body => body };
@@ -79,6 +111,15 @@ try {
   assert.ok(!JSON.stringify(body).includes(option.account_selector), "native account selector is not returned");
   assert.equal((await post({ ...payload, records: [{ ...record, price: "101" }] })).status, 409);
   assert.equal((await (await get()).json()).rows[0].price, "100.25", "conflicting data cannot overwrite executions");
+  const firstPeriod = { ...payload, period: { from: "2026-10-25", to: "2026-10-25" }, records: [] };
+  const secondPeriod = { ...payload, period: { from: "2026-10-27", to: "2026-10-27" }, records: [] };
+  assert.equal((await post(firstPeriod)).status, 200);
+  assert.equal((await post(secondPeriod)).status, 200);
+  assert.equal((await (await post(secondPeriod)).json()).unchanged, true);
+  const intervals = (await (await get()).json()).coverage[0].reports;
+  assert.deepEqual(intervals.map(report => report.period), [payload.period, firstPeriod.period, secondPeriod.period]);
+  assert.ok(intervals.every(report => report.period_status === "observed_report"));
+  assert.equal((await (await get()).json()).coverage[0].reports_truncated, false);
   await setBinding({ ...binding, source_binding: { ...binding.source_binding, id: "d".repeat(64) } });
   assert.equal((await (await get()).json()).status, "not_connected", "rotated unknown source cannot inherit private records");
   await setBinding({ ...binding, source_binding: { ...binding.source_binding, id: "d".repeat(64) }, history_source_binding_ids: [binding.source_binding.id] });
