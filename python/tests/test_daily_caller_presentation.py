@@ -114,6 +114,14 @@ class DailyCallerPresentationTests(unittest.TestCase):
                 self.assertIn(f" · {detail}", text)
                 self.assertNotIn("Submitted, fills unconfirmed", text)
 
+    def test_closed_observed_order_does_not_close_unobserved_orders(self):
+        order = record("closed-order", status="cancelled", filled_quantity=0)
+        item = with_facts({**ROW, "order_count": 2, "fill_count": 0}, orders=[order])
+        text, _ = self.report([item], ["present"], locale="en")
+        self.assertIn("Some order details are unavailable", text)
+        self.assertIn(" · cancelled", text)
+        self.assertNotIn("Orders closed; statuses below", text)
+
     def test_simulation_does_not_establish_actual_account_trades(self):
         item = with_facts({**ROW, "execution_mode": "dry_run", "fill_count": 1},
                           fills=[record("simulated-fill", price=99)], snapshots=[snapshot()])
@@ -197,6 +205,22 @@ class DailyCallerPresentationTests(unittest.TestCase):
         text, _ = self.report([one, two], ["present", "present"], locale="en", expected=[EXPECTED[0], second])
         self.assertEqual(text.count("Total assets: USD 50,000.00"), 1)
         self.assertEqual(text.count("TQQQ 300 shares"), 1)
+
+    def test_equivalent_order_instants_and_intervals_keep_order_details(self):
+        equivalent_time = datetime.fromisoformat(TIME).astimezone(timezone.utc).isoformat()
+        for interval in (False, True):
+            with self.subTest(interval=interval):
+                orders = []
+                for stamp, status in ((TIME, "Cancelled"), (equivalent_time, "cancelled")):
+                    order = record("closed-order", status=status, filled_quantity=0, occurred_at=stamp)
+                    if interval:
+                        order.pop("occurred_at")
+                        order.update(submission_window_start=stamp, submission_window_end=stamp)
+                    orders.append(order)
+                item = with_facts({**ROW, "order_count": 1, "fill_count": 0}, orders=orders)
+                text, _ = self.report([item], ["present"], locale="en")
+                self.assertIn("Orders closed; statuses below", text)
+                self.assertEqual(text.count(" · cancelled"), 1)
 
     def test_budget_discloses_omitted_holdings_without_losing_totals(self):
         hold = [{"symbol": f"TEST{i}", "quantity": i + 1, "asset_type": "option"} for i in range(70)]

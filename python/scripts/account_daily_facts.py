@@ -66,7 +66,7 @@ def _execution(raw, row, kind, day):
             value = _text(raw[name])
             if value is None:
                 return None
-            result[name] = value
+            result[name] = value.lower() if name == 'status' else value
         else:
             result[name] = None
     for name in (('quantity', 'filled_quantity', 'remaining_quantity', 'price', 'average_fill_price') if kind == 'orders'
@@ -85,10 +85,10 @@ def _execution(raw, row, kind, day):
     else:
         result['currency'] = None
     if stamp is not None:
-        result['occurred_at'] = (stamp.astimezone(timezone.utc) if kind == 'fills' else stamp).isoformat()
+        result['occurred_at'] = stamp.astimezone(timezone.utc).isoformat()
     else:
-        result['submission_window_start'] = interval[0].isoformat()
-        result['submission_window_end'] = interval[1].isoformat()
+        result['submission_window_start'] = interval[0].astimezone(timezone.utc).isoformat()
+        result['submission_window_end'] = interval[1].astimezone(timezone.utc).isoformat()
     return result
 
 

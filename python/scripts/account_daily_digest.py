@@ -264,7 +264,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
         partial = any(_order_status(o) == 'partially_filled' or
                       (_number(o.get('filled_quantity')) and _number(o.get('quantity'))
                        and 0 < o['filled_quantity'] < o['quantity']) for o in orders)
-        terminal = orders and all(_order_status(o) in {'cancelled', 'canceled', 'rejected', 'expired'} for o in orders)
+        terminal = (bool(orders) and counts['order'] == len(orders)
+                    and all(_order_status(o) in {'cancelled', 'canceled', 'rejected', 'expired'} for o in orders))
         if unknown_fill_window:
             details.append('结算含已确认成交，发生时段未核实' if zh else
                            'Settlement confirms fills; reporting window unverified')
