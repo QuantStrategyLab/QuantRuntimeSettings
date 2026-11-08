@@ -1,8 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {spawnSync} from 'node:child_process';
-import {POLICY,createPreflightApi,pinned,preflight,release} from '../scripts/console_m09_release.mjs';
+import {execFileSync,spawnSync} from 'node:child_process';
+import {POLICY,createPreflightApi,pinned,preflight,readRollbackTargets,release} from '../scripts/console_m09_release.mjs';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const old=Buffer.from('old'),candidate=Buffer.from('candidate');
 const version='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',deployment='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -48,14 +48,14 @@ test('preflight reads active state with write pins unset and returns redacted ev
  const f=fixture();
  const result=await preflight(f.api);
  assert.equal(result.ok,true);
- assert.equal(result.active.version_prefix,version.slice(0,8));
- assert.equal(result.module_sha256,hash(old));
+ assert.deepEqual(result.traffic,[{slot:1,percentage:100}]);
+ assert.equal(result.active_identity_unchanged,true);
  assert.equal(result.module_matches_reference,false);
  assert.equal(result.configuration.bindings.secret_text,1);
  assert.equal(result.configuration.candidate_provider_configuration_observed,false);
  assert.equal(result.rollback.eligible_after_release,false);
  assert.equal(result.hold,true);
- assert.doesNotMatch(JSON.stringify(result),/namespace_id|STRATEGY_SWITCH_CONFIG|SECRET|aaaaaaaa-aaaa/);
+ assert.doesNotMatch(JSON.stringify(result),/namespace_id|STRATEGY_SWITCH_CONFIG|SECRET|aaaaaaaa|bbbbbbbb|module_sha256/);
  assert.deepEqual(f.calls,['deployments','versions','module','config','deployments','versions']);
 });
 
@@ -86,4 +86,12 @@ test('preflight adapter exposes only the fixed read methods',async()=>{
  assert.equal(api.activate,undefined);
  assert.equal((await preflight(api)).ok,true);
  assert.deepEqual(f.calls,['deployments','versions','module','config','deployments','versions']);
+});
+
+test('preflight derives rollback classes from the existing workflow without emitting targets',async()=>{
+ const targets=readRollbackTargets((...args)=>execFileSync('git',args,{encoding:'utf8'}));
+ assert.equal(new Set([...targets.fixed,targets.fixedSuccessor]).size,3);
+ const result=await preflight(fixture().api,targets);
+ assert.ok([...targets.fixed,targets.fixedSuccessor].every(id=>!JSON.stringify(result).includes(id)));
+ assert.throws(()=>readRollbackTargets(()=>''),/rollback_policy/);
 });

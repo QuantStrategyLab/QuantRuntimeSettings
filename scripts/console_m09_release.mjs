@@ -81,17 +81,16 @@ async function inspectBackendRelease(api, referenceHash) {
     const initial=await api.deployments();
     const traffic=initial?.deployments?.[0]?.versions;
     if (Array.isArray(traffic) && traffic.length<=10 && traffic.every(v=>uuid(v?.version_id)&&Number.isFinite(v?.percentage)))
-      result.traffic=traffic.map(v=>({version_prefix:v.version_id.slice(0,8),percentage:v.percentage}));
+      result.traffic=traffic.map((v,index)=>({slot:index+1,percentage:v.percentage}));
     const prior=activeIdentity(initial);
-    result.active={deployment_prefix:prior.deployment.slice(0,8),version_prefix:prior.version.slice(0,8)};
+    result.single_active_version=true;
     stage='version_list';
     const listed=versions(await api.versions());
     result.active_listed=listed.includes(prior.version);
     result.active_is_latest=listed[0]===prior.version;
     stage='module';
     const bytes=readModule(await api.betaVersion(prior.version),prior.version);
-    result.module_sha256=createHash('sha256').update(bytes).digest('hex');
-    result.module_matches_reference=result.module_sha256===referenceHash;
+    result.module_matches_reference=hash(bytes)===referenceHash;
     stage='configuration';
     const live=readConfiguration(await api.scriptVersion(prior.version),prior.version);
     const runtime=live.script_runtime;
@@ -109,19 +108,33 @@ async function inspectBackendRelease(api, referenceHash) {
     stage='recheck';
     if (JSON.stringify(activeIdentity(await api.deployments()))!==JSON.stringify(prior) ||
         JSON.stringify(versions(await api.versions()))!==JSON.stringify(listed)) throw Error('active_drift');
-    return {result:{...result,ok:true},version:prior.version};
+    return {result:{...result,ok:true,active_identity_unchanged:true},version:prior.version};
   } catch {
     return {result:{...result,ok:false,stage}};
   }
 }
 
-export async function preflight(api) {
+export function readRollbackTargets(git) {
+  const workflow=git('show','HEAD:.github/workflows/deploy-strategy-switch-console.yml');
+  const fixed=workflow.split('      - name: Restore fixed pre-release Worker version');
+  if(fixed.length!==2)throw Error('rollback_policy');
+  const target=pattern=>{
+    const matches=[...fixed[1].matchAll(pattern)];
+    if(matches.length!==1||!uuid(matches[0][1]))throw Error('rollback_policy');
+    return matches[0][1];
+  };
+  return {
+    fixed:[target(/const target = process\.env\.ROLLBACK_VERSION \|\| '([^']+)';/g),
+      target(/const fe11 = target === '([^']+)';/g)],
+    fixedSuccessor:target(/const dailyRestore = target === '([^']+)';/g),
+  };
+}
+export async function preflight(api,rollbackTargets={fixed:[],fixedSuccessor:null}) {
   const {result,version}=await inspectBackendRelease(api,POLICY.before);
   if(!result.ok)return result;
-  // Only the first two fixed rollback targets can follow an arbitrary deployment.
-  // The daily restore target requires an unrelated fixed successor deployment.
-  const route=['2beea000-cce5-43a5-9255-9724f7318e83','c8dc4852-fa9d-4d14-bca3-7941587a494f'].includes(version)
-    ? 'fixed_target' : version==='06043e24-f8c9-4129-8c59-abb9957217bf' ? 'fixed_successor_only' : 'no_matching_target';
+  // The daily restore target requires a specific, unrelated successor deployment.
+  const route=rollbackTargets.fixed.includes(version) ? 'fixed_target'
+    : version===rollbackTargets.fixedSuccessor ? 'fixed_successor_only' : 'no_matching_target';
   return {...result,source:POLICY.source,candidate_sha256:POLICY.candidate,reference_sha256:POLICY.before,
     rollback:{route,prior_version_readable:true,write_rehearsed:false,
       eligible_after_release:route==='fixed_target'&&result.active_listed&&result.module_matches_reference&&result.configuration.migration_tag_present},
@@ -140,7 +153,7 @@ async function main() {
       evidence.source!==POLICY.source || evidence.tree!==POLICY.tree || evidence.frontendBlob!==POLICY.frontendBlob)
     throw Error('provenance');
   if (action==='preflight') {
-    const result=await preflight(createPreflightApi());
+    const result=await preflight(createPreflightApi(),readRollbackTargets(git));
     console.log(JSON.stringify(result));
     if(!result.ok)process.exitCode=1;
     return;
