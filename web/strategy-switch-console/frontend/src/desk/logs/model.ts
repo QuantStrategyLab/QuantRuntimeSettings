@@ -24,6 +24,6 @@ export function levelCounts(items: LogLine[]): Record<LevelFilter, number> {
 }
 
 /** A scheduled entry shows its plan; a finished one shows what actually happened. */
-export function tapeStateKey(entry: Ribbon["tape"][number]): string {
+export function tapeStateKey(entry: { state: Ribbon["tape"][number]["state"]; outcome: Ribbon["tape"][number]["outcome"] }): string {
   return entry.state === "done" && entry.outcome ? `tape.outcome.${entry.outcome}` : `tape.state.${entry.state}`;
 }
