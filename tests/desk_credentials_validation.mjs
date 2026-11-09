@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import {
-  credentialExpiry, credentialItems, credentialPhase, deskCredentialsResponse,
+  credentialExpiry, credentialItems, credentialPhase, credentialRotatedAt, deskCredentialsResponse,
 } from "../web/strategy-switch-console/application/desk/credentials.js";
 import { DeskError } from "../web/strategy-switch-console/application/desk/http.js";
 
@@ -63,6 +63,17 @@ assert.deepEqual(credentialExpiry(record), {
 for (const bad of [null, undefined, [], {}, { id: "" }, { id: 7 }]) {
   assert.throws(() => credentialItems(bad), error => error instanceof DeskError && error.status === 502);
 }
+
+// A completed rotation is persisted by finalizeCredentialMaintenance and the UI
+// renders it; reporting null would claim "Never rotated" after a real rotation.
+assert.equal(credentialRotatedAt({ last_rotated_at: "2029-12-01T09:30:00Z" }), "2029-12-01T09:30:00.000Z");
+assert.equal(credentialRotatedAt({}), null);
+assert.equal(credentialRotatedAt({ last_rotated_at: null }), null);
+assert.equal(credentialRotatedAt({ last_rotated_at: "not a date" }), null);
+const rotated = credentialItems({ ...record, last_rotated_at: "2029-12-01T09:30:00Z" })[0];
+assert.equal(rotated.last_rotated_at, "2029-12-01T09:30:00.000Z");
+assert.equal(credentialItems(record)[0].last_rotated_at, null);
+conforms("credentials", { ok: true, schema_version: "qsl.desk.credentials.v1", generated_at: new Date().toISOString(), items: [rotated] });
 
 const env = {};
 const get = (deps) => deskCredentialsResponse(new Request("https://console.example/api/desk/credentials"), env, deps);

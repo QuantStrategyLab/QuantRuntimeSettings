@@ -54,10 +54,13 @@ export function initializeCredentialMaintenance(sql) {
 }
 const key = (p) => JSON.stringify([ID, p.expires_at, p.phase]);
 function projection(sql) {
-  const row = sql.exec("SELECT revision, expires_at FROM credential_maintenance_metadata WHERE id = ?", ID).toArray()[0];
+  const row = sql.exec("SELECT revision, expires_at, last_rotated_at FROM credential_maintenance_metadata WHERE id = ?", ID).toArray()[0];
   const expiry = credentialExpiryProjection(row?.expires_at ?? null);
   const p = { id: ID, metadata_source: "operator_provided", metadata_revision: row?.revision ?? 0, expires_at: expiry.expires_at,
     phase: expiry.phase, days_remaining: expiry.days_remaining, severity: expiry.severity,
+    // Recorded only by a completed rotation (finalizeCredentialMaintenance).
+    // Null means "no completed rotation on file", which is not "never rotated".
+    last_rotated_at: row?.last_rotated_at ?? null,
     requires_action: expiry.phase !== "not_due", delivery: "not_reserved" };
   if (DUE.has(p.phase)) p.delivery = sql.exec("SELECT state FROM credential_maintenance_delivery WHERE delivery_key = ?", key(p)).toArray()[0]?.state ?? "not_reserved";
   return p;

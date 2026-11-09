@@ -37,6 +37,13 @@ export function credentialExpiry(record) {
   return { status: "known", at: new Date(at).toISOString(), source: "operator_provided" };
 }
 
+/** A rotation timestamp is recorded only by a completed rotation; otherwise null. */
+export function credentialRotatedAt(record) {
+  const raw = typeof record.last_rotated_at === "string" ? record.last_rotated_at : null;
+  const at = raw === null ? NaN : Date.parse(raw);
+  return Number.isFinite(at) ? new Date(at).toISOString() : null;
+}
+
 export function credentialItems(record) {
   if (!record || typeof record !== "object" || Array.isArray(record) || typeof record.id !== "string" || !record.id) {
     throw new DeskError("read_failed", 502);
@@ -54,7 +61,8 @@ export function credentialItems(record) {
     requires_action: DUE.has(phase),
     rotation: { supported: true, route: ROTATION_ROUTE },
     runbook: null,
-    last_rotated_at: null,
+    // A completed rotation is recorded in the same row; never overwrite it with null.
+    last_rotated_at: credentialRotatedAt(record),
   }];
 }
 
