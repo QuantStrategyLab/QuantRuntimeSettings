@@ -25,7 +25,7 @@ export const DESK_SOURCES: Record<MockEndpoint, DeskSource> = {
   overview: "mock",
   accounts: "mock",
   credentials: "live",
-  switchTargets: "mock",
+  switchTargets: "live",
   switchStrategies: "mock",
   // /api/desk/performance has no backend yet; the benchmark curves follow this source (see benchmarks()).
   performance: "mock",
