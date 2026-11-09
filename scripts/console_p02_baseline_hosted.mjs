@@ -1,7 +1,7 @@
 // Hosted P02 capture: fixed object and routes; provider responses are never logged.
 import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
-import {capture,REFERENCE,R2_ACTIVE_MODULE} from './console_p02_baseline_capture.mjs';
+import {capture,R2_ACTIVE_MODULE} from './console_p02_baseline_capture.mjs';
 import {createFixedApi} from './console_946_backend_release.mjs';
 import {createHash} from 'node:crypto';
 
@@ -12,8 +12,10 @@ export function verifyCapability(env,now=Date.now()){
   const account=env.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT||env.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT;
   let r;try{r=JSON.parse(env.QRS_P02_STORAGE_CAPABILITY_RECEIPT||'')}catch{throw Error('capability');}
   const issued=Date.parse(r.issued_at),expires=Date.parse(r.expires_at);
-  if(!uri||!provider||!account||!/^[a-f0-9]{40}$/.test(env.GITHUB_SHA??'')||r.schema!=='qrs-p02-storage-capability-v1'||
-    r.bucket!==uri[1]||r.object!==KEY||r.wif_provider!==provider||r.service_account!==account||r.control_sha!==env.GITHUB_SHA||
+  if(!uri||!provider||!account||!/^[a-f0-9]{40}$/.test(env.P02_CONTROL_SHA??'')||
+    !/^[a-f0-9]{40}$/.test(env.P02_CONTROL_TREE??'')||r.schema!=='qrs-p02-storage-capability-v1'||
+    r.bucket!==uri[1]||r.object!==KEY||r.wif_provider!==provider||r.service_account!==account||
+    r.control_sha!==env.P02_CONTROL_SHA||r.control_tree!==env.P02_CONTROL_TREE||
     typeof r.owner_project!=='string'||!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.owner_project)||
     r.policy_readback_reviewed!==true||r.create_permitted!==true||r.get_permitted!==true||r.target_absent!==true||
     !Number.isFinite(issued)||!Number.isFinite(expires)||issued>now||expires<=now||expires-issued>24*60*60*1000)
@@ -53,10 +55,12 @@ async function main(){
   if(action==='verify-capability'){verifyCapability(process.env);console.log('{"ok":true,"capability_verified":true}');return;}
   if(action!=='capture'||process.argv.length!==4)throw Error('input');
   const candidate=await readFile(process.argv[3]);
-  if(createHash('sha256').update(candidate).digest('hex')!==REFERENCE)throw Error('candidate');
+  if(createHash('sha256').update(candidate).digest('hex')!==R2_ACTIVE_MODULE)throw Error('candidate');
   const {bucket}=verifyCapability(process.env);
   const store=storage({bucket,token:process.env.GOOGLE_ACCESS_TOKEN});
-  const result=await capture({api:readOnlyWorkerApi(createFixedApi()),store,candidate,expectedActive:R2_ACTIVE_MODULE,controlSha:process.env.GITHUB_SHA});
+  const result=await capture({api:readOnlyWorkerApi(createFixedApi()),store,candidate,
+    reference:R2_ACTIVE_MODULE,expectedActive:R2_ACTIVE_MODULE,
+    controlSha:process.env.P02_CONTROL_SHA,controlTree:process.env.P02_CONTROL_TREE});
   console.log(JSON.stringify(result));if(!result.ok)process.exitCode=1;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
