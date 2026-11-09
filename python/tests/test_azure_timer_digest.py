@@ -1,8 +1,11 @@
 """Boundary regressions for the Azure timer adapter."""
-from datetime import datetime
+import sys
 import unittest
+from datetime import datetime
+from pathlib import Path
 from unittest.mock import Mock, patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import cloud_run_daily_digest as core
 from azure_timer_digest import ScheduleUnavailable, execute_scheduled, execute_timer, resolve_slot, window_slot
 
