@@ -121,6 +121,13 @@ def utc_now():
     return datetime.now(UTC)
 
 
+def business_slot(stamp):
+    """Derive the digest operation from an already validated trigger time."""
+    local = stamp.astimezone(SGT)
+    report_date = local.date()
+    return report_date, (report_date - timedelta(days=1)).isoformat(), local.minute == 30
+
+
 def report_slot(headers, configuration, now):
     values = {key.lower(): value for key, value in headers.items()}
     job = values.get('x-cloudscheduler-jobname')
@@ -136,8 +143,8 @@ def report_slot(headers, configuration, now):
     local = stamp.astimezone(SGT)
     if (local.hour, local.minute) not in {(7, 0), (7, 30)} or stamp > now:
         raise ValueError('digest_schedule_slot_invalid')
-    report_date = local.date()
-    return report_date, (report_date - timedelta(days=1)).isoformat(), stamp, local.minute == 30
+    report_date, day, check = business_slot(stamp)
+    return report_date, day, stamp, check
 
 
 def _sources(configuration, store, day, end, *, now, monotonic):
@@ -211,6 +218,14 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
         reason = str(error) if isinstance(error, ValueError) and str(error) in known else (
             'digest_schedule_header_missing' if isinstance(error, KeyError) else 'digest_schedule_header_invalid')
         return 400, {'delivery': 'invalid_slot', 'reason_code': reason}
+    return execute_slot(report_date, day, check, {'scheduled_at': scheduled_at.isoformat()},
+                        configuration, store, send, preview=preview, now=now,
+                        monotonic=monotonic, platform_config=platform_config)
+
+
+def execute_slot(report_date, day, check, schedule_record, configuration, store, send, *,
+                 preview=False, now=utc_now, monotonic=clock.monotonic, platform_config=None):
+    """Run the unchanged business logic after the calling platform validates its trigger."""
     safe = {'report_date': report_date.isoformat(), 'business_day': day, 'delivery': 'not_attempted'}
     if not preview and now().astimezone(SGT).date() != report_date:
         return 200, {**safe, 'delivery': 'expired_slot'}
@@ -250,7 +265,7 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
     key = f'{configuration.recipient_scope}/{report_date.isoformat()}.json'
     record = {**safe, 'schema_version': 'qsl.daily_digest_delivery.v1', 'delivery': 'sending',
               'recipient_scope': configuration.recipient_scope, 'attempt_id': str(uuid4()),
-              'scheduled_at': scheduled_at.isoformat(), 'message_sha256': hashlib.sha256(text.encode()).hexdigest()}
+              **schedule_record, 'message_sha256': hashlib.sha256(text.encode()).hexdigest()}
     try:
         created, generation = store.reserve(key, record)
     except StoreUnavailable:
