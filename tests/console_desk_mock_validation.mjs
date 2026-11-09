@@ -15,7 +15,7 @@ import {
   isAccounts, isCredentials, isOverview, isRead, isRibbon, isSession, isSwitchStrategies, isSwitchTargets,
 } from "../web/strategy-switch-console/frontend/src/desk/api/guards.ts";
 import { MOCK_FAILURE, loadMock, resolveMockScenario } from "../web/strategy-switch-console/frontend/src/desk/api/mock.ts";
-import { DESK_PAGE_ENDPOINTS, DESK_SOURCES, DeskContractError, createDeskApi, fixtureExposure } from "../web/strategy-switch-console/frontend/src/desk/api/endpoints.ts";
+import { DESK_PAGE_ENDPOINTS, DESK_SHELL_ENDPOINTS, DESK_SOURCES, DeskContractError, createDeskApi, fixtureExposure } from "../web/strategy-switch-console/frontend/src/desk/api/endpoints.ts";
 import { HttpError } from "../web/strategy-switch-console/frontend/src/api/client.ts";
 
 // 1. Fixtures validate against the BE-0 JSON schemas (Ajv comes from the Worker package, as in desk_contract_validation).
@@ -253,11 +253,20 @@ for (const page of ["overview", "alerts", "logs", "performance"]) {
 for (const scenario of ["ok", "degraded", "fail"]) {
   assert.equal(fixtureExposure("accounts", scenario), "all", "?mock= forces every endpoint");
 }
-// When a backend lands, flipping its source must retire the chip for that page.
-const originalAccountsSource = DESK_SOURCES.accounts;
+// The shell chrome (gateway chip, alert badge) renders the global ribbon read on
+// every page, so a page only looks fully live once that read is live too.
+assert.deepEqual([...DESK_SHELL_ENDPOINTS], ["ribbon"]);
+const originalSources = { ...DESK_SOURCES };
 DESK_SOURCES.accounts = "live";
+assert.equal(fixtureExposure("accounts", null), "partial", "a fixture ribbon in the shell keeps the chip");
+DESK_SOURCES.performance = "live";
+assert.equal(fixtureExposure("performance", null), "partial", "single-endpoint page with a fixture shell");
+// When a backend lands, flipping its source must retire the chip for that page.
+DESK_SOURCES.ribbon = "live";
 assert.equal(fixtureExposure("accounts", null), "none");
-DESK_SOURCES.accounts = originalAccountsSource;
+assert.equal(fixtureExposure("performance", null), "none");
+assert.equal(fixtureExposure("overview", null), "partial", "overview fixture with a live ribbon");
+Object.assign(DESK_SOURCES, originalSources);
 
 // Each fixture-backed page names the fixtures it renders, in both dictionaries.
 const pageLabels = [

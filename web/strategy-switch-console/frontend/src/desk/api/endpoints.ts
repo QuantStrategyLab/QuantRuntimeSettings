@@ -48,13 +48,18 @@ export const DESK_PAGE_ENDPOINTS: Record<DeskPage, readonly MockEndpoint[]> = {
   logs: ["ribbon", "logs"],
 };
 
+/** Endpoints the shell renders on every page: the ribbon feeds the gateway chip
+    and the alert badge. (The session only gates access and the clock.) */
+export const DESK_SHELL_ENDPOINTS: readonly MockEndpoint[] = ["ribbon"];
+
 export type FixtureExposure = "none" | "all" | "partial";
 
-/** Whether the current page shows fixtures, and whether any of its data is live.
-    `?mock=` forces every endpoint to a fixture, so that is always "all". */
+/** Whether the current page (including the shell around it) shows fixtures, and
+    whether any of its data is live. `?mock=` forces every endpoint to a fixture,
+    so that is always "all". */
 export function fixtureExposure(page: DeskPage, forcedScenario: MockScenario | null): FixtureExposure {
   if (forcedScenario) return "all";
-  const endpoints = DESK_PAGE_ENDPOINTS[page] ?? [];
+  const endpoints = [...new Set([...(DESK_PAGE_ENDPOINTS[page] ?? []), ...DESK_SHELL_ENDPOINTS])];
   const fixtures = endpoints.filter(endpoint => DESK_SOURCES[endpoint] === "mock");
   if (!fixtures.length) return "none";
   return fixtures.length === endpoints.length ? "all" : "partial";
