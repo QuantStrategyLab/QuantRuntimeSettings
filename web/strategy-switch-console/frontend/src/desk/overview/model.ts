@@ -71,6 +71,7 @@ export function headlineCounts(book: BookRow[]): {
   steady: number;
   drifting: number;
   configUnknown: number;
+  runtimeUnknown: number;
   total: number;
 } {
   const running = book.filter(row => row.runtime.status === "known" && row.runtime.value === "running");
@@ -81,6 +82,9 @@ export function headlineCounts(book: BookRow[]): {
     steady: running.length - drifting - configUnknown,
     drifting,
     configUnknown,
+    // A stale or unreadable runtime is not a stopped one: the page must not claim that
+    // nothing is running when the state simply could not be read.
+    runtimeUnknown: book.filter(row => row.runtime.status !== "known").length,
     total: book.length,
   };
 }

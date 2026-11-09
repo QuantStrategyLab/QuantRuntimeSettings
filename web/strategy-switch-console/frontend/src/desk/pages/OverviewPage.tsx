@@ -124,7 +124,9 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
   const signals = ribbon.state === "ready" ? ribbon.data.tape.slice(0, 5) : [];
 
   const headline = counts.running === 0
-    ? t("overview.headline.none")
+    ? counts.runtimeUnknown > 0
+      ? t("overview.headline.unconfirmed", { unknown: counts.runtimeUnknown })
+      : t("overview.headline.none")
     : counts.drifting === 0 && counts.configUnknown === 0
       ? t("overview.headline.steady", { running: counts.running })
       : counts.drifting === 0

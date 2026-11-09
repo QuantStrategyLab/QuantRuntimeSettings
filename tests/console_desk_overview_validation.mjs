@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   curveGeometry, formatMoney, formatMultiple, formatSignedMoney, formatSignedPercent, headlineCounts, meter, sparkPaths,
 } from "../web/strategy-switch-console/frontend/src/desk/overview/model.ts";
+import { deskText } from "../web/strategy-switch-console/frontend/src/desk/i18n/index.ts";
 import { ok as overviewOk, degraded as overviewDegraded } from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/overview.ts";
 
 // ---------------------------------------------------------------- signed figures
@@ -28,14 +29,18 @@ assert.equal(formatSignedMoney(null, "USD", "zh"), null);
 // HK reports identity_unverified, so it is not running; its drift stays visible through
 // needs_you instead of being folded into the sentence.
 const okCounts = headlineCounts(overviewOk.book);
-assert.deepEqual(okCounts, { running: 5, steady: 5, drifting: 0, configUnknown: 0, total: 6 });
+assert.deepEqual(okCounts, { running: 5, steady: 5, drifting: 0, configUnknown: 0, runtimeUnknown: 1, total: 6 });
 // A running book whose config could not be read is not evidence that the saved plan matches:
 // it is counted as unknown, never as steady.
 const unreadableConfig = headlineCounts([{
   ...overviewOk.book[0], runtime: { status: "known", value: "running", observed_at: "2026-11-02T14:31:48Z" },
   config: { state: "unknown", drift_count: 0, checked_at: null },
 }]);
-assert.deepEqual(unreadableConfig, { running: 1, steady: 0, drifting: 0, configUnknown: 1, total: 1 });
+assert.deepEqual(unreadableConfig, { running: 1, steady: 0, drifting: 0, configUnknown: 1, runtimeUnknown: 0, total: 1 });
+// No known runtime at all: the page must say the state is unconfirmed, not that nothing runs.
+const allUnknown = headlineCounts(overviewDegraded.book.map(row => ({ ...row, runtime: { status: "unknown", reason: "read_failed" } })));
+assert.equal(allUnknown.running, 0);
+assert.equal(allUnknown.runtimeUnknown, 6, "every account is unconfirmed, not stopped");
 // A book whose runtime is unknown is not counted as running.
 const degradedCounts = headlineCounts(overviewDegraded.book);
 assert.equal(degradedCounts.total, 6);
@@ -96,5 +101,10 @@ assert.deepEqual(sparkPaths(["100", "104"], [], "2026-10-10", "2026-10-12", 120,
 // as one run by index rather than split at a guessed date.
 const misaligned = sparkPaths(["100", "101", "102"], ["2026-10-11"], "2026-10-10", "2026-10-14", 120, 32);
 assert.equal(misaligned.length, 1);
+
+// Synthetic alert copy is bilingual: fixtures carry a key, live text passes through untouched.
+assert.equal(deskText("zh", "alerts.mock.config_drift.title"), "港股 ETF 轮动：保存值 ≠ 平台值");
+assert.match(deskText("en", "alerts.mock.config_drift.title"), /HK ETF rotation/);
+assert.equal(deskText("en", "Saved value differs"), "Saved value differs", "server text is never treated as a key");
 
 console.log("console_desk_overview_validation: PASS");

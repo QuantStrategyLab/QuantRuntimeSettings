@@ -3,6 +3,7 @@ import { formatDateTime } from "../../lib/format";
 import type { Language } from "../../lib/prefs";
 import type { DeskApi, DeskResult } from "../api/endpoints.ts";
 import type { AlertDelivery, Alerts } from "../contract/types";
+import { deskText } from "../i18n/index.ts";
 import type { DeskKey, DeskTranslate } from "../i18n/index.ts";
 import { alertWhen, filterCounts, sortAlerts, type SeverityFilter } from "../alerts/model.ts";
 
@@ -96,8 +97,8 @@ export function AlertsPage({ api, t, language }: { api: DeskApi; t: DeskTranslat
                       })()}
                     </span>
                   </div>
-                  <h2 className="mrd-alert-title">{item.title}</h2>
-                  <p className="mrd-alert-detail">{item.detail}</p>
+                  <h2 className="mrd-alert-title">{deskText(language, item.title)}</h2>
+                  <p className="mrd-alert-detail">{deskText(language, item.detail)}</p>
                   {item.route ? <a className="mrd-alert-action" href={item.route}>{t("alerts.action")}</a> : null}
                 </li>
               ))}

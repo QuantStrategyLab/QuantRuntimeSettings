@@ -388,6 +388,17 @@ export const zh = {
   "needs_you.data_stale.action": "打开账户",
 
   // Alerts page (§3.17 / §3.18).
+  "alerts.mock.config_drift.title": "港股 ETF 轮动：保存值 ≠ 平台值",
+  "alerts.mock.config_drift.detail": "enabled、reserved_cash_ratio 两项不同。由每日读回发现。",
+  "alerts.mock.credential_expiring.title": "Schwab 刷新令牌 2 天 03 小时后过期",
+  "alerts.mock.credential_expiring.detail": "需要在过期前手动刷新。按手册 schwab-token-refresh 操作。",
+  "alerts.mock.drawdown_near_limit.title": "半导体趋势收益回撤接近上限",
+  "alerts.mock.drawdown_near_limit.detail": "当前 −14.1%，上限 −15.0%。没有自动操作。",
+  "alerts.mock.digest.title": "每日摘要已发送 · Telegram",
+  "alerts.mock.digest.detail": "现已投递到 1 个会话。7 个目标，11 次运行。",
+  "alerts.mock.candidate_ready.title": "有一个候选策略等待决定",
+  "alerts.mock.candidate_ready.detail": "us_equity_combo_core 已完成模拟期。",
+
   "alerts.eyebrow": "未处理与近期",
   "alerts.summary": "{open} 条提醒未处理，{critical} 条紧急。",
   "alerts.summary.none": "没有未处理的提醒。",
@@ -417,8 +428,8 @@ export const zh = {
 
   // Logs page (§3.19), fed by the ribbon tape for today's runs.
   "logs.eyebrow": "运行与日志",
-  "logs.summary": "今天 {runs} 次运行，{drift} 次偏离。",
-  "logs.summary.none": "今天还没有运行记录。",
+  "logs.summary": "本列表内已确认完成 {runs} 条，其中 {drift} 条偏离。",
+  "logs.summary.none": "本列表内还没有已完成的运行记录。",
   "logs.meta": "保留 {days} 天 · 已脱敏",
   "logs.sessions.title": "今日时段 · UTC",
   "logs.runs.title": "运行记录",
@@ -465,6 +476,7 @@ export const zh = {
   "overview.headline.steady": "{running} 条策略在运行，都与保存的计划一致",
   "overview.headline.partial": "{running} 条策略在运行，{steady} 条与保存一致，{unknown} 条配置未知",
   "overview.headline.none": "此刻没有在运行的策略",
+  "overview.headline.unconfirmed": "无法确认是否有策略在运行：{unknown} 个账户的运行状态未知",
   "overview.nav.label": "净资产 · {accounts}/{total} 个账户",
   "overview.day_change": "今日 {ratio} · {amount}",
   "overview.day.unknown": "今日变动未知",

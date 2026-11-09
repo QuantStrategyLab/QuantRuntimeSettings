@@ -381,6 +381,17 @@ export const en: Record<DeskKey, string> = {
   "needs_you.data_stale.action": "Open accounts",
 
   // Alerts page (§3.17 / §3.18).
+  "alerts.mock.config_drift.title": "HK ETF rotation: saved value no longer matches the platform",
+  "alerts.mock.config_drift.detail": "enabled and reserved_cash_ratio differ. Found by the daily read-back.",
+  "alerts.mock.credential_expiring.title": "Schwab refresh token expires in 2 days 03 hours",
+  "alerts.mock.credential_expiring.detail": "Refresh it manually before it expires; follow the schwab-token-refresh runbook.",
+  "alerts.mock.drawdown_near_limit.title": "Semiconductor trend income is near its drawdown limit",
+  "alerts.mock.drawdown_near_limit.detail": "Currently −14.1% against a −15.0% limit. Nothing was done automatically.",
+  "alerts.mock.digest.title": "Daily digest delivered · Telegram",
+  "alerts.mock.digest.detail": "Delivered to 1 conversation. 7 targets, 11 runs.",
+  "alerts.mock.candidate_ready.title": "A candidate strategy is waiting for a decision",
+  "alerts.mock.candidate_ready.detail": "us_equity_combo_core finished its paper period.",
+
   "alerts.eyebrow": "Open and recent",
   "alerts.summary": "{open} alerts open, {critical} critical.",
   "alerts.summary.none": "Nothing is open.",
@@ -410,8 +421,8 @@ export const en: Record<DeskKey, string> = {
 
   // Logs page (§3.19), fed by the ribbon tape for today's runs.
   "logs.eyebrow": "Runs and logs",
-  "logs.summary": "{runs} runs today, {drift} with drift.",
-  "logs.summary.none": "No runs today yet.",
+  "logs.summary": "{runs} runs confirmed complete in this list, {drift} with drift.",
+  "logs.summary.none": "No completed runs in this list yet.",
   "logs.meta": "Kept {days} days · redacted",
   "logs.sessions.title": "Today's sessions · UTC",
   "logs.runs.title": "Run record",
@@ -457,6 +468,7 @@ export const en: Record<DeskKey, string> = {
   "overview.headline.steady": "{running} strategies running, all matching the saved plan",
   "overview.headline.partial": "{running} strategies running, {steady} matching the saved plan, {unknown} with an unreadable config",
   "overview.headline.none": "No strategy is running right now",
+  "overview.headline.unconfirmed": "Running state unconfirmed for {unknown} accounts",
   "overview.nav.label": "Net asset value · {accounts}/{total} accounts",
   "overview.day_change": "{ratio} today · {amount}",
   "overview.day.unknown": "Today's change is unknown",
