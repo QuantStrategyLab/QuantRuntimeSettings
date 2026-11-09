@@ -15,6 +15,7 @@ import {
 } from "./guards.ts";
 import { PERF_BENCH_API } from "../performance/benchmarks.ts";
 import { loadMock, type MockEndpoint, type MockScenario } from "./mock.ts";
+import type { DeskPage } from "../router.ts";
 
 export type DeskSource = "live" | "mock";
 
@@ -34,6 +35,30 @@ export const DESK_SOURCES: Record<MockEndpoint, DeskSource> = {
   alertDelivery: "mock",
   logs: "mock",
 };
+
+/** Which endpoints each desk page actually renders. Fixture labelling follows
+    this map, not just the two global reads: a page with one live endpoint must
+    still name the fixtures it shows. Keep in sync with the pages' api.* calls. */
+export const DESK_PAGE_ENDPOINTS: Record<DeskPage, readonly MockEndpoint[]> = {
+  overview: ["overview", "ribbon"],
+  accounts: ["accounts", "credentials"],
+  switch: ["switchTargets", "switchStrategies"],
+  performance: ["performance"],
+  alerts: ["alerts", "alertDelivery"],
+  logs: ["ribbon", "logs"],
+};
+
+export type FixtureExposure = "none" | "all" | "partial";
+
+/** Whether the current page shows fixtures, and whether any of its data is live.
+    `?mock=` forces every endpoint to a fixture, so that is always "all". */
+export function fixtureExposure(page: DeskPage, forcedScenario: MockScenario | null): FixtureExposure {
+  if (forcedScenario) return "all";
+  const endpoints = DESK_PAGE_ENDPOINTS[page] ?? [];
+  const fixtures = endpoints.filter(endpoint => DESK_SOURCES[endpoint] === "mock");
+  if (!fixtures.length) return "none";
+  return fixtures.length === endpoints.length ? "all" : "partial";
+}
 
 export interface DeskResult<T> {
   data: T;

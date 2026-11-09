@@ -56,6 +56,7 @@ export const en: Record<DeskKey, string> = {
   "drawdown.breached": "Drawdown over limit",
   "drawdown.unknown": "Drawdown unknown",
   "mock.badge": "Mock data",
+  "mock.badge_partial": "Partial mock data",
 
   "shell.brand": "QuantStrategyLab",
   "shell.nav_label": "Main navigation",
@@ -80,6 +81,7 @@ export const en: Record<DeskKey, string> = {
   "theme.to_light": "Switch to light",
   "mock.scenario": "Mock data · {scenario}",
   "mock.title": "This is example data, not your accounts.",
+  "mock.title_partial": "Some data on this page is example data, not your live accounts; the rest is a real read.",
   "access.title": "Sign in required",
   "access.body": "Sign in to open the console.",
   "access.eyebrow": "Access",
@@ -360,6 +362,7 @@ export const en: Record<DeskKey, string> = {
   "strategies.back": "Back",
   "strategies.reset": "Start over",
   "strategies.mock_note": "Preview data: running targets and the catalog are synthetic.",
+  "strategies.catalog_mock_note": "Preview data: the strategy catalog is synthetic; targets come from the configuration read.",
   "strategies.target.unknown": "Target unknown",
   "strategies.reason.switch_not_connected": "Switching is not connected",
   "strategies.reason.blocked": "Catalog strategy is blocked",

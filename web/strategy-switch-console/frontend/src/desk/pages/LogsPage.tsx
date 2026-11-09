@@ -54,6 +54,8 @@ export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language:
 
   return (
     <section className="mrd-logs-page" aria-labelledby="mrd-page-title">
+      {[ribbon, logs].some(item => item.state === "ready" && item.result.source === "mock")
+        ? <p className="mrd-note mrd-page-note" title={t("mock.title")}>{t("mock.badge")}</p> : null}
       <div className="mrd-card">
         <span className="mrd-label">{t("logs.eyebrow")}</span>
         <h1 id="mrd-page-title" className="mrd-serif mrd-logs-title">{headline}</h1>

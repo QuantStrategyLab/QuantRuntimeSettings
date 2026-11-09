@@ -15,7 +15,7 @@ import {
   isAccounts, isCredentials, isOverview, isRead, isRibbon, isSession, isSwitchStrategies, isSwitchTargets,
 } from "../web/strategy-switch-console/frontend/src/desk/api/guards.ts";
 import { MOCK_FAILURE, loadMock, resolveMockScenario } from "../web/strategy-switch-console/frontend/src/desk/api/mock.ts";
-import { DESK_SOURCES, DeskContractError, createDeskApi } from "../web/strategy-switch-console/frontend/src/desk/api/endpoints.ts";
+import { DESK_PAGE_ENDPOINTS, DESK_SOURCES, DeskContractError, createDeskApi, fixtureExposure } from "../web/strategy-switch-console/frontend/src/desk/api/endpoints.ts";
 import { HttpError } from "../web/strategy-switch-console/frontend/src/api/client.ts";
 
 // 1. Fixtures validate against the BE-0 JSON schemas (Ajv comes from the Worker package, as in desk_contract_validation).
@@ -237,4 +237,43 @@ assert.equal(calls.at(-1), "/api/desk/ribbon", "a malformed date is dropped, not
 assert.equal((await allLive.overview()).source, "live");
 await assert.rejects(loadMock("overview", "fail", 0), HttpError);
 
-console.log("console_desk_mock_validation: PASS (session/ribbon/overview/accounts/credentials/switch fixtures vs schemas/desk, guards, totals, gaps, mock switch; synthetic only)");
+// 7. A page's fixture chip follows every endpoint it renders, not just the two
+//    global reads. A page mixing live reads and fixtures must never look real.
+assert.deepEqual(Object.keys(DESK_PAGE_ENDPOINTS).sort(),
+  ["accounts", "alerts", "logs", "overview", "performance", "switch"]);
+for (const [page, endpoints] of Object.entries(DESK_PAGE_ENDPOINTS)) {
+  assert.ok(endpoints.length > 0, `${page} declares its data sources`);
+  for (const endpoint of endpoints) assert.ok(endpoint in DESK_SOURCES, `${page}: ${endpoint} is a real endpoint`);
+}
+assert.equal(fixtureExposure("accounts", null), "partial", "accounts fixture + live credentials");
+assert.equal(fixtureExposure("switch", null), "partial", "live targets + fixture catalog");
+for (const page of ["overview", "alerts", "logs", "performance"]) {
+  assert.equal(fixtureExposure(page, null), "all", `${page} is still fixture-backed`);
+}
+for (const scenario of ["ok", "degraded", "fail"]) {
+  assert.equal(fixtureExposure("accounts", scenario), "all", "?mock= forces every endpoint");
+}
+// When a backend lands, flipping its source must retire the chip for that page.
+const originalAccountsSource = DESK_SOURCES.accounts;
+DESK_SOURCES.accounts = "live";
+assert.equal(fixtureExposure("accounts", null), "none");
+DESK_SOURCES.accounts = originalAccountsSource;
+
+// Each fixture-backed page names the fixtures it renders, in both dictionaries.
+const pageLabels = [
+  ["LogsPage.tsx", /mock\.badge/],
+  ["AlertsPage.tsx", /delivery\.state === "ready"[\s\S]*mock\.badge/],
+  ["StrategiesPage.tsx", /catalogMock[\s\S]*catalog_mock_note/],
+];
+for (const [file, pattern] of pageLabels) {
+  const source = readFileSync(new URL(`../web/strategy-switch-console/frontend/src/desk/pages/${file}`, import.meta.url), "utf8");
+  assert.match(source, pattern, `${file} keeps an explicit fixture label`);
+}
+for (const file of ["zh-CN.ts", "en.ts"]) {
+  const messages = readFileSync(new URL(`../web/strategy-switch-console/frontend/src/desk/i18n/${file}`, import.meta.url), "utf8");
+  for (const key of ["mock.badge_partial", "mock.title_partial", "strategies.catalog_mock_note"]) {
+    assert.ok(messages.includes(`"${key}"`), `${file} has ${key}`);
+  }
+}
+
+console.log("console_desk_mock_validation: PASS (session/ribbon/overview/accounts/credentials/switch fixtures vs schemas/desk, guards, totals, gaps, mock switch, per-page fixture exposure; synthetic only)");
