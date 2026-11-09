@@ -32,6 +32,15 @@ export function resolveDeskLanguage(stored: string | null, browserLanguages: rea
   return "zh";
 }
 
+/**
+ * Live payloads carry display text, so it is shown verbatim. Synthetic fixtures carry a copy
+ * key instead, which is translated here; that keeps the mock pages bilingual without letting a
+ * real server string be mistaken for a key.
+ */
+export function deskText(language: Language, value: string): string {
+  return Object.prototype.hasOwnProperty.call(DESK_MESSAGES[language], value) ? DESK_MESSAGES[language][value as DeskKey] : value;
+}
+
 const READ_REASONS = new Set(["never_read", "read_failed", "source_unavailable", "identity_unverified", "not_supported", "insufficient_history"]);
 
 /** Reason codes from newer backends fall back to a generic label instead of a raw code. */

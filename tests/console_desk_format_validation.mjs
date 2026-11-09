@@ -87,7 +87,11 @@ assert.equal(deskTranslate("en", "freshness.ready", { age: "6 min" }), "All feed
 const { zh, en } = DESK_MESSAGES;
 assert.deepEqual(Object.keys(en).sort(), Object.keys(zh).sort());
 const placeholders = text => [...text.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort();
-const LANGUAGE_NEUTRAL = new Set(["read.unknown_mark", "clock.utc", "shell.brand"]);
+// Log levels are protocol tokens and stay verbatim in both languages.
+const LANGUAGE_NEUTRAL = new Set([
+  "read.unknown_mark", "clock.utc", "shell.brand",
+  "logs.level.error", "logs.level.warn", "logs.level.info", "logs.level.debug",
+]);
 for (const key of Object.keys(zh)) {
   assert.deepEqual(placeholders(en[key]), placeholders(zh[key]), `placeholders ${key}`);
   assert.doesNotMatch(en[key], /[㐀-鿿]/, `en ${key}`);

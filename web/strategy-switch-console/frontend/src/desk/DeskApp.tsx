@@ -14,6 +14,8 @@ import type { GatewayChip, ShellLock } from "./shell/TopBar";
 import { freshnessFromAge } from "./components/stateModel.ts";
 import type { FreshnessChipState } from "./components/stateModel.ts";
 import { PageStub } from "./pages/PageStub";
+import { AlertsPage } from "./pages/AlertsPage";
+import { LogsPage } from "./pages/LogsPage";
 import { PerformancePage } from "./pages/PerformancePage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { AccountsPage } from "./pages/AccountsPage";
@@ -172,6 +174,8 @@ export default function DeskApp() {
   const pageContent = page === "performance" ? <PerformancePage api={api} t={t} language={language} />
     : page === "overview" ? <OverviewPage api={api} t={t} language={language} />
     : page === "accounts" ? <AccountsPage api={api} t={t} language={language} initialTab={params.get("tab") === "credentials" ? "credentials" : "brokers"} />
+    : page === "alerts" ? <AlertsPage api={api} t={t} language={language} />
+    : page === "logs" ? <LogsPage api={api} t={t} language={language} />
     : page === "switch" ? (
       <StrategiesPage
         api={api}

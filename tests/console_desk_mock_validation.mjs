@@ -189,6 +189,7 @@ assert.equal(resolveMockScenario("?mock=<script>", null), null);
 assert.deepEqual(DESK_SOURCES, {
   session: "live", ribbon: "mock", overview: "mock", accounts: "mock", credentials: "mock",
   switchTargets: "mock", switchStrategies: "mock", performance: "mock",
+  alerts: "mock", alertDelivery: "mock", logs: "mock",
 });
 const calls = [];
 const fetchJson = async path => { calls.push(path); return structuredClone(session.ok); };
