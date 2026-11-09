@@ -30,7 +30,7 @@ function versions(result){
   if(new Set(items.map(x=>x.id)).size!==items.length)fail('version_list_invalid');
   return items.map(x=>x.id);
 }
-function resources(value,id){
+export function resources(value,id){
   if(value?.id!==id)fail('baseline_invalid');
   const x=value.resources,r=x?.script_runtime,s=x?.script;
   if(!object(x)||!object(r)||!object(s)||!Array.isArray(x.bindings)||!x.bindings.length||x.bindings.length>128
@@ -58,7 +58,7 @@ function resources(value,id){
     ||!x.bindings.some(b=>b.name==='STRATEGY_SWITCH_RUNTIME_INSTANCES'&&b.type==='durable_object_namespace'))fail('baseline_invalid');
   return x;
 }
-function config(x){
+export function config(x){
   const runtime=structuredClone(x.script_runtime);delete runtime.migration_tag;
   return canonical({bindings:[...x.bindings].sort((a,b)=>a.name.localeCompare(b.name)),runtime,
     handlers:x.script.handlers,named_handlers:x.script.named_handlers===undefined?null:[...x.script.named_handlers].sort((a,b)=>a.name.localeCompare(b.name)),
