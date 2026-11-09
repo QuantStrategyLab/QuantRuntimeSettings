@@ -296,7 +296,8 @@ for (const delta of [{FAKE_CONTROL_HEAD:"b".repeat(40)}, {FAKE_OBJECT_EXIT:"1"},
 }
 assert.equal(sourceCase({...mergedEnv,FAKE_SELECTED_HEAD:"b".repeat(40)}, false).selected, true);
 
-// The current reviewed main is the merged decision-inbox source. The previous pin stays valid.
+// The current reviewed main is the merged desk-pages source. The previous pins stay valid.
+const deskSource = "dd63b3c8b73b588ce411316d904efd26f2c4f382";
 const inboxSource = "084ba4281cfff3304cf226ce511a2fc0a6b67b08";
 const inboxParent = "395ddd561a16d38ae0d145e5a7e9bb7b60c44ae6";
 const inboxTree = "23f94567c2e8b631e8ef035bfea497acef795123";
@@ -758,7 +759,7 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
 async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false, baselineItems=undefined, preUploadVersion=null, preDeployWitness=null, uploadId=null, ambiguousActive=false, expectFailure=null, testHandlers=null, deployed=false } = {}, expected=true) {
  const calls=[], stdout=[], stderr=[], prior=settings?"7ffe9227-686a-48ad-baa9-72665969d918":daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
  active ??= prior; latest ??= active;
- const separateWitness = reviewedMain && reviewedMainSource === inboxSource && !flow;
+ const separateWitness = reviewedMain && (reviewedMainSource === deskSource || reviewedMainSource === inboxSource) && !flow;
  const responses=responseSequence(false,active);
  if (ambiguousActive) responses[0].result.deployments[0].versions.push({version_id:"00000000-0000-4000-8000-000000000024",percentage:0});
  responses.splice(3,0,wrap({items:baselineItems===undefined?[{id:latest}]:baselineItems}));
@@ -833,6 +834,7 @@ const orphanWitness="00000000-0000-4000-8000-000000000021";
 const driftedWitness="00000000-0000-4000-8000-000000000022";
 const driftedActive="00000000-0000-4000-8000-000000000023";
 const stopped={retry:false,deploy_attempted:false};
+await integratedReleaseCase({reviewedMain:true,reviewedMainSource:deskSource});
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource});
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness});
 const baselineStop={...stopped,stage:"inherit_baseline",checkpoint:"inherit_baseline_mismatch",upload_attempted:false,outcome:"NOT_ATTEMPTED"};

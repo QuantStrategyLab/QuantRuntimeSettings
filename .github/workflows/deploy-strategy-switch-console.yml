@@ -1896,7 +1896,12 @@ jobs:
             form.set('worker.js', new File([bundle], 'worker.js', { type: 'application/javascript+module' }));
             const betaBody = betaRelease ? JSON.stringify({ ...metadata, modules: [{name:'worker.js', content_type:'application/javascript+module', content_base64:bundle.toString('base64')}] }) : null;
             let previousLatest = prior;
-            const separateWitness = currentReviewedMain && resume === 'off' && !flowMode;
+            // The reviewed main releases record the newest upload as a concurrency
+            // witness; keep that behaviour for the previous reviewed main too, so a
+            // pinned release does not silently change how it inherits configuration.
+            const witnessReviewedMain = currentReviewedMain
+              || process.env.RELEASE_SOURCE_SHA === '084ba4281cfff3304cf226ce511a2fc0a6b67b08';
+            const separateWitness = witnessReviewedMain && resume === 'off' && !flowMode;
             if (pr764 || betaRelease) {
               // The legacy path inherits latest. IBKR and other beta releases
               // inherit the active version and require that version to be the
