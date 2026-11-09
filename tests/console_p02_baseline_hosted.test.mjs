@@ -9,6 +9,7 @@ test('requires protected proof bound to exact identity, object, control and shor
  for(const delta of [{bucket:'wrong-bucket'},{object:'other'},{wif_provider:'other'},{service_account:'other'},{control_sha:'b'.repeat(40)},{policy_readback_reviewed:false},{create_permitted:false},{get_permitted:false},{target_absent:false},{expires_at:'2026-11-08T23:59:59Z'},{expires_at:'2026-11-11T00:00:00Z'},{owner_project:''}])
    assert.throws(()=>verifyCapability({...env,QRS_P02_STORAGE_CAPABILITY_RECEIPT:JSON.stringify({...receipt,...delta})},now));
  assert.throws(()=>verifyCapability({...env,QRS_P02_STORAGE_CAPABILITY_RECEIPT:''},now));
+ assert.throws(()=>verifyCapability({...env,QRS_P02_STORAGE_CAPABILITY_RECEIPT:JSON.stringify({...receipt,object:KEY.replace('-r2/','-r1/')})},now));
 });
 test('storage addresses exact object, creates once conditionally, reads exact generation',async()=>{
  const calls=[];
