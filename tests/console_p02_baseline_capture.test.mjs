@@ -13,7 +13,7 @@ function fixture(options={}){
  const store={async reserve(){calls.push('reserve');if(options.reserveFail)throw Error('private');},async create(b){calls.push('create');saved=b;if(options.createFail)throw Error('private');return '123';},async read(g){calls.push('read');assert.equal(g,'123');return saved;}};
  return {api,store,calls,get record(){return JSON.parse(saved)}};
 }
-async function run(opt={}){const f=fixture(opt);return {f,result:await capture({api:f.api,store:f.store,candidate,reference,alternate:opt.alternate,alternateReference:opt.alternateReference,controlSha:"a".repeat(40),now:()=>new Date("2026-11-09T00:00:00.000Z")})};}
+async function run(opt={}){const f=fixture(opt);return {f,result:await capture({api:f.api,store:f.store,candidate,reference,alternate:opt.alternate,alternateReference:opt.alternateReference,expectedActive:opt.expectedActive,controlSha:"a".repeat(40),now:()=>new Date("2026-11-09T00:00:00.000Z")})};}
 test('match writes one record after four fixed reads and verifies exact readback',async()=>{const {f,result}=await run();assert.equal(result.ok,true);assert.deepEqual(f.calls,['reserve','deployment','module','config','deployment','create','read']);assert.equal(f.record.asset_declarations,undefined);assert.equal(f.record.control_sha,'a'.repeat(40));assert.equal(f.record.captured_at,'2026-11-09T00:00:00.000Z');assert.equal(JSON.stringify(f.record).includes('private'),false);});
 test('mismatch retains only statically literal declarations',async()=>{const active=Buffer.from(candidate.toString().replace('"html"','"other"'));const {f,result}=await run({active});assert.equal(result.ok,true);assert.equal(result.asset_declarations_equal,false);assert.match(f.record.asset_declarations.V2_PAGE_HTML,/other/);assert.match(f.record.rebuilt_module_sha256,/^[a-f0-9]{64}$/);assert.equal(f.record.release_state,'hold_review_required');});
 test('unsupported declaration, drift, and storage failures stop without retries',async()=>{
@@ -22,6 +22,20 @@ test('unsupported declaration, drift, and storage failures stop without retries'
  }
 });
 test('bad candidate causes no storage or Worker reads',async()=>{const f=fixture();const r=await capture({api:f.api,store:f.store,candidate:Buffer.from('bad'),reference,controlSha:'a'.repeat(40)});assert.equal(r.ok,false);assert.deepEqual(f.calls,[]);});
+test('rebind records only the pinned module with equal asset declarations',async()=>{
+ const active=Buffer.concat([candidate,Buffer.from('\nexport {};')]);
+ const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+ const matched=await run({active,expectedActive:hash(active)});
+ assert.equal(matched.result.ok,true);assert.equal(matched.f.record.release_state,'hold');
+ assert.equal(matched.f.record.active_module_sha256,hash(active));assert.equal(matched.f.record.asset_declarations,undefined);
+ assert.deepEqual(matched.f.calls,['reserve','deployment','module','config','deployment','create','read']);
+ const drift=await run({active,expectedActive:reference});
+ assert.equal(drift.result.stage,'module');assert.deepEqual(drift.f.calls,['reserve','deployment','module']);
+ const different=Buffer.from(candidate.toString().replace('"html"','"other"'));
+ const mismatch=await run({active:different,expectedActive:hash(different)});
+ assert.equal(mismatch.result.stage,'assets');
+ assert.deepEqual(mismatch.f.calls,['reserve','deployment','module','config','deployment']);
+});
 test('mismatch removes comments and rejects ambiguous or modified literal declarations',async()=>{
  const annotated=Buffer.from(candidate.toString().replace('"html"','/* private-marker */ "other"'));
  const good=await run({active:annotated});assert.equal(good.result.ok,true);assert.doesNotMatch(JSON.stringify(good.f.record),/private-marker/);

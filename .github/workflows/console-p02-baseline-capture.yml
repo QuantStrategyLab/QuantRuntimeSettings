@@ -46,15 +46,6 @@ jobs:
           node --test tests/console_p02_baseline_capture.test.mjs tests/console_p02_baseline_hosted.test.mjs
           npx --yes wrangler@4.106.0 --version
           bash scripts/console_p02_candidate_build.sh "$RUNNER_TEMP/qrs-p02-baseline-candidate"
-      - name: Prepare optional pinned historical module
-        run: |
-          set -euo pipefail
-          if bash scripts/console_946_reviewed_main_build.sh > "$RUNNER_TEMP/qrs-p02-historical-build.log" 2>&1; then
-            echo 'historical_build_verified'
-          else
-            rm -f "$RUNNER_TEMP/qrs-reviewed-main/worker.js"
-            echo 'historical_build_unavailable'
-          fi
       - name: Verify protected exact-object capability
         env:
           QRS_P02_STORAGE_CAPABILITY_RECEIPT: ${{ secrets.QRS_P02_STORAGE_CAPABILITY_RECEIPT }}
@@ -76,4 +67,4 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]]
-          node scripts/console_p02_baseline_hosted.mjs capture "$RUNNER_TEMP/qrs-p02-baseline-candidate/worker.js" "$RUNNER_TEMP/qrs-reviewed-main/worker.js"
+          node scripts/console_p02_baseline_hosted.mjs capture "$RUNNER_TEMP/qrs-p02-baseline-candidate/worker.js"

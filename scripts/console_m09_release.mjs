@@ -2,7 +2,8 @@
 // deployment and verified rollback version have all been pinned in this file.
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {readFile} from 'node:fs/promises';
+import {readFile,open} from 'node:fs/promises';
+import {resolve,relative,isAbsolute} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createFixedApi} from './console_946_backend_release.mjs';
 import {execute} from './console_full_bundle_release.mjs';
@@ -160,11 +161,13 @@ export async function preflight(api,rollbackTargets={fixed:[],fixedSuccessor:nul
     hold:true};
 }
 async function main() {
-  const [action,path,...extra]=process.argv.slice(2);
+  const [action,path,receiptPath,successorPath,...extra]=process.argv.slice(2);
   const sourceOnly=['build-source','asset-candidate-source','preflight'];
   const readOnly=['asset-candidate-source','asset-compare','preflight'].includes(action);
-  if (extra.length || ![...sourceOnly,'verify-inputs','asset-compare','release'].includes(action) ||
-      (sourceOnly.includes(action) ? path!==undefined : !path)) throw Error('arguments');
+  const split=['upload-only','activate-only'].includes(action);
+  if (extra.length || ![...sourceOnly,'verify-inputs','asset-compare','release','upload-only','activate-only'].includes(action) ||
+      (sourceOnly.includes(action) ? path!==undefined : !path) || (split ? !receiptPath : receiptPath!==undefined) ||
+      (action==='activate-only' ? !successorPath : successorPath!==undefined)) throw Error('arguments');
   if (readOnly ? !sourcePinned(POLICY) : !pinned(POLICY)) throw Error('hold');
   const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
   git('merge-base','--is-ancestor',POLICY.source,'HEAD');
@@ -186,6 +189,60 @@ async function main() {
   const candidate=await readFile(path);
   if (hash(candidate)!==POLICY.candidate) throw Error('provenance');
   if (action==='verify-inputs') return;
+  if (split) {
+    const root=git('rev-parse','--show-toplevel'), file=resolve(receiptPath);
+    const privatePath=path=>{
+      if(!isAbsolute(path))throw Error('receipt_location');
+      const resolved=resolve(path),rel=relative(root,resolved);
+      if(!rel||(!rel.startsWith('../')&&!isAbsolute(rel)))throw Error('receipt_location');
+      return resolved;
+    };
+    privatePath(receiptPath);
+    const {uploadOnly,activateOnly}=await import('./console_m09_split_release.mjs');
+    let result;
+    if (action==='upload-only') {
+      // Reserve a private destination before any provider write. An empty file
+      // after failure is an explicit recovery signal, never a valid receipt.
+      const handle=await open(file,'wx',0o600);
+      try {
+        const outcome=await uploadOnly({api:createFixedApi(),policy:POLICY,evidence,candidate});
+        result=outcome.result;
+        if(outcome.receipt) {
+          try { await handle.writeFile(JSON.stringify(outcome.receipt)); await handle.sync(); }
+          catch { result={ok:false,reason:'receipt_write_failed',upload_attempted:true,deploy_attempted:false,outcome:'UPLOAD_REQUIRES_READBACK',retry:false}; }
+        }
+      } finally {
+        try { await handle.close(); } catch {
+          result={ok:false,reason:'receipt_close_failed',upload_attempted:result?.upload_attempted===true,deploy_attempted:false,
+            outcome:result?.upload_attempted?'UPLOAD_REQUIRES_READBACK':'NOT_ATTEMPTED',retry:false};
+        }
+      }
+    } else {
+      const handle=await open(file,'r');
+      let receipt;
+      try {
+        const stat=await handle.stat();
+        if(!stat.isFile()||(stat.mode&0o077)!==0||stat.uid!==process.getuid()||stat.size>4096) throw Error('receipt_permissions');
+        receipt=JSON.parse(await handle.readFile('utf8'));
+      } finally { await handle.close(); }
+      const successor=privatePath(successorPath);
+      const output=await open(successor,'wx',0o600);
+      try {
+        const outcome=await activateOnly({api:createFixedApi(),policy:POLICY,evidence,candidate,receipt});
+        result=outcome.result;
+        if(outcome.receipt) {
+          try { await output.writeFile(JSON.stringify(outcome.receipt)); await output.sync(); }
+          catch { result={ok:false,reason:'receipt_write_failed',upload_attempted:false,deploy_attempted:true,outcome:'ACTIVATION_REQUIRES_READBACK',retry:false}; }
+        }
+      } finally {
+        try { await output.close(); } catch {
+          result={ok:false,reason:'receipt_close_failed',upload_attempted:false,deploy_attempted:result?.deploy_attempted===true,
+            outcome:result?.deploy_attempted?'ACTIVATION_REQUIRES_READBACK':'NOT_ATTEMPTED',retry:false};
+        }
+      }
+    }
+    console.log(JSON.stringify(result));if(!result.ok)process.exitCode=1;return;
+  }
   const result=action==='asset-compare' ? await inspectActiveAssets(createPreflightApi(),candidate)
     : await release({api:createFixedApi(),policy:POLICY,evidence,candidate,release:true});
   console.log(JSON.stringify(result));

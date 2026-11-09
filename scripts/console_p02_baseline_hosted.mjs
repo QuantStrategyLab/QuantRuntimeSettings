@@ -1,11 +1,11 @@
 // Hosted P02 capture: fixed object and routes; provider responses are never logged.
 import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
-import {capture,REFERENCE} from './console_p02_baseline_capture.mjs';
+import {capture,REFERENCE,R2_ACTIVE_MODULE} from './console_p02_baseline_capture.mjs';
 import {createFixedApi} from './console_946_backend_release.mjs';
 import {createHash} from 'node:crypto';
 
-export const KEY='evidence/qrs-worker-p02/p02-20261109-r1/baseline.json';
+export const KEY='evidence/qrs-worker-p02/p02-20261109-r2/baseline.json';
 export function verifyCapability(env,now=Date.now()){
   const uri=/^gs:\/\/([a-z0-9][a-z0-9._-]{1,220}[a-z0-9])(?:\/[^?#]*)?$/.exec(env.DIGEST_CANDIDATES_GCS_URI??'');
   const provider=env.DIGEST_CANDIDATES_READER_WIF_PROVIDER||env.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER;
@@ -51,13 +51,12 @@ export function readOnlyWorkerApi(api){
 async function main(){
   const action=process.argv[2];
   if(action==='verify-capability'){verifyCapability(process.env);console.log('{"ok":true,"capability_verified":true}');return;}
-  if(action!=='capture'||process.argv.length!==5)throw Error('input');
+  if(action!=='capture'||process.argv.length!==4)throw Error('input');
   const candidate=await readFile(process.argv[3]);
   if(createHash('sha256').update(candidate).digest('hex')!==REFERENCE)throw Error('candidate');
-  let alternate;try{alternate=await readFile(process.argv[4]);}catch{}
   const {bucket}=verifyCapability(process.env);
   const store=storage({bucket,token:process.env.GOOGLE_ACCESS_TOKEN});
-  const result=await capture({api:readOnlyWorkerApi(createFixedApi()),store,candidate,alternate,controlSha:process.env.GITHUB_SHA});
+  const result=await capture({api:readOnlyWorkerApi(createFixedApi()),store,candidate,expectedActive:R2_ACTIVE_MODULE,controlSha:process.env.GITHUB_SHA});
   console.log(JSON.stringify(result));if(!result.ok)process.exitCode=1;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
