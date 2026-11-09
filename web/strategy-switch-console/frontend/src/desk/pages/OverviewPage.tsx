@@ -10,7 +10,7 @@ import { useNarrow } from "../components/useNarrow.ts";
 import { P } from "../components/deskStyles.ts";
 import { tapeStateKey } from "../logs/model.ts";
 import {
-  curveGeometry, formatMoney, formatMultiple, formatSignedMoney, formatSignedPercent, headlineCounts, meter, sparkPath, sparkSegments,
+  curveGeometry, formatMoney, formatMultiple, formatSignedMoney, formatSignedPercent, headlineCounts, meter, sparkPaths,
 } from "../overview/model.ts";
 import type { Tone } from "../overview/model.ts";
 
@@ -50,10 +50,9 @@ function BookCard({ row, t, language }: { row: BookRow; t: DeskTranslate; langua
   const drawdown = formatSignedPercent(row.drawdown.ratio);
   const limit = formatSignedPercent(row.drawdown.limit_ratio, 0);
   const cells = meter(row.drawdown.ratio, row.drawdown.limit_ratio, METER_CELLS);
-  const segments = sparkSegments(
-    row.sparkline_30d.points, row.sparkline_30d.gap_dates, row.sparkline_30d.dates_from, row.sparkline_30d.dates_to,
+  const paths = sparkPaths(
+    row.sparkline_30d.points, row.sparkline_30d.gap_dates, row.sparkline_30d.dates_from, row.sparkline_30d.dates_to, 120, 32,
   );
-  const paths = segments.map(segment => sparkPath(segment, 120, 32)).filter(path => path !== "");
   const strategy = row.strategy.status === "known" ? row.strategy.value.label : null;
   const run = row.last_run
     ? t("overview.book.last_run", { time: row.last_run.at.slice(11, 16), state: t(tapeStateKey({ state: "done", outcome: row.last_run.outcome }) as DeskKey) })
@@ -126,9 +125,11 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
 
   const headline = counts.running === 0
     ? t("overview.headline.none")
-    : counts.drifting === 0
+    : counts.drifting === 0 && counts.configUnknown === 0
       ? t("overview.headline.steady", { running: counts.running })
-      : t("overview.headline", { running: counts.running, steady: counts.steady, drifting: counts.drifting });
+      : counts.drifting === 0
+        ? t("overview.headline.partial", { running: counts.running, steady: counts.steady, unknown: counts.configUnknown })
+        : t("overview.headline", { running: counts.running, steady: counts.steady, drifting: counts.drifting });
 
   return (
     <section className="mrd-ov-page" aria-labelledby="mrd-page-title" data-page="overview">

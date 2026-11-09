@@ -61,14 +61,28 @@ export function formatSignedMoney(amount: Decimal | null, currency: string, lang
 }
 
 /**
- * "Six running, five steady, one drifting" — the three numbers share one denominator (the
- * running books) so the sentence adds up. A book whose runtime is unknown is not counted as
- * running; drift on a book that is not running still surfaces through `needs_you`.
+ * "Six running, five steady, one drifting" — the counts share one denominator (the running
+ * books) so the sentence adds up. A book whose runtime is unknown is not counted as running,
+ * and a running book whose config could not be read is counted as unknown rather than steady:
+ * arithmetic equality is not evidence that the saved plan still matches.
  */
-export function headlineCounts(book: BookRow[]): { running: number; steady: number; drifting: number; total: number } {
+export function headlineCounts(book: BookRow[]): {
+  running: number;
+  steady: number;
+  drifting: number;
+  configUnknown: number;
+  total: number;
+} {
   const running = book.filter(row => row.runtime.status === "known" && row.runtime.value === "running");
   const drifting = running.filter(row => row.config.state === "drift").length;
-  return { running: running.length, steady: running.length - drifting, drifting, total: book.length };
+  const configUnknown = running.filter(row => row.config.state === "unknown").length;
+  return {
+    running: running.length,
+    steady: running.length - drifting - configUnknown,
+    drifting,
+    configUnknown,
+    total: book.length,
+  };
 }
 
 /**
@@ -157,51 +171,65 @@ export function curveGeometry(
   return { portfolioPath, benchmarkPath: benchmark.length >= 2 ? line(benchmark) : null, areaPath, drawdownPath, min, max, drawdownMin };
 }
 
-/** Sparkline path for one book; an empty or single-point series draws nothing. */
-export function sparkPath(points: Decimal[], width: number, height: number, pad = 1): string {
+/**
+ * Sparkline paths for one book. Every point keeps its calendar position, so the runs on either
+ * side of a missing day neither overlap nor stretch to fill the width, and all of them share one
+ * vertical scale. A run needs two points to be drawn: a lone observation is not a trend, so it
+ * produces no path and the page says the history is too short.
+ */
+export function sparkPaths(
+  points: Decimal[],
+  gapDates: string[],
+  datesFrom: string | null,
+  datesTo: string | null,
+  width: number,
+  height: number,
+  pad = 1,
+): string[] {
   const values = points.map(value => toNumber(value)).filter((value): value is number => value !== null);
-  if (values.length < 2) return "";
+  if (values.length < 2) return [];
+
+  const dayMs = 86400000;
+  const start = datesFrom ? Date.parse(`${datesFrom}T00:00:00Z`) : NaN;
+  const end = datesTo ? Date.parse(`${datesTo}T00:00:00Z`) : NaN;
+  const totalDays = Number.isFinite(start) && Number.isFinite(end) && end >= start
+    ? Math.round((end - start) / dayMs) + 1
+    : 0;
+
+  // A point can be placed on its own date only when the series covers every observed day of the
+  // window. Otherwise the dates and the values do not line up, so index spacing is used and the
+  // series is drawn as one run instead of being split at a guessed date.
+  const gaps = new Set(gapDates);
+  const slots: number[] = [];
+  if (totalDays > 0) {
+    for (let day = 0; day < totalDays; day += 1) {
+      const date = new Date(start + day * dayMs).toISOString().slice(0, 10);
+      if (!gaps.has(date)) slots.push(day);
+    }
+  }
+  const aligned = slots.length === values.length;
+  const positions = aligned ? slots : values.map((_, index) => index);
+  const span = aligned ? Math.max(1, totalDays - 1) : Math.max(1, values.length - 1);
+
   const { min, max } = extent(values);
-  const span = max - min || 1;
+  const range = max - min || 1;
   const innerW = Math.max(1, width - pad * 2);
   const innerH = Math.max(1, height - pad * 2);
-  return values
-    .map((value, index) => {
-      const x = pad + (index / (values.length - 1)) * innerW;
-      const y = pad + innerH - ((value - min) / span) * innerH;
-      return `${index === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
-}
+  const xOf = (position: number): number => pad + (position / span) * innerW;
+  const yOf = (value: number): number => pad + innerH - ((value - min) / range) * innerH;
 
-/**
- * A book's own 30-day path carries gap dates. A gap means the day was not observed, so the
- * line is broken there rather than drawn straight across the missing days.
- */
-export function sparkSegments(points: Decimal[], gapDates: string[], datesFrom: string | null, datesTo: string | null): Decimal[][] {
-  if (!datesFrom || !datesTo || gapDates.length === 0) return [points];
-  const start = Date.parse(`${datesFrom}T00:00:00Z`);
-  const end = Date.parse(`${datesTo}T00:00:00Z`);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || points.length === 0) return [points];
-  const dayMs = 86400000;
-  const totalDays = Math.round((end - start) / dayMs) + 1;
-  const observedDays = points.length;
-  if (observedDays >= totalDays) return [points];
-  // The series lists only observed days, oldest first; walk the calendar and cut at each gap.
-  const gaps = new Set(gapDates);
-  const segments: Decimal[][] = [];
-  let cursor = 0;
-  for (let day = 0; day < totalDays && cursor < points.length; day += 1) {
-    const date = new Date(start + day * dayMs).toISOString().slice(0, 10);
-    if (gaps.has(date)) {
-      segments.push([]);
-      continue;
-    }
-    const tail = segments.length === 0 ? null : segments[segments.length - 1];
-    if (tail) tail.push(points[cursor]);
-    else segments.push([points[cursor]]);
-    cursor += 1;
-  }
-  const filled = segments.filter(segment => segment.length > 1);
-  return filled.length > 0 ? filled : [points];
+  const paths: string[] = [];
+  let run: string[] = [];
+  let previous: number | null = null;
+  const flush = (): void => {
+    if (run.length >= 2) paths.push(run.join(" "));
+    run = [];
+  };
+  positions.forEach((position, index) => {
+    if (previous !== null && position - previous > 1) flush();
+    run.push(`${run.length === 0 ? "M" : "L"}${xOf(position).toFixed(2)} ${yOf(values[index]).toFixed(2)}`);
+    previous = position;
+  });
+  flush();
+  return paths;
 }

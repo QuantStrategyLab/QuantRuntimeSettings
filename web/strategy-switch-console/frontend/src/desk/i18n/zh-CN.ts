@@ -433,6 +433,8 @@ export const zh = {
   "logs.level.debug": "debug",
   "logs.empty": "这段时间没有日志。",
   "logs.loading": "正在读取日志…",
+  "logs.ribbon_failed": "运行记录读取失败",
+  "logs.ribbon_failed_detail": "读不到今天的运行记录，所以时段和运行列表暂时不显示；日志尾巴仍可查看。",
   "logs.truncated": "只保留了近期日志，更早的记录已截断。",
 
   // Market sessions and the ribbon tape, shared by the logs page and the overview.
@@ -461,6 +463,7 @@ export const zh = {
   // Overview: the sentence, the figures and the curve.
   "overview.headline": "{running} 条策略在运行，{steady} 条稳定，{drifting} 条偏离已保存的计划",
   "overview.headline.steady": "{running} 条策略在运行，都与保存的计划一致",
+  "overview.headline.partial": "{running} 条策略在运行，{steady} 条与保存一致，{unknown} 条配置未知",
   "overview.headline.none": "此刻没有在运行的策略",
   "overview.nav.label": "净资产 · {accounts}/{total} 个账户",
   "overview.day_change": "今日 {ratio} · {amount}",

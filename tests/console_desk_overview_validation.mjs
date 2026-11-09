@@ -2,7 +2,7 @@
 // plotting geometry. Pure modules only; every unknown stays unknown instead of becoming 0.
 import assert from "node:assert/strict";
 import {
-  curveGeometry, formatMoney, formatMultiple, formatSignedMoney, formatSignedPercent, headlineCounts, meter, sparkPath, sparkSegments,
+  curveGeometry, formatMoney, formatMultiple, formatSignedMoney, formatSignedPercent, headlineCounts, meter, sparkPaths,
 } from "../web/strategy-switch-console/frontend/src/desk/overview/model.ts";
 import { ok as overviewOk, degraded as overviewDegraded } from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/overview.ts";
 
@@ -28,13 +28,19 @@ assert.equal(formatSignedMoney(null, "USD", "zh"), null);
 // HK reports identity_unverified, so it is not running; its drift stays visible through
 // needs_you instead of being folded into the sentence.
 const okCounts = headlineCounts(overviewOk.book);
-assert.deepEqual(okCounts, { running: 5, steady: 5, drifting: 0, total: 6 });
-assert.equal(okCounts.running + okCounts.drifting, okCounts.running, "drift is counted inside running");
-// A book whose runtime is unknown is not counted as running, and drift is never invented.
+assert.deepEqual(okCounts, { running: 5, steady: 5, drifting: 0, configUnknown: 0, total: 6 });
+// A running book whose config could not be read is not evidence that the saved plan matches:
+// it is counted as unknown, never as steady.
+const unreadableConfig = headlineCounts([{
+  ...overviewOk.book[0], runtime: { status: "known", value: "running", observed_at: "2026-11-02T14:31:48Z" },
+  config: { state: "unknown", drift_count: 0, checked_at: null },
+}]);
+assert.deepEqual(unreadableConfig, { running: 1, steady: 0, drifting: 0, configUnknown: 1, total: 1 });
+// A book whose runtime is unknown is not counted as running.
 const degradedCounts = headlineCounts(overviewDegraded.book);
 assert.equal(degradedCounts.total, 6);
 assert.equal(degradedCounts.drifting, 0);
-assert.equal(degradedCounts.steady, degradedCounts.running);
+assert.equal(degradedCounts.steady + degradedCounts.configUnknown, degradedCounts.running);
 assert.ok(degradedCounts.running < 6, "the unreadable book drops out of the running count");
 
 // ---------------------------------------------------------------- risk meters
@@ -68,18 +74,27 @@ assert.equal(curveGeometry(single, 720, 220), null, "one point is not a curve");
 assert.equal(curveGeometry({ ...single, portfolio: { dates: [], indexed: [] } }, 720, 220), null);
 
 // ---------------------------------------------------------------- sparklines
-assert.equal(sparkPath([], 120, 32), "");
-assert.equal(sparkPath(["100"], 120, 32), "");
-assert.match(sparkPath(["100", "101", "102"], 120, 32), /^M\d/);
-const flat = sparkPath(["100", "100", "100"], 120, 32);
-assert.match(flat, /^M/, "a flat series still draws");
+assert.deepEqual(sparkPaths([], [], null, null, 120, 32), [], "no points, no path");
+assert.deepEqual(sparkPaths(["100"], [], "2026-10-10", "2026-10-10", 120, 32), [], "one point is not a trend");
 
-// A gap date breaks the line instead of joining across the unobserved day.
-const withGap = sparkSegments(
-  ["100", "101", "103", "104"], ["2026-10-12"], "2026-10-10", "2026-10-14",
-);
-assert.equal(withGap.flat().length, 4, "no point is dropped");
-assert.equal(sparkSegments(["100", "101"], [], "2026-10-10", "2026-10-11").length, 1, "no gap, one segment");
-assert.deepEqual(sparkSegments([], [], null, null), [[]], "an empty series stays empty");
+const solid = sparkPaths(["100", "101", "102"], [], "2026-10-10", "2026-10-12", 120, 32);
+assert.equal(solid.length, 1);
+assert.match(solid[0], /^M\d/);
+
+// A gap splits the line, and both runs keep their place on one shared timeline and scale:
+// 10 → x 1, 11 → x 30.5, (12 missing), 13 → x 89.5, 14 → x 119, with 100 at the bottom and
+// 104 at the top. Stretching each run to the full width would put both starts near x 1.
+const gapped = sparkPaths(["100", "101", "103", "104"], ["2026-10-12"], "2026-10-10", "2026-10-14", 120, 32);
+assert.deepEqual(gapped, ["M1.00 31.00 L30.50 23.50", "M89.50 8.50 L119.00 1.00"]);
+
+// When every observed run holds a single point there is nothing to draw; the page says the
+// history is too short instead of joining the two points across the missing day.
+assert.deepEqual(sparkPaths(["100", "104"], ["2026-10-11"], "2026-10-10", "2026-10-12", 120, 32), []);
+assert.deepEqual(sparkPaths(["100", "104"], [], "2026-10-10", "2026-10-12", 120, 32).length, 1, "no gap, one run");
+
+// A series that does not cover the window's observed days cannot be placed by date; it is drawn
+// as one run by index rather than split at a guessed date.
+const misaligned = sparkPaths(["100", "101", "102"], ["2026-10-11"], "2026-10-10", "2026-10-14", 120, 32);
+assert.equal(misaligned.length, 1);
 
 console.log("console_desk_overview_validation: PASS");

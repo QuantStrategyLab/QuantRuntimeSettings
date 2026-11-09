@@ -426,6 +426,8 @@ export const en: Record<DeskKey, string> = {
   "logs.level.debug": "debug",
   "logs.empty": "No log lines in this window.",
   "logs.loading": "Reading logs…",
+  "logs.ribbon_failed": "Runs could not be read",
+  "logs.ribbon_failed_detail": "Today's runs are unavailable, so sessions and the run list are hidden; the log tail below still works.",
   "logs.truncated": "Only recent lines are kept; older ones were truncated.",
 
   // Market sessions and the ribbon tape, shared by the logs page and the overview.
@@ -453,6 +455,7 @@ export const en: Record<DeskKey, string> = {
 
   "overview.headline": "{running} strategies running. {steady} steady, {drifting} drifting from the saved plan",
   "overview.headline.steady": "{running} strategies running, all matching the saved plan",
+  "overview.headline.partial": "{running} strategies running, {steady} matching the saved plan, {unknown} with an unreadable config",
   "overview.headline.none": "No strategy is running right now",
   "overview.nav.label": "Net asset value · {accounts}/{total} accounts",
   "overview.day_change": "{ratio} today · {amount}",

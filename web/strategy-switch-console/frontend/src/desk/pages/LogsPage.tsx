@@ -46,9 +46,11 @@ export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language:
     return level === "all" ? items : items.filter(line => line.level === level);
   }, [logsData, level]);
 
-  const headline = summary
-    ? summary.runs > 0 ? t("logs.summary", { runs: summary.runs, drift: summary.drift }) : t("logs.summary.none")
-    : t("states.loading");
+  const headline = ribbon.state === "failed"
+    ? t("logs.ribbon_failed")
+    : summary
+      ? summary.runs > 0 ? t("logs.summary", { runs: summary.runs, drift: summary.drift }) : t("logs.summary.none")
+      : t("states.loading");
 
   return (
     <section className="mrd-logs-page" aria-labelledby="mrd-page-title">
@@ -58,6 +60,21 @@ export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language:
         <span className="mrd-note">{t("logs.meta", { days: logsData?.retention.days ?? 90 })}</span>
         {logsData?.retention.truncated ? <p className="mrd-note">{t("logs.truncated")}</p> : null}
       </div>
+
+      {/* The ribbon carries sessions and today's runs; when it fails, say so instead of
+          leaving the page on a loading state that never resolves. */}
+      {ribbon.state === "failed" ? (
+        <div className="mrd-card" role="status">
+          <span className="mrd-label">{t("logs.runs.title")}</span>
+          <p className="mrd-note">{t("logs.ribbon_failed_detail")}</p>
+        </div>
+      ) : null}
+      {ribbon.state === "loading" ? (
+        <div className="mrd-card">
+          <span className="mrd-label">{t("logs.runs.title")}</span>
+          <p className="mrd-note" aria-busy="true">{t("states.loading")}</p>
+        </div>
+      ) : null}
 
       {ribbonData ? (
         <div className="mrd-card mrd-sessions">
