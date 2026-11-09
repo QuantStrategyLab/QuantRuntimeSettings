@@ -2008,8 +2008,17 @@ jobs:
             stage = 'readback'; await active(deploymentId, uploaded);
             if (pr764 || integrated || reviewedMain || resume !== 'off') {
               stage = 'post_release_configuration';
-              const configAfter = configHash(resources(await request(`/versions/${uploaded}`), uploaded));
+              const readback = resources(await request(`/versions/${uploaded}`), uploaded);
+              const configAfter = configHash(readback);
               if (configAfter !== configBefore) fail('post_release_configuration_hash_mismatch');
+              // The reviewed-main hash excludes __test, so readback must still
+              // prove the exact validated test export survived activation.
+              if (reviewedMain) {
+                const verifiedTest = testExport(next), readbackTest = testExport(readback);
+                if (readbackTest.ambiguous || verifiedTest.present !== readbackTest.present
+                  || verifiedTest.handlers.length !== readbackTest.handlers.length
+                  || verifiedTest.handlers.some((name, index) => name !== readbackTest.handlers[index])) fail('post_release_test_export_mismatch');
+              }
               // Version metadata hides secret values. Hash all comparable bindings/runtime/
               // handlers/placement, never code etag or provider bookkeeping. No KV writes.
               if (controlRuntimeCandidate) console.log(JSON.stringify({ status: 'integrated_configuration_verified', bindings_equal: true, runtime_equal: true, secret_values_read: false }));

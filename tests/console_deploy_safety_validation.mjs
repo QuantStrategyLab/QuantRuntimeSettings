@@ -755,7 +755,7 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
  releaseCases++;return {calls,stdout,stderr};
 }
 // Exact integrated candidate: explicit inheritance, verified module, one non-forced activation.
-async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false, baselineItems=undefined, preUploadVersion=null, preDeployWitness=null, uploadId=null, ambiguousActive=false, expectFailure=null, testHandlers=null } = {}, expected=true) {
+async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false, baselineItems=undefined, preUploadVersion=null, preDeployWitness=null, uploadId=null, ambiguousActive=false, expectFailure=null, testHandlers=null, deployed=false } = {}, expected=true) {
  const calls=[], stdout=[], stderr=[], prior=settings?"7ffe9227-686a-48ad-baa9-72665969d918":daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
  active ??= prior; latest ??= active;
  const separateWitness = reviewedMain && reviewedMainSource === inboxSource && !flow;
@@ -807,7 +807,7 @@ async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c
    assert.equal(JSON.parse(stdout.at(-1)).prior_version,prior);
   }
   if (flow) assert.equal(JSON.parse(stdout.at(-1)).external_flow_enabled,true); else assert.equal(JSON.parse(stdout.at(-1)).version_id,newVersion);
- } else {if (postTag !== null) assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,0); else { assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,1); assert.equal(JSON.parse(stderr.at(-1)).outcome,"UNKNOWN_REQUIRES_READBACK"); } assert.equal(JSON.parse(stderr.at(-1)).retry,false);
+ } else {if (postTag !== null && !deployed) assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,0); else { assert.equal(posts.filter(x=>x.url.includes("/deployments?")).length,1); assert.equal(JSON.parse(stderr.at(-1)).outcome,"UNKNOWN_REQUIRES_READBACK"); } assert.equal(JSON.parse(stderr.at(-1)).retry,false);
   if (expectFailure) { const error=JSON.parse(stderr.at(-1)); for (const [key,value] of Object.entries(expectFailure)) assert.equal(error[key],value,key); }}
  assert.ok(!JSON.stringify({stdout,stderr}).includes(privateRelease));
  return {stdout,stderr};
@@ -826,6 +826,9 @@ await integratedReleaseCase({reviewedMain:true,testHandlers:{active:["alpha","be
 await integratedReleaseCase({reviewedMain:true,testHandlers:{uploaded:["alpha"],post:["alpha"]},expectFailure:{...configStop,checkpoint:"test_export_shape_mismatch"}},false);
 await integratedReleaseCase({reviewedMain:true,testHandlers:{active:["alpha"],uploaded:["alpha"],post:["alpha"],runtimeUploaded:["other"]},expectFailure:{...configStop,checkpoint:"configuration_hash_mismatch"}},false);
 await integratedReleaseCase({testHandlers:{active:["alpha"],uploaded:["alpha","beta"],post:["alpha","beta"]},expectFailure:{...configStop,checkpoint:"configuration_hash_mismatch"}},false);
+const postTestStop={retry:false,deploy_attempted:true,stage:"post_release_configuration",upload_attempted:true,outcome:"UNKNOWN_REQUIRES_READBACK",checkpoint:"post_release_test_export_mismatch"};
+await integratedReleaseCase({reviewedMain:true,deployed:true,testHandlers:{active:["alpha"],uploaded:["alpha","beta"],post:["alpha"]},expectFailure:postTestStop},false);
+await integratedReleaseCase({reviewedMain:true,deployed:true,testHandlers:{active:["alpha"],uploaded:["alpha","beta"]},expectFailure:postTestStop},false);
 const orphanWitness="00000000-0000-4000-8000-000000000021";
 const driftedWitness="00000000-0000-4000-8000-000000000022";
 const driftedActive="00000000-0000-4000-8000-000000000023";
