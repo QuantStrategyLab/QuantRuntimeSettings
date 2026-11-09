@@ -61,6 +61,7 @@ export const zh = {
   "drawdown.breached": "回撤超出上限",
   "drawdown.unknown": "回撤未知",
   "mock.badge": "模拟数据",
+  "mock.badge_partial": "部分模拟数据",
 
   // Shell.
   "shell.brand": "QuantStrategyLab",
@@ -86,6 +87,7 @@ export const zh = {
   "theme.to_light": "切换到浅色",
   "mock.scenario": "模拟数据 · {scenario}",
   "mock.title": "这些数据是示例，不是你的账户。",
+  "mock.title_partial": "本页部分数据为示例，不是账户实况；其余为真实读取。",
   "access.title": "需要登录",
   "access.body": "登录后才能查看控制台。",
   "access.eyebrow": "访问权限",
@@ -367,6 +369,7 @@ export const zh = {
   "strategies.back": "上一步",
   "strategies.reset": "重新开始",
   "strategies.mock_note": "预览数据：运行目标与策略目录均为合成数据。",
+  "strategies.catalog_mock_note": "预览数据：策略目录为合成数据；运行目标来自配置读取。",
   "strategies.target.unknown": "目标未知",
   "strategies.reason.switch_not_connected": "切换尚未接通",
   "strategies.reason.blocked": "目录策略已阻止",

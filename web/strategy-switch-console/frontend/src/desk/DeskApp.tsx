@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invalidatePrivateSession, postJson } from "../api/client";
 import { loadPreferences, resolveTheme, savePreferences, type Language, type ThemePreference } from "../lib/prefs";
-import { createDeskApi, type DeskResult } from "./api/endpoints.ts";
+import { createDeskApi, fixtureExposure, type DeskResult } from "./api/endpoints.ts";
 import { MOCK_STORAGE_KEY, resolveMockScenario } from "./api/mock.ts";
 import type { DeskSession, Ribbon } from "./contract/types";
 import { clockOffsetMs, secondsBetween, serverNowIso } from "./format.ts";
@@ -151,8 +151,11 @@ export default function DeskApp() {
 
   const gateway: GatewayChip = ribbon.state === "ready" ? { kind: "read", read: ribbon.result.data.console_state.gateways } : { kind: ribbon.state };
   const alertCount = ribbon.state === "ready" ? ribbon.result.data.alert_badge.open_count : null;
-  const mockSources = [session, ribbon].filter(item => item.state === "ready" && item.result.source === "mock");
-  const mock = mockSources.length ? scenario ?? "ok" : null;
+  // A page may mix live reads and fixtures. Derive the chip from every endpoint
+  // that page renders, so a newly live endpoint cannot make fixtures look real.
+  const exposure = fixtureExposure(page, scenario);
+  const mock = exposure === "none" ? null : (scenario ?? "ok");
+  const mockPartial = exposure === "partial";
   const serverClock = session.state === "ready" && offsetMs !== null;
   const nowIso = serverNowIso(serverClock ? offsetMs : null, clientNow);
 
@@ -203,6 +206,7 @@ export default function DeskApp() {
       nowIso={nowIso}
       serverClock={serverClock}
       mock={mock}
+      mockPartial={mockPartial}
       freshness={lock ? null : freshness}
       lock={lock}
       onNavigate={navigate}

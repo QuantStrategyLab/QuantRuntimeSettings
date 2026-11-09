@@ -120,7 +120,8 @@ export function AlertsPage({ api, t, language }: { api: DeskApi; t: DeskTranslat
 
   return (
     <section className="mrd-alerts-page" aria-labelledby="mrd-page-title">
-      {loaded?.source === "mock" ? <p className="mrd-note mrd-page-note">{t("mock.badge")}</p> : null}
+      {loaded?.source === "mock" || (delivery.state === "ready" && delivery.result.source === "mock")
+        ? <p className="mrd-note mrd-page-note" title={t("mock.title")}>{t("mock.badge")}</p> : null}
       {body}
     </section>
   );

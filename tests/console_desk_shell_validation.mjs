@@ -176,6 +176,19 @@ for (const language of ["en", "zh"]) {
     assert.doesNotMatch(gatewayStatus(gateway, language), /Gateways reachable|网关可达/);
   }
 }
+// 8. A page mixing live reads and fixtures shows a partial-mock chip; a fully
+//    live page shows none. Both the badge and its explanation are localized.
+const mockChip = (language, mock, mockPartial) => renderToStaticMarkup(React.createElement(component.exports.TopBar, {
+  page: "overview", t: (key, values) => deskTranslate(language, key, values), language,
+  theme: "light", gateway: { kind: "loading" }, nowIso: "2026-11-02T14:00:00Z", serverClock: true,
+  mock, mockPartial, onLanguage() {}, onTheme() {},
+}));
+for (const language of ["en", "zh"]) {
+  const partial = mockChip(language, "ok", true);
+  assert.ok(partial.includes(deskTranslate(language, "mock.badge_partial")), `${language} names partial fixtures`);
+  assert.ok(partial.includes(deskTranslate(language, "mock.title_partial")), `${language} explains mixed sources`);
+  assert.doesNotMatch(mockChip(language, null, false), /mrd-chip-mock/, `${language} hides the chip when no fixtures are shown`);
+}
 console.log("desk gateway rendering validation passed");
 
 }

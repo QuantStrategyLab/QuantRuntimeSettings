@@ -18,6 +18,8 @@ export interface DeskShellProps {
   nowIso: string;
   serverClock: boolean;
   mock: MockScenario | null;
+  /** True when only some of the page's endpoints are fixtures. */
+  mockPartial?: boolean;
   freshness?: FreshnessChipState | null;
   /** Non-null for 401/403/failed access: the shell shows no runtime data at all. */
   lock?: ShellLock | null;

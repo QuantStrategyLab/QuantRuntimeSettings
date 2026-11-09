@@ -127,6 +127,8 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
     () => (targetId ? api.switchStrategies(targetId) : Promise.resolve(null)),
     [api, targetId],
   );
+  const targetsMock = targets.load.state === "ready" && targets.load.result.source === "mock";
+  const catalogMock = strategies.load.state === "ready" && strategies.load.result?.source === "mock";
 
   useEffect(() => {
     if (initialTarget) {
@@ -394,7 +396,9 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
         </div>
       </section>
 
-      {targets.load.state === "ready" && targets.load.result.source === "mock" ? <p style={P.muted}>{t("strategies.mock_note")}</p> : null}
+      {targetsMock && catalogMock ? <p style={P.muted}>{t("strategies.mock_note")}</p>
+        : catalogMock ? <p style={P.muted}>{t("strategies.catalog_mock_note")}</p>
+        : targetsMock ? <p style={P.muted}>{t("mock.badge")}</p> : null}
     </section>
   );
 }

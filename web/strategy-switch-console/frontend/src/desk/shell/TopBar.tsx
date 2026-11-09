@@ -29,6 +29,8 @@ interface TopBarProps {
   serverClock: boolean;
   /** Non-null when any data on screen came from fixtures. */
   mock: MockScenario | null;
+  /** True when only some of the page's endpoints are fixtures. */
+  mockPartial?: boolean;
   /** Optional global freshness chip; omitted in contexts that do not have a read. */
   freshness?: FreshnessChipState | null;
   /** Set for 401/403/failed access: no gateway, alert, freshness or clock data is shown. */
@@ -47,7 +49,7 @@ function gatewayView(chip: GatewayChip): { key: DeskKey; tone: string; ageSecond
   return { key: `gateway.${read.value}` as DeskKey, tone };
 }
 
-export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock, mock, freshness, lock, onLanguage, onTheme }: TopBarProps) {
+export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock, mock, mockPartial = false, freshness, lock, onLanguage, onTheme }: TopBarProps) {
   const chip = gatewayView(gateway);
   const time = formatUtcHm(nowIso) ?? "--:--";
   const day = formatUtcDayLabel(nowIso, language);
@@ -64,8 +66,9 @@ export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock,
         ) : (
           <>
             {mock ? (
-              <span className="mrd-chip mrd-chip-mock" title={t("mock.title")}>
-                {mock === "ok" ? t("mock.badge") : t("mock.scenario", { scenario: mock })}
+              <span className="mrd-chip mrd-chip-mock" title={t(mockPartial ? "mock.title_partial" : "mock.title")}>
+                {mock !== "ok" ? t("mock.scenario", { scenario: mock })
+                  : t(mockPartial ? "mock.badge_partial" : "mock.badge")}
               </span>
             ) : null}
             {freshness ? <FreshnessChip state={freshness} t={t} language={language} /> : null}
