@@ -2,11 +2,11 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {verifyCapability,storage,KEY,readOnlyWorkerApi} from '../scripts/console_p02_baseline_hosted.mjs';
 const now=Date.parse('2026-11-09T00:00:00Z');
-const receipt={schema:'qrs-p02-storage-capability-v1',bucket:'synthetic-bucket',object:KEY,wif_provider:'synthetic-provider',service_account:'synthetic-account',control_sha:'a'.repeat(40),owner_project:'synthetic-owner',policy_readback_reviewed:true,create_permitted:true,get_permitted:true,target_absent:true,issued_at:'2026-11-08T23:00:00Z',expires_at:'2026-11-09T01:00:00Z'};
-const env={DIGEST_CANDIDATES_GCS_URI:'gs://synthetic-bucket/digest-candidates/',DIGEST_CANDIDATES_READER_WIF_PROVIDER:'synthetic-provider',DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT:'synthetic-account',GITHUB_SHA:'a'.repeat(40),QRS_P02_STORAGE_CAPABILITY_RECEIPT:JSON.stringify(receipt)};
+const receipt={schema:'qrs-p02-storage-capability-v1',bucket:'synthetic-bucket',object:KEY,wif_provider:'synthetic-provider',service_account:'synthetic-account',control_sha:'a'.repeat(40),control_tree:'c'.repeat(40),owner_project:'synthetic-owner',policy_readback_reviewed:true,create_permitted:true,get_permitted:true,target_absent:true,issued_at:'2026-11-08T23:00:00Z',expires_at:'2026-11-09T01:00:00Z'};
+const env={DIGEST_CANDIDATES_GCS_URI:'gs://synthetic-bucket/digest-candidates/',DIGEST_CANDIDATES_READER_WIF_PROVIDER:'synthetic-provider',DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT:'synthetic-account',GITHUB_SHA:'d'.repeat(40),P02_CONTROL_SHA:'a'.repeat(40),P02_CONTROL_TREE:'c'.repeat(40),QRS_P02_STORAGE_CAPABILITY_RECEIPT:JSON.stringify(receipt)};
 test('requires protected proof bound to exact identity, object, control and short validity',()=>{
  assert.deepEqual(verifyCapability(env,now),{bucket:'synthetic-bucket'});
- for(const delta of [{bucket:'wrong-bucket'},{object:'other'},{wif_provider:'other'},{service_account:'other'},{control_sha:'b'.repeat(40)},{policy_readback_reviewed:false},{create_permitted:false},{get_permitted:false},{target_absent:false},{expires_at:'2026-11-08T23:59:59Z'},{expires_at:'2026-11-11T00:00:00Z'},{owner_project:''}])
+ for(const delta of [{bucket:'wrong-bucket'},{object:'other'},{wif_provider:'other'},{service_account:'other'},{control_sha:'b'.repeat(40)},{control_tree:'b'.repeat(40)},{policy_readback_reviewed:false},{create_permitted:false},{get_permitted:false},{target_absent:false},{expires_at:'2026-11-08T23:59:59Z'},{expires_at:'2026-11-11T00:00:00Z'},{owner_project:''}])
    assert.throws(()=>verifyCapability({...env,QRS_P02_STORAGE_CAPABILITY_RECEIPT:JSON.stringify({...receipt,...delta})},now));
  assert.throws(()=>verifyCapability({...env,QRS_P02_STORAGE_CAPABILITY_RECEIPT:''},now));
  assert.throws(()=>verifyCapability({...env,QRS_P02_STORAGE_CAPABILITY_RECEIPT:JSON.stringify({...receipt,object:KEY.replace('-r2/','-r1/')})},now));

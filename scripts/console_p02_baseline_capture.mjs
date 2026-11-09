@@ -86,10 +86,11 @@ export function rebuildWithAssets(candidate,active,ts){
   return {declarations:observed.declarations,sha256:digest(bytes),bytes};
 }
 // Storage reservation must complete before any Worker reads. A failed or unknown write is never retried.
-export async function capture({api,store,candidate,controlSha,alternate,expectedActive,now=()=>new Date(),ts=require('typescript'),reference=REFERENCE,alternateReference=HISTORICAL}){
+export async function capture({api,store,candidate,controlSha,controlTree,alternate,expectedActive,now=()=>new Date(),ts=require('typescript'),reference=REFERENCE,alternateReference=HISTORICAL}){
   let stage='candidate',writeAttempted=false;
   try{
     if(!/^[a-f0-9]{40}$/.test(controlSha??'')||!Buffer.isBuffer(candidate)||digest(candidate)!==reference)throw Error('candidate');
+    if(controlTree!==undefined&&!/^[a-f0-9]{40}$/.test(controlTree))throw Error('candidate');
     if(!compareAssetDeclarations(candidate,candidate,ts).ok)throw Error('candidate');
     stage='storage_preflight'; await store.reserve();
     stage='active_before'; const before=identity(await api.deployments());
@@ -118,7 +119,9 @@ export async function capture({api,store,candidate,controlSha,alternate,expected
       rebuilt=rebuildWithAssets(candidate,assets,ts);
     }
     const capturedAt=now().toISOString();
-    const record={schema:'qrs-worker-p02-baseline-v1',control_sha:controlSha,captured_at:capturedAt,...before,active_module_sha256:activeHash,
+    const record={schema:'qrs-worker-p02-baseline-v1',control_sha:controlSha,
+      ...(controlTree===undefined?{}:{control_tree:controlTree}),
+      captured_at:capturedAt,...before,active_module_sha256:activeHash,
       configuration_sha256:digest(config(r)),migration_tag_sha256:digest(r.script_runtime.migration_tag),
       reference_module_sha256:reference,asset_comparison:compared.equal,...(rebuilt?{historical_comparison:historical,asset_declarations:rebuilt.declarations,rebuilt_module_sha256:rebuilt.sha256,release_state:'hold_review_required'}:{release_state:'hold'})};
     stage='save'; writeAttempted=true; const bytes=Buffer.from(JSON.stringify(record));
