@@ -29,9 +29,13 @@ export async function prepareLocal({recordPath,referencePath,historicalPath,outp
   if(![recordPath,referencePath,outputPath].every(p=>typeof p==='string'&&isAbsolute(p)))throw Error('path');
   const repo=deps.root??root,output=resolve(outputPath),rel=relative(repo,output);
   if(!rel||(!rel.startsWith('../')&&!isAbsolute(rel)))throw Error('output_location');
-  const g=deps.git??git,pins=deps.pins??{...P02_PREPARE_PINS,control:controlSha};
+  const g=deps.git??git;
+  if(!deps.pins&&!/^[a-f0-9]{40}$/.test(controlSha??''))throw Error('control');
+  const pins=deps.pins??{...P02_PREPARE_PINS,control:controlSha,controlTree:g('rev-parse',`${controlSha}^{tree}`)};
+  const assetsSource=pins.assetsSource??POLICY.source;
   const evidence={source:g('rev-parse',`${POLICY.source}^{commit}`),tree:g('rev-parse',`${POLICY.source}^{tree}`),
-    frontendBlob:g('rev-parse',`${POLICY.source}:${asset}`)};
+    frontendBlob:g('rev-parse',`${assetsSource}:${asset}`),
+    ...(pins.assetsSource?{assetsTree:g('rev-parse',`${assetsSource}^{tree}`)}:{})};
   const [record,reference]=await Promise.all([privateRecord(recordPath),readFile(referencePath)]);
   if(reference.length>10*1024*1024)throw Error('bundle');
   let historical;

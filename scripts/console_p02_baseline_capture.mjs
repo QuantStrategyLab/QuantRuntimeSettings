@@ -10,7 +10,7 @@ const uuid=x=>typeof x==='string'&&/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}
 export const HISTORICAL='0c423d325873d85f9a6b6506c6a9ae35f44753a157e90e3ef1c049b094e0aec2';
 export const HISTORICAL_SOURCE='9b695a4ade90bcc9931f53109e0ad33f63407927';
 export const REFERENCE='912ad8b3efb9080b96112750146bdf050b6eefed6fae822b57dfa57e99feb57a';
-export const R2_ACTIVE_MODULE='599b86317957dbc77ed8a307274bdf15109683fa6c735a3263aed23e7aa49244';
+export const R2_ACTIVE_MODULE='8e38776bdfb0a665ae87b7bd93146881d8813010461ea3dc9b77e23275e720ea';
 const names=['V2_BUILD_ID','V2_PAGE_HTML','V2_ASSETS'];
 function identity(value){
   const ds=value?.deployments,d=ds?.[0],v=d?.versions?.[0];
