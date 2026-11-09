@@ -11,7 +11,9 @@ const KB = 1024;
 const LIMITS = {
   entryJs: 150 * KB, // first-screen JS, gzipped
   chunkJs: 60 * KB, // each lazy page chunk, gzipped
-  css: 20 * KB, // total CSS, gzipped
+  // §7 set 20 KB for the five-page desk. Phase 8 (alerts, logs) adds two real pages whose
+  // styles cost ~0.9 KB gzipped, so the ceiling moves to 22 KB instead of leaving ~0 slack.
+  css: 22 * KB, // total CSS, gzipped
   images: 20 * KB, // all icons/images combined, raw
 };
 

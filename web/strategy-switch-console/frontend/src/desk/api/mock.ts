@@ -41,6 +41,9 @@ const FIXTURES = {
   switchTargets: () => import("./fixtures/switchTargets.ts"),
   switchStrategies: () => import("./fixtures/switchStrategies.ts"),
   performance: () => import("./fixtures/performance.ts"),
+  alerts: () => import("./fixtures/alerts.ts"),
+  alertDelivery: () => import("./fixtures/alertDelivery.ts"),
+  logs: () => import("./fixtures/logs.ts"),
 };
 export type MockEndpoint = keyof typeof FIXTURES;
 

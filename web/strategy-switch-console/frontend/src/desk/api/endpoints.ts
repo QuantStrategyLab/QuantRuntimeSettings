@@ -6,10 +6,12 @@
  */
 import { getJson } from "../../api/client.ts";
 import type {
-  Accounts, Credentials, DeskSession, Overview, Performance, Ribbon, SwitchStrategies, SwitchTargets,
+  Accounts, AlertDelivery, Alerts, Credentials, DeskSession, Logs, Overview, Performance, Ribbon,
+  SwitchStrategies, SwitchTargets,
 } from "../contract/types";
 import {
-  isAccounts, isCredentials, isOverview, isPerformance, isRibbon, isSession, isSwitchStrategies, isSwitchTargets,
+  isAccounts, isAlertDelivery, isAlerts, isCredentials, isLogs, isOverview, isPerformance, isRibbon,
+  isSession, isSwitchStrategies, isSwitchTargets,
 } from "./guards.ts";
 import { PERF_BENCH_API } from "../performance/benchmarks.ts";
 import { loadMock, type MockEndpoint, type MockScenario } from "./mock.ts";
@@ -27,6 +29,10 @@ export const DESK_SOURCES: Record<MockEndpoint, DeskSource> = {
   switchStrategies: "mock",
   // /api/desk/performance has no backend yet; the benchmark curves follow this source (see benchmarks()).
   performance: "mock",
+  // Phase 8 pages (API-CONTRACT.md §3.17–§3.19); no backend route yet.
+  alerts: "mock",
+  alertDelivery: "mock",
+  logs: "mock",
 };
 
 export interface DeskResult<T> {
@@ -63,6 +69,9 @@ export interface DeskApi {
   switchTargets(): Promise<DeskResult<SwitchTargets>>;
   switchStrategies(targetId: string): Promise<DeskResult<SwitchStrategies>>;
   performance(): Promise<DeskResult<Performance>>;
+  alerts(): Promise<DeskResult<Alerts>>;
+  alertDelivery(): Promise<DeskResult<AlertDelivery>>;
+  logs(cursor?: string): Promise<DeskResult<Logs>>;
   /** Raw `qsl.performance_benchmarks.v1` body for the strategy window; the caller validates it. */
   benchmarks(window: { start: string; end: string }, source: DeskSource, scenario: MockScenario | null): Promise<unknown>;
 }
@@ -102,6 +111,13 @@ export function createDeskApi(options: DeskApiOptions): DeskApi {
       return { data: payload, source: "live", scenario: null };
     },
     performance: () => read("performance", "/api/desk/performance", isPerformance),
+    alerts: () => read("alerts", "/api/desk/alerts", isAlerts),
+    alertDelivery: () => read("alertDelivery", "/api/desk/alerts/delivery", isAlertDelivery),
+    logs: cursor => read(
+      "logs",
+      `/api/desk/logs${cursor && /^[A-Za-z0-9_-]{1,64}$/.test(cursor) ? `?cursor=${cursor}` : ""}`,
+      isLogs,
+    ),
     async benchmarks(window, source, scenario) {
       if (source === "mock") {
         if (scenario === "fail") throw new Error("benchmarks_mock_failure");

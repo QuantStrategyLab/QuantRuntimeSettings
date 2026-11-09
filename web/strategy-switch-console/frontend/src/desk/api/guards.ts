@@ -4,7 +4,8 @@
  * of being rendered with defaults.
  */
 import type {
-  Accounts, Credentials, DeskSession, Overview, Performance, Read, Ribbon, SwitchStrategies, SwitchTargets,
+  Accounts, AlertDelivery, Alerts, Credentials, DeskSession, Logs, Overview, Performance, Read, Ribbon,
+  SwitchStrategies, SwitchTargets,
 } from "../contract/types";
 
 type Guard<T> = (value: unknown) => value is T;
@@ -206,4 +207,59 @@ const isStrategyOption = (value: unknown): boolean => {
 export function isSwitchStrategies(value: unknown): value is SwitchStrategies {
   return envelope(value, "qsl.desk.switch_strategies.v1") && isString(value.target_id) && isString(value.domain) &&
     isString(value.catalog_revision) && Array.isArray(value.strategies) && value.strategies.every(isStrategyOption);
+}
+
+// ---------------------------------------------------------------- §3.17–§3.19 alerts / delivery / logs
+
+const ALERT_KINDS = oneOf(
+  "config_drift", "credential_expiring", "decision_pending", "drawdown_near_limit", "run_missed", "data_stale",
+  "other", "digest", "delivery_failed", "candidate_ready",
+);
+const LOG_LEVELS = oneOf("debug", "info", "warn", "error");
+/** Either a target id (`platform/target`) or one of the reserved non-target sources. */
+const isLogSource = (value: unknown): value is string =>
+  isString(value) && /^(?:[a-z0-9_-]+\/[a-z0-9_-]+|control-plane|account-facts|research|digest)$/.test(value);
+
+const isAlertItem = (value: unknown) => {
+  if (!isObject(value)) return false;
+  const logRef = value.log_ref;
+  return isString(value.id) && oneOf("critical", "warning", "info")(value.severity) &&
+    oneOf("open", "resolved")(value.status) && ALERT_KINDS(value.kind) &&
+    nullable(isString)(value.target_id) && isString(value.title) && isString(value.detail) &&
+    isIso(value.first_seen_at) && isIso(value.last_seen_at) && nullable(isIso)(value.resolved_at) &&
+    isString(value.source) && nullable(isString)(value.route) &&
+    (logRef === null || (isObject(logRef) && isString(logRef.run_id))) &&
+    // Resolved always carries its resolution time; open never does.
+    (value.status === "resolved") === (value.resolved_at !== null);
+};
+
+export function isAlerts(value: unknown): value is Alerts {
+  if (!envelope(value, "qsl.desk.alerts.v1")) return false;
+  const counts = value.counts;
+  return isObject(counts) && isCount(counts.open) && isCount(counts.critical) && isCount(counts.warning) &&
+    isCount(counts.info) && isCount(counts.last_7d_total) &&
+    Array.isArray(value.items) && value.items.every(isAlertItem) && nullable(isString)(value.next_cursor);
+}
+
+export function isAlertDelivery(value: unknown): value is AlertDelivery {
+  if (!envelope(value, "qsl.desk.alert_delivery.v1")) return false;
+  const channel = value.channel;
+  const last = value.last_delivery;
+  const digest = value.digest;
+  return isObject(channel) && isString(channel.name) && isRead(channel.status, oneOf("ok", "failing")) &&
+    (last === null || (isObject(last) && isIso(last.at) && oneOf("ok", "failed")(last.outcome) && isCount(last.recipients))) &&
+    (digest === null || (isObject(digest) && isClock(digest.schedule_utc) && isIso(digest.last_composed_at) &&
+      isCount(digest.targets) && isCount(digest.runs)));
+}
+
+const isLogLine = (value: unknown) => isObject(value) && isString(value.id) && isIso(value.at) &&
+  LOG_LEVELS(value.level) && isLogSource(value.source) && nullable(isString)(value.run_id) &&
+  isString(value.message) && value.message.length <= 400;
+
+export function isLogs(value: unknown): value is Logs {
+  if (!envelope(value, "qsl.desk.logs.v1")) return false;
+  const retention = value.retention;
+  return Array.isArray(value.items) && value.items.every(isLogLine) && nullable(isString)(value.next_cursor) &&
+    isObject(retention) && retention.days === 90 && typeof retention.truncated === "boolean" &&
+    value.redaction === "applied";
 }
