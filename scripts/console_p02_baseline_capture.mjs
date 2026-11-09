@@ -10,7 +10,7 @@ const uuid=x=>typeof x==='string'&&/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}
 export const HISTORICAL='0c423d325873d85f9a6b6506c6a9ae35f44753a157e90e3ef1c049b094e0aec2';
 export const HISTORICAL_SOURCE='9b695a4ade90bcc9931f53109e0ad33f63407927';
 export const REFERENCE='912ad8b3efb9080b96112750146bdf050b6eefed6fae822b57dfa57e99feb57a';
-export const R2_ACTIVE_MODULE='599b86317957dbc77ed8a307274bdf15109683fa6c735a3263aed23e7aa49244';
+export const R2_ACTIVE_MODULE='8e38776bdfb0a665ae87b7bd93146881d8813010461ea3dc9b77e23275e720ea';
 const names=['V2_BUILD_ID','V2_PAGE_HTML','V2_ASSETS'];
 function identity(value){
   const ds=value?.deployments,d=ds?.[0],v=d?.versions?.[0];
@@ -86,10 +86,11 @@ export function rebuildWithAssets(candidate,active,ts){
   return {declarations:observed.declarations,sha256:digest(bytes),bytes};
 }
 // Storage reservation must complete before any Worker reads. A failed or unknown write is never retried.
-export async function capture({api,store,candidate,controlSha,alternate,expectedActive,now=()=>new Date(),ts=require('typescript'),reference=REFERENCE,alternateReference=HISTORICAL}){
+export async function capture({api,store,candidate,controlSha,controlTree,alternate,expectedActive,now=()=>new Date(),ts=require('typescript'),reference=REFERENCE,alternateReference=HISTORICAL}){
   let stage='candidate',writeAttempted=false;
   try{
     if(!/^[a-f0-9]{40}$/.test(controlSha??'')||!Buffer.isBuffer(candidate)||digest(candidate)!==reference)throw Error('candidate');
+    if(controlTree!==undefined&&!/^[a-f0-9]{40}$/.test(controlTree))throw Error('candidate');
     if(!compareAssetDeclarations(candidate,candidate,ts).ok)throw Error('candidate');
     stage='storage_preflight'; await store.reserve();
     stage='active_before'; const before=identity(await api.deployments());
@@ -118,7 +119,9 @@ export async function capture({api,store,candidate,controlSha,alternate,expected
       rebuilt=rebuildWithAssets(candidate,assets,ts);
     }
     const capturedAt=now().toISOString();
-    const record={schema:'qrs-worker-p02-baseline-v1',control_sha:controlSha,captured_at:capturedAt,...before,active_module_sha256:activeHash,
+    const record={schema:'qrs-worker-p02-baseline-v1',control_sha:controlSha,
+      ...(controlTree===undefined?{}:{control_tree:controlTree}),
+      captured_at:capturedAt,...before,active_module_sha256:activeHash,
       configuration_sha256:digest(config(r)),migration_tag_sha256:digest(r.script_runtime.migration_tag),
       reference_module_sha256:reference,asset_comparison:compared.equal,...(rebuilt?{historical_comparison:historical,asset_declarations:rebuilt.declarations,rebuilt_module_sha256:rebuilt.sha256,release_state:'hold_review_required'}:{release_state:'hold'})};
     stage='save'; writeAttempted=true; const bytes=Buffer.from(JSON.stringify(record));

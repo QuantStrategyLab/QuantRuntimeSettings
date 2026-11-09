@@ -13,7 +13,7 @@ function fixture(options={}){
  const store={async reserve(){calls.push('reserve');if(options.reserveFail)throw Error('private');},async create(b){calls.push('create');saved=b;if(options.createFail)throw Error('private');return '123';},async read(g){calls.push('read');assert.equal(g,'123');return saved;}};
  return {api,store,calls,get record(){return JSON.parse(saved)}};
 }
-async function run(opt={}){const f=fixture(opt);return {f,result:await capture({api:f.api,store:f.store,candidate,reference,alternate:opt.alternate,alternateReference:opt.alternateReference,expectedActive:opt.expectedActive,controlSha:"a".repeat(40),now:()=>new Date("2026-11-09T00:00:00.000Z")})};}
+async function run(opt={}){const f=fixture(opt);return {f,result:await capture({api:f.api,store:f.store,candidate,reference,alternate:opt.alternate,alternateReference:opt.alternateReference,expectedActive:opt.expectedActive,controlSha:"a".repeat(40),controlTree:opt.controlTree,now:()=>new Date("2026-11-09T00:00:00.000Z")})};}
 test('match writes one record after four fixed reads and verifies exact readback',async()=>{const {f,result}=await run();assert.equal(result.ok,true);assert.deepEqual(f.calls,['reserve','deployment','module','config','deployment','create','read']);assert.equal(f.record.asset_declarations,undefined);assert.equal(f.record.control_sha,'a'.repeat(40));assert.equal(f.record.captured_at,'2026-11-09T00:00:00.000Z');assert.equal(JSON.stringify(f.record).includes('private'),false);});
 test('mismatch retains only statically literal declarations',async()=>{const active=Buffer.from(candidate.toString().replace('"html"','"other"'));const {f,result}=await run({active});assert.equal(result.ok,true);assert.equal(result.asset_declarations_equal,false);assert.match(f.record.asset_declarations.V2_PAGE_HTML,/other/);assert.match(f.record.rebuilt_module_sha256,/^[a-f0-9]{64}$/);assert.equal(f.record.release_state,'hold_review_required');});
 test('unsupported declaration, drift, and storage failures stop without retries',async()=>{
@@ -25,7 +25,11 @@ test('bad candidate causes no storage or Worker reads',async()=>{const f=fixture
 test('rebind records only the pinned module with equal asset declarations',async()=>{
  const active=Buffer.concat([candidate,Buffer.from('\nexport {};')]);
  const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
- const matched=await run({active,expectedActive:hash(active)});
+ const controlTree='b'.repeat(40);
+ const matched=await run({active,expectedActive:hash(active),controlTree});
+ assert.equal(matched.f.record.control_tree,controlTree);
+ const invalidTree=await run({active,expectedActive:hash(active),controlTree:'short'});
+ assert.equal(invalidTree.result.ok,false);assert.deepEqual(invalidTree.f.calls,[]);
  assert.equal(matched.result.ok,true);assert.equal(matched.f.record.release_state,'hold');
  assert.equal(matched.f.record.active_module_sha256,hash(active));assert.equal(matched.f.record.asset_declarations,undefined);
  assert.deepEqual(matched.f.calls,['reserve','deployment','module','config','deployment','create','read']);
