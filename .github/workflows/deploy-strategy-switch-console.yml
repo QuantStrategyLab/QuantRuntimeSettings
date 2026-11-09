@@ -1042,6 +1042,23 @@ jobs:
           fi
           # Current reviewed merged main release: keep all receiver checks and live configuration.
           # The earlier reviewed main remains an exact historical source in the next block.
+          if [ "$RELEASE_SOURCE_SHA" = "dd63b3c8b73b588ce411316d904efd26f2c4f382" ]; then
+            [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
+              && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
+              && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = false ] || exit 2
+            control_sha="$(git rev-parse HEAD)"
+            [ "$control_sha" = "$GITHUB_SHA" ] || exit 2
+            git cat-file -e "${RELEASE_SOURCE_SHA}^{commit}"
+            git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$control_sha"
+            expected_tree="c08d5542b032abaa008e882dd97ed2c38b3ad236"
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "$expected_tree" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" = "a7237657bb6e48c57e947875f629d28bafb5ea27" ] || exit 2
+            git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
+            [ "$(git rev-parse HEAD)" = "$RELEASE_SOURCE_SHA" ] \
+              && [ "$(git rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || exit 2
+            exit 0
+          fi
+          # Historical reviewed merged main release: same receiver and configuration gates.
           if [ "$RELEASE_SOURCE_SHA" = "084ba4281cfff3304cf226ce511a2fc0a6b67b08" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
               && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
@@ -1162,12 +1179,16 @@ jobs:
         if: inputs.release_frontend_assets && inputs.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef' && !inputs.render_and_compare_only
         run: |
           set -euo pipefail
-          reviewed_main="084ba4281cfff3304cf226ce511a2fc0a6b67b08"
-          historical_reviewed_main="c1b737d6e721eb9fe71a12c613fbb49d3fa51563"
+          reviewed_main="dd63b3c8b73b588ce411316d904efd26f2c4f382"
+          historical_reviewed_main="084ba4281cfff3304cf226ce511a2fc0a6b67b08"
+          older_reviewed_main="c1b737d6e721eb9fe71a12c613fbb49d3fa51563"
           head_sha="$(git rev-parse HEAD)"
-          if [ "$head_sha" = "$reviewed_main" ] || [ "$head_sha" = "$historical_reviewed_main" ]; then
+          if [ "$head_sha" = "$reviewed_main" ] || [ "$head_sha" = "$historical_reviewed_main" ] || [ "$head_sha" = "$older_reviewed_main" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] || exit 2
             if [ "$head_sha" = "$reviewed_main" ]; then
+              [ "$(git rev-parse 'HEAD^{tree}')" = "c08d5542b032abaa008e882dd97ed2c38b3ad236" ] || exit 2
+              [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "a7237657bb6e48c57e947875f629d28bafb5ea27" ] || exit 2
+            elif [ "$head_sha" = "$historical_reviewed_main" ]; then
               [ "$(git rev-parse 'HEAD^{tree}')" = "23f94567c2e8b631e8ef035bfea497acef795123" ] || exit 2
               [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "5287f259185ed44f3784aa6374cb00412b3c6238" ] || exit 2
             else
@@ -1654,8 +1675,9 @@ jobs:
             const statusCandidate = process.env.RELEASE_SOURCE_SHA === '68e3d4b69e706e2100f860c473ec657e9baf05ba';
             const cpuCandidate = process.env.RELEASE_SOURCE_SHA === '974354b98ebe0cd55931baa03034d887d4fac560';
             const integrated = controlRuntimeCandidate || controlAdminCandidate || historyCandidate || declarationCandidate || returnsCandidate || settingsCandidate || dailyCandidate || statusCandidate || cpuCandidate || process.env.RELEASE_SOURCE_SHA === '0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a';
-            const currentReviewedMain = process.env.RELEASE_SOURCE_SHA === '084ba4281cfff3304cf226ce511a2fc0a6b67b08';
+            const currentReviewedMain = process.env.RELEASE_SOURCE_SHA === 'dd63b3c8b73b588ce411316d904efd26f2c4f382';
             const reviewedMain = currentReviewedMain
+              || process.env.RELEASE_SOURCE_SHA === '084ba4281cfff3304cf226ce511a2fc0a6b67b08'
               || process.env.RELEASE_SOURCE_SHA === 'c1b737d6e721eb9fe71a12c613fbb49d3fa51563';
             const betaRelease = ibkrDaily || integrated || reviewedMain;
             const flowMode = process.env.EXTERNAL_FLOW_ENABLE === 'true';
