@@ -185,16 +185,19 @@ assert.equal(resolveMockScenario("?mock=0", "ok"), null);
 assert.equal(resolveMockScenario("?page=overview", "fail"), "fail");
 assert.equal(resolveMockScenario("?mock=<script>", null), null);
 
-// 5. Endpoint sources: session and credentials are live; the rest stay mock until their backend lands.
+// 5. Endpoint sources: session, credentials and the switch target list are live;
+//    the rest stay mock until their backend lands.
 assert.deepEqual(DESK_SOURCES, {
   session: "live", ribbon: "mock", overview: "mock", accounts: "mock", credentials: "live",
-  switchTargets: "mock", switchStrategies: "mock", performance: "mock",
+  switchTargets: "live", switchStrategies: "mock", performance: "mock",
   alerts: "mock", alertDelivery: "mock", logs: "mock",
 });
 const calls = [];
 const fetchJson = async path => {
   calls.push(path);
-  return structuredClone(path === "/api/desk/credentials" ? credentials.ok : session.ok);
+  if (path === "/api/desk/credentials") return structuredClone(credentials.ok);
+  if (path === "/api/desk/switch/targets") return structuredClone(switchTargets.ok);
+  return structuredClone(session.ok);
 };
 const api = createDeskApi({ forcedScenario: null, delayMs: 0, fetchJson });
 const s = await api.session();
@@ -208,12 +211,13 @@ const cred = await api.credentials();
 assert.deepEqual([cred.source, cred.scenario, calls], ["live", null, ["/api/session", "/api/desk/credentials"]]);
 assert.ok(cred.data.items.some(item => item.phase === "7"), "fixture covers the 7-day phase");
 const st = await api.switchTargets();
-assert.deepEqual([st.source, st.scenario], ["mock", "ok"]);
+assert.deepEqual([st.source, st.scenario], ["live", null]);
+assert.equal(st.data.targets[0].target_id, "ibkr/tqqq");
 const sc = await api.switchStrategies("schwab/core");
 assert.deepEqual([sc.source, sc.scenario], ["mock", "ok"]);
 assert.equal(sc.data.target_id, "schwab/core");
 assert.equal(sc.data.domain, "us_equity");
-assert.equal(calls.length, 2, "mock endpoints never hit the network; only live sources do");
+assert.equal(calls.length, 3, "mock endpoints never hit the network; only live sources do");
 r.data.tape.length = 0;
 assert.ok((await api.ribbon()).data.tape.length > 0, "mock responses are copies");
 const forced = createDeskApi({ forcedScenario: "degraded", delayMs: 0, fetchJson });
@@ -221,6 +225,7 @@ assert.equal((await forced.session()).source, "mock");
 assert.equal((await forced.overview()).data.totals.status, "partial");
 calls.length = 0;
 assert.equal((await forced.credentials()).source, "mock", "a forced scenario overrides the live sources");
+assert.equal((await forced.switchTargets()).source, "mock", "a forced scenario overrides the target list too");
 assert.equal(calls.length, 0, "a forced scenario never hits the network");
 const failing = createDeskApi({ forcedScenario: "fail", delayMs: 0, fetchJson });
 await assert.rejects(failing.overview(), error => error instanceof HttpError && error.status === 503 && error.payload.error === "store_unavailable");

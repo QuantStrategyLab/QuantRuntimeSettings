@@ -3,6 +3,7 @@ import { binanceDetailCommand } from "./binance_detail_archive.js";
 import { createDeskAuth, DeskError, deskErrorResponse } from "./application/desk/http.js";
 import { DeskReadbackStore, deskReadbackResponse, buildReadback, readbackTargets } from "./application/desk/readback.js";
 import { deskCredentialsResponse } from "./application/desk/credentials.js";
+import { deskSwitchTargetsResponse } from "./application/desk/switch_targets.js";
 import { auditPageQuery, auditEventInPage, auditEventOrder, auditNextCursor } from "./application/console_api/audit_pagination.js";
 import { runtimeReadbackProjection } from "./application/console_api/runtime_readback.js";
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
@@ -871,6 +872,9 @@ export default {
       }
       if (url.pathname === "/api/desk/credentials") {
         return await deskCredentialsResponse(request, env, { auth: deskAuth, command: runtimeInstanceCommand });
+      }
+      if (url.pathname === "/api/desk/switch/targets") {
+        return await deskSwitchTargetsResponse(request, env, { auth: deskAuth, options: loadAccountOptionsConfig });
       }
       if (url.pathname.startsWith("/api/desk/targets/") || url.pathname === "/api/desk/readbacks" || url.pathname.startsWith("/api/desk/readbacks/")) {
         return await deskReadbackResponse(request, env, {
