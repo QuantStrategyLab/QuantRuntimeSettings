@@ -52,6 +52,283 @@
         },
         {"type": "null"}
       ]
+    },
+    "source": {
+      "type": "object",
+      "description": "Optional v1 sender-log evidence. Read coverage and sender acceptance never establish receiver acknowledgement.",
+      "properties": {
+        "read_status": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "partial",
+            "no_data",
+            "unknown",
+            "read_failed",
+            "not_connected"
+          ]
+        },
+        "read_reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "run_listing_coverage_unknown",
+              "run_listing_truncated",
+              "run_listing_incomplete",
+              "notification_receipts_read_failed",
+              "receipt_missing",
+              "receipt_expired",
+              "sender_skipped",
+              "no_completed_workflow_runs",
+              "notification_log_not_connected",
+              "invalid_notification_log"
+            ]
+          }
+        },
+        "as_of": {
+          "anyOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "properties": {
+              "source_run_id": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "source_run_attempt": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "workflow_updated_at": {
+                "anyOf": [
+                  {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "business_day": {
+                "anyOf": [
+                  {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "report_date": {
+                "anyOf": [
+                  {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sender_status": {
+                "type": "string",
+                "enum": [
+                  "route_check",
+                  "dry_run",
+                  "blocked_missing_secrets",
+                  "delivered",
+                  "send_failed",
+                  "skipped_duplicate",
+                  "blocked_resend_guard",
+                  "business_digest_failed",
+                  "skipped_empty",
+                  "receipt_missing",
+                  "receipt_expired",
+                  "sender_skipped",
+                  "read_failed",
+                  "unknown"
+                ]
+              },
+              "sender_accepted": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "dry_run": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "test_message": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "receiver_ack": {
+                "const": "unknown"
+              },
+              "read_error_code": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "receipt_read_timeout",
+                      "receipt_too_large",
+                      "receipt_body_missing",
+                      "invalid_receipt_archive",
+                      "public_receipt_missing",
+                      "invalid_public_receipt",
+                      "run_listing_failed",
+                      "run_listing_transport_failed",
+                      "run_listing_http_other",
+                      "run_listing_http_401",
+                      "run_listing_http_403",
+                      "run_listing_http_404",
+                      "run_listing_http_429",
+                      "run_listing_http_500",
+                      "run_listing_http_502",
+                      "run_listing_http_503",
+                      "run_listing_http_504",
+                      "artifact_listing_failed",
+                      "artifact_listing_transport_failed",
+                      "artifact_listing_http_other",
+                      "artifact_listing_http_401",
+                      "artifact_listing_http_403",
+                      "artifact_listing_http_404",
+                      "artifact_listing_http_429",
+                      "artifact_listing_http_500",
+                      "artifact_listing_http_502",
+                      "artifact_listing_http_503",
+                      "artifact_listing_http_504",
+                      "artifact_archive_failed",
+                      "artifact_archive_transport_failed",
+                      "artifact_archive_http_other",
+                      "artifact_archive_http_401",
+                      "artifact_archive_http_403",
+                      "artifact_archive_http_404",
+                      "artifact_archive_http_429",
+                      "artifact_archive_http_500",
+                      "artifact_archive_http_502",
+                      "artifact_archive_http_503",
+                      "artifact_archive_http_504",
+                      "artifact_download_failed",
+                      "artifact_download_transport_failed",
+                      "artifact_download_http_other",
+                      "artifact_download_http_401",
+                      "artifact_download_http_403",
+                      "artifact_download_http_404",
+                      "artifact_download_http_429",
+                      "artifact_download_http_500",
+                      "artifact_download_http_502",
+                      "artifact_download_http_503",
+                      "artifact_download_http_504",
+                      "receipt_decode_failed",
+                      "receipt_decode_transport_failed",
+                      "receipt_decode_http_other",
+                      "receipt_decode_http_401",
+                      "receipt_decode_http_403",
+                      "receipt_decode_http_404",
+                      "receipt_decode_http_429",
+                      "receipt_decode_http_500",
+                      "receipt_decode_http_502",
+                      "receipt_decode_http_503",
+                      "receipt_decode_http_504",
+                      "receipt_projection_failed",
+                      "receipt_projection_transport_failed",
+                      "receipt_projection_http_other",
+                      "receipt_projection_http_401",
+                      "receipt_projection_http_403",
+                      "receipt_projection_http_404",
+                      "receipt_projection_http_429",
+                      "receipt_projection_http_500",
+                      "receipt_projection_http_502",
+                      "receipt_projection_http_503",
+                      "receipt_projection_http_504",
+                      "sender_jobs_failed",
+                      "sender_jobs_transport_failed",
+                      "sender_jobs_http_other",
+                      "sender_jobs_http_401",
+                      "sender_jobs_http_403",
+                      "sender_jobs_http_404",
+                      "sender_jobs_http_429",
+                      "sender_jobs_http_500",
+                      "sender_jobs_http_502",
+                      "sender_jobs_http_503",
+                      "sender_jobs_http_504"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "source_run_id",
+              "source_run_attempt",
+              "workflow_updated_at",
+              "business_day",
+              "report_date",
+              "sender_status",
+              "sender_accepted",
+              "dry_run",
+              "test_message",
+              "receiver_ack",
+              "read_error_code"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "read_status",
+        "read_reason_codes",
+        "as_of",
+        "items"
+      ],
+      "additionalProperties": false
     }
   },
   "required": ["ok", "schema_version", "generated_at", "channel", "last_delivery", "digest"],

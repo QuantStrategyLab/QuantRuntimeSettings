@@ -280,6 +280,14 @@ try {
     assert.equal((await call(path, { cookie: null })).status, 401);
     assert.equal((await call(path, { method: "POST", body: {} })).status, 405);
   }
+  const deskDelivery = await call("/api/desk/alerts/delivery", { cookie: reader });
+  assert.equal(deskDelivery.status, 200);
+  assert.equal(deskDelivery.body.schema_version, "qsl.desk.alert_delivery.v1");
+  assert.equal(deskDelivery.body.source.read_status, "not_connected");
+  assert.equal(deskDelivery.body.channel.status.status, "unknown");
+  assert.equal(deskDelivery.body.last_delivery, null);
+  assert.equal((await call("/api/desk/alerts/delivery", { cookie: null })).status, 401);
+  assert.equal((await call("/api/desk/alerts/delivery", { method: "POST", body: {} })).status, 405);
   const controls = await call("/api/accounts/run-controls?account=synthetic-alpha");
   validate("run_controls", controls.body);
   assert.equal(controls.body.actions.enable.enabled, false);
