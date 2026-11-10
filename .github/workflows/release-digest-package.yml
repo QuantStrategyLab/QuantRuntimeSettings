@@ -1,0 +1,38 @@
+name: Central digest package release
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Protected package environment
+        type: choice
+        required: true
+        options:
+          - digest-package-release
+          - digest-package-test
+      operation:
+        description: Package release operation
+        type: choice
+        required: true
+        default: verify
+        options:
+          - verify
+          - deploy
+          - rollback
+permissions: {}
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+    uses: QuantStrategyLab/.github/.github/workflows/deploy-azure-blob.yml@5fe59a371186e25aa64b4a7a37582bf582996d92
+    with:
+      environment: ${{ inputs.target }}
+      operation: ${{ inputs.operation }}
+    secrets:
+      DEPLOY_CLIENT_ID: ${{ secrets.DEPLOY_CLIENT_ID }}
+      DEPLOY_TENANT_ID: ${{ secrets.DEPLOY_TENANT_ID }}
+      DEPLOY_STORAGE_ACCOUNT: ${{ secrets.DEPLOY_STORAGE_ACCOUNT }}
+      DEPLOY_CONTAINER: ${{ secrets.DEPLOY_CONTAINER }}
+      DEPLOY_BLOB: ${{ secrets.DEPLOY_BLOB }}
+      DEPLOY_PREVIOUS_SHA256: ${{ secrets.DEPLOY_PREVIOUS_SHA256 }}
+      DEPLOY_CANDIDATE_SHA256: ${{ secrets.DEPLOY_CANDIDATE_SHA256 }}
