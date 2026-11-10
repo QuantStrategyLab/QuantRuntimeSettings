@@ -2,7 +2,9 @@
  * Pure model behind the alerts page: filter counts and the order the owner reads them in.
  * Kept out of the component so the rules can be tested without rendering.
  */
-import type { AlertItem, Severity } from "../contract/types";
+import type {
+  AlertDeliverySource, AlertItem, DeliveryReadReason, DeliveryReadStatus, DeliverySenderStatus, Severity,
+} from "../contract/types";
 
 export type SeverityFilter = "all" | Severity;
 
@@ -38,4 +40,63 @@ export function alertWhen(item: AlertItem): { kind: "resolved" | "range" | "once
     return { kind: "once", first: clock(item.first_seen_at), last: clock(item.last_seen_at) };
   }
   return { kind: "range", first: clock(item.first_seen_at), last: clock(item.last_seen_at) };
+}
+
+// ---------------------------------------------------------------- delivery (sender log)
+
+/** Which part of the page is fixture data. Both mock → "all"; one mock → "partial". */
+export function alertsFixtureLabel(sources: readonly ("live" | "mock" | null)[]): "none" | "partial" | "all" {
+  const known = sources.filter((source): source is "live" | "mock" => source !== null);
+  const mock = known.filter(source => source === "mock").length;
+  if (mock === 0) return "none";
+  return mock === known.length ? "all" : "partial";
+}
+
+export interface DeliveryRowView {
+  key: string;
+  run: { id: number; attempt: number | null } | null;
+  senderKey: `alerts.delivery.sender.${DeliverySenderStatus}`;
+  /** Sender-side only. A null stays unknown, never "not accepted". */
+  acceptedKey: "alerts.delivery.accepted.yes" | "alerts.delivery.accepted.no" | "alerts.delivery.accepted.unknown";
+  /** Always the unknown receiver label: this source has no receiver receipt. */
+  receiverKey: "alerts.delivery.receiver_unknown";
+  dryRun: boolean;
+  testMessage: boolean;
+  businessDay: string | null;
+  reportDate: string | null;
+  workflowUpdatedAt: string | null;
+  readErrorCode: string | null;
+}
+
+export interface DeliverySourceView {
+  readKey: `alerts.delivery.read.${DeliveryReadStatus}`;
+  readStatus: DeliveryReadStatus;
+  reasonKeys: `alerts.delivery.reason.${DeliveryReadReason}`[];
+  asOf: string | null;
+  rows: DeliveryRowView[];
+}
+
+/** Projects the validated `source` block one row at a time: no merging, counting or inference. */
+export function deliverySourceView(source: AlertDeliverySource | undefined): DeliverySourceView | null {
+  if (!source) return null;
+  return {
+    readKey: `alerts.delivery.read.${source.read_status}`,
+    readStatus: source.read_status,
+    reasonKeys: source.read_reason_codes.map(code => `alerts.delivery.reason.${code}` as const),
+    asOf: source.as_of,
+    rows: source.items.map((item, index) => ({
+      key: `${index}:${item.source_run_id ?? "none"}:${item.source_run_attempt ?? "none"}`,
+      run: item.source_run_id === null ? null : { id: item.source_run_id, attempt: item.source_run_attempt },
+      senderKey: `alerts.delivery.sender.${item.sender_status}`,
+      acceptedKey: item.sender_accepted === true ? "alerts.delivery.accepted.yes"
+        : item.sender_accepted === false ? "alerts.delivery.accepted.no" : "alerts.delivery.accepted.unknown",
+      receiverKey: "alerts.delivery.receiver_unknown",
+      dryRun: item.dry_run === true,
+      testMessage: item.test_message === true,
+      businessDay: item.business_day,
+      reportDate: item.report_date,
+      workflowUpdatedAt: item.workflow_updated_at,
+      readErrorCode: item.read_error_code,
+    })),
+  };
 }

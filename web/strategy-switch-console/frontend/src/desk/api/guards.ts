@@ -241,6 +241,46 @@ export function isAlerts(value: unknown): value is Alerts {
     Array.isArray(value.items) && value.items.every(isAlertItem) && nullable(isString)(value.next_cursor);
 }
 
+export const DELIVERY_READ_STATUSES = ["complete", "partial", "no_data", "unknown", "read_failed", "not_connected"] as const;
+export const DELIVERY_READ_REASONS = [
+  "run_listing_coverage_unknown", "run_listing_truncated", "run_listing_incomplete",
+  "notification_receipts_read_failed", "receipt_missing", "receipt_expired", "sender_skipped",
+  "no_completed_workflow_runs", "notification_log_not_connected", "invalid_notification_log",
+] as const;
+export const DELIVERY_SENDER_STATUSES = [
+  "route_check", "dry_run", "blocked_missing_secrets", "delivered", "send_failed",
+  "skipped_duplicate", "blocked_resend_guard", "business_digest_failed", "skipped_empty",
+  "receipt_missing", "receipt_expired", "sender_skipped", "read_failed", "unknown",
+] as const;
+/** Exactly the schema's read_error_code enum: six receipt codes plus stage × failure family. */
+const isReadErrorCode = (value: unknown): value is string => isString(value) && (
+  /^(?:receipt_read_timeout|receipt_too_large|receipt_body_missing|invalid_receipt_archive|public_receipt_missing|invalid_public_receipt)$/.test(value) ||
+  /^(?:run_listing|artifact_listing|artifact_archive|artifact_download|receipt_decode|receipt_projection|sender_jobs)_(?:failed|transport_failed|http_(?:other|401|403|404|429|500|502|503|504))$/.test(value));
+const isRunNumber = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 1;
+const isDate = (value: unknown): value is string => isString(value) && /^\d{4}-\d{2}-\d{2}$/.test(value) && isIso(`${value}T00:00:00Z`);
+const isNullableBool = (value: unknown): value is boolean | null => value === null || typeof value === "boolean";
+const DELIVERY_ITEM_KEYS = ["business_day", "dry_run", "read_error_code", "receiver_ack", "report_date", "sender_accepted",
+  "sender_status", "source_run_attempt", "source_run_id", "test_message", "workflow_updated_at"].join();
+
+const isDeliverySourceItem = (value: unknown): boolean => isObject(value) &&
+  Object.keys(value).sort().join() === DELIVERY_ITEM_KEYS &&
+  nullable(isRunNumber)(value.source_run_id) && nullable(isRunNumber)(value.source_run_attempt) &&
+  nullable(isIso)(value.workflow_updated_at) && nullable(isDate)(value.business_day) && nullable(isDate)(value.report_date) &&
+  oneOf(...DELIVERY_SENDER_STATUSES)(value.sender_status) &&
+  isNullableBool(value.sender_accepted) && isNullableBool(value.dry_run) && isNullableBool(value.test_message) &&
+  // The only receiver fact this source may carry is "unknown".
+  value.receiver_ack === "unknown" && nullable(isReadErrorCode)(value.read_error_code);
+
+/** The v1 `source` block, validated in full before any of it is rendered. */
+export function isDeliverySource(value: unknown): boolean {
+  if (!isObject(value) || Object.keys(value).sort().join() !== "as_of,items,read_reason_codes,read_status") return false;
+  const reasons = value.read_reason_codes;
+  return oneOf(...DELIVERY_READ_STATUSES)(value.read_status) &&
+    Array.isArray(reasons) && reasons.every(oneOf(...DELIVERY_READ_REASONS)) && new Set(reasons).size === reasons.length &&
+    nullable(isIso)(value.as_of) &&
+    Array.isArray(value.items) && value.items.length <= 5 && value.items.every(isDeliverySourceItem);
+}
+
 export function isAlertDelivery(value: unknown): value is AlertDelivery {
   if (!envelope(value, "qsl.desk.alert_delivery.v1")) return false;
   const channel = value.channel;
@@ -249,7 +289,9 @@ export function isAlertDelivery(value: unknown): value is AlertDelivery {
   return isObject(channel) && isString(channel.name) && isRead(channel.status, oneOf("ok", "failing")) &&
     (last === null || (isObject(last) && isIso(last.at) && oneOf("ok", "failed")(last.outcome) && isCount(last.recipients))) &&
     (digest === null || (isObject(digest) && isClock(digest.schedule_utc) && isIso(digest.last_composed_at) &&
-      isCount(digest.targets) && isCount(digest.runs)));
+      isCount(digest.targets) && isCount(digest.runs))) &&
+    // Optional for older fixtures; when present it must be valid, never partially rendered.
+    (!("source" in value) || isDeliverySource(value.source));
 }
 
 const isLogLine = (value: unknown) => isObject(value) && isString(value.id) && isIso(value.at) &&

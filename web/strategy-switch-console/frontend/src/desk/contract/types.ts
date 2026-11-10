@@ -646,6 +646,47 @@ export interface AlertDelivery extends DeskEnvelope<"qsl.desk.alert_delivery.v1"
   channel: { name: string; status: Read<"ok" | "failing"> };
   last_delivery: { at: IsoTime; outcome: "ok" | "failed"; recipients: number } | null;
   digest: { schedule_utc: ClockUtc; last_composed_at: IsoTime; targets: number; runs: number } | null;
+  /** v1 additive sender-log evidence (schemas/desk/alert-delivery.json). Optional for older
+      fixtures; read coverage and sender acceptance never establish receiver acknowledgement. */
+  source?: AlertDeliverySource;
+}
+
+export type DeliveryReadStatus = "complete" | "partial" | "no_data" | "unknown" | "read_failed" | "not_connected";
+
+export type DeliveryReadReason =
+  | "run_listing_coverage_unknown" | "run_listing_truncated" | "run_listing_incomplete"
+  | "notification_receipts_read_failed" | "receipt_missing" | "receipt_expired" | "sender_skipped"
+  | "no_completed_workflow_runs" | "notification_log_not_connected" | "invalid_notification_log";
+
+export type DeliverySenderStatus =
+  | "route_check" | "dry_run" | "blocked_missing_secrets" | "delivered" | "send_failed"
+  | "skipped_duplicate" | "blocked_resend_guard" | "business_digest_failed" | "skipped_empty"
+  | "receipt_missing" | "receipt_expired" | "sender_skipped" | "read_failed" | "unknown";
+
+export interface AlertDeliverySourceItem {
+  source_run_id: number | null;
+  source_run_attempt: number | null;
+  /** Workflow metadata only; never a send time or freshness proof. */
+  workflow_updated_at: IsoTime | null;
+  business_day: IsoDate | null;
+  report_date: IsoDate | null;
+  sender_status: DeliverySenderStatus;
+  /** Sender-side acceptance. Never a receiver delivery. */
+  sender_accepted: boolean | null;
+  dry_run: boolean | null;
+  test_message: boolean | null;
+  /** This source has no receiver receipt; always unknown. */
+  receiver_ack: "unknown";
+  /** Fixed allowlisted code from the shared receipt reader, or null. */
+  read_error_code: string | null;
+}
+
+export interface AlertDeliverySource {
+  read_status: DeliveryReadStatus;
+  read_reason_codes: DeliveryReadReason[];
+  /** Read time; never a send, composition or ACK time. */
+  as_of: IsoTime | null;
+  items: AlertDeliverySourceItem[];
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
