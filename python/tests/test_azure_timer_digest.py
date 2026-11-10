@@ -73,3 +73,37 @@ class ScheduleTests(unittest.TestCase):
                 ValueError, 'unverified_sliding_window'
             ):
                 window_slot(bad_start, bad_end, 86400, NOW)
+
+    def test_deadline_receipt_is_separate_create_only_and_keeps_first_result(self):
+        store, send = Mock(), Mock()
+        store.delivery.return_value = {
+            'report_date': '2026-11-10', 'business_day': '2026-11-09',
+            'recipient_scope': 'synthetic', 'delivery': 'accepted', 'late': False,
+        }
+        configuration = Mock(recipient_scope='synthetic', cutover_date='2026-11-10', enabled=True)
+        slot = datetime.fromisoformat('2026-11-09T23:30:00Z')
+        store.reserve.return_value = (True, 1)
+        code, result = execute_scheduled(slot, configuration, store, send, now=lambda: NOW)
+        self.assertEqual((code, result['delivery'], result['deadline_receipt']), (200, 'confirmed', 'recorded'))
+        key, receipt = store.reserve.call_args.args
+        self.assertEqual(key, 'synthetic/deadline-checks/2026-11-10.json')
+        self.assertEqual(receipt['delivery'], 'confirmed')
+        store.delivery.assert_called_once_with('synthetic/2026-11-10.json')
+
+        store.reserve.return_value = (False, {**receipt, 'delivery': 'receipt_unverified'})
+        code, result = execute_scheduled(slot, configuration, store, send, now=lambda: NOW)
+        self.assertEqual((code, result['delivery'], result['deadline_receipt']),
+                         (200, 'receipt_unverified', 'already_recorded'))
+        store.finish.assert_not_called()
+        send.assert_not_called()
+
+    def test_deadline_receipt_storage_failure_retries_check_without_sending(self):
+        store, send = Mock(), Mock()
+        store.delivery.return_value = None
+        store.reserve.side_effect = core.StoreUnavailable()
+        configuration = Mock(recipient_scope='synthetic', cutover_date='2026-11-10', enabled=True)
+        slot = datetime.fromisoformat('2026-11-09T23:30:00Z')
+        code, result = execute_scheduled(slot, configuration, store, send, now=lambda: NOW)
+        self.assertEqual((code, result['delivery'], result['deadline_receipt']),
+                         (503, 'receipt_unverified', 'unverified'))
+        send.assert_not_called()

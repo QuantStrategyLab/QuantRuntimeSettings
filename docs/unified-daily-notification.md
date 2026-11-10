@@ -336,6 +336,13 @@ stored delivery receipt; it does not recollect late candidates or prove receiver
 receipt. Do not postpone the central read or widen the business window to hide
 late producer jobs.
 
+The Azure deadline check also saves its first result under
+`<recipient-scope>/deadline-checks/<report-date>.json` within the delivery
+prefix. The record is create-only. It can be read after the job's console
+logs expire and records the check result, the original slot and check time.
+A retry keeps the first recorded result. The check reads the delivery
+record and never sends a notification or modifies that record.
+
 Each expected producer target has an archive-only entrypoint,
 `python -m scripts.publish_digest_before_read`, in its platform repository.
 The proposed trigger is a dedicated Cloud Run Job at 06:10 Asia/Shanghai,
