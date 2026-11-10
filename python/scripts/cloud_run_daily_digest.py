@@ -202,7 +202,8 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
     facts = collect_account_facts([*rows, *stale_observations], configuration.expected, day)
     if coverage == 'complete' and (payload.notification_summary or {}).get('counts_unknown'):
         coverage = 'partial'
-    text = render_account_daily(payload, configuration.expected, outcomes, facts=facts)
+    platforms = dict.fromkeys((*adapter.PLATFORMS, *config.get('platforms', {})))
+    text = render_account_daily(payload, configuration.expected, outcomes, facts=facts, known_platforms=platforms)
     return text, coverage
 
 

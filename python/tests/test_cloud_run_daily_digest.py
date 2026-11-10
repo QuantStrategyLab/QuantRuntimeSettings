@@ -63,14 +63,67 @@ class CloudRunDigestTests(unittest.TestCase):
         self.sent.append(text)
         return 123
 
-    def run_request(self, *, preview=False, headers=None, configuration=None, sender=None):
+    def run_request(self, *, preview=False, headers=None, configuration=None, sender=None, platform_config=None):
         return app.execute(headers or HEADERS, configuration or self.configuration, self.store,
                            sender or self.send, preview=preview, now=lambda: self.now,
-                           platform_config=config(EXPECTED))
+                           platform_config=platform_config or config(EXPECTED))
 
     def enable(self):
         from dataclasses import replace
         return replace(self.configuration, enabled=True)
+
+    def test_report_lists_unbound_platforms_without_reading_them(self):
+        platform_config = {**config(EXPECTED), 'platforms': {'qmt': {}}}
+        read = self.store.candidate
+
+        def only_bound_candidate(key, timeout):
+            self.assertEqual(key, 'schwab/2026-10-15/synthetic-slot.json')
+            return read(key, timeout)
+
+        self.store.candidate = only_bound_candidate
+        self.run_request(configuration=self.enable(), platform_config=platform_config)
+        text = self.sent[0]
+        self.assertIn('未接入日报来源：IBKR、LongBridge、Binance、Firstrade、QMT', text)
+        self.assertIn('管理站汇总平台数据', text)
+        self.assertEqual(text.count('🏦 '), 1)
+
+    def test_filled_orders_count_distinct_orders_and_preserve_unknown_totals(self):
+        key = next(iter(self.store.rows))
+        fill = {'order_id': 'synthetic-order', 'occurred_at': '2026-10-15T22:00:00+08:00'}
+        fills = [{**fill, 'id': 'synthetic-fill-a'}, {**fill, 'id': 'synthetic-fill-b'}]
+        row = {**ROW, 'order_count': 1, 'fill_count': 2}
+        row.pop('notification_event')
+        for records, count in ((fills, '已见 1 笔，总数未知'), (fills[:1], '已见 1 笔，总数未知'), ([], '未知')):
+            with self.subTest(records=len(records)):
+                self.store = MemoryStore({key: {'runs': [
+                    {**row, 'account_daily_facts': {'fills': records}},
+                ]}})
+                self.sent = []
+                self.run_request(configuration=self.enable())
+                text = self.sent[0]
+                self.assertIn('成交回报 2笔', text)
+                self.assertIn(f'成交订单 {count}', text)
+                self.assertNotIn('synthetic-order', text)
+
+    def test_report_keeps_execution_and_evidence_failures_distinct(self):
+        key = next(iter(self.store.rows))
+        row = {**ROW, 'execution_status': 'blocked', 'evidence_persistence_status': 'persistence_failed',
+               'evidence_delivery_status': 'delivery_failed'}
+        self.store = MemoryStore({key: {'runs': [row]}})
+        self.run_request(configuration=self.enable())
+        text = self.sent[0]
+        self.assertIn('执行已拦截', text)
+        self.assertIn('证据留存失败', text)
+        self.assertIn('证据传递失败', text)
+
+    def test_legacy_reported_assets_retain_unknown_snapshot_time(self):
+        key = next(iter(self.store.rows))
+        self.store = MemoryStore({key: {'runs': [
+            {**ROW, 'equity': 250, 'equity_currency': 'USD', 'as_of': NOW.isoformat()},
+        ]}})
+        self.run_request(configuration=self.enable())
+        self.assertIn('总资产：USD 250.00 · 来源已报告，快照时间未知', self.sent[0])
+        self.assertIn('持仓：未知', self.sent[0])
 
     def test_account_snapshot_keeps_independently_verified_fields(self):
         position = {'symbol': 'TQQQ', 'asset_type': 'etf', 'quantity': 3}
