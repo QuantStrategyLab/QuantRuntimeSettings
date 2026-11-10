@@ -385,3 +385,15 @@ bindings or turn a disabled target into a verified zero-activity window.
 Future broker-side confirmation is described in
 [Fill confirmation design](fill-confirm-design.md). It is design only and grants no
 runtime, broker, deployment or notification authority.
+
+## Shared Azure package release
+
+Run `Central digest package release` from the default branch. Select the
+protected package environment and start with `verify`. For a release, stage
+the reviewed ZIP by its SHA-256 in the private container, configure the two
+digests, then select `deploy`. The shared workflow verifies the backup,
+updates the live package conditionally, and reads it back. Use `rollback`
+with the same digest pair when the candidate is still live. The Azure
+send and check schedules keep their existing package path and runtime identity.
+
+[Organization package release contract](https://github.com/QuantStrategyLab/.github/blob/main/docs/deployment-workflows.md#azure-blob-packages)
