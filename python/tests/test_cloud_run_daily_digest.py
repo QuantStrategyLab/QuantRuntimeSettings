@@ -122,7 +122,7 @@ class CloudRunDigestTests(unittest.TestCase):
             {**ROW, 'equity': 250, 'equity_currency': 'USD', 'as_of': NOW.isoformat()},
         ]}})
         self.run_request(configuration=self.enable())
-        self.assertIn('总资产：USD 250.00 · 来源已报告，快照时间未知', self.sent[0])
+        self.assertIn('总资产：未知 · 来源报告 USD 250.00，快照时间未知', self.sent[0])
         self.assertIn('持仓：未知', self.sent[0])
 
     def test_account_snapshot_keeps_independently_verified_fields(self):

@@ -249,9 +249,10 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                             for row in rows if row.equity is not None or row.holdings}
             if len(observations) == 1:
                 observed_equity, currency, observed_holdings, scope = next(iter(observations))
-                equity = _money(observed_equity, currency, unknown)
-                if equity != unknown:
-                    stamp_label = '来源已报告，快照时间未知' if zh else 'Reported by source, snapshot time unknown'
+                observed = _money(observed_equity, currency, unknown)
+                if observed != unknown:
+                    stamp_label = (f'来源报告 {observed}，快照时间未知' if zh else
+                                   f'Source reported {observed}, snapshot time unknown')
                 elif observed_holdings:
                     stamp_label = '持仓快照时间未知' if zh else 'Holding snapshot time unknown'
                 holdings = [{'symbol': h.symbol, 'quantity': h.quantity,
