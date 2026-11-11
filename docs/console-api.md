@@ -233,6 +233,9 @@ and validator and adds `decision_completion_unknown` to `errors` on failure.
 Historical terminal decisions remain addressable through the existing by-ID
 fallback. Repeated reads and a Worker restart reconstruct the same acknowledgement
 from storage. Changed material or review bindings invalidate a projected ACK.
+Promotion acknowledgement requires a valid 64-character lowercase hexadecimal
+review digest. Historical/v1 receipts with missing, invalid or null review digests
+remain `unknown`, including a null/null comparison; they do not prove completion.
 An acknowledged actor is evidence of who recorded the decision, not an assigned
 owner. Actual owner assignment and broader work completion remain unrecorded;
 this projection does not invent them. No frontend adoption or runtime acceptance

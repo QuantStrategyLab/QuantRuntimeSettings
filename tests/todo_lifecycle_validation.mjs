@@ -97,3 +97,33 @@ test("malformed blockers and mismatched revisions cannot leak or invent setup li
   assert.equal(result.completion.status, "unknown");
   assert.doesNotMatch(JSON.stringify(result), /private|example\.invalid/);
 });
+
+test("promotion acknowledgement rejects unqualified historical review digests", async () => {
+  const { todoLifecycle } = await import("../web/strategy-switch-console/application/console_api/todo_lifecycle.js");
+  const { decisionRevision } = await import("../web/strategy-switch-console/application/console_api/decision_contract.js");
+  const current = (await read()).items[0];
+  for (const category of ["strategy_promotion", "paper_account_application"]) {
+    for (const reviewBinding of [undefined, null, {}, { review_sha256: null },
+      { review_sha256: "invalid" }, { review_sha256: "b".repeat(63) }]) {
+      const binding = { ...row.decision_binding, review_binding: reviewBinding };
+      const id = `${category}:${row.ticket_id}`;
+      const item = { ...current, id, category, decision_binding: binding, revision: decisionRevision(binding, id) };
+      for (const receiptReview of [undefined, null, reviewBinding?.review_sha256]) {
+        const result = todoLifecycle(item, { ...ack, review_sha256: receiptReview });
+        assert.equal(result.completion.status, "unknown", `${category}: unqualified digest must not ACK`);
+        assert.equal(result.state, "unknown");
+        assert.equal(result.completion.actor_alias, null);
+        assert.equal(result.completion.receipt_sha256, null);
+        assert.ok(result.blockers.some(b => b.code === "decision_completion_unknown"));
+      }
+    }
+    const qualified = { ...current, id: `${category}:${row.ticket_id}`, category };
+    assert.equal(todoLifecycle(qualified, ack).completion.status, "acknowledged");
+    for (const receiptReview of [undefined, null, "invalid", "d".repeat(64)])
+      assert.equal(todoLifecycle(qualified, { ...ack, review_sha256: receiptReview }).completion.status, "unknown");
+  }
+  const legacy = { ...row, decision_binding: { ...row.decision_binding, review_binding: null } };
+  const result = await read(legacy, async () => ({ ...ack, review_sha256: null }));
+  assert.equal(result.status, "partial");
+  assert.equal(result.items[0].todo_lifecycle.completion.status, "unknown");
+});

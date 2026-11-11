@@ -35,7 +35,7 @@ export function todoLifecycle(item, acknowledgement = { status: "unavailable" })
   let status = supported ? "unknown" : "unsupported";
   const ack = acknowledgement;
   if (bound && ack?.status === "not_found") status = "pending";
-  if (bound && ack?.status === "found" && ack.kind === kind && ack.subject_id === parts.subject_id
+  if (bound && (kind !== "promotion" || review !== null) && ack?.status === "found" && ack.kind === kind && ack.subject_id === parts.subject_id
     && ack.material_sha256 === material && (ack.review_sha256 ?? null) === review
     && DECISION_ACTIONS[item.category]?.includes(ack.action) && digest(ack.receipt_sha256)
     && instant(ack.acknowledged_at) && /^actor-[0-9a-f]{16}$/.test(ack.actor_alias || "")) status = "acknowledged";
