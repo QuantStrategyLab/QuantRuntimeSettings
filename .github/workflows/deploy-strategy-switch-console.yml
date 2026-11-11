@@ -1087,6 +1087,24 @@ jobs:
             exit 0
           fi
           # Historical reviewed merged main release: same receiver and configuration gates.
+          # Reviewed console release: exact source, sole parent and retained configuration.
+          if [ "$RELEASE_SOURCE_SHA" = "6f9b84e6192b68bac1627337fb4e633e178fcee3" ]; then
+            [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
+              && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
+              && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = false ] || exit 2
+            control_sha="$(git rev-parse HEAD)"
+            [ "$control_sha" = "$GITHUB_SHA" ] || exit 2
+            git cat-file -e "${RELEASE_SOURCE_SHA}^{commit}"
+            git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$control_sha"
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^@")" = "49781f1be3061a27ad05afc3c675c91744ac27d2" ] || exit 2
+            expected_tree="04196ebc2293f7c146cc788948d312afdcf5cf99"
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "$expected_tree" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" = "d883bc7f5a36a822c1c73e45d043a9792f4be64c" ] || exit 2
+            git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
+            [ "$(git rev-parse HEAD)" = "$RELEASE_SOURCE_SHA" ] \
+              && [ "$(git rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || exit 2
+            exit 0
+          fi
           if [ "$RELEASE_SOURCE_SHA" = "c1b737d6e721eb9fe71a12c613fbb49d3fa51563" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
               && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
