@@ -534,6 +534,9 @@
               },
               "presentation": {
                 "$ref": "#/$defs/recovery_material_presentation"
+              },
+              "todo_lifecycle": {
+                "$ref": "#/$defs/todo_lifecycle"
               }
             },
             "required": [
@@ -4207,7 +4210,12 @@
           "type": "string"
         },
         "decision": {
-          "type": "object"
+          "type": "object",
+          "properties": {
+            "todo_lifecycle": {
+              "$ref": "#/$defs/todo_lifecycle"
+            }
+          }
         },
         "current_eligibility": {
           "$ref": "#/$defs/decision_eligibility"
@@ -5082,6 +5090,172 @@
         "operation_id",
         "outcome"
       ]
+    },
+    "todo_lifecycle": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "qsl.todo_lifecycle.v1"
+        },
+        "scope": {
+          "const": "decision_intent"
+        },
+        "owner": {
+          "type": "object",
+          "properties": {
+            "required_role": {
+              "enum": [
+                "admin",
+                null
+              ]
+            },
+            "assignment_status": {
+              "const": "not_recorded"
+            },
+            "actor_alias": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "required_role",
+            "assignment_status",
+            "actor_alias"
+          ],
+          "additionalProperties": false
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "blocked",
+            "expired",
+            "acknowledged",
+            "unknown",
+            "unsupported"
+          ]
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "resume_condition": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "resume_condition"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "setup_decision": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "enum": [
+                "available",
+                "unavailable"
+              ]
+            },
+            "href": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "decision_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "material_sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "href",
+            "decision_id",
+            "revision",
+            "material_sha256"
+          ],
+          "additionalProperties": false
+        },
+        "completion": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "enum": [
+                "pending",
+                "acknowledged",
+                "unknown",
+                "unsupported"
+              ]
+            },
+            "scope": {
+              "const": "decision_intent"
+            },
+            "actor_alias": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "acknowledged_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "receipt_sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "scope",
+            "actor_alias",
+            "acknowledged_at",
+            "receipt_sha256"
+          ],
+          "additionalProperties": false
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope",
+        "owner",
+        "state",
+        "blockers",
+        "setup_decision",
+        "completion",
+        "no_order",
+        "execution_authority_granted"
+      ],
+      "additionalProperties": false
     }
   }
 }

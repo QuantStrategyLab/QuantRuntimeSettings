@@ -199,6 +199,45 @@ A source failure remains visible in `sources` and produces inbox
 `status=read_failed`, even if other sources returned items. An unreadable history
 returns HTTP 503 with `ReadFailed`, never an empty success.
 
+### Decision action todo lifecycle
+
+Inbox items and `GET /api/decisions/:id` reviews add `todo_lifecycle`
+(`qsl.todo_lifecycle.v1`). Existing consumers may ignore the additive field;
+existing eligibility, writes, IDs, pagination and runtime readback are unchanged.
+This is the lifecycle of the **decision recording action**, with
+`scope=decision_intent`. It does not complete application, setup effectiveness,
+reconciliation, notification delivery or broker execution.
+
+| Field | Meaning |
+|---|---|
+| `owner` | Existing decision writers require `admin`. Person assignment is not stored by these sources: `assignment_status=not_recorded`, `actor_alias=null`. This is an explicit gap, never an inferred assignee. Credential maintenance has no supported inbox writer and a null role. |
+| `state` | `pending`, `blocked`, `expired`, `acknowledged`, `unknown` or `unsupported`. A producer's decided state, applied status or notification does not establish acknowledgement. |
+| `blockers` | Stable code and `resume_condition` for each observed blocker. Unknown source codes collapse to `decision_blocked_unknown`; raw producer text is omitted. Conditions describe evidence to restore, not execution authority. |
+| `setup_decision` | Existing relative decision-page link plus exact decision ID, revision and material digest. Missing or inconsistent bindings return `unavailable` and null fields. Reload the current review before any existing action; the link itself grants no permission. |
+| `completion` | `pending` means the exact current durable authority was read and has no decision. `acknowledged` requires the existing receipt integrity validator and matching kind, subject, full material and promotion review digest. `unknown` means missing, mismatched or unreadable evidence; credential actions are `unsupported`. Only pseudonymous actor, timestamp and receipt digest are exposed. |
+
+Resume conditions map stale evidence to `refresh_evidence`, expiry to
+`refresh_decision_material`, missing authority to `restore_authority_read`, and
+recovery blockers to `restore_recovery_readiness`. An already-decided source points
+to `read_existing_decision_receipt`; an unknown completion points to
+`restore_exact_decision_receipt`. Other invalid/ineligible material requires
+`restore_verified_decision_material`. A credential action points to
+`use_existing_maintenance_process`. These conditions never reopen a skipped period.
+
+Reads reuse current durable decision records and `humanDecisionReceipt`; there is
+no new storage, completion mutation or task endpoint. The inbox validates only its
+returned page, without cross-request caching. Receipt read failure preserves the
+item, sets completion/state to `unknown`, and makes an otherwise healthy inbox
+`partial`; existing source `read_failed` wins. Detail uses its own authority read
+and validator and adds `decision_completion_unknown` to `errors` on failure.
+Historical terminal decisions remain addressable through the existing by-ID
+fallback. Repeated reads and a Worker restart reconstruct the same acknowledgement
+from storage. Changed material or review bindings invalidate a projected ACK.
+An acknowledged actor is evidence of who recorded the decision, not an assigned
+owner. Actual owner assignment and broader work completion remain unrecorded;
+this projection does not invent them. No frontend adoption or runtime acceptance
+is implied by this backend contract.
+
 ## Today, strategies and notification context
 
 `/api/runtime/today` chooses today's date on the server in `America/New_York`,
