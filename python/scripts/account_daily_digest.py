@@ -55,7 +55,15 @@ def _money(value, currency, unknown):
     return f'{currency} {text}'
 
 
-def _symbol(value, unknown):
+def valid_crypto_symbol(value):
+    return (isinstance(value, str) and 1 <= len(value) <= 128
+            and all(char.isalnum() and not ('a' <= char <= 'z') and char not in '\u115f\u1160\u3164\uffa0'
+                    for char in value))
+
+
+def _symbol(value, unknown, *, asset_type=None):
+    if asset_type == 'crypto' and valid_crypto_symbol(value):
+        return value
     value = str(value or '').strip()
     return value if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.\-^/]{0,19}', value) else unknown
 
@@ -155,7 +163,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         header = '🏦 ' + ' · '.join((platform_label, account, ' / '.join(strategies)))
         details = []
         for binding, outcome in bindings:
-            if outcome != 'present' and not (outcome == 'not_run' and len(bindings) == 1):
+            if outcome not in {'present', 'snapshot_only'} and not (outcome == 'not_run' and len(bindings) == 1):
                 fallback = '未命名策略' if zh else 'Unnamed strategy'
                 strategy = safe_display_text(display_name('strategies', binding.get('strategy_profile', ''), locale, fallback=fallback)) or fallback
                 text = outcome_text.get(outcome, ('状态未知', 'Status unknown'))[0 if zh else 1]
@@ -303,7 +311,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         if holding_stamp_label:
             holding_label += (' · ' if not holdings or not complete else '') + holding_stamp_label
         holding_lines = [
-            f"{_symbol(h.get('symbol'), unknown)} {_quantity(h.get('quantity'), h.get('asset_type'), zh, unknown)}"
+            f"{_symbol(h.get('symbol'), unknown, asset_type=h.get('asset_type'))} {_quantity(h.get('quantity'), h.get('asset_type'), zh, unknown)}"
             for h in holdings
         ]
         # Every binding must have a matching run, not merely an outcome marker.
@@ -347,6 +355,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             state = '⏳ 已提交，成交待确认' if zh else '⏳ Submitted, fills unconfirmed'
         elif account_idle:
             state = '😴 无交易' if zh else '😴 No trades'
+        elif all(outcome == 'snapshot_only' for _, outcome in bindings):
+            state = '仅核实持仓快照，交易情况未知' if zh else 'Holdings snapshot verified, trading activity unknown'
         elif all(outcome == 'not_run' for _, outcome in bindings):
             state = '策略未运行，账户交易未知' if zh else 'Strategy did not run; account trades unknown'
         else:

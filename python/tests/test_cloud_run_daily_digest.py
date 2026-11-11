@@ -7,6 +7,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from http.client import IncompleteRead
 from pathlib import Path
 from unittest.mock import patch
 
@@ -86,6 +87,75 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertIn('未接入日报来源：IBKR、LongBridge、Binance、Firstrade、QMT', text)
         self.assertIn('管理站汇总平台数据', text)
         self.assertEqual(text.count('🏦 '), 1)
+
+    def test_binance_snapshot_shows_holdings_and_keeps_trade_counts_unknown(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        cfg = replace(self.enable(), expected=[binding],
+                      binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
+                      binance_snapshot_token='synthetic-read-only-token-for-tests')
+        response = {'ok': True, 'business_day': '2026-10-15', 'as_of': '2026-10-15T16:00:00Z',
+                    'account_key': binding['opaque_account_uid'], 'target_id': binding['target_id'],
+                    'holdings': [{'asset': 'BTC', 'quantity': '0.0125'}, {'asset': '币', 'quantity': '1.5'},
+                                 {'asset': 'A' * 128, 'quantity': '3'}]}
+        with patch.object(app.urllib.request, 'build_opener') as opener:
+            opener.return_value.open.return_value = io.BytesIO(json.dumps(response).encode())
+            self.run_request(configuration=cfg, platform_config=config([binding]))
+            request = opener.return_value.open.call_args.args[0]
+            self.assertEqual(request.full_url, cfg.binance_snapshot_endpoint + '?business_day=2026-10-15')
+            self.assertIsNone(opener.call_args.args[0].redirect_request(None, None, 302, None, None, None))
+        text, = self.sent
+        self.assertIn('仅核实持仓快照，交易情况未知', text)
+        self.assertIn('BTC 0.0125', text)
+        self.assertIn('币 1.5', text)
+        self.assertIn('A' * 128 + ' 3', text)
+        self.assertIn('提交订单 未知｜成交回报 未知', text)
+        self.assertNotIn('策略未运行', text)
+
+    def test_binance_snapshot_rejects_wrong_account_or_out_of_window(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        cfg = replace(self.configuration, expected=[binding],
+                      binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
+                      binance_snapshot_token='synthetic-read-only-token-for-tests')
+        valid = {'ok': True, 'business_day': '2026-10-15', 'as_of': '2026-10-15T16:00:00Z',
+                 'account_key': binding['opaque_account_uid'], 'target_id': binding['target_id'],
+                 'holdings': []}
+        for fields in ({'account_key': 'wrong-account'}, {'as_of': '2026-10-15T22:00:00Z'}):
+            with self.subTest(fields=fields), patch.object(app.urllib.request, 'build_opener') as opener:
+                opener.return_value.open.return_value = io.BytesIO(json.dumps({**valid, **fields}).encode())
+                with self.assertRaises(ValueError):
+                    app._binance_snapshot(cfg, binding, '2026-10-15', 20)
+
+    def test_missing_binance_credentials_do_not_block_existing_accounts(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        expected = [*EXPECTED, binding]
+        cfg = replace(self.enable(), expected=expected)
+        self.run_request(configuration=cfg, platform_config=config(expected))
+        text, = self.sent
+        self.assertIn('🏦 Schwab', text)
+        self.assertIn('🏦 Binance', text)
+        self.assertIn('报告读取失败', text)
+
+    def test_incomplete_binance_http_body_does_not_block_other_accounts(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        expected = [*EXPECTED, binding]
+        cfg = replace(self.enable(), expected=expected,
+                      binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
+                      binance_snapshot_token='synthetic-read-only-token-for-tests')
+        with patch.object(app.urllib.request, 'build_opener') as opener:
+            response = opener.return_value.open.return_value.__enter__.return_value
+            response.read.side_effect = IncompleteRead(b'{')
+            self.run_request(configuration=cfg, platform_config=config(expected))
+        text, = self.sent
+        self.assertIn('🏦 Schwab', text)
+        self.assertIn('报告读取失败', text)
 
     def test_filled_orders_count_distinct_orders_and_preserve_unknown_totals(self):
         key = next(iter(self.store.rows))

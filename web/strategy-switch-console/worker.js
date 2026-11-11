@@ -1008,6 +1008,9 @@ export default {
       if (url.pathname === "/api/internal/binance-account-facts/archive" && request.method === "GET") {
         return await binanceDetailArchiveResponse(request, env, url);
       }
+      if (url.pathname === "/api/internal/binance-account-facts/digest" && request.method === "GET") {
+        return await binanceDigestSnapshotResponse(request, env, url);
+      }
       if (url.pathname === "/api/internal/binance-account-facts" && request.method === "GET") {
         return await binanceAccountFactsReadinessResponse(request, env);
       }
@@ -8701,6 +8704,50 @@ function binanceFactsSyncAuthorizationResponse(request, env) {
     return json({ ok: false, error: "binance_account_facts_token_invalid" }, 401);
   }
   return null;
+}
+
+async function binanceDigestSnapshotResponse(request, env, url) {
+  const token = env.BINANCE_DIGEST_READ_TOKEN;
+  const otherTokens = ["BINANCE_ACCOUNT_FACTS_SYNC_TOKEN", "ACCOUNT_FACTS_SYNC_TOKEN", "IBKR_ACCOUNT_FACTS_SYNC_TOKEN",
+    "SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN", "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN", "RECONCILIATION_RECOVERY_SYNC_TOKEN",
+    "RECONCILIATION_RECOVERY_CONTROLLER_TOKEN", "STRATEGY_SWITCH_SYNC_TOKEN", "SESSION_SECRET"];
+  if (typeof token !== "string" || !/^[A-Za-z0-9_-]{32,256}$/.test(token)
+      || otherTokens.some(name => env[name] === token)) {
+    return json({ ok: false, error: "digest_snapshot_read_unavailable" }, 503);
+  }
+  if (request.headers.get("Authorization") !== `Bearer ${token}`) {
+    return json({ ok: false, error: "digest_snapshot_read_unauthorized" }, 401);
+  }
+  const day = url.searchParams.get("business_day");
+  const start = Date.parse(`${day}T06:00:00+08:00`);
+  const end = start + 86400000;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day || "") || !Number.isFinite(start)
+      || new Date(start + 8 * 3600000).toISOString().slice(0, 10) !== day || end > Date.now()) {
+    return json({ ok: false, error: "digest_snapshot_window_invalid" }, 400);
+  }
+  try {
+    const binding = await trustedBinanceFactsBinding(env);
+    if (!binding || !configStore(env)) throw new Error("digest_snapshot_read_unavailable");
+    const retained = await runtimeInstanceCommand(env, {
+      action: "binance_detail_read", binding, date: day, business_day: true,
+    });
+    if (retained?.ok !== true) throw new Error("digest_snapshot_read_unavailable");
+    // The existing latest cache can supply a snapshot from before this
+    // retention path was released, provided it still matches the window.
+    const raw = retained.report ?? await readConfigJson(env, `${BINANCE_FACTS_KEY}:${binding.source_binding.id}`);
+    if (!raw) return json({ ok: false, error: "digest_snapshot_missing" }, 404);
+    const report = normalizeBinanceAccountFacts(raw, binding);
+    const observedFrom = Date.parse(report.observed_started_at);
+    const observedUntil = Date.parse(report.observed_finished_at);
+    if (observedFrom < start || observedUntil >= end) {
+      return json({ ok: false, error: "digest_snapshot_missing" }, 404);
+    }
+    return json({ ok: true, business_day: day, account_key: binding.account_key,
+      target_id: binding.target_id, as_of: report.observed_finished_at,
+      holdings: report.assets.map(({ asset, quantity }) => ({ asset, quantity })) });
+  } catch {
+    return json({ ok: false, error: "digest_snapshot_read_unavailable" }, 503);
+  }
 }
 
 async function binanceAccountFactsReadinessResponse(request, env) {

@@ -275,6 +275,49 @@ assert.equal(puts.length, 0, 'unmatched readiness check does not write facts');
 const missingReadback = await (await get()).json();
 assert.deepEqual({ report_status: missingReadback.report_status, report: missingReadback.report },
   { report_status: 'missing', report: null }, 'no stored source report is distinct from a binding/read failure');
+const digestToken = 'synthetic-binance-digest-read-token';
+const digestEnv = { ...env, BINANCE_DIGEST_READ_TOKEN: digestToken };
+const localDay = new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 10);
+const cutoff = Date.parse(`${localDay}T06:00:00+08:00`) - 86400000;
+const closedDay = new Date(cutoff - 1000 + 2 * 3600000).toISOString().slice(0, 10);
+const digestRead = (day, token = digestToken, settings = digestEnv) => worker.fetch(new Request(
+  `https://console.example/api/internal/binance-account-facts/digest?business_day=${day}`,
+  { headers: { Authorization: `Bearer ${token}` } },
+), settings);
+assert.equal((await digestRead(closedDay, env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN)).status, 401);
+assert.equal((await post(report, digestEnv, digestToken)).status, 401);
+assert.equal((await digestRead(closedDay, digestToken, env)).status, 503);
+assert.equal((await digestRead(closedDay, digestToken,
+  { ...env, BINANCE_DIGEST_READ_TOKEN: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN })).status, 503);
+assert.equal((await digestRead(localDay)).status, 400);
+assert.equal((await digestRead(closedDay)).status, 404);
+const snapshotKey = `${BINANCE_FACTS_KEY}:${binding.source_binding.id}`;
+const inWindow = Object.fromEntries(['observed_started_at', 'spot_observed_at', 'earn_observed_at',
+  'observed_finished_at'].map((key, index) => [key, new Date(cutoff - 60000 + index * 1000).toISOString()]));
+values.set(snapshotKey, JSON.stringify({ ...report, ...inWindow }));
+assert.deepEqual(await (await digestRead(closedDay)).json(), {
+  ok: true, business_day: closedDay, account_key: binding.account_key, target_id: binding.target_id,
+  as_of: inWindow.observed_finished_at, holdings: report.assets.map(({ asset, quantity }) => ({ asset, quantity })),
+});
+values.set(snapshotKey, JSON.stringify({ ...report, ...Object.fromEntries(Object.entries(inWindow)
+  .map(([key, value]) => [key, new Date(Date.parse(value) - 86400000).toISOString()])) }));
+assert.equal((await digestRead(closedDay)).status, 404);
+const beforeCutoff = { ...report, ...inWindow };
+const afterCutoff = { ...report, ...Object.fromEntries(Object.keys(inWindow)
+  .map((key, index) => [key, new Date(cutoff + (index + 1) * 1000).toISOString()])) };
+for (const source of [beforeCutoff, afterCutoff]) {
+  const date = source.observed_finished_at.slice(0, 10);
+  assert.equal(date, beforeCutoff.observed_finished_at.slice(0, 10), 'both observations share the same UTC day');
+  const published = await runtimeStub.fetch('https://runtime-instances/', {
+    method: 'POST', body: JSON.stringify({ action: 'binance_detail_put', binding, date, report: source }),
+  });
+  assert.equal(published.status, 200);
+}
+values.set(snapshotKey, JSON.stringify(afterCutoff));
+assert.equal((await (await digestRead(closedDay)).json()).as_of, beforeCutoff.observed_finished_at,
+  'a later observation in the same UTC day does not replace the closed Singapore window');
+assert.equal(puts.length, 0, 'digest snapshot reads never publish observations');
+values.delete(snapshotKey);
 const configReadFailure = await readiness({ ...env, STRATEGY_SWITCH_RUNTIME_INSTANCES: {
   idFromName: () => 'synthetic-do-id',
   get: () => ({ fetch: async () => new Response(JSON.stringify({ error: 'synthetic-sensitive-detail' }), { status: 503 }) }),

@@ -1,8 +1,9 @@
-"""One authenticated scheduled report; no broker, GitHub, AI or control-plane calls."""
+"""Render one authenticated scheduled report from archived observations."""
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import tempfile
@@ -12,14 +13,16 @@ import urllib.request
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
+from http.client import HTTPException
 from pathlib import Path
+from urllib.error import HTTPError
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import daily_digest_aggregator as aggregator
 import merge_digest_candidates as candidate_contract
 import notification_candidate_adapter as adapter
-from account_daily_digest import render_account_daily, render_account_daily_unavailable
+from account_daily_digest import render_account_daily, render_account_daily_unavailable, valid_crypto_symbol
 from account_daily_facts import collect_account_facts
 from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
 from display_names import configured_account_label, safe_display_text as _safe_display_text
@@ -27,6 +30,12 @@ from display_names import configured_account_label, safe_display_text as _safe_d
 SGT = ZoneInfo('Asia/Singapore')
 IDENTITY = adapter.IDENTITY[:4]
 SLOT = re.compile(r'[a-z0-9][a-z0-9_-]{0,40}')
+BINANCE_SNAPSHOT_PATH = '/api/internal/binance-account-facts/digest'
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def project_expected_target_label(binding, account_option):
@@ -52,6 +61,8 @@ class Configuration:
     enabled: bool = False
     locale: str = 'zh'
     candidate_uris: dict = field(default_factory=dict)
+    binance_snapshot_endpoint: str = ''
+    binance_snapshot_token: str = field(default='', repr=False)
 
     def __post_init__(self):
         adapter.validate_expected(self.expected)
@@ -81,6 +92,7 @@ class Configuration:
             except (TypeError, ValueError):
                 raise ValueError('digest_candidate_sources_invalid') from None
         identities, objects = set(), set()
+        snapshot_bindings = 0
         for row in self.expected:
             if not SLOT.fullmatch(row.get('candidate_slot', '')):
                 raise ValueError('digest_candidate_slot_required')
@@ -90,6 +102,12 @@ class Configuration:
                 raise ValueError('digest_duplicate_target_binding')
             identities.add(identity)
             objects.add(object_key)
+            if 'snapshot_only' in row:
+                if row['platform_id'] != 'binance' or row['snapshot_only'] is not True:
+                    raise ValueError('digest_snapshot_binding_invalid')
+                snapshot_bindings += 1
+        if snapshot_bindings > 1:
+            raise ValueError('digest_snapshot_binding_invalid')
         date.fromisoformat(self.cutover_date)
         if not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', self.recipient_scope):
             raise ValueError('digest_recipient_scope_invalid')
@@ -114,7 +132,9 @@ class Configuration:
         return cls(json.loads(os.environ['DIGEST_EXPECTED_TARGETS_JSON']),
                    os.environ['DIGEST_SCHEDULER_JOB_NAME'], os.environ['DIGEST_RECIPIENT_SCOPE'],
                    os.environ['DIGEST_CUTOVER_REPORT_DATE'], flag == 'true',
-                   os.environ.get('QSL_NOTIFY_LANG', 'zh'), candidate_uris)
+                   os.environ.get('QSL_NOTIFY_LANG', 'zh'), candidate_uris,
+                   os.environ.get('DIGEST_BINANCE_SNAPSHOT_ENDPOINT', ''),
+                   os.environ.get('DIGEST_BINANCE_SNAPSHOT_TOKEN', ''))
 
 
 def utc_now():
@@ -147,6 +167,52 @@ def report_slot(headers, configuration, now):
     return report_date, day, stamp, check
 
 
+def _binance_snapshot(configuration, binding, day, timeout):
+    endpoint = urllib.parse.urlsplit(configuration.binance_snapshot_endpoint)
+    if (endpoint.scheme != 'https' or not endpoint.hostname or endpoint.netloc != endpoint.hostname
+            or endpoint.path != BINANCE_SNAPSHOT_PATH or endpoint.query or endpoint.fragment
+            or not re.fullmatch(r'[A-Za-z0-9_-]{32,256}', configuration.binance_snapshot_token)):
+        raise StoreUnavailable()
+    query = urllib.parse.urlencode({'business_day': day})
+    request = urllib.request.Request(configuration.binance_snapshot_endpoint + '?' + query,
+                                     headers={'Authorization': 'Bearer ' + configuration.binance_snapshot_token,
+                                              'Accept': 'application/json'})
+    try:
+        with urllib.request.build_opener(_NoRedirect()).open(request, timeout=timeout) as response:
+            body = response.read(256 * 1024 + 1)
+    except HTTPError as error:
+        if error.code == 404:
+            return None
+        raise StoreUnavailable() from None
+    except (HTTPException, OSError):
+        raise StoreUnavailable() from None
+    if len(body) > 256 * 1024:
+        raise ValueError('digest_snapshot_invalid')
+    data = json.loads(body)
+    if (set(data) != {'ok', 'business_day', 'account_key', 'target_id', 'as_of', 'holdings'}
+            or data['ok'] is not True or data['business_day'] != day
+            or data['account_key'] != binding['opaque_account_uid'] or data['target_id'] != binding['target_id']):
+        raise ValueError('digest_snapshot_binding_mismatch')
+    observed = datetime.fromisoformat(data['as_of'])
+    start = datetime.combine(date.fromisoformat(day), time(6), SGT)
+    if observed.tzinfo is None or not start <= observed < start + timedelta(days=1):
+        raise ValueError('digest_snapshot_window_invalid')
+    if not isinstance(data['holdings'], list):
+        raise ValueError('digest_snapshot_invalid')
+    holdings = []
+    for item in data['holdings']:
+        symbol, quantity = item['asset'], item['quantity']
+        if not valid_crypto_symbol(symbol) or not isinstance(quantity, str):
+            raise ValueError('digest_snapshot_invalid')
+        amount = float(quantity)
+        if not math.isfinite(amount) or amount < 0:
+            raise ValueError('digest_snapshot_invalid')
+        if amount:
+            holdings.append({'symbol': symbol, 'quantity': amount, 'asset_type': 'crypto'})
+    return {**{name: binding[name] for name in IDENTITY}, 'business_day': day, 'actually_ran': False,
+            'account_daily_facts': {'snapshots': [{'as_of': data['as_of'], 'holdings': holdings}]}}
+
+
 def _sources(configuration, store, day, end, *, now, monotonic):
     rows, outcomes, stale_observations = [], [], []
     budget_end = monotonic() + min(120, max(0, (end - now()).total_seconds()))
@@ -156,6 +222,12 @@ def _sources(configuration, store, day, end, *, now, monotonic):
         if timeout > 0:
             key = f"{binding['platform_id']}/{day}/{binding['candidate_slot']}.json"
             try:
+                if binding.get('snapshot_only'):
+                    snapshot = _binance_snapshot(configuration, binding, day, timeout)
+                    if snapshot is not None:
+                        rows.append(snapshot)
+                    outcomes.append('snapshot_only' if snapshot is not None else 'missing')
+                    continue
                 raw = store.candidate(key, timeout)
                 if raw is None:
                     outcome = 'missing'
@@ -197,7 +269,7 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
             business_day=day, locale=configuration.locale, candidates_path=path,
             include_github=False, config=config, candidate_failures=failures, render_text=False,
         )
-    covered = sum(value in {'present', 'not_run'} for value in outcomes)
+    covered = sum(value in {'present', 'not_run', 'snapshot_only'} for value in outcomes)
     coverage = 'complete' if covered == len(outcomes) else 'partial' if covered else 'unavailable'
     facts = collect_account_facts([*rows, *stale_observations], configuration.expected, day)
     if coverage == 'complete' and (payload.notification_summary or {}).get('counts_unknown'):
