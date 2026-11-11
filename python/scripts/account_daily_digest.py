@@ -303,6 +303,11 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         asset_line = ('💰 总资产：' if zh else '💰 Total assets: ') + equity
         if stamp_label:
             asset_line += ' · ' + stamp_label
+        cash_lines = []
+        if platform == 'ibkr':
+            cash = account_fact.get('settled_cash')
+            value = f"USD {Decimal(cash['amount']):,f} · {cash['statement_date']}" if cash else unknown
+            cash_lines.append(('期末已结算现金：' if zh else 'Period-end settled cash: ') + value)
         holding_label = '📦 持仓：' if zh else '📦 Holdings: '
         if not holdings:
             holding_label += ('空仓' if zh else 'No holdings') if complete else unknown
@@ -363,7 +368,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             state = '⚠️ 昨日交易情况未确认' if zh else '⚠️ Trading activity unconfirmed'
         if not full_scope and any(count is not None for count in counts.values()):
             state += '（已核验策略范围）' if zh else ' (verified strategy scope)'
-        blocks.append((header, [state, ('｜' if zh else ' | ').join(count_lines), filled_orders, asset_line, holding_label],
+        blocks.append((header, [state, ('｜' if zh else ' | ').join(count_lines), filled_orders, asset_line, *cash_lines, holding_label],
                        details, holding_lines))
     lines = [('📊 昨日账户日报｜' if zh else '📊 Daily account report | ') + payload.business_day,
              '🕒 ' + _window_text(payload.business_day, locale)]
