@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from account_daily_facts import SIMULATION_MODES
 from daily_digest_notify import normalize_locale
 from display_names import broker_account_identity, display_name, safe_display_text
+from notification_approved_gates import render_reasons
 from notification_snapshot.unified_contract import SGT, sgt_business_window
 from unified_daily_digest import (
     _account_identity_label,
@@ -85,6 +86,14 @@ def _count_value(count, observed, zh):
     if observed:
         return f'已见 {observed} 笔，总数未知' if zh else f'{observed} observed, total unknown'
     return '未知' if zh else 'unknown'
+
+
+def _snapshot_label(stamp, window, zh):
+    if stamp < window.start:
+        prefix = '较早快照 ' if zh else 'Earlier snapshot '
+    else:
+        prefix = '快照 ' if zh else 'Snapshot '
+    return prefix + stamp.astimezone(SGT).strftime('%Y-%m-%d %H:%M UTC+8')
 
 
 def render_account_daily(payload, expected, outcomes, *, facts=None, known_platforms=(), max_units=3850):
@@ -179,13 +188,29 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             else:
                 count = None
             counts[name] = count
-            value = _count_value(count, len(records), zh)
+            observed = len(records)
+            if count is None and not (name == 'fill' and legacy_fill_window_unreliable):
+                # Counts from different runs may cover the same broker records.
+                observed = max([observed, *(getattr(row, name + '_count') for row in rows if _known_count(row, name))])
+            value = _count_value(count, observed, zh)
             count_lines.append(f'{label} {value}' if zh else f'{label}: {value}')
-        if any(_execution_blocked(row) for row in rows):
+        blocked = [row for row in rows if _execution_blocked(row)]
+        if any(not row.approved_gate_reasons for row in blocked):
             details.append('执行已拦截' if zh else 'Execution blocked')
-        if any(row.status == 'alert' for row in rows):
+        details.extend(dict.fromkeys(render_reasons(row.approved_gate_reasons, locale)
+                                    for row in blocked if row.approved_gate_reasons))
+        if any(row.status == 'alert' and not row.approved_gate_reasons and not _execution_unconfirmed(row)
+               for row in rows):
             details.append('执行异常' if zh else 'Execution issue')
-        if any(_execution_unconfirmed(row) for row in rows):
+        unconfirmed = [row for row in rows if _execution_unconfirmed(row)]
+        order_states = {'order_submitted', 'submitted', 'broker_acknowledged', 'partially_filled'}
+        def has_order_evidence(row):
+            return (row.execution_status.strip().lower() in order_states
+                    or (_known_count(row, 'order') and row.order_count > 0))
+
+        if any(not has_order_evidence(row) for row in unconfirmed):
+            details.append('执行结果待核对' if zh else 'Execution result unconfirmed')
+        if any(has_order_evidence(row) for row in unconfirmed):
             details.append('订单最终状态待确认' if zh else 'Final order state unconfirmed')
         details.extend(dict.fromkeys(
             _evidence_attention_text(row, locale) for row in rows
@@ -236,14 +261,24 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                     snapshots.append((stamp, item))
             except ValueError:
                 pass
-        complete, holdings, equity, stamp_label = False, [], unknown, ''
+        complete, holdings, equity = False, [], unknown
+        stamp_label, holding_stamp_label = '', ''
         if snapshots:
-            stamp, snapshot = max(snapshots, key=lambda pair: pair[0])
-            stamp_label = ('较早快照 ' if zh else 'Earlier snapshot ') if stamp < window.start else ('快照 ' if zh else 'Snapshot ')
-            stamp_label += stamp.astimezone(SGT).strftime('%Y-%m-%d %H:%M UTC+8')
-            equity = _money(snapshot.get('equity'), snapshot.get('equity_currency'), unknown)
-            holdings = snapshot.get('holdings') or []
-            complete = snapshot.get('holdings_complete') is True
+            snapshots.sort(key=lambda pair: pair[0], reverse=True)
+            asset_stamp = None
+            for stamp, snapshot in snapshots:
+                equity = _money(snapshot.get('equity'), snapshot.get('equity_currency'), unknown)
+                if equity != unknown:
+                    asset_stamp = stamp
+                    stamp_label = _snapshot_label(stamp, window, zh)
+                    break
+            for stamp, snapshot in snapshots:
+                holdings = snapshot.get('holdings') or []
+                complete = snapshot.get('holdings_complete') is True
+                if holdings or complete:
+                    if stamp != asset_stamp:
+                        holding_stamp_label = _snapshot_label(stamp, window, zh)
+                    break
         else:
             observations = {(row.equity, row.equity_currency, row.holdings, row.holdings_scope)
                             for row in rows if row.equity is not None or row.holdings}
@@ -265,6 +300,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             holding_label += ('空仓' if zh else 'No holdings') if complete else unknown
         elif not complete:
             holding_label += '仅列已核实持仓' if zh else 'Verified positions only'
+        if holding_stamp_label:
+            holding_label += (' · ' if not holdings or not complete else '') + holding_stamp_label
         holding_lines = [
             f"{_symbol(h.get('symbol'), unknown)} {_quantity(h.get('quantity'), h.get('asset_type'), zh, unknown)}"
             for h in holdings

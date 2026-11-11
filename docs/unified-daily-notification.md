@@ -93,12 +93,17 @@ remain valid; its presence alone does not establish account-wide coverage.
 The first release reads the existing bound candidates only. It reports timed
 fills found in those candidates. A fill stored solely under another business
 day or in a separate supplemental object is outside the observed scope.
-Assets and positions come from one bound observation. An earlier snapshot is
-dated, legacy observations without a snapshot time are labelled, and partial
-positions are labelled as such. Missing assets or positions
-do not suppress the other verified facts from the same observation. Unavailable positions and
-confirmed empty positions remain distinct. The single-message budget preserves
-account summaries and states how many positions are shown and omitted.
+Assets and positions each use the most recent verified observation for the
+bound account. If the timestamps differ, both are shown. Earlier snapshots,
+legacy observations without a snapshot time, and partial positions are labelled.
+Unavailable positions and confirmed empty positions remain distinct. The
+single-message budget preserves account summaries and states how many positions
+are shown and omitted.
+
+When run counts may overlap, the report shows the largest verified count or
+number of distinct observed records, whichever is higher. The total remains
+unknown. Approved risk blocks show the verified reason. An unconfirmed execution
+only carries a pending order status when there is evidence of an order.
 
 The account report omits runtime links and technical evidence. The compact
 deadline fallback keeps trades, assets and holdings unknown and retains the
