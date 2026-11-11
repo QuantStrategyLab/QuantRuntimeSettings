@@ -95,6 +95,42 @@ class DailyCallerPresentationTests(unittest.TestCase):
                 if status in {"cancelled", "rejected", "expired"}:
                     self.assertNotIn("成交待确认", text)
 
+    def test_unconfirmed_execution_does_not_imply_an_order(self):
+        item = with_facts({**ROW, "status": "alert", "execution_status": "execution_unknown",
+                           "order_count": None, "fill_count": None})
+        text, _ = self.report([item], ["present"])
+        self.assertIn("执行结果待核对", text)
+        self.assertNotIn("订单最终状态待确认", text)
+
+        submitted = {**item, "execution_status": "order_submitted", "order_count": 1}
+        text, _ = self.report([submitted], ["present"])
+        self.assertIn("订单最终状态待确认", text)
+
+    def test_verified_risk_block_reports_the_reason_without_an_execution_error(self):
+        reason = {"reason_code": "consecutive_loss_limit_exceeded", "observed_value": 6, "limit": 5}
+        item = with_facts({**ROW, "status": "alert", "execution_status": "strategy_risk_rejected",
+                           "block_reason": reason, "approved_gate_reasons": [reason]})
+        text, _ = self.report([item], ["present"])
+        self.assertIn("连亏熔断", text)
+        self.assertIn("本轮未下单", text)
+        self.assertNotIn("执行异常", text)
+        self.assertNotIn("无交易", text)
+
+    def test_multiple_runs_keep_verified_count_as_a_minimum(self):
+        first = with_facts({**ROW, "order_count": 3, "fill_count": 2})
+        second = with_facts({**ROW, "source_run_id": "other-run", "order_count": 2, "fill_count": 1})
+        text, _ = self.report([first, second], ["present"])
+        self.assertIn("提交订单 已见 3 笔，总数未知", text)
+        self.assertIn("成交回报 已见 2 笔，总数未知", text)
+
+    def test_newer_partial_snapshot_preserves_other_verified_field_and_its_time(self):
+        before = snapshot(as_of="2026-10-16T04:00:00+08:00", holdings=None)
+        after = snapshot(equity=None, equity_currency=None)
+        text, _ = self.report([with_facts(ROW, snapshots=[after, before])], ["present"])
+        self.assertIn("总资产：USD 50,000.00 · 快照 2026-10-16 04:00", text)
+        self.assertIn("持仓：快照 2026-10-16 05:10", text)
+        self.assertIn("TQQQ 300股", text)
+
     def test_no_trade_keeps_assets_and_explicit_empty_positions(self):
         item = with_facts(ROW, snapshots=[snapshot(holdings=[])])
         text, coverage = self.report([item], ["present"])
