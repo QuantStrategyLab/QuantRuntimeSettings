@@ -175,3 +175,6 @@ for (const scenario of ["ok", "degraded"]) {
   }
 }
 console.log(`Desk contract validation passed: ${expected.length} responses, ${expectedFiles.length} fixtures, ${objectChecks} closed objects and negative contract checks`);
+
+// Exercise the real delivery route and validate its additive v1 evidence.
+await import("./desk_delivery_read_validation.mjs");

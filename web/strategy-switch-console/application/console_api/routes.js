@@ -7,6 +7,7 @@ import {
 } from "./presentation.js";
 import { todaySummary, strategySummary, notificationLog } from "./operations.js";
 import { inbox } from "./inbox.js";
+import { deskDelivery } from "./desk_delivery.js";
 export { inbox } from "./inbox.js";
 
 export async function consoleApiResponse(request, env, deps) {
@@ -63,6 +64,7 @@ export async function consoleApiResponse(request, env, deps) {
         coverage: "durable_human_decision_records",
       });
     }
+    if (path === "/api/desk/alerts/delivery") return json(await deskDelivery(env, deps));
     if (path === "/api/notifications/send-log") return json(await notificationLog(env, deps));
     const config = await deps.accountOptions(env);
     const accounts = Object.entries(config.options || {}).flatMap(
