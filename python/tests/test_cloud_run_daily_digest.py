@@ -104,6 +104,7 @@ class CloudRunDigestTests(unittest.TestCase):
             self.run_request(configuration=cfg, platform_config=config([binding]))
             request = opener.return_value.open.call_args.args[0]
             self.assertEqual(request.full_url, cfg.binance_snapshot_endpoint + '?business_day=2026-10-15')
+            self.assertEqual(request.get_header('User-agent'), 'QSL-Daily-Digest/1.0')
             self.assertIsNone(opener.call_args.args[0].redirect_request(None, None, 302, None, None, None))
         text, = self.sent
         self.assertIn('仅核实持仓快照，交易情况未知', text)
