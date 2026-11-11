@@ -7,6 +7,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from http.client import IncompleteRead
 from pathlib import Path
 from unittest.mock import patch
 
@@ -96,7 +97,8 @@ class CloudRunDigestTests(unittest.TestCase):
                       binance_snapshot_token='synthetic-read-only-token-for-tests')
         response = {'ok': True, 'business_day': '2026-10-15', 'as_of': '2026-10-15T16:00:00Z',
                     'account_key': binding['opaque_account_uid'], 'target_id': binding['target_id'],
-                    'holdings': [{'asset': 'BTC', 'quantity': '0.0125'}]}
+                    'holdings': [{'asset': 'BTC', 'quantity': '0.0125'}, {'asset': '币', 'quantity': '1.5'},
+                                 {'asset': 'A' * 128, 'quantity': '3'}]}
         with patch.object(app.urllib.request, 'build_opener') as opener:
             opener.return_value.open.return_value = io.BytesIO(json.dumps(response).encode())
             self.run_request(configuration=cfg, platform_config=config([binding]))
@@ -106,6 +108,8 @@ class CloudRunDigestTests(unittest.TestCase):
         text, = self.sent
         self.assertIn('仅核实持仓快照，交易情况未知', text)
         self.assertIn('BTC 0.0125', text)
+        self.assertIn('币 1.5', text)
+        self.assertIn('A' * 128 + ' 3', text)
         self.assertIn('提交订单 未知｜成交回报 未知', text)
         self.assertNotIn('策略未运行', text)
 
@@ -135,6 +139,22 @@ class CloudRunDigestTests(unittest.TestCase):
         text, = self.sent
         self.assertIn('🏦 Schwab', text)
         self.assertIn('🏦 Binance', text)
+        self.assertIn('报告读取失败', text)
+
+    def test_incomplete_binance_http_body_does_not_block_other_accounts(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        expected = [*EXPECTED, binding]
+        cfg = replace(self.enable(), expected=expected,
+                      binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
+                      binance_snapshot_token='synthetic-read-only-token-for-tests')
+        with patch.object(app.urllib.request, 'build_opener') as opener:
+            response = opener.return_value.open.return_value.__enter__.return_value
+            response.read.side_effect = IncompleteRead(b'{')
+            self.run_request(configuration=cfg, platform_config=config(expected))
+        text, = self.sent
+        self.assertIn('🏦 Schwab', text)
         self.assertIn('报告读取失败', text)
 
     def test_filled_orders_count_distinct_orders_and_preserve_unknown_totals(self):

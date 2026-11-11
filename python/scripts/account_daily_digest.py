@@ -55,7 +55,15 @@ def _money(value, currency, unknown):
     return f'{currency} {text}'
 
 
-def _symbol(value, unknown):
+def valid_crypto_symbol(value):
+    return (isinstance(value, str) and 1 <= len(value) <= 128
+            and all(char.isalnum() and not ('a' <= char <= 'z') and char not in '\u115f\u1160\u3164\uffa0'
+                    for char in value))
+
+
+def _symbol(value, unknown, *, asset_type=None):
+    if asset_type == 'crypto' and valid_crypto_symbol(value):
+        return value
     value = str(value or '').strip()
     return value if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.\-^/]{0,19}', value) else unknown
 
@@ -303,7 +311,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         if holding_stamp_label:
             holding_label += (' · ' if not holdings or not complete else '') + holding_stamp_label
         holding_lines = [
-            f"{_symbol(h.get('symbol'), unknown)} {_quantity(h.get('quantity'), h.get('asset_type'), zh, unknown)}"
+            f"{_symbol(h.get('symbol'), unknown, asset_type=h.get('asset_type'))} {_quantity(h.get('quantity'), h.get('asset_type'), zh, unknown)}"
             for h in holdings
         ]
         # Every binding must have a matching run, not merely an outcome marker.

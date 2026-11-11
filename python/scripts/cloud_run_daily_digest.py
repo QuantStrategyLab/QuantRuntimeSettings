@@ -13,6 +13,7 @@ import urllib.request
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
+from http.client import HTTPException
 from pathlib import Path
 from urllib.error import HTTPError
 from uuid import uuid4
@@ -21,7 +22,7 @@ from zoneinfo import ZoneInfo
 import daily_digest_aggregator as aggregator
 import merge_digest_candidates as candidate_contract
 import notification_candidate_adapter as adapter
-from account_daily_digest import render_account_daily, render_account_daily_unavailable
+from account_daily_digest import render_account_daily, render_account_daily_unavailable, valid_crypto_symbol
 from account_daily_facts import collect_account_facts
 from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
 from display_names import configured_account_label, safe_display_text as _safe_display_text
@@ -183,7 +184,7 @@ def _binance_snapshot(configuration, binding, day, timeout):
         if error.code == 404:
             return None
         raise StoreUnavailable() from None
-    except OSError:
+    except (HTTPException, OSError):
         raise StoreUnavailable() from None
     if len(body) > 256 * 1024:
         raise ValueError('digest_snapshot_invalid')
@@ -201,10 +202,8 @@ def _binance_snapshot(configuration, binding, day, timeout):
     holdings = []
     for item in data['holdings']:
         symbol, quantity = item['asset'], item['quantity']
-        if not isinstance(symbol, str) or not isinstance(quantity, str):
+        if not valid_crypto_symbol(symbol) or not isinstance(quantity, str):
             raise ValueError('digest_snapshot_invalid')
-        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.\-^/]{0,19}', symbol):
-            continue
         amount = float(quantity)
         if not math.isfinite(amount) or amount < 0:
             raise ValueError('digest_snapshot_invalid')

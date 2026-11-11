@@ -8728,7 +8728,13 @@ async function binanceDigestSnapshotResponse(request, env, url) {
   try {
     const binding = await trustedBinanceFactsBinding(env);
     if (!binding || !configStore(env)) throw new Error("digest_snapshot_read_unavailable");
-    const raw = await readConfigJson(env, `${BINANCE_FACTS_KEY}:${binding.source_binding.id}`);
+    const retained = await runtimeInstanceCommand(env, {
+      action: "binance_detail_read", binding, date: day, business_day: true,
+    });
+    if (retained?.ok !== true) throw new Error("digest_snapshot_read_unavailable");
+    // The existing latest cache can supply a snapshot from before this
+    // retention path was released, provided it still matches the window.
+    const raw = retained.report ?? await readConfigJson(env, `${BINANCE_FACTS_KEY}:${binding.source_binding.id}`);
     if (!raw) return json({ ok: false, error: "digest_snapshot_missing" }, 404);
     const report = normalizeBinanceAccountFacts(raw, binding);
     const observedFrom = Date.parse(report.observed_started_at);

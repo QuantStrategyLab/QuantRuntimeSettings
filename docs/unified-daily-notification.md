@@ -112,6 +112,8 @@ binding opts in with `snapshot_only: true` and uses the console account key as
 its opaque account UID. The deployment supplies `DIGEST_BINANCE_SNAPSHOT_ENDPOINT`
 and `DIGEST_BINANCE_SNAPSHOT_TOKEN` through protected configuration. The reader
 checks the account, target and reporting window before displaying holdings.
+The archive retains the newest snapshot in each Singapore business window, so
+an observation after the cutoff cannot replace the prior window's snapshot.
 This snapshot leaves order counts, fills and account-wide valuation unknown.
 
 The account report omits runtime links and technical evidence. The compact
