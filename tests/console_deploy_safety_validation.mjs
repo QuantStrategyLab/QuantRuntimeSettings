@@ -834,6 +834,34 @@ const orphanWitness="00000000-0000-4000-8000-000000000021";
 const driftedWitness="00000000-0000-4000-8000-000000000022";
 const driftedActive="00000000-0000-4000-8000-000000000023";
 const stopped={retry:false,deploy_attempted:false};
+const binanceDigestSource = "2b1f58d26b76dd5b8b5179ffb721f06a215cce2e";
+const binanceBaseline = "8dfe27f6-ee97-4ebc-86f6-a1952ea4914a";
+for (const [activeVersion, checkpoint] of [
+ [priorVersion, "binance_digest_active_version_mismatch"],
+ [binanceBaseline, "binance_digest_active_bytes_mismatch"],
+]) {
+ const calls = [], errors = [];
+ const process = {env:{GITHUB_REF:"refs/heads/main",CLOUDFLARE_ACCOUNT_ID:"a".repeat(32),CLOUDFLARE_API_TOKEN:privateRelease,
+  RUNNER_TEMP:"/synthetic",WORKER_DIR:"web/strategy-switch-console",RELEASE_SOURCE_SHA:binanceDigestSource},exitCode:0};
+ const replies = [
+  wrap({deployments:[dep(priorDeployment,activeVersion)]}),
+  wrap({id:activeVersion,resources:resource("old-code")}),
+  wrap({id:activeVersion,modules:[{name:"worker.js",content_type:"application/javascript+module",content_base64:syntheticBundle.toString("base64")}]}),
+ ];
+ await runRelease(process,async(url,options)=>{
+  calls.push({url,method:options.method});
+  assert.equal(options.method,"GET");
+  return Response.json(replies[calls.length-1]);
+ },{log:()=>{},error:line=>errors.push(JSON.parse(line))},
+ async path=>path.endsWith("v2_asset_map.js")?syntheticAssetMap:syntheticBundle,
+ createHash,async()=>bundleFiles.map(name=>dirent(name)));
+ assert.equal(process.exitCode,1);
+ assert.equal(errors.at(-1).checkpoint,checkpoint);
+ assert.equal(errors.at(-1).upload_attempted,false);
+ assert.equal(errors.at(-1).deploy_attempted,false);
+ assert.equal(calls.length,activeVersion===binanceBaseline?3:1);
+ if (activeVersion===binanceBaseline) assert.ok(calls.at(-1).url.endsWith(`/workers/qsl-strategy-switch-console/versions/${binanceBaseline}?include=modules`));
+}
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:deskSource});
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource});
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,latest:orphanWitness});
