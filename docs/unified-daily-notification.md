@@ -78,18 +78,24 @@ of the five sections. “Yesterday” is the existing completed reporting window
 with the end excluded for execution events. The report groups bound strategies
 under the same platform and account, retains configured safe labels, and
 shows available assets and positions even for verified idle accounts. Source
-gaps are noted beside the affected account. No-run reports establish only that
-the specified strategies did not run. A zero count is scoped to verified
-observations. Distinct executions are deduplicated and need their own timestamp
-to be attributed to the reporting window; a settlement update is not a fill time.
+gaps and evidence failures are noted beside the affected account. Platforms
+without an approved binding are listed separately. The management console
+summarizes platform data. No-run reports establish only that the specified
+strategies did not run. A zero count is scoped to verified observations.
+The report separates order submissions, fill reports and orders with fills.
+Several execution records can refer to one order. The count of distinct orders
+with fills is an observed minimum when the execution inventory is incomplete.
+Executions need their own timestamp for window attribution. A settlement update
+does not establish the fill time.
 Candidate runs may include the optional `account_daily_facts` object for order,
 fill, and account snapshot observations. Existing candidates without this field
 remain valid; its presence alone does not establish account-wide coverage.
 The first release reads the existing bound candidates only. It reports timed
 fills found in those candidates. A fill stored solely under another business
 day or in a separate supplemental object is outside the observed scope.
-Assets and positions come from one bound observation; an earlier snapshot is
-dated and partial positions are labelled as such. Missing assets or positions
+Assets and positions come from one bound observation. An earlier snapshot is
+dated, legacy observations without a snapshot time are labelled, and partial
+positions are labelled as such. Missing assets or positions
 do not suppress the other verified facts from the same observation. Unavailable positions and
 confirmed empty positions remain distinct. The single-message budget preserves
 account summaries and states how many positions are shown and omitted.
@@ -389,9 +395,13 @@ runtime, broker, deployment or notification authority.
 ## Shared Azure package release
 
 Run `Central digest package release` from the default branch. Select the
-protected package environment and start with `verify`. For a release, stage
-the reviewed ZIP by its SHA-256 in the private container, configure the two
-digests, then select `deploy`. The shared workflow verifies the backup,
+protected package environment and configure the fixed previous and candidate
+digests. Start with `verify`. The caller requires successful validation of its
+exact main commit and uploads the two reviewed digest scripts as a same-run
+artifact. The shared workflow rebuilds the ZIP from the authenticated active
+package, changing only those existing scripts. Verify checks the candidate
+digest without writes. Select `deploy` to stage that exact ZIP in the private
+container and release it. The shared workflow verifies the backup,
 updates the live package conditionally, and reads it back. Use `rollback`
 with the same digest pair when the candidate is still live. The Azure
 send and check schedules keep their existing package path and runtime identity.

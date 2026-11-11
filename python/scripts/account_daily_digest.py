@@ -7,12 +7,21 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from types import SimpleNamespace
 
-from notification_snapshot.unified_contract import SGT, sgt_business_window
 from account_daily_facts import SIMULATION_MODES
 from daily_digest_notify import normalize_locale
 from display_names import broker_account_identity, display_name, safe_display_text
-from unified_daily_digest import (_account_identity_label, _execution_blocked, _execution_unconfirmed, _known_count,
-                                  _run_display_contexts, _units, _verified_no_trade, _window_text)
+from notification_snapshot.unified_contract import SGT, sgt_business_window
+from unified_daily_digest import (
+    _account_identity_label,
+    _evidence_attention_text,
+    _execution_blocked,
+    _execution_unconfirmed,
+    _known_count,
+    _run_display_contexts,
+    _units,
+    _verified_no_trade,
+    _window_text,
+)
 
 
 def _number(value):
@@ -70,7 +79,15 @@ def _order_status(order):
     return str(order.get('status') or '').strip().lower()
 
 
-def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3850):
+def _count_value(count, observed, zh):
+    if count is not None:
+        return f'{count}笔' if zh else str(count)
+    if observed:
+        return f'已见 {observed} 笔，总数未知' if zh else f'{observed} observed, total unknown'
+    return '未知' if zh else 'unknown'
+
+
+def render_account_daily(payload, expected, outcomes, *, facts=None, known_platforms=(), max_units=3850):
     """Render supplied raw binding outcomes and optional per-account evidence.
 
     ``facts`` is keyed by (platform_id, opaque_account_uid). Order and fill IDs
@@ -162,10 +179,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
             else:
                 count = None
             counts[name] = count
-            if count is None:
-                value = (f'已见 {len(records)} 笔，总数未知' if zh else f'{len(records)} observed, total unknown') if records else unknown
-            else:
-                value = f'{count}笔' if zh else str(count)
+            value = _count_value(count, len(records), zh)
             count_lines.append(f'{label} {value}' if zh else f'{label}: {value}')
         if any(_execution_blocked(row) for row in rows):
             details.append('执行已拦截' if zh else 'Execution blocked')
@@ -173,6 +187,11 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
             details.append('执行异常' if zh else 'Execution issue')
         if any(_execution_unconfirmed(row) for row in rows):
             details.append('订单最终状态待确认' if zh else 'Final order state unconfirmed')
+        details.extend(dict.fromkeys(
+            _evidence_attention_text(row, locale) for row in rows
+            if row.evidence_persistence_status == 'persistence_failed' or row.evidence_delivery_status == 'delivery_failed'
+        ))
+
         def strategy_for(record):
             value = record.get('strategy')
             fallback = '策略未知' if zh else 'strategy unknown'
@@ -232,7 +251,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
                 observed_equity, currency, observed_holdings, scope = next(iter(observations))
                 observed = _money(observed_equity, currency, unknown)
                 if observed != unknown:
-                    stamp_label = f'已报告资产 {observed}，快照时间未知' if zh else f'Reported assets {observed}, snapshot time unknown'
+                    stamp_label = (f'来源报告 {observed}，快照时间未知' if zh else
+                                   f'Source reported {observed}, snapshot time unknown')
                 elif observed_holdings:
                     stamp_label = '持仓快照时间未知' if zh else 'Holding snapshot time unknown'
                 holdings = [{'symbol': h.symbol, 'quantity': h.quantity,
@@ -251,6 +271,14 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
         ]
         # Every binding must have a matching run, not merely an outcome marker.
         orders, fills = account_fact.get('orders') or [], account_fact.get('fills') or []
+        filled_order_ids = {fill['order_id'] for fill in fills if fill.get('order_id')}
+        filled_order_count = None
+        if counts['fill'] == 0:
+            filled_order_count = 0
+        elif account_fact.get('fills_complete') is True and all(fill.get('order_id') for fill in fills):
+            filled_order_count = len(filled_order_ids)
+        filled_orders = ('成交订单 ' if zh else 'Orders with fills: ') + _count_value(
+            filled_order_count, len(filled_order_ids), zh)
         if counts['order'] is not None and counts['order'] > len(orders):
             details.append('部分委托明细未取得' if zh else 'Some order details are unavailable')
         if counts['fill'] is not None and counts['fill'] > len(fills):
@@ -272,7 +300,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
         if mixed_fill_window:
             details.append('委托累计成交跨统计窗口；本期仅列实际发生的成交' if zh else
                            'Order fills span reporting windows; only fills in this window are listed')
-        if partial and not legacy_fill_window_unreliable:
+        if partial and filled and not legacy_fill_window_unreliable:
             state = '✅ 部分成交' if zh else '✅ Partially filled'
         elif filled:
             state = '✅ 有交易' if zh else '✅ Trades recorded'
@@ -288,7 +316,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
             state = '⚠️ 昨日交易情况未确认' if zh else '⚠️ Trading activity unconfirmed'
         if not full_scope and any(count is not None for count in counts.values()):
             state += '（已核验策略范围）' if zh else ' (verified strategy scope)'
-        blocks.append((header, [state, ('｜' if zh else ' | ').join(count_lines), asset_line, holding_label],
+        blocks.append((header, [state, ('｜' if zh else ' | ').join(count_lines), filled_orders, asset_line, holding_label],
                        details, holding_lines))
     lines = [('📊 昨日账户日报｜' if zh else '📊 Daily account report | ') + payload.business_day,
              '🕒 ' + _window_text(payload.business_day, locale)]
@@ -296,6 +324,14 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
         lines.append('😴 全部已核验账户无交易（限已核验范围）' if zh else '😴 No trades in all verified accounts (within verified scope)')
     if not groups:
         lines.append('已绑定账户未知' if zh else 'Bound accounts unknown')
+    bound_platforms = {platform for platform, _ in groups}
+    unbound = [display_name('platforms', platform, locale) for platform in known_platforms
+               if platform != 'qrs' and platform not in bound_platforms]
+    if unbound:
+        lines.append(('未接入日报来源：' + '、'.join(unbound)) if zh else
+                     ('Platforms without a digest source: ' + ', '.join(unbound)))
+    if 'qrs' in known_platforms and 'qrs' not in bound_platforms:
+        lines.append('管理站汇总平台数据' if zh else 'The management console summarizes platform data')
     # Reserve space for each fitting account header before adding details.
     def suffix(n):
         return (f'另有 {n} 项省略（持仓展示 {n} 项、省略 {n} 项）' if zh else
@@ -310,13 +346,13 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, max_units=3
             omitted += 1 + len(core) + len(details) + len(holdings)
             omitted_holdings += len(holdings)
     for index, (header, core, details, holdings) in enumerate(reserved):
-        lines.extend((header, *core[:2]))
+        lines.extend((header, *core[:3]))
         later = [line for h, c, _, _ in reserved[index + 1:] for line in [h, *c]]
         for group, is_holding in ((details, False), (holdings, True)):
             if is_holding:
-                lines.extend(core[2:])
+                lines.extend(core[3:])
             for detail in group:
-                remaining_core = [] if is_holding else core[2:]
+                remaining_core = [] if is_holding else core[3:]
                 if _units('\n'.join(lines + [detail] + remaining_core + later + [suffix(upper_bound)])) <= max_units:
                     lines.append(detail)
                 else:
