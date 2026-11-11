@@ -186,3 +186,43 @@ incomplete reservations.
 BE-2 tests. They use synthetic data, a fixed clock and a real SQLite-backed
 Miniflare DO, with manually driven alarms. This verifies local persistence,
 concurrency, failures, refresh and expiry; no deployed Worker or broker is used.
+
+## Delivery read mapping
+
+GET `/api/desk/alerts/delivery` uses the existing console session and the same
+`notificationLog` adapter as `/api/notifications/send-log`. It performs no send,
+collector, dispatch or business-state write. The v1 extension `source` is optional
+for existing fixtures and consumers; new responses always include it. Existing
+`isAlertDelivery` accepts the unchanged unknown channel and null summaries and
+ignores additive fields. F1 must validate `source` before rendering its details;
+its endpoint remains explicitly mock until that separate frontend change.
+
+The mapping below is frozen before implementing the adapter.
+
+| Existing log field | Desk projection | Meaning and absent-data rule |
+|---|---|---|
+| `read_status` | `source.read_status` | Preserve complete/partial/no_data/unknown/read_failed/not_connected; invalid becomes unknown. Complete is bounded read coverage, never delivery. |
+| `read_reason_codes` | `source.read_reason_codes` | Fixed allowlist only, including coverage gaps, missing/expired receipts and sender skips. |
+| `as_of` | `source.as_of` | Read time, nullable; never send/composition/ACK time. |
+| `items[].source_run_id`, `source_run_attempt` | `source.items[]` same fields | Positive safe integers or null. Each row stays independent. |
+| `items[].workflow_updated_at` | Same field | Nullable workflow metadata, never send time or freshness proof. |
+| `items[].business_day`, `report_date` | Same fields | Nullable date labels; no inferred window boundaries or correlation. |
+| `items[].status` | `source.items[].sender_status` | Fixed sender/receipt enum; includes receipt_missing, receipt_expired, sender_skipped, read_failed and unknown. Expiry is stale artifact evidence, not fresh channel health. |
+| `items[].delivered`, `dry_run`, `test_message` | `sender_accepted`, `dry_run`, `test_message` | Preserve booleans or null; sender acceptance never proves receiver ACK. Partial reads keep individual results. |
+| `items[].read_error_code` | Same field | Existing shared fixed error-code allowlist, otherwise null. Exceptions never appear. |
+| No receiver receipt | `source.items[].receiver_ack = "unknown"` | Always unknown for this source, even for delivered or partially accepted senders. |
+| No channel-health observation | `channel.status` unknown | read_failed for a failed read, source_unavailable for disconnected/no-data, otherwise not_supported. Never infer current health from historical sends. |
+| No verified send time/outcome/recipient count | `last_delivery = null` | All required facts must be supplied by a future reviewed source before populating this object. |
+| No schedule/composition time/target or run counts | `digest = null` | Do not use item count, workflow time or date labels as substitutes. |
+| `status`, `unavailable_reason`, `coverage`, `next_cursor`, `run_limit`, `truncated`, `read_failure_count`, item `id`, `source_sha`, `source_url`, `channel`, `receipt_status`, `reason_code`, `sent_at` | Not copied | Coverage comes from read_status/reasons; source locators and free text are omitted; the current public receipt has no sent_at. |
+
+`generated_at` is projection time and `channel.name` is the adapter's fixed
+`telegram` label. Unknown source shapes are never empty-success: malformed
+collections become unknown with an invalid_notification_log reason. Reader
+exceptions produce read_failed without provider details. There is no merge or
+join across rows, runs, attempts, report dates or business days. There is no
+new TTL or relaxed receipt window: receipt_expired is retained verbatim;
+workflow age alone cannot establish staleness or current channel health.
+A fresh HTTP 200 and ok envelope mean the read projection succeeded, not that
+a notification arrived. Source integration and offline tests do not establish
+active serving routes, deployed adoption or runtime delivery.

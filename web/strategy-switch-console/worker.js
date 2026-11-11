@@ -847,7 +847,7 @@ export default {
           wallet: (req, e) => binanceWalletHistoryResponse(req, e, new URL(req.url)), benchmarks: marketBenchmarkResponse,
         });
       }
-      if (["/api/decisions-inbox", "/api/owner-decisions/history", "/api/accounts", "/api/account-settings/diff", "/api/account-settings/history", "/api/account-settings/draft", "/api/runtime/today", "/api/strategies/summary", "/api/notifications/send-log", "/api/accounts/run-controls"].includes(url.pathname)) {
+      if (["/api/decisions-inbox", "/api/owner-decisions/history", "/api/accounts", "/api/account-settings/diff", "/api/account-settings/history", "/api/account-settings/draft", "/api/runtime/today", "/api/strategies/summary", "/api/notifications/send-log", "/api/desk/alerts/delivery", "/api/accounts/run-controls"].includes(url.pathname)) {
         // The today projection invokes the same daily reader once per account.
         // Share only this request's authenticated session and binding inputs.
         let todaySession, todayOptions, todayRegistered;
