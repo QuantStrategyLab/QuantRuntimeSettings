@@ -220,7 +220,7 @@ class CloudRunDigestTests(unittest.TestCase):
                 for part in excluded:
                     self.assertNotIn(part, self.sent[0])
 
-    def test_ibkr_account_report_uses_only_the_existing_candidate(self):
+    def test_ibkr_account_report_reads_cash_without_changing_run_coverage(self):
         from dataclasses import replace
         binding = {**EXPECTED[0], 'platform_id': 'ibkr'}
         configuration = replace(self.enable(), expected=[binding])
@@ -231,11 +231,15 @@ class CloudRunDigestTests(unittest.TestCase):
         row = {**ROW, 'platform_id': 'ibkr', 'fill_count': None,
                'account_daily_facts': {'snapshots': [snapshot]}}
         row.pop('notification_event')
-        self.store = MemoryStore({key: {'runs': [row]}})
+        cash_key = f"ibkr/flex-cash/{binding['candidate_slot']}.json"
+        cash = {'schema_version': 'ibkr_digest_settled_cash.v1', 'currency': 'USD', 'amount': '0.00',
+                'statement_date': '2026-10-14', 'target_id': binding['target_id'],
+                'opaque_account_uid': binding['opaque_account_uid']}
+        self.store = MemoryStore({key: {'runs': [row]}, cash_key: cash})
         read = self.store.candidate
 
         def ordinary_candidate(requested, timeout):
-            self.assertEqual(requested, key)
+            self.assertIn(requested, (key, cash_key))
             return read(requested, timeout)
 
         self.store.candidate = ordinary_candidate
@@ -247,9 +251,20 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertEqual(self.run_request(configuration=configuration, headers=headers)[1]['delivery'], 'confirmed')
         self.assertEqual(len(self.sent), 1)
         self.assertIn('总资产：USD 250.00', self.sent[0])
+        self.assertIn('期末已结算现金：USD 0.00 · 2026-10-14', self.sent[0])
         self.assertIn('TQQQ 3股', self.sent[0])
         self.assertIn('成交回报 未知', self.sent[0])
         self.assertNotIn('成交回报 0笔', self.sent[0])
+
+    def test_ibkr_cash_rejects_wrong_identity_future_date_and_non_decimal(self):
+        binding = {**EXPECTED[0], 'platform_id': 'ibkr'}
+        cash = {'schema_version': 'ibkr_digest_settled_cash.v1', 'currency': 'USD', 'amount': '-12.34',
+                'statement_date': '2026-10-15', 'target_id': binding['target_id'],
+                'opaque_account_uid': binding['opaque_account_uid']}
+        for change in ({'opaque_account_uid': 'different'}, {'target_id': 'different'},
+                       {'statement_date': '2026-10-16'}, {'amount': '1e4'}, {'currency': 'HKD'}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                app._ibkr_settled_cash({**cash, **change}, binding, '2026-10-15')
 
     def test_locale_variants_are_normalized_at_the_production_boundary(self):
         from dataclasses import replace

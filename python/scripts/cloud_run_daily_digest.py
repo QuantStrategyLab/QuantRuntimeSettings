@@ -252,7 +252,41 @@ def _sources(configuration, store, day, end, *, now, monotonic):
             except (ValueError, TypeError, KeyError, AttributeError):
                 outcome = 'invalid'
         outcomes.append(outcome)
+    for binding in configuration.expected:
+        if binding['platform_id'] != 'ibkr':
+            continue
+        timeout = min(20, budget_end - monotonic(), (end - now()).total_seconds())
+        if timeout <= 0:
+            break
+        try:
+            cash = store.candidate(f"ibkr/flex-cash/{binding['candidate_slot']}.json", timeout)
+            if cash is not None:
+                stale_observations.append(_ibkr_settled_cash(cash, binding, day))
+        except (StoreUnavailable, ValueError, TypeError, KeyError, AttributeError):
+            continue
     return rows, outcomes, stale_observations
+
+
+@dataclass(frozen=True)
+class _SettledCashObservation:
+    account_uid: str
+    amount: str
+    statement_date: str
+
+
+def _ibkr_settled_cash(raw, binding, day):
+    if (not isinstance(raw, dict)
+            or set(raw) != {'schema_version', 'target_id', 'opaque_account_uid', 'statement_date', 'currency', 'amount'}
+            or raw['schema_version'] != 'ibkr_digest_settled_cash.v1'
+            or raw['currency'] != 'USD'
+            or any(raw[name] != binding[name] for name in ('target_id', 'opaque_account_uid'))
+            or not isinstance(raw['amount'], str) or len(raw['amount']) > 64
+            or not re.fullmatch(r'-?[0-9]+(?:\.[0-9]+)?', raw['amount'])):
+        raise ValueError('digest_ibkr_settled_cash_invalid')
+    statement_day = date.fromisoformat(raw['statement_date']).isoformat()
+    if statement_day != raw['statement_date'] or statement_day > day:
+        raise ValueError('digest_ibkr_settled_cash_date_invalid')
+    return _SettledCashObservation(binding['opaque_account_uid'], raw['amount'], statement_day)
 
 
 def _report(configuration, rows, outcomes, day, platform_config, *, stale_observations=()):
@@ -273,6 +307,11 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
     covered = sum(value in {'present', 'not_run', 'snapshot_only'} for value in outcomes)
     coverage = 'complete' if covered == len(outcomes) else 'partial' if covered else 'unavailable'
     facts = collect_account_facts([*rows, *stale_observations], configuration.expected, day)
+    for observation in stale_observations:
+        if isinstance(observation, _SettledCashObservation):
+            facts['ibkr', observation.account_uid]['settled_cash'] = {
+                'amount': observation.amount, 'statement_date': observation.statement_date,
+            }
     if coverage == 'complete' and (payload.notification_summary or {}).get('counts_unknown'):
         coverage = 'partial'
     platforms = dict.fromkeys((*adapter.PLATFORMS, *config.get('platforms', {})))
