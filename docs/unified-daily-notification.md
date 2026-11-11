@@ -395,9 +395,13 @@ runtime, broker, deployment or notification authority.
 ## Shared Azure package release
 
 Run `Central digest package release` from the default branch. Select the
-protected package environment and start with `verify`. For a release, stage
-the reviewed ZIP by its SHA-256 in the private container, configure the two
-digests, then select `deploy`. The shared workflow verifies the backup,
+protected package environment and configure the fixed previous and candidate
+digests. Start with `verify`. The caller requires successful validation of its
+exact main commit and uploads the two reviewed digest scripts as a same-run
+artifact. The shared workflow rebuilds the ZIP from the authenticated active
+package, changing only those existing scripts. Verify checks the candidate
+digest without writes. Select `deploy` to stage that exact ZIP in the private
+container and release it. The shared workflow verifies the backup,
 updates the live package conditionally, and reads it back. Use `rollback`
 with the same digest pair when the candidate is still live. The Azure
 send and check schedules keep their existing package path and runtime identity.
