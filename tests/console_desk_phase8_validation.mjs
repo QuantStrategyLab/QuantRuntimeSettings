@@ -85,9 +85,9 @@ assert.deepEqual(levelCounts(logsOk.items), { all: 11, error: 1, warn: 2, info: 
 assert.equal(tapeStateKey({ state: "done", outcome: "drift" }), "tape.outcome.drift");
 assert.equal(tapeStateKey({ state: "scheduled", outcome: null }), "tape.state.scheduled");
 
-// 6. Both pages are still mock-sourced: no backend route exists for §3.17–§3.19 yet.
+// 6. Alerts and logs are still mock-sourced; delivery reads the #1108 sender-log route.
 assert.equal(DESK_SOURCES.alerts, "mock");
-assert.equal(DESK_SOURCES.alertDelivery, "mock");
+assert.equal(DESK_SOURCES.alertDelivery, "live");
 assert.equal(DESK_SOURCES.logs, "mock");
 
 // 7. The desk routes both pages, and neither is a stub any more.

@@ -284,6 +284,22 @@ html:has(.mrd), html:has(.mrd) body { background: var(--mrd-bg); }
 .mrd-delivery-grid dt { color: var(--mrd-ink-3); }
 .mrd-delivery-grid dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .mrd-delivery-notes { display: grid; gap: 5px; margin: 10px 0 0; padding: 10px 0 0; border-top: 1px solid var(--mrd-line); list-style: none; font-size: 11.5px; color: var(--mrd-ink-3); }
+/* Delivery status pills are inline facts, not the dock's floating counter. Unknown is neutral, never alarm-red. */
+.mrd-delivery .mrd-badge { position: static; justify-self: start; height: auto; padding: 2px 9px; border: 1px solid var(--mrd-line); background: transparent; color: var(--mrd-unknown); font: 550 11.5px/1.5 var(--font-sans); }
+.mrd-delivery .mrd-badge[data-status="ok"] { color: var(--mrd-mint); border-color: var(--mrd-mint); }
+.mrd-delivery .mrd-badge[data-status="failing"] { color: var(--mrd-coral); border-color: var(--mrd-coral); }
+.mrd-section-source { justify-self: start; font-size: 11px; color: var(--mrd-ink-3); }
+.mrd-section-source[data-source="mock"] { color: var(--mrd-amber); }
+.mrd-delivery-reason { margin: 0; font-size: 11.5px; }
+.mrd-delivery-source { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--mrd-line); }
+.mrd-delivery-source .mrd-note, .mrd-delivery-source-absent { margin: 0; font-size: 11.5px; }
+.mrd-delivery-reasons { display: grid; gap: 3px; margin: 0; padding-left: 16px; font-size: 11.5px; color: var(--mrd-ink-2); }
+.mrd-delivery-rows { display: grid; margin: 0; padding: 0; list-style: none; }
+.mrd-delivery-row { display: grid; gap: 2px; padding: 7px 0; font-size: 12px; border-bottom: 1px solid var(--mrd-line); overflow-wrap: anywhere; }
+.mrd-delivery-row:last-child { border-bottom: 0; }
+.mrd-delivery-run { font: 11.5px var(--font-mono); color: var(--mrd-ink-2); }
+.mrd-delivery-receiver { color: var(--mrd-unknown); }
+.mrd-delivery-flags { color: var(--mrd-amber); font-size: 11.5px; }
 .mrd-session-rows { display: grid; gap: 6px; margin-top: 10px; }
 .mrd-session-row { display: grid; grid-template-columns: 72px 90px minmax(0, 1fr); gap: 10px; font-size: 12.5px; }
 .mrd-session-market { font-weight: 550; }

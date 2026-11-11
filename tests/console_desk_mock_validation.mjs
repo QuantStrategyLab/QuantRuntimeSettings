@@ -185,12 +185,12 @@ assert.equal(resolveMockScenario("?mock=0", "ok"), null);
 assert.equal(resolveMockScenario("?page=overview", "fail"), "fail");
 assert.equal(resolveMockScenario("?mock=<script>", null), null);
 
-// 5. Endpoint sources: session, credentials and the switch target list are live;
+// 5. Endpoint sources: session, credentials, the switch target list and alert delivery are live;
 //    the rest stay mock until their backend lands.
 assert.deepEqual(DESK_SOURCES, {
   session: "live", ribbon: "mock", overview: "mock", accounts: "mock", credentials: "live",
   switchTargets: "live", switchStrategies: "mock", performance: "mock",
-  alerts: "mock", alertDelivery: "mock", logs: "mock",
+  alerts: "mock", alertDelivery: "live", logs: "mock",
 });
 const calls = [];
 const fetchJson = async path => {
@@ -247,7 +247,8 @@ for (const [page, endpoints] of Object.entries(DESK_PAGE_ENDPOINTS)) {
 }
 assert.equal(fixtureExposure("accounts", null), "partial", "accounts fixture + live credentials");
 assert.equal(fixtureExposure("switch", null), "partial", "live targets + fixture catalog");
-for (const page of ["overview", "alerts", "logs", "performance"]) {
+assert.equal(fixtureExposure("alerts", null), "partial", "fixture alerts + live delivery");
+for (const page of ["overview", "logs", "performance"]) {
   assert.equal(fixtureExposure(page, null), "all", `${page} is still fixture-backed`);
 }
 for (const scenario of ["ok", "degraded", "fail"]) {

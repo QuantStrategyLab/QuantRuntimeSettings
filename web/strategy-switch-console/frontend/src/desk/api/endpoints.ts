@@ -19,7 +19,8 @@ import type { DeskPage } from "../router.ts";
 
 export type DeskSource = "live" | "mock";
 
-/** Session is live (server_time landed in #1051); the rest wait for their backend routes. */
+/** Session is live (server_time landed in #1051); credentials, switch targets and alert
+    delivery are live; the rest wait for their backend routes. */
 export const DESK_SOURCES: Record<MockEndpoint, DeskSource> = {
   session: "live",
   ribbon: "mock",
@@ -30,9 +31,10 @@ export const DESK_SOURCES: Record<MockEndpoint, DeskSource> = {
   switchStrategies: "mock",
   // /api/desk/performance has no backend yet; the benchmark curves follow this source (see benchmarks()).
   performance: "mock",
-  // Phase 8 pages (API-CONTRACT.md §3.17–§3.19); no backend route yet.
+  // Phase 8 pages (API-CONTRACT.md §3.17–§3.19). Alerts and logs have no backend route yet.
   alerts: "mock",
-  alertDelivery: "mock",
+  // GET /api/desk/alerts/delivery (#1108): sender-log read projection; receiver ACK stays unknown.
+  alertDelivery: "live",
   logs: "mock",
 };
 
