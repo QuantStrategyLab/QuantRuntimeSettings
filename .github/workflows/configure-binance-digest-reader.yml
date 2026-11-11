@@ -1,0 +1,44 @@
+name: Configure Binance digest reader
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: Currently serving Worker version
+        required: true
+        type: string
+      expected_module_sha256:
+        description: Reviewed serving Worker module SHA-256
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - name: Validate the release client without production credentials
+        run: node --test tests/binance_digest_reader_release.test.mjs
+      - name: Add the dedicated reader to the serving Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          BINANCE_DIGEST_READ_TOKEN: ${{ secrets.BINANCE_DIGEST_READ_TOKEN }}
+          EXPECTED_WORKER_VERSION: ${{ inputs.expected_version }}
+          EXPECTED_WORKER_MODULE_SHA256: ${{ inputs.expected_module_sha256 }}
+        run: node scripts/binance_digest_reader_release.mjs

@@ -16,7 +16,7 @@ const reasons=new Set(['configuration_invalid','active_invalid','active_drift','
 const fail=x=>{throw Error(reasons.has(x)?x:'verification_failed')};
 const canonical=x=>JSON.stringify(x,(_key,v)=>object(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
 
-function active(result){
+export function active(result){
   const a=result?.deployments;
   if(!Array.isArray(a)||!a.length||a.length>10)fail('active_invalid');
   const d=a[0];
@@ -24,7 +24,7 @@ function active(result){
     ||d.versions[0]?.percentage!==100||!uuid(d.versions[0]?.version_id))fail('active_invalid');
   return {deployment:d.id,version:d.versions[0].version_id};
 }
-function versions(result){
+export function versions(result){
   const items=result?.items;
   if(!Array.isArray(items)||!items.length||items.length>10||items.some(x=>!uuid(x?.id)))fail('version_list_invalid');
   if(new Set(items.map(x=>x.id)).size!==items.length)fail('version_list_invalid');
@@ -64,7 +64,7 @@ export function config(x){
     handlers:x.script.handlers,named_handlers:x.script.named_handlers===undefined?null:[...x.script.named_handlers].sort((a,b)=>a.name.localeCompare(b.name)),
     placement_mode:x.script.placement_mode??null});
 }
-function moduleBytes(v,id,checkMigrations=true){
+export function moduleBytes(v,id,checkMigrations=true){
   if(v?.id!==id||!Array.isArray(v.modules)||v.modules.length!==1)fail('candidate_invalid');
   if(checkMigrations&&v.migrations!==undefined&&(!object(v.migrations)||Object.keys(v.migrations).length))fail('candidate_migrations');
   if(checkMigrations&&v.exports_reconciliation!==undefined){
@@ -84,14 +84,14 @@ function moduleBytes(v,id,checkMigrations=true){
   if(!bytes.length||bytes.length>10*1024*1024||bytes.toString('base64')!==m.content_base64)fail('candidate_invalid');
   return bytes;
 }
-function candidateConfig(next,base,after){
+export function candidateConfig(next,base,after){
   const oldTag=base.script_runtime.migration_tag,newTag=next.script_runtime.migration_tag;
   if(typeof oldTag!=='string'||!oldTag)fail('migration_tag_mismatch');
   if(after ? newTag!==oldTag : newTag!==undefined&&newTag!==oldTag)fail('migration_tag_mismatch');
   if(config(next)!==config(base))fail('candidate_configuration_mismatch');
   return newTag!==undefined;
 }
-function metadata(base,version,bytes){
+export function metadata(base,version,bytes){
   const r=base.script_runtime,s=base.script;
   const body={main_module:'worker.js',bindings:base.bindings.map(b=>({type:'inherit',name:b.name,version_id:version})),
     compatibility_date:r.compatibility_date,usage_model:r.usage_model,

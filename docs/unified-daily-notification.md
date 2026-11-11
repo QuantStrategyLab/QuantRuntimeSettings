@@ -116,6 +116,13 @@ The archive retains the newest snapshot in each Singapore business window, so
 an observation after the cutoff cannot replace the prior window's snapshot.
 This snapshot leaves order counts, fills and account-wide valuation unknown.
 
+Provision the dedicated Worker credential through the main-only
+`configure-binance-digest-reader` workflow. Supply the serving version and its
+verified module digest. The workflow keeps the serving code and existing
+bindings, then verifies the single new secret binding before and after
+activation. Confirm a closed-window snapshot before adding the Azure roster
+entry.
+
 The account report omits runtime links and technical evidence. The compact
 deadline fallback keeps trades, assets and holdings unknown and retains the
 existing single reservation and no-follow-up behavior. Other notification
