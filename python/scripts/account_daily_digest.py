@@ -155,7 +155,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         header = '🏦 ' + ' · '.join((platform_label, account, ' / '.join(strategies)))
         details = []
         for binding, outcome in bindings:
-            if outcome != 'present' and not (outcome == 'not_run' and len(bindings) == 1):
+            if outcome not in {'present', 'snapshot_only'} and not (outcome == 'not_run' and len(bindings) == 1):
                 fallback = '未命名策略' if zh else 'Unnamed strategy'
                 strategy = safe_display_text(display_name('strategies', binding.get('strategy_profile', ''), locale, fallback=fallback)) or fallback
                 text = outcome_text.get(outcome, ('状态未知', 'Status unknown'))[0 if zh else 1]
@@ -347,6 +347,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             state = '⏳ 已提交，成交待确认' if zh else '⏳ Submitted, fills unconfirmed'
         elif account_idle:
             state = '😴 无交易' if zh else '😴 No trades'
+        elif all(outcome == 'snapshot_only' for _, outcome in bindings):
+            state = '仅核实持仓快照，交易情况未知' if zh else 'Holdings snapshot verified, trading activity unknown'
         elif all(outcome == 'not_run' for _, outcome in bindings):
             state = '策略未运行，账户交易未知' if zh else 'Strategy did not run; account trades unknown'
         else:

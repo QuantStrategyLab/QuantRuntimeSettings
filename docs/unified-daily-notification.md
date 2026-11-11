@@ -105,6 +105,15 @@ number of distinct observed records, whichever is higher. The total remains
 unknown. Approved risk blocks show the verified reason. An unconfirmed execution
 only carries a pending order status when there is evidence of an order.
 
+Binance can supply holdings from its existing Spot and Flexible Earn snapshot
+while trading is disabled. The console exposes the closed-window holdings for
+its bound account through a dedicated read-only credential. A scheduled digest
+binding opts in with `snapshot_only: true` and uses the console account key as
+its opaque account UID. The deployment supplies `DIGEST_BINANCE_SNAPSHOT_ENDPOINT`
+and `DIGEST_BINANCE_SNAPSHOT_TOKEN` through protected configuration. The reader
+checks the account, target and reporting window before displaying holdings.
+This snapshot leaves order counts, fills and account-wide valuation unknown.
+
 The account report omits runtime links and technical evidence. The compact
 deadline fallback keeps trades, assets and holdings unknown and retains the
 existing single reservation and no-follow-up behavior. Other notification
