@@ -176,7 +176,8 @@ def _binance_snapshot(configuration, binding, day, timeout):
     query = urllib.parse.urlencode({'business_day': day})
     request = urllib.request.Request(configuration.binance_snapshot_endpoint + '?' + query,
                                      headers={'Authorization': 'Bearer ' + configuration.binance_snapshot_token,
-                                              'Accept': 'application/json'})
+                                              'Accept': 'application/json',
+                                              'User-Agent': 'QSL-Daily-Digest/1.0'})
     try:
         with urllib.request.build_opener(_NoRedirect()).open(request, timeout=timeout) as response:
             body = response.read(256 * 1024 + 1)
