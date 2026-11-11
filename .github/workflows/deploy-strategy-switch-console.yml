@@ -1042,7 +1042,9 @@ jobs:
           fi
           # Current reviewed merged main release: keep all receiver checks and live configuration.
           # The earlier reviewed main remains an exact historical source in the next block.
-          if [ "$RELEASE_SOURCE_SHA" = "dd63b3c8b73b588ce411316d904efd26f2c4f382" ]; then
+          reviewed_main="dd63b3c8b73b588ce411316d904efd26f2c4f382"
+          binance_digest_source="2b1f58d26b76dd5b8b5179ffb721f06a215cce2e"
+          if [ "$RELEASE_SOURCE_SHA" = "$reviewed_main" ] || [ "$RELEASE_SOURCE_SHA" = "$binance_digest_source" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
               && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
               && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = false ] || exit 2
@@ -1050,12 +1052,21 @@ jobs:
             [ "$control_sha" = "$GITHUB_SHA" ] || exit 2
             git cat-file -e "${RELEASE_SOURCE_SHA}^{commit}"
             git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$control_sha"
+            git merge-base --is-ancestor "$reviewed_main" "$RELEASE_SOURCE_SHA"
             expected_tree="c08d5542b032abaa008e882dd97ed2c38b3ad236"
-            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "$expected_tree" ] || exit 2
-            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" = "a7237657bb6e48c57e947875f629d28bafb5ea27" ] || exit 2
-            git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
-            [ "$(git rev-parse HEAD)" = "$RELEASE_SOURCE_SHA" ] \
+            [ "$(git rev-parse "${reviewed_main}^{tree}")" = "$expected_tree" ] || exit 2
+            [ "$(git rev-parse "${reviewed_main}:web/strategy-switch-console/v2_asset_map.js")" = "a7237657bb6e48c57e947875f629d28bafb5ea27" ] || exit 2
+            git -c advice.detachedHead=false checkout --detach "$reviewed_main"
+            [ "$(git rev-parse HEAD)" = "$reviewed_main" ] \
               && [ "$(git rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || exit 2
+            if [ "$RELEASE_SOURCE_SHA" = "$binance_digest_source" ]; then
+              [ "$(git ls-remote origin refs/heads/main | cut -f1)" = "$control_sha" ] || exit 2
+              git diff "${binance_digest_source}^" "$binance_digest_source" -- \
+                web/strategy-switch-console/binance_detail_archive.js \
+                web/strategy-switch-console/worker.js \
+                tests/binance_account_facts_validation.mjs | git apply --index
+              git diff --check
+            fi
             exit 0
           fi
           # Historical reviewed merged main release: same receiver and configuration gates.
@@ -1176,10 +1187,13 @@ jobs:
           python3 python/scripts/build_platform_config.py --check
 
       - name: Overlay fixed reviewed frontend assets
+        env:
+          RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
         if: inputs.release_frontend_assets && inputs.source_sha != '20dad166be317dd0d57e492ed06e56dfb82b7aef' && !inputs.render_and_compare_only
         run: |
           set -euo pipefail
           reviewed_main="dd63b3c8b73b588ce411316d904efd26f2c4f382"
+          binance_digest_source="2b1f58d26b76dd5b8b5179ffb721f06a215cce2e"
           historical_reviewed_main="084ba4281cfff3304cf226ce511a2fc0a6b67b08"
           older_reviewed_main="c1b737d6e721eb9fe71a12c613fbb49d3fa51563"
           head_sha="$(git rev-parse HEAD)"
@@ -1195,8 +1209,16 @@ jobs:
               [ "$(git rev-parse 'HEAD^{tree}')" = "5dcdab977ec72e32f99cd3ef4956cebff90ba107" ] || exit 2
               [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "b4ef57a6830011f78d0aa0270729e17d05a4d230" ] || exit 2
             fi
-            [ -z "$(git diff --name-only "$head_sha")" ] \
-              && [ -z "$(git ls-files --others --exclude-standard)" ] || exit 2
+            [ -z "$(git ls-files --others --exclude-standard)" ] || exit 2
+            if [ "${RELEASE_SOURCE_SHA:-}" = "$binance_digest_source" ]; then
+              [ "$head_sha" = "$reviewed_main" ] || exit 2
+              expected_paths="$(printf '%s\n' tests/binance_account_facts_validation.mjs \
+                web/strategy-switch-console/binance_detail_archive.js web/strategy-switch-console/worker.js)"
+              [ "$(git diff --cached --name-only "$head_sha")" = "$expected_paths" ] || exit 2
+              git diff --quiet
+            else
+              [ -z "$(git diff --name-only "$head_sha")" ] || exit 2
+            fi
             exit 0
           fi
           integrated="0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a"
@@ -1649,6 +1671,10 @@ jobs:
           IBKR_CANDIDATE_RESUME: ${{ inputs.ibkr_candidate_resume }}
           EXTERNAL_FLOW_ENABLE: ${{ inputs.external_flow_enable }}
         run: |
+          set -euo pipefail
+          if [ "$RELEASE_SOURCE_SHA" = "2b1f58d26b76dd5b8b5179ffb721f06a215cce2e" ]; then
+            [ "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" ] || exit 2
+          fi
           node --input-type=module <<'JS'
           import { readFile, readdir } from 'node:fs/promises';
           import { createHash } from 'node:crypto';
@@ -1675,7 +1701,8 @@ jobs:
             const statusCandidate = process.env.RELEASE_SOURCE_SHA === '68e3d4b69e706e2100f860c473ec657e9baf05ba';
             const cpuCandidate = process.env.RELEASE_SOURCE_SHA === '974354b98ebe0cd55931baa03034d887d4fac560';
             const integrated = controlRuntimeCandidate || controlAdminCandidate || historyCandidate || declarationCandidate || returnsCandidate || settingsCandidate || dailyCandidate || statusCandidate || cpuCandidate || process.env.RELEASE_SOURCE_SHA === '0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a';
-            const currentReviewedMain = process.env.RELEASE_SOURCE_SHA === 'dd63b3c8b73b588ce411316d904efd26f2c4f382';
+            const binanceDigestRelease = process.env.RELEASE_SOURCE_SHA === '2b1f58d26b76dd5b8b5179ffb721f06a215cce2e';
+            const currentReviewedMain = binanceDigestRelease || process.env.RELEASE_SOURCE_SHA === 'dd63b3c8b73b588ce411316d904efd26f2c4f382';
             const reviewedMain = currentReviewedMain
               || process.env.RELEASE_SOURCE_SHA === '084ba4281cfff3304cf226ce511a2fc0a6b67b08'
               || process.env.RELEASE_SOURCE_SHA === 'c1b737d6e721eb9fe71a12c613fbb49d3fa51563';
@@ -1852,6 +1879,7 @@ jobs:
               return value;
             }
             stage = 'pre_release_active'; const { id: priorDeployment, version: prior } = await active();
+            if (binanceDigestRelease && prior !== '8dfe27f6-ee97-4ebc-86f6-a1952ea4914a') fail('binance_digest_active_version_mismatch');
             if (ibkrDaily && prior !== '06043e24-f8c9-4129-8c59-abb9957217bf') fail('ibkr_active_version_mismatch');
             if (controlRuntimeCandidate && (!isUuid(process.env.PLATFORM_CONTROL_EXPECTED_VERSION) || prior !== process.env.PLATFORM_CONTROL_EXPECTED_VERSION)) fail('integrated_active_version_mismatch');
             if (integrated && !controlRuntimeCandidate && prior !== (controlAdminCandidate ? '0f65941f-b744-4795-af56-57156674a9d6' : historyCandidate ? 'f2cc875c-0e4b-43c3-9cbd-aaa04feec274' : declarationCandidate ? '178d3ef5-e161-4b92-99fb-a455f53b57db' : returnsCandidate ? '1b41d7d3-a703-4ee6-8f37-c677af8518c1' : settingsCandidate ? '7ffe9227-686a-48ad-baa9-72665969d918' : dailyCandidate ? '14f0c9c2-09f9-40e9-bfbe-17165f499495' : statusCandidate ? '175ba768-484a-4fe6-9cea-e5a101bc1618' : cpuCandidate ? '90a0c8e9-b5ad-447a-998f-5d585ec28063' : '600ec84d-a804-4ede-8d1d-0a34819ce46a')) fail('integrated_active_version_mismatch');
@@ -1877,6 +1905,16 @@ jobs:
             if (buildIds.length !== 1 || bundledIds.length !== 1 || buildIds[0][1] !== bundledIds[0][1]) fail('bundle_build_id');
             if (pr764 && buildIds[0][1] !== '96ff34b994fefc6198da4714a4a7bf44034e05210f9ba1844c545c8cbe542ad6') fail('pr764_build_id');
             const bundleSha256 = createHash('sha256').update(bundle).digest('hex');
+            if (binanceDigestRelease) {
+              stage = 'binance_digest_active_module';
+              const activeVersion = await request(`/versions/${prior}?include=modules`, 'GET', undefined, true);
+              const module = activeVersion?.modules?.[0];
+              if (activeVersion?.id !== prior || !Array.isArray(activeVersion.modules) || activeVersion.modules.length !== 1
+                || module?.name !== 'worker.js' || module.content_type !== 'application/javascript+module'
+                || typeof module.content_base64 !== 'string'
+                || createHash('sha256').update(Buffer.from(module.content_base64, 'base64')).digest('hex')
+                  !== '8e38776bdfb0a665ae87b7bd93146881d8813010461ea3dc9b77e23275e720ea') fail('binance_digest_active_bytes_mismatch');
+            }
             // Never skip a release using script-scoped content. Even a complete byte
             // match cannot associate /content/v2 with the active deployment's version.
             stage = 'pre_upload_content'; await validateScriptContent();
@@ -1886,7 +1924,7 @@ jobs:
             // version; the older script-version API only supports latest.
             const metadata = { main_module: 'worker.js', bindings: old.bindings.map(b => ({ type: 'inherit', name: b.name, ...(betaRelease ? {version_id: prior} : {}) })),
               compatibility_date: old.script_runtime.compatibility_date, usage_model: old.script_runtime.usage_model,
-              annotations: { 'workers/message': reviewedMain ? 'Reviewed merged main frontend; retained configuration' : controlRuntimeCandidate ? 'Reviewed runtime control candidate; retained configuration' : controlAdminCandidate ? 'Reviewed runtime control admin candidate 5db5153e; retained configuration' : historyCandidate ? 'Reviewed history return candidate 21829dda; retained configuration' : declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a with fixed frontend 96363633; retained bindings' } };
+              annotations: { 'workers/message': binanceDigestRelease ? 'Reviewed Binance holdings reader; retained configuration' : reviewedMain ? 'Reviewed merged main frontend; retained configuration' : controlRuntimeCandidate ? 'Reviewed runtime control candidate; retained configuration' : controlAdminCandidate ? 'Reviewed runtime control admin candidate 5db5153e; retained configuration' : historyCandidate ? 'Reviewed history return candidate 21829dda; retained configuration' : declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 20dad166 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a with fixed frontend 96363633; retained bindings' } };
             if (flowMode) {
               metadata.bindings = metadata.bindings.filter(binding => binding.name !== 'CONSOLE_EXTERNAL_FLOW_ENABLED');
               metadata.bindings.push({ name: 'CONSOLE_EXTERNAL_FLOW_ENABLED', type: 'plain_text', text: 'true' });
@@ -1947,7 +1985,7 @@ jobs:
             // A reviewed main release may add test-only handlers behind the __test
             // export. Treat that export as code, not configuration: every other named
             // handler stays strictly equal, and test handlers may only be added.
-            const allowTestHandlerAdditions = reviewedMain;
+            const allowTestHandlerAdditions = reviewedMain && !binanceDigestRelease;
             const namedHandlers = value => value.script.named_handlers === undefined ? null
               : [...value.script.named_handlers].sort((a,b) => a.name.localeCompare(b.name));
             const testExport = value => {
@@ -2018,7 +2056,7 @@ jobs:
             } else {
             stage = 'activate'; deployAttempted = true;
             const deployment = await request('/deployments?force=false', 'POST', JSON.stringify({ strategy: 'percentage',
-              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': reviewedMain ? 'Reviewed merged main frontend; retained configuration' : controlRuntimeCandidate ? 'Reviewed runtime control candidate; retained configuration' : controlAdminCandidate ? 'Reviewed runtime control admin candidate 5db5153e; retained configuration' : historyCandidate ? 'Reviewed history return candidate 21829dda; retained configuration' : declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a and frontend 96363633; retained configuration' } }));
+              versions: [{ version_id: uploaded, percentage: 100 }], annotations: { 'workers/message': binanceDigestRelease ? 'Reviewed Binance holdings reader; retained configuration' : reviewedMain ? 'Reviewed merged main frontend; retained configuration' : controlRuntimeCandidate ? 'Reviewed runtime control candidate; retained configuration' : controlAdminCandidate ? 'Reviewed runtime control admin candidate 5db5153e; retained configuration' : historyCandidate ? 'Reviewed history return candidate 21829dda; retained configuration' : declarationCandidate ? 'Reviewed account declaration candidate 411356d3; retained configuration' : returnsCandidate ? 'Reviewed account returns candidate b051154d; retained configuration' : settingsCandidate ? 'Reviewed settings candidate 3782a3e8; retained configuration' : dailyCandidate ? 'Reviewed daily candidate 4b6cbedc; retained configuration' : statusCandidate ? 'Reviewed status candidate 68e3d4b6; retained configuration' : cpuCandidate ? 'Reviewed CPU candidate 974354b9; retained configuration' : integrated ? 'Reviewed integrated candidate 0dd2c0b3; retained configuration' : pr764 ? 'Reviewed PR764 full source; retained configuration' : ibkrDaily ? 'Reviewed IBKR daily candidate aaa46a81; retained configuration' : 'Reviewed website backend 9722414a and frontend 96363633; retained configuration' } }));
             if (!object(deployment) || !Object.hasOwn(deployment, 'id')) fail('missing_id');
             if (!isUuid(deployment.id)) fail('invalid_id');
             const deploymentId = deployment.id;
