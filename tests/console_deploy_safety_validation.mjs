@@ -245,17 +245,18 @@ const fakeGit = `git() {
     'fetch --no-tags origin refs/heads/fix/runtime-daily-multi-release-20261030'|'fetch --no-tags origin refs/heads/fix/qrs-runtime-daily-serving-20261030'|'fetch --no-tags origin refs/heads/codex/website-account-settings-reviewed-20261029'|'fetch --no-tags origin refs/heads/codex/website-native-daily-fixed-clock-20261029'|'fetch --no-tags origin refs/heads/codex/website-integrated-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-history-cpu-candidate-20261029'|'fetch --no-tags origin refs/heads/codex/website-incomplete-release-candidate-20261029') return 0 ;;
     'rev-parse FETCH_HEAD') printf '%s' "$FAKE_FETCH_HEAD" ;;
     'rev-parse HEAD') if [ -f "$SELECTED" ]; then printf '%s' "$FAKE_SELECTED_HEAD"; else printf '%s' "$FAKE_CONTROL_HEAD"; fi ;;
-    'cat-file -e 084ba4281cfff3304cf226ce511a2fc0a6b67b08^{commit}'|'cat-file -e c1b737d6e721eb9fe71a12c613fbb49d3fa51563^{commit}'|'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
+    'cat-file -e 084ba4281cfff3304cf226ce511a2fc0a6b67b08^{commit}'|'cat-file -e c1b737d6e721eb9fe71a12c613fbb49d3fa51563^{commit}'|'cat-file -e 6f9b84e6192b68bac1627337fb4e633e178fcee3^{commit}'|'cat-file -e ${approved}^{commit}'|'cat-file -e ${pr764Source}^{commit}'|'cat-file -e ${ibkrSource}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
     'cat-file -e ${frontend}^{commit}') return "$FAKE_FRONTEND_OBJECT_EXIT" ;;
-    'merge-base --is-ancestor 084ba4281cfff3304cf226ce511a2fc0a6b67b08 ${control}'|'merge-base --is-ancestor c1b737d6e721eb9fe71a12c613fbb49d3fa51563 ${control}'|'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
+    'merge-base --is-ancestor 084ba4281cfff3304cf226ce511a2fc0a6b67b08 ${control}'|'merge-base --is-ancestor c1b737d6e721eb9fe71a12c613fbb49d3fa51563 ${control}'|'merge-base --is-ancestor 6f9b84e6192b68bac1627337fb4e633e178fcee3 ${control}'|'merge-base --is-ancestor ${approved} ${control}'|'merge-base --is-ancestor ${pr764Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${integratedSource} ${cpuSource}') return "$FAKE_ANCESTRY_EXIT" ;;
     'merge-base --is-ancestor ${frontend} ${control}') return "$FAKE_FRONTEND_ANCESTRY_EXIT" ;;
-    'rev-parse 084ba4281cfff3304cf226ce511a2fc0a6b67b08^{tree}'|'rev-parse c1b737d6e721eb9fe71a12c613fbb49d3fa51563^{tree}'|'rev-parse ${runtimeDailyMultiSource}^{tree}'|'rev-parse ${runtimeDailySource}^{tree}'|'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse ${cpuSource}^{tree}'|'rev-parse ${settingsSource}^{tree}'|'rev-parse ${dailySource}^{tree}'|'rev-parse ${statusSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse 084ba4281cfff3304cf226ce511a2fc0a6b67b08^{tree}'|'rev-parse c1b737d6e721eb9fe71a12c613fbb49d3fa51563^{tree}'|'rev-parse 6f9b84e6192b68bac1627337fb4e633e178fcee3^{tree}'|'rev-parse ${runtimeDailyMultiSource}^{tree}'|'rev-parse ${runtimeDailySource}^{tree}'|'rev-parse ${approved}^{tree}'|'rev-parse ${pr764Source}^{tree}'|'rev-parse ${ibkrSource}^{tree}'|'rev-parse ${integratedSource}^{tree}'|'rev-parse ${cpuSource}^{tree}'|'rev-parse ${settingsSource}^{tree}'|'rev-parse ${dailySource}^{tree}'|'rev-parse ${statusSource}^{tree}'|'rev-parse HEAD^{tree}') printf '%s' "$FAKE_TREE" ;;
     'rev-parse ${runtimeDailyMultiSource}^'|'rev-parse ${runtimeDailySource}^'|'rev-parse ${ibkrSource}^'|'rev-parse ${integratedSource}^'|'rev-parse ${settingsSource}^'|'rev-parse ${dailySource}^'|'rev-parse ${statusSource}^') printf '%s' "$FAKE_PARENT" ;;
     'rev-parse ${frontend}^{tree}') printf '%s' "$FAKE_FRONTEND_TREE" ;;
-    'rev-parse 084ba4281cfff3304cf226ce511a2fc0a6b67b08:${assetPath}'|'rev-parse c1b737d6e721eb9fe71a12c613fbb49d3fa51563:${assetPath}'|'rev-parse ${runtimeDailyMultiSource}:${assetPath}'|'rev-parse ${runtimeDailySource}:${assetPath}'|'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}'|'rev-parse ${cpuSource}:${assetPath}'|'rev-parse ${settingsSource}:${assetPath}'|'rev-parse ${dailySource}:${assetPath}'|'rev-parse ${statusSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
+    'rev-parse 084ba4281cfff3304cf226ce511a2fc0a6b67b08:${assetPath}'|'rev-parse c1b737d6e721eb9fe71a12c613fbb49d3fa51563:${assetPath}'|'rev-parse 6f9b84e6192b68bac1627337fb4e633e178fcee3:${assetPath}'|'rev-parse ${runtimeDailyMultiSource}:${assetPath}'|'rev-parse ${runtimeDailySource}:${assetPath}'|'rev-parse ${pr764Source}:${assetPath}'|'rev-parse ${ibkrSource}:${assetPath}'|'rev-parse ${integratedSource}:${assetPath}'|'rev-parse ${cpuSource}:${assetPath}'|'rev-parse ${settingsSource}:${assetPath}'|'rev-parse ${dailySource}:${assetPath}'|'rev-parse ${statusSource}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
     'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
-    '-c advice.detachedHead=false checkout --detach 084ba4281cfff3304cf226ce511a2fc0a6b67b08'|'-c advice.detachedHead=false checkout --detach c1b737d6e721eb9fe71a12c613fbb49d3fa51563'|'-c advice.detachedHead=false checkout --detach ${runtimeDailyMultiSource}'|'-c advice.detachedHead=false checkout --detach ${runtimeDailySource}'|'-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}'|'-c advice.detachedHead=false checkout --detach ${cpuSource}'|'-c advice.detachedHead=false checkout --detach ${statusSource}'|'-c advice.detachedHead=false checkout --detach ${settingsSource}'|'-c advice.detachedHead=false checkout --detach ${dailySource}') touch "$SELECTED" ;;
+    '-c advice.detachedHead=false checkout --detach 084ba4281cfff3304cf226ce511a2fc0a6b67b08'|'-c advice.detachedHead=false checkout --detach c1b737d6e721eb9fe71a12c613fbb49d3fa51563'|'-c advice.detachedHead=false checkout --detach 6f9b84e6192b68bac1627337fb4e633e178fcee3'|'-c advice.detachedHead=false checkout --detach ${runtimeDailyMultiSource}'|'-c advice.detachedHead=false checkout --detach ${runtimeDailySource}'|'-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}'|'-c advice.detachedHead=false checkout --detach ${cpuSource}'|'-c advice.detachedHead=false checkout --detach ${statusSource}'|'-c advice.detachedHead=false checkout --detach ${settingsSource}'|'-c advice.detachedHead=false checkout --detach ${dailySource}') touch "$SELECTED" ;;
+    'rev-parse 6f9b84e6192b68bac1627337fb4e633e178fcee3^@') printf '%s' "$FAKE_PARENT" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -323,6 +324,27 @@ for (const delta of [{FAKE_CONTROL_HEAD:"b".repeat(40)}, {FAKE_OBJECT_EXIT:"1"},
   assert.equal(sourceCase({...inboxEnv,...delta}, false).selected, false);
 }
 assert.equal(sourceCase({...inboxEnv,FAKE_SELECTED_HEAD:"b".repeat(40)}, false).selected, true);
+
+// The newly approved console source pins its sole parent, tree and asset map.
+const consoleSource = "6f9b84e6192b68bac1627337fb4e633e178fcee3";
+const consoleEnv = {...mergedEnv, RELEASE_SOURCE_SHA:consoleSource,
+  FAKE_SELECTED_HEAD:consoleSource, FAKE_PARENT:"49781f1be3061a27ad05afc3c675c91744ac27d2",
+  FAKE_TREE:"04196ebc2293f7c146cc788948d312afdcf5cf99",
+  FAKE_PR764_BLOB:"d883bc7f5a36a822c1c73e45d043a9792f4be64c"};
+assert.equal(sourceCase(consoleEnv,true).selected,true);
+for (const delta of [{RELEASE_FRONTEND_ASSETS:"false"},{SYNC_SECRETS:"true"},
+  {SYNC_STRATEGY_PROFILES:"true"},{SKIP_BINANCE_RECEIVER_CHECKS:"true"},
+  {GITHUB_REF:"refs/heads/other"},{RELEASE_SOURCE_SHA:""},
+  {RELEASE_SOURCE_SHA:"c2ec433b4f59bccbc1ddf0e7747bad5b54ad6a1c"}]) {
+  assert.deepEqual(sourceCase({...consoleEnv,...delta},false).calls,[]);
+}
+for (const delta of [{FAKE_PARENT:"b".repeat(40)},
+  {FAKE_PARENT:consoleEnv.FAKE_PARENT+"\n"+"b".repeat(40)},
+  {FAKE_TREE:"b".repeat(40)},{FAKE_PR764_BLOB:"b".repeat(40)},
+  {FAKE_OBJECT_EXIT:"1"},{FAKE_ANCESTRY_EXIT:"1"},{FAKE_CONTROL_HEAD:"b".repeat(40)}]) {
+  assert.equal(sourceCase({...consoleEnv,...delta},false).selected,false);
+}
+assert.equal(sourceCase({...consoleEnv,FAKE_SELECTED_HEAD:"b".repeat(40)},false).selected,true);
 
 const validSource = sourceCase({}, true);
 assert.equal(validSource.selected, true);
@@ -479,7 +501,7 @@ const fakeOverlayGit = `git() {
     'show ${ibkrSource}:${assetPath}') cat "$FROZEN_MAP" ;;
     hash-object*) command git "$@" ;;
     'diff --name-only ${approved}') printf '%s' "$FAKE_DIFF" ;;
-    'diff --name-only ${inboxSource}'|'diff --name-only ${mergedSource}'|'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}'|'diff --name-only ${settingsSource}'|'diff --name-only ${dailySource}'|'diff --name-only ${statusSource}') printf '%s' "$FAKE_DIFF" ;;
+    'diff --name-only 6f9b84e6192b68bac1627337fb4e633e178fcee3'|'diff --name-only ${inboxSource}'|'diff --name-only ${mergedSource}'|'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}'|'diff --name-only ${settingsSource}'|'diff --name-only ${dailySource}'|'diff --name-only ${statusSource}') printf '%s' "$FAKE_DIFF" ;;
     'ls-files --others --exclude-standard') printf '%s' "$FAKE_UNTRACKED" ;;
     *) return 91 ;;
   esac
@@ -543,6 +565,34 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
     }
     writeFileSync(dest, "fake modified asset");
     assert.notEqual(spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env}).status, 0);
+  } finally {rmSync(temp, {recursive:true,force:true});}
+}
+// The current reviewed main must preserve its own map and reject tampering.
+{
+  const consoleSource = "6f9b84e6192b68bac1627337fb4e633e178fcee3";
+  const consoleTree = "04196ebc2293f7c146cc788948d312afdcf5cf99";
+  const consoleBlob = "d883bc7f5a36a822c1c73e45d043a9792f4be64c";
+  const assetResult = spawnSync("git", ["show", `${consoleSource}:${assetPath}`], {maxBuffer:16*1024*1024});
+  assert.equal(assetResult.status, 0);
+  const asset = assetResult.stdout;
+  assert.equal(spawnSync("git", ["hash-object", "--stdin"], {input:asset,encoding:"utf8",maxBuffer:16*1024*1024}).stdout.trim(), consoleBlob);
+  const temp = mkdtempSync(join(tmpdir(), "console-source-overlay-"));
+  try {
+    const dest = join(temp, assetPath);
+    mkdirSync(join(temp, "web/strategy-switch-console"), {recursive:true});
+    const env = {PATH:process.env.PATH, GITHUB_REF:"refs/heads/main", FAKE_HEAD:consoleSource,
+      FAKE_TREE:consoleTree, FAKE_DIFF:"", FAKE_UNTRACKED:""};
+    for (const delta of [{}, {FAKE_DIFF:"fake-file"}, {FAKE_UNTRACKED:"fake-file"},
+      {FAKE_TREE:"a".repeat(40)}, {GITHUB_REF:"refs/heads/other"}]) {
+      writeFileSync(dest, asset);
+      const result = spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env:{...env,...delta}});
+      assert.equal(result.status === 0, Object.keys(delta).length === 0, "console source overlay must validate exact pins");
+      overlayCases++;
+      assert.deepEqual(readFileSync(dest), asset, "never overlay an older asset");
+    }
+    writeFileSync(dest, "fake modified asset");
+    assert.notEqual(spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env}).status, 0);
+    overlayCases++;
   } finally {rmSync(temp, {recursive:true,force:true});}
 }
 // The CPU candidate carries its own exact generated map, never the older overlay.
@@ -759,7 +809,7 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
 async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false, baselineItems=undefined, preUploadVersion=null, preDeployWitness=null, uploadId=null, ambiguousActive=false, expectFailure=null, testHandlers=null, deployed=false } = {}, expected=true) {
  const calls=[], stdout=[], stderr=[], prior=settings?"7ffe9227-686a-48ad-baa9-72665969d918":daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
  active ??= prior; latest ??= active;
- const separateWitness = reviewedMain && (reviewedMainSource === deskSource || reviewedMainSource === inboxSource) && !flow;
+ const separateWitness = reviewedMain && (reviewedMainSource === deskSource || reviewedMainSource === inboxSource || reviewedMainSource === consoleSource) && !flow;
  const responses=responseSequence(false,active);
  if (ambiguousActive) responses[0].result.deployments[0].versions.push({version_id:"00000000-0000-4000-8000-000000000024",percentage:0});
  responses.splice(3,0,wrap({items:baselineItems===undefined?[{id:latest}]:baselineItems}));
@@ -878,6 +928,21 @@ await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,la
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,moduleContent:Buffer.from("wrong").toString("base64")},false);
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,uploadedTag:"wrong-tag"},false);
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,postTag:null},false);
+// The exact console source uses the reviewed-main publisher and active donor,
+// including the separate upload witness and every existing release safety gate.
+const consoleRelease = {reviewedMain:true,reviewedMainSource:consoleSource};
+await integratedReleaseCase(consoleRelease);
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness});
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness,baselineItems:[],expectFailure:baselineStop},false);
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness,preUploadVersion:driftedActive,expectFailure:{...stopped,stage:"pre_upload_active",upload_attempted:false,outcome:"NOT_ATTEMPTED"}},false);
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness,lineage:driftedWitness,expectFailure:{...stopped,stage:"inherit_lineage",checkpoint:"inherit_lineage_mismatch",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness,preDeployWitness:driftedWitness,expectFailure:{...stopped,stage:"pre_deploy_lineage",checkpoint:"inherit_lineage_mismatch",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness,uploadId:orphanWitness,expectFailure:{...stopped,checkpoint:"uploaded_matches_witness",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...consoleRelease,moduleContent:Buffer.from("wrong").toString("base64")},false);
+await integratedReleaseCase({...consoleRelease,uploadedTag:"wrong-tag"},false);
+await integratedReleaseCase({...consoleRelease,postTag:null},false);
+await integratedReleaseCase({...consoleRelease,testHandlers:{active:["alpha","beta"],uploaded:["alpha"],post:["alpha"]},expectFailure:{...configStop,checkpoint:"test_export_handlers_removed"}},false);
+await integratedReleaseCase({...consoleRelease,deployed:true,testHandlers:{active:["alpha"],uploaded:["alpha","beta"],post:["alpha"]},expectFailure:postTestStop},false);
 await integratedReleaseCase();
 await integratedReleaseCase({flow:true});
 await integratedReleaseCase({flow:true,oldFlag:{name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"false"}});
