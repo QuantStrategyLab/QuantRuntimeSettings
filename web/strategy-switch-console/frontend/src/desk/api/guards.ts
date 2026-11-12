@@ -273,9 +273,11 @@ const isDeliverySourceItem = (value: unknown): boolean => isObject(value) &&
 
 /** The v1 `source` block, validated in full before any of it is rendered. */
 export function isDeliverySource(value: unknown): boolean {
-  if (!isObject(value) || Object.keys(value).sort().join() !== "as_of,items,read_reason_codes,read_status") return false;
+  if (!isObject(value) || Object.keys(value).sort().join() !== "as_of,items,read_error_code,read_reason_codes,read_status") return false;
   const reasons = value.read_reason_codes;
   return oneOf(...DELIVERY_READ_STATUSES)(value.read_status) &&
+    // Same allowlist as the items, plus the explicit "unknown" fallback; never null or free text.
+    (value.read_error_code === "unknown" || isReadErrorCode(value.read_error_code)) &&
     Array.isArray(reasons) && reasons.every(oneOf(...DELIVERY_READ_REASONS)) && new Set(reasons).size === reasons.length &&
     nullable(isIso)(value.as_of) &&
     Array.isArray(value.items) && value.items.length <= 5 && value.items.every(isDeliverySourceItem);

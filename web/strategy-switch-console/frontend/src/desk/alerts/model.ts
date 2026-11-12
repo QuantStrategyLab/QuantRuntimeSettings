@@ -3,7 +3,7 @@
  * Kept out of the component so the rules can be tested without rendering.
  */
 import type {
-  AlertDeliverySource, AlertItem, DeliveryReadReason, DeliveryReadStatus, DeliverySenderStatus, Severity,
+  AlertDeliverySource, AlertItem, DeliveryReadErrorCode, DeliveryReadReason, DeliveryReadStatus, DeliverySenderStatus, Severity,
 } from "../contract/types";
 
 export type SeverityFilter = "all" | Severity;
@@ -72,6 +72,10 @@ export interface DeliverySourceView {
   readKey: `alerts.delivery.read.${DeliveryReadStatus}`;
   readStatus: DeliveryReadStatus;
   reasonKeys: `alerts.delivery.reason.${DeliveryReadReason}`[];
+  /** Source-level reader diagnostic, kept apart from each row's own readErrorCode. */
+  readErrorCode: DeliveryReadErrorCode | "unknown";
+  /** Shown for any non-complete read (unknown included), or whenever a known code exists. */
+  readErrorShown: boolean;
   asOf: string | null;
   rows: DeliveryRowView[];
 }
@@ -83,6 +87,8 @@ export function deliverySourceView(source: AlertDeliverySource | undefined): Del
     readKey: `alerts.delivery.read.${source.read_status}`,
     readStatus: source.read_status,
     reasonKeys: source.read_reason_codes.map(code => `alerts.delivery.reason.${code}` as const),
+    readErrorCode: source.read_error_code,
+    readErrorShown: source.read_status !== "complete" || source.read_error_code !== "unknown",
     asOf: source.as_of,
     rows: source.items.map((item, index) => ({
       key: `${index}:${item.source_run_id ?? "none"}:${item.source_run_attempt ?? "none"}`,

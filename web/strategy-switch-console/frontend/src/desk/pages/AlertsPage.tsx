@@ -195,6 +195,14 @@ function DeliverySource({ data, t, language }: { data: AlertDelivery; t: DeskTra
           {view.reasonKeys.map(key => <li key={key}>{t(key)}</li>)}
         </ul>
       ) : null}
+      {/* Source-level reader diagnostic: separate from each row's code, and "unknown" stays unknown. */}
+      {view.readErrorShown ? (
+        <p className="mrd-note mrd-delivery-source-error" data-read-error={view.readErrorCode}>
+          {t("alerts.delivery.read_error", {
+            code: view.readErrorCode === "unknown" ? t("alerts.delivery.unknown") : view.readErrorCode,
+          })}
+        </p>
+      ) : null}
       {view.rows.length === 0 ? <p className="mrd-note">{t("alerts.delivery.items.empty")}</p> : (
         <ul className="mrd-delivery-rows">
           {view.rows.map(row => (

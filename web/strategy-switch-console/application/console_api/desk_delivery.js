@@ -36,6 +36,7 @@ export async function deskDelivery(env, deps, now = Date.now) {
     last_delivery: null, digest: null,
     source: {
       read_status: readStatus,
+      read_error_code: valid && RECEIPT_READ_ERROR_CODES.includes(log.read_error_code) ? log.read_error_code : "unknown",
       read_reason_codes: valid ? [...new Set(log.read_reason_codes.filter(code => REASONS.includes(code)))] : ["invalid_notification_log"],
       as_of: valid ? timestamp(log.as_of) : null,
       items: valid ? log.items.map(item => ({

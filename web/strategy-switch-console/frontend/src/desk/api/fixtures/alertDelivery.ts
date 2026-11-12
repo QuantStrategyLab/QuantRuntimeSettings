@@ -15,6 +15,8 @@ export const ok = {
  * The channel could not be read. An unknown delivery is never shown as "failing".
  * Carries the v1 sender-log `source` the live adapter returns: a partial read with
  * synthetic run numbers. Sender acceptance stays sender-side; receiver_ack is unknown.
+ * The shared reader sets a source-level diagnostic only when the run listing itself fails,
+ * so this partial read carries the explicit "unknown" fallback, separate from row codes.
  */
 export const degraded = {
   ...ok,
@@ -23,6 +25,7 @@ export const degraded = {
   digest: null,
   source: {
     read_status: "partial",
+    read_error_code: "unknown",
     read_reason_codes: ["receipt_missing", "receipt_expired"],
     as_of: "2026-11-02T14:31:00Z",
     items: [
