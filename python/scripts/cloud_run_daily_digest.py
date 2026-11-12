@@ -25,12 +25,13 @@ import notification_candidate_adapter as adapter
 from account_daily_digest import render_account_daily, render_account_daily_unavailable, valid_crypto_symbol
 from account_daily_facts import collect_account_facts
 from daily_digest_delivery_store import GCSDeliveryStore, StoreUnavailable, location
-from display_names import configured_account_label, safe_display_text as _safe_display_text
+from display_names import broker_account_identity, configured_account_label, safe_display_text as _safe_display_text
 
 SGT = ZoneInfo('Asia/Singapore')
 IDENTITY = adapter.IDENTITY[:4]
 SLOT = re.compile(r'[a-z0-9][a-z0-9_-]{0,40}')
 BINANCE_SNAPSHOT_PATH = '/api/internal/binance-account-facts/digest'
+IBKR_TELEGRAM_BINDING = ('candidate_slot', 'opaque_account_uid', 'target_id')
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -52,6 +53,29 @@ def project_expected_target_label(binding, account_option):
     return result
 
 
+def _ibkr_telegram_accounts(expected, raw, recipient):
+    if not raw or not recipient:
+        return {}
+    try:
+        value = json.loads(raw)
+        if value['recipient_id'] != recipient:
+            return {}
+        eligible = {tuple(row[key] for key in IBKR_TELEGRAM_BINDING)
+                    for row in expected if row['platform_id'] == 'ibkr'}
+        accounts, owners = {}, {}
+        for row in value['accounts']:
+            identity = tuple(row[key] for key in IBKR_TELEGRAM_BINDING)
+            uid = row['opaque_account_uid']
+            account = broker_account_identity('ibkr', row['account_id'])
+            if (identity not in eligible or not account
+                    or accounts.setdefault(uid, account) != account
+                    or owners.setdefault(account, uid) != uid):
+                return {}
+        return accounts
+    except (KeyError, TypeError, ValueError):
+        return {}
+
+
 @dataclass(frozen=True)
 class Configuration:
     expected: list
@@ -63,6 +87,7 @@ class Configuration:
     candidate_uris: dict = field(default_factory=dict)
     binance_snapshot_endpoint: str = ''
     binance_snapshot_token: str = field(default='', repr=False)
+    telegram_ibkr_accounts: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         adapter.validate_expected(self.expected)
@@ -129,12 +154,15 @@ class Configuration:
             candidate_uris = json.loads(os.environ.get('DIGEST_CANDIDATES_BY_PLATFORM_JSON', '{}'))
         except ValueError:
             raise ValueError('digest_candidate_sources_invalid') from None
-        return cls(json.loads(os.environ['DIGEST_EXPECTED_TARGETS_JSON']),
+        expected = json.loads(os.environ['DIGEST_EXPECTED_TARGETS_JSON'])
+        return cls(expected,
                    os.environ['DIGEST_SCHEDULER_JOB_NAME'], os.environ['DIGEST_RECIPIENT_SCOPE'],
                    os.environ['DIGEST_CUTOVER_REPORT_DATE'], flag == 'true',
                    os.environ.get('QSL_NOTIFY_LANG', 'zh'), candidate_uris,
                    os.environ.get('DIGEST_BINANCE_SNAPSHOT_ENDPOINT', ''),
-                   os.environ.get('DIGEST_BINANCE_SNAPSHOT_TOKEN', ''))
+                   os.environ.get('DIGEST_BINANCE_SNAPSHOT_TOKEN', ''),
+                   _ibkr_telegram_accounts(expected, os.environ.get('DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON'),
+                                           os.environ.get('QSL_GLOBAL_TELEGRAM_CHAT_ID')))
 
 
 def utc_now():
@@ -289,7 +317,8 @@ def _ibkr_settled_cash(raw, binding, day):
     return _SettledCashObservation(binding['opaque_account_uid'], raw['amount'], statement_day)
 
 
-def _report(configuration, rows, outcomes, day, platform_config, *, stale_observations=()):
+def _report(configuration, rows, outcomes, day, platform_config, *, stale_observations=(),
+            include_telegram_account_ids=False):
     config = deepcopy(platform_config or aggregator.load_platform_config())
     config['notifications']['quant_sentinel']['daily_digest'].setdefault('aggregator', {})['expected_targets'] = configuration.expected
     failure_reasons = {'read_failed': 'candidate_store_read_failed',
@@ -315,7 +344,9 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
     if coverage == 'complete' and (payload.notification_summary or {}).get('counts_unknown'):
         coverage = 'partial'
     platforms = dict.fromkeys((*adapter.PLATFORMS, *config.get('platforms', {})))
-    text = render_account_daily(payload, configuration.expected, outcomes, facts=facts, known_platforms=platforms)
+    text = render_account_daily(payload, configuration.expected, outcomes, facts=facts, known_platforms=platforms,
+                                telegram_ibkr_accounts=(configuration.telegram_ibkr_accounts
+                                                        if include_telegram_account_ids else None))
     return text, coverage
 
 
@@ -367,7 +398,9 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
         read_end = now() + timedelta(seconds=120) if preview else stop
         rows, outcomes, stale = _sources(
             configuration, store, day, read_end, now=now, monotonic=monotonic)
-        text, coverage = _report(configuration, rows, outcomes, day, platform_config, stale_observations=stale)
+        text, coverage = _report(configuration, rows, outcomes, day, platform_config, stale_observations=stale,
+                                 include_telegram_account_ids=(
+                                     not preview and schedule_record.get('trigger_provenance') == 'azure_logic_sliding_window'))
     # Recheck after intake/rendering: wall-clock expiry cannot be extended by retries.
     late = late or now() + timedelta(seconds=30) >= deadline_at
     if late and not preview:
