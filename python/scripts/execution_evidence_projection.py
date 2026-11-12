@@ -177,9 +177,17 @@ def _project_runtime_report(report: Mapping[str, Any]) -> tuple[dict[str, Any], 
         raise ExecutionEvidenceProjectionError("runtime_report_lane_mismatch")
 
     receipt = _mapping(report.get("runtime_release_receipt"), "runtime_report_release_unattested")
-    release = _mapping(receipt.get("strategy_release"), "runtime_report_release_unattested")
+    if receipt.get("attestation_state") == "self_attested":
+        release = _mapping(receipt.get("strategy_release"), "runtime_report_release_unattested")
+    elif platform == "binance" and execution_mode == "live" and report.get("execution_receipt") is not None:
+        release = _mapping(report.get("binance_live_authority"), "runtime_report_release_unattested")
+        if (not _REVISION.fullmatch(str(release.get("runtime_revision") or ""))
+                or not re.fullmatch(r"[0-9a-f]{64}", str(release.get("config_sha256") or ""))):
+            raise ExecutionEvidenceProjectionError("runtime_report_release_unattested")
+    else:
+        raise ExecutionEvidenceProjectionError("runtime_report_release_unattested")
     revision = release.get("strategy_revision")
-    if receipt.get("attestation_state") != "self_attested" or not isinstance(revision, str) or not _REVISION.fullmatch(revision):
+    if not isinstance(revision, str) or not _REVISION.fullmatch(revision):
         raise ExecutionEvidenceProjectionError("runtime_report_release_unattested")
 
     observed_at = _report_timestamp(report)
