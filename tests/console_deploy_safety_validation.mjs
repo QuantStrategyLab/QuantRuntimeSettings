@@ -501,7 +501,7 @@ const fakeOverlayGit = `git() {
     'show ${ibkrSource}:${assetPath}') cat "$FROZEN_MAP" ;;
     hash-object*) command git "$@" ;;
     'diff --name-only ${approved}') printf '%s' "$FAKE_DIFF" ;;
-    'diff --name-only ${inboxSource}'|'diff --name-only ${mergedSource}'|'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}'|'diff --name-only ${settingsSource}'|'diff --name-only ${dailySource}'|'diff --name-only ${statusSource}') printf '%s' "$FAKE_DIFF" ;;
+    'diff --name-only 6f9b84e6192b68bac1627337fb4e633e178fcee3'|'diff --name-only ${inboxSource}'|'diff --name-only ${mergedSource}'|'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}'|'diff --name-only ${settingsSource}'|'diff --name-only ${dailySource}'|'diff --name-only ${statusSource}') printf '%s' "$FAKE_DIFF" ;;
     'ls-files --others --exclude-standard') printf '%s' "$FAKE_UNTRACKED" ;;
     *) return 91 ;;
   esac
@@ -565,6 +565,34 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
     }
     writeFileSync(dest, "fake modified asset");
     assert.notEqual(spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env}).status, 0);
+  } finally {rmSync(temp, {recursive:true,force:true});}
+}
+// The current reviewed main must preserve its own map and reject tampering.
+{
+  const consoleSource = "6f9b84e6192b68bac1627337fb4e633e178fcee3";
+  const consoleTree = "04196ebc2293f7c146cc788948d312afdcf5cf99";
+  const consoleBlob = "d883bc7f5a36a822c1c73e45d043a9792f4be64c";
+  const assetResult = spawnSync("git", ["show", `${consoleSource}:${assetPath}`], {maxBuffer:16*1024*1024});
+  assert.equal(assetResult.status, 0);
+  const asset = assetResult.stdout;
+  assert.equal(spawnSync("git", ["hash-object", "--stdin"], {input:asset,encoding:"utf8",maxBuffer:16*1024*1024}).stdout.trim(), consoleBlob);
+  const temp = mkdtempSync(join(tmpdir(), "console-source-overlay-"));
+  try {
+    const dest = join(temp, assetPath);
+    mkdirSync(join(temp, "web/strategy-switch-console"), {recursive:true});
+    const env = {PATH:process.env.PATH, GITHUB_REF:"refs/heads/main", FAKE_HEAD:consoleSource,
+      FAKE_TREE:consoleTree, FAKE_DIFF:"", FAKE_UNTRACKED:""};
+    for (const delta of [{}, {FAKE_DIFF:"fake-file"}, {FAKE_UNTRACKED:"fake-file"},
+      {FAKE_TREE:"a".repeat(40)}, {GITHUB_REF:"refs/heads/other"}]) {
+      writeFileSync(dest, asset);
+      const result = spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env:{...env,...delta}});
+      assert.equal(result.status === 0, Object.keys(delta).length === 0, "console source overlay must validate exact pins");
+      overlayCases++;
+      assert.deepEqual(readFileSync(dest), asset, "never overlay an older asset");
+    }
+    writeFileSync(dest, "fake modified asset");
+    assert.notEqual(spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env}).status, 0);
+    overlayCases++;
   } finally {rmSync(temp, {recursive:true,force:true});}
 }
 // The CPU candidate carries its own exact generated map, never the older overlay.
