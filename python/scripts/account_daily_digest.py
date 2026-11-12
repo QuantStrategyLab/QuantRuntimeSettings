@@ -104,7 +104,8 @@ def _snapshot_label(stamp, window, zh):
     return prefix + stamp.astimezone(SGT).strftime('%Y-%m-%d %H:%M UTC+8')
 
 
-def render_account_daily(payload, expected, outcomes, *, facts=None, known_platforms=(), max_units=3850):
+def render_account_daily(payload, expected, outcomes, *, facts=None, known_platforms=(), max_units=3850,
+                         telegram_ibkr_accounts=None):
     """Render supplied raw binding outcomes and optional per-account evidence.
 
     ``facts`` is keyed by (platform_id, opaque_account_uid). Order and fill IDs
@@ -117,6 +118,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
     unknown = '未知' if zh else 'unknown'
     window = sgt_business_window(datetime.combine(date.fromisoformat(payload.business_day), time(6), SGT))
     facts = facts or {}
+    telegram_ibkr_accounts = telegram_ibkr_accounts or {}
     groups = {}
     for i, binding in enumerate(expected):
         key = (binding.get('platform_id', ''), binding.get('opaque_account_uid', ''))
@@ -150,6 +152,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         'invalid': ('报告无效', 'Report invalid'),
     }
     for ((platform, uid), group), (platform_label, account, _) in zip(groups.items(), contexts):
+        if platform == 'ibkr':
+            account = telegram_ibkr_accounts.get(uid, account)
         rows, bindings = group['rows'], group['bindings']
         actual_rows = [row for row in rows if row.execution_mode.strip().lower() not in SIMULATION_MODES]
         has_simulation = len(actual_rows) != len(rows)

@@ -35,6 +35,32 @@ existing notification mode and private candidate configuration remain in use.
 
 ## Account display
 
+Use `python/scripts/project_digest_display_roster.py` when enrolling an
+account or reconciling names after a management configuration edit. Give it
+the current protected digest roster, the authenticated management
+runtime-instances response, and the private enrollment links. Each link
+contains the digest's `platform_id`, `candidate_slot`, `opaque_account_uid`,
+and `target_id`, the management `account_key`, and the verified management
+`config_identity` fields `account_selector`, `deployment_selector`,
+`service_name`, and `runtime_status_target_id`. Keep those inputs outside Git.
+
+`--check` reports display drift. `--output` prepares a private replacement
+roster for the existing release procedure. The projection changes account
+labels and row order only. It removes IBKR roster aliases. The authorized
+Telegram account field comes from the verified broker selector, independently
+of any strategy or runtime label change. A changed binding requires verifying
+the enrollment link before applying a display update.
+
+The central Azure scheduled sender can additionally show full IBKR account IDs in the
+authorized Telegram recipient's message. Set the private
+`DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON` to the approved `recipient_id` and an
+`accounts` array, binding each `account_id` to its exact `candidate_slot`,
+`opaque_account_uid`, and `target_id`. The sender falls back to the existing
+safe account display if the recipient or a binding changes. Previews, receipts and
+other notification paths keep their existing safe account displays.
+For an approved release, `--output` with `--telegram-recipient-file` emits both
+private settings together from the same verified roster and configuration.
+
 When **both** fill and order counts are known and zero, the account shows
 `无交易` / `No trades`. Accounts with activity retain their fill/order counts.
 A missing count gets an explicit reason instead of an invented zero. Any
