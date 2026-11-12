@@ -1,4 +1,5 @@
 name: Manual Strategy Switch
+run-name: Strategy switch · ${{ inputs.apply && 'apply' || 'preview' }} · ${{ inputs.platform }} · ${{ inputs.strategy_profile }}
 
 on:
   workflow_dispatch:
@@ -158,8 +159,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  approve-apply:
+    name: Approve the signed strategy switch
+    if: >-
+      github.ref == 'refs/heads/main' && github.run_attempt == 1 &&
+      inputs.apply && !inputs.trigger_platform_sync && inputs.confirm_apply == 'APPLY' &&
+      inputs.promotion_manifest_json != '' && inputs.promotion_single_use_id != ''
+    environment: runtime-strategy-switch-approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions: {}
+    steps:
+      - name: Record approval
+        run: echo "Strategy switch approved. The signed manifest is verified before any write." >> "$GITHUB_STEP_SUMMARY"
+
   switch:
     name: Build and apply runtime switch
+    needs: approve-apply
+    if: >-
+      !cancelled() && ((!inputs.apply && needs.approve-apply.result == 'skipped') ||
+      (inputs.apply && needs.approve-apply.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: runtime-strategy-switch

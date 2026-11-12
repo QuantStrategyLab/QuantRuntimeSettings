@@ -54,6 +54,14 @@ remains rejected. Any later consumer must report variable readback separately fr
 platform adoption and keep `runtime_applied=false` until adoption is independently
 verified.
 
+## GitHub approval for manual apply
+
+Manual `apply=true` runs pass through the `runtime-strategy-switch-approval`
+Environment on `main`. Configure it with a required reviewer before release.
+The existing workflow still verifies the signed Promotion Manifest and
+consumes its single-use ID before applying variables. `apply=false` previews
+skip the reviewer job. The existing secret Environment retains its role.
+
 ## Default: single-operator mode
 
 1. Only your GitHub account has write/admin on the runtime settings repository.
