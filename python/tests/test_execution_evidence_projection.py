@@ -145,6 +145,34 @@ class ExecutionEvidenceProjectionTest(unittest.TestCase):
         for forbidden in ("receipt_id", "must-not-be-projected", "account_ids", "api_token", "gs://"):
             self.assertNotIn(forbidden, serialized)
 
+    def test_projects_binance_live_receipt_with_verified_authority_identity(self):
+        report = self._report()
+        report.update(
+            platform="binance", strategy_domain="crypto", strategy_profile="crypto_live_pool_rotation",
+            dry_run=False, runtime_target={"execution_mode": "live", "dry_run_only": False},
+            runtime_release_receipt={"attestation_state": "legacy_unattested"},
+            binance_live_authority={
+                "strategy_revision": "a" * 40, "runtime_revision": "b" * 40, "config_sha256": "c" * 64,
+            },
+        )
+        receipt = self._execution_receipt()
+        receipt.update(platform="binance", execution_mode="live", strategy_profile=report["strategy_profile"])
+        receipt["receipt_id"] = projection._execution_receipt_id(
+            **{k: v for k, v in receipt.items() if k not in {"schema_version", "receipt_id"}}
+        )
+        report["execution_receipt"] = receipt
+
+        def project():
+            return projection.build_execution_evidence_source_snapshot(
+                [report], source_id="runtime-reports", now=datetime(2026, 8, 25, 16, 5, tzinfo=UTC),
+            )
+
+        self.assertEqual(project()["deployments"][0]["execution_receipt"]["outcome"], "filled")
+        report["binance_live_authority"]["strategy_revision"] = "d" * 40
+        self.assertIn("runtime_report_execution_receipt_invalid", project()["errors"])
+        report["binance_live_authority"]["runtime_revision"] = ""
+        self.assertIn("runtime_report_release_unattested", project()["errors"])
+
     def test_accepts_non_action_receipts_without_granting_execution_authority(self):
         for outcome in ("no_signal", "no_rebalance"):
             with self.subTest(outcome=outcome):
