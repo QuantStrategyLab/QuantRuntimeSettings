@@ -1724,7 +1724,8 @@ jobs:
             const cpuCandidate = process.env.RELEASE_SOURCE_SHA === '974354b98ebe0cd55931baa03034d887d4fac560';
             const integrated = controlRuntimeCandidate || controlAdminCandidate || historyCandidate || declarationCandidate || returnsCandidate || settingsCandidate || dailyCandidate || statusCandidate || cpuCandidate || process.env.RELEASE_SOURCE_SHA === '0dd2c0b3e73e890bc2c39ab0bae0eeb48c58470a';
             const binanceDigestRelease = process.env.RELEASE_SOURCE_SHA === '2b1f58d26b76dd5b8b5179ffb721f06a215cce2e';
-            const currentReviewedMain = binanceDigestRelease || process.env.RELEASE_SOURCE_SHA === 'dd63b3c8b73b588ce411316d904efd26f2c4f382';
+            const currentReviewedMain = binanceDigestRelease || process.env.RELEASE_SOURCE_SHA === 'dd63b3c8b73b588ce411316d904efd26f2c4f382'
+              || process.env.RELEASE_SOURCE_SHA === '6f9b84e6192b68bac1627337fb4e633e178fcee3';
             const reviewedMain = currentReviewedMain
               || process.env.RELEASE_SOURCE_SHA === '084ba4281cfff3304cf226ce511a2fc0a6b67b08'
               || process.env.RELEASE_SOURCE_SHA === 'c1b737d6e721eb9fe71a12c613fbb49d3fa51563';

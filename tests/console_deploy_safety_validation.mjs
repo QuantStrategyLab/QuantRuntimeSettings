@@ -809,7 +809,7 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
 async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false, baselineItems=undefined, preUploadVersion=null, preDeployWitness=null, uploadId=null, ambiguousActive=false, expectFailure=null, testHandlers=null, deployed=false } = {}, expected=true) {
  const calls=[], stdout=[], stderr=[], prior=settings?"7ffe9227-686a-48ad-baa9-72665969d918":daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
  active ??= prior; latest ??= active;
- const separateWitness = reviewedMain && (reviewedMainSource === deskSource || reviewedMainSource === inboxSource) && !flow;
+ const separateWitness = reviewedMain && (reviewedMainSource === deskSource || reviewedMainSource === inboxSource || reviewedMainSource === consoleSource) && !flow;
  const responses=responseSequence(false,active);
  if (ambiguousActive) responses[0].result.deployments[0].versions.push({version_id:"00000000-0000-4000-8000-000000000024",percentage:0});
  responses.splice(3,0,wrap({items:baselineItems===undefined?[{id:latest}]:baselineItems}));
@@ -928,6 +928,21 @@ await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,la
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,moduleContent:Buffer.from("wrong").toString("base64")},false);
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,uploadedTag:"wrong-tag"},false);
 await integratedReleaseCase({reviewedMain:true,reviewedMainSource:inboxSource,postTag:null},false);
+// The exact console source uses the reviewed-main publisher and active donor,
+// including the separate upload witness and every existing release safety gate.
+const consoleRelease = {reviewedMain:true,reviewedMainSource:consoleSource};
+await integratedReleaseCase(consoleRelease);
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness});
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness,baselineItems:[],expectFailure:baselineStop},false);
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness,preUploadVersion:driftedActive,expectFailure:{...stopped,stage:"pre_upload_active",upload_attempted:false,outcome:"NOT_ATTEMPTED"}},false);
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness,lineage:driftedWitness,expectFailure:{...stopped,stage:"inherit_lineage",checkpoint:"inherit_lineage_mismatch",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness,preDeployWitness:driftedWitness,expectFailure:{...stopped,stage:"pre_deploy_lineage",checkpoint:"inherit_lineage_mismatch",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...consoleRelease,latest:orphanWitness,uploadId:orphanWitness,expectFailure:{...stopped,checkpoint:"uploaded_matches_witness",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...consoleRelease,moduleContent:Buffer.from("wrong").toString("base64")},false);
+await integratedReleaseCase({...consoleRelease,uploadedTag:"wrong-tag"},false);
+await integratedReleaseCase({...consoleRelease,postTag:null},false);
+await integratedReleaseCase({...consoleRelease,testHandlers:{active:["alpha","beta"],uploaded:["alpha"],post:["alpha"]},expectFailure:{...configStop,checkpoint:"test_export_handlers_removed"}},false);
+await integratedReleaseCase({...consoleRelease,deployed:true,testHandlers:{active:["alpha"],uploaded:["alpha","beta"],post:["alpha"]},expectFailure:postTestStop},false);
 await integratedReleaseCase();
 await integratedReleaseCase({flow:true});
 await integratedReleaseCase({flow:true,oldFlag:{name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"false"}});
