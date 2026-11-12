@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import cloud_run_daily_digest as app
 import daily_digest_aggregator as aggregator
-from test_cloud_run_daily_digest import EXPECTED, JOB
+from test_cloud_run_daily_digest import EXPECTED, JOB, NOW, MemoryStore
 from test_notification_consolidation import candidate, build
 from test_unified_daily_digest_presentation import payload, row
 from unified_daily_digest import render
@@ -18,6 +18,52 @@ from project_public_digest_receipt import project_public_receipt
 
 
 class ConfigLabelTests(unittest.TestCase):
+    def test_full_ibkr_account_is_only_rendered_for_bound_azure_delivery(self):
+        binding = {**EXPECTED[0], 'platform_id': 'ibkr'}
+        account = {**{key: binding[key] for key in app.IBKR_TELEGRAM_BINDING}, 'account_id': 'U0000099'}
+        env = {
+            'QRS_UNIFIED_NOTIFICATION_ENABLED': 'true',
+            'DIGEST_DELIVERY_ENABLED': 'true',
+            'DIGEST_EXPECTED_TARGETS_JSON': json.dumps([binding]),
+            'DIGEST_SCHEDULER_JOB_NAME': JOB,
+            'DIGEST_RECIPIENT_SCOPE': 'synthetic',
+            'DIGEST_CUTOVER_REPORT_DATE': '2026-10-16',
+            'QSL_GLOBAL_TELEGRAM_CHAT_ID': 'test-recipient',
+            'DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON': json.dumps({
+                'recipient_id': 'test-recipient', 'accounts': [account],
+            }),
+        }
+        with patch.dict(os.environ, env, clear=True):
+            configured = app.Configuration.from_environment()
+        self.assertNotIn(account['account_id'], repr(configured))
+        self.assertNotIn(account['account_id'], json.dumps(configured.expected))
+        text, _ = app._report(configured, [], ['missing'], '2026-10-15', None)
+        self.assertIn('IBKR · 账户', text)
+        self.assertNotIn(account['account_id'], text)
+        for provenance, displays_account in (('azure_logic_sliding_window', True),
+                                             ('azure_functions_timer', False), ('cloud_scheduler', False)):
+            with self.subTest(provenance=provenance):
+                store, sent = MemoryStore({}), []
+
+                def send(body):
+                    sent.append(body)
+                    return 1
+
+                schedule = {'scheduled_at': NOW.isoformat(), 'trigger_provenance': provenance}
+                args = (NOW.date(), '2026-10-15', False, schedule, configured, store, send)
+                _, preview = app.execute_slot(*args, preview=True, now=lambda: NOW)
+                self.assertEqual(preview['delivery'], 'preview')
+                self.assertFalse(sent)
+                _, result = app.execute_slot(*args, now=lambda: NOW)
+                self.assertEqual(result['delivery'], 'accepted')
+                self.assertEqual(account['account_id'] in sent[0], displays_account)
+                self.assertNotIn(account['account_id'], json.dumps(result))
+                self.assertNotIn(account['account_id'], json.dumps(store.records))
+        for changed_account, recipient in ((account, 'different-recipient'),
+                                           ({**account, 'target_id': 'other-target'}, 'test-recipient')):
+            data = json.dumps({'recipient_id': 'test-recipient', 'accounts': [changed_account]})
+            self.assertEqual(app._ibkr_telegram_accounts([binding], data, recipient), {})
+
     def test_projection_precedence_and_no_mutation(self):
         for option, expected in (({'label': 'Custom', 'key': 'live', 'target_name': 'sg'}, 'Custom'),
                                  ({'label': '', 'key': 'paper', 'target_name': 'sg'}, 'paper'),
