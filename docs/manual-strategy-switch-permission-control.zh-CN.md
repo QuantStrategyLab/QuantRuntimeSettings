@@ -25,6 +25,10 @@
 
 这个模式不要求 required reviewers。workflow 绑定了 `runtime-strategy-switch` Environment，但这个 Environment 可以不配置审批人；它主要用于隔离 secret 和保留 Actions 审计。
 
+手动运行 `apply=true` 时，由 `runtime-strategy-switch-approval` Environment 审批。
+上线前须配置审批人，并将入口限制为 `main`。实际写入仍须验证签名，并消费一次性批准编号。
+`apply=false` 的预览继续自动运行。
+
 ## 最简 GitHub 设置
 
 在 `QuantRuntimeSettings` 仓库配置：
