@@ -428,6 +428,33 @@ import {
   readControlPlaneSources as readControlPlaneSourcesImpl,
 } from "../control_plane/http.js";
 import {
+  HUMAN_DECISION_DO_ACTIONS,
+  RESEARCH_PROMOTION_REVIEW_INVALID,
+} from "../human_decisions/constants.js";
+import {
+  ResearchPromotionReviewMaterialError,
+  humanDecisionRequestKey,
+  researchPromotionMaterialKey,
+  researchPromotionReviewMaterial,
+  researchPromotionReviewBinding,
+  promotionReviewBindingsMatch,
+  promotionMaterialReviewBinding,
+  recoveryDecisionMaterialKey,
+  humanDecisionTimestamp,
+  recoveryMaterialEligible,
+  humanDecisionAuthorityView,
+  overlayPromotionDecision as overlayPromotionDecisionImpl,
+  humanDecisionReceipt as humanDecisionReceiptImpl,
+} from "../human_decisions/helpers.js";
+import {
+  publishHumanOwnerMaterials as publishHumanOwnerMaterialsImpl,
+  publishHumanRecoveryMaterials as publishHumanRecoveryMaterialsImpl,
+  publishHumanPromotionMaterial as publishHumanPromotionMaterialImpl,
+  exactHumanDecisionResponse as exactHumanDecisionResponseImpl,
+  readHumanDecisionAuthority as readHumanDecisionAuthorityImpl,
+  promotionTicketWithAuthority as promotionTicketWithAuthorityImpl,
+} from "../human_decisions/materials.js";
+import {
   ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH,
   ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_AUDIENCE,
   ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REPOSITORY,
@@ -477,6 +504,53 @@ import {
   approveAccountSettingsProfileApplication as approveAccountSettingsProfileApplicationImpl,
   claimAccountSettingsProfileApplicationFromGitHub as claimAccountSettingsProfileApplicationFromGitHubImpl,
 } from "../account_settings/http.js";
+import {
+  RECONCILIATION_RECOVERY_SOURCE_PREFIX,
+  RECONCILIATION_RECOVERY_CONFIRMATION_PREFIX,
+  RECONCILIATION_RECOVERY_CURRENT_PREFIX,
+  RECONCILIATION_RECOVERY_SOURCE_SCHEMA_VERSION,
+  RECONCILIATION_RECOVERY_DASHBOARD_SCHEMA_VERSION,
+  RECONCILIATION_RECOVERY_CONFIRMATION_SCHEMA_VERSION,
+  RECONCILIATION_RECOVERY_CONTROLLER_READ_SCHEMA_VERSION,
+  RECONCILIATION_RECOVERY_MAX_SOURCES,
+  RECONCILIATION_RECOVERY_MAX_BODY_BYTES,
+  RECONCILIATION_RECOVERY_DEFAULT_STALE_TTL_SECONDS,
+  RECONCILIATION_RECOVERY_MAX_SAMPLE_WINDOW_MS,
+  RECONCILIATION_RECOVERY_PLATFORMS,
+  RECONCILIATION_RECOVERY_ENVIRONMENTS,
+  RECONCILIATION_RECOVERY_STATES,
+  RECONCILIATION_RECOVERY_READINESS,
+  RECONCILIATION_RECOVERY_DUAL_REVIEW_OUTCOMES,
+  RECONCILIATION_RECOVERY_MAX_REQUESTS,
+} from "../reconciliation_recovery/constants.js";
+import {
+  requireDedicatedReconciliationRecoverySyncToken,
+  requireDedicatedReconciliationRecoveryControllerToken,
+  reconciliationRecoverySourceKey,
+  reconciliationRecoveryConfirmationArchiveKey,
+  reconciliationRecoveryConfirmationCurrentKey,
+  reconciliationRecoveryStaleTtlSeconds,
+  reconciliationRecoveryEvidenceFreshness,
+  reconciliationRecoveryDecisionExpiryAt,
+  currentReconciliationRecoveryRequest,
+  normalizeReconciliationRecoveryConfirmationRequest,
+  calculateReconciliationRecoveryConfirmationSha256,
+  buildReconciliationRecoveryConfirmation,
+  normalizeReconciliationRecoveryConfirmation,
+  normalizeReconciliationRecoverySourceSnapshot,
+  normalizeReconciliationRecoveryRequest,
+  emptyReconciliationRecoverySourceSnapshot,
+  emptyReconciliationRecoveryPayload,
+} from "../reconciliation_recovery/helpers.js";
+import {
+  syncReconciliationRecoverySourceResponse as syncReconciliationRecoverySourceResponseImpl,
+  reconciliationRecoveryResponse as reconciliationRecoveryResponseImpl,
+  reconciliationRecoveryControllerReadResponse as reconciliationRecoveryControllerReadResponseImpl,
+  readReconciliationRecoveryConfirmation as readReconciliationRecoveryConfirmationImpl,
+  recordReconciliationRecoveryConfirmationResponse as recordReconciliationRecoveryConfirmationResponseImpl,
+  aggregateReconciliationRecoverySources as aggregateReconciliationRecoverySourcesImpl,
+  readReconciliationRecoverySources as readReconciliationRecoverySourcesImpl,
+} from "../reconciliation_recovery/http.js";
 import { startLogin, finishLogin } from "../auth/login.js";
 import { readSession, makeSession } from "../auth/session.js";
 import {
@@ -801,23 +875,25 @@ export {
 // strategy promotion.  It can only describe an already-authorised legacy
 // target that is currently RECONCILE_ONLY; it can never create a new strategy
 // release, order, broker credential, or runtime mutation from this Worker.
-export const RECONCILIATION_RECOVERY_SOURCE_PREFIX = "reconciliation_recovery_source:";
-export const RECONCILIATION_RECOVERY_CONFIRMATION_PREFIX = "reconciliation_recovery_confirmation:";
-export const RECONCILIATION_RECOVERY_CURRENT_PREFIX = "reconciliation_recovery_current:";
-export const RECONCILIATION_RECOVERY_SOURCE_SCHEMA_VERSION = "qsl_reconciliation_recovery_source_snapshot.v1";
-export const RECONCILIATION_RECOVERY_DASHBOARD_SCHEMA_VERSION = "qsl_reconciliation_recovery_dashboard.v1";
-export const RECONCILIATION_RECOVERY_CONFIRMATION_SCHEMA_VERSION = "qsl_reconciliation_recovery_confirmation.v1";
-export const RECONCILIATION_RECOVERY_CONTROLLER_READ_SCHEMA_VERSION = "qsl_reconciliation_recovery_controller_read.v1";
-export const RECONCILIATION_RECOVERY_MAX_SOURCES = 100;
-export const RECONCILIATION_RECOVERY_MAX_BODY_BYTES = 128 * 1024;
-export const RECONCILIATION_RECOVERY_DEFAULT_STALE_TTL_SECONDS = 30 * 60;
-export const RECONCILIATION_RECOVERY_MAX_SAMPLE_WINDOW_MS = 15 * 60 * 1000;
-export const RECONCILIATION_RECOVERY_PLATFORMS = OBSERVABILITY_PLATFORM_IDS;
-export const RECONCILIATION_RECOVERY_ENVIRONMENTS = ["live"];
-export const RECONCILIATION_RECOVERY_STATES = ["RECONCILE_ONLY"];
-export const RECONCILIATION_RECOVERY_READINESS = ["blocked", "awaiting_human_confirmation"];
-export const RECONCILIATION_RECOVERY_DUAL_REVIEW_OUTCOMES = ["approved", "rejected", "unavailable"];
-export const RECONCILIATION_RECOVERY_MAX_REQUESTS = 100;
+export {
+  RECONCILIATION_RECOVERY_SOURCE_PREFIX,
+  RECONCILIATION_RECOVERY_CONFIRMATION_PREFIX,
+  RECONCILIATION_RECOVERY_CURRENT_PREFIX,
+  RECONCILIATION_RECOVERY_SOURCE_SCHEMA_VERSION,
+  RECONCILIATION_RECOVERY_DASHBOARD_SCHEMA_VERSION,
+  RECONCILIATION_RECOVERY_CONFIRMATION_SCHEMA_VERSION,
+  RECONCILIATION_RECOVERY_CONTROLLER_READ_SCHEMA_VERSION,
+  RECONCILIATION_RECOVERY_MAX_SOURCES,
+  RECONCILIATION_RECOVERY_MAX_BODY_BYTES,
+  RECONCILIATION_RECOVERY_DEFAULT_STALE_TTL_SECONDS,
+  RECONCILIATION_RECOVERY_MAX_SAMPLE_WINDOW_MS,
+  RECONCILIATION_RECOVERY_PLATFORMS,
+  RECONCILIATION_RECOVERY_ENVIRONMENTS,
+  RECONCILIATION_RECOVERY_STATES,
+  RECONCILIATION_RECOVERY_READINESS,
+  RECONCILIATION_RECOVERY_DUAL_REVIEW_OUTCOMES,
+  RECONCILIATION_RECOVERY_MAX_REQUESTS,
+};
 // Private Binance holdings use one isolated KV record. They are never folded
 // into public health, recovery, control-plane, or admin aggregates.
 export const BINANCE_PRIVATE_SCOPE_KEY = "private_binance_scope_report";
@@ -900,11 +976,20 @@ export const RUNTIME_TARGET_LIFECYCLE_EXECUTION_OBSERVATIONS = ["not_due", "moni
 const RUNTIME_TARGET_LIFECYCLE_REASON_CODES = [
   "none", "target_intentionally_disabled", "runtime_guard_attention", "execution_heartbeat_attention", "monitoring_unavailable",
 ];
-export const HUMAN_DECISION_DO_ACTIONS = new Set([
-  "owner_sync_materials", "recovery_sync_materials", "promotion_sync_materials",
-  "owner_decide", "recovery_decide", "promotion_decide",
-  "owner_read", "recovery_read", "promotion_read",
-]);
+export { HUMAN_DECISION_DO_ACTIONS, RESEARCH_PROMOTION_REVIEW_INVALID };
+export {
+  ResearchPromotionReviewMaterialError,
+  humanDecisionRequestKey,
+  researchPromotionMaterialKey,
+  researchPromotionReviewMaterial,
+  researchPromotionReviewBinding,
+  promotionReviewBindingsMatch,
+  promotionMaterialReviewBinding,
+  recoveryDecisionMaterialKey,
+  humanDecisionTimestamp,
+  recoveryMaterialEligible,
+  humanDecisionAuthorityView,
+};
 export const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_external_flow_put",
   "account_executions_put", "account_executions_read",
@@ -2471,86 +2556,6 @@ export async function strategyHealthResponse(request, env) {
   return json(snapshot);
 }
 
-export async function humanDecisionRequestKey({ requestId, kind, actor, subjectId, materialKey, action, target }) {
-  if (requestId !== undefined && requestId !== null && requestId !== "") {
-    const text = String(requestId).trim();
-    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(text)) throw new HttpError("invalid request_id", 400);
-    return `id:${kind}:${text}`;
-  }
-  const digest = await calculateOwnerDecisionSha256({
-    actor, kind, subject_id: subjectId, material_key: materialKey, action, target: target || null,
-  });
-  return `fp:${digest}`;
-}
-
-export async function researchPromotionMaterialKey(ticket) {
-  return calculateOwnerDecisionSha256({
-    ticket_id: ticket.ticket_id,
-    strategy_profile: ticket.strategy_profile,
-    domain: ticket.domain,
-    proposed_params: ticket.proposed_params,
-    shadow_passed: ticket.shadow_passed,
-    shadow_evidence_kind: ticket.shadow_evidence_kind,
-  });
-}
-
-// The legacy six-field material key remains the durable terminal index. This
-// independent versioned snapshot binds all saved producer review content without
-// rekeying historical records or hashing post-decision/observation-only fields.
-export function researchPromotionReviewMaterial(ticket) {
-  return {
-    schema_version: "qsl_promotion_review_material.v2",
-    ticket_id: ticket.ticket_id, strategy_profile: ticket.strategy_profile, domain: ticket.domain,
-    proposed_params: ticket.proposed_params, shadow_passed: ticket.shadow_passed,
-    shadow_evidence_kind: ticket.shadow_evidence_kind,
-    drift_status: ticket.drift_status, drift_score: ticket.drift_score,
-    budget: ticket.budget, search_iterations: ticket.search_iterations,
-    suggested_risk_profile: ticket.suggested_risk_profile,
-    notification_subject: ticket.notification_subject, notification_body: ticket.notification_body,
-    notes: ticket.notes, research_summary: ticket.research_summary || null,
-  };
-}
-export const RESEARCH_PROMOTION_REVIEW_INVALID = "research_promotion_review_material_invalid";
-export class ResearchPromotionReviewMaterialError extends HttpError {
-  constructor() { super(RESEARCH_PROMOTION_REVIEW_INVALID, 400); }
-}
-export async function researchPromotionReviewBinding(ticket) {
-  let canonical;
-  try {
-    canonical = canonicalResearchTaskJson(researchPromotionReviewMaterial(ticket));
-  } catch (error) {
-    // Only canonical data validation is recoverable per ticket. Hash/storage
-    // failures must not be relabelled as invalid material or a healthy queue.
-    if (error?.message === "research task must use finite JSON values"
-      || error?.message === "research task must use JSON values") throw new ResearchPromotionReviewMaterialError();
-    throw error;
-  }
-  return { schema_version: "qsl_promotion_review_binding.v2", review_sha256: await sha256Hex(canonical) };
-}
-export function promotionReviewBindingsMatch(left, right) {
-  return left?.schema_version === "qsl_promotion_review_binding.v2" && right?.schema_version === left.schema_version
-    && /^[0-9a-f]{64}$/.test(left.review_sha256) && left.review_sha256 === right.review_sha256;
-}
-export function promotionMaterialReviewBinding(row) {
-  try {
-    const binding = JSON.parse(row?.summary_json || "{}").review_binding;
-    return promotionReviewBindingsMatch(binding, binding) ? { schema_version: "qsl_promotion_review_binding.v2", review_sha256: binding.review_sha256 } : null;
-  } catch { return null; }
-}
-
-export async function recoveryDecisionMaterialKey(recovery) {
-  if (recovery.mode === "initial_enrollment") return calculateOwnerDecisionSha256({
-    mode: recovery.mode, recovery_id: recovery.recovery_id,
-    candidate_sha256: recovery.candidate?.candidate_sha256 || recovery.candidate_sha256,
-    facts_sha256: recovery.candidate?.facts_sha256 || recovery.facts_sha256,
-  });
-  return calculateOwnerDecisionSha256({
-    recovery_id: recovery.recovery_id,
-    candidate_sha256: recovery.candidate_sha256,
-    dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
-  });
-}
-
 export async function mirrorConfigJson(env, key, value) {
   try {
     await writeConfigJson(env, key, value);
@@ -2569,363 +2574,75 @@ export async function readLegacyConfig(env, key) {
   }
 }
 
-export function humanDecisionTimestamp(value) {
-  return String(value || new Date().toISOString()).replace(/\.\d{3}Z$/, "Z");
-}
-
 // Actionable material expires when the evidence that produced it would itself be
 // stale. A missing or future-dated anchor yields null, which callers treat as
 // "not actionable" rather than inventing authority.
 export { controlPlaneDecisionExpiryAt };
 
-export function reconciliationRecoveryDecisionExpiryAt(recovery, source, ttlSeconds, now = Date.now()) {
-  const sourceExpiry = controlPlaneDecisionExpiryAt(source, ttlSeconds, now);
-  if (sourceExpiry == null) return null;
-  const observedAt = Date.parse(recovery.mode === "initial_enrollment"
-    ? recovery.candidate?.last_observed_at
-    : recovery.last_observed_at);
-  if (!Number.isFinite(observedAt) || observedAt > now + 5 * 60 * 1000) return null;
-  return Math.min(sourceExpiry, observedAt + ttlSeconds * 1000);
+export { reconciliationRecoveryDecisionExpiryAt };
+
+function humanDecisionReceiptDeps() {
+  return {
+    calculateReconciliationRecoveryConfirmationSha256,
+  };
+}
+
+function humanDecisionPromotionDeps() {
+  return {
+    normalizeResearchPromotionTicket,
+  };
+}
+
+function humanDecisionOwnerMaterialDeps() {
+  return {
+    ownerDecisionCandidateEvidenceSha256,
+    readLegacyConfig,
+    ownerDecisionCurrentKey,
+    normalizeOwnerDecisionIntent,
+  };
+}
+
+function humanDecisionRecoveryMaterialDeps() {
+  return {
+    reconciliationRecoveryStaleTtlSeconds,
+    reconciliationRecoveryEvidenceFreshness,
+    readLegacyConfig,
+    reconciliationRecoveryConfirmationCurrentKey,
+    normalizeReconciliationRecoveryConfirmation,
+    reconciliationRecoveryDecisionExpiryAt,
+  };
 }
 
 export async function publishHumanOwnerMaterials(env, snapshot, sourceId) {
-  const ownerCandidates = (snapshot.candidates || []).filter(isOwnerDecisionCandidate);
-  if (!ownerCandidates.length && !hasRuntimeInstanceStore(env)) return { ok: true, skipped: true };
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const expiresAtMs = controlPlaneDecisionExpiryAt(snapshot, controlPlaneStaleTtlSeconds(env));
-  const grouped = new Map();
-  for (const candidate of ownerCandidates) {
-    const list = grouped.get(candidate.candidate_id) || [];
-    list.push(candidate);
-    grouped.set(candidate.candidate_id, list);
-  }
-  const materials = [];
-  const duplicateSubjectIds = [];
-  for (const [subjectId, list] of grouped) {
-    if (list.length > 1) duplicateSubjectIds.push(subjectId);
-    const candidate = list[0];
-    const materialKey = await ownerDecisionCandidateEvidenceSha256(candidate);
-    const legacyRead = await readLegacyConfig(env, ownerDecisionCurrentKey(subjectId));
-    if (legacyRead.unreadable) throw new HttpError("human_decision_legacy_unreadable", 503);
-    let legacy = null;
-    if (legacyRead.blocked) legacy = { blocked: true };
-    else if (legacyRead.value) {
-      try {
-        const intent = await normalizeOwnerDecisionIntent(legacyRead.value, ownerDecisionCurrentKey(subjectId));
-        if (intent.candidate_id !== subjectId || intent.candidate_evidence_sha256 !== materialKey) legacy = { blocked: true };
-        else {
-          legacy = {
-            record: {
-              action: intent.decision,
-              actor: intent.decided_by,
-              decided_at: intent.decided_at,
-              material_key: materialKey,
-              target_json: canonicalResearchTaskJson({ decision: intent.decision }),
-              payload: intent,
-            },
-          };
-        }
-      } catch {
-        legacy = { blocked: true };
-      }
-    }
-    materials.push({
-      subject_id: subjectId,
-      material_key: materialKey,
-      summary_json: JSON.stringify({ candidate_id: subjectId }),
-      eligible: list.length === 1 && candidate.freshness?.status === "fresh",
-      expires_at_ms: expiresAtMs,
-      legacy,
-    });
-  }
-  return runtimeInstanceCommand(env, {
-    action: "owner_sync_materials",
-    actor: "control-plane-sync",
-    source_id: sourceId,
-    updated_at: humanDecisionTimestamp(),
-    now_ms: Date.now(),
-    replace_source: true,
-    materials,
-    duplicate_subject_ids: duplicateSubjectIds,
-  });
-}
-
-export function recoveryMaterialEligible(recovery, sourceFreshness, evidenceFreshness) {
-  if (recovery.mode === "initial_enrollment") return sourceFreshness?.data_status === "ready" && evidenceFreshness?.data_status === "ready"
-    && Object.values(recovery.candidate.coverage).every(status => status === "complete");
-  return sourceFreshness?.data_status === "ready"
-    && evidenceFreshness?.data_status === "ready"
-    && recovery.readiness === "awaiting_human_confirmation"
-    && recovery.reconciliation_state === "RECONCILE_ONLY"
-    && !recovery.blocker_codes.length
-    && recovery.dual_review.evidence_binding_sha256 === recovery.candidate_sha256
-    && recovery.evidence_sample_count >= 1;
+  return publishHumanOwnerMaterialsImpl(env, snapshot, sourceId, humanDecisionOwnerMaterialDeps());
 }
 
 export async function publishHumanRecoveryMaterials(env, source) {
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const ttlSeconds = reconciliationRecoveryStaleTtlSeconds(env);
-  const now = Date.now();
-  const sourceFreshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
-  const grouped = new Map();
-  for (const recovery of source.recoveries || []) {
-    const list = grouped.get(recovery.recovery_id) || [];
-    list.push(recovery);
-    grouped.set(recovery.recovery_id, list);
-  }
-  const materials = [];
-  const duplicateSubjectIds = [];
-  for (const [subjectId, list] of grouped) {
-    if (list.length > 1) duplicateSubjectIds.push(subjectId);
-    const recovery = list[0];
-    const evidenceFreshness = reconciliationRecoveryEvidenceFreshness(recovery, sourceFreshness, ttlSeconds, now);
-    const materialKey = await recoveryDecisionMaterialKey(recovery);
-    const legacyRead = recovery.mode === "initial_enrollment" ? { unreadable: false, blocked: false, value: null }
-      : await readLegacyConfig(env, reconciliationRecoveryConfirmationCurrentKey(subjectId));
-    if (legacyRead.unreadable) throw new HttpError("human_decision_legacy_unreadable", 503);
-    let legacy = null;
-    if (legacyRead.blocked) legacy = { blocked: true };
-    else if (legacyRead.value) {
-      try {
-        const confirmation = await normalizeReconciliationRecoveryConfirmation(legacyRead.value, reconciliationRecoveryConfirmationCurrentKey(subjectId));
-        if (confirmation.recovery_id !== subjectId || confirmation.candidate_sha256 !== recovery.candidate_sha256 || confirmation.dual_review_binding_sha256 !== recovery.dual_review.evidence_binding_sha256) {
-          legacy = { blocked: true };
-        } else {
-          legacy = {
-            record: {
-              action: "approve",
-              actor: confirmation.confirmed_by,
-              decided_at: confirmation.confirmed_at,
-              material_key: materialKey,
-              target_json: canonicalResearchTaskJson({ decision: "approve" }),
-              payload: confirmation,
-            },
-          };
-        }
-      } catch {
-        legacy = { blocked: true };
-      }
-    }
-    materials.push({
-      subject_id: subjectId,
-      material_key: materialKey,
-      summary_json: JSON.stringify({ recovery_id: subjectId }),
-      eligible: list.length === 1 && recoveryMaterialEligible(recovery, sourceFreshness, evidenceFreshness),
-      expires_at_ms: reconciliationRecoveryDecisionExpiryAt(recovery, source, ttlSeconds, now),
-      legacy,
-    });
-  }
-  return runtimeInstanceCommand(env, {
-    action: "recovery_sync_materials",
-    actor: "reconciliation-recovery-source-sync",
-    source_id: source.source_id,
-    updated_at: humanDecisionTimestamp(),
-    now_ms: Date.now(),
-    replace_source: true,
-    materials,
-    duplicate_subject_ids: duplicateSubjectIds,
-  });
+  return publishHumanRecoveryMaterialsImpl(env, source, humanDecisionRecoveryMaterialDeps());
 }
 
 export async function publishHumanPromotionMaterial(env, ticket, existing) {
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const materialKey = await researchPromotionMaterialKey(ticket);
-  let legacy = null;
-  if (existing && (existing.state === "human_accepted" || existing.state === "human_rejected")) {
-    const existingKey = await researchPromotionMaterialKey(existing);
-    const actor = String(existing.human_decision_actor || "").trim();
-    if (!actor || !existing.human_decided_at || existingKey !== materialKey) legacy = { blocked: true };
-    else {
-      legacy = {
-        record: {
-          action: existing.state === "human_accepted" ? "accept" : "reject",
-          actor,
-          decided_at: existing.human_decided_at,
-          material_key: materialKey,
-          target_json: canonicalResearchTaskJson({
-            selected_account: existing.selected_account || null,
-            confirmation: {
-              target_platform: existing.confirmation_target_platform,
-              execution_mode: existing.confirmation_execution_mode,
-              risk_profile: existing.confirmation_risk_profile,
-            },
-          }),
-          payload: { ticket: existing, selected_account: existing.selected_account || null, proposed_params: existing.proposed_params },
-        },
-      };
-    }
-  }
-  return runtimeInstanceCommand(env, {
-    action: "promotion_sync_materials",
-    actor: "research-promotion-ticket-sync",
-    source_id: "research-promotion",
-    updated_at: humanDecisionTimestamp(),
-    now_ms: Date.now(),
-    replace_source: false,
-    materials: [{
-      subject_id: ticket.ticket_id,
-      material_key: materialKey,
-      summary_json: JSON.stringify({
-        ticket_id: ticket.ticket_id,
-        strategy_profile: ticket.strategy_profile,
-        domain: ticket.domain,
-        review_binding: await researchPromotionReviewBinding(ticket),
-      }),
-      eligible: true,
-      expires_at_ms: Date.now() + controlPlaneStaleTtlSeconds(env) * 1000,
-      legacy,
-    }],
-  });
+  return publishHumanPromotionMaterialImpl(env, ticket, existing);
 }
 
-// A fixed projection of the durable terminal record, never a request echo or KV fallback.
 export async function humanDecisionReceipt(record, expected) {
-  const invalid = () => { throw new HttpError("human_decision_receipt_unavailable", 503); };
-  const text = (value, max) => typeof value === "string" && value.length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value);
-  const actions = { owner: ["approve_limited_live_canary", "keep_parked"], recovery: ["approve", "reject"], promotion: ["accept", "reject"] };
-  if (!record || !actions[record.kind]?.includes(record.action) || !text(record.subject_id, 256)
-    || !/^[0-9a-f]{64}$/.test(record.material_key) || !text(record.actor, 100)
-    || !text(record.decided_at, 40) || !Number.isFinite(Date.parse(record.decided_at))
-    || record.kind !== expected.kind || record.subject_id !== expected.subject_id || record.material_key !== expected.material_sha256) invalid();
-  let target;
-  try { target = JSON.parse(record.target_json); } catch { invalid(); }
-  let projection;
-  if (record.kind === "promotion") {
-    const account = target?.selected_account;
-    const confirmation = target?.confirmation;
-    if (account != null && (!SUPPORTED_PLATFORMS.includes(account.platform) || !text(account.key, 128))) invalid();
-    if (confirmation != null && (!SUPPORTED_PLATFORMS.includes(confirmation.target_platform)
-      || !["live", "paper", "dry_run"].includes(confirmation.execution_mode)
-      || !RESEARCH_PROMOTION_RISK_PROFILES.includes(confirmation.risk_profile))) invalid();
-    if (record.action === "accept" && (!account || !confirmation || account.platform !== confirmation.target_platform)) invalid();
-    if (record.payload?.ticket?.live_authority_granted !== false || record.payload?.ticket?.human_decision !== record.action
-      || record.payload?.ticket?.ticket_id !== record.subject_id || record.payload.ticket.human_decided_at !== record.decided_at
-      || await researchPromotionMaterialKey(record.payload.ticket) !== record.material_key
-      || canonicalResearchTaskJson(record.payload.selected_account ?? null) !== canonicalResearchTaskJson(account ?? null)
-      || canonicalResearchTaskJson(record.payload.confirmation ?? null) !== canonicalResearchTaskJson(confirmation ?? null)) invalid();
-    projection = {
-      selected_account: account ? { platform: account.platform, key: account.key } : null,
-      confirmation: confirmation ? { target_platform: confirmation.target_platform, execution_mode: confirmation.execution_mode, risk_profile: confirmation.risk_profile } : null,
-    };
-  } else {
-    if (target?.decision !== record.action || record.payload?.no_order !== true || record.payload?.execution_authority_granted !== false) invalid();
-    const payload = record.payload;
-    if (record.kind === "owner") {
-      if (payload.schema_version !== "qsl_owner_decision_intent.v1" || payload.candidate_id !== record.subject_id
-        || payload.candidate_evidence_sha256 !== record.material_key || payload.decision !== record.action
-        || payload.decided_by !== record.actor || payload.decided_at !== record.decided_at
-        || payload.decision_sha256 !== await calculateOwnerDecisionSha256(payload)) invalid();
-    } else if (payload.mode === "initial_enrollment") {
-      const approval = record.action === "approve";
-      if (payload.schema_version !== (approval ? "qsl_initial_enrollment_confirmation.v1" : "qsl_initial_enrollment_rejection.v1")
-        || payload.recovery_id !== record.subject_id || (approval ? payload.confirmed_by : payload.decided_by) !== record.actor
-        || (approval ? payload.confirmed_at : payload.decided_at) !== record.decided_at || (!approval && payload.decision !== "reject")
-        || (approval && payload.confirmation_sha256 !== await calculateReconciliationRecoveryConfirmationSha256(payload))
-        || await recoveryDecisionMaterialKey(payload) !== record.material_key) invalid();
-    } else {
-      const approval = record.action === "approve";
-      if (payload.schema_version !== (approval ? "qsl_reconciliation_recovery_confirmation.v1" : "qsl_reconciliation_recovery_rejection.v1")
-        || payload.recovery_id !== record.subject_id || (approval ? payload.confirmed_by : payload.decided_by) !== record.actor
-        || (approval ? payload.confirmed_at : payload.decided_at) !== record.decided_at || (!approval && payload.decision !== "reject")
-        || await recoveryDecisionMaterialKey({ recovery_id: payload.recovery_id, candidate_sha256: payload.candidate_sha256, dual_review: { evidence_binding_sha256: payload.dual_review_binding_sha256 } }) !== record.material_key) invalid();
-    }
-    projection = { decision: target.decision };
-  }
-  // Extra stored target fields must not be silently dropped into an apparently matching receipt.
-  if (canonicalResearchTaskJson(target) !== canonicalResearchTaskJson(projection)) invalid();
-  let reviewBinding = null;
-  if (record.kind === "promotion" && record.payload?.review_binding !== undefined) {
-    const material = record.payload.review_material;
-    if (material?.schema_version !== "qsl_promotion_review_material.v2" || material.ticket_id !== record.subject_id
-      || await researchPromotionMaterialKey(material) !== record.material_key
-      || !promotionReviewBindingsMatch(record.payload.review_binding, { schema_version: "qsl_promotion_review_binding.v2", review_sha256: await calculateOwnerDecisionSha256(material) })) invalid();
-    reviewBinding = { schema_version: "qsl_promotion_review_binding.v2", review_sha256: record.payload.review_binding.review_sha256 };
-  }
-  const receipt = {
-    schema_version: reviewBinding ? "qsl_human_decision_receipt.v2" : "qsl_human_decision_receipt.v1",
-    ...(reviewBinding ? { review_binding: reviewBinding } : {}),
-    kind: record.kind, subject_id: record.subject_id, material_sha256: record.material_key,
-    action: record.action, target: projection, decided_at: record.decided_at, decided_by: record.actor,
-    no_order: true, execution_authority_granted: false,
-  };
-  return { ...receipt, receipt_sha256: await calculateOwnerDecisionSha256(receipt) };
+  return humanDecisionReceiptImpl(record, expected, humanDecisionReceiptDeps());
 }
 
 export async function exactHumanDecisionResponse(request, env, session, kind) {
-  const params = new URL(request.url).searchParams;
-  if (!params.has("decision_subject_id") && !params.has("decision_material_sha256")) return null;
-  requireSameOrigin(request);
-  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
-  const subjectId = params.get("decision_subject_id");
-  const material = params.get("decision_material_sha256");
-  if (params.getAll("decision_subject_id").length !== 1 || params.getAll("decision_material_sha256").length !== 1
-    || !subjectId || subjectId.length > 256 || /[\u0000-\u001f\u007f]/.test(subjectId) || !/^[0-9a-f]{64}$/.test(material || "")) {
-    return json({ ok: false, error: "human_decision_lookup_invalid" }, 400);
-  }
-  try {
-    if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-    const result = await runtimeInstanceCommand(env, {
-      action: `${kind}_read`, actor: session.login, subject_id: subjectId, exact_material_key: material, now_ms: Date.now(),
-    });
-    if (result.ok !== true || result.exact_material_key !== material || !Object.prototype.hasOwnProperty.call(result, "decision")) {
-      throw new HttpError("human_decision_receipt_unavailable", 503);
-    }
-    const receipt = result.decision === null ? null : await humanDecisionReceipt(result.decision, { kind, subject_id: subjectId, material_sha256: material });
-    return json({ ok: true, decision_readback: {
-      schema_version: "qsl_human_decision_readback.v1", source: "durable_human_decision_record",
-      kind, subject_id: subjectId, requested_material_sha256: material, observed_at: new Date().toISOString(),
-      lookup_status: receipt ? "found" : "not_found", receipt, current_material: result.current_material,
-    } });
-  } catch {
-    // Unreadable authority is never reported as a completed empty lookup.
-    return json({ ok: false, error: "human_decision_receipt_unavailable" }, 503);
-  }
+  return exactHumanDecisionResponseImpl(request, env, session, kind, humanDecisionReceiptDeps());
 }
 
 export async function readHumanDecisionAuthority(env, kind, subjectId) {
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  return runtimeInstanceCommand(env, { action: `${kind}_read`, actor: `${kind}-decision-read`, subject_id: subjectId });
-}
-
-// A safe projection of durable material authority. It carries only digests and
-// server-side expiry; raw provider payloads and credentials never enter a read model.
-export function humanDecisionAuthorityView(authority) {
-  if (!authority || typeof authority !== "object") return null;
-  const materialKey = /^[0-9a-f]{64}$/.test(authority.material_key || "") ? authority.material_key : null;
-  const expiresAt = typeof authority.expires_at === "string" && Number.isFinite(Date.parse(authority.expires_at))
-    ? authority.expires_at
-    : null;
-  return {
-    material_sha256: materialKey,
-    expires_at: expiresAt,
-    eligible: typeof authority.eligible === "boolean" ? authority.eligible : null,
-    blocked: authority.blocked === true,
-    unavailable: authority.migrated === false,
-    source: "durable_human_decision_material",
-  };
+  return readHumanDecisionAuthorityImpl(env, kind, subjectId);
 }
 
 export function overlayPromotionDecision(ticket, authority) {
-  if (!authority || authority.migrated === false) return ticket;
-  const current = authority.eligible === true && authority.blocked !== true ? authority.decision : null;
-  if (current?.payload?.ticket && (current.action === "accept" || current.action === "reject")) {
-    return normalizeResearchPromotionTicket(current.payload.ticket, "human decision ticket");
-  }
-  if (ticket.state !== "human_accepted" && ticket.state !== "human_rejected") return ticket;
-  return normalizeResearchPromotionTicket({
-    ...ticket,
-    state: "awaiting_human",
-    human_decision: "",
-    human_decided_at: "",
-    confirmation_target_platform: "",
-    confirmation_execution_mode: "",
-    confirmation_risk_profile: "",
-  }, "human decision ticket");
+  return overlayPromotionDecisionImpl(ticket, authority, humanDecisionPromotionDeps());
 }
 
 export async function promotionTicketWithAuthority(env, ticket) {
-  const authority = await readHumanDecisionAuthority(env, "promotion", ticket.ticket_id);
-  return overlayPromotionDecision(ticket, authority);
+  return promotionTicketWithAuthorityImpl(env, ticket, humanDecisionPromotionDeps());
 }
 
 function controlPlaneRuntimeDeps() {
@@ -3037,60 +2754,35 @@ export async function initialEnrollmentAccountOption(env, item) {
   return options[0];
 }
 
+function reconciliationRecoveryRuntimeDeps() {
+  return {
+    readBoundedJson,
+    publishHumanRecoveryMaterials,
+    appendAuditLog,
+    initialEnrollmentAccountOption,
+    exactHumanDecisionResponse,
+    recoveryDecisionMaterialKey,
+    humanDecisionTimestamp,
+    humanDecisionRequestKey,
+    humanDecisionReceipt,
+    runtimeInstanceCommand,
+    mirrorConfigJson,
+    readHumanDecisionAuthority,
+    humanDecisionAuthorityView,
+    controlPlaneSnapshotFreshness,
+    earliestControlPlaneTimestamp,
+  };
+}
+
 export async function syncReconciliationRecoverySourceResponse(request, env) {
-  requireDedicatedReconciliationRecoverySyncToken(request, env);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "reconciliation recovery KV is not configured" }, 503);
-  }
-  let raw;
-  try {
-    raw = await readBoundedJson(request, RECONCILIATION_RECOVERY_MAX_BODY_BYTES);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid reconciliation recovery payload" }, error.status || 400);
-  }
-  let source;
-  try {
-    source = normalizeReconciliationRecoverySourceSnapshot(raw, "reconciliation recovery source snapshot");
-    for (const recovery of source.recoveries) if (recovery.mode === "initial_enrollment") await initialEnrollmentAccountOption(env, recovery);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid reconciliation recovery payload" }, 400);
-  }
-  try {
-    await publishHumanRecoveryMaterials(env, source);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "reconciliation recovery material unavailable" }, error.status || 503);
-  }
-  await writeConfigJson(env, reconciliationRecoverySourceKey(source.source_id), source);
-  try {
-    await appendAuditLog(env, {
-      ts: new Date().toISOString(),
-      login: "reconciliation-recovery-source-sync",
-      action: "sync_reconciliation_recovery_source",
-      source_id: source.source_id,
-      schema_version: source.schema_version,
-      recovery_count: source.recoveries.length,
-      data_status: source.data_status,
-    });
-  } catch {
-    // The source is still safely stored even if the rolling convenience log
-    // cannot be updated.
-  }
-  return json({
-    ok: true,
-    source_id: source.source_id,
-    schema_version: source.schema_version,
-    recovery_count: source.recoveries.length,
-    generated_at: source.generated_at,
-  });
+  return syncReconciliationRecoverySourceResponseImpl(request, env, reconciliationRecoveryRuntimeDeps());
 }
 
 export async function reconciliationRecoveryResponse(request, env) {
-  const session = await readSession(request, env);
-  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  const exact = await exactHumanDecisionResponse(request, env, session, "recovery");
-  if (exact) return exact;
-  if (!hasConfigStore(env)) return json(emptyReconciliationRecoveryPayload("snapshot_unavailable"));
-  return json(decorateQueue(await aggregateReconciliationRecoverySources(env), "recoveries", "reconciliation_recovery"));
+  return reconciliationRecoveryResponseImpl(request, env, {
+    exactHumanDecisionResponse,
+    aggregateReconciliationRecoverySources,
+  });
 }
 
 export async function syncBinancePrivateScopeResponse(request, env) {
@@ -3380,499 +3072,51 @@ export async function binancePrivateScopeResponse(request, env) {
 // controller.  It deliberately returns only the current, redacted digest
 // binding and immutable human receipt; broker state remains in the platform.
 export async function reconciliationRecoveryControllerReadResponse(request, env, url) {
-  requireDedicatedReconciliationRecoveryControllerToken(request, env);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "reconciliation recovery KV is not configured" }, 503);
-  }
-  let recoveryId;
-  try {
-    recoveryId = normalizeControlPlaneIdentifier(
-      url.searchParams.get("recovery_id") || "",
-      "reconciliation recovery controller recovery_id",
-      false,
-    );
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid recovery_id" }, 400);
-  }
-  const dashboard = await aggregateReconciliationRecoverySources(env);
-  let recovery;
-  try {
-    recovery = currentReconciliationRecoveryRequest(dashboard, recoveryId);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "reconciliation recovery is unavailable" }, error.status || 409);
-  }
-  const entry = dashboard.recoveries.find((item) => item.recovery?.recovery_id === recoveryId);
-  if (!entry?.confirmation) {
-    return json({ ok: false, error: "reconciliation recovery has no current confirmation" }, 404);
-  }
-  if (recovery.mode === "initial_enrollment") return json({ ok: true, schema_version: "qsl_initial_enrollment_controller_read.v1",
-    recovery: { mode: recovery.mode, recovery_id: recovery.recovery_id, candidate_sha256: recovery.candidate_sha256, facts_sha256: recovery.facts_sha256 },
-    confirmation: entry.confirmation, policy: { no_order: true, execution_authority_granted: false, controller_must_reverify: true } });
-  return json({
-    ok: true,
-    schema_version: RECONCILIATION_RECOVERY_CONTROLLER_READ_SCHEMA_VERSION,
-    recovery: {
-      recovery_id: recovery.recovery_id,
-      platform: recovery.platform,
-      strategy_profile: recovery.strategy_profile,
-      environment: recovery.environment,
-      reconciliation_state: recovery.reconciliation_state,
-      candidate_sha256: recovery.candidate_sha256,
-      dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
-      evidence_sample_count: recovery.evidence_sample_count,
-      first_observed_at: recovery.first_observed_at,
-      last_observed_at: recovery.last_observed_at,
-    },
-    confirmation: entry.confirmation,
-    policy: {
-      no_order: true,
-      execution_authority_granted: false,
-      controller_must_reverify: true,
-    },
+  return reconciliationRecoveryControllerReadResponseImpl(request, env, url, {
+    aggregateReconciliationRecoverySources,
   });
 }
 
-export function currentReconciliationRecoveryRequest(dashboard, recoveryId) {
-  const entry = dashboard?.recoveries?.find((item) => item.recovery?.recovery_id === recoveryId);
-  if (entry?.recovery?.mode !== "initial_enrollment" && dashboard?.data_status !== "ready") {
-    throw new HttpError("current reconciliation recovery evidence is not ready", 409);
-  }
-  if (!entry || entry.freshness?.data_status !== "ready") {
-    throw new HttpError("reconciliation recovery request is not fresh", 409);
-  }
-  const recovery = entry.recovery;
-  if (recovery.mode === "initial_enrollment") {
-    if (recovery.readiness !== "awaiting_human_confirmation" || recovery.blocker_codes.length) throw new HttpError("initial_enrollment_incomplete", 409);
-    return recovery;
-  }
-  if (
-    recovery.readiness !== "awaiting_human_confirmation" ||
-    recovery.reconciliation_state !== "RECONCILE_ONLY" ||
-    recovery.blocker_codes.length ||
-    recovery.dual_review.evidence_binding_sha256 !== recovery.candidate_sha256 ||
-    recovery.evidence_sample_count < 1
-  ) {
-    throw new HttpError("reconciliation recovery request is not eligible for confirmation", 409);
-  }
-  return recovery;
-}
-
-export function normalizeReconciliationRecoveryConfirmationRequest(payload) {
-  if (payload?.mode === "initial_enrollment") {
-    const value = assertRequiredAndOptionalFields(payload, ["mode", "recovery_id", "candidate_sha256", "facts_sha256"], ["decision", "request_id"], "initial enrollment confirmation request");
-    const decision = value.decision ?? "approve";
-    if (!["approve", "reject"].includes(decision)) throw new Error("initial enrollment decision unsupported");
-    return { mode: "initial_enrollment", recovery_id: normalizeControlPlaneIdentifier(value.recovery_id, "recovery_id", false),
-      candidate_sha256: normalizeResearchTaskDigest(value.candidate_sha256, "candidate_sha256"),
-      facts_sha256: normalizeResearchTaskDigest(value.facts_sha256, "facts_sha256"), decision, request_id: value.request_id };
-  }
-  const value = assertRequiredAndOptionalFields(payload, [
-    "recovery_id", "candidate_sha256", "dual_review_binding_sha256",
-  ], ["decision", "request_id"], "reconciliation recovery confirmation request");
-  const decision = Object.prototype.hasOwnProperty.call(value, "decision") ? value.decision : "approve";
-  if (decision !== "approve" && decision !== "reject") {
-    throw new Error("reconciliation recovery confirmation request.decision is unsupported");
-  }
-  return {
-    recovery_id: normalizeControlPlaneIdentifier(value.recovery_id, "reconciliation recovery confirmation request.recovery_id", false),
-    candidate_sha256: normalizeResearchTaskDigest(
-      value.candidate_sha256,
-      "reconciliation recovery confirmation request.candidate_sha256",
-    ),
-    dual_review_binding_sha256: normalizeResearchTaskDigest(
-      value.dual_review_binding_sha256,
-      "reconciliation recovery confirmation request.dual_review_binding_sha256",
-    ),
-    decision,
-    request_id: value.request_id,
-  };
-}
-
-export async function calculateReconciliationRecoveryConfirmationSha256(payload) {
-  const material = { ...payload };
-  delete material.confirmation_sha256;
-  const raw = new TextEncoder().encode(canonicalResearchTaskJson(material));
-  const digest = await crypto.subtle.digest("SHA-256", raw);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-export async function buildReconciliationRecoveryConfirmation({ recovery, confirmedBy, confirmedAt }) {
-  const confirmation = {
-    schema_version: RECONCILIATION_RECOVERY_CONFIRMATION_SCHEMA_VERSION,
-    recovery_id: recovery.recovery_id,
-    candidate_sha256: recovery.candidate_sha256,
-    dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
-    confirmed_at: confirmedAt,
-    confirmed_by: confirmedBy,
-    no_order: true,
-    execution_authority_granted: false,
-    confirmation_sha256: "",
-  };
-  confirmation.confirmation_sha256 = await calculateReconciliationRecoveryConfirmationSha256(confirmation);
-  return await normalizeReconciliationRecoveryConfirmation(confirmation, "reconciliation recovery confirmation");
-}
-
-export async function normalizeReconciliationRecoveryConfirmation(payload, fieldName) {
-  const value = assertExactFields(payload, [
-    "schema_version", "recovery_id", "candidate_sha256", "dual_review_binding_sha256", "confirmed_at", "confirmed_by",
-    "no_order", "execution_authority_granted", "confirmation_sha256",
-  ], fieldName);
-  if (value.schema_version !== RECONCILIATION_RECOVERY_CONFIRMATION_SCHEMA_VERSION) {
-    throw new Error(`${fieldName}.schema_version is unsupported`);
-  }
-  const confirmation = {
-    schema_version: RECONCILIATION_RECOVERY_CONFIRMATION_SCHEMA_VERSION,
-    recovery_id: normalizeControlPlaneIdentifier(value.recovery_id, `${fieldName}.recovery_id`, false),
-    candidate_sha256: normalizeResearchTaskDigest(value.candidate_sha256, `${fieldName}.candidate_sha256`),
-    dual_review_binding_sha256: normalizeResearchTaskDigest(
-      value.dual_review_binding_sha256,
-      `${fieldName}.dual_review_binding_sha256`,
-    ),
-    confirmed_at: normalizeResearchTaskTimestamp(value.confirmed_at, `${fieldName}.confirmed_at`),
-    confirmed_by: cleanGithubLogin(value.confirmed_by, `${fieldName}.confirmed_by`),
-    no_order: value.no_order,
-    execution_authority_granted: value.execution_authority_granted,
-    confirmation_sha256: normalizeResearchTaskDigest(value.confirmation_sha256, `${fieldName}.confirmation_sha256`),
-  };
-  if (confirmation.no_order !== true || confirmation.execution_authority_granted !== false) {
-    throw new Error(`${fieldName} must remain no-order and non-executable`);
-  }
-  if (confirmation.confirmation_sha256 !== await calculateReconciliationRecoveryConfirmationSha256(confirmation)) {
-    throw new Error(`${fieldName}.confirmation_sha256 mismatch`);
-  }
-  return confirmation;
-}
-
-export function reconciliationRecoveryConfirmationArchiveKey(recoveryId, confirmationSha256) {
-  return `${RECONCILIATION_RECOVERY_CONFIRMATION_PREFIX}${recoveryId}:${confirmationSha256}`;
-}
-
-export function reconciliationRecoveryConfirmationCurrentKey(recoveryId) {
-  return `${RECONCILIATION_RECOVERY_CURRENT_PREFIX}${recoveryId}`;
-}
+export { currentReconciliationRecoveryRequest };
+export { normalizeReconciliationRecoveryConfirmationRequest };
+export { calculateReconciliationRecoveryConfirmationSha256 };
+export { buildReconciliationRecoveryConfirmation };
+export { normalizeReconciliationRecoveryConfirmation };
+export { reconciliationRecoveryConfirmationArchiveKey };
+export { reconciliationRecoveryConfirmationCurrentKey };
 
 export async function readReconciliationRecoveryConfirmation(env, recoveryId) {
-  let authority;
-  try {
-    authority = await readHumanDecisionAuthority(env, "recovery", recoveryId);
-  } catch (error) {
-    return { confirmation: null, rejection: null, authority: null, error: error.message || "runtime_instances_unavailable" };
-  }
-  const authorityView = humanDecisionAuthorityView(authority);
-  if (authority.migrated === false) {
-    try {
-      const stored = await readConfigJson(env, reconciliationRecoveryConfirmationCurrentKey(recoveryId));
-      if (!stored) return { confirmation: null, rejection: null, authority: authorityView, error: null };
-      return {
-        confirmation: await normalizeReconciliationRecoveryConfirmation(
-          stored,
-          reconciliationRecoveryConfirmationCurrentKey(recoveryId),
-        ),
-        rejection: null,
-        authority: authorityView,
-        error: null,
-        read_only: true,
-      };
-    } catch {
-      return { confirmation: null, rejection: null, authority: authorityView, error: "reconciliation_recovery_confirmation_invalid" };
-    }
-  }
-  if (authority.blocked) return { confirmation: null, rejection: null, authority: authorityView, error: "reconciliation_recovery_legacy_blocked" };
-  if (authority.eligible !== true) return { confirmation: null, rejection: null, authority: authorityView, error: null };
-  if (authority.decision?.action === "reject") {
-    const payload = authority.decision.payload;
-    if (payload?.decision === "reject" && payload?.no_order === true && payload?.execution_authority_granted === false) {
-      return { confirmation: null, rejection: payload, authority: authorityView, error: null };
-    }
-    return { confirmation: null, rejection: null, authority: authorityView, error: null };
-  }
-  if (authority.decision?.action === "approve" && authority.decision.payload?.no_order === true && authority.decision.payload?.execution_authority_granted === false) {
-    return { confirmation: authority.decision.payload, rejection: null, authority: authorityView, error: null };
-  }
-  return { confirmation: null, rejection: null, authority: authorityView, error: null };
-}
-
-export async function recordInitialEnrollmentDecision(env, session, requested, recovery) {
-  if (recovery.mode !== "initial_enrollment" || requested.candidate_sha256 !== recovery.candidate_sha256
-      || requested.facts_sha256 !== recovery.facts_sha256) return json({ ok: false, error: "initial_enrollment_changed" }, 409);
-  const decidedAt = humanDecisionTimestamp();
-  const materialKey = await recoveryDecisionMaterialKey(recovery);
-  const base = { mode: "initial_enrollment", recovery_id: recovery.recovery_id,
-    candidate_sha256: recovery.candidate_sha256, facts_sha256: recovery.facts_sha256,
-    no_order: true, execution_authority_granted: false };
-  const payload = requested.decision === "approve"
-    ? { schema_version: "qsl_initial_enrollment_confirmation.v1", ...base, confirmed_at: decidedAt, confirmed_by: session.login }
-    : { schema_version: "qsl_initial_enrollment_rejection.v1", ...base, decision: "reject", decided_at: decidedAt, decided_by: session.login };
-  if (requested.decision === "approve") payload.confirmation_sha256 = await calculateReconciliationRecoveryConfirmationSha256(payload);
-  const target = { decision: requested.decision };
-  try {
-    const requestKey = await humanDecisionRequestKey({ requestId: requested.request_id, kind: "recovery", actor: session.login,
-      subjectId: recovery.recovery_id, materialKey, action: requested.decision, target });
-    const recorded = await runtimeInstanceCommand(env, { action: "recovery_decide", actor: session.login,
-      subject_id: recovery.recovery_id, material_key: materialKey, action_name: requested.decision,
-      request_key: requestKey, target_json: canonicalResearchTaskJson(target), decided_at: decidedAt, now_ms: Date.now(), payload });
-    const decisionReceipt = await humanDecisionReceipt(recorded.record, { kind: "recovery", subject_id: recovery.recovery_id, material_sha256: materialKey });
-    return json({ ok: true, confirmation: recorded.record?.action === "approve" ? recorded.record.payload : null,
-      rejection: recorded.record?.action === "reject" ? recorded.record.payload : null, decision_receipt: decisionReceipt, replayed: recorded.replayed === true });
-  } catch (error) { return json({ ok: false, error: error.message || "initial_enrollment_unavailable" }, error.status || 503); }
+  return readReconciliationRecoveryConfirmationImpl(env, recoveryId, {
+    readHumanDecisionAuthority,
+    humanDecisionAuthorityView,
+  });
 }
 
 export async function recordReconciliationRecoveryConfirmationResponse(request, env) {
-  requireSameOrigin(request, { requireOrigin: true });
-  const session = await readSession(request, env);
-  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "STRATEGY_SWITCH_CONFIG KV binding is required" }, 503);
-  }
-  let raw;
-  try {
-    raw = await readBoundedJson(request, 4 * 1024);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid reconciliation recovery confirmation" }, error.status || 400);
-  }
-  let requested;
-  try {
-    requested = normalizeReconciliationRecoveryConfirmationRequest(raw);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid reconciliation recovery confirmation" }, 400);
-  }
-  const dashboard = await aggregateReconciliationRecoverySources(env);
-  let recovery;
-  try {
-    recovery = currentReconciliationRecoveryRequest(dashboard, requested.recovery_id);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "reconciliation recovery confirmation is unavailable" }, error.status || 409);
-  }
-  if (requested.mode === "initial_enrollment") return recordInitialEnrollmentDecision(env, session, requested, recovery);
-  if (recovery.mode === "initial_enrollment" ||
-    requested.candidate_sha256 !== recovery.candidate_sha256 ||
-    requested.dual_review_binding_sha256 !== recovery.dual_review.evidence_binding_sha256
-  ) {
-    return json({ ok: false, error: "reconciliation evidence changed; reload the review before confirming" }, 409);
-  }
-  const decidedAt = humanDecisionTimestamp();
-  const materialKey = await recoveryDecisionMaterialKey(recovery);
-  const confirmation = requested.decision === "approve"
-    ? await buildReconciliationRecoveryConfirmation({ recovery, confirmedBy: session.login, confirmedAt: decidedAt })
-    : null;
-  const rejection = requested.decision === "reject" ? {
-    schema_version: "qsl_reconciliation_recovery_rejection.v1",
-    recovery_id: recovery.recovery_id,
-    candidate_sha256: recovery.candidate_sha256,
-    dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
-    decision: "reject",
-    decided_at: decidedAt,
-    decided_by: session.login,
-    no_order: true,
-    execution_authority_granted: false,
-  } : null;
-  const target = { decision: requested.decision };
-  let requestKey;
-  try {
-    requestKey = await humanDecisionRequestKey({
-      requestId: requested.request_id,
-      kind: "recovery",
-      actor: session.login,
-      subjectId: recovery.recovery_id,
-      materialKey,
-      action: requested.decision,
-      target,
-    });
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid reconciliation recovery confirmation" }, error.status || 400);
-  }
-  let recorded;
-  try {
-    recorded = await runtimeInstanceCommand(env, {
-      action: "recovery_decide",
-      actor: session.login,
-      subject_id: recovery.recovery_id,
-      material_key: materialKey,
-      action_name: requested.decision,
-      request_key: requestKey,
-      target_json: canonicalResearchTaskJson(target),
-      decided_at: decidedAt,
-      now_ms: Date.now(),
-      payload: confirmation || rejection,
-    });
-  } catch (error) {
-    return json({ ok: false, error: error.message || "reconciliation recovery confirmation is unavailable" }, error.status || 503);
-  }
-  const decisionReceipt = await humanDecisionReceipt(recorded.record, { kind: "recovery", subject_id: recovery.recovery_id, material_sha256: materialKey });
-  const recordedPayload = recorded.record.payload;
-  if (recorded.record?.action === "approve") {
-    await mirrorConfigJson(env, reconciliationRecoveryConfirmationArchiveKey(recovery.recovery_id, recordedPayload.confirmation_sha256), recordedPayload);
-    await mirrorConfigJson(env, reconciliationRecoveryConfirmationCurrentKey(recovery.recovery_id), recordedPayload);
-  }
-  let auditLogged = false;
-  try {
-    await appendAuditLog(env, {
-      ts: recorded.record?.decided_at || decidedAt,
-      login: session.login,
-      action: "record_reconciliation_recovery_confirmation",
-      recovery_id: recovery.recovery_id,
-      candidate_sha256: recovery.candidate_sha256,
-      dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
-      confirmation_sha256: recordedPayload.confirmation_sha256 || "",
-      decision: recorded.record?.action || requested.decision,
-      no_order: true,
-      execution_authority_granted: false,
-    });
-    auditLogged = true;
-  } catch {
-    // The immutable confirmation remains available to a future private
-    // controller even if the rolling audit log is unavailable.
-  }
-  return json({
-    ok: true,
-    confirmation: recorded.record?.action === "approve" ? recordedPayload : null,
-    rejection: recorded.record?.action === "reject" ? recordedPayload : null,
-    decision_receipt: decisionReceipt,
-    audit_logged: auditLogged,
-    replayed: recorded.replayed === true,
+  return recordReconciliationRecoveryConfirmationResponseImpl(request, env, {
+    ...reconciliationRecoveryRuntimeDeps(),
+    aggregateReconciliationRecoverySources,
   });
 }
 
 export async function aggregateReconciliationRecoverySources(env) {
-  const sources = await readReconciliationRecoverySources(env);
-  if (!sources.length) return emptyReconciliationRecoveryPayload("snapshot_unavailable");
-  const ttlSeconds = reconciliationRecoveryStaleTtlSeconds(env);
-  const now = Date.now();
-  const recoveries = [];
-  const recoveryIds = new Set();
-  const duplicateRecoveryIds = new Set();
-  const errors = [];
-  const timestamps = [];
-  let hasReadySource = false;
-  let hasStaleSource = false;
-  let hasStaleRecoveryEvidence = false;
-  for (const source of sources) {
-    const sourceFreshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
-    if (source.generated_at) timestamps.push(source.generated_at);
-    if (source.computed_at) timestamps.push(source.computed_at);
-    if (sourceFreshness.data_status === "ready") hasReadySource = true;
-    if (sourceFreshness.data_status === "stale") {
-      hasStaleSource = true;
-      errors.push("reconciliation_recovery_source_stale");
-    }
-    for (const recovery of source.recoveries) {
-      if (recoveryIds.has(recovery.recovery_id)) {
-        duplicateRecoveryIds.add(recovery.recovery_id);
-        errors.push("reconciliation_recovery_duplicate_recovery");
-        continue;
-      }
-      recoveryIds.add(recovery.recovery_id);
-      const freshness = reconciliationRecoveryEvidenceFreshness(recovery, sourceFreshness, ttlSeconds, now);
-      if (freshness.data_status === "stale") {
-        hasStaleRecoveryEvidence = true;
-        errors.push("reconciliation_recovery_evidence_stale");
-      }
-      const result = await readReconciliationRecoveryConfirmation(env, recovery.recovery_id);
-      if (result.error) errors.push(result.error);
-      if (recovery.mode === "initial_enrollment") {
-        const option = await initialEnrollmentAccountOption(env, recovery);
-        const incomplete = Object.entries(recovery.candidate.coverage).filter(([, status]) => status !== "complete").map(([name]) => `initial_enrollment_${name}_incomplete`);
-        const view = { ...recovery, platform: "ibkr", strategy_profile: recovery.candidate.strategy_profile,
-          target_name: option.target_name, account_key: option.key, candidate_sha256: recovery.candidate.candidate_sha256,
-          facts_sha256: recovery.candidate.facts_sha256, first_observed_at: recovery.candidate.first_observed_at,
-          last_observed_at: recovery.candidate.last_observed_at,
-          readiness: incomplete.length ? "blocked" : "awaiting_human_confirmation", blocker_codes: incomplete };
-        const matches = decision => decision?.mode === "initial_enrollment"
-          && decision.candidate_sha256 === view.candidate_sha256 && decision.facts_sha256 === view.facts_sha256;
-        const confirmation = matches(result.confirmation) ? result.confirmation : null;
-        const rejection = matches(result.rejection) ? result.rejection : null;
-        const presentation = recoveryMaterialPresentation({ source, recovery: view, confirmation, rejection, decisionError: result.error });
-        presentation.label = { zh: "首次登记确认", en: "Initial enrollment" };
-        presentation.material_kind = "initial_enrollment";
-        recoveries.push({ source_id: source.source_id, freshness, recovery: view, confirmation, rejection, presentation,
-          decision_authority: result.authority || null,
-          decision_binding: { kind: "recovery", subject_id: view.recovery_id, material_sha256: await recoveryDecisionMaterialKey(recovery) } });
-        continue;
-      }
-      const confirmation = result.confirmation
-        && result.confirmation.candidate_sha256 === recovery.candidate_sha256
-        && result.confirmation.dual_review_binding_sha256 === recovery.dual_review.evidence_binding_sha256
-        ? result.confirmation
-        : null;
-      const rejection = result.rejection
-        && result.rejection.candidate_sha256 === recovery.candidate_sha256
-        && result.rejection.dual_review_binding_sha256 === recovery.dual_review.evidence_binding_sha256
-        ? result.rejection
-        : null;
-      recoveries.push({ source_id: source.source_id, freshness, recovery, confirmation, rejection,
-        presentation: recoveryMaterialPresentation({ source, recovery, confirmation, rejection, decisionError: result.error }),
-        decision_authority: result.authority || null,
-        decision_binding: { kind: "recovery", subject_id: recovery.recovery_id, material_sha256: await recoveryDecisionMaterialKey(recovery) },
-      });
-    }
-    errors.push(...source.errors);
-  }
-  const uniqueRecoveries = recoveries
-    .filter((entry) => !duplicateRecoveryIds.has(entry.recovery.recovery_id))
-    .sort((left, right) => left.recovery.recovery_id.localeCompare(right.recovery.recovery_id));
-  const dataStatus = hasStaleSource || hasStaleRecoveryEvidence
-    ? "stale"
-    : (hasReadySource ? "ready" : "unavailable");
-  return {
-    schema_version: RECONCILIATION_RECOVERY_DASHBOARD_SCHEMA_VERSION,
-    generated_at: earliestControlPlaneTimestamp(timestamps),
-    computed_at: earliestControlPlaneTimestamp(timestamps),
-    data_status: dataStatus,
-    summary: {
-      recovery_count: uniqueRecoveries.length,
-      awaiting_human_confirmation: uniqueRecoveries.filter((entry) =>
-        entry.freshness.data_status === "ready" &&
-        entry.recovery.readiness === "awaiting_human_confirmation" &&
-        !entry.confirmation &&
-        !entry.rejection,
-      ).length,
-      blocked: uniqueRecoveries.filter((entry) => entry.recovery.readiness === "blocked").length,
-      confirmed: uniqueRecoveries.filter((entry) => Boolean(entry.confirmation)).length,
-    },
-    recoveries: uniqueRecoveries,
-    current_reconciliation_observation: currentReconciliationObservationPresentation(),
-    policy: {
-      human_confirmation_required: true,
-      current_evidence_required: true,
-      no_order: true,
-      execution_authority_granted: false,
-      notice: "恢复确认只记录与双审摘要绑定的人工意图；私有控制器仍须重新核验后才可恢复既有执行。",
-    },
-    errors: uniqueStrings(errors),
-  };
+  return aggregateReconciliationRecoverySourcesImpl(env, {
+    readReconciliationRecoverySources,
+    controlPlaneSnapshotFreshness,
+    earliestControlPlaneTimestamp,
+    readReconciliationRecoveryConfirmation,
+    recoveryDecisionMaterialKey,
+    initialEnrollmentAccountOption,
+  });
 }
 
 export async function readReconciliationRecoverySources(env) {
-  const store = configStore(env);
-  if (!store) return [];
-  let listing;
-  try {
-    listing = await directoryList(env, RECONCILIATION_RECOVERY_SOURCE_PREFIX, RECONCILIATION_RECOVERY_MAX_SOURCES);
-  } catch (error) {
-    return [emptyReconciliationRecoverySourceSnapshot(sourceListFailure(error, "reconciliation_recovery_source_list_unavailable"))];
-  }
-  const keys = Array.isArray(listing?.keys) ? listing.keys : [];
-  const sources = [];
-  for (const entry of keys.slice(0, RECONCILIATION_RECOVERY_MAX_SOURCES)) {
-    const key = typeof entry?.name === "string" ? entry.name : "";
-    if (!key.startsWith(RECONCILIATION_RECOVERY_SOURCE_PREFIX)) continue;
-    try {
-      const stored = await readConfigJson(env, key);
-      if (!stored) throw new Error("indexed_record_unavailable");
-      const source = normalizeReconciliationRecoverySourceSnapshot(stored, key);
-      for (const recovery of source.recoveries) if (recovery.mode === "initial_enrollment") await initialEnrollmentAccountOption(env, recovery);
-      sources.push(source);
-    } catch {
-      sources.push(emptyReconciliationRecoverySourceSnapshot("reconciliation_recovery_source_invalid"));
-    }
-  }
-  return sources;
+  return readReconciliationRecoverySourcesImpl(env, {
+    initialEnrollmentAccountOption,
+  });
 }
 
-export function reconciliationRecoverySourceKey(sourceId) {
-  return `${RECONCILIATION_RECOVERY_SOURCE_PREFIX}${sourceId}`;
-}
+export { reconciliationRecoverySourceKey };
 
 export function runtimeDailyReadModelEnabled(env) {
   return String(env.RUNTIME_DAILY_READ_MODEL_ENABLED || "") === "true";
@@ -5419,25 +4663,7 @@ export {
   nextControlPlaneResearchScheduleAfter,
 };
 
-// A recently published source must not be able to re-advertise an old
-// reconciliation candidate as current.  The private controller independently
-// verifies raw receipts, but the human console also fails closed here.
-export function reconciliationRecoveryEvidenceFreshness(recovery, sourceFreshness, ttlSeconds, now) {
-  const observedAt = Date.parse(recovery.mode === "initial_enrollment" ? recovery.candidate.last_observed_at : recovery.last_observed_at);
-  const futureBeyondClockSkew = Number.isFinite(observedAt) && observedAt > now + 5 * 60 * 1000;
-  const evidenceAgeSeconds = futureBeyondClockSkew
-    ? Number.POSITIVE_INFINITY
-    : Number.isFinite(observedAt)
-      ? Math.max(0, Math.round((now - observedAt) / 1000))
-      : Number.POSITIVE_INFINITY;
-  const ageSeconds = sourceFreshness.age_seconds === null
-    ? evidenceAgeSeconds
-    : Math.max(sourceFreshness.age_seconds, evidenceAgeSeconds);
-  const dataStatus = sourceFreshness.data_status === "ready" && evidenceAgeSeconds <= ttlSeconds
-    ? "ready"
-    : "stale";
-  return { data_status: dataStatus, age_seconds: Number.isFinite(ageSeconds) ? ageSeconds : null };
-}
+export { reconciliationRecoveryEvidenceFreshness };
 
 export {
   mergeControlPlaneFreshness,
@@ -5863,24 +5089,13 @@ export async function accountFactsHistoryResponse(request, env, url) {
   });
 }
 
-export function requireDedicatedReconciliationRecoverySyncToken(request, env) {
-  const expected = String(env.RECONCILIATION_RECOVERY_SYNC_TOKEN || "");
-  if (!expected) throw new HttpError("reconciliation recovery sync token is not configured", 500);
-  const header = request.headers.get("Authorization") || "";
-  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
-  if (token !== expected) throw new HttpError("reconciliation recovery sync token is invalid", 401);
-}
+export {
+  requireDedicatedReconciliationRecoverySyncToken,
+  requireDedicatedReconciliationRecoveryControllerToken,
+};
 
-export function requireDedicatedReconciliationRecoveryControllerToken(request, env) {
-  const expected = String(env.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN || "");
-  if (!expected) throw new HttpError("reconciliation recovery controller token is not configured", 500);
-  if (expected === String(env.RECONCILIATION_RECOVERY_SYNC_TOKEN || "")) {
-    throw new HttpError("reconciliation recovery controller token must differ from the source sync token", 500);
-  }
-  const header = request.headers.get("Authorization") || "";
-  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
-  if (token !== expected) throw new HttpError("reconciliation recovery controller token is invalid", 401);
-}
+
+
 
 
 
@@ -8342,116 +7557,8 @@ export function binancePrivateScopeDecimalIsZero(value) {
   return /^0+(?:\.0+)?$/.test(value);
 }
 
-export function normalizeReconciliationRecoverySourceSnapshot(payload, fieldName = "reconciliation recovery source snapshot") {
-  const source = assertExactFields(payload, [
-    "schema_version", "source_id", "generated_at", "computed_at", "data_status", "recoveries", "errors",
-  ], fieldName);
-  if (source.schema_version !== RECONCILIATION_RECOVERY_SOURCE_SCHEMA_VERSION) {
-    throw new Error(`${fieldName}.schema_version is unsupported`);
-  }
-  const dataStatus = cleanChoice(source.data_status, STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
-  if (!Array.isArray(source.recoveries) || source.recoveries.length > RECONCILIATION_RECOVERY_MAX_REQUESTS) {
-    throw new Error(`${fieldName}.recoveries must be an array with at most ${RECONCILIATION_RECOVERY_MAX_REQUESTS} items`);
-  }
-  const recoveries = [];
-  const seen = new Set();
-  for (const [index, value] of source.recoveries.entries()) {
-    const recovery = normalizeReconciliationRecoveryRequest(value, `${fieldName}.recoveries[${index}]`);
-    if (seen.has(recovery.recovery_id)) {
-      throw new Error(`${fieldName}.recoveries contains duplicate recovery_id`);
-    }
-    seen.add(recovery.recovery_id);
-    recoveries.push(recovery);
-  }
-  if (dataStatus === "unavailable" && recoveries.length) {
-    throw new Error(`${fieldName}.recoveries must be empty when unavailable`);
-  }
-  return {
-    schema_version: RECONCILIATION_RECOVERY_SOURCE_SCHEMA_VERSION,
-    source_id: normalizeControlPlaneIdentifier(source.source_id, `${fieldName}.source_id`, false),
-    generated_at: normalizeStrategyHealthTimestamp(source.generated_at, `${fieldName}.generated_at`, true),
-    computed_at: normalizeStrategyHealthTimestamp(source.computed_at, `${fieldName}.computed_at`, true),
-    data_status: dataStatus,
-    recoveries,
-    errors: normalizeStrategyHealthErrors(source.errors),
-  };
-}
-
-export function normalizeReconciliationRecoveryRequest(value, fieldName) {
-  if (value?.mode === "initial_enrollment") {
-    const item = assertExactFields(value, ["mode", "recovery_id", "target_id", "candidate", "facts"], fieldName);
-    return { mode: "initial_enrollment", recovery_id: normalizeControlPlaneIdentifier(item.recovery_id, `${fieldName}.recovery_id`, false),
-      target_id: normalizeControlPlaneIdentifier(item.target_id, `${fieldName}.target_id`, false), candidate: item.candidate, facts: item.facts };
-  }
-  const item = assertExactFields(value, [
-    "recovery_id", "platform", "strategy_profile", "environment", "reconciliation_state", "readiness",
-    "candidate_sha256", "evidence_sample_count", "first_observed_at", "last_observed_at", "dual_review", "blocker_codes",
-  ], fieldName);
-  const dualReview = assertExactFields(item.dual_review, [
-    "outcome", "reviewer_count", "evidence_binding_sha256",
-  ], `${fieldName}.dual_review`);
-  const evidenceSampleCount = Number(item.evidence_sample_count);
-  const reviewerCount = Number(dualReview.reviewer_count);
-  if (!Number.isInteger(evidenceSampleCount) || evidenceSampleCount < 0 || evidenceSampleCount > 100) {
-    throw new Error(`${fieldName}.evidence_sample_count must be a bounded integer`);
-  }
-  if (!Number.isInteger(reviewerCount) || reviewerCount < 0 || reviewerCount > 10) {
-    throw new Error(`${fieldName}.dual_review.reviewer_count must be a bounded integer`);
-  }
-  const firstObservedAt = normalizeResearchTaskTimestamp(item.first_observed_at, `${fieldName}.first_observed_at`);
-  const lastObservedAt = normalizeResearchTaskTimestamp(item.last_observed_at, `${fieldName}.last_observed_at`);
-  const observationWindowMs = Date.parse(lastObservedAt) - Date.parse(firstObservedAt);
-  if (observationWindowMs < 0) {
-    throw new Error(`${fieldName}.first_observed_at must not be after last_observed_at`);
-  }
-  if (!Array.isArray(item.blocker_codes) || item.blocker_codes.length > 20) {
-    throw new Error(`${fieldName}.blocker_codes must be an array with at most 20 items`);
-  }
-  const blockerCodes = normalizeStrategyHealthErrors(item.blocker_codes);
-  if (blockerCodes.length !== item.blocker_codes.length) {
-    throw new Error(`${fieldName}.blocker_codes must be unique stable codes`);
-  }
-  const recovery = {
-    recovery_id: normalizeControlPlaneIdentifier(item.recovery_id, `${fieldName}.recovery_id`, false),
-    platform: cleanChoice(item.platform, RECONCILIATION_RECOVERY_PLATFORMS, `${fieldName}.platform`),
-    strategy_profile: normalizeResearchTaskIdentity(item.strategy_profile, `${fieldName}.strategy_profile`),
-    environment: cleanChoice(item.environment, RECONCILIATION_RECOVERY_ENVIRONMENTS, `${fieldName}.environment`),
-    reconciliation_state: cleanChoice(
-      item.reconciliation_state,
-      RECONCILIATION_RECOVERY_STATES,
-      `${fieldName}.reconciliation_state`,
-    ),
-    readiness: cleanChoice(item.readiness, RECONCILIATION_RECOVERY_READINESS, `${fieldName}.readiness`),
-    candidate_sha256: normalizeResearchTaskDigest(item.candidate_sha256, `${fieldName}.candidate_sha256`),
-    evidence_sample_count: evidenceSampleCount,
-    first_observed_at: firstObservedAt,
-    last_observed_at: lastObservedAt,
-    dual_review: {
-      outcome: cleanChoice(
-        dualReview.outcome,
-        RECONCILIATION_RECOVERY_DUAL_REVIEW_OUTCOMES,
-        `${fieldName}.dual_review.outcome`,
-      ),
-      reviewer_count: reviewerCount,
-      evidence_binding_sha256: normalizeResearchTaskDigest(
-        dualReview.evidence_binding_sha256,
-        `${fieldName}.dual_review.evidence_binding_sha256`,
-      ),
-    },
-    blocker_codes: blockerCodes,
-  };
-  if (recovery.readiness === "awaiting_human_confirmation") {
-    if (
-      recovery.evidence_sample_count < 1 ||
-      observationWindowMs > RECONCILIATION_RECOVERY_MAX_SAMPLE_WINDOW_MS ||
-      recovery.dual_review.evidence_binding_sha256 !== recovery.candidate_sha256 ||
-      recovery.blocker_codes.length
-    ) {
-      throw new Error(`${fieldName}.readiness requires at least one observation within a 15-minute window, bound candidate, and no blockers`);
-    }
-  }
-  return recovery;
-}
+export { normalizeReconciliationRecoverySourceSnapshot };
+export { normalizeReconciliationRecoveryRequest };
 
 export function normalizeExecutionEvidenceSourceSnapshot(payload, fieldName = "execution evidence source snapshot") {
   const source = assertExactFields(payload, [
@@ -8742,45 +7849,9 @@ export function emptyExecutionEvidencePayload(errorCode) {
   };
 }
 
-export function emptyReconciliationRecoverySourceSnapshot(errorCode) {
-  return {
-    schema_version: RECONCILIATION_RECOVERY_SOURCE_SCHEMA_VERSION,
-    source_id: "unavailable",
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    recoveries: [],
-    errors: [errorCode],
-  };
-}
-
-export function emptyReconciliationRecoveryPayload(errorCode) {
-  return {
-    schema_version: RECONCILIATION_RECOVERY_DASHBOARD_SCHEMA_VERSION,
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    summary: { recovery_count: 0, awaiting_human_confirmation: 0, blocked: 0, confirmed: 0 },
-    recoveries: [],
-    current_reconciliation_observation: currentReconciliationObservationPresentation(),
-    policy: {
-      human_confirmation_required: true,
-      current_evidence_required: true,
-      no_order: true,
-      execution_authority_granted: false,
-      notice: "恢复核验尚不可用；控制台不会推断已恢复或已启用。",
-    },
-    errors: [errorCode],
-  };
-}
-
-export function reconciliationRecoveryStaleTtlSeconds(env) {
-  const configured = Number(env.RECONCILIATION_RECOVERY_STALE_TTL_SECONDS);
-  if (!Number.isFinite(configured) || configured < 300 || configured > 3600) {
-    return RECONCILIATION_RECOVERY_DEFAULT_STALE_TTL_SECONDS;
-  }
-  return Math.floor(configured);
-}
+export { emptyReconciliationRecoverySourceSnapshot };
+export { emptyReconciliationRecoveryPayload };
+export { reconciliationRecoveryStaleTtlSeconds };
 
 export function executionEvidenceStaleTtlSeconds(env) {
   const configured = Number(env.EXECUTION_EVIDENCE_STALE_TTL_SECONDS);
