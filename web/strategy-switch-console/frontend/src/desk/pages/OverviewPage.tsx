@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Language } from "../../lib/prefs";
 import type { DeskApi, DeskResult } from "../api/endpoints.ts";
-import type { BookRow, Overview, Ribbon } from "../contract/types";
+import type { N1BookRow, N1Overview, N1Read, N1Ribbon } from "../contract/n1";
+import { coverageText, n1ReasonKey, readValue } from "../api/n1.ts";
 import type { DeskKey, DeskTranslate } from "../i18n/index.ts";
 import { NeedsYouCard } from "../components/NeedsYouCard.tsx";
 import { EmptyState, FreshnessChip, LoadingState, RecoverableErrorState, StalePartialBanner } from "../components/StateBlocks.tsx";
@@ -42,7 +43,18 @@ function Meter({ filled, tone, label }: { filled: number | null; tone: Tone; lab
   );
 }
 
-function BookCard({ row, t, language }: { row: BookRow; t: DeskTranslate; language: Language }) {
+/** Config line: a drift count is shown only when its read is known; otherwise "?". */
+function configText(config: N1BookRow["config"], t: DeskTranslate): string {
+  const count = config.drift_count.status === "known" ? config.drift_count.value : t("read.unknown_mark");
+  return t(`config.${config.state}` as DeskKey, { count });
+}
+
+/** "?" plus the reason for an unknown read, so an unread value is never shown as empty or zero. */
+function unknownText(read: N1Read<unknown>, t: DeskTranslate): string {
+  return read.status === "unknown" ? `${t("read.unknown_mark")} · ${t(n1ReasonKey(read.reason))}` : "";
+}
+
+function BookCard({ row, t, language }: { row: N1BookRow; t: DeskTranslate; language: Language }) {
   const nav = row.nav.status === "unknown"
     ? null
     : formatMoney(row.nav.usd ?? row.nav.amount, row.nav.usd ? "USD" : row.nav.currency, language);
@@ -83,16 +95,16 @@ function BookCard({ row, t, language }: { row: BookRow; t: DeskTranslate; langua
         <Meter filled={cells.filled} tone={cells.tone} label={t("overview.risk.meter", { value: drawdown ?? UNKNOWN, limit: limit ?? UNKNOWN })} />
         <span className="mrd-ov-book-value" data-tone={cells.tone}>{drawdown ?? UNKNOWN}</span>
       </div>
-      <p className="mrd-ov-book-meta" data-state={row.config.state}>{t(`config.${row.config.state}` as DeskKey, { count: row.config.drift_count })}</p>
+      <p className="mrd-ov-book-meta" data-state={row.config.state}>{configText(row.config, t)}</p>
       <p className="mrd-ov-book-meta">{run}</p>
     </article>
   );
 }
 
 export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTranslate; language: Language }) {
-  const overview = useDeskLoad<DeskResult<Overview>>(() => api.overview(), [api]);
+  const overview = useDeskLoad<DeskResult<N1Overview>>(() => api.overview(), [api]);
   const narrow = useNarrow();
-  const [ribbon, setRibbon] = useState<{ state: "loading" } | { state: "failed" } | { state: "ready"; data: Ribbon }>({ state: "loading" });
+  const [ribbon, setRibbon] = useState<{ state: "loading" } | { state: "failed" } | { state: "ready"; data: N1Ribbon }>({ state: "loading" });
 
   useEffect(() => {
     let alive = true;
@@ -108,11 +120,27 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
   }
   if (overview.load.state === "failed") return <RecoverableErrorState t={t} onRetry={overview.reload} />;
 
-  const data = overview.load.result.data;
+  return <OverviewView data={overview.load.result.data} source={overview.load.result.source} ribbon={ribbon} t={t} language={language} narrow={narrow} />;
+}
+
+/** Ready-state overview: a pure function of the N1 payload (and the ribbon read), so the
+    unknown/partial rendering rules are testable against the golden payloads. */
+export function OverviewView({ data, source, ribbon, t, language, narrow }: {
+  data: N1Overview;
+  source: DeskResult<N1Overview>["source"];
+  ribbon: { state: "loading" } | { state: "failed" } | { state: "ready"; data: N1Ribbon };
+  t: DeskTranslate;
+  language: Language;
+  narrow: boolean;
+}) {
   const stale = data.freshness.data_status !== "ready";
   const totals = data.totals;
-  const counts = headlineCounts(data.book);
-  const curve = curveGeometry(data.equity_curve, 720, 220);
+  // Every list below is an N1 read: unknown is never an empty list, partial is never complete.
+  const book = readValue(data.book) ?? [];
+  const needs = readValue(data.needs_you) ?? [];
+  const equity = readValue(data.equity_curve);
+  const counts = headlineCounts(book);
+  const curve = equity ? curveGeometry(equity, 720, 220) : null;
   const dayRatio = totals.day_change ? formatSignedPercent(totals.day_change.ratio) : null;
   const dayAmount = totals.day_change ? formatSignedMoney(totals.day_change.amount, data.reporting_currency, language) : null;
   const drawdown = formatSignedPercent(totals.drawdown?.ratio ?? null);
@@ -121,9 +149,18 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
   const exposure = formatMultiple(totals.gross_exposure_ratio);
   const leveraged = formatMultiple(totals.leveraged_etf_exposure_ratio);
   const runs = totals.runs_today;
-  const signals = ribbon.state === "ready" ? ribbon.data.tape.slice(0, 5) : [];
+  const runsValue = readValue(runs);
+  const runsText = runs.status === "known" ? t("overview.runs.progress", { done: runs.value.done ?? 0, expected: runs.value.expected ?? 0 })
+    : runsValue && runsValue.done !== null ? t("overview.runs.partial", { done: runsValue.done, coverage: coverageText(runs.coverage) })
+    : unknownText(runs, t);
+  const drift = totals.config_drift;
+  const tape = ribbon.state === "ready" ? ribbon.data.tape : null;
+  const signals = tape ? (readValue(tape) ?? []).slice(0, 5) : [];
+  const coverageTotal = totals.coverage.total ?? t("read.unknown_mark");
 
-  const headline = counts.running === 0
+  // An unread book proves nothing about what is running.
+  const headline = data.book.status === "unknown" ? t("overview.headline.unread")
+    : counts.running === 0
     ? counts.runtimeUnknown > 0
       ? t("overview.headline.unconfirmed", { unknown: counts.runtimeUnknown })
       : t("overview.headline.none")
@@ -140,11 +177,11 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
           <span className="mrd-label">{t("overview.eyebrow")}</span>
           <h1 id="mrd-page-title" className="mrd-serif mrd-ov-headline">{headline}</h1>
           <span className="mrd-label mrd-ov-nav-label">
-            {t("overview.nav.label", { accounts: totals.coverage.included, total: totals.coverage.total })}
+            {t("overview.nav.label", { accounts: totals.coverage.included, total: coverageTotal })}
           </span>
           <div className="mrd-ov-navrow">
             <NavFigure amount={totals.nav} currency={data.reporting_currency} language={language} />
-            <span className="mrd-ov-range">{data.equity_curve.range}</span>
+            <span className="mrd-ov-range">{equity?.range ?? t("read.unknown_mark")}</span>
           </div>
           <p className="mrd-ov-day" data-sign={dayRatio === null ? "unknown" : dayRatio.startsWith("+") ? "up" : dayRatio.startsWith("\u2212") ? "down" : "flat"}>
             {dayRatio === null || dayAmount === null
@@ -153,7 +190,7 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
           </p>
           {totals.status !== "complete" ? (
             <p className="mrd-ov-coverage" role="status">
-              {t("states.partial_detail", { included: totals.coverage.included, total: totals.coverage.total })}
+              {t("states.partial_detail", { included: totals.coverage.included, total: coverageTotal })}
             </p>
           ) : null}
         </div>
@@ -165,15 +202,23 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
       </div>
 
       {stale ? <StalePartialBanner t={t} language={language} ageSeconds={data.freshness.age_seconds} /> : null}
-      {data.needs_you.length === 0 && stale ? (
-        <section className="mrd-card" style={P.column} role="status">
+      {data.needs_you.status === "unknown" ? (
+        <section className="mrd-card" style={P.column} role="status" data-read="unknown">
           <span className="mrd-label">{t("overview.needs.title")}</span>
-          <p style={P.muted}>{t("overview.needs.unknown")}</p>
+          <p style={P.muted}>{t("overview.needs.unavailable", { reason: t(n1ReasonKey(data.needs_you.reason)) })}</p>
         </section>
-      ) : data.needs_you.length === 0 ? (
+      ) : needs.length === 0 && (stale || data.needs_you.status !== "known") ? (
+        <section className="mrd-card" style={P.column} role="status" data-read={data.needs_you.status}>
+          <span className="mrd-label">{t("overview.needs.title")}</span>
+          <p style={P.muted}>{t(data.needs_you.status === "partial" ? "overview.needs.partial" : "overview.needs.unknown")}</p>
+        </section>
+      ) : needs.length === 0 ? (
         <EmptyState t={t} title={t("overview.needs.empty")} />
       ) : (
-        <NeedsYouCard items={data.needs_you} t={t} />
+        <>
+          <NeedsYouCard items={needs} t={t} />
+          {data.needs_you.status === "partial" ? <p className="mrd-ov-note" role="status">{t("overview.needs.partial")}</p> : null}
+        </>
       )}
 
       <div className="mrd-card mrd-ov-risk">
@@ -198,12 +243,18 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
           </div>
           <div className="mrd-ov-risk-item">
             <span className="mrd-ov-risk-name">{t("overview.runs.title")}</span>
-            <span className="mrd-ov-risk-value">{t("overview.runs.progress", { done: runs.done, expected: runs.expected })}</span>
+            <span className="mrd-ov-risk-value" data-read={runs.status}>{runsText}</span>
+            {runsValue ? <span className="mrd-ov-risk-limit">{t("overview.runs.source_day", { date: runsValue.source_business_date, timezone: runsValue.source_timezone })}</span> : null}
           </div>
-          {totals.config_drift.count > 0 ? (
+          {drift.status === "known" && (drift.value.count ?? 0) > 0 ? (
             <div className="mrd-ov-risk-item">
               <span className="mrd-ov-risk-name">{t("overview.risk.drift")}</span>
-              <span className="mrd-ov-risk-value" data-tone="warn">{t("config.drift", { count: totals.config_drift.count })}</span>
+              <span className="mrd-ov-risk-value" data-tone="warn">{t("config.drift", { count: drift.value.count ?? 0 })}</span>
+            </div>
+          ) : drift.status !== "known" ? (
+            <div className="mrd-ov-risk-item" data-read={drift.status}>
+              <span className="mrd-ov-risk-name">{t("overview.risk.drift")}</span>
+              <span className="mrd-ov-risk-value" data-tone="unknown">{drift.status === "unknown" ? unknownText(drift, t) : t("read.unknown_mark")}</span>
             </div>
           ) : null}
         </div>
@@ -211,46 +262,52 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
 
       <div className="mrd-card mrd-ov-curve-card">
         <div className="mrd-ov-curve-head">
-          <span className="mrd-label">{t("overview.curve.title", { range: data.equity_curve.range })}</span>
+          <span className="mrd-label">{t("overview.curve.title", { range: equity?.range ?? t("read.unknown_mark") })}</span>
           <span className="mrd-ov-legend">
             <span className="mrd-ov-key" data-key="portfolio">{t("overview.curve.portfolio")}</span>
-            {data.equity_curve.benchmark.id
-              ? <span className="mrd-ov-key" data-key="benchmark">{t("overview.curve.benchmark", { label: data.equity_curve.benchmark.label })}</span>
-              : <span className="mrd-ov-key" data-key="none">{t("overview.curve.no_benchmark")}</span>}
+            <span className="mrd-ov-key" data-key="none">{t("overview.curve.no_benchmark")}</span>
           </span>
         </div>
-        {curve === null ? <p className="mrd-ov-note">{t("overview.curve.empty")}</p> : (
+        {data.equity_curve.status === "unknown" ? (
+          <p className="mrd-ov-note" role="status" data-read="unknown">{t("overview.curve.unknown", { reason: t(n1ReasonKey(data.equity_curve.reason)) })}</p>
+        ) : curve === null ? <p className="mrd-ov-note">{t("overview.curve.empty")}</p> : (
           <svg className="mrd-ov-curve" viewBox="0 0 720 220" preserveAspectRatio="none" role="img"
-            aria-label={t("overview.curve.aria", { start: data.equity_curve.history_starts ?? UNKNOWN, low: curve.min.toFixed(1), high: curve.max.toFixed(1) })}>
+            aria-label={t("overview.curve.aria", { start: equity?.history_starts ?? UNKNOWN, low: curve.min.toFixed(1), high: curve.max.toFixed(1) })}>
             {curve.drawdownPath ? <path className="mrd-ov-curve-dd" d={curve.drawdownPath} /> : null}
             <path className="mrd-ov-curve-area" d={curve.areaPath ?? ""} />
             {curve.benchmarkPath ? <path className="mrd-ov-curve-bench" d={curve.benchmarkPath} /> : null}
             <path className="mrd-ov-curve-line" d={curve.portfolioPath} />
           </svg>
         )}
-        <p className="mrd-ov-note">
-          {t("overview.curve.basis", {
-            start: data.equity_curve.history_starts ?? UNKNOWN,
-            basis: t(`overview.basis.${data.equity_curve.return_basis}` as DeskKey),
-          })}
-        </p>
+        {equity ? (
+          <p className="mrd-ov-note">
+            {t("overview.curve.basis", {
+              start: equity.history_starts ?? UNKNOWN,
+              basis: t(`overview.basis.${equity.return_basis}` as DeskKey),
+            })}
+          </p>
+        ) : null}
       </div>
 
       <section className="mrd-ov-books" aria-labelledby="mrd-ov-books-title">
         <h2 id="mrd-ov-books-title" className="mrd-label">{t("overview.book.title")}</h2>
-        {data.book.length === 0 ? <p className="mrd-ov-note">{t("overview.book.empty")}</p> : (
+        {data.book.status === "unknown" ? (
+          <p className="mrd-ov-note" role="status" data-read="unknown">{t("overview.book.unknown", { reason: t(n1ReasonKey(data.book.reason)) })}</p>
+        ) : book.length === 0 ? <p className="mrd-ov-note">{t("overview.book.empty")}</p> : (
           <div className="mrd-ov-book-grid">
-            {data.book.map(row => <BookCard key={row.target_id} row={row} t={t} language={language} />)}
+            {book.map(row => <BookCard key={row.target_id} row={row} t={t} language={language} />)}
           </div>
         )}
+        {data.book.status === "partial" ? <p className="mrd-ov-note" role="status">{t("n1.partial", { coverage: coverageText(data.book.coverage) })}</p> : null}
       </section>
 
       <div className="mrd-card mrd-ov-side">
         <div className="mrd-ov-runs">
           <span className="mrd-label">{t("overview.runs.title")}</span>
-          {runs.pending.length === 0 ? <p className="mrd-ov-note">{t("overview.runs.none_pending")}</p> : (
+          {runsValue?.pending == null ? <p className="mrd-ov-note" data-read={runs.status}>{t("overview.runs.pending_unknown")}</p>
+            : runsValue.pending.length === 0 ? <p className="mrd-ov-note">{t("overview.runs.none_pending")}</p> : (
             <ul className="mrd-ov-pending">
-              {runs.pending.map(item => (
+              {runsValue.pending.map(item => (
                 <li key={`${item.target_id}-${item.due_at}`}>
                   {t("overview.runs.pending", { target: item.target_id, time: `${item.due_at.slice(11, 16)} UTC` })}
                 </li>
@@ -261,6 +318,8 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
         <div className="mrd-ov-signals">
           <span className="mrd-label">{t("overview.signals.title")}</span>
           {ribbon.state === "failed" ? <p className="mrd-ov-note">{t("states.error")}</p>
+            : tape?.status === "unknown" ? <p className="mrd-ov-note" data-read="unknown">{unknownText(tape, t)}</p>
+            : signals.length === 0 && tape?.status === "partial" ? <p className="mrd-ov-note" role="status">{t("n1.partial", { coverage: coverageText(tape.coverage) })}</p>
             : signals.length === 0 ? <p className="mrd-ov-note">{t("overview.signals.empty")}</p>
             : (
               <ul className="mrd-ov-signal-rows">
@@ -276,7 +335,7 @@ export function OverviewPage({ api, t, language }: { api: DeskApi; t: DeskTransl
         </div>
       </div>
 
-      {overview.load.result.source === "mock" ? <p style={narrow ? P.muted : P.mono}>{t("mock.title")}</p> : null}
+      {source === "mock" ? <p style={narrow ? P.muted : P.mono}>{t("mock.title")}</p> : null}
     </section>
   );
 }

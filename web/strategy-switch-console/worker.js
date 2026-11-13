@@ -4,6 +4,12 @@ import { createDeskAuth, DeskError, deskErrorResponse } from "./application/desk
 import { DeskReadbackStore, deskReadbackResponse, buildReadback, readbackTargets } from "./application/desk/readback.js";
 import { deskCredentialsResponse } from "./application/desk/credentials.js";
 import { deskSwitchTargetsResponse } from "./application/desk/switch_targets.js";
+import { deskAccountsResponse } from "./application/desk/accounts.js";
+import { deskOverviewResponse } from "./application/desk/overview.js";
+import { deskPerformanceResponse } from "./application/desk/performance.js";
+import { deskRibbonResponse } from "./application/desk/ribbon.js";
+import { deskSwitchStrategiesResponse } from "./application/desk/switch_strategies.js";
+import { todaySummary } from "./application/console_api/operations.js";
 import { auditPageQuery, auditEventInPage, auditEventOrder, auditNextCursor } from "./application/console_api/audit_pagination.js";
 import { runtimeReadbackProjection } from "./application/console_api/runtime_readback.js";
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "./application/console_api/initial_enrollment.js";
@@ -876,6 +882,14 @@ export default {
       if (url.pathname === "/api/desk/switch/targets") {
         return await deskSwitchTargetsResponse(request, env, { auth: deskAuth, options: loadAccountOptionsConfig });
       }
+      // N1 read projections: five exact GET paths over already-stored sources only.
+      if (url.pathname === "/api/desk/ribbon") return await deskRibbonResponse(request, env, deskN1Deps());
+      if (url.pathname === "/api/desk/overview") return await deskOverviewResponse(request, env, deskN1Deps());
+      if (url.pathname === "/api/desk/accounts") return await deskAccountsResponse(request, env, deskN1Deps());
+      if (url.pathname === "/api/desk/performance") return await deskPerformanceResponse(request, env, deskN1Deps());
+      if (/^\/api\/desk\/switch\/targets\/[^/]+\/strategies$/.test(url.pathname)) {
+        return await deskSwitchStrategiesResponse(request, env, deskN1Deps());
+      }
       if (url.pathname.startsWith("/api/desk/targets/") || url.pathname === "/api/desk/readbacks" || url.pathname.startsWith("/api/desk/readbacks/")) {
         return await deskReadbackResponse(request, env, {
           auth: deskAuth, command: runtimeInstanceCommand, options: loadAccountOptionsConfig,
@@ -1194,6 +1208,53 @@ async function runtimeInstanceCommand(env, command) {
     if (error instanceof HttpError) throw error;
     throw new HttpError("runtime_instances_unavailable", 503);
   }
+}
+
+// N1 desk reads may call only these existing read-only RuntimeInstances commands
+// (they use the DO's POST transport). Writes, dispatch, scheduler, readback
+// creation and provider collection are not reachable through this wrapper.
+const DESK_N1_READ_COMMANDS = Object.freeze(["account_facts_list", "account_facts_history_read", "credential_maintenance_read"]);
+
+async function deskN1ReadCommand(env, command) {
+  if (!DESK_N1_READ_COMMANDS.includes(command?.action)) throw new HttpError("desk_read_command_not_allowed", 500);
+  return runtimeInstanceCommand(env, command);
+}
+
+// N1 §4.A eligibility: only what the saved configuration and the catalog prove.
+// Configuration compatibility is not runtime switchability; anything the
+// existing checks cannot classify stays unknown (null).
+function deskStrategyEligibility(platform, option, profile, profiles, domains) {
+  void option; void profiles;
+  if (typeof profile?.domain !== "string" || !domains.includes(profile.domain)) return { value: "blocked", reason: "domain_not_supported" };
+  if (isFrozenStrategyProfile(profile)) return { value: "blocked", reason: "strategy_frozen" };
+  if (isDcaProfile(profile.profile) && !DCA_SUPPORTED_PLATFORMS.has(platform)) return null;
+  if (!supportedExecutionModesForPlatform(platform).includes("live")) return { value: "no_live", reason: "platform_live_not_supported" };
+  const stage = cleanLifecycleStage(profile.lifecycle_stage || "research_active");
+  const liveModes = Array.isArray(profile.allowed_execution_modes) && profile.allowed_execution_modes.includes("live");
+  if (isLiveSwitchAllowed(profile) && ["live_enabled", "runtime_enabled"].includes(stage) && liveModes && !profile.blocked_live_reason) {
+    return { value: "eligible", reason: null };
+  }
+  return { value: "no_live", reason: "catalog_not_live_enabled" };
+}
+
+function deskN1Deps() {
+  const dailyDeps = {
+    dailyBindings: async e => runtimeDailyReadModelEnabled(e) ? runtimeDailyPublicBindings(e, (await loadAccountOptionsConfig(e)).options) : [],
+    daily: (req, e) => runtimeDailyResponse(req, e, new URL(req.url)),
+  };
+  return {
+    auth: deskAuth,
+    now: () => Date.now(),
+    options: loadAccountOptionsConfig,
+    profiles: loadStrategyProfilesConfig,
+    domains: supportedDomainsForAccount,
+    eligibility: deskStrategyEligibility,
+    command: deskN1ReadCommand,
+    factsBindings: e => loadAccountFactsBindings(e, { propagateReadErrors: true }),
+    factsStored: (e, options, bindings) => loadStoredAccountFactsMap(e, options, bindings, deskN1ReadCommand),
+    // One stored runtime-daily summary for a New York business date (16:00Z is inside it).
+    runtimeDay: (req, e, accounts, date) => todaySummary(req, e, dailyDeps, accounts, Date.parse(`${date}T16:00:00Z`)),
+  };
 }
 
 async function credentialMaintenanceResponse(request, env, url) {
@@ -12031,7 +12092,7 @@ async function loadAccountFactsBindings(env, { propagateReadErrors = false } = {
   return normalizeAccountFactsBindings(raw);
 }
 
-async function loadStoredAccountFactsMap(env, accountOptions, bindings) {
+async function loadStoredAccountFactsMap(env, accountOptions, bindings, command = runtimeInstanceCommand) {
   if (!hasRuntimeInstanceStore(env)) throw new HttpError("account_facts_store_unavailable", 503);
   const accounts = [];
   const bindingByAccount = new Map(
@@ -12057,7 +12118,7 @@ async function loadStoredAccountFactsMap(env, accountOptions, bindings) {
       });
     }
   }
-  const listed = await runtimeInstanceCommand(env, {
+  const listed = await command(env, {
     action: "account_facts_list",
     accounts,
   });
@@ -18713,6 +18774,7 @@ export const __test = {
   auditEventAction,
   effectiveAccountSettings,
   deskTargetReadback,
+  deskN1Deps, deskN1ReadCommand, deskStrategyEligibility, DESK_N1_READ_COMMANDS,
   writeCurrentStrategiesCache,
   readCurrentStrategiesCacheEntry,
   isConfigJsonParseError,

@@ -1,0 +1,353 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/n1-performance.json",
+  "title": "n1-performance",
+  "description": "N1 read projection (docs/desk-n1-read-projection-contract.md); qsl.desk.performance.v2",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "schema_version": {
+      "const": "qsl.desk.performance.v2"
+    },
+    "generated_at": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+    },
+    "time_basis": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/TimeBasis"
+    },
+    "range": {
+      "type": "string",
+      "enum": [
+        "1M",
+        "3M",
+        "6M",
+        "YTD",
+        "1Y",
+        "ALL"
+      ]
+    },
+    "scope": {
+      "const": "all"
+    },
+    "history": {
+      "type": "object",
+      "properties": {
+        "first_date": {
+          "anyOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requested_from": {
+          "anyOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "truncated_by": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "retention",
+                "inception"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retention_days": {
+          "const": 366
+        }
+      },
+      "required": [
+        "first_date",
+        "requested_from",
+        "truncated_by",
+        "retention_days"
+      ],
+      "additionalProperties": false
+    },
+    "return_basis": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/performance.json#/properties/return_basis"
+    },
+    "equity": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "object",
+              "properties": {
+                "dates": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"
+                  }
+                },
+                "portfolio_indexed": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                  }
+                },
+                "drawdown_ratio": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                  }
+                },
+                "gap_dates": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"
+                  }
+                },
+                "gap_semantics": {
+                  "const": "break_before_observation"
+                }
+              },
+              "required": [
+                "dates",
+                "portfolio_indexed",
+                "drawdown_ratio",
+                "gap_dates",
+                "gap_semantics"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "risk": {
+      "type": "object",
+      "properties": {
+        "return_ratio": {
+          "allOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                }
+              }
+            }
+          ]
+        },
+        "vs_benchmark_pts": {
+          "allOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                }
+              }
+            }
+          ]
+        },
+        "volatility_ann_ratio": {
+          "allOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                }
+              }
+            }
+          ]
+        },
+        "sharpe": {
+          "allOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                }
+              }
+            }
+          ]
+        },
+        "sortino": {
+          "allOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                }
+              }
+            }
+          ]
+        },
+        "max_drawdown_ratio": {
+          "allOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                }
+              }
+            }
+          ]
+        },
+        "time_under_water_days": {
+          "allOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          ]
+        },
+        "best_day_ratio": {
+          "allOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                }
+              }
+            }
+          ]
+        },
+        "worst_day_ratio": {
+          "allOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "return_ratio",
+        "vs_benchmark_pts",
+        "volatility_ann_ratio",
+        "sharpe",
+        "sortino",
+        "max_drawdown_ratio",
+        "time_under_water_days",
+        "best_day_ratio",
+        "worst_day_ratio"
+      ],
+      "additionalProperties": false
+    },
+    "scorecard": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/performance.json#/properties/scorecard"
+            }
+          }
+        }
+      ]
+    },
+    "contribution": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/performance.json#/properties/contribution"
+            }
+          }
+        }
+      ]
+    },
+    "monthly": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/performance.json#/properties/monthly"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "time_basis",
+    "range",
+    "scope",
+    "history",
+    "return_basis",
+    "equity",
+    "risk",
+    "scorecard",
+    "contribution",
+    "monthly"
+  ],
+  "additionalProperties": false
+}

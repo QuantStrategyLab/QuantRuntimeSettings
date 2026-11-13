@@ -1,0 +1,117 @@
+{
+  "ok": true,
+  "schema_version": "qsl.desk.ribbon.v2",
+  "generated_at": "2030-01-08T15:00:00Z",
+  "time_basis": {
+    "view_timezone": "UTC",
+    "source_domains": [
+      {
+        "source_key": "runtime_daily",
+        "timezone": "America/New_York"
+      }
+    ]
+  },
+  "date": "2030-01-08",
+  "date_basis": "utc_day",
+  "freshness": {
+    "data_status": "ready",
+    "age_seconds": 88200
+  },
+  "console_state": {
+    "mode": {
+      "status": "unknown",
+      "reason": "not_supported",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": null,
+        "reasons": [
+          "not_supported"
+        ]
+      }
+    },
+    "gateways": {
+      "status": "unknown",
+      "reason": "not_supported"
+    }
+  },
+  "alert_badge": {
+    "status": "unknown",
+    "reason": "not_supported",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": null,
+      "reasons": [
+        "not_supported"
+      ]
+    }
+  },
+  "sessions": [
+    {
+      "market": "US",
+      "state": "unknown",
+      "open_utc": null,
+      "close_utc": null,
+      "next_change_at": null,
+      "holiday": null
+    },
+    {
+      "market": "HK",
+      "state": "unknown",
+      "open_utc": null,
+      "close_utc": null,
+      "next_change_at": null,
+      "holiday": null
+    },
+    {
+      "market": "CN",
+      "state": "unknown",
+      "open_utc": null,
+      "close_utc": null,
+      "next_change_at": null,
+      "holiday": null
+    }
+  ],
+  "next_run": {
+    "status": "unknown",
+    "reason": "source_unavailable",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": null,
+      "reasons": [
+        "source_unavailable"
+      ]
+    }
+  },
+  "tape": {
+    "status": "partial",
+    "value": [
+      {
+        "id": "firstrade/target0#run-fake-0",
+        "at": "2030-01-08T14:31:00Z",
+        "target_id": "firstrade/target0",
+        "label": "Firstrade",
+        "kind": "runtime_run",
+        "outcome": "no_op",
+        "outcome_detail": null,
+        "state": "done",
+        "source_business_date": "2030-01-08",
+        "source_timezone": "America/New_York"
+      }
+    ],
+    "observed_at": "2030-01-07T14:30:00Z",
+    "coverage": {
+      "state": "partial",
+      "included": 1,
+      "total": 2,
+      "reasons": [
+        "coverage_incomplete"
+      ]
+    }
+  }
+}

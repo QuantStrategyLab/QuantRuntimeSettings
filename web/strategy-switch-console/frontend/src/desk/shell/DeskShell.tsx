@@ -15,6 +15,10 @@ export interface DeskShellProps {
   theme: "light" | "dark";
   gateway: GatewayChip;
   alertCount: number | null;
+  /** N1: the alert badge read is unknown; the dock shows "?" rather than a count. */
+  alertUnknown?: boolean;
+  /** N1: the global runtime mode is unknown; the bar says so instead of guessing. */
+  modeUnknown?: boolean;
   nowIso: string;
   serverClock: boolean;
   mock: MockScenario | null;
@@ -31,10 +35,10 @@ export interface DeskShellProps {
 
 /** Meridian frame: dock + top bar + page. Pure; state lives in DeskApp. */
 export function DeskShell(props: DeskShellProps) {
-  const { page, t, alertCount, lock, onNavigate, children, ...bar } = props;
+  const { page, t, alertCount, alertUnknown = false, lock, onNavigate, children, ...bar } = props;
   return (
     <div className="mrd" data-page={page} data-access={lock ? "locked" : "open"}>
-      <Dock page={page} t={t} alertCount={lock ? null : alertCount} locked={Boolean(lock)} onNavigate={onNavigate} />
+      <Dock page={page} t={t} alertCount={lock ? null : alertCount} alertUnknown={!lock && alertUnknown} locked={Boolean(lock)} onNavigate={onNavigate} />
       <main className="mrd-main" id="mrd-main">
         <TopBar page={page} t={t} lock={lock} {...bar} />
         {children}

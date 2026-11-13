@@ -564,6 +564,32 @@ export const zh = {
   "overview.runs.none_pending": "没有待运行的计划。",
   "overview.signals.title": "近期信号",
   "overview.signals.empty": "今天还没有信号。",
+
+  // N1 read projections: unknown / partial / source time basis.
+  "nav.alert_badge_unknown": "告警数量未知",
+  "mode.unknown_chip": "模式未知 ?",
+  "mode.unknown_title": "没有可信的全局运行模式来源；不按配置猜测。",
+  "read.reason.coverage_incomplete": "覆盖不完整",
+  "read.reason.mixed_currency": "多币种，未做汇率换算",
+  "read.reason.time_basis_unavailable": "缺少可信时间",
+  "n1.partial": "仅已核实部分 · {coverage}；其余未知",
+  "overview.headline.unread": "账户读取失败，无法确认运行情况",
+  "overview.runs.partial": "已完成 {done} · 计划数未知（覆盖 {coverage}）",
+  "overview.runs.source_day": "源业务日 {date} · {timezone}",
+  "overview.runs.pending_unknown": "没有已核实的计划来源，待运行项未知。",
+  "overview.needs.partial": "只读取了部分来源，这不是完整的待办清单。",
+  "overview.needs.unavailable": "待办读取失败：{reason}。未知不等于没有待办。",
+  "overview.book.unknown": "账户读取失败：{reason}",
+  "overview.curve.unknown": "组合曲线不可用：{reason}",
+  "accounts.brokers.unknown": "券商列表读取失败：{reason}。未知不等于没有账户。",
+  "strategies.catalog.partial": "已证明资格 {coverage} 个策略；其余资格未知。",
+  "strategies.catalog.unknown": "策略目录读取失败：{reason}",
+  "strategies.card.eligibility_unknown": "资格未知",
+  "perf.portfolio_unknown": "组合曲线不可用：{reason}。资产变化不会冒充收益率。",
+  "perf.history.truncated": "已存历史从 {date} 开始，{range} 窗口不完整。",
+  "logs.runs.utc_day": "UTC 日 {date}",
+  "logs.runs.unknown": "运行记录读取失败：{reason}",
+  "logs.runs.partial": "运行记录只覆盖 {coverage} 个目标；缺失部分未知。",
 } as const;
 
 export type DeskKey = keyof typeof zh;

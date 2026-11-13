@@ -7,13 +7,15 @@ interface DockProps {
   t: DeskTranslate;
   /** Open alert count from the ribbon; null when unknown (no badge rather than 0). */
   alertCount: number | null;
+  /** The badge read itself is unknown: show "?" (never 0 and never nothing at all). */
+  alertUnknown?: boolean;
   /** Locked shell (401/403): the dock stays visible but every entry is inert. */
   locked?: boolean;
   onNavigate: (page: DeskPage) => void;
 }
 
 /** Floating icon dock on wide screens; a bottom tab bar on phones (CSS only). */
-export function Dock({ page, t, alertCount, locked = false, onNavigate }: DockProps) {
+export function Dock({ page, t, alertCount, alertUnknown = false, locked = false, onNavigate }: DockProps) {
   return (
     <nav className={locked ? "mrd-dock mrd-dock-locked" : "mrd-dock"} aria-label={t("shell.nav_label")}>
       <span className="mrd-mark" aria-hidden="true"><i /></span>
@@ -39,7 +41,9 @@ export function Dock({ page, t, alertCount, locked = false, onNavigate }: DockPr
           >
             <Icon name={id} />
             <span>{t(`nav.${id}`)}</span>
-            {id === "alerts" && alertCount !== null && alertCount > 0 ? (
+            {id === "alerts" && alertUnknown ? (
+              <em className="mrd-badge" data-unknown="true" aria-label={t("nav.alert_badge_unknown")}>{t("read.unknown_mark")}</em>
+            ) : id === "alerts" && alertCount !== null && alertCount > 0 ? (
               <em className="mrd-badge" aria-label={t("nav.alert_badge", { count: alertCount })}>{alertCount > 99 ? "99+" : alertCount}</em>
             ) : null}
           </a>

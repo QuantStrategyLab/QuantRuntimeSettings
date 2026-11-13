@@ -6,7 +6,7 @@
  * an unknown value returns null (the page renders the "unknown" mark), never 0, and a
  * ratio whose limit is missing is not plotted as if it were safe.
  */
-import type { BookRow, Decimal, Overview } from "../contract/types";
+import type { BookRow, ConfigState, Decimal, Overview } from "../contract/types";
 
 const MINUS = "\u2212";
 
@@ -66,7 +66,7 @@ export function formatSignedMoney(amount: Decimal | null, currency: string, lang
  * and a running book whose config could not be read is counted as unknown rather than steady:
  * arithmetic equality is not evidence that the saved plan still matches.
  */
-export function headlineCounts(book: BookRow[]): {
+export function headlineCounts(book: readonly { runtime: BookRow["runtime"]; config: { state: ConfigState } }[]): {
   running: number;
   steady: number;
   drifting: number;
@@ -103,7 +103,8 @@ export function meter(ratio: Decimal | null, limit: Decimal | null, cells = 12):
   return { filled: Math.min(cells, filled), tone };
 }
 
-type Series = Overview["equity_curve"];
+/** The N1 curve has no benchmark member; a missing benchmark is drawn as none. */
+type Series = Pick<Overview["equity_curve"], "portfolio" | "drawdown"> & { benchmark?: Overview["equity_curve"]["benchmark"] };
 
 function extent(values: number[]): { min: number; max: number } {
   let min = Infinity;
@@ -136,7 +137,7 @@ export function curveGeometry(
   drawdownMin: number | null;
 } | null {
   const portfolio = series.portfolio.indexed.map(value => toNumber(value)).filter((value): value is number => value !== null);
-  const benchmark = series.benchmark.indexed.map(value => toNumber(value)).filter((value): value is number => value !== null);
+  const benchmark = (series.benchmark?.indexed ?? []).map(value => toNumber(value)).filter((value): value is number => value !== null);
   if (portfolio.length < 2) return null;
 
   const all = portfolio.concat(benchmark);

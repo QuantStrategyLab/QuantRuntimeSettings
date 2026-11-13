@@ -1,0 +1,117 @@
+{
+  "ok": true,
+  "schema_version": "qsl.desk.overview.v2",
+  "generated_at": "2030-01-08T15:00:00Z",
+  "time_basis": {
+    "view_timezone": "UTC",
+    "source_domains": [
+      {
+        "source_key": "account_facts",
+        "timezone": "UTC"
+      },
+      {
+        "source_key": "account_facts_history",
+        "timezone": "Asia/Shanghai"
+      },
+      {
+        "source_key": "runtime_daily",
+        "timezone": "America/New_York"
+      }
+    ]
+  },
+  "snapshot_at": null,
+  "freshness": {
+    "data_status": "unavailable",
+    "age_seconds": null
+  },
+  "reporting_currency": "USD",
+  "totals": {
+    "fx": {
+      "status": "unknown",
+      "reason": "not_supported"
+    },
+    "nav": null,
+    "day_change": null,
+    "drawdown": null,
+    "gross_exposure_ratio": null,
+    "leveraged_etf_exposure_ratio": null,
+    "status": "unavailable",
+    "excluded_reasons": [
+      "no_non_paper_accounts"
+    ],
+    "coverage": {
+      "state": "verified_empty",
+      "included": 0,
+      "total": 0,
+      "reasons": []
+    },
+    "runs_today": {
+      "status": "known",
+      "value": {
+        "done": 0,
+        "expected": 0,
+        "pending": [],
+        "source_business_date": "2030-01-08",
+        "source_timezone": "America/New_York"
+      },
+      "observed_at": "2030-01-08T15:00:00Z",
+      "coverage": {
+        "state": "verified_empty",
+        "included": 0,
+        "total": 0,
+        "reasons": []
+      }
+    },
+    "config_drift": {
+      "status": "unknown",
+      "reason": "not_supported",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": 0,
+        "reasons": [
+          "not_supported"
+        ]
+      }
+    },
+    "data_age_seconds": null
+  },
+  "book": {
+    "status": "known",
+    "value": [],
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "verified_empty",
+      "included": 0,
+      "total": 0,
+      "reasons": []
+    }
+  },
+  "equity_curve": {
+    "status": "unknown",
+    "reason": "insufficient_history",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": 0,
+      "reasons": [
+        "insufficient_history"
+      ]
+    }
+  },
+  "needs_you": {
+    "status": "partial",
+    "value": [],
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "partial",
+      "included": 1,
+      "total": null,
+      "reasons": [
+        "not_supported"
+      ]
+    }
+  }
+}

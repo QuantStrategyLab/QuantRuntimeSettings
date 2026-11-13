@@ -16,7 +16,9 @@ export type AccountEquity = {
     points: EquityPoint[];
 };
 export declare function dateMs(date: string): number;
-export declare function rangeStart(range: PerformanceRange, today: string): string;
+/** Desk N1 window: the legacy ranges plus "6m". PERFORMANCE_RANGES itself is unchanged. */
+export type DeskPerformanceRange = PerformanceRange | "6m";
+export declare function rangeStart(range: DeskPerformanceRange, today: string): string;
 /** Conflicting duplicate dates are omitted, never arbitrarily picked. */
 export declare function cleanPoints<T extends ValuePoint>(points: readonly T[]): T[];
 export declare function sliceRange<T extends ValuePoint>(points: readonly T[], range: PerformanceRange, today: string): T[];

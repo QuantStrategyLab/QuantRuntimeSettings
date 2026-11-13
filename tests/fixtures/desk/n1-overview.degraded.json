@@ -1,0 +1,242 @@
+{
+  "ok": true,
+  "schema_version": "qsl.desk.overview.v2",
+  "generated_at": "2030-01-08T15:00:00Z",
+  "time_basis": {
+    "view_timezone": "UTC",
+    "source_domains": [
+      {
+        "source_key": "account_facts",
+        "timezone": "UTC"
+      },
+      {
+        "source_key": "account_facts_history",
+        "timezone": "Asia/Shanghai"
+      },
+      {
+        "source_key": "runtime_daily",
+        "timezone": "America/New_York"
+      }
+    ]
+  },
+  "snapshot_at": "2030-01-08T14:58:00Z",
+  "freshness": {
+    "data_status": "unavailable",
+    "age_seconds": null
+  },
+  "reporting_currency": "USD",
+  "totals": {
+    "fx": {
+      "status": "unknown",
+      "reason": "not_supported"
+    },
+    "nav": null,
+    "day_change": null,
+    "drawdown": null,
+    "gross_exposure_ratio": null,
+    "leveraged_etf_exposure_ratio": null,
+    "status": "unavailable",
+    "excluded_reasons": [
+      "fx_unavailable"
+    ],
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": 2,
+      "reasons": [
+        "mixed_currency"
+      ]
+    },
+    "runs_today": {
+      "status": "partial",
+      "value": {
+        "done": 2,
+        "expected": null,
+        "pending": null,
+        "source_business_date": "2030-01-08",
+        "source_timezone": "America/New_York"
+      },
+      "observed_at": "2030-01-08T14:30:00Z",
+      "coverage": {
+        "state": "partial",
+        "included": 2,
+        "total": 2,
+        "reasons": [
+          "not_supported"
+        ]
+      }
+    },
+    "config_drift": {
+      "status": "unknown",
+      "reason": "not_supported",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": 2,
+        "reasons": [
+          "not_supported"
+        ]
+      }
+    },
+    "data_age_seconds": null
+  },
+  "book": {
+    "status": "known",
+    "value": [
+      {
+        "target_id": "firstrade/target0",
+        "platform": "firstrade",
+        "platform_label": "Firstrade",
+        "account_ref": "Firstrade ••••ault",
+        "account_suffix": "ault",
+        "strategy": {
+          "status": "unknown",
+          "reason": "never_read"
+        },
+        "mode": {
+          "status": "unknown",
+          "reason": "not_supported"
+        },
+        "runtime": {
+          "status": "unknown",
+          "reason": "not_supported"
+        },
+        "nav": {
+          "status": "known",
+          "currency": "USD",
+          "amount": "1000",
+          "usd": "1000",
+          "observed_at": "2030-01-08T14:58:00Z"
+        },
+        "day_change": null,
+        "sparkline_30d": {
+          "points": [],
+          "dates_from": null,
+          "dates_to": null,
+          "gap_dates": []
+        },
+        "drawdown": {
+          "ratio": null,
+          "limit_ratio": null,
+          "state": "unknown"
+        },
+        "config": {
+          "state": "unknown",
+          "drift_count": {
+            "status": "unknown",
+            "reason": "not_supported",
+            "observed_at": null,
+            "coverage": {
+              "state": "unavailable",
+              "included": 0,
+              "total": 1,
+              "reasons": [
+                "not_supported"
+              ]
+            }
+          },
+          "checked_at": null
+        },
+        "last_run": {
+          "at": "2030-01-08T14:32:00Z",
+          "outcome": "no_op"
+        },
+        "return_basis": "unavailable"
+      },
+      {
+        "target_id": "firstrade/target1",
+        "platform": "firstrade",
+        "platform_label": "Firstrade",
+        "account_ref": "Firstrade ••••ault",
+        "account_suffix": "ault",
+        "strategy": {
+          "status": "unknown",
+          "reason": "never_read"
+        },
+        "mode": {
+          "status": "unknown",
+          "reason": "not_supported"
+        },
+        "runtime": {
+          "status": "unknown",
+          "reason": "not_supported"
+        },
+        "nav": {
+          "status": "known",
+          "currency": "HKD",
+          "amount": "8000",
+          "usd": null,
+          "observed_at": "2030-01-08T14:58:00Z"
+        },
+        "day_change": null,
+        "sparkline_30d": {
+          "points": [],
+          "dates_from": null,
+          "dates_to": null,
+          "gap_dates": []
+        },
+        "drawdown": {
+          "ratio": null,
+          "limit_ratio": null,
+          "state": "unknown"
+        },
+        "config": {
+          "state": "unknown",
+          "drift_count": {
+            "status": "unknown",
+            "reason": "not_supported",
+            "observed_at": null,
+            "coverage": {
+              "state": "unavailable",
+              "included": 0,
+              "total": 1,
+              "reasons": [
+                "not_supported"
+              ]
+            }
+          },
+          "checked_at": null
+        },
+        "last_run": {
+          "at": "2030-01-08T14:32:00Z",
+          "outcome": "no_op"
+        },
+        "return_basis": "unavailable"
+      }
+    ],
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "complete",
+      "included": 2,
+      "total": 2,
+      "reasons": []
+    }
+  },
+  "equity_curve": {
+    "status": "unknown",
+    "reason": "insufficient_history",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": 2,
+      "reasons": [
+        "insufficient_history"
+      ]
+    }
+  },
+  "needs_you": {
+    "status": "unknown",
+    "reason": "read_failed",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": null,
+      "reasons": [
+        "read_failed"
+      ]
+    }
+  }
+}

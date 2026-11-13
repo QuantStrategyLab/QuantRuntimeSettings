@@ -38,8 +38,10 @@ const expected = [
   "switch-create", "switch-request", "reconcile", "runtime-stop", "runtime-resume",
   "accounts", "account-detail", "performance", "market-benchmark", "alerts",
   "alert-delivery", "logs", "credentials", "credential-maintenance",
+  // N1 read projections (qsl.desk.*.v2); n1-common is a helper, not a response.
+  "n1-ribbon", "n1-overview", "n1-accounts", "n1-switch-strategies", "n1-performance",
 ];
-assert.deepEqual([...schemas.keys()].filter((name) => name !== "common").sort(), expected.toSorted());
+assert.deepEqual([...schemas.keys()].filter((name) => !["common", "n1-common"].includes(name)).sort(), expected.toSorted());
 assert.deepEqual(manifest.map(({ name }) => name).sort(), expected.toSorted());
 const expectedFiles = manifest.flatMap(({ name, scenarios, section, endpoints }) => {
   assert.ok(section && endpoints.length, `${name}: contract mapping required`);
@@ -174,6 +176,49 @@ for (const scenario of ["ok", "degraded"]) {
     }
   }
 }
+// ---------------------------------------------------------------- N1 local Read/coverage invariants
+const n1Common = schemas.get("n1-common");
+const n1Read = ajv.compile({ $ref: `${n1Common.$id}#/$defs/Read` });
+const cover = (state, included = 1, total = 1, reasons = []) => ({ state, included, total, reasons });
+for (const value of [
+  { status: "known", value: 0, observed_at: instant, coverage: cover("complete") },
+  { status: "known", value: [], observed_at: instant, coverage: cover("verified_empty", 0, 0) },
+  { status: "stale", value: 1, observed_at: instant, age_seconds: 5, coverage: cover("complete") },
+  { status: "partial", value: { done: 1, expected: null }, observed_at: instant, coverage: cover("partial", 1, null, ["coverage_incomplete"]) },
+  { status: "unknown", reason: "mixed_currency", coverage: cover("unavailable", 0, null, ["mixed_currency"]) },
+  { status: "unknown", reason: "not_supported", observed_at: null, coverage: cover("unavailable", 0, 3) },
+]) assert.ok(n1Read(value), `valid N1 Read rejected: ${ajv.errorsText(n1Read.errors)}`);
+for (const [value, message] of [
+  [{ status: "unknown", reason: "read_failed", value: 0, coverage: cover("unavailable", 0, null) }, "unknown carries no value"],
+  [{ status: "known", value: 3, observed_at: instant, coverage: cover("partial", 1, 2) }, "known needs evidenced coverage"],
+  [{ status: "partial", value: [], observed_at: instant, coverage: cover("complete") }, "partial needs partial coverage"],
+  [{ status: "known", value: 1, observed_at: "2030-01-07T12:00:00", coverage: cover("complete") }, "time zone required"],
+  [{ status: "known", value: 1, observed_at: instant }, "coverage required"],
+  [{ status: "unknown", reason: "invented", coverage: cover("unavailable", 0, null) }, "fixed reason codes"],
+  [{ status: "unknown", reason: "read_failed", coverage: cover("verified_empty", 0, 0) }, "failure is never verified empty"],
+  [{ status: "known", value: 1, observed_at: instant, coverage: { ...cover("complete"), total: "1" } }, "integer totals"],
+]) assert.equal(n1Read(value), false, message);
+const n1 = (name, scenario = "ok") => load(new URL(`n1-${name}.${scenario}.json`, fixtureDir));
+const ribbonN1 = n1("ribbon");
+ribbonN1.alert_badge = { status: "known", value: { open_count: 0, critical_count: 0 }, observed_at: instant, coverage: cover("complete") };
+validate("n1-ribbon", ribbonN1); // A future alerts store may report a real zero; the fixtures must not.
+for (const scenario of ["ok", "degraded", "partial", "empty"]) {
+  assert.equal(n1("ribbon", scenario).alert_badge.status, "unknown", "N1 alert badge is unknown/not_supported");
+  assert.equal(n1("ribbon", scenario).console_state.mode.reason, "not_supported", "N1 global mode is unknown/not_supported");
+  assert.equal(n1("ribbon", scenario).date_basis, "utc_day");
+}
+const overviewN1 = n1("overview");
+overviewN1.totals.runs_today = { ...overviewN1.totals.runs_today, status: "known", coverage: cover("complete", 2, 2) };
+rejects("n1-overview", overviewN1, "a known runs_today cannot hide a null member");
+const perfN1 = n1("performance");
+perfN1.scope = "strategy";
+rejects("n1-performance", perfN1, "N1 performance is scope=all only");
+const fingerprint = n1("switch-strategies");
+fingerprint.catalog_revision.value.value = "1.0.0";
+rejects("n1-switch-strategies", fingerprint, "catalog_revision is a sha256 projection fingerprint");
+const v1Ribbon = fixture("ribbon");
+rejects("n1-ribbon", v1Ribbon, "a v1 payload is not a v2 projection");
+
 console.log(`Desk contract validation passed: ${expected.length} responses, ${expectedFiles.length} fixtures, ${objectChecks} closed objects and negative contract checks`);
 
 // Exercise the real delivery route and validate its additive v1 evidence.

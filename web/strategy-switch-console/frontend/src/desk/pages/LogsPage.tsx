@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Language } from "../../lib/prefs";
 import type { DeskApi, DeskResult } from "../api/endpoints.ts";
-import type { LogLevel, Logs, Ribbon } from "../contract/types";
+import type { LogLevel, Logs } from "../contract/types";
+import type { N1Ribbon } from "../contract/n1";
+import { coverageText, n1ReasonKey, readValue } from "../api/n1.ts";
 import type { DeskKey, DeskTranslate } from "../i18n/index.ts";
 import { levelCounts, runSummary, tapeStateKey, type LevelFilter } from "../logs/model.ts";
 
@@ -18,7 +20,7 @@ const LEVEL_KEYS: Record<LevelFilter, DeskKey> = {
 const clock = (iso: string): string => iso.slice(11, 16);
 
 export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language: Language }) {
-  const [ribbon, setRibbon] = useState<Loaded<Ribbon>>({ state: "loading" });
+  const [ribbon, setRibbon] = useState<Loaded<N1Ribbon>>({ state: "loading" });
   const [logs, setLogs] = useState<Loaded<Logs>>({ state: "loading" });
   const [level, setLevel] = useState<LevelFilter>("all");
 
@@ -39,7 +41,11 @@ export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language:
 
   const ribbonData = ribbon.state === "ready" ? ribbon.result.data : null;
   const logsData = logs.state === "ready" ? logs.result.data : null;
-  const summary = ribbonData ? runSummary(ribbonData.tape) : null;
+  // Shared ribbon consumer only: the tape is an N1 read, so an unread tape is not "no runs".
+  const tapeRead = ribbonData ? ribbonData.tape : null;
+  const tape = tapeRead ? readValue(tapeRead) : null;
+  const summary = tape ? runSummary(tape) : null;
+  const nextRun = ribbonData ? readValue(ribbonData.next_run) : null;
   const counts = useMemo(() => levelCounts(logsData?.items ?? []), [logsData]);
   const visible = useMemo(() => {
     const items = logsData?.items ?? [];
@@ -48,8 +54,10 @@ export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language:
 
   const headline = ribbon.state === "failed"
     ? t("logs.ribbon_failed")
+    : tapeRead?.status === "unknown" ? t("logs.runs.unknown", { reason: t(n1ReasonKey(tapeRead.reason)) })
     : summary
-      ? summary.runs > 0 ? t("logs.summary", { runs: summary.runs, drift: summary.drift }) : t("logs.summary.none")
+      ? summary.runs > 0 ? t("logs.summary", { runs: summary.runs, drift: summary.drift })
+        : tapeRead?.status === "partial" ? t("logs.runs.partial", { coverage: coverageText(tapeRead.coverage) }) : t("logs.summary.none")
       : t("states.loading");
 
   return (
@@ -100,12 +108,17 @@ export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language:
       {ribbonData ? (
         <div className="mrd-card mrd-tape">
           <span className="mrd-label">{t("logs.runs.title")}</span>
-          {ribbonData.next_run ? (
-            <p className="mrd-note">{t("logs.runs.next", { time: clock(ribbonData.next_run.due_at), target: ribbonData.next_run.target_id })}</p>
+          <p className="mrd-note">{t("logs.runs.utc_day", { date: ribbonData.date })}</p>
+          {nextRun ? (
+            <p className="mrd-note">{t("logs.runs.next", { time: clock(nextRun.due_at), target: nextRun.target_id })}</p>
           ) : null}
-          {ribbonData.tape.length === 0 ? <p className="mrd-note">{t("logs.runs.empty")}</p> : (
+          {tapeRead?.status === "unknown" ? (
+            <p className="mrd-note" role="status" data-read="unknown">{t("logs.runs.unknown", { reason: t(n1ReasonKey(tapeRead.reason)) })}</p>
+          ) : !tape || tape.length === 0 ? (
+            <p className="mrd-note">{tapeRead?.status === "partial" ? t("logs.runs.partial", { coverage: coverageText(tapeRead.coverage) }) : t("logs.runs.empty")}</p>
+          ) : (
             <ul className="mrd-tape-rows">
-              {ribbonData.tape.map(entry => (
+              {tape.map(entry => (
                 <li key={entry.id} className="mrd-tape-row" data-state={entry.state} data-outcome={entry.outcome ?? ""}>
                   <span className="mrd-tape-time">{clock(entry.at)}</span>
                   <span className="mrd-tape-label">{entry.label}</span>

@@ -1,0 +1,347 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/n1-common.json",
+  "description": "N1 local Read/coverage/time-basis helpers. Not a response; the v1 common Read and Mode are unchanged.",
+  "$defs": {
+    "Reason": {
+      "type": "string",
+      "enum": [
+        "never_read",
+        "read_failed",
+        "source_unavailable",
+        "identity_unverified",
+        "not_supported",
+        "insufficient_history",
+        "coverage_incomplete",
+        "mixed_currency",
+        "time_basis_unavailable"
+      ]
+    },
+    "Coverage": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "partial",
+            "unavailable",
+            "verified_empty"
+          ]
+        },
+        "included": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Reason"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "state",
+        "included",
+        "total",
+        "reasons"
+      ],
+      "additionalProperties": false
+    },
+    "CoverageEvidenced": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "verified_empty"
+          ]
+        },
+        "included": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Reason"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "state",
+        "included",
+        "total",
+        "reasons"
+      ],
+      "additionalProperties": false
+    },
+    "CoveragePartial": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "partial"
+          ]
+        },
+        "included": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Reason"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "state",
+        "included",
+        "total",
+        "reasons"
+      ],
+      "additionalProperties": false
+    },
+    "CoverageUnknown": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "unavailable",
+            "partial"
+          ]
+        },
+        "included": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Reason"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "state",
+        "included",
+        "total",
+        "reasons"
+      ],
+      "additionalProperties": false
+    },
+    "Read": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "known"
+            },
+            "value": {},
+            "observed_at": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+            },
+            "coverage": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/CoverageEvidenced"
+            }
+          },
+          "required": [
+            "status",
+            "value",
+            "observed_at",
+            "coverage"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "stale"
+            },
+            "value": {},
+            "observed_at": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+            },
+            "age_seconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "coverage": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Coverage"
+            }
+          },
+          "required": [
+            "status",
+            "value",
+            "observed_at",
+            "age_seconds",
+            "coverage"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "partial"
+            },
+            "value": {},
+            "observed_at": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+            },
+            "coverage": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/CoveragePartial"
+            }
+          },
+          "required": [
+            "status",
+            "value",
+            "observed_at",
+            "coverage"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "unknown"
+            },
+            "reason": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Reason"
+            },
+            "observed_at": {
+              "anyOf": [
+                {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "coverage": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/CoverageUnknown"
+            }
+          },
+          "required": [
+            "status",
+            "reason",
+            "coverage"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TimeBasis": {
+      "type": "object",
+      "properties": {
+        "view_timezone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_domains": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source_key": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "timezone": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "source_key",
+              "timezone"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "view_timezone",
+        "source_domains"
+      ],
+      "additionalProperties": false
+    },
+    "Fingerprint": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "projection_fingerprint"
+        },
+        "algorithm": {
+          "const": "sha256"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "kind",
+        "algorithm",
+        "value"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
