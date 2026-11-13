@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/n1-switch-strategies.json",
+  "title": "n1-switch-strategies",
+  "description": "N1 read projection (docs/desk-n1-read-projection-contract.md); qsl.desk.switch_strategies.v2",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "schema_version": {
+      "const": "qsl.desk.switch_strategies.v2"
+    },
+    "generated_at": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+    },
+    "time_basis": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/TimeBasis"
+    },
+    "target_id": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"
+    },
+    "domain": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "switchable": {
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "const": false
+        },
+        "reason_code": {
+          "const": "switch_not_connected"
+        }
+      },
+      "required": [
+        "allowed",
+        "reason_code"
+      ],
+      "additionalProperties": false
+    },
+    "catalog_revision": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Fingerprint"
+            }
+          }
+        }
+      ]
+    },
+    "strategies": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "profile": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "domain": {
+                    "type": "string"
+                  },
+                  "allowed_execution_modes": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"
+                    },
+                    "uniqueItems": true
+                  },
+                  "lifecycle_stage": {
+                    "type": "string"
+                  },
+                  "eligibility": {
+                    "allOf": [
+                      {
+                        "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "string",
+                            "enum": [
+                              "eligible",
+                              "no_live",
+                              "blocked"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "reason": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "domain_not_supported",
+                          "strategy_frozen",
+                          "platform_live_not_supported",
+                          "catalog_not_live_enabled"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "profile",
+                  "label",
+                  "domain",
+                  "allowed_execution_modes",
+                  "lifecycle_stage",
+                  "eligibility",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "time_basis",
+    "target_id",
+    "domain",
+    "switchable",
+    "catalog_revision",
+    "strategies"
+  ],
+  "additionalProperties": false
+}

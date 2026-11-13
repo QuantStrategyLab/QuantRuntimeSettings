@@ -15,7 +15,8 @@ export function rangeStart(range, today) {
     const date = new Date(ms);
     const day = date.getUTCDate();
     date.setUTCDate(1);
-    date.setUTCMonth(date.getUTCMonth() - (range === "1m" ? 1 : range === "3m" ? 3 : 12));
+    // "6m" is the Desk N1 window only; the legacy ranges and their default are unchanged.
+    date.setUTCMonth(date.getUTCMonth() - (range === "1m" ? 1 : range === "3m" ? 3 : range === "6m" ? 6 : 12));
     const last = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
     date.setUTCDate(Math.min(day, last));
     return date.toISOString().slice(0, 10);

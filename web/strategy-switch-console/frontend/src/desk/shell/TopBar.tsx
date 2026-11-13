@@ -35,6 +35,8 @@ interface TopBarProps {
   freshness?: FreshnessChipState | null;
   /** Set for 401/403/failed access: no gateway, alert, freshness or clock data is shown. */
   lock?: ShellLock | null;
+  /** N1: the global runtime mode read is unknown. */
+  modeUnknown?: boolean;
   onLanguage: (language: Language) => void;
   onTheme: () => void;
 }
@@ -49,7 +51,7 @@ function gatewayView(chip: GatewayChip): { key: DeskKey; tone: string; ageSecond
   return { key: `gateway.${read.value}` as DeskKey, tone };
 }
 
-export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock, mock, mockPartial = false, freshness, lock, onLanguage, onTheme }: TopBarProps) {
+export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock, mock, mockPartial = false, freshness, lock, modeUnknown = false, onLanguage, onTheme }: TopBarProps) {
   const chip = gatewayView(gateway);
   const time = formatUtcHm(nowIso) ?? "--:--";
   const day = formatUtcDayLabel(nowIso, language);
@@ -72,6 +74,11 @@ export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock,
               </span>
             ) : null}
             {freshness ? <FreshnessChip state={freshness} t={t} language={language} /> : null}
+            {modeUnknown ? (
+              <span className="mrd-chip" data-tone="unknown" data-mode="unknown" title={t("mode.unknown_title")}>
+                {t("mode.unknown_chip")}
+              </span>
+            ) : null}
             <span className="mrd-chip" data-tone={chip.tone} role="status">
               <i aria-hidden="true" />
               {t(chip.key, { age: formatAge(chip.ageSeconds, language) ?? "—" })}

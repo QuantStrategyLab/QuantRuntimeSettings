@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/n1-accounts.json",
+  "title": "n1-accounts",
+  "description": "N1 read projection (docs/desk-n1-read-projection-contract.md); qsl.desk.accounts.v2",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "schema_version": {
+      "const": "qsl.desk.accounts.v2"
+    },
+    "generated_at": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+    },
+    "time_basis": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/TimeBasis"
+    },
+    "brokers": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "platform": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "targets": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/accounts.json#/properties/brokers/items/properties/targets"
+                  },
+                  "connectivity": {
+                    "allOf": [
+                      {
+                        "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "string",
+                            "enum": [
+                              "up",
+                              "degraded",
+                              "down"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "connectivity_detail": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "heartbeat": {
+                    "allOf": [
+                      {
+                        "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "object",
+                            "properties": {
+                              "at": {
+                                "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+                              }
+                            },
+                            "required": [
+                              "at"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "data_freshness": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Freshness"
+                  },
+                  "config": {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "synced",
+                          "drift",
+                          "unknown"
+                        ]
+                      },
+                      "drift_count": {
+                        "allOf": [
+                          {
+                            "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "checked_at": {
+                        "anyOf": [
+                          {
+                            "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "state",
+                      "drift_count",
+                      "checked_at"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "credential": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/accounts.json#/properties/brokers/items/properties/credential"
+                  },
+                  "last_order": {
+                    "allOf": [
+                      {
+                        "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "object",
+                            "properties": {
+                              "at": {
+                                "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "at",
+                              "count"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "platform",
+                  "label",
+                  "targets",
+                  "connectivity",
+                  "connectivity_detail",
+                  "heartbeat",
+                  "data_freshness",
+                  "config",
+                  "credential",
+                  "last_order"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "time_basis",
+    "brokers"
+  ],
+  "additionalProperties": false
+}

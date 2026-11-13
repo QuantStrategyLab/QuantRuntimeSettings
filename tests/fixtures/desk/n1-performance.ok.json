@@ -1,0 +1,200 @@
+{
+  "ok": true,
+  "schema_version": "qsl.desk.performance.v2",
+  "generated_at": "2030-01-08T15:00:00Z",
+  "time_basis": {
+    "view_timezone": "Asia/Shanghai",
+    "source_domains": [
+      {
+        "source_key": "account_facts_history",
+        "timezone": "Asia/Shanghai"
+      }
+    ]
+  },
+  "range": "6M",
+  "scope": "all",
+  "history": {
+    "first_date": "2030-01-02",
+    "requested_from": "2029-07-08",
+    "truncated_by": "inception",
+    "retention_days": 366
+  },
+  "return_basis": {
+    "kind": "nav_change_unadjusted",
+    "per_target": {
+      "firstrade/target0": "nav_change_unadjusted",
+      "firstrade/target1": "nav_change_unadjusted"
+    }
+  },
+  "equity": {
+    "status": "unknown",
+    "reason": "source_unavailable",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": 2,
+      "reasons": [
+        "source_unavailable"
+      ]
+    }
+  },
+  "risk": {
+    "return_ratio": {
+      "status": "unknown",
+      "reason": "source_unavailable",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": 2,
+        "reasons": [
+          "source_unavailable"
+        ]
+      }
+    },
+    "max_drawdown_ratio": {
+      "status": "unknown",
+      "reason": "source_unavailable",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": 2,
+        "reasons": [
+          "source_unavailable"
+        ]
+      }
+    },
+    "best_day_ratio": {
+      "status": "unknown",
+      "reason": "source_unavailable",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": 2,
+        "reasons": [
+          "source_unavailable"
+        ]
+      }
+    },
+    "worst_day_ratio": {
+      "status": "unknown",
+      "reason": "source_unavailable",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": 2,
+        "reasons": [
+          "source_unavailable"
+        ]
+      }
+    },
+    "vs_benchmark_pts": {
+      "status": "unknown",
+      "reason": "not_supported",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": null,
+        "reasons": [
+          "not_supported"
+        ]
+      }
+    },
+    "volatility_ann_ratio": {
+      "status": "unknown",
+      "reason": "not_supported",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": null,
+        "reasons": [
+          "not_supported"
+        ]
+      }
+    },
+    "sharpe": {
+      "status": "unknown",
+      "reason": "not_supported",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": null,
+        "reasons": [
+          "not_supported"
+        ]
+      }
+    },
+    "sortino": {
+      "status": "unknown",
+      "reason": "not_supported",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": null,
+        "reasons": [
+          "not_supported"
+        ]
+      }
+    },
+    "time_under_water_days": {
+      "status": "unknown",
+      "reason": "not_supported",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": null,
+        "reasons": [
+          "not_supported"
+        ]
+      }
+    }
+  },
+  "scorecard": {
+    "status": "unknown",
+    "reason": "not_supported",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": null,
+      "reasons": [
+        "not_supported"
+      ]
+    }
+  },
+  "contribution": {
+    "status": "unknown",
+    "reason": "not_supported",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": null,
+      "reasons": [
+        "not_supported"
+      ]
+    }
+  },
+  "monthly": {
+    "status": "unknown",
+    "reason": "not_supported",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": null,
+      "reasons": [
+        "not_supported"
+      ]
+    }
+  }
+}

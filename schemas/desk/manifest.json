@@ -137,5 +137,10 @@
     "section": "3.21",
     "endpoints": ["GET /api/credential-maintenance", "POST /api/credential-maintenance"],
     "scenarios": ["ok", "degraded"]
-  }
+  },
+  {"name": "n1-ribbon", "section": "N1 4.B", "endpoints": ["GET /api/desk/ribbon"], "scenarios": ["ok", "degraded", "partial", "empty"]},
+  {"name": "n1-overview", "section": "N1 4.E", "endpoints": ["GET /api/desk/overview"], "scenarios": ["ok", "degraded", "partial", "empty"]},
+  {"name": "n1-accounts", "section": "N1 4.C", "endpoints": ["GET /api/desk/accounts"], "scenarios": ["ok", "degraded", "partial", "empty"]},
+  {"name": "n1-switch-strategies", "section": "N1 4.A", "endpoints": ["GET /api/desk/switch/targets/{target_id}/strategies"], "scenarios": ["ok", "degraded", "partial", "empty"]},
+  {"name": "n1-performance", "section": "N1 4.D", "endpoints": ["GET /api/desk/performance"], "scenarios": ["ok", "degraded", "partial", "empty"]}
 ]

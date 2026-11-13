@@ -1,0 +1,127 @@
+{
+  "ok": true,
+  "schema_version": "qsl.desk.switch_strategies.v2",
+  "generated_at": "2030-01-08T15:00:00Z",
+  "time_basis": {
+    "view_timezone": "UTC",
+    "source_domains": [
+      {
+        "source_key": "account_options",
+        "timezone": "UTC"
+      },
+      {
+        "source_key": "strategy_catalog",
+        "timezone": "UTC"
+      }
+    ]
+  },
+  "target_id": "firstrade/target0",
+  "domain": {
+    "status": "known",
+    "value": "us_equity",
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "complete",
+      "included": 1,
+      "total": 1,
+      "reasons": []
+    }
+  },
+  "switchable": {
+    "allowed": false,
+    "reason_code": "switch_not_connected"
+  },
+  "catalog_revision": {
+    "status": "known",
+    "value": {
+      "kind": "projection_fingerprint",
+      "algorithm": "sha256",
+      "value": "7555ac1be6fd6c6ec3c26c8e7e1f3f26e6fee04e90c08802535c7002131fa1c2"
+    },
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "complete",
+      "included": 1,
+      "total": 1,
+      "reasons": []
+    }
+  },
+  "strategies": {
+    "status": "known",
+    "value": [
+      {
+        "profile": "fake_crypto",
+        "label": "Fake Crypto",
+        "domain": "crypto",
+        "allowed_execution_modes": [
+          "live"
+        ],
+        "lifecycle_stage": "live_enabled",
+        "eligibility": {
+          "status": "known",
+          "value": "blocked",
+          "observed_at": "2030-01-08T15:00:00Z",
+          "coverage": {
+            "state": "complete",
+            "included": 1,
+            "total": 1,
+            "reasons": []
+          }
+        },
+        "reason": "domain_not_supported"
+      },
+      {
+        "profile": "fake_growth",
+        "label": "Fake Growth",
+        "domain": "us_equity",
+        "allowed_execution_modes": [
+          "dry_run",
+          "live",
+          "paper"
+        ],
+        "lifecycle_stage": "live_enabled",
+        "eligibility": {
+          "status": "known",
+          "value": "eligible",
+          "observed_at": "2030-01-08T15:00:00Z",
+          "coverage": {
+            "state": "complete",
+            "included": 1,
+            "total": 1,
+            "reasons": []
+          }
+        },
+        "reason": null
+      },
+      {
+        "profile": "fake_research",
+        "label": "Fake Research",
+        "domain": "us_equity",
+        "allowed_execution_modes": [
+          "dry_run",
+          "paper"
+        ],
+        "lifecycle_stage": "research_active",
+        "eligibility": {
+          "status": "known",
+          "value": "no_live",
+          "observed_at": "2030-01-08T15:00:00Z",
+          "coverage": {
+            "state": "complete",
+            "included": 1,
+            "total": 1,
+            "reasons": []
+          }
+        },
+        "reason": "catalog_not_live_enabled"
+      }
+    ],
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "complete",
+      "included": 3,
+      "total": 3,
+      "reasons": []
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "schema_version": "qsl.desk.accounts.v2",
+  "generated_at": "2030-01-08T15:00:00Z",
+  "time_basis": {
+    "view_timezone": "UTC",
+    "source_domains": [
+      {
+        "source_key": "account_facts",
+        "timezone": "UTC"
+      },
+      {
+        "source_key": "account_options",
+        "timezone": "UTC"
+      },
+      {
+        "source_key": "credential_maintenance",
+        "timezone": "UTC"
+      }
+    ]
+  },
+  "brokers": {
+    "status": "known",
+    "value": [],
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "verified_empty",
+      "included": 0,
+      "total": 0,
+      "reasons": []
+    }
+  }
+}

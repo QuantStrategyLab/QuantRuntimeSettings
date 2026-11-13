@@ -1,0 +1,102 @@
+{
+  "ok": true,
+  "schema_version": "qsl.desk.ribbon.v2",
+  "generated_at": "2030-01-08T15:00:00Z",
+  "time_basis": {
+    "view_timezone": "UTC",
+    "source_domains": [
+      {
+        "source_key": "runtime_daily",
+        "timezone": "America/New_York"
+      }
+    ]
+  },
+  "date": "2030-01-07",
+  "date_basis": "utc_day",
+  "freshness": {
+    "data_status": "unavailable",
+    "age_seconds": null
+  },
+  "console_state": {
+    "mode": {
+      "status": "unknown",
+      "reason": "not_supported",
+      "observed_at": null,
+      "coverage": {
+        "state": "unavailable",
+        "included": 0,
+        "total": null,
+        "reasons": [
+          "not_supported"
+        ]
+      }
+    },
+    "gateways": {
+      "status": "unknown",
+      "reason": "not_supported"
+    }
+  },
+  "alert_badge": {
+    "status": "unknown",
+    "reason": "not_supported",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": null,
+      "reasons": [
+        "not_supported"
+      ]
+    }
+  },
+  "sessions": [
+    {
+      "market": "US",
+      "state": "unknown",
+      "open_utc": null,
+      "close_utc": null,
+      "next_change_at": null,
+      "holiday": null
+    },
+    {
+      "market": "HK",
+      "state": "unknown",
+      "open_utc": null,
+      "close_utc": null,
+      "next_change_at": null,
+      "holiday": null
+    },
+    {
+      "market": "CN",
+      "state": "unknown",
+      "open_utc": null,
+      "close_utc": null,
+      "next_change_at": null,
+      "holiday": null
+    }
+  ],
+  "next_run": {
+    "status": "unknown",
+    "reason": "source_unavailable",
+    "observed_at": null,
+    "coverage": {
+      "state": "unavailable",
+      "included": 0,
+      "total": null,
+      "reasons": [
+        "source_unavailable"
+      ]
+    }
+  },
+  "tape": {
+    "status": "known",
+    "value": [],
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "verified_empty",
+      "included": 0,
+      "total": 0,
+      "reasons": []
+    }
+  }
+}

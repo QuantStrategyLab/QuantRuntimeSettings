@@ -4,14 +4,14 @@ import { invalidatePrivateSession, postJson } from "../api/client";
 import { loadPreferences, resolveTheme, savePreferences, type Language, type ThemePreference } from "../lib/prefs";
 import { createDeskApi, fixtureExposure, type DeskResult } from "./api/endpoints.ts";
 import { MOCK_STORAGE_KEY, resolveMockScenario } from "./api/mock.ts";
-import type { DeskSession, Ribbon } from "./contract/types";
-import { clockOffsetMs, secondsBetween, serverNowIso } from "./format.ts";
+import type { DeskSession } from "./contract/types";
+import type { N1Ribbon } from "./contract/n1";
+import { clockOffsetMs, serverNowIso } from "./format.ts";
 import { deskTranslator, resolveDeskLanguage } from "./i18n/index.ts";
 import { deskHash, hotkeyPage, parseDeskHash, urlOverrides, type DeskPage } from "./router.ts";
 import { classifySessionFailure, deskAccess, type SessionFailure } from "./shell/access.ts";
 import { AccessCard, DeskShell } from "./shell/DeskShell";
 import type { GatewayChip, ShellLock } from "./shell/TopBar";
-import { freshnessFromAge } from "./components/stateModel.ts";
 import type { FreshnessChipState } from "./components/stateModel.ts";
 import { PageStub } from "./pages/PageStub";
 import { AlertsPage } from "./pages/AlertsPage";
@@ -53,7 +53,7 @@ export default function DeskApp() {
   const page = route.page;
   const params = route.params;
   const [session, setSession] = useState<Loadable<DeskResult<DeskSession>>>({ state: "loading" });
-  const [ribbon, setRibbon] = useState<Loadable<DeskResult<Ribbon>>>({ state: "loading" });
+  const [ribbon, setRibbon] = useState<Loadable<DeskResult<N1Ribbon>>>({ state: "loading" });
   const [offsetMs, setOffsetMs] = useState<number | null>(null);
   const [clientNow, setClientNow] = useState(() => Date.now());
   const [sessionEpoch, setSessionEpoch] = useState(0);
@@ -147,7 +147,11 @@ export default function DeskApp() {
   }, []);
 
   const gateway: GatewayChip = ribbon.state === "ready" ? { kind: "read", read: ribbon.result.data.console_state.gateways } : { kind: ribbon.state };
-  const alertCount = ribbon.state === "ready" ? ribbon.result.data.alert_badge.open_count : null;
+  // N1: no alerts store yet, so the badge read is unknown and the dock shows "?", never 0.
+  const badge = ribbon.state === "ready" ? ribbon.result.data.alert_badge : null;
+  const alertCount = badge && badge.status === "known" ? badge.value.open_count : null;
+  const alertUnknown = badge !== null && badge.status !== "known";
+  const modeUnknown = ribbon.state === "ready" && ribbon.result.data.console_state.mode.status !== "known";
   // A page may mix live reads and fixtures. Derive the chip from every endpoint
   // that page renders, so a newly live endpoint cannot make fixtures look real.
   const exposure = fixtureExposure(page, scenario);
@@ -167,9 +171,10 @@ export default function DeskApp() {
     window.location.assign("/login");
   }, []);
   const admin = session.state === "ready" && session.result.data.admin === true;
+  // Source freshness from the ribbon's stored observations; the response time is not data age.
   const freshness: FreshnessChipState = ribbon.state === "loading" ? { kind: "loading" }
     : ribbon.state === "failed" ? { kind: "failed" }
-    : freshnessFromAge(secondsBetween(ribbon.result.data.generated_at, nowIso));
+    : { kind: "read", ...ribbon.result.data.freshness };
 
   const pageContent = page === "performance" ? <PerformancePage api={api} t={t} language={language} />
     : page === "overview" ? <OverviewPage api={api} t={t} language={language} />
@@ -200,6 +205,8 @@ export default function DeskApp() {
       theme={theme}
       gateway={gateway}
       alertCount={alertCount}
+      alertUnknown={alertUnknown}
+      modeUnknown={modeUnknown}
       nowIso={nowIso}
       serverClock={serverClock}
       mock={mock}

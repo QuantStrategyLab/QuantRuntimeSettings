@@ -1,0 +1,118 @@
+{
+  "ok": true,
+  "schema_version": "qsl.desk.accounts.v2",
+  "generated_at": "2030-01-08T15:00:00Z",
+  "time_basis": {
+    "view_timezone": "UTC",
+    "source_domains": [
+      {
+        "source_key": "account_facts",
+        "timezone": "UTC"
+      },
+      {
+        "source_key": "account_options",
+        "timezone": "UTC"
+      },
+      {
+        "source_key": "credential_maintenance",
+        "timezone": "UTC"
+      }
+    ]
+  },
+  "brokers": {
+    "status": "known",
+    "value": [
+      {
+        "platform": "firstrade",
+        "label": "Firstrade",
+        "targets": [
+          {
+            "target_id": "firstrade/target0",
+            "account_ref": "Firstrade ••••ault"
+          },
+          {
+            "target_id": "firstrade/target1",
+            "account_ref": "Firstrade ••••ault"
+          }
+        ],
+        "connectivity": {
+          "status": "unknown",
+          "reason": "not_supported",
+          "observed_at": null,
+          "coverage": {
+            "state": "unavailable",
+            "included": 0,
+            "total": null,
+            "reasons": [
+              "not_supported"
+            ]
+          }
+        },
+        "connectivity_detail": null,
+        "heartbeat": {
+          "status": "unknown",
+          "reason": "not_supported",
+          "observed_at": null,
+          "coverage": {
+            "state": "unavailable",
+            "included": 0,
+            "total": null,
+            "reasons": [
+              "not_supported"
+            ]
+          }
+        },
+        "data_freshness": {
+          "data_status": "ready",
+          "age_seconds": 120
+        },
+        "config": {
+          "state": "unknown",
+          "drift_count": {
+            "status": "unknown",
+            "reason": "not_supported",
+            "observed_at": null,
+            "coverage": {
+              "state": "unavailable",
+              "included": 0,
+              "total": 2,
+              "reasons": [
+                "not_supported"
+              ]
+            }
+          },
+          "checked_at": null
+        },
+        "credential": {
+          "kind": "other",
+          "expiry": {
+            "status": "unknown",
+            "reason": "not_supported"
+          },
+          "phase": "unknown",
+          "requires_action": false
+        },
+        "last_order": {
+          "status": "unknown",
+          "reason": "not_supported",
+          "observed_at": null,
+          "coverage": {
+            "state": "unavailable",
+            "included": 0,
+            "total": null,
+            "reasons": [
+              "not_supported"
+            ]
+          }
+        }
+      }
+    ],
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "complete",
+      "included": 1,
+      "total": 1,
+      "reasons": []
+    }
+  }
+}

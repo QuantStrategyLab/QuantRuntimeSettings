@@ -6,13 +6,17 @@
  */
 import { getJson } from "../../api/client.ts";
 import type {
-  Accounts, AlertDelivery, Alerts, Credentials, DeskSession, Logs, Overview, Performance, Ribbon,
-  SwitchStrategies, SwitchTargets,
+  AlertDelivery, Alerts, Credentials, DeskSession, Logs, SwitchStrategies, SwitchTargets,
 } from "../contract/types";
+import type { N1Accounts, N1Overview, N1Performance, N1Ribbon } from "../contract/n1";
 import {
   isAccounts, isAlertDelivery, isAlerts, isCredentials, isLogs, isOverview, isPerformance, isRibbon,
   isSession, isSwitchStrategies, isSwitchTargets,
 } from "./guards.ts";
+import {
+  accountsFromMock, isN1Accounts, isN1Overview, isN1Performance, isN1Ribbon, overviewFromMock,
+  performanceFromMock, ribbonFromMock,
+} from "./n1.ts";
 import { PERF_BENCH_API } from "../performance/benchmarks.ts";
 import { loadMock, type MockEndpoint, type MockScenario } from "./mock.ts";
 import type { DeskPage } from "../router.ts";
@@ -20,7 +24,10 @@ import type { DeskPage } from "../router.ts";
 export type DeskSource = "live" | "mock";
 
 /** Session is live (server_time landed in #1051); credentials, switch targets and alert
-    delivery are live; the rest wait for their backend routes. */
+    delivery are live. Ribbon, overview, accounts and performance read the N1 v2
+    projections when live (strict guard in ./n1.ts); their v1 fixtures are normalised to
+    N1 only under source=mock. Switch strategies keeps its v1 client for now. Alerts and
+    logs stay fixtures. */
 export const DESK_SOURCES: Record<MockEndpoint, DeskSource> = {
   session: "live",
   ribbon: "mock",
@@ -94,13 +101,13 @@ export interface DeskApiOptions {
 
 export interface DeskApi {
   session(): Promise<DeskResult<DeskSession>>;
-  ribbon(date?: string): Promise<DeskResult<Ribbon>>;
-  overview(): Promise<DeskResult<Overview>>;
-  accounts(): Promise<DeskResult<Accounts>>;
+  ribbon(date?: string): Promise<DeskResult<N1Ribbon>>;
+  overview(): Promise<DeskResult<N1Overview>>;
+  accounts(): Promise<DeskResult<N1Accounts>>;
   credentials(): Promise<DeskResult<Credentials>>;
   switchTargets(): Promise<DeskResult<SwitchTargets>>;
   switchStrategies(targetId: string): Promise<DeskResult<SwitchStrategies>>;
-  performance(): Promise<DeskResult<Performance>>;
+  performance(): Promise<DeskResult<N1Performance>>;
   alerts(): Promise<DeskResult<Alerts>>;
   alertDelivery(): Promise<DeskResult<AlertDelivery>>;
   logs(cursor?: string): Promise<DeskResult<Logs>>;
@@ -120,13 +127,33 @@ export function createDeskApi(options: DeskApiOptions): DeskApi {
     return { data: payload, source: scenario ? "mock" : "live", scenario };
   }
 
+  /** N1 read: live accepts only the strict v2 payload; a mock v1 fixture passes its v1
+      guard first and is then normalised. A live v1 payload is a contract mismatch. */
+  async function readN1<V1, T>(endpoint: MockEndpoint, path: string, v1Guard: (value: unknown) => value is V1,
+    normalise: (value: V1) => T, guard: (value: unknown) => value is T): Promise<DeskResult<T>> {
+    const scenario = options.forcedScenario ?? (sources[endpoint] === "mock" ? "ok" : null);
+    if (scenario) {
+      const payload = await loadMock(endpoint, scenario, delayMs);
+      if (!v1Guard(payload)) throw new DeskContractError(endpoint);
+      const data = normalise(payload);
+      if (!guard(data)) throw new DeskContractError(endpoint);
+      return { data, source: "mock", scenario };
+    }
+    const payload = await fetchJson(path);
+    if (!guard(payload)) throw new DeskContractError(endpoint);
+    return { data: payload, source: "live", scenario: null };
+  }
+
   return {
     session: () => read("session", "/api/session", isSession),
-    ribbon: date => read("ribbon", `/api/desk/ribbon${date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? `?date=${date}` : ""}`, isRibbon),
-    overview: () => read("overview", "/api/desk/overview", isOverview),
-    accounts: () => read("accounts", "/api/desk/accounts", isAccounts),
+    ribbon: date => readN1("ribbon", `/api/desk/ribbon${date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? `?date=${date}` : ""}`,
+      isRibbon, ribbonFromMock, isN1Ribbon),
+    overview: () => readN1("overview", "/api/desk/overview", isOverview, overviewFromMock, isN1Overview),
+    accounts: () => readN1("accounts", "/api/desk/accounts", isAccounts, accountsFromMock, isN1Accounts),
     credentials: () => read("credentials", "/api/desk/credentials", isCredentials),
     switchTargets: () => read("switchTargets", "/api/desk/switch/targets", isSwitchTargets),
+    // The strategies page still consumes the v1 catalog shape; its N1 adoption is a
+    // separate step (docs/desk-n1-read-projection-contract.md, open item).
     async switchStrategies(targetId) {
       const scenario = options.forcedScenario ?? (sources.switchStrategies === "mock" ? "ok" : null);
       if (scenario) {
@@ -142,7 +169,7 @@ export function createDeskApi(options: DeskApiOptions): DeskApi {
       if (!isSwitchStrategies(payload)) throw new DeskContractError("switchStrategies");
       return { data: payload, source: "live", scenario: null };
     },
-    performance: () => read("performance", "/api/desk/performance", isPerformance),
+    performance: () => readN1("performance", "/api/desk/performance", isPerformance, performanceFromMock, isN1Performance),
     alerts: () => read("alerts", "/api/desk/alerts", isAlerts),
     alertDelivery: () => read("alertDelivery", "/api/desk/alerts/delivery", isAlertDelivery),
     logs: cursor => read(

@@ -206,7 +206,10 @@ const r = await api.ribbon("2026-11-02");
 assert.deepEqual([r.source, r.scenario], ["mock", "ok"]);
 const acc = await api.accounts();
 assert.deepEqual([acc.source, acc.scenario], ["mock", "ok"]);
-assert.equal(acc.data.brokers.length, 5);
+// N1: the five reads are normalised to v2 for source=mock; fixture counts are mock-known values.
+assert.equal(acc.data.schema_version, "qsl.desk.accounts.v2");
+assert.equal(acc.data.brokers.status, "known");
+assert.equal(acc.data.brokers.value.length, 5);
 const cred = await api.credentials();
 assert.deepEqual([cred.source, cred.scenario, calls], ["live", null, ["/api/session", "/api/desk/credentials"]]);
 assert.ok(cred.data.items.some(item => item.phase === "7"), "fixture covers the 7-day phase");
@@ -218,8 +221,8 @@ assert.deepEqual([sc.source, sc.scenario], ["mock", "ok"]);
 assert.equal(sc.data.target_id, "schwab/core");
 assert.equal(sc.data.domain, "us_equity");
 assert.equal(calls.length, 3, "mock endpoints never hit the network; only live sources do");
-r.data.tape.length = 0;
-assert.ok((await api.ribbon()).data.tape.length > 0, "mock responses are copies");
+r.data.tape.value.length = 0;
+assert.ok((await api.ribbon()).data.tape.value.length > 0, "mock responses are copies");
 const forced = createDeskApi({ forcedScenario: "degraded", delayMs: 0, fetchJson });
 assert.equal((await forced.session()).source, "mock");
 assert.equal((await forced.overview()).data.totals.status, "partial");
@@ -230,10 +233,15 @@ assert.equal(calls.length, 0, "a forced scenario never hits the network");
 const failing = createDeskApi({ forcedScenario: "fail", delayMs: 0, fetchJson });
 await assert.rejects(failing.overview(), error => error instanceof HttpError && error.status === 503 && error.payload.error === "store_unavailable");
 await assert.rejects(failing.switchStrategies("ibkr/tqqq"), HttpError);
+const n1Overview = JSON.parse(readFileSync(new URL("./fixtures/desk/n1-overview.ok.json", import.meta.url), "utf8"));
+let liveOverview = overview.ok;
 const allLive = createDeskApi({ forcedScenario: null, delayMs: 0, sources: { session: "live", ribbon: "live", overview: "live" },
-  fetchJson: async path => { calls.push(path); return path.startsWith("/api/desk/ribbon") ? { ok: true } : structuredClone(overview.ok); } });
+  fetchJson: async path => { calls.push(path); return path.startsWith("/api/desk/ribbon") ? { ok: true } : structuredClone(liveOverview); } });
 await assert.rejects(allLive.ribbon("2026-11-02&x=1"), error => error instanceof DeskContractError && error.endpoint === "ribbon", "a bad live shape is rejected");
 assert.equal(calls.at(-1), "/api/desk/ribbon", "a malformed date is dropped, not passed through");
+// A live v1 payload is never upgraded: only the strict v2 projection is accepted.
+await assert.rejects(allLive.overview(), error => error instanceof DeskContractError && error.endpoint === "overview", "live v1 is a contract mismatch");
+liveOverview = n1Overview;
 assert.equal((await allLive.overview()).source, "live");
 await assert.rejects(loadMock("overview", "fail", 0), HttpError);
 

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import type { Language } from "../../lib/prefs";
 import type { DeskApi, DeskResult } from "../api/endpoints.ts";
-import type { Accounts, BrokerHealth, Credentials, Read } from "../contract/types";
+import type { Credentials } from "../contract/types";
+import type { N1Accounts, N1BrokerHealth, N1Read } from "../contract/n1";
+import { coverageText, n1ReasonKey, readValue } from "../api/n1.ts";
 import { formatAge } from "../format.ts";
 import type { DeskKey, DeskTranslate } from "../i18n/index.ts";
 import { CredentialExpiryRow } from "../components/CredentialExpiryRow.tsx";
@@ -15,30 +17,40 @@ import { CredentialsTab } from "./CredentialsTab.tsx";
 export type AccountsTab = "brokers" | "credentials";
 
 function reasonText(reason: string, t: DeskTranslate): string {
-  return t(`read.reason.${reason}` as DeskKey);
+  return t(n1ReasonKey(reason));
 }
 
-function connectivityView(read: Read<"up" | "degraded" | "down">, t: DeskTranslate, language: Language): { text: string; tone: "ok" | "warn" | "risk" | "unknown" } {
+function connectivityView(read: N1Read<"up" | "degraded" | "down">, t: DeskTranslate, language: Language): { text: string; tone: "ok" | "warn" | "risk" | "unknown" } {
   if (read.status === "unknown") return { text: `${t("accounts.connectivity.unknown")} · ${reasonText(read.reason, t)}`, tone: "unknown" };
+  if (read.status === "partial") return { text: `${t("accounts.connectivity.unknown")} · ${t("n1.partial", { coverage: coverageText(read.coverage) })}`, tone: "unknown" };
   if (read.status === "stale") return { text: `${t("read.stale", { age: formatAge(read.age_seconds, language) ?? "—" })} · ${t(`accounts.connectivity.${read.value}` as DeskKey)}`, tone: "unknown" };
   if (read.value === "up") return { text: t("accounts.connectivity.up"), tone: "ok" };
   if (read.value === "degraded") return { text: t("accounts.connectivity.degraded"), tone: "warn" };
   return { text: t("accounts.connectivity.down"), tone: "risk" };
 }
 
-function heartbeatText(read: Read<{ at: string }>, t: DeskTranslate, language: Language): string {
-  if (read.status === "unknown") return reasonText(read.reason, t);
+function heartbeatText(read: N1Read<{ at: string }>, t: DeskTranslate, language: Language): string {
+  if (read.status === "unknown") return `${t("read.unknown_mark")} · ${reasonText(read.reason, t)}`;
+  if (read.status === "partial") return `${read.value.at} · ${t("n1.partial", { coverage: coverageText(read.coverage) })}`;
   if (read.status === "stale") return `${t("read.stale", { age: formatAge(read.age_seconds, language) ?? "—" })} · ${read.value.at}`;
   return read.value.at;
 }
 
-function lastOrderText(read: Read<{ at: string; count: number }>, t: DeskTranslate, language: Language): string {
-  if (read.status === "unknown") return reasonText(read.reason, t);
+function lastOrderText(read: N1Read<{ at: string; count: number }>, t: DeskTranslate, language: Language): string {
+  if (read.status === "unknown") return `${t("read.unknown_mark")} · ${reasonText(read.reason, t)}`;
   if (read.status === "stale") return t("read.stale", { age: formatAge(read.age_seconds, language) ?? "—" });
+  // A partial order read cannot prove "no orders".
+  if (read.status === "partial") return t("n1.partial", { coverage: coverageText(read.coverage) });
   return read.value.count === 0 ? t("accounts.last_order.none") : t("accounts.last_order.value", { count: read.value.count, at: read.value.at });
 }
 
-function BrokerCard({ broker, t, language, narrow, onManage }: { broker: BrokerHealth; t: DeskTranslate; language: Language; narrow: boolean; onManage: () => void }) {
+/** Config line: drift without a known count reads "?", and an unknown state never reads as synced. */
+function configText(config: N1BrokerHealth["config"], t: DeskTranslate): string {
+  if (config.state !== "drift") return t(`config.${config.state}` as DeskKey);
+  return t("config.drift", { count: config.drift_count.status === "known" ? config.drift_count.value : t("read.unknown_mark") });
+}
+
+function BrokerCard({ broker, t, language, narrow, onManage }: { broker: N1BrokerHealth; t: DeskTranslate; language: Language; narrow: boolean; onManage: () => void }) {
   const connectivity = connectivityView(broker.connectivity, t, language);
   const freshness = broker.data_freshness;
   return (
@@ -77,7 +89,7 @@ function BrokerCard({ broker, t, language, narrow, onManage }: { broker: BrokerH
         <div style={P.detailItem}>
           <span style={P.detailLabel}>{t("accounts.broker.config")}</span>
           <span style={P.detailValue}>
-            {broker.config.state === "drift" ? t("config.drift", { count: broker.config.drift_count }) : t(`config.${broker.config.state}` as DeskKey)}
+            {configText(broker.config, t)}
           </span>
         </div>
         <div style={P.detailItem}>
@@ -100,6 +112,41 @@ function BrokerCard({ broker, t, language, narrow, onManage }: { broker: BrokerH
   );
 }
 
+/** Ready-state broker list: a pure function of the N1 payload, testable against the golden payloads. */
+export function BrokersView({ data, source, t, language, narrow, onManage }: {
+  data: N1Accounts;
+  source: DeskResult<N1Accounts>["source"];
+  t: DeskTranslate;
+  language: Language;
+  narrow: boolean;
+  onManage: () => void;
+}) {
+  const read = data.brokers;
+  if (read.status === "unknown") {
+    // An unreadable broker list is not "no brokers".
+    return (
+      <section className="mrd-card" style={P.column} role="status" data-read="unknown">
+        <p style={P.muted}>{t("accounts.brokers.unknown", { reason: reasonText(read.reason, t) })}</p>
+      </section>
+    );
+  }
+  const brokers = readValue(read) ?? [];
+  if (brokers.length === 0 && read.status === "known") return <EmptyState t={t} title={t("accounts.brokers.empty")} />;
+  const stale = brokers.filter(broker => broker.data_freshness.data_status !== "ready").length;
+  return (
+    <div style={P.page}>
+      {stale > 0 ? <StalePartialBanner t={t} language={language} included={brokers.length - stale} total={brokers.length} /> : null}
+      {read.status === "partial" ? <p style={P.muted} role="status">{t("n1.partial", { coverage: coverageText(read.coverage) })}</p> : null}
+      <div style={P.grid}>
+        {brokers.map(broker => (
+          <BrokerCard key={broker.platform} broker={broker} t={t} language={language} narrow={narrow} onManage={onManage} />
+        ))}
+      </div>
+      {source === "mock" ? <p style={P.muted}>{t("mock.title")}</p> : null}
+    </div>
+  );
+}
+
 export function AccountsPage({ api, t, language, initialTab = "brokers" }: {
   api: DeskApi;
   t: DeskTranslate;
@@ -108,7 +155,7 @@ export function AccountsPage({ api, t, language, initialTab = "brokers" }: {
 }) {
   const [tab, setTab] = useState<AccountsTab>(initialTab);
   const narrow = useNarrow();
-  const accounts = useDeskLoad<DeskResult<Accounts>>(() => api.accounts(), [api]);
+  const accounts = useDeskLoad<DeskResult<N1Accounts>>(() => api.accounts(), [api]);
   const credentials = useDeskLoad<DeskResult<Credentials>>(() => api.credentials(), [api]);
 
   // A deep link such as ?tab=credentials wins when it changes while the page is mounted.
@@ -131,22 +178,8 @@ export function AccountsPage({ api, t, language, initialTab = "brokers" }: {
     body = <LoadingState t={t} label={t("accounts.title")} startedAt={accounts.load.startedAt} onRetry={accounts.reload} />;
   } else if (accounts.load.state === "failed") {
     body = <RecoverableErrorState t={t} onRetry={accounts.reload} />;
-  } else if (accounts.load.result.data.brokers.length === 0) {
-    body = <EmptyState t={t} title={t("accounts.brokers.empty")} />;
   } else {
-    const brokers = accounts.load.result.data.brokers;
-    const stale = brokers.filter(broker => broker.data_freshness.data_status !== "ready").length;
-    body = (
-      <div style={P.page}>
-        {stale > 0 ? <StalePartialBanner t={t} language={language} included={brokers.length - stale} total={brokers.length} /> : null}
-        <div style={P.grid}>
-          {brokers.map(broker => (
-            <BrokerCard key={broker.platform} broker={broker} t={t} language={language} narrow={narrow} onManage={() => setTab("credentials")} />
-          ))}
-        </div>
-        {accounts.load.result.source === "mock" ? <p style={P.muted}>{t("mock.title")}</p> : null}
-      </div>
-    );
+    body = <BrokersView data={accounts.load.result.data} source={accounts.load.result.source} t={t} language={language} narrow={narrow} onManage={() => setTab("credentials")} />;
   }
 
   return (

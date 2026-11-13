@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/n1-ribbon.json",
+  "title": "n1-ribbon",
+  "description": "N1 read projection (docs/desk-n1-read-projection-contract.md); qsl.desk.ribbon.v2",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "schema_version": {
+      "const": "qsl.desk.ribbon.v2"
+    },
+    "generated_at": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+    },
+    "time_basis": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/TimeBasis"
+    },
+    "date": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"
+    },
+    "date_basis": {
+      "const": "utc_day"
+    },
+    "freshness": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Freshness"
+    },
+    "console_state": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "allOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Mode"
+                }
+              }
+            }
+          ]
+        },
+        "gateways": {
+          "$ref": "https://schemas.example.invalid/qsl/desk/ribbon.json#/properties/console_state/properties/gateways"
+        }
+      },
+      "required": [
+        "mode",
+        "gateways"
+      ],
+      "additionalProperties": false
+    },
+    "alert_badge": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "object",
+              "properties": {
+                "open_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "critical_count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "open_count",
+                "critical_count"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "sessions": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/ribbon.json#/properties/sessions"
+    },
+    "next_run": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "target_id": {
+                      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "due_at": {
+                      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+                    }
+                  },
+                  "required": [
+                    "target_id",
+                    "kind",
+                    "due_at"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "tape": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+                  },
+                  "target_id": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Outcome"
+                  },
+                  "outcome_detail": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "done",
+                      "running",
+                      "scheduled",
+                      "missed",
+                      "unknown"
+                    ]
+                  },
+                  "source_business_date": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"
+                  },
+                  "source_timezone": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "at",
+                  "target_id",
+                  "label",
+                  "kind",
+                  "outcome",
+                  "outcome_detail",
+                  "state",
+                  "source_business_date",
+                  "source_timezone"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 100
+            }
+          }
+        }
+      ]
+    }
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "time_basis",
+    "date",
+    "date_basis",
+    "freshness",
+    "console_state",
+    "alert_badge",
+    "sessions",
+    "next_run",
+    "tape"
+  ],
+  "additionalProperties": false
+}

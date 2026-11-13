@@ -1,0 +1,60 @@
+{
+  "ok": true,
+  "schema_version": "qsl.desk.switch_strategies.v2",
+  "generated_at": "2030-01-08T15:00:00Z",
+  "time_basis": {
+    "view_timezone": "UTC",
+    "source_domains": [
+      {
+        "source_key": "account_options",
+        "timezone": "UTC"
+      },
+      {
+        "source_key": "strategy_catalog",
+        "timezone": "UTC"
+      }
+    ]
+  },
+  "target_id": "firstrade/target0",
+  "domain": {
+    "status": "known",
+    "value": "us_equity",
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "complete",
+      "included": 1,
+      "total": 1,
+      "reasons": []
+    }
+  },
+  "switchable": {
+    "allowed": false,
+    "reason_code": "switch_not_connected"
+  },
+  "catalog_revision": {
+    "status": "known",
+    "value": {
+      "kind": "projection_fingerprint",
+      "algorithm": "sha256",
+      "value": "c7faa7163e901ebf490f3ea411f8144086b8b8d6342bf5f45e9df0d16ec690da"
+    },
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "complete",
+      "included": 1,
+      "total": 1,
+      "reasons": []
+    }
+  },
+  "strategies": {
+    "status": "known",
+    "value": [],
+    "observed_at": "2030-01-08T15:00:00Z",
+    "coverage": {
+      "state": "verified_empty",
+      "included": 0,
+      "total": 0,
+      "reasons": []
+    }
+  }
+}

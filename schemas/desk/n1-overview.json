@@ -1,0 +1,528 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/qsl/desk/n1-overview.json",
+  "title": "n1-overview",
+  "description": "N1 read projection (docs/desk-n1-read-projection-contract.md); qsl.desk.overview.v2",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "schema_version": {
+      "const": "qsl.desk.overview.v2"
+    },
+    "generated_at": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+    },
+    "time_basis": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/TimeBasis"
+    },
+    "snapshot_at": {
+      "anyOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "freshness": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Freshness"
+    },
+    "reporting_currency": {
+      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Currency"
+    },
+    "totals": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "excluded_reasons": {
+          "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/totals/properties/coverage/properties/excluded_reasons"
+        },
+        "coverage": {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Coverage"
+        },
+        "fx": {
+          "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/totals/properties/fx"
+        },
+        "nav": {
+          "anyOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "day_change": {
+          "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/totals/properties/day_change"
+        },
+        "drawdown": {
+          "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/totals/properties/drawdown"
+        },
+        "gross_exposure_ratio": {
+          "anyOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "leveraged_etf_exposure_ratio": {
+          "anyOf": [
+            {
+              "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runs_today": {
+          "allOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "done": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "expected": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "pending": {
+                          "anyOf": [
+                            {
+                              "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/totals/properties/runs_today/properties/pending"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "source_business_date": {
+                          "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"
+                        },
+                        "source_timezone": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "done",
+                        "expected",
+                        "pending",
+                        "source_business_date",
+                        "source_timezone"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "properties": {
+                      "done": {
+                        "not": {
+                          "type": "null"
+                        }
+                      },
+                      "expected": {
+                        "not": {
+                          "type": "null"
+                        }
+                      },
+                      "pending": {
+                        "not": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "config_drift": {
+          "allOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "object",
+                      "properties": {
+                        "count": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "target_ids": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "count",
+                        "target_ids"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "properties": {
+                      "count": {
+                        "not": {
+                          "type": "null"
+                        }
+                      },
+                      "target_ids": {
+                        "not": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "data_age_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "excluded_reasons",
+        "coverage",
+        "fx",
+        "nav",
+        "day_change",
+        "drawdown",
+        "gross_exposure_ratio",
+        "leveraged_etf_exposure_ratio",
+        "runs_today",
+        "config_drift",
+        "data_age_seconds"
+      ],
+      "additionalProperties": false
+    },
+    "book": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "target_id": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/TargetId"
+                  },
+                  "platform": {
+                    "type": "string"
+                  },
+                  "platform_label": {
+                    "type": "string"
+                  },
+                  "account_ref": {
+                    "type": "string"
+                  },
+                  "account_suffix": {
+                    "type": "string"
+                  },
+                  "strategy": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/strategy"
+                  },
+                  "mode": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/mode"
+                  },
+                  "runtime": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/runtime"
+                  },
+                  "nav": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/nav"
+                  },
+                  "day_change": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/day_change"
+                  },
+                  "sparkline_30d": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/sparkline_30d"
+                  },
+                  "drawdown": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/drawdown"
+                  },
+                  "last_run": {
+                    "allOf": [
+                      {
+                        "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/last_run"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "return_basis": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/return_basis"
+                  },
+                  "config": {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "synced",
+                          "drift",
+                          "unknown"
+                        ]
+                      },
+                      "drift_count": {
+                        "allOf": [
+                          {
+                            "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "checked_at": {
+                        "anyOf": [
+                          {
+                            "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Time"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "state",
+                      "drift_count",
+                      "checked_at"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "target_id",
+                  "platform",
+                  "platform_label",
+                  "account_ref",
+                  "account_suffix",
+                  "strategy",
+                  "mode",
+                  "runtime",
+                  "nav",
+                  "day_change",
+                  "sparkline_30d",
+                  "drawdown",
+                  "config",
+                  "last_run",
+                  "return_basis"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "equity_curve": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "object",
+              "properties": {
+                "range": {
+                  "type": "string",
+                  "enum": [
+                    "1M",
+                    "3M",
+                    "6M",
+                    "YTD",
+                    "1Y",
+                    "ALL"
+                  ]
+                },
+                "portfolio": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/equity_curve/properties/portfolio"
+                },
+                "drawdown": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Decimal"
+                  }
+                },
+                "history_starts": {
+                  "anyOf": [
+                    {
+                      "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/Date"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "return_basis": {
+                  "$ref": "https://schemas.example.invalid/qsl/desk/common.json#/$defs/PortfolioBasis"
+                }
+              },
+              "required": [
+                "range",
+                "portfolio",
+                "drawdown",
+                "history_starts",
+                "return_basis"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "needs_you": {
+      "allOf": [
+        {
+          "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/needs_you"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "required": [
+    "ok",
+    "schema_version",
+    "generated_at",
+    "time_basis",
+    "snapshot_at",
+    "freshness",
+    "reporting_currency",
+    "totals",
+    "book",
+    "equity_curve",
+    "needs_you"
+  ],
+  "additionalProperties": false
+}
