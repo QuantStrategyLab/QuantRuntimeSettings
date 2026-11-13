@@ -280,8 +280,8 @@ const digestEnv = { ...env, BINANCE_DIGEST_READ_TOKEN: digestToken };
 const localDay = new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 10);
 const cutoff = Date.parse(`${localDay}T06:00:00+08:00`) - 86400000;
 const closedDay = new Date(cutoff - 1000 + 2 * 3600000).toISOString().slice(0, 10);
-const digestRead = (day, token = digestToken, settings = digestEnv) => worker.fetch(new Request(
-  `https://console.example/api/internal/binance-account-facts/digest?business_day=${day}`,
+const digestRead = (day, token = digestToken, settings = digestEnv, query = '') => worker.fetch(new Request(
+  `https://console.example/api/internal/binance-account-facts/digest?business_day=${day}${query}`,
   { headers: { Authorization: `Bearer ${token}` } },
 ), settings);
 assert.equal((await digestRead(closedDay, env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN)).status, 401);
@@ -298,6 +298,14 @@ values.set(snapshotKey, JSON.stringify({ ...report, ...inWindow }));
 assert.deepEqual(await (await digestRead(closedDay)).json(), {
   ok: true, business_day: closedDay, account_key: binding.account_key, target_id: binding.target_id,
   as_of: inWindow.observed_finished_at, holdings: report.assets.map(({ asset, quantity }) => ({ asset, quantity })),
+});
+const inWindowWallet = { ...walletValuation, observed_at: inWindow.observed_finished_at };
+values.set(snapshotKey, JSON.stringify({ ...report, ...inWindow, wallet_valuation: inWindowWallet }));
+assert.equal((await (await digestRead(closedDay)).json()).wallet_valuation, undefined,
+  'older digest readers retain the original response shape');
+const walletDigest = await (await digestRead(closedDay, digestToken, digestEnv, '&include_valuation=1')).json();
+assert.deepEqual(walletDigest.wallet_valuation, {
+  amount: inWindowWallet.amount, currency: 'USDT', as_of: inWindowWallet.observed_at,
 });
 values.set(snapshotKey, JSON.stringify({ ...report, ...Object.fromEntries(Object.entries(inWindow)
   .map(([key, value]) => [key, new Date(Date.parse(value) - 86400000).toISOString()])) }));
