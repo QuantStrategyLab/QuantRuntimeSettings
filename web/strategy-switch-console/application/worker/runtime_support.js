@@ -225,6 +225,71 @@ import {
 } from "../runtime_instances/command.js";
 import { startLogin, finishLogin } from "../auth/login.js";
 import { readSession, makeSession } from "../auth/session.js";
+import {
+  AUTH_CONFIG_KEY,
+  OAUTH_STATE_COOKIE,
+  SESSION_COOKIE,
+  SESSION_TTL_SECONDS,
+} from "../auth/constants.js";
+import {
+  authorizedOrgLogins,
+  hasOrgMatch,
+  isAdminLogin,
+  isAdminPrincipal,
+  isAllowedPrincipal,
+  loadAuthConfig,
+  normalizeAuthConfigPayload,
+} from "../auth/principals.js";
+import {
+  cleanGithubLogin,
+  cleanGithubOrg,
+  normalizeLoginList,
+  normalizeOrgList,
+  parseLoginList,
+  parseOrgList,
+  uniqueStrings,
+} from "../auth/identity_lists.js";
+import { requireEnv } from "../auth/require_env.js";
+import {
+  base64UrlDecode,
+  base64UrlEncodeBytes,
+  base64UrlEncodeJson,
+  clearCookie,
+  clearOAuthCookie,
+  cookie,
+  parseCookies,
+  randomToken,
+} from "../auth/cookies.js";
+
+export {
+  AUTH_CONFIG_KEY,
+  OAUTH_STATE_COOKIE,
+  SESSION_COOKIE,
+  SESSION_TTL_SECONDS,
+  authorizedOrgLogins,
+  hasOrgMatch,
+  isAdminLogin,
+  isAdminPrincipal,
+  isAllowedPrincipal,
+  loadAuthConfig,
+  normalizeAuthConfigPayload,
+  cleanGithubLogin,
+  cleanGithubOrg,
+  normalizeLoginList,
+  normalizeOrgList,
+  parseLoginList,
+  parseOrgList,
+  uniqueStrings,
+  requireEnv,
+  base64UrlDecode,
+  base64UrlEncodeBytes,
+  base64UrlEncodeJson,
+  clearCookie,
+  clearOAuthCookie,
+  cookie,
+  parseCookies,
+  randomToken,
+};
 
 export const CYCLE_HEALTH_HISTORY_PAGE_SIZE = 50;
 export const CYCLE_HEALTH_SUMMARY_SCHEMA_VERSION = "qsl_runtime_cycle_health_state_summary.v1";
@@ -241,10 +306,6 @@ export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_JWKS_BYTES = 32 * 102
 export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_TIMEOUT_MS = 5000;
 export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_TIMEOUT_MS = 1000;
 export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_MAX_BODY_BYTES = 1024;
-export const SESSION_COOKIE = "qsl_switch_session";
-export const OAUTH_STATE_COOKIE = "qsl_switch_oauth_state";
-export const SESSION_TTL_SECONDS = 8 * 60 * 60;
-export const AUTH_CONFIG_KEY = "auth_config";
 export const ACCOUNT_OPTIONS_KEY = "account_options";
 export const STRATEGY_PROFILES_KEY = "strategy_profiles";
 // Risk preferences are a separate, low-frequency owner-intent record.  They
@@ -12981,131 +13042,6 @@ export async function fetchGithubOrgLogins(token, timeoutMs = GITHUB_API_TIMEOUT
   return uniqueStrings(orgs);
 }
 
-export function requireEnv(env, name) {
-  if (!env[name]) throw new Error(`${name} is not configured`);
-}
-
-export async function loadAuthConfig(env) {
-  const bootstrapAdmins = parseLoginList(env.STRATEGY_SWITCH_ADMIN_LOGINS || "", "STRATEGY_SWITCH_ADMIN_LOGINS");
-  const bootstrapAdminOrgs = parseOrgList(env.STRATEGY_SWITCH_ADMIN_ORGS || "", "STRATEGY_SWITCH_ADMIN_ORGS");
-  const envAllowed = parseLoginList(
-    env.ALLOWED_GITHUB_LOGINS || env.ALLOWED_GITHUB_LOGIN || "",
-    "ALLOWED_GITHUB_LOGINS",
-  );
-  const envAllowedOrgs = parseOrgList(
-    env.ALLOWED_GITHUB_ORGS || env.ALLOWED_GITHUB_ORG || "",
-    "ALLOWED_GITHUB_ORGS",
-  );
-  let storedAllowed = [];
-  let storedAllowedOrgs = [];
-  let storedAdmins = [];
-  let storedAdminOrgs = [];
-  let source = "secret";
-  if (hasConfigStore(env)) {
-    const stored = await readConfigJson(env, AUTH_CONFIG_KEY);
-    if (stored) {
-      const normalized = normalizeAuthConfigPayload(stored, AUTH_CONFIG_KEY);
-      storedAllowed = normalized.allowed_logins;
-      storedAllowedOrgs = normalized.allowed_orgs;
-      storedAdmins = normalized.admin_logins;
-      storedAdminOrgs = normalized.admin_orgs;
-      source = "kv";
-    }
-  }
-  const adminLogins = uniqueStrings([...bootstrapAdmins, ...storedAdmins]);
-  const adminOrgs = uniqueStrings([...bootstrapAdminOrgs, ...storedAdminOrgs]);
-  const allowedLogins = uniqueStrings([...envAllowed, ...storedAllowed, ...adminLogins]);
-  const allowedOrgs = uniqueStrings([...envAllowedOrgs, ...storedAllowedOrgs]);
-  return {
-    allowed_logins: allowedLogins,
-    allowed_orgs: allowedOrgs,
-    admin_logins: adminLogins,
-    admin_orgs: adminOrgs,
-    bootstrap_admin_logins: bootstrapAdmins,
-    bootstrap_admin_orgs: bootstrapAdminOrgs,
-    env_allowed_logins: envAllowed,
-    env_allowed_orgs: envAllowedOrgs,
-    source,
-    kv_available: hasConfigStore(env),
-  };
-}
-
-export function normalizeAuthConfigPayload(payload, fieldName) {
-  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
-    throw new Error(`${fieldName} must be an object`);
-  }
-  return {
-    allowed_logins: normalizeLoginList(payload.allowed_logins || [], `${fieldName}.allowed_logins`),
-    allowed_orgs: normalizeOrgList(payload.allowed_orgs || [], `${fieldName}.allowed_orgs`),
-    admin_logins: normalizeLoginList(payload.admin_logins || [], `${fieldName}.admin_logins`),
-    admin_orgs: normalizeOrgList(payload.admin_orgs || [], `${fieldName}.admin_orgs`),
-  };
-}
-
-export function parseLoginList(value, fieldName) {
-  return normalizeLoginList(value, fieldName);
-}
-
-export function normalizeLoginList(value, fieldName) {
-  const items = Array.isArray(value) ? value : String(value || "").split(/[\s,]+/);
-  if (items.length > 80) throw new Error(`${fieldName} supports at most 80 logins`);
-  return uniqueStrings(items.map((item) => cleanGithubLogin(item, fieldName)).filter(Boolean));
-}
-
-export function parseOrgList(value, fieldName) {
-  return normalizeOrgList(value, fieldName);
-}
-
-export function normalizeOrgList(value, fieldName) {
-  const items = Array.isArray(value) ? value : String(value || "").split(/[\s,]+/);
-  if (items.length > 80) throw new Error(`${fieldName} supports at most 80 orgs`);
-  return uniqueStrings(items.map((item) => cleanGithubOrg(item, fieldName)).filter(Boolean));
-}
-
-export function cleanGithubLogin(value, fieldName) {
-  const login = String(value || "").trim().toLowerCase();
-  if (!login) return "";
-  if (
-    login.length > 39 ||
-    !/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(login) ||
-    login.includes("--")
-  ) {
-    throw new Error(`${fieldName} contains an invalid GitHub login`);
-  }
-  return login;
-}
-
-export function cleanGithubOrg(value, fieldName) {
-  return cleanGithubLogin(value, fieldName);
-}
-
-export function isAdminLogin(login, orgLogins, authConfig) {
-  return authConfig.admin_logins.includes(String(login || "").toLowerCase());
-}
-
-export function isAdminPrincipal(login, orgLogins, authConfig) {
-  return isAdminLogin(login, orgLogins, authConfig) || hasOrgMatch(orgLogins, authConfig.admin_orgs);
-}
-
-export function isAllowedPrincipal(login, orgLogins, authConfig) {
-  const normalizedLogin = String(login || "").toLowerCase();
-  return (
-    authConfig.allowed_logins.includes(normalizedLogin) ||
-    hasOrgMatch(orgLogins, authConfig.allowed_orgs) ||
-    isAdminPrincipal(normalizedLogin, orgLogins, authConfig)
-  );
-}
-
-export function authorizedOrgLogins(orgLogins, authConfig) {
-  const authorized = new Set([...authConfig.allowed_orgs, ...authConfig.admin_orgs]);
-  return uniqueStrings(orgLogins).filter((org) => authorized.has(org));
-}
-
-export function hasOrgMatch(orgLogins, configuredOrgs) {
-  const orgs = new Set(uniqueStrings(orgLogins));
-  return configuredOrgs.some((org) => orgs.has(String(org || "").toLowerCase()));
-}
-
 export async function loadAccountOptionsConfig(env) {
   if (hasRuntimeInstanceStore(env)) {
     const state = await runtimeInstanceCommand(env);
@@ -13648,65 +13584,6 @@ export function accountCounts(accountOptions) {
   }
   return counts;
 }
-
-export function uniqueStrings(items) {
-  const result = [];
-  const seen = new Set();
-  for (const item of items) {
-    const text = String(item || "").trim().toLowerCase();
-    if (!text || seen.has(text)) continue;
-    seen.add(text);
-    result.push(text);
-  }
-  return result;
-}
-
-export function randomToken() {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  return base64UrlEncodeBytes(bytes);
-}
-
-export function base64UrlEncodeJson(value) {
-  return base64UrlEncodeBytes(new TextEncoder().encode(JSON.stringify(value)));
-}
-
-export function base64UrlEncodeBytes(bytes) {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-export function base64UrlDecode(value) {
-  const base64 = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return new TextDecoder().decode(bytes);
-}
-
-export function parseCookies(header) {
-  const result = {};
-  for (const part of header.split(";")) {
-    const [name, ...rest] = part.trim().split("=");
-    if (!name) continue;
-    result[name] = decodeURIComponent(rest.join("="));
-  }
-  return result;
-}
-
-export function cookie(name, value, maxAge) {
-  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
-}
-
-export function clearCookie(name) {
-  return `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
-}
-
-export function clearOAuthCookie() {
-  return { "Set-Cookie": clearCookie(OAUTH_STATE_COOKIE) };
-}
-
 
 export function requireMarketBenchmarkSyncToken(request, env) {
   const expected = String(env.MARKET_BENCHMARK_SYNC_TOKEN || env.STRATEGY_SWITCH_SYNC_TOKEN || env.RUNTIME_SETTINGS_DISPATCH_TOKEN || "");
