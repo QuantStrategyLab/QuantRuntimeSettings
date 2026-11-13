@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -794,7 +795,7 @@ try {
   process.env.PYTHONPATH = "/tmp/should-not-inherit";
   const calcRoot = await mkdtemp(join(tmpdir(), "qrt-ux1-calc-"));
   const demoRoot = await mkdtemp(join(tmpdir(), "qrt-ux1-demo-"));
-  const bystander = spawn("sleep", ["30"], { shell: false, stdio: "ignore" });
+  const bystander = spawn("sleep", ["120"], { shell: false, stdio: "ignore" });
   let demoChild = null;
   const demoPath = fileURLToPath(new URL("../web/strategy-switch-console/ux1_local_demo.mjs", import.meta.url));
   const configPath = join(demoRoot, "operator.json");
@@ -854,8 +855,16 @@ try {
     const demoMaterialized = join(demoRoot, "materialized.json");
     await writeFile(demoMaterialized, "{}\n");
     const demoExecutable = await writeFile(join(demoRoot, "calc.mjs"), "process.stdin.resume();process.stdin.on('end',()=>process.stdout.write('{}'));\n").then(() => join(demoRoot, "calc.mjs"));
-    const port = 22000 + (process.pid % 20000);
-    await writeFile(configPath, JSON.stringify({
+    const choosePort = () => new Promise((resolve, reject) => {
+      const probe = createServer();
+      probe.once("error", reject);
+      probe.listen(0, "127.0.0.1", () => {
+        const { port: freePort } = probe.address();
+        probe.close((error) => error ? reject(error) : resolve(freePort));
+      });
+    });
+    let port = await choosePort();
+    const demoConfig = {
       interpreter: process.execPath,
       executable: demoExecutable,
       input_roots: { raw: demoRaw, r6: demoR6, materialized: demoMaterialized },
@@ -863,7 +872,8 @@ try {
       state_root: stateRoot,
       port,
       login: "ux1-local-operator",
-    }));
+    };
+    await writeFile(configPath, JSON.stringify(demoConfig));
     const runNode = (args) => new Promise((resolve, reject) => {
       const child = spawn(process.execPath, args, { shell: false });
       let stdout = "";
@@ -924,7 +934,11 @@ try {
     assert.match(stopped.stdout, /status=stopped/);
     assert.equal(stopped.stdout.includes(token), false);
     assert.equal(bystander.exitCode, null);
+    assert.equal(bystander.signalCode, null);
     demoChild = null;
+    // Keep the same durable state; the new process need not reuse the old listener.
+    port = await choosePort();
+    await writeFile(configPath, JSON.stringify({ ...demoConfig, port }));
     const restarted = await startDemo();
     const tokenAgain = await readFile(join(stateRoot, "session"), "utf8");
     assert.notEqual(tokenAgain, token);
@@ -942,6 +956,7 @@ try {
     const after = await runNode([demoPath, "status", "--config", configPath]);
     assert.match(after.stdout, /status=stopped/);
     assert.equal(bystander.exitCode, null);
+    assert.equal(bystander.signalCode, null);
   } finally {
     if (previousSentinel === undefined) delete process.env.BROKER_SECRET_SENTINEL;
     else process.env.BROKER_SECRET_SENTINEL = previousSentinel;
