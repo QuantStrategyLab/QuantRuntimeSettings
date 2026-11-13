@@ -390,7 +390,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             state = '⏳ 已提交，成交待确认' if zh else '⏳ Submitted, fills unconfirmed'
         elif account_idle:
             state = '😴 无交易' if zh else '😴 No trades'
-        elif snapshot_only or (snapshots and all(outcome == 'not_run' for _, outcome in bindings)):
+        elif snapshot_only or (platform == 'longbridge' and snapshots
+                               and all(outcome == 'not_run' for _, outcome in bindings)):
             state = '仅核实持仓快照，交易情况未知' if zh else 'Holdings snapshot verified, trading activity unknown'
             if equity != unknown:
                 state = '仅核实账户快照，交易情况未知' if zh else 'Account snapshot verified, trading activity unknown'
