@@ -1123,6 +1123,28 @@ jobs:
               && [ "$(git rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || exit 2
             exit 0
           fi
+          # S1 Desk default-entry release source (#1133): exact source, sole parent, tree
+          # and map from main history. Its tree already carries the reviewed #1126 Binance
+          # wallet reader, so the Worker and test blobs are pinned and nothing is composed.
+          if [ "$RELEASE_SOURCE_SHA" = "1618b2488698804e8bedc19d3509694e4c306a75" ]; then
+            [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$frontend_mode" = true ] \
+              && [ "$SYNC_SECRETS" = false ] && [ "$SYNC_STRATEGY_PROFILES" = false ] \
+              && [ "$SKIP_BINANCE_RECEIVER_CHECKS" = false ] || exit 2
+            control_sha="$(git rev-parse HEAD)"
+            [ "$control_sha" = "$GITHUB_SHA" ] && [ "$control_sha" != "$RELEASE_SOURCE_SHA" ] || exit 2
+            git cat-file -e "${RELEASE_SOURCE_SHA}^{commit}"
+            git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$control_sha"
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^@")" = "04f9d56db1e2cfcc2935d9d8d39574296bdb9512" ] || exit 2
+            expected_tree="d60cd12bfb0ca5ce23539656b8a33f33ca658b63"
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "$expected_tree" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" = "61a1037c87721cc6b81f4621e707774cc1820877" ] || exit 2
+            [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/worker.js")" = "407d74accf7ee0b0117da712a24ab1e1255bcfbf" ] \
+              && [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:tests/binance_account_facts_validation.mjs")" = "f590e43dd71274e761c505cd375b05b7da0b9756" ] || exit 2
+            git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
+            [ "$(git rev-parse HEAD)" = "$RELEASE_SOURCE_SHA" ] \
+              && [ "$(git rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || exit 2
+            exit 0
+          fi
           # S1 desk alert release source: exact source, sole parent, tree and map from main
           # history. CONTROL is the later reviewed main commit that runs this workflow;
           # SOURCE is selected only after CONTROL, ancestry and all four pins match.
@@ -1271,6 +1293,7 @@ jobs:
           older_reviewed_main="c1b737d6e721eb9fe71a12c613fbb49d3fa51563"
           console_source="6f9b84e6192b68bac1627337fb4e633e178fcee3"
           s1_source="aa05d670f9a51a52c91f142beae65888f7b110fc"
+          desk_entry_source="1618b2488698804e8bedc19d3509694e4c306a75"
           head_sha="$(git rev-parse HEAD)"
           if [ "${RELEASE_SOURCE_SHA:-}" = "866388696a6bad7d1b88a76a3ab5957c7958b3bf" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$head_sha" = "$console_source" ] || exit 2
@@ -1283,9 +1306,15 @@ jobs:
             git diff --quiet
             exit 0
           fi
-          if [ "$head_sha" = "$s1_source" ] || [ "$head_sha" = "$console_source" ] || [ "$head_sha" = "$reviewed_main" ] || [ "$head_sha" = "$historical_reviewed_main" ] || [ "$head_sha" = "$older_reviewed_main" ]; then
+          if [ "$head_sha" = "$desk_entry_source" ] || [ "$head_sha" = "$s1_source" ] || [ "$head_sha" = "$console_source" ] || [ "$head_sha" = "$reviewed_main" ] || [ "$head_sha" = "$historical_reviewed_main" ] || [ "$head_sha" = "$older_reviewed_main" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] || exit 2
-            if [ "$head_sha" = "$s1_source" ]; then
+            if [ "$head_sha" = "$desk_entry_source" ]; then
+              # The Desk default-entry tree supplies the Worker and the built frontend map
+              # unchanged; the rebuilt map must equal the pinned blob, with no delta below.
+              [ "${RELEASE_SOURCE_SHA:-}" = "$desk_entry_source" ] || exit 2
+              [ "$(git rev-parse 'HEAD^{tree}')" = "d60cd12bfb0ca5ce23539656b8a33f33ca658b63" ] || exit 2
+              [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "61a1037c87721cc6b81f4621e707774cc1820877" ] || exit 2
+            elif [ "$head_sha" = "$s1_source" ]; then
               # The selected S1 tree supplies the desk producer and the built frontend
               # map (the rebuilt map must equal the pinned blob below). Its Worker is
               # composed with exactly the reviewed #1126 wallet valuation increment, so
@@ -1809,7 +1838,8 @@ jobs:
             const binanceWalletRelease = process.env.RELEASE_SOURCE_SHA === '866388696a6bad7d1b88a76a3ab5957c7958b3bf';
             const currentReviewedMain = binanceWalletRelease || binanceDigestRelease || process.env.RELEASE_SOURCE_SHA === 'dd63b3c8b73b588ce411316d904efd26f2c4f382'
               || process.env.RELEASE_SOURCE_SHA === '6f9b84e6192b68bac1627337fb4e633e178fcee3'
-              || process.env.RELEASE_SOURCE_SHA === 'aa05d670f9a51a52c91f142beae65888f7b110fc';
+              || process.env.RELEASE_SOURCE_SHA === 'aa05d670f9a51a52c91f142beae65888f7b110fc'
+              || process.env.RELEASE_SOURCE_SHA === '1618b2488698804e8bedc19d3509694e4c306a75';
             const reviewedMain = currentReviewedMain
               || process.env.RELEASE_SOURCE_SHA === '084ba4281cfff3304cf226ce511a2fc0a6b67b08'
               || process.env.RELEASE_SOURCE_SHA === 'c1b737d6e721eb9fe71a12c613fbb49d3fa51563';
