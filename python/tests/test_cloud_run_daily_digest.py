@@ -91,7 +91,8 @@ class CloudRunDigestTests(unittest.TestCase):
     def test_binance_snapshot_shows_holdings_and_keeps_trade_counts_unknown(self):
         from dataclasses import replace
 
-        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True,
+                   'account_label': 'Binance'}
         cfg = replace(self.enable(), expected=[binding],
                       binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
                       binance_snapshot_token='synthetic-read-only-token-for-tests')
@@ -103,16 +104,70 @@ class CloudRunDigestTests(unittest.TestCase):
             opener.return_value.open.return_value = io.BytesIO(json.dumps(response).encode())
             self.run_request(configuration=cfg, platform_config=config([binding]))
             request = opener.return_value.open.call_args.args[0]
-            self.assertEqual(request.full_url, cfg.binance_snapshot_endpoint + '?business_day=2026-10-15')
+            self.assertEqual(request.full_url, cfg.binance_snapshot_endpoint + '?business_day=2026-10-15&include_valuation=1')
             self.assertEqual(request.get_header('User-agent'), 'QSL-Daily-Digest/1.0')
             self.assertIsNone(opener.call_args.args[0].redirect_request(None, None, 302, None, None, None))
         text, = self.sent
+        self.assertIn('🏦 Binance · 账户 · 账户快照', text)
         self.assertIn('仅核实持仓快照，交易情况未知', text)
         self.assertIn('BTC 0.0125', text)
         self.assertIn('币 1.5', text)
         self.assertIn('A' * 128 + ' 3', text)
         self.assertIn('提交订单 未知｜成交回报 未知', text)
         self.assertNotIn('策略未运行', text)
+
+    def test_binance_wallet_valuation_is_dated_and_separate_from_holdings(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        cfg = replace(self.enable(), expected=[binding],
+                      binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
+                      binance_snapshot_token='synthetic-read-only-token-for-tests')
+        valuation = {'amount': '25.5', 'currency': 'USDT', 'as_of': '2026-10-15T15:59:00Z'}
+        response = {'ok': True, 'business_day': '2026-10-15', 'as_of': '2026-10-15T16:00:00Z',
+                    'account_key': binding['opaque_account_uid'], 'target_id': binding['target_id'],
+                    'holdings': [{'asset': 'BTC', 'quantity': '0.0125'}]}
+        for change, expected in (({}, '钱包估值（券商返回范围）：USDT 25.50 · 快照 2026-10-15 23:59'),
+                                 ({'amount': '1234.12345678901234567890123456789'},
+                                  '钱包估值（券商返回范围）：USDT 1,234.12345678901234567890123456789'),
+                                 ({'currency': 'USD'}, '总资产：未知'),
+                                 ({'as_of': '2026-10-15T16:00:01Z'}, '总资产：未知')):
+            with self.subTest(change=change), patch.object(app.urllib.request, 'build_opener') as opener:
+                self.store, self.sent = MemoryStore(), []
+                opener.return_value.open.return_value = io.BytesIO(json.dumps({
+                    **response, 'wallet_valuation': {**valuation, **change},
+                }).encode())
+                self.run_request(configuration=cfg, platform_config=config([binding]))
+                text, = self.sent
+                self.assertIn(expected, text)
+                self.assertIn('BTC 0.0125', text)
+                self.assertIn('提交订单 未知｜成交回报 未知', text)
+
+    def test_binance_receipts_show_verified_runs_without_claiming_daily_totals(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True,
+                   'receipt_candidate': True, 'strategy_profile': 'crypto_live_pool_rotation'}
+        cfg = replace(self.enable(), expected=[binding],
+                      binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
+                      binance_snapshot_token='synthetic-read-only-token-for-tests')
+        response = {'ok': True, 'business_day': '2026-10-15', 'as_of': '2026-10-15T16:00:00Z',
+                    'account_key': binding['opaque_account_uid'], 'target_id': binding['target_id'],
+                    'holdings': [{'asset': 'BTC', 'quantity': '0.0125'}],
+                    'wallet_valuation': {'amount': '25.5', 'currency': 'USDT', 'as_of': '2026-10-15T15:59:00Z'}}
+        row = {k: v for k, v in ROW.items() if k != 'notification_event'}
+        row.update({name: binding[name] for name in app.IDENTITY})
+        row.update(status='ok', execution_status='no_action', execution_mode='live')
+        key = 'binance/2026-10-15/synthetic-slot.json'
+        for archived, verified in ((row, True), ({**row, 'target_id': 'wrong-target'}, False)):
+            with self.subTest(verified=verified), patch.object(app.urllib.request, 'build_opener') as opener:
+                self.store, self.sent = MemoryStore({key: {'runs': [archived]}}), []
+                opener.return_value.open.return_value = io.BytesIO(json.dumps(response).encode())
+                self.run_request(configuration=cfg, platform_config=config([binding]))
+                text, = self.sent
+                self.assertIn('钱包估值（券商返回范围）：USDT 25.50', text)
+                self.assertIn('提交订单 未知｜成交回报 未知', text)
+                self.assertEqual('归档执行回执：1 轮，已核实 1 轮无交易' in text, verified)
 
     def test_binance_snapshot_rejects_wrong_account_or_out_of_window(self):
         from dataclasses import replace
@@ -187,6 +242,42 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertIn('证据留存失败', text)
         self.assertIn('证据传递失败', text)
 
+    def test_schwab_confirmed_risk_block_keeps_run_scope(self):
+        row = {**ROW, 'status': 'alert', 'execution_status': 'blocked',
+               'order_count': None, 'fill_count': None,
+               'block_reason': {'reason_code': 'strategy_risk_rejected',
+                                'order_submitted_this_run': False}}
+        row.pop('notification_event')
+        self.store.rows[next(iter(self.store.rows))] = {'runs': [row]}
+        self.run_request(configuration=self.enable())
+        text, = self.sent
+        self.assertIn('策略风控拦截 · 本轮 0 单', text)
+        self.assertNotIn('执行异常', text)
+        self.assertIn('提交订单 未知｜成交回报 未知', text)
+
+    def test_platform_order_and_longbridge_snapshot_do_not_depend_on_roster_order(self):
+        from dataclasses import replace
+
+        longbridge = {**EXPECTED[0], 'platform_id': 'longbridge', 'account_label': 'HK'}
+        fact = {k: longbridge[k] for k in app.IDENTITY}
+        fact.update(business_day=ROW['business_day'], actually_ran=False,
+                    account_daily_facts={'snapshots': [{
+                        'as_of': '2026-10-16T05:55:00+08:00',
+                        'equity': 250, 'equity_currency': 'HKD', 'holdings_scope': 'stocks_only',
+                        'holdings': [
+                            {'symbol': 'AAPL261120C345000.US', 'quantity': -1, 'asset_type': 'stock'},
+                            {'symbol': 'SYN.US', 'quantity': 3, 'asset_type': 'stock'},
+                        ],
+                    }]})
+        self.store.rows['longbridge/2026-10-15/synthetic-slot.json'] = {'runs': [fact]}
+        self.run_request(configuration=replace(self.enable(), expected=[longbridge, *EXPECTED]))
+        text, = self.sent
+        self.assertLess(text.index('🏦 Schwab'), text.index('🏦 LongBridge'))
+        self.assertIn('仅核实账户快照，交易情况未知', text)
+        self.assertIn('AAPL261120C345000.US -1张', text)
+        self.assertIn('SYN.US 3股', text)
+        self.assertNotIn('空仓', text)
+
     def test_legacy_reported_assets_retain_unknown_snapshot_time(self):
         key = next(iter(self.store.rows))
         self.store = MemoryStore({key: {'runs': [
@@ -219,6 +310,25 @@ class CloudRunDigestTests(unittest.TestCase):
                     self.assertIn(part, self.sent[0])
                 for part in excluded:
                     self.assertNotIn(part, self.sent[0])
+
+    def test_ibkr_empty_stock_snapshot_does_not_claim_full_account_empty(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'ibkr'}
+        configuration = replace(self.enable(), expected=[binding])
+        key = f"ibkr/{ROW['business_day']}/{binding['candidate_slot']}.json"
+        snapshot = {'as_of': '2026-10-16T05:10:00+08:00',
+                    'holdings_scope': 'stocks_only', 'holdings': []}
+        for complete, label in ((True, '已核实无股票持仓；其他资产未知'), (False, '持仓：未知')):
+            with self.subTest(complete=complete):
+                row = {**ROW, 'platform_id': 'ibkr', 'account_daily_facts': {
+                    'snapshots': [{**snapshot, 'holdings_complete': complete}],
+                }}
+                row.pop('notification_event')
+                self.store, self.sent = MemoryStore({key: {'runs': [row]}}), []
+                self.run_request(configuration=configuration)
+                self.assertIn(label, self.sent[0])
+                self.assertNotIn('持仓：空仓', self.sent[0])
 
     def test_ibkr_account_report_reads_cash_without_changing_run_coverage(self):
         from dataclasses import replace
