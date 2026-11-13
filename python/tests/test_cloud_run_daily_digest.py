@@ -285,6 +285,25 @@ class CloudRunDigestTests(unittest.TestCase):
                 for part in excluded:
                     self.assertNotIn(part, self.sent[0])
 
+    def test_ibkr_empty_stock_snapshot_does_not_claim_full_account_empty(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'ibkr'}
+        configuration = replace(self.enable(), expected=[binding])
+        key = f"ibkr/{ROW['business_day']}/{binding['candidate_slot']}.json"
+        snapshot = {'as_of': '2026-10-16T05:10:00+08:00',
+                    'holdings_scope': 'stocks_only', 'holdings': []}
+        for complete, label in ((True, '已核实无股票持仓；其他资产未知'), (False, '持仓：未知')):
+            with self.subTest(complete=complete):
+                row = {**ROW, 'platform_id': 'ibkr', 'account_daily_facts': {
+                    'snapshots': [{**snapshot, 'holdings_complete': complete}],
+                }}
+                row.pop('notification_event')
+                self.store, self.sent = MemoryStore({key: {'runs': [row]}}), []
+                self.run_request(configuration=configuration)
+                self.assertIn(label, self.sent[0])
+                self.assertNotIn('持仓：空仓', self.sent[0])
+
     def test_ibkr_account_report_reads_cash_without_changing_run_coverage(self):
         from dataclasses import replace
         binding = {**EXPECTED[0], 'platform_id': 'ibkr'}

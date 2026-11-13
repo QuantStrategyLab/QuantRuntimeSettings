@@ -294,6 +294,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             except ValueError:
                 pass
         complete, holdings, equity = False, [], unknown
+        no_stocks = False
         stamp_label, holding_stamp_label = '', ''
         if snapshots:
             snapshots.sort(key=lambda pair: pair[0], reverse=True)
@@ -307,7 +308,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             for stamp, snapshot in snapshots:
                 holdings = snapshot.get('holdings') or []
                 complete = snapshot.get('holdings_complete') is True
-                if holdings or complete:
+                no_stocks = platform == 'ibkr' and snapshot.get('no_stocks') is True
+                if holdings or complete or no_stocks:
                     if stamp != asset_stamp:
                         holding_stamp_label = _snapshot_label(stamp, window, zh)
                     break
@@ -341,7 +343,12 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             cash_lines.append(('期末已结算现金：' if zh else 'Period-end settled cash: ') + value)
         holding_label = '📦 持仓：' if zh else '📦 Holdings: '
         if not holdings:
-            holding_label += ('空仓' if zh else 'No holdings') if complete else unknown
+            if complete:
+                holding_label += '空仓' if zh else 'No holdings'
+            elif no_stocks:
+                holding_label += '已核实无股票持仓；其他资产未知' if zh else 'No stock positions verified; other assets unknown'
+            else:
+                holding_label += unknown
         elif not complete:
             holding_label += '仅列已核实持仓' if zh else 'Verified positions only'
         if holding_stamp_label:
