@@ -255,6 +255,24 @@ import {
   runtimeInstanceConflict,
   runtimeInstanceFields,
 } from "../runtime_instances/command.js";
+import {
+  HK_STOP_DO_ACTIONS,
+  HK_STOP_REQUEST_ID,
+  HK_STOP_TARGET_ID,
+} from "../hk_stop/constants.js";
+import {
+  hkStopDigestOrEmpty,
+  hkStopExactObject,
+  hkStopIdentityComplete,
+  hkStopObservation,
+  hkStopSourceIdentity,
+  normalizeHkStopResult,
+  presentHkStop,
+} from "../hk_stop/helpers.js";
+import {
+  acceptHkStopResult as acceptHkStopResultImpl,
+  loadHkStopAccount as loadHkStopAccountImpl,
+} from "../hk_stop/http.js";
 import { startLogin, finishLogin } from "../auth/login.js";
 import { readSession, makeSession } from "../auth/session.js";
 import {
@@ -321,6 +339,16 @@ export {
   cookie,
   parseCookies,
   randomToken,
+  HK_STOP_DO_ACTIONS,
+  HK_STOP_REQUEST_ID,
+  HK_STOP_TARGET_ID,
+  hkStopDigestOrEmpty,
+  hkStopExactObject,
+  hkStopIdentityComplete,
+  hkStopObservation,
+  hkStopSourceIdentity,
+  normalizeHkStopResult,
+  presentHkStop,
 };
 export {
   ACCOUNT_DIAGNOSIS_REQUEST_PATH,
@@ -612,10 +640,7 @@ export const ACCOUNT_FACTS_DO_ACTIONS = new Set([
 export const MARKET_BENCHMARK_DO_ACTIONS = new Set([
   "market_benchmark_put", "market_benchmark_read", "market_benchmark_revise",
 ]);
-export const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
 export const RUNTIME_CONTROL_DO_ACTIONS = new Set(["runtime_control_claim", "runtime_control_record", "runtime_control_read", "runtime_control_resolve", "runtime_control_capture", "runtime_control_begin_check", "runtime_control_record_check"]);
-export const HK_STOP_TARGET_ID = "longbridge/hk";
-export const HK_STOP_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio", "dca_mode", "dca_base_investment_usd"];
 export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 // Research tasks are a separate, immutable and no-order index.  They do not
@@ -2375,172 +2400,16 @@ export function logout(request) {
   });
 }
 
-export function hkStopSourceIdentity(config, item = {}) {
-  const source = config || {};
-  const selector = source.account_selector;
-  const selectors = Array.isArray(selector)
-    ? selector.map((value) => String(value).trim()).filter(Boolean)
-    : String(selector || "").split(",").map((value) => value.trim()).filter(Boolean);
-  const broker = source.broker_environment;
-  return {
-    key: String(source.key || item.key || ""),
-    target_name: String(source.target_name || ""),
-    platform_id: "longbridge",
-    deployment_selector: String(source.deployment_selector || "").trim(),
-    account_selector: selectors,
-    account_scope: String(source.account_scope || "").trim(),
-    service_name: String(source.service_name || "").trim(),
-    variable_scope: source.variable_scope === "environment" ? "environment" : "",
-    github_environment: String(source.github_environment || "").trim(),
-    broker_environment: broker === "live" || broker === "paper" ? broker : null,
-    runtime_status_target_id: String(source.runtime_status_target_id || "").trim(),
-  };
-}
-
-export function hkStopDigestOrEmpty(value) {
-  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value) ? value : "";
-}
-
-export function hkStopExactObject(value, keys) {
-  return Boolean(value) && !Array.isArray(value) && typeof value === "object"
-    && Object.keys(value).length === keys.length
-    && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
-}
-
-export function normalizeHkStopResult(raw, env) {
-  const expectedProject = env?.HK_STOP_GCP_PROJECT_ID;
-  if (typeof expectedProject !== "string" || !/^[a-z][a-z0-9-]{4,61}[a-z0-9]$/.test(expectedProject)) {
-    throw new HttpError("hk_stop_project_not_configured", 503);
-  }
-  const top = ["schema_version", "request_id", "source_revision", "source_identity_sha256", "target_id", "runtime_identity_sha256", "producer", "observed_at", "readback", "no_order", "in_flight_state", "retirement_complete"];
-  const producerKeys = ["repository", "workflow_path", "run_id", "run_attempt", "head_sha"];
-  const readbackKeys = ["project", "region", "service", "revision_name", "runtime_enabled", "scheduler_state", "scheduler_count", "scheduler_set_sha256", "complete"];
-  if (!hkStopExactObject(raw, top)
-    || raw.schema_version !== "qsl_hk_stop_result.v1"
-    || !HK_STOP_REQUEST_ID.test(String(raw.request_id || ""))
-    || !Number.isSafeInteger(raw.source_revision) || raw.source_revision < 0
-    || !hkStopDigestOrEmpty(raw.source_identity_sha256) || !hkStopDigestOrEmpty(raw.runtime_identity_sha256)
-    || raw.target_id !== HK_STOP_TARGET_ID
-    || !hkStopExactObject(raw.producer, producerKeys)
-    || raw.producer.repository !== "QuantStrategyLab/LongBridgePlatform"
-    || raw.producer.workflow_path !== ".github/workflows/stop-hk-runtime.yml"
-    || !/^(0|[1-9][0-9]*)$/.test(raw.producer.run_id)
-    || raw.producer.run_attempt !== 1
-    || !/^[0-9a-f]{40}$/.test(raw.producer.head_sha)
-    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(raw.observed_at)
-    || !hkStopExactObject(raw.readback, readbackKeys)
-    || raw.readback.project !== expectedProject
-    || raw.readback.region !== "asia-east2"
-    || raw.readback.service !== "longbridge-quant-hk-service"
-    || typeof raw.readback.revision_name !== "string"
-    || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(raw.readback.revision_name)
-    || raw.readback.runtime_enabled !== false
-    || raw.readback.scheduler_state !== "paused"
-    || !Number.isSafeInteger(raw.readback.scheduler_count) || raw.readback.scheduler_count < 1
-    || !hkStopDigestOrEmpty(raw.readback.scheduler_set_sha256)
-    || raw.readback.complete !== true
-    || raw.no_order !== true
-    || raw.in_flight_state !== "unknown"
-    || raw.retirement_complete !== false) {
-    throw new HttpError("hk_stop_result_rejected", 400);
-  }
-  return {
-    schema_version: raw.schema_version,
-    request_id: String(raw.request_id).toLowerCase(),
-    source_revision: raw.source_revision,
-    source_identity_sha256: raw.source_identity_sha256,
-    target_id: raw.target_id,
-    runtime_identity_sha256: raw.runtime_identity_sha256,
-    producer: {
-      repository: raw.producer.repository,
-      workflow_path: raw.producer.workflow_path,
-      run_id: raw.producer.run_id,
-      run_attempt: raw.producer.run_attempt,
-      head_sha: raw.producer.head_sha,
-    },
-    observed_at: raw.observed_at,
-    readback: { ...raw.readback },
-    no_order: true,
-    in_flight_state: "unknown",
-    retirement_complete: false,
-  };
-}
-
 export async function acceptHkStopResult(request, env) {
-  requireDedicatedExecutionEvidenceSyncToken(request, env);
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const result = normalizeHkStopResult(await readBoundedJson(request, 8192), env);
-  const recorded = await runtimeInstanceCommand(env, {
-    action: "hk_stop_accept_result",
-    result,
-    now: new Date().toISOString(),
+  return acceptHkStopResultImpl(request, env, {
+    requireDedicatedExecutionEvidenceSyncToken,
+    readBoundedJson,
+    json,
   });
-  return json({
-    ok: true,
-    replayed: recorded.replayed === true,
-    phase: "stopped",
-    stop_confirmed: true,
-    platform_applied: false,
-    request_succeeded: false,
-    in_flight_state: "unknown",
-  });
-}
-
-export function hkStopIdentityComplete(identity) {
-  return identity?.key === "hk"
-    && identity.target_name === "hk"
-    && identity.platform_id === "longbridge"
-    && identity.deployment_selector
-    && identity.account_selector?.length
-    && identity.account_scope === "HK"
-    && identity.service_name === "longbridge-quant-hk-service"
-    && identity.variable_scope === "environment"
-    && identity.github_environment === "longbridge-hk";
-}
-
-export function presentHkStop(record, observation, repository) {
-  const dispatchResult = record?.dispatch_result || null;
-  return {
-    ok: true,
-    configured: false,
-    platform_applied: false,
-    request_succeeded: false,
-    stop_confirmed: record?.phase === "stopped",
-    in_flight_state: "unknown",
-    reused: record?.reused === true,
-    persisted: record?.persisted !== false,
-    request_id: record?.request_id || null,
-    phase: record?.phase || null,
-    dispatch_result: dispatchResult,
-    action: record ? "stop" : null,
-    requested_at: record?.requested_at || null,
-    updated_at: record?.updated_at || null,
-    workflow_run_id: null,
-    workflow_run_attempt: null,
-    actions_url: dispatchResult === "accepted"
-      ? `https://github.com/${repository}/actions/workflows/manual-runtime-stop.yml`
-      : null,
-    runtime_observation: observation || { status: "unknown", request_succeeded: false },
-  };
-}
-
-export async function hkStopObservation() {
-  // Lifecycle snapshots identify a target id, not this stop request's account.
-  // A fresh disabled snapshot can belong to an older identity, so it stays unknown.
-  return { status: "unknown", request_succeeded: false };
 }
 
 export async function loadHkStopAccount(env) {
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const loaded = await loadAccountOptionsConfig(env);
-  if (loaded.source !== "durable_object" || !Number.isSafeInteger(loaded.revision)) {
-    throw new HttpError("hk_stop_source_unavailable", 409);
-  }
-  const matches = (loaded.options?.longbridge || []).filter((item) => item.key === "hk" && item.target_name === "hk");
-  if (matches.length !== 1) throw new HttpError("stop requires one configured target", 400);
-  const identity = hkStopSourceIdentity(matches[0], { key: "hk" });
-  if (!hkStopIdentityComplete(identity)) throw new HttpError("hk_stop_identity_incomplete", 400);
-  return { revision: loaded.revision, identity };
+  return loadHkStopAccountImpl(env, { loadAccountOptionsConfig });
 }
 
 export async function runtimeControlSource(env, platform, targetName) {
