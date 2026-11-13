@@ -231,6 +231,7 @@ jobs:
           node tests/research_task_extract_validation.mjs
           node tests/control_plane_extract_validation.mjs
           node tests/account_settings_extract_validation.mjs
+          node tests/reconciliation_recovery_extract_validation.mjs
           node --experimental-strip-types tests/research_summary_worker_validation.mjs
           node tests/console_v2_worker_validation.mjs
           node --experimental-strip-types tests/console_update_notice_validation.mjs
