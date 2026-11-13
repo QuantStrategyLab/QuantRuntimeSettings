@@ -6,7 +6,6 @@ import { auditPageQuery, auditEventInPage, auditEventOrder, auditNextCursor } fr
 import { runtimeReadbackProjection } from "../console_api/runtime_readback.js";
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "../console_api/initial_enrollment.js";
 import { readNotificationLog } from "../console_api/notification_receipts.js";
-import { readRuntimeControlReceipt } from "../console_api/runtime_control_receipts.js";
 import { KvDirectory, currentStrategiesSignature, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "../../kv_directory.js";
 import { sourceListFailure } from "../console_api/read_failures.js";
 import { strategyTargetExecution, accountExecutionEvidence } from "../console_api/strategy_execution.js";
@@ -153,6 +152,48 @@ import {
   researchPromotionApplicationResponse as researchPromotionApplicationResponseImpl,
   researchPromotionApplicationInternalResponse as researchPromotionApplicationInternalResponseImpl,
 } from "../research_promotion/applications.js";
+import {
+  RESEARCH_PROMOTION_TICKET_PREFIX,
+  RESEARCH_PROMOTION_TICKET_SCHEMA,
+  RESEARCH_PROMOTION_QUEUE_SCHEMA,
+  RESEARCH_PROMOTION_MAX_TICKETS,
+  RESEARCH_PROMOTION_MAX_BODY_BYTES,
+  RESEARCH_PROMOTION_RISK_PROFILES,
+  RESEARCH_PROMOTION_EXECUTION_MODES,
+  DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE,
+} from "../research_promotion/constants.js";
+import {
+  requireDedicatedResearchPromotionSyncToken,
+  researchPromotionTicketKey,
+  platformSupportsBrokerPaperMode,
+  supportedBrokerEnvironmentsForPlatform,
+  normalizeResearchPromotionRiskProfile,
+  normalizePromotionConfirmation,
+  validateResearchPromotionSelectedAccount as validateResearchPromotionSelectedAccountImpl,
+  RESEARCH_SUMMARY_HAN,
+  RESEARCH_SUMMARY_LATIN,
+  RESEARCH_SUMMARY_DIGIT,
+  RESEARCH_SUMMARY_LOCALE_FIELDS,
+  RESEARCH_SUMMARY_NEW_KEYS,
+  RESEARCH_SUMMARY_OLD_KEYS,
+  RESEARCH_SUMMARY_HIDDEN,
+  researchSummaryExactKeys,
+  researchSummaryCodePointLength,
+  researchSummarySegment,
+  sameResearchSummaryMaterial,
+  readBilingualResearchPromotionExplanation,
+  readLegacyResearchPromotionExplanation,
+  normalizeSavedResearchPromotionExplanation,
+  normalizeResearchPromotionSummary,
+  normalizeResearchPromotionTicket,
+  attachPromotionQueueReadMetadata,
+} from "../research_promotion/tickets.js";
+import {
+  syncResearchPromotionTicketResponse as syncResearchPromotionTicketResponseImpl,
+  fetchResearchPromotionTicketResponse as fetchResearchPromotionTicketResponseImpl,
+  listResearchPromotionTickets as listResearchPromotionTicketsImpl,
+  researchPromotionTicketsResponse as researchPromotionTicketsResponseImpl,
+} from "../research_promotion/http.js";
 
 import { HttpError } from "../http_error.js";
 import { buildRiskEnvelopeView, attachRiskEnvelopeView } from "../risk_envelope.js";
@@ -264,6 +305,17 @@ import {
   acceptHkStopResult as acceptHkStopResultImpl,
   loadHkStopAccount as loadHkStopAccountImpl,
 } from "../hk_stop/http.js";
+import { RUNTIME_CONTROL_DO_ACTIONS } from "../runtime_control/constants.js";
+import {
+  presentRuntimeControl,
+  runtimeControlIdentityIsComplete,
+  runtimeControlStopRequest as runtimeControlStopRequestImpl,
+} from "../runtime_control/helpers.js";
+import {
+  runtimeControlSource as runtimeControlSourceImpl,
+  readPlatformRuntimeControl as readPlatformRuntimeControlImpl,
+  dispatchPlatformRuntimeControl as dispatchPlatformRuntimeControlImpl,
+} from "../runtime_control/http.js";
 import { startLogin, finishLogin } from "../auth/login.js";
 import { readSession, makeSession } from "../auth/session.js";
 import {
@@ -346,6 +398,39 @@ export {
   requireMarketBenchmarkRevisionToken,
   reviseMarketBenchmarkResponse,
   syncMarketBenchmarkResponse,
+  RUNTIME_CONTROL_DO_ACTIONS,
+  presentRuntimeControl,
+  runtimeControlIdentityIsComplete,
+  RESEARCH_PROMOTION_TICKET_PREFIX,
+  RESEARCH_PROMOTION_TICKET_SCHEMA,
+  RESEARCH_PROMOTION_QUEUE_SCHEMA,
+  RESEARCH_PROMOTION_MAX_TICKETS,
+  RESEARCH_PROMOTION_MAX_BODY_BYTES,
+  RESEARCH_PROMOTION_EXECUTION_MODES,
+  DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE,
+  requireDedicatedResearchPromotionSyncToken,
+  researchPromotionTicketKey,
+  platformSupportsBrokerPaperMode,
+  supportedBrokerEnvironmentsForPlatform,
+  normalizeResearchPromotionRiskProfile,
+  normalizePromotionConfirmation,
+  RESEARCH_SUMMARY_HAN,
+  RESEARCH_SUMMARY_LATIN,
+  RESEARCH_SUMMARY_DIGIT,
+  RESEARCH_SUMMARY_LOCALE_FIELDS,
+  RESEARCH_SUMMARY_NEW_KEYS,
+  RESEARCH_SUMMARY_OLD_KEYS,
+  RESEARCH_SUMMARY_HIDDEN,
+  researchSummaryExactKeys,
+  researchSummaryCodePointLength,
+  researchSummarySegment,
+  sameResearchSummaryMaterial,
+  readBilingualResearchPromotionExplanation,
+  readLegacyResearchPromotionExplanation,
+  normalizeSavedResearchPromotionExplanation,
+  normalizeResearchPromotionSummary,
+  normalizeResearchPromotionTicket,
+  attachPromotionQueueReadMetadata,
 };
 export {
   ACCOUNT_DIAGNOSIS_REQUEST_PATH,
@@ -634,7 +719,6 @@ export const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "binance_wallet_history_put", "binance_wallet_history_read",
   "binance_detail_put", "binance_detail_read",
 ]);
-export const RUNTIME_CONTROL_DO_ACTIONS = new Set(["runtime_control_claim", "runtime_control_record", "runtime_control_read", "runtime_control_resolve", "runtime_control_capture", "runtime_control_begin_check", "runtime_control_record_check"]);
 export const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio", "dca_mode", "dca_base_investment_usd"];
 export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 // Research tasks are a separate, immutable and no-order index.  They do not
@@ -651,28 +735,6 @@ const RESEARCH_TASK_TYPES = [
 ];
 export const RESEARCH_TASK_OBJECTIVES = ["diagnose_degradation", "test_hypothesis", "challenge_parameters", "evaluate_candidate"];
 
-// Research promotion tickets mirror QPK research_promotion_cycle.to_dict().
-// Console may record human intent only; live_authority_granted stays false.
-export const RESEARCH_PROMOTION_TICKET_PREFIX = "research_promotion_ticket:";
-export const RESEARCH_PROMOTION_TICKET_SCHEMA = "qsl.research_promotion_ticket.v1";
-export const RESEARCH_PROMOTION_QUEUE_SCHEMA = "qsl.research_promotion_ticket_queue.v1";
-export const RESEARCH_PROMOTION_MAX_TICKETS = 100;
-export const RESEARCH_PROMOTION_MAX_BODY_BYTES = 64 * 1024;
-const RESEARCH_PROMOTION_STATES = [
-  "parked",
-  "bounded_reopt",
-  "shadow_recorded",
-  "awaiting_human",
-  "human_accepted",
-  "human_rejected",
-];
-const RESEARCH_PROMOTION_RISK_PROFILES = [
-  "CAPITAL_PRESERVATION",
-  "BALANCED_COMPOUNDING",
-  "GROWTH_COMPOUNDING",
-];
-export const RESEARCH_PROMOTION_EXECUTION_MODES = ["live", "paper"];
-export const DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
 export const V7_PAPER_PREVIEW_PROFILE = "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve";
 export const V7_PAPER_APPLICATION_WORKFLOW_REPOSITORY = "QuantStrategyLab/LongBridgePlatform";
 export const V7_PAPER_APPLICATION_WORKFLOW = "apply-paper-candidate.yml";
@@ -2406,78 +2468,31 @@ export async function loadHkStopAccount(env) {
   return loadHkStopAccountImpl(env, { loadAccountOptionsConfig });
 }
 
-export async function runtimeControlSource(env, platform, targetName) {
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const source = await loadAccountOptionsConfig(env);
-  if (source.source !== "durable_object" || !Number.isSafeInteger(source.revision)) throw new HttpError("runtime_control_source_unavailable", 409);
-  const matches = (source.options?.[platform] || []).filter(item => item.target_name === targetName);
-  if (matches.length !== 1) throw new HttpError("runtime_control_identity_incomplete", 409);
-  const item = matches[0];
-  const identity = accountSettingsIdentity({ platform, key: item.key, config: item });
-  if (!runtimeControlIdentityIsComplete(identity)) throw new HttpError("runtime_control_identity_incomplete", 409);
-  return { item, identity, revision: source.revision };
+function runtimeControlRuntimeDeps() {
+  return {
+    loadAccountOptionsConfig,
+    accountSettingsIdentity,
+    resolvedVariableScope,
+    cleanSlug,
+    defaultRepository: DEFAULT_REPOSITORY,
+    json,
+  };
 }
 
-export function presentRuntimeControl(record) {
-  let reason = null;
-  try { reason = record?.result_json ? JSON.parse(record.result_json).reason || null : null; } catch { /* invalid persisted result stays unclassified */ }
-  return { ok: record?.phase !== "rejected", request_id: record?.request_id || null, action: record?.action || null,
-    phase: record?.phase || null, updated_at: record?.updated_at || null,
-    unavailable_reason: reason || (record?.phase === "unknown" ? "runtime_control_result_unavailable" : null),
-    platform_applied: record?.phase === "applied" };
+export async function runtimeControlSource(env, platform, targetName) {
+  return runtimeControlSourceImpl(env, platform, targetName, runtimeControlRuntimeDeps());
 }
 
 export async function readPlatformRuntimeControl(env, platform, targetName) {
-  const source = await runtimeControlSource(env, platform, targetName);
-  const args = { platform, key: source.item.key };
-  let { record } = await runtimeInstanceCommand(env, { action: "runtime_control_read", ...args });
-  if (record && ["reserved", "accepted", "unknown", "partial"].includes(record.phase)) {
-    const result = await readRuntimeControlReceipt({ repository: env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY,
-      token: env.RUNTIME_SETTINGS_DISPATCH_TOKEN, requestId: record.request_id, operation: record.action,
-      runId: record.workflow_run_id, requestedAt: record.requested_at });
-    if (result.run_id && !record.workflow_run_id) {
-      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_record", ...args,
-        request_id: record.request_id, phase: "unknown", run_id: result.run_id }));
-    }
-    if (result.platform_run_id && record.workflow_run_id) {
-      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_capture", ...args,
-        request_id: record.request_id, run_id: record.workflow_run_id, platform_run_id: result.platform_run_id, reason: result.reason }));
-    }
-    if (["applied", "partial", "protected", "rejected"].includes(result.status) && record.workflow_run_id) {
-      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_resolve", ...args,
-        request_id: record.request_id, phase: result.status, run_id: record.workflow_run_id, reason: result.reason }));
-    }
-  }
-  let details = {};
-  try { details = JSON.parse(record?.result_json || "{}"); } catch { /* retain unknown */ }
-  if (record && ["accepted", "unknown", "partial"].includes(record.phase) && details.check_id && !details.check_complete) {
-    const checked = await readRuntimeControlReceipt({ repository: env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY,
-      token: env.RUNTIME_SETTINGS_DISPATCH_TOKEN, requestId: record.request_id, operation: record.action,
-      checkId: details.check_id, runId: details.check_run_id, requestedAt: details.check_requested_at });
-    if (checked.run_id) {
-      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_record_check", ...args,
-        request_id: record.request_id, check_id: details.check_id, run_id: checked.run_id, complete: checked.complete === true }));
-    }
-    if (["applied", "partial", "protected", "rejected"].includes(checked.status) && checked.complete
-        && checked.platform_run_id === details.platform_run_id) {
-      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_resolve", ...args,
-        request_id: record.request_id, phase: checked.status, run_id: record.workflow_run_id,
-        check_id: details.check_id, check_run_id: checked.run_id, reason: checked.reason }));
-    }
-  }
-  return presentRuntimeControl(record);
+  return readPlatformRuntimeControlImpl(env, platform, targetName, runtimeControlRuntimeDeps());
 }
 
 export function runtimeControlStopRequest(env, platform, targetName, source) {
-  const item = source.item;
-  const inputs = { ...item, platform, target_name: targetName };
-  const github = { repository: platformRepositories(env)[platform], variable_scope: resolvedVariableScope(item.variable_scope, inputs) };
-  if (github.variable_scope === "environment") github.environment = item.github_environment;
-  return { target_id: `${platform}/${targetName}`, github, runtime_target: {
-    platform_id: platform, deployment_selector: source.identity.deployment_selector,
-    account_selector: source.identity.account_selector.split(',').map(value => value.trim()).filter(Boolean),
-    account_scope: source.identity.account_scope, service_name: source.identity.service_name,
-  } };
+  return runtimeControlStopRequestImpl(env, platform, targetName, source, runtimeControlRuntimeDeps());
+}
+
+export async function dispatchPlatformRuntimeControl(env, raw) {
+  return dispatchPlatformRuntimeControlImpl(env, raw, runtimeControlRuntimeDeps());
 }
 
 export async function dispatchPlatformControlReadback(env, raw) {
@@ -2512,40 +2527,6 @@ export async function dispatchPlatformControlReadback(env, raw) {
   if (runId || rejected) ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_record_check", ...args,
     request_id: record.request_id, check_id: checkId, run_id: runId, complete: rejected, reason: rejected ? "readback_dispatch_rejected" : null }));
   return json(presentRuntimeControl(record));
-}
-
-export async function dispatchPlatformRuntimeControl(env, raw) {
-  if (raw.confirm !== "CONTROL_ONLY" || !["ibkr", "schwab"].includes(raw.platform)
-      || !["enable", "disable"].includes(raw.operation)
-      || Object.keys(raw).some(key => !["platform", "target_name", "operation", "request_id", "confirm"].includes(key))) throw new HttpError("runtime_control_request_invalid", 400);
-  const targetName = cleanSlug(raw.target_name, "target_name");
-  const requestId = raw.request_id || crypto.randomUUID();
-  if (!HK_STOP_REQUEST_ID.test(requestId)) throw new HttpError("runtime_control_request_invalid", 400);
-  const source = await runtimeControlSource(env, raw.platform, targetName);
-  const args = { platform: raw.platform, key: source.item.key };
-  const claimed = await runtimeInstanceCommand(env, { action: "runtime_control_claim", ...args, identity: source.identity,
-    source_revision: source.revision, request_id: requestId, operation: raw.operation });
-  if (claimed.state !== "reserved") {
-    const body = presentRuntimeControl(claimed.record);
-    return json(claimed.state === "blocked" ? { ...body, ok: false, error: "runtime_control_pending" } : body, claimed.state === "blocked" ? 409 : 200);
-  }
-  const stopRequest = runtimeControlStopRequest(env, raw.platform, targetName, source);
-  let phase = "unknown", runId = null;
-  try {
-    const response = await fetchWithTimeout(`https://api.github.com/repos/${env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY}/actions/workflows/manual-runtime-stop.yml/dispatches`, {
-      method: "POST", headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN), body: JSON.stringify({ ref: "main", return_run_details: true,
-        inputs: { stop_request: JSON.stringify(stopRequest), apply: "true", confirm: "CONTROL_ONLY", apply_hk_stop: "false",
-          runtime_control_operation: raw.operation, runtime_control_request_id: requestId } }),
-    });
-    if (response.status === 200) {
-      const body = await response.json();
-      if (Number.isSafeInteger(body.workflow_run_id) && body.workflow_run_id > 0) { phase = "accepted"; runId = String(body.workflow_run_id); }
-    } else if (response.status >= 400 && response.status < 500 && response.status !== 429) phase = "rejected";
-  } catch { /* Outcome may already have occurred; never resend. */ }
-  try {
-    const recorded = await runtimeInstanceCommand(env, { action: "runtime_control_record", ...args, request_id: requestId, phase, run_id: runId });
-    return json(presentRuntimeControl(recorded.record), recorded.record?.phase === "rejected" ? 502 : 200);
-  } catch { return json({ ...presentRuntimeControl(claimed.record), phase: "unknown" }); }
 }
 
 export async function readRuntimeStop(request, env, url) {
@@ -7029,28 +7010,6 @@ export function requireDedicatedReconciliationRecoveryControllerToken(request, e
 
 
 
-export function requireDedicatedResearchPromotionSyncToken(request, env) {
-  const expected = String(env.RESEARCH_PROMOTION_SYNC_TOKEN || "");
-  if (!expected) throw new HttpError("research promotion sync token is not configured", 500);
-  const header = request.headers.get("Authorization") || "";
-  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
-  if (token !== expected) throw new HttpError("research promotion sync token is invalid", 401);
-}
-
-export function researchPromotionTicketKey(ticketId) {
-  return `${RESEARCH_PROMOTION_TICKET_PREFIX}${ticketId}`;
-}
-
-export function platformSupportsBrokerPaperMode(platform) {
-  // Broker paper/sim is distinct from the local dry_run adapter. LongBridge's
-  // paper account is currently the only configured broker simulation route.
-  return platform === "longbridge";
-}
-
-export function supportedBrokerEnvironmentsForPlatform(platform) {
-  return platformSupportsBrokerPaperMode(platform) ? [...BROKER_ENVIRONMENTS] : ["live"];
-}
-
 export function normalizeBrokerEnvironment(value, fieldName = "broker_environment") {
   const environment = String(value || "").trim();
   if (!BROKER_ENVIRONMENTS.includes(environment)) {
@@ -7059,93 +7018,18 @@ export function normalizeBrokerEnvironment(value, fieldName = "broker_environmen
   return environment;
 }
 
-export function normalizeResearchPromotionRiskProfile(value, fieldName) {
-  const profile = String(value || "").trim().toUpperCase();
-  if (!RESEARCH_PROMOTION_RISK_PROFILES.includes(profile)) {
-    throw new Error(
-      `${fieldName} must be CAPITAL_PRESERVATION, BALANCED_COMPOUNDING, or GROWTH_COMPOUNDING`,
-    );
-  }
-  return profile;
-}
-
-export function normalizePromotionConfirmation(value, fieldName, { paperSupported }) {
-  if (!value || Array.isArray(value) || typeof value !== "object") {
-    throw new Error(`${fieldName} must be an object`);
-  }
-  // Keep exact QPK PromotionConfirmation.to_dict() fields.
-  assertExactFields(value, ["target_platform", "execution_mode", "risk_profile"], fieldName);
-  const targetPlatform = String(value.target_platform || "").trim();
-  const executionMode = String(value.execution_mode || "").trim().toLowerCase();
-  const riskProfile = normalizeResearchPromotionRiskProfile(
-    value.risk_profile,
-    `${fieldName}.risk_profile`,
-  );
-  if (!targetPlatform) throw new Error(`${fieldName}.target_platform is required`);
-  if (!RESEARCH_PROMOTION_EXECUTION_MODES.includes(executionMode)) {
-    throw new Error(`${fieldName}.execution_mode must be live or paper`);
-  }
-  if (executionMode === "paper" && !paperSupported) {
-    throw new Error("paper is unavailable for this platform; synthetic matching is not supported");
-  }
-  return {
-    target_platform: targetPlatform,
-    execution_mode: executionMode,
-    risk_profile: riskProfile,
-  };
-}
-
-export function validateResearchPromotionSelectedAccount({
-  ticket,
-  selectedAccount,
-  confirmation,
-  accountOptions,
-  strategyProfiles,
-}) {
-  assertExactFields(selectedAccount, ["platform", "key"], "selected_account");
-  const platform = cleanChoice(selectedAccount.platform, SUPPORTED_PLATFORMS, "selected_account.platform");
-  const key = cleanSlug(selectedAccount.key, "selected_account.key");
-  const targetPlatform = String(confirmation?.target_platform || "").trim();
-  if (targetPlatform !== platform) {
-    throw new HttpError("selected_account platform does not match confirmation target_platform", 409);
-  }
-  const option = (accountOptions?.[platform] || []).find((item) => item.key === key);
-  if (!option) throw new HttpError("selected_account does not match configured account", 409);
-  const brokerEnvironment = String(option.broker_environment || "").trim();
-  if (!BROKER_ENVIRONMENTS.includes(brokerEnvironment)) {
-    throw new HttpError("selected account broker environment is unknown", 409);
-  }
-  if (!supportedBrokerEnvironmentsForPlatform(platform).includes(brokerEnvironment)) {
-    throw new HttpError(`${platform} does not support broker environment ${brokerEnvironment}`, 400);
-  }
-  if (String(confirmation?.execution_mode || "").trim().toLowerCase() !== brokerEnvironment) {
-    throw new HttpError("selected account broker environment does not match confirmation execution_mode", 409);
-  }
-  const strategy = (Array.isArray(strategyProfiles) ? strategyProfiles : [])
-    .find((item) => item.profile === ticket?.strategy_profile);
-  if (!strategy) throw new HttpError("selected candidate strategy profile is not configured", 409);
-  if (strategy.domain !== ticket?.domain) {
-    throw new HttpError("selected candidate strategy domain does not match ticket domain", 409);
-  }
-  if (!supportedDomainsForAccount(platform, option).includes(ticket.domain)) {
-    throw new HttpError("selected account does not support candidate domain", 409);
-  }
-  if (PLATFORM_CONFIG[platform]?.dry_run_only) {
-    throw new HttpError(`${platform} does not support broker execution`, 400);
-  }
-  assertDcaPlatform(platform, ticket.strategy_profile);
-  if (!(strategy.allowed_execution_modes || []).includes(brokerEnvironment)) {
-    throw new HttpError(`strategy ${strategy.profile} does not support broker environment ${brokerEnvironment}`, 400);
-  }
-  // A broker paper/live selection still needs the real adapter path. The
-  // account's dry_run default is not an implicit paper capability.
-  const adapterMode = cleanExecutionMode(
-    option.default_execution_mode || PLATFORM_CONFIG[platform]?.default_execution_mode || "live",
-  );
-  if (adapterMode !== "live") {
-    throw new HttpError("selected account adapter is not configured for broker execution", 400);
-  }
-  return { platform, key, broker_environment: brokerEnvironment };
+export function validateResearchPromotionSelectedAccount(args) {
+  return validateResearchPromotionSelectedAccountImpl(args, {
+    cleanChoice,
+    cleanSlug,
+    SUPPORTED_PLATFORMS,
+    BROKER_ENVIRONMENTS,
+    supportedBrokerEnvironmentsForPlatform,
+    supportedDomainsForAccount,
+    PLATFORM_CONFIG,
+    assertDcaPlatform,
+    cleanExecutionMode,
+  });
 }
 
 export function researchPromotionCandidateIdentity(ticket) {
@@ -7191,283 +7075,6 @@ export function assertResearchPromotionExpectedCandidate(ticket, raw, { requireE
       throw new HttpError("expected_domain does not match stored ticket", 409);
     }
   }
-}
-
-export const RESEARCH_SUMMARY_HAN = /[\u4e00-\u9fff]/;
-export const RESEARCH_SUMMARY_LATIN = /[A-Za-z]/;
-export const RESEARCH_SUMMARY_DIGIT = /[0-9\uff10-\uff19]/;
-export const RESEARCH_SUMMARY_LOCALE_FIELDS = ["question", "basis", "limits", "suggestion"];
-const RESEARCH_SUMMARY_BINDING_FIELDS = [
-  "ticket_id", "strategy_profile", "domain", "proposed_params", "comparison",
-  "shadow_evidence_kind", "shadow_passed", "notes",
-];
-export const RESEARCH_SUMMARY_NEW_KEYS = ["status", "provider", "model", "scope", "locales", "binding"];
-export const RESEARCH_SUMMARY_OLD_KEYS = ["status", "provider", "model", "text"];
-export const RESEARCH_SUMMARY_HIDDEN = { status: "unavailable", text: "", provider: "", model: "" };
-
-export function researchSummaryExactKeys(value, keys) {
-  if (!value || Array.isArray(value) || typeof value !== "object") return false;
-  const present = Object.keys(value);
-  return present.length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
-}
-
-export function researchSummaryCodePointLength(text) {
-  return Array.from(text).length;
-}
-
-export function researchSummarySegment(text, chinese) {
-  if (typeof text !== "string" || !text.trim() || researchSummaryCodePointLength(text) > 240) return null;
-  if (RESEARCH_SUMMARY_DIGIT.test(text)) return null;
-  const hasHan = RESEARCH_SUMMARY_HAN.test(text);
-  if (chinese) return hasHan ? text : null;
-  if (hasHan || !RESEARCH_SUMMARY_LATIN.test(text)) return null;
-  return text;
-}
-
-export function sameResearchSummaryMaterial(left, right) {
-  return canonicalResearchTaskJson(left) === canonicalResearchTaskJson(right);
-}
-
-export function readBilingualResearchPromotionExplanation(ai, material) {
-  if (ai.status !== "available" || (ai.provider !== "codex" && ai.provider !== "cursor")) return null;
-  if (typeof ai.model !== "string" || !ai.model.trim() || ai.scope !== "candidate") return null;
-  const locales = ai.locales;
-  if (!researchSummaryExactKeys(locales, ["zh-CN", "en"])) return null;
-  const savedLocales = {};
-  for (const [name, chinese] of [["zh-CN", true], ["en", false]]) {
-    const section = locales[name];
-    if (!researchSummaryExactKeys(section, RESEARCH_SUMMARY_LOCALE_FIELDS)) return null;
-    const saved = {};
-    for (const field of RESEARCH_SUMMARY_LOCALE_FIELDS) {
-      const segment = researchSummarySegment(section[field], chinese);
-      if (segment == null) return null;
-      saved[field] = segment;
-    }
-    savedLocales[name] = saved;
-  }
-  if (!researchSummaryExactKeys(ai.binding, RESEARCH_SUMMARY_BINDING_FIELDS)) return null;
-  if (!sameResearchSummaryMaterial(ai.binding, material)) return null;
-  return {
-    status: "available",
-    provider: ai.provider,
-    model: ai.model,
-    scope: "candidate",
-    locales: savedLocales,
-    binding: JSON.parse(canonicalResearchTaskJson(material)),
-  };
-}
-
-export function readLegacyResearchPromotionExplanation(ai) {
-  const status = String(ai.status || "").trim();
-  if (status !== "available" && status !== "unavailable") return null;
-  if (typeof ai.text !== "string" || typeof ai.provider !== "string" || typeof ai.model !== "string") return null;
-  if (ai.text.length > 2000 || ai.model.length > 120) return null;
-  if (status === "available" && (ai.provider !== "codex" || !ai.text.trim())) return null;
-  if (status === "unavailable" && ai.provider !== "") return null;
-  return {
-    status,
-    text: ai.text.trim(),
-    provider: ai.provider,
-    model: ai.model.trim(),
-  };
-}
-
-export function normalizeSavedResearchPromotionExplanation(ai, material) {
-  try {
-    if (ai == null) return { ...RESEARCH_SUMMARY_HIDDEN };
-    if (researchSummaryExactKeys(ai, RESEARCH_SUMMARY_NEW_KEYS)) {
-      return readBilingualResearchPromotionExplanation(ai, material) || { ...RESEARCH_SUMMARY_HIDDEN };
-    }
-    if (researchSummaryExactKeys(ai, RESEARCH_SUMMARY_OLD_KEYS)) {
-      return readLegacyResearchPromotionExplanation(ai) || { ...RESEARCH_SUMMARY_HIDDEN };
-    }
-    return { ...RESEARCH_SUMMARY_HIDDEN };
-  } catch {
-    return { ...RESEARCH_SUMMARY_HIDDEN };
-  }
-}
-
-export function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_summary") {
-  if (raw == null) return null;
-  if (!raw || Array.isArray(raw) || typeof raw !== "object") return null;
-  try {
-    const comparisonForBinding = raw.comparison;
-    const identity = raw.identity;
-    if (!identity || Array.isArray(identity) || typeof identity !== "object") return null;
-    const identityParams = identity.proposed_params;
-    if (
-      String(identity.strategy_profile || "").trim() !== ticket.strategy_profile
-      || String(identity.domain || "").trim() !== ticket.domain
-      || !identityParams || Array.isArray(identityParams)
-      || canonicalResearchTaskJson(identityParams) !== canonicalResearchTaskJson(ticket.proposed_params || {})
-    ) return null;
-
-    if (raw.strategy_description != null && typeof raw.strategy_description !== "string") return null;
-    const strategyDescription = String(raw.strategy_description || "").trim();
-    if (strategyDescription.length > 500) return null;
-
-    let plugins = null;
-    if (raw.plugins === null) {
-      plugins = null;
-    } else if (Array.isArray(raw.plugins)) {
-      plugins = raw.plugins.map((plugin, index) => {
-        if (!plugin || Array.isArray(plugin) || typeof plugin !== "object") {
-          throw new Error(`${fieldName}.plugins[${index}] must be an object`);
-        }
-        if (typeof plugin.id !== "string" || typeof plugin.description !== "string") {
-          throw new Error(`${fieldName}.plugins[${index}] must include text fields`);
-        }
-        const id = plugin.id.trim();
-        const description = plugin.description.trim();
-        if (id.length > 120 || description.length > 300) throw new Error(`${fieldName}.plugins[${index}] is too long`);
-        return { id, description };
-      });
-    } else if (raw.plugins == null) {
-      plugins = null;
-    } else {
-      return null;
-    }
-
-    const comparison = raw.comparison == null ? { status: "unavailable" } : raw.comparison;
-    if (!comparison || Array.isArray(comparison) || typeof comparison !== "object") return null;
-    const comparisonStatus = String(comparison.status || "").trim();
-    if (comparisonStatus !== "comparable" && comparisonStatus !== "unavailable") return null;
-    const optionalText = (value, name) => {
-      if (value == null) return null;
-      if (typeof value !== "string") throw new Error(`${fieldName}.${name} must be text or null`);
-      const text = value.trim();
-      if (text.length > 120) throw new Error(`${fieldName}.${name} is too long`);
-      return text;
-    };
-    const exactCostModel = (value, name) => {
-      if (value == null) return null;
-      if (typeof value !== "string") throw new Error(`${fieldName}.${name} must be text or null`);
-      if (value.length > 120) throw new Error(`${fieldName}.${name} is too long`);
-      return value;
-    };
-    const normalizeMetrics = (value, name) => {
-      if (!value || Array.isArray(value) || typeof value !== "object") {
-        throw new Error(`${fieldName}.${name} must be an object`);
-      }
-      const cagr = value.cagr;
-      const maxDrawdown = value.max_drawdown;
-      if (typeof cagr !== "number" || typeof maxDrawdown !== "number"
-        || !Number.isFinite(cagr) || !Number.isFinite(maxDrawdown)
-        || cagr < -1 || maxDrawdown < -1 || maxDrawdown > 0) {
-        throw new Error(`${fieldName}.${name} must use finite numbers`);
-      }
-      return { cagr, max_drawdown: maxDrawdown };
-    };
-    const normalizedComparison = {
-      status: comparisonStatus,
-      start_date: optionalText(comparison.start_date, "comparison.start_date"),
-      end_date: optionalText(comparison.end_date, "comparison.end_date"),
-      cost_model: exactCostModel(comparison.cost_model, "comparison.cost_model"),
-      baseline: null,
-      candidate: null,
-    };
-    if (comparisonStatus === "comparable") {
-      if (!normalizedComparison.start_date || !normalizedComparison.end_date || !normalizedComparison.cost_model?.trim()) return null;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedComparison.start_date)
-        || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedComparison.end_date)) return null;
-      const startMillis = Date.parse(`${normalizedComparison.start_date}T00:00:00Z`);
-      const endMillis = Date.parse(`${normalizedComparison.end_date}T00:00:00Z`);
-      if (!Number.isFinite(startMillis) || !Number.isFinite(endMillis) || startMillis > endMillis) return null;
-      normalizedComparison.baseline = normalizeMetrics(comparison.baseline, "comparison.baseline");
-      normalizedComparison.candidate = normalizeMetrics(comparison.candidate, "comparison.candidate");
-    } else {
-      if (comparison.baseline != null) normalizeMetrics(comparison.baseline, "comparison.baseline");
-      if (comparison.candidate != null) normalizeMetrics(comparison.candidate, "comparison.candidate");
-    }
-
-    if (!Array.isArray(raw.limitations) || raw.limitations.length > 8 || raw.limitations.some((item) => typeof item !== "string" || item.length > 300)) return null;
-    const aiExplanation = normalizeSavedResearchPromotionExplanation(raw.ai_explanation, {
-      ticket_id: ticket.ticket_id,
-      strategy_profile: ticket.strategy_profile,
-      domain: ticket.domain,
-      proposed_params: ticket.proposed_params || {},
-      comparison: comparisonForBinding,
-      shadow_evidence_kind: ticket.shadow_evidence_kind,
-      shadow_passed: ticket.shadow_passed,
-      notes: Array.isArray(ticket.notes) ? ticket.notes : [],
-    });
-
-    return {
-      identity: {
-        strategy_profile: ticket.strategy_profile,
-        domain: ticket.domain,
-        proposed_params: ticket.proposed_params || {},
-      },
-      strategy_description: strategyDescription,
-      plugins,
-      comparison: normalizedComparison,
-      limitations: raw.limitations.map((item) => item.trim()),
-      ai_explanation: aiExplanation,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function normalizeResearchPromotionTicket(raw, fieldName = "research promotion ticket") {
-  if (!raw || Array.isArray(raw) || typeof raw !== "object") {
-    throw new Error(`${fieldName} must be an object`);
-  }
-  const ticketId = String(raw.ticket_id || "").trim();
-  const strategyProfile = String(raw.strategy_profile || "").trim();
-  const domain = String(raw.domain || "").trim();
-  const state = String(raw.state || "").trim();
-  if (!ticketId) throw new Error(`${fieldName}.ticket_id is required`);
-  if (!strategyProfile) throw new Error(`${fieldName}.strategy_profile is required`);
-  if (!domain) throw new Error(`${fieldName}.domain is required`);
-  if (!RESEARCH_PROMOTION_STATES.includes(state)) {
-    throw new Error(`${fieldName}.state is unsupported`);
-  }
-  if (raw.live_authority_granted === true) {
-    throw new Error(`${fieldName}.live_authority_granted must remain false`);
-  }
-  const suggested = normalizeResearchPromotionRiskProfile(
-    raw.suggested_risk_profile || DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE,
-    `${fieldName}.suggested_risk_profile`,
-  );
-  const driftStatus = String(raw.drift_status || "");
-  const normalizedTicket = {
-    schema: RESEARCH_PROMOTION_TICKET_SCHEMA,
-    ticket_id: ticketId,
-    strategy_profile: strategyProfile,
-    domain,
-    state,
-    drift_status: driftStatus,
-    drift_score: driftStatus === "new_research" && raw.drift_score === null
-      ? null
-      : Number(raw.drift_score || 0),
-    created_at: String(raw.created_at || ""),
-    updated_at: String(raw.updated_at || ""),
-    budget: raw.budget && typeof raw.budget === "object" && !Array.isArray(raw.budget) ? raw.budget : {},
-    proposed_params:
-      raw.proposed_params && typeof raw.proposed_params === "object" && !Array.isArray(raw.proposed_params)
-        ? raw.proposed_params
-        : {},
-    search_iterations: Number(raw.search_iterations || 0),
-    shadow_evidence_kind: String(raw.shadow_evidence_kind || ""),
-    // Qualification must never treat string values such as "false" as a
-    // passed observation. Keep malformed legacy values unknown and let the
-    // application gate reject them.
-    shadow_passed: raw.shadow_passed === true ? true : raw.shadow_passed === false ? false : null,
-    notification_subject: String(raw.notification_subject || ""),
-    notification_body: String(raw.notification_body || ""),
-    human_decision: String(raw.human_decision || ""),
-    human_decided_at: String(raw.human_decided_at || ""),
-    live_authority_granted: false,
-    suggested_risk_profile: suggested,
-    confirmation_target_platform: String(raw.confirmation_target_platform || ""),
-    confirmation_execution_mode: String(raw.confirmation_execution_mode || ""),
-    confirmation_risk_profile: String(raw.confirmation_risk_profile || ""),
-    notes: Array.isArray(raw.notes) ? raw.notes.map((item) => String(item)) : [],
-  };
-  const researchSummary = normalizeResearchPromotionSummary(raw.research_summary, normalizedTicket, `${fieldName}.research_summary`);
-  if (researchSummary) normalizedTicket.research_summary = researchSummary;
-  return normalizedTicket;
 }
 
 export function applyResearchPromotionDecision(
@@ -7540,234 +7147,40 @@ export function applyResearchPromotionDecision(
 }
 
 export async function syncResearchPromotionTicketResponse(request, env) {
-  requireDedicatedResearchPromotionSyncToken(request, env);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "research promotion KV is not configured" }, 503);
-  }
-  let raw;
-  try {
-    raw = await readBoundedJson(request, RESEARCH_PROMOTION_MAX_BODY_BYTES);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid research promotion ticket" }, error.status || 400);
-  }
-  let ticket;
-  try {
-    ticket = normalizeResearchPromotionTicket(raw);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid research promotion ticket" }, 400);
-  }
-  if (ticket.state !== "awaiting_human") {
-    return json(
-      { ok: false, error: "research promotion sync only accepts awaiting_human tickets" },
-      400,
-    );
-  }
-  const existingRaw = await readConfigJson(env, researchPromotionTicketKey(ticket.ticket_id));
-  let existing = null;
-  if (existingRaw) {
-    try {
-      existing = normalizeResearchPromotionTicket(existingRaw, "stored research promotion ticket");
-    } catch (error) {
-      return json(
-        { ok: false, error: error.message || "invalid stored research promotion ticket" },
-        400,
-      );
-    }
-  }
-  let material;
-  try {
-    material = await publishHumanPromotionMaterial(env, ticket, existing);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "research promotion material unavailable" }, error.status || 503);
-  }
-  if (material.identity_conflict) {
-    return json(
-      { ok: false, error: "refusing to overwrite awaiting_human research promotion ticket with mismatched candidate identity" },
-      409,
-    );
-  }
-  if (material.terminal || material.legacy_blocked) {
-    return json(
-      { ok: false, error: `refusing to overwrite terminal research promotion ticket state=${material.terminal_state || existing?.state || "human_accepted"}` },
-      409,
-    );
-  }
-  await writeConfigJson(env, researchPromotionTicketKey(ticket.ticket_id), ticket);
-  try {
-    await appendAuditLog(env, {
-      ts: new Date().toISOString(),
-      login: "research-promotion-ticket-sync",
-      action: "sync_research_promotion_ticket",
-      ticket_id: ticket.ticket_id,
-      state: ticket.state,
-      suggested_risk_profile: ticket.suggested_risk_profile,
-      live_authority_granted: false,
-    });
-  } catch {
-    // Intent sync must not depend on optional audit retention.
-  }
-  return json({
-    ok: true,
-    ticket_id: ticket.ticket_id,
-    state: ticket.state,
-    suggested_risk_profile: ticket.suggested_risk_profile,
-    live_authority_granted: false,
+  return syncResearchPromotionTicketResponseImpl(request, env, {
+    readBoundedJson,
+    publishHumanPromotionMaterial,
+    appendAuditLog,
   });
 }
 
 export async function fetchResearchPromotionTicketResponse(request, env) {
-  requireDedicatedResearchPromotionSyncToken(request, env);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "research promotion KV is not configured" }, 503);
-  }
-  const ticketId = String(new URL(request.url).searchParams.get("ticket_id") || "").trim();
-  if (!ticketId) return json({ ok: false, error: "ticket_id is required" }, 400);
-  const stored = await readConfigJson(env, researchPromotionTicketKey(ticketId));
-  if (!stored) return json({ ok: false, error: "research promotion ticket not found" }, 404);
-  let ticket;
-  try {
-    ticket = normalizeResearchPromotionTicket(stored);
-    ticket = await promotionTicketWithAuthority(env, ticket);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid stored research promotion ticket" }, error.status || 400);
-  }
-  if (ticket.live_authority_granted) {
-    return json({ ok: false, error: "refusing to expose live_authority_granted=true" }, 500);
-  }
-  return json({
-    ok: true,
-    ticket: attachRiskEnvelopeView(ticket),
-    live_authority_granted: false,
+  return fetchResearchPromotionTicketResponseImpl(request, env, {
+    promotionTicketWithAuthority,
   });
 }
 
 export async function listResearchPromotionTickets(env) {
-  if (!hasConfigStore(env)) return [];
-  const store = configStore(env);
-  let listing;
-  try {
-    listing = await directoryList(env, RESEARCH_PROMOTION_TICKET_PREFIX, RESEARCH_PROMOTION_MAX_TICKETS);
-  } catch (error) {
-    throw new HttpError(sourceListFailure(error, "research_promotion_source_list_unavailable"), 503);
-  }
-  const keys = listing?.keys || [];
-  const tickets = [];
-  for (const entry of keys) {
-    const key = entry.name || entry;
-    if (!String(key).startsWith(RESEARCH_PROMOTION_TICKET_PREFIX)) continue;
-    const stored = await readConfigJson(env, key);
-    if (!stored) throw new HttpError("kv_directory_record_unavailable", 503);
-    try {
-      const record = normalizeResearchPromotionTicket(stored, key);
-      const authority = await readHumanDecisionAuthority(env, "promotion", record.ticket_id);
-      const ticket = attachPromotionQueueReadMetadata(record, overlayPromotionDecision(record, authority), authority);
-      if (ticket.live_authority_granted) continue;
-      if (ticket.state === "awaiting_human") {
-        // Project the same durable observation used by the decision metadata.
-        ticket.decision_authority = humanDecisionAuthorityView(authority);
-      }
-      tickets.push(ticket);
-    } catch (error) {
-      if (error instanceof HttpError && error.status === 503) throw error;
-      // Skip corrupt tickets rather than failing the whole queue.
-    }
-  }
-  tickets.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
-  return tickets.slice(0, RESEARCH_PROMOTION_MAX_TICKETS);
-}
-
-export function attachPromotionQueueReadMetadata(record, ticket, authority) {
-  // Reuse the queue's existing material observation. Unknown is not permission;
-  // these fixed reasons describe stored intent material flags, not full decision
-  // permission, ticket-hash validation, or account application gates.
-  const migrated = typeof authority?.migrated === "boolean" ? authority.migrated : null;
-  const eligible = migrated === true && typeof authority?.eligible === "boolean" ? authority.eligible : null;
-  const blocked = migrated === true && typeof authority?.blocked === "boolean" ? authority.blocked : null;
-  const blockerCodes = migrated !== true ? null
-    : blocked === true ? ["human_decision_legacy_blocked"]
-    : eligible === false ? ["human_decision_material_conflict"]
-    : eligible === true && blocked === false ? [] : null;
-  return {
-    ...ticket,
-    decision_material: { migrated, eligible, blocked, blocker_codes: blockerCodes },
-    decision_review_binding: authority?.review_binding || null,
-    // Timestamps of the already-read KV ticket record, not producer-observed
-    // time, freshness, a validity window, or evidence of actual execution.
-    ticket_record_timestamps: {
-      created_at: typeof record?.created_at === "string" && record.created_at ? record.created_at : null,
-      updated_at: typeof record?.updated_at === "string" && record.updated_at ? record.updated_at : null,
-    },
-  };
+  return listResearchPromotionTicketsImpl(env, {
+    readHumanDecisionAuthority,
+    overlayPromotionDecision,
+    humanDecisionAuthorityView,
+  });
 }
 
 export async function researchPromotionTicketsResponse(request, env) {
-  const session = await readSession(request, env);
-  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  const exact = await exactHumanDecisionResponse(request, env, session, "promotion");
-  if (exact) return exact;
-  const tickets = [];
-  const invalidTickets = [];
-  for (const ticket of await listResearchPromotionTickets(env)) {
-    let reviewBinding;
-    try {
-      reviewBinding = await researchPromotionReviewBinding(ticket);
-    } catch (error) {
-      if (!(error instanceof ResearchPromotionReviewMaterialError)) throw error;
-      // Keep a bounded, explicit non-actionable diagnosis; never serialize the
-      // invalid numbers as fake zero/null or certify this ticket with a digest.
-      invalidTickets.push({
-        ticket_id: ticket.ticket_id, strategy_profile: ticket.strategy_profile, state: ticket.state,
-        decision_material: { eligible: false, blocked: true, blocker_codes: [RESEARCH_PROMOTION_REVIEW_INVALID] },
-        decision_binding: null, live_authority_granted: false, no_order: true,
-      });
-      continue;
-    }
-    tickets.push({ ...ticket, decision_binding: {
-      kind: "promotion", subject_id: ticket.ticket_id, material_sha256: await researchPromotionMaterialKey(ticket),
-      review_binding: promotionReviewBindingsMatch(reviewBinding, ticket.decision_review_binding) ? reviewBinding : null,
-    } });
-  }
-  const awaiting = tickets.filter((ticket) => ticket.state === "awaiting_human");
-  const applicationTickets = tickets.filter((ticket) =>
-    ticket.state === "awaiting_human" || ticket.state === "human_accepted");
-  const accountConfig = await loadAccountOptionsConfig(env);
-  const strategyProfiles = await loadStrategyProfilesConfig(env);
-  const applications = [];
-  for (const ticket of applicationTickets) {
-    const preparation = attachResearchPromotionApplicationPreparation(ticket, accountConfig.options, strategyProfiles);
-    let application = null;
-    if (hasRuntimeInstanceStore(env)) {
-      try {
-        const stored = await runtimeInstanceCommand(env, { action: "application_latest", actor: session.login, ticket_id: ticket.ticket_id });
-        application = publicResearchPromotionApplication(stored.application);
-      } catch {
-        // Application storage is optional for the research-only queue view.
-      }
-    }
-    applications.push({ ...preparation, application });
-  }
-  return json({
-    schema_version: RESEARCH_PROMOTION_QUEUE_SCHEMA,
-    data_status: hasConfigStore(env) ? (invalidTickets.length ? "partial" : "ready") : "unavailable",
-    computed_at: new Date().toISOString(),
-    tickets: decorateQueue({ tickets: awaiting.map(attachRiskEnvelopeView) }, "tickets", "strategy_promotion").tickets,
-    applications,
-    ...(invalidTickets.length ? { invalid_tickets: invalidTickets } : {}),
-    summary: {
-      ticket_count: awaiting.length,
-      awaiting_human: awaiting.length,
-      application_count: applications.length,
-      ...(invalidTickets.length ? { invalid_review_count: invalidTickets.length } : {}),
-    },
-    policy: {
-      admin_required_to_decide: true,
-      live_authority_granted: false,
-      no_order: true,
-      application_dispatch_allowed: false,
-      activation_status: "not_connected",
-      notice: "网页只记录晋级人工意图；确认不授予实盘权限，也不下单。",
-    },
-    errors: invalidTickets.length ? [RESEARCH_PROMOTION_REVIEW_INVALID] : [],
+  return researchPromotionTicketsResponseImpl(request, env, {
+    exactHumanDecisionResponse,
+    listResearchPromotionTickets,
+    researchPromotionReviewBinding,
+    ResearchPromotionReviewMaterialError,
+    RESEARCH_PROMOTION_REVIEW_INVALID,
+    researchPromotionMaterialKey,
+    promotionReviewBindingsMatch,
+    attachResearchPromotionApplicationPreparation,
+    loadAccountOptionsConfig,
+    loadStrategyProfilesConfig,
+    publicResearchPromotionApplication,
   });
 }
 
@@ -12676,13 +12089,6 @@ export function accountSettingsIdentityIsComplete(identity) {
     || (identity.broker_environment !== "paper" && identity.broker_environment !== "live")) return false;
   return ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name"]
     .every((field) => typeof identity[field] === "string" && identity[field].trim() !== "");
-}
-
-export function runtimeControlIdentityIsComplete(identity) {
-  return Boolean(identity && SUPPORTED_PLATFORMS.includes(identity.platform)
-    && [null, "live", "paper"].includes(identity.broker_environment)
-    && ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name"]
-      .every((field) => typeof identity[field] === "string" && identity[field].trim() !== ""));
 }
 
 export function accountSettingsProfileName(value) {
