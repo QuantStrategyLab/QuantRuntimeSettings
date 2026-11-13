@@ -99,7 +99,7 @@ class DailyCallerPresentationTests(unittest.TestCase):
         item = with_facts({**ROW, "status": "alert", "execution_status": "execution_unknown",
                            "order_count": None, "fill_count": None})
         text, _ = self.report([item], ["present"])
-        self.assertIn("执行结果待核对", text)
+        self.assertIn("未能确认策略执行结果", text)
         self.assertNotIn("订单最终状态待确认", text)
 
         submitted = {**item, "execution_status": "order_submitted", "order_count": 1}
@@ -115,6 +115,19 @@ class DailyCallerPresentationTests(unittest.TestCase):
         self.assertIn("本轮未下单", text)
         self.assertNotIn("执行异常", text)
         self.assertNotIn("无交易", text)
+
+    def test_longbridge_short_and_long_strikes_use_contracts(self):
+        binding = {**EXPECTED[0], "platform_id": "longbridge"}
+        entry = DigestRunEntry(**{key: binding[key] for key in app.IDENTITY})
+        facts = {(entry.platform_id, entry.opaque_account_uid): {"snapshots": [snapshot(holdings=[
+            {"symbol": "SYN261231P3000.US", "quantity": -1, "asset_type": "stock"},
+            {"symbol": "SYN270115C11880.US", "quantity": -1, "asset_type": "stock"},
+            {"symbol": "SYN.US", "quantity": 2, "asset_type": "stock"},
+        ])]}}
+        text = render_account_daily(DailyDigestInput(DAY, runs=(entry,)), [binding], ["not_run"], facts=facts)
+        self.assertIn("SYN261231P3000.US -1张", text)
+        self.assertIn("SYN270115C11880.US -1张", text)
+        self.assertIn("SYN.US 2股", text)
 
     def test_multiple_runs_keep_verified_count_as_a_minimum(self):
         first = with_facts({**ROW, "order_count": 3, "fill_count": 2})
@@ -162,7 +175,7 @@ class DailyCallerPresentationTests(unittest.TestCase):
         item = with_facts({**ROW, "execution_mode": "dry_run", "fill_count": 1},
                           fills=[record("simulated-fill", price=99)], snapshots=[snapshot()])
         text, _ = self.report([item], ["present"])
-        self.assertIn("模拟记录未计入实际交易", text)
+        self.assertIn("实盘交易未确认（模拟记录已排除）", text)
         self.assertIn("成交回报 未知", text)
         self.assertNotIn("✅ 有交易", text)
         self.assertNotIn("USD 99.00", text)
