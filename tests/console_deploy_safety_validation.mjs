@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const workflow = readFileSync(new URL("../.github/workflows/deploy-strategy-switch-console.yml", import.meta.url), "utf8");
@@ -235,6 +236,15 @@ const ibkrTree = "3ac93c0b2caf30a650ab46d4bf62220e45582a46";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
 // S1 desk alert release source; CONTROL is always a later reviewed main commit.
 const s1Source = "aa05d670f9a51a52c91f142beae65888f7b110fc";
+// Reviewed #1126 Binance wallet valuation reader (registered and published by #1127).
+// The S1 publish composition keeps exactly this Worker/test increment on the SOURCE.
+const walletSource = "866388696a6bad7d1b88a76a3ab5957c7958b3bf";
+const walletTree = "fd98bac8e1aeec023d4a89bcb8c27f1026a80d19";
+const s1WorkerBlob = "954ccd36adaf8372fba3970d81da37b05a0e0137";
+const s1ReaderTestBlob = "c284fbd35310044e735edcccb6ecd47f10e311e9";
+const walletWorkerBlob = "407d74accf7ee0b0117da712a24ab1e1255bcfbf";
+const walletReaderTestBlob = "f590e43dd71274e761c505cd375b05b7da0b9756";
+const walletPaths = ["tests/binance_account_facts_validation.mjs", "web/strategy-switch-console/worker.js"];
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
 assert.ok(selectionStep);
 assert.ok(deploy.indexOf("Select reviewed historical main source") < deploy.indexOf("Setup Python"), "reject unapproved source before running project code");
@@ -266,6 +276,15 @@ const fakeGit = `git() {
     'rev-parse ${s1Source}^{tree}') printf '%s' "$FAKE_TREE" ;;
     'rev-parse ${s1Source}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
     '-c advice.detachedHead=false checkout --detach ${s1Source}') touch "$SELECTED" ;;
+    'merge-base --is-ancestor ${s1Source} ${walletSource}'|'merge-base --is-ancestor ${walletSource} ${control}') return "$FAKE_WALLET_ANCESTRY_EXIT" ;;
+    'rev-parse ${walletSource}^{tree}') printf '%s' "$FAKE_WALLET_TREE" ;;
+    'rev-parse ${walletSource}^:web/strategy-switch-console/worker.js') printf '%s' "$FAKE_WALLET_BASE_WORKER" ;;
+    'rev-parse ${walletSource}^:tests/binance_account_facts_validation.mjs') printf '%s' "$FAKE_WALLET_BASE_TEST" ;;
+    'rev-parse :web/strategy-switch-console/worker.js') if [ -f "$SELECTED.applied" ]; then printf '%s' "$FAKE_COMPOSED_WORKER"; else printf '%s' "$FAKE_BASE_WORKER"; fi ;;
+    'rev-parse :tests/binance_account_facts_validation.mjs') if [ -f "$SELECTED.applied" ]; then printf '%s' "$FAKE_COMPOSED_TEST"; else printf '%s' "$FAKE_BASE_TEST"; fi ;;
+    'diff ${walletSource}^ ${walletSource} -- web/strategy-switch-console/worker.js tests/binance_account_facts_validation.mjs') printf 'synthetic reviewed increment\\n' ;;
+    'apply --index') cat >/dev/null; touch "$SELECTED.applied" ;;
+    'diff --check --cached') return "$FAKE_DIFF_CHECK_EXIT" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -278,13 +297,16 @@ function sourceCase(delta, expected) {
       RELEASE_SOURCE_SHA: approved, TRACE: trace, SELECTED: selected, FAKE_CONTROL_HEAD: control,
       FAKE_SELECTED_HEAD: approved, FAKE_TREE: approvedTree, FAKE_OBJECT_EXIT: "0", FAKE_ANCESTRY_EXIT: "0",
       RELEASE_FRONTEND_ASSETS: "false", SYNC_SECRETS: "false", SYNC_STRATEGY_PROFILES: "false", SKIP_BINANCE_RECEIVER_CHECKS: "true",
-      FAKE_FETCH_HEAD: integratedSource, FAKE_FRONTEND_OBJECT_EXIT: "0", FAKE_FRONTEND_ANCESTRY_EXIT: "0", FAKE_FRONTEND_TREE: frontendTree, FAKE_FRONTEND_BLOB: frontendBlob, FAKE_PARENT: approved, ...delta };
+      FAKE_FETCH_HEAD: integratedSource, FAKE_FRONTEND_OBJECT_EXIT: "0", FAKE_FRONTEND_ANCESTRY_EXIT: "0", FAKE_FRONTEND_TREE: frontendTree, FAKE_FRONTEND_BLOB: frontendBlob, FAKE_PARENT: approved,
+      FAKE_WALLET_ANCESTRY_EXIT: "0", FAKE_WALLET_TREE: walletTree, FAKE_WALLET_BASE_WORKER: s1WorkerBlob,
+      FAKE_WALLET_BASE_TEST: s1ReaderTestBlob, FAKE_BASE_WORKER: s1WorkerBlob, FAKE_BASE_TEST: s1ReaderTestBlob,
+      FAKE_COMPOSED_WORKER: walletWorkerBlob, FAKE_COMPOSED_TEST: walletReaderTestBlob, FAKE_DIFF_CHECK_EXIT: "0", ...delta };
     const result = spawnSync("bash", ["-c", fakeGit + selectShell], { env, encoding: "utf8" });
     assert.equal(result.status === 0, expected, result.stderr);
     assert.ok(!result.stdout.includes("PRIVATE_SOURCE_SENTINEL") && !result.stderr.includes("PRIVATE_SOURCE_SENTINEL"));
     const calls = existsSync(trace) ? readFileSync(trace, "utf8").trim().split("\n") : [];
     sourceCases++;
-    return { calls, selected: existsSync(selected) };
+    return { calls, selected: existsSync(selected), composed: existsSync(selected + ".applied") };
   } finally { rmSync(temp, { recursive: true, force: true }); }
 }
 // The merged reviewed main release retains receiver checks and never syncs secrets.
@@ -373,6 +395,10 @@ const repoRoot = new URL("..", import.meta.url);
 // source-level read_error_code and the S1 bundle's guard requires exactly that
 // key set. The older map (shared by the parent and 6f9b84e) lacks the guard, so
 // mixing generations is exactly what the four pins reject.
+// Correction (S1-R4-01): the bare S1 tree does NOT preserve the already-published
+// #1126 Binance wallet valuation reader; the SOURCE Worker predates it. The publish
+// composition therefore applies exactly the reviewed #1126 Worker/test increment on
+// top of the unchanged four SOURCE pins, and the overlay step requires it.
 function mapGeneration(commit) {
   const text = spawnSync("git", ["show", `${commit}:${assetPath}`], {cwd: repoRoot, encoding:"utf8", maxBuffer:64*1024*1024}).stdout;
   const assets = [...text.matchAll(/"(\/v2\/assets\/[^"]+)": \{ contentType: "[^"]+", base64: "([A-Za-z0-9+/=]*)"/g)];
@@ -409,6 +435,25 @@ const s1Env = {...mergedEnv, RELEASE_SOURCE_SHA:s1Source, FAKE_SELECTED_HEAD:s1S
   for (const pin of [`rev-parse ${s1Source}^@`, `rev-parse ${s1Source}^{tree}`, `rev-parse ${s1Source}:${assetPath}`])
     assert.ok(accepted.calls.indexOf(pin) > ancestry && accepted.calls.indexOf(pin) < checkout, pin);
   assert.ok(!accepted.calls.some(call => call.startsWith("fetch")), "SOURCE comes from main history, never a branch fetch");
+  assert.equal(accepted.composed, true, "S1 publish composition applies the reviewed wallet reader increment");
+  const apply = accepted.calls.indexOf("apply --index");
+  assert.ok(apply > checkout, "the increment is applied onto the selected SOURCE checkout");
+  for (const pin of [`merge-base --is-ancestor ${s1Source} ${walletSource}`, `merge-base --is-ancestor ${walletSource} ${control}`,
+    `rev-parse ${walletSource}^{tree}`, `rev-parse ${walletSource}^:web/strategy-switch-console/worker.js`])
+    assert.ok(accepted.calls.indexOf(pin) > ancestry && accepted.calls.indexOf(pin) < checkout, pin);
+  assert.equal(accepted.calls.lastIndexOf("rev-parse :web/strategy-switch-console/worker.js") > apply, true, "composed Worker blob is verified after apply");
+}
+// Wallet increment provenance is checked before checkout; composed blobs after apply.
+for (const delta of [{FAKE_WALLET_ANCESTRY_EXIT:"1"},{FAKE_WALLET_TREE:"b".repeat(40)},
+  {FAKE_WALLET_BASE_WORKER:"b".repeat(40)},{FAKE_WALLET_BASE_TEST:"b".repeat(40)}]) {
+  const rejected = sourceCase({...s1Env,...delta},false);
+  assert.equal(rejected.selected,false, JSON.stringify(delta));
+  assert.equal(rejected.composed,false, JSON.stringify(delta));
+}
+for (const delta of [{FAKE_BASE_WORKER:"b".repeat(40)},{FAKE_BASE_TEST:"b".repeat(40)},
+  {FAKE_COMPOSED_WORKER:s1WorkerBlob},{FAKE_COMPOSED_WORKER:"b".repeat(40)},{FAKE_COMPOSED_TEST:s1ReaderTestBlob},
+  {FAKE_DIFF_CHECK_EXIT:"1"}]) {
+  assert.equal(sourceCase({...s1Env,...delta},false).selected,true, JSON.stringify(delta));
 }
 // Mode, main-ref and unknown-source rejection happen before any Git call.
 for (const delta of [{RELEASE_FRONTEND_ASSETS:"false"},{RELEASE_FRONTEND_ASSETS:"true\n"},{SYNC_SECRETS:"true"},
@@ -588,6 +633,10 @@ const fakeOverlayGit = `git() {
     'diff --name-only ${approved}') printf '%s' "$FAKE_DIFF" ;;
     'diff --name-only 6f9b84e6192b68bac1627337fb4e633e178fcee3'|'diff --name-only ${inboxSource}'|'diff --name-only ${mergedSource}'|'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}'|'diff --name-only ${settingsSource}'|'diff --name-only ${dailySource}'|'diff --name-only ${statusSource}') printf '%s' "$FAKE_DIFF" ;;
     'diff --name-only ${s1Source}') printf '%s' "$FAKE_DIFF" ;;
+    'diff --cached --name-only ${s1Source}') printf '%s' "$FAKE_CACHED" ;;
+    'rev-parse :web/strategy-switch-console/worker.js') printf '%s' "$FAKE_STAGED_WORKER" ;;
+    'rev-parse :tests/binance_account_facts_validation.mjs') printf '%s' "$FAKE_STAGED_TEST" ;;
+    'diff --quiet') return "$FAKE_WORKTREE_EXIT" ;;
     'ls-files --others --exclude-standard') printf '%s' "$FAKE_UNTRACKED" ;;
     *) return 91 ;;
   esac
@@ -692,8 +741,14 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
     const dest = join(temp, assetPath);
     mkdirSync(join(temp, "web/strategy-switch-console"), {recursive:true});
     const env = {PATH:process.env.PATH, GITHUB_REF:"refs/heads/main", RELEASE_SOURCE_SHA:s1Source, FAKE_HEAD:s1Source,
-      FAKE_TREE:s1Tree, FAKE_DIFF:"", FAKE_UNTRACKED:""};
-    for (const delta of [{}, {FAKE_DIFF:"fake-file"}, {FAKE_DIFF:"web/strategy-switch-console/application/console_api/desk_delivery.js"},
+      FAKE_TREE:s1Tree, FAKE_DIFF:"", FAKE_UNTRACKED:"", FAKE_CACHED:walletPaths.join("\n"),
+      FAKE_STAGED_WORKER:walletWorkerBlob, FAKE_STAGED_TEST:walletReaderTestBlob, FAKE_WORKTREE_EXIT:"0"};
+    // S1-R4-01: the bare SOURCE (no staged reader increment) is exactly the defective
+    // earlier composition and must stop, as must any other staged or unstaged delta.
+    for (const delta of [{}, {FAKE_CACHED:""}, {FAKE_CACHED:walletPaths[1]}, {FAKE_CACHED:walletPaths.join("\n")+"\nfake-file"},
+      {FAKE_CACHED:"web/strategy-switch-console/application/console_api/desk_delivery.js"},
+      {FAKE_STAGED_WORKER:s1WorkerBlob}, {FAKE_STAGED_WORKER:"b".repeat(40)}, {FAKE_STAGED_TEST:s1ReaderTestBlob},
+      {FAKE_WORKTREE_EXIT:"1"},
       {FAKE_UNTRACKED:"fake-file"}, {FAKE_TREE:"a".repeat(40)}, {FAKE_TREE:"04196ebc2293f7c146cc788948d312afdcf5cf99"},
       {GITHUB_REF:"refs/heads/other"}, {RELEASE_SOURCE_SHA:""}, {RELEASE_SOURCE_SHA:"6f9b84e6192b68bac1627337fb4e633e178fcee3"}]) {
       writeFileSync(dest, asset);
@@ -708,6 +763,82 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
       overlayCases++;
     }
   } finally {rmSync(temp, {recursive:true,force:true});}
+}
+// S1-R4-01 regression on the actual composition: run the real selection and overlay
+// shells with real Git in a shared clone of this checkout, then execute the composed
+// Worker's digest reader, including the legacy (no include_valuation) response shape.
+{
+  const run = (cwd, args) => spawnSync("git", args, {cwd, encoding:"utf8", maxBuffer:64*1024*1024});
+  const out = (cwd, ...args) => { const r = run(cwd, args); assert.equal(r.status, 0, `git ${args.join(" ")}`); return r.stdout.trim(); };
+  const commonDir = out(fileURLToPath(repoRoot), "rev-parse", "--path-format=absolute", "--git-common-dir");
+  const controlHead = out(fileURLToPath(repoRoot), "rev-parse", "HEAD");
+  const temp = mkdtempSync(join(tmpdir(), "console-s1-composition-"));
+  try {
+    const clone = join(temp, "repo");
+    assert.equal(spawnSync("git", ["clone", "--quiet", "--shared", "--no-checkout", commonDir, clone]).status, 0);
+    const reset = commit => out(clone, "-c", "advice.detachedHead=false", "checkout", "--quiet", "--force", "--detach", commit);
+    const gitEnv = {PATH:process.env.PATH, HOME:temp, GIT_CONFIG_NOSYSTEM:"1"};
+    const selectEnv = {...gitEnv, GITHUB_REF:"refs/heads/main", GITHUB_SHA:controlHead, RELEASE_SOURCE_SHA:s1Source,
+      RELEASE_FRONTEND_ASSETS:"true", SYNC_SECRETS:"false", SYNC_STRATEGY_PROFILES:"false",
+      SKIP_BINANCE_RECEIVER_CHECKS:"false", IBKR_CANDIDATE_RESUME:"off", EXTERNAL_FLOW_ENABLE:"false"};
+    const overlayEnv = {...gitEnv, GITHUB_REF:"refs/heads/main", RELEASE_SOURCE_SHA:s1Source};
+    const select = () => spawnSync("bash", ["-c", selectShell], {cwd:clone, env:selectEnv, encoding:"utf8"});
+    const overlay = () => spawnSync("bash", ["-c", overlayShell], {cwd:clone, env:overlayEnv, encoding:"utf8"});
+    const workerPath = join(clone, "web/strategy-switch-console/worker.js");
+
+    // Fail-before: the earlier S1 composition published the bare SOURCE Worker.
+    reset(s1Source);
+    assert.doesNotMatch(readFileSync(workerPath, "utf8"), /include_valuation/, "bare SOURCE Worker lacks the published reader");
+    assert.notEqual(overlay().status, 0, "bare SOURCE Worker without the reviewed reader must not publish");
+
+    reset(controlHead);
+    const selected = select();
+    assert.equal(selected.status, 0, selected.stderr);
+    assert.equal(out(clone, "rev-parse", "HEAD"), s1Source);
+    assert.equal(out(clone, "rev-parse", "HEAD^{tree}"), s1Tree, "the four SOURCE pins are never rewritten");
+    assert.equal(out(clone, "rev-parse", "HEAD^@"), s1Parent);
+    assert.equal(out(clone, "hash-object", assetPath), s1Blob, "frontend map stays the S1 generation");
+    assert.deepEqual(out(clone, "diff", "--cached", "--name-only", s1Source).split("\n"), walletPaths);
+    assert.equal(out(clone, "rev-parse", ":web/strategy-switch-console/worker.js"), walletWorkerBlob);
+    assert.equal(out(clone, "rev-parse", ":tests/binance_account_facts_validation.mjs"), walletReaderTestBlob);
+    assert.equal(out(clone, "rev-parse", `${walletSource}:web/strategy-switch-console/worker.js`), walletWorkerBlob,
+      "composed Worker is byte-identical to the reviewed #1126 Worker");
+    assert.equal(out(clone, "hash-object", "web/strategy-switch-console/worker.js"), walletWorkerBlob);
+    assert.equal(producerEmitsReadErrorCode(s1Source), true, "S1 desk producer is retained in the composition");
+    const composedWorker = readFileSync(workerPath, "utf8");
+    assert.match(composedWorker, /url\.searchParams\.get\("include_valuation"\) === "1" && valuation\?\.status === "available"/);
+    assert.match(composedWorker, /holdings: report\.assets\.map\(\(\{ asset, quantity \}\) => \(\{ asset, quantity \}\)\), \.\.\.wallet \}\);/);
+    assert.match(readFileSync(join(clone, "tests/binance_account_facts_validation.mjs"), "utf8"),
+      /'older digest readers retain the original response shape'/, "composed reader test asserts the legacy shape");
+    const accepted = overlay();
+    assert.equal(accepted.status, 0, accepted.stderr);
+
+    // Execute the composed reader (Miniflare, as the release build step does).
+    const modules = fileURLToPath(new URL("../web/strategy-switch-console/node_modules", import.meta.url));
+    if (existsSync(join(modules, "miniflare"))) {
+      const link = join(clone, "web/strategy-switch-console/node_modules");
+      symlinkSync(modules, link, "dir");
+      try {
+        const reader = spawnSync(process.execPath, ["tests/binance_account_facts_validation.mjs"],
+          {cwd:clone, env:{...process.env}, encoding:"utf8", maxBuffer:64*1024*1024});
+        assert.equal(reader.status, 0, `composed S1 Binance reader must pass: ${reader.stderr.slice(-2000)}`);
+      } finally { rmSync(link, {force:true}); }
+    } else {
+      assert.ok(!process.env.CI, "CI must execute the composed S1 Binance reader");
+      console.log("composed S1 reader execution skipped locally: Worker test runtime not installed");
+    }
+
+    // Any further Worker change, staged or unstaged, stops the publish composition.
+    writeFileSync(workerPath, composedWorker + "\n// synthetic extra change\n");
+    assert.notEqual(overlay().status, 0, "unstaged Worker delta must stop");
+    out(clone, "add", "web/strategy-switch-console/worker.js");
+    assert.notEqual(overlay().status, 0, "staged extra Worker delta must stop");
+    reset(controlHead);
+    assert.equal(select().status, 0);
+    writeFileSync(join(clone, "web/strategy-switch-console/extra.js"), "export {};\n");
+    out(clone, "add", "web/strategy-switch-console/extra.js");
+    assert.notEqual(overlay().status, 0, "extra staged path must stop");
+  } finally { rmSync(temp, {recursive:true, force:true}); }
 }
 // The CPU candidate carries its own exact generated map, never the older overlay.
 {

@@ -1138,9 +1138,26 @@ jobs:
             expected_tree="fc81143c36bbd4f733f21a1ea9a18048232adf02"
             [ "$(git rev-parse "${RELEASE_SOURCE_SHA}^{tree}")" = "$expected_tree" ] || exit 2
             [ "$(git rev-parse "${RELEASE_SOURCE_SHA}:web/strategy-switch-console/v2_asset_map.js")" = "68449f66f877f39a9f23715d1ec1f2cba2963937" ] || exit 2
+            # The four SOURCE pins above stay unchanged. Later main already serves the
+            # reviewed #1126 Binance wallet valuation reader (registered by #1127), so
+            # compose exactly that reviewed Worker/test increment onto the SOURCE tree;
+            # publishing the bare SOURCE Worker would silently drop the live reader.
+            binance_wallet_source="866388696a6bad7d1b88a76a3ab5957c7958b3bf"
+            git merge-base --is-ancestor "$RELEASE_SOURCE_SHA" "$binance_wallet_source"
+            git merge-base --is-ancestor "$binance_wallet_source" "$control_sha"
+            [ "$(git rev-parse "${binance_wallet_source}^{tree}")" = "fd98bac8e1aeec023d4a89bcb8c27f1026a80d19" ] || exit 2
+            [ "$(git rev-parse "${binance_wallet_source}^:web/strategy-switch-console/worker.js")" = "954ccd36adaf8372fba3970d81da37b05a0e0137" ] \
+              && [ "$(git rev-parse "${binance_wallet_source}^:tests/binance_account_facts_validation.mjs")" = "c284fbd35310044e735edcccb6ecd47f10e311e9" ] || exit 2
             git -c advice.detachedHead=false checkout --detach "$RELEASE_SOURCE_SHA"
             [ "$(git rev-parse HEAD)" = "$RELEASE_SOURCE_SHA" ] \
               && [ "$(git rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || exit 2
+            [ "$(git rev-parse :web/strategy-switch-console/worker.js)" = "954ccd36adaf8372fba3970d81da37b05a0e0137" ] \
+              && [ "$(git rev-parse :tests/binance_account_facts_validation.mjs)" = "c284fbd35310044e735edcccb6ecd47f10e311e9" ] || exit 2
+            git diff "${binance_wallet_source}^" "$binance_wallet_source" -- \
+              web/strategy-switch-console/worker.js tests/binance_account_facts_validation.mjs | git apply --index
+            git diff --check --cached
+            [ "$(git rev-parse :web/strategy-switch-console/worker.js)" = "407d74accf7ee0b0117da712a24ab1e1255bcfbf" ] \
+              && [ "$(git rev-parse :tests/binance_account_facts_validation.mjs)" = "f590e43dd71274e761c505cd375b05b7da0b9756" ] || exit 2
             exit 0
           fi
           if [ "$RELEASE_SOURCE_SHA" = "c1b737d6e721eb9fe71a12c613fbb49d3fa51563" ]; then
@@ -1269,8 +1286,10 @@ jobs:
           if [ "$head_sha" = "$s1_source" ] || [ "$head_sha" = "$console_source" ] || [ "$head_sha" = "$reviewed_main" ] || [ "$head_sha" = "$historical_reviewed_main" ] || [ "$head_sha" = "$older_reviewed_main" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] || exit 2
             if [ "$head_sha" = "$s1_source" ]; then
-              # The selected S1 tree supplies both the Worker producer and the built
-              # frontend map; the rebuilt map must equal the pinned blob below.
+              # The selected S1 tree supplies the desk producer and the built frontend
+              # map (the rebuilt map must equal the pinned blob below). Its Worker is
+              # composed with exactly the reviewed #1126 wallet valuation increment, so
+              # the published Worker keeps the already-served Binance reader.
               [ "${RELEASE_SOURCE_SHA:-}" = "$s1_source" ] || exit 2
               [ "$(git rev-parse 'HEAD^{tree}')" = "fc81143c36bbd4f733f21a1ea9a18048232adf02" ] || exit 2
               [ "$(git hash-object web/strategy-switch-console/v2_asset_map.js)" = "68449f66f877f39a9f23715d1ec1f2cba2963937" ] || exit 2
@@ -1293,6 +1312,12 @@ jobs:
               expected_paths="$(printf '%s\n' tests/binance_account_facts_validation.mjs \
                 web/strategy-switch-console/binance_detail_archive.js web/strategy-switch-console/worker.js)"
               [ "$(git diff --cached --name-only "$head_sha")" = "$expected_paths" ] || exit 2
+              git diff --quiet
+            elif [ "$head_sha" = "$s1_source" ]; then
+              expected_paths="$(printf '%s\n' tests/binance_account_facts_validation.mjs web/strategy-switch-console/worker.js)"
+              [ "$(git diff --cached --name-only "$head_sha")" = "$expected_paths" ] || exit 2
+              [ "$(git rev-parse :web/strategy-switch-console/worker.js)" = "407d74accf7ee0b0117da712a24ab1e1255bcfbf" ] || exit 2
+              [ "$(git rev-parse :tests/binance_account_facts_validation.mjs)" = "f590e43dd71274e761c505cd375b05b7da0b9756" ] || exit 2
               git diff --quiet
             else
               [ -z "$(git diff --name-only "$head_sha")" ] || exit 2
