@@ -663,6 +663,13 @@ export type DeliverySenderStatus =
   | "skipped_duplicate" | "blocked_resend_guard" | "business_digest_failed" | "skipped_empty"
   | "receipt_missing" | "receipt_expired" | "sender_skipped" | "read_failed" | "unknown";
 
+/** The shared receipt reader's fixed diagnostic allowlist: six receipt codes plus stage × failure family. */
+export type DeliveryReadErrorCode =
+  | "receipt_read_timeout" | "receipt_too_large" | "receipt_body_missing" | "invalid_receipt_archive"
+  | "public_receipt_missing" | "invalid_public_receipt"
+  | `${"run_listing" | "artifact_listing" | "artifact_archive" | "artifact_download" | "receipt_decode" | "receipt_projection" | "sender_jobs"}_${
+    "failed" | "transport_failed" | `http_${"other" | "401" | "403" | "404" | "429" | "500" | "502" | "503" | "504"}`}`;
+
 export interface AlertDeliverySourceItem {
   source_run_id: number | null;
   source_run_attempt: number | null;
@@ -683,6 +690,9 @@ export interface AlertDeliverySourceItem {
 
 export interface AlertDeliverySource {
   read_status: DeliveryReadStatus;
+  /** Source-level reader diagnostic, independent of item rows. Missing, malformed or
+      unallowlisted input falls back to the literal "unknown"; never null or free text. */
+  read_error_code: DeliveryReadErrorCode | "unknown";
   read_reason_codes: DeliveryReadReason[];
   /** Read time; never a send, composition or ACK time. */
   as_of: IsoTime | null;

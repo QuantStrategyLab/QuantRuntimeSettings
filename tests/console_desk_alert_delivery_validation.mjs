@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 
 import { consoleApiResponse } from "../web/strategy-switch-console/application/console_api/routes.js";
+import { RECEIPT_READ_ERROR_CODES } from "../web/strategy-switch-console/application/console_api/notification_receipts.js";
 import { AccessError } from "../web/strategy-switch-console/frontend/src/api/client.ts";
 import { DESK_SOURCES, DeskContractError, createDeskApi, fixtureExposure } from "../web/strategy-switch-console/frontend/src/desk/api/endpoints.ts";
 import {
@@ -71,6 +72,47 @@ assert.deepEqual(partialView.rows.map(row => row.run), [{ id: 11, attempt: 1 }, 
 assert.deepEqual(partialView.rows.map(row => row.acceptedKey), ["alerts.delivery.accepted.yes", "alerts.delivery.accepted.unknown"]);
 assert.deepEqual(partialView.rows.map(row => row.receiverKey), ["alerts.delivery.receiver_unknown", "alerts.delivery.receiver_unknown"],
   "a delivered sender row is never shown as a receiver delivery");
+assert.equal(partial.data.source.read_error_code, "unknown", "no top-level diagnostic supplied: explicit unknown fallback");
+assert.equal(partialView.readErrorCode, "unknown");
+assert.equal(partialView.readErrorShown, true, "a partial read shows its (unknown) source diagnostic");
+
+// Source-level diagnostic through the same real chain, kept apart from row diagnostics.
+deps = withSource({ read_status: "read_failed", read_reason_codes: ["notification_receipts_read_failed"],
+  read_error_code: "run_listing_http_403", as_of: null,
+  items: [{ source_run_id: 31, source_run_attempt: 1, status: "dry_run", dry_run: true, test_message: true,
+    delivered: true, receiver_ack: "accepted", read_error_code: "artifact_listing_http_404" }] });
+const diagnosed = await live.alertDelivery();
+validate(diagnosed.data, "live source diagnostic");
+assert.equal(diagnosed.source, "live");
+assert.equal(diagnosed.data.source.read_status, "read_failed", "read_failed stays read_failed");
+assert.equal(diagnosed.data.source.read_error_code, "run_listing_http_403");
+assert.deepEqual(diagnosed.data.channel.status, { status: "unknown", reason: "read_failed" });
+const diagnosedView = deliverySourceView(diagnosed.data.source);
+assert.equal(diagnosedView.readErrorCode, "run_listing_http_403");
+assert.equal(diagnosedView.readErrorShown, true);
+assert.deepEqual(diagnosedView.rows.map(row => row.readErrorCode), ["artifact_listing_http_404"], "row codes stay per row");
+assert.deepEqual([diagnosedView.rows[0].dryRun, diagnosedView.rows[0].testMessage], [true, true], "dry-run/test flags kept");
+assert.equal(diagnosedView.rows[0].receiverKey, "alerts.delivery.receiver_unknown", "receiver ACK stays unknown");
+for (const code of RECEIPT_READ_ERROR_CODES) {
+  deps = withSource({ read_status: "read_failed", read_reason_codes: [], read_error_code: code, items: [] });
+  const { data } = await live.alertDelivery();
+  validate(data, `live ${code}`);
+  assert.equal(deliverySourceView(data.source).readErrorCode, code, `${code} survives client→router→adapter→guard→model`);
+}
+for (const unsafe of [null, "", "FAKE_PRIVATE_PROVIDER_DETAIL", "run_listing_http_418", 403, { code: "run_listing_http_403" }]) {
+  deps = withSource({ read_status: "read_failed", read_reason_codes: [], read_error_code: unsafe, items: [] });
+  const { data } = await live.alertDelivery();
+  validate(data, `unsafe ${String(unsafe)}`);
+  assert.equal(data.source.read_error_code, "unknown", "untrusted top-level diagnostic falls back to unknown");
+  assert.doesNotMatch(JSON.stringify(data), /FAKE_PRIVATE|_418/);
+}
+for (const read_status of ["no_data", "partial"]) {
+  deps = withSource({ read_status, read_reason_codes: [], read_error_code: "run_listing_http_403", items: [] });
+  const { data } = await live.alertDelivery();
+  validate(data, `${read_status} with diagnostic`);
+  assert.equal(data.source.read_status, read_status, `${read_status} is not rewritten as read_failed`);
+  assert.equal(data.source.read_error_code, "run_listing_http_403");
+}
 
 // Unauthorized: the route answers 401 and the client invalidates its private session.
 deps = { ...withSource({ read_status: "complete", read_reason_codes: [], items: [] }), readSession: async () => null };
@@ -98,6 +140,8 @@ for (const [expected, stateDeps, channelReason] of states) {
   assert.doesNotMatch(JSON.stringify(data), /FAKE_PRIVATE/);
   const view = deliverySourceView(data.source);
   assert.equal(view.readKey, `alerts.delivery.read.${expected}`);
+  assert.equal(data.source.read_error_code, "unknown", `${expected}: no supplied diagnostic stays unknown`);
+  assert.equal(view.readErrorShown, expected !== "complete", `${expected}: unknown diagnostic shown only for a non-complete read`);
   assert.equal(view.rows.length, 0, `${expected}: an empty read renders no rows, not a zero-success summary`);
 }
 deps = states[3][1];
@@ -142,6 +186,12 @@ mutate("free-text read error", body => { body.source.items[0].read_error_code = 
 mutate("non-boolean acceptance", body => { body.source.items[0].sender_accepted = "yes"; });
 mutate("impossible business day", body => { body.source.items[0].business_day = "2030-02-30"; });
 mutate("null source", body => { body.source = null; });
+mutate("missing source diagnostic", body => { delete body.source.read_error_code; });
+mutate("null source diagnostic", body => { body.source.read_error_code = null; });
+mutate("free-text source diagnostic", body => { body.source.read_error_code = "provider said: FAKE"; });
+mutate("unallowlisted source diagnostic", body => { body.source.read_error_code = "run_listing_http_418"; });
+mutate("non-string source diagnostic", body => { body.source.read_error_code = 403; });
+mutate("unknown is not an item diagnostic", body => { body.source.items[0].read_error_code = "unknown"; });
 
 // Guard enums are exactly the schema's enums (no silent drift between contract and UI).
 const itemSchema = schema.properties.source.properties.items.items.properties;
@@ -156,6 +206,17 @@ for (const code of itemSchema.read_error_code.anyOf[0].enum) {
 for (const code of ["run_listing_http_418", "sender_jobs_http_", "receipt_read_timeout_x"]) {
   assert.equal(isDeliverySource({ ...clone(base.source), items: [{ ...clone(base.source.items[0]), read_error_code: code }] }), false, code);
 }
+const sourceErrorEnum = schema.properties.source.properties.read_error_code.enum;
+assert.deepEqual(itemSchema.read_error_code.anyOf[0].enum, [...RECEIPT_READ_ERROR_CODES], "item enum is the backend allowlist");
+assert.deepEqual(sourceErrorEnum, [...itemSchema.read_error_code.anyOf[0].enum, "unknown"], "source enum adds only unknown");
+for (const code of sourceErrorEnum) {
+  const body = clone(base);
+  body.source.read_error_code = code;
+  assert.ok(isAlertDelivery(body) && check(body), `source read error ${code} accepted`);
+}
+for (const code of ["run_listing_http_418", "sender_jobs_http_", "receipt_read_timeout_x", "UNKNOWN", null]) {
+  assert.equal(isDeliverySource({ ...clone(base.source), read_error_code: code }), false, `source ${code}`);
+}
 
 // ---------------------------------------------------------------- fixtures stay labelled
 validate(fixtureOk, "fixture ok");
@@ -166,6 +227,9 @@ for (const scenario of ["ok", "degraded"]) {
   assert.deepEqual([result.source, result.scenario], ["mock", scenario]);
 }
 assert.ok(deliverySourceView(fixtureDegraded.source).rows.every(row => row.receiverKey === "alerts.delivery.receiver_unknown"));
+assert.equal(fixtureDegraded.source.read_error_code, "unknown", "the fixture's partial read keeps the unknown source diagnostic");
+assert.deepEqual(deliverySourceView(fixtureDegraded.source).rows.map(row => row.readErrorCode), [null, "public_receipt_missing", null],
+  "fixture row diagnostics stay separate from the source diagnostic");
 assert.equal(deliverySourceView(undefined), null, "a body without source renders the absent note");
 assert.equal(fixtureExposure("alerts", null), "partial");
 assert.equal(fixtureExposure("alerts", "ok"), "all");
@@ -181,7 +245,7 @@ const keys = [
   ...DELIVERY_SENDER_STATUSES.map(status => `alerts.delivery.sender.${status}`),
   "alerts.delivery.accepted.yes", "alerts.delivery.accepted.no", "alerts.delivery.accepted.unknown",
   "alerts.delivery.receiver_unknown", "alerts.delivery.source.absent", "alerts.section.live", "alerts.section.mock",
-  "alerts.note.sender", "mock.badge_partial", "mock.title_partial",
+  "alerts.note.sender", "mock.badge_partial", "mock.title_partial", "alerts.delivery.read_error", "alerts.delivery.unknown",
 ];
 for (const key of keys) {
   assert.ok(typeof zh[key] === "string" && zh[key].length > 0, `zh-CN ${key}`);
@@ -194,5 +258,7 @@ const page = readFileSync(new URL("../web/strategy-switch-console/frontend/src/d
 assert.match(page, /mock\.badge_partial/, "a page mixing a live read with fixtures is labelled partial");
 assert.doesNotMatch(page, /postJson|fetch\(|XMLHttpRequest|dangerouslySetInnerHTML/, "the page only reads through the desk api");
 assert.doesNotMatch(page, /recipients \?\? 0|targets \?\? 0|runs \?\? 0/, "no zero-count defaults");
+assert.match(page, /mrd-delivery-source-error[\s\S]*alerts\.delivery\.read_error/, "source diagnostic reuses the existing copy");
+assert.match(page, /readErrorCode === "unknown" \? t\("alerts\.delivery\.unknown"\)/, "unknown renders as the unknown label");
 
-console.log("console_desk_alert_delivery_validation: PASS (live client→router→adapter→guard chain, 401, partial/no_data/not_connected/read_failed/unknown/stale, fail-closed source guard, schema parity, fixture labels, zh-CN/en copy; synthetic only)");
+console.log("console_desk_alert_delivery_validation: PASS (live client→router→adapter→guard chain, 401, partial/no_data/not_connected/read_failed/unknown/stale, source read_error_code allowlist + unknown fallback, fail-closed source guard, schema parity, fixture labels, zh-CN/en copy; synthetic only)");

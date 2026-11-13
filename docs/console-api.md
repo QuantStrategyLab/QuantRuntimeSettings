@@ -328,6 +328,40 @@ is supplied only for a qualified original daily interval, and null or absence
 is unknown, not a zero return. Existing native daily values retain their own
 coverage semantics; cashflow-adjusted approximations retain their method label.
 
+### Alert delivery v1 source compatibility
+
+`/api/desk/alerts/delivery` keeps the schema identifier
+`qsl.desk.alert_delivery.v1`
+([`alert-delivery.json`](../schemas/desk/alert-delivery.json)), but its
+optional `source` object now requires `source.read_error_code`. The value is
+never null: it is one of the fixed receipt-reader allowlist codes, otherwise
+the literal `unknown`. Item-level `read_error_code` nullability is unchanged.
+
+Mixed generations are not compatible when `source` is present:
+
+- An older producer with a newer consumer: the newer guard rejects a `source`
+  object without `read_error_code`.
+- A newer producer with an older consumer: the older guard checks the exact
+  `source` keys and rejects the added key.
+- A producer and consumer from the same generation work, subject to normal
+  validation. Older fixtures that omit the optional `source` do not show that
+  mixed versions work for real responses that carry it.
+
+Upgrade the bundled producer (`console_api/desk_delivery.js`) together with the
+frontend contract types, guards and built assets (`v2_asset_map.js`) as one
+matched generation. A stale cached frontend or an independently deployed
+consumer is unsupported; reload onto the matching assets before using the
+source view. There is no compatibility shim: no silent field stripping, no
+default injection, no relaxed guard and no new schema version.
+
+Roll back the producer and the frontend assets together to the matching
+previous generation. Frontend-only or backend-only rollback is not supported.
+These are compatibility constraints only; they do not show that a deployment
+was atomic and do not authorize a deployment or rollback.
+
+`unknown` reports diagnostic uncertainty. It is never a successful delivery
+and never a root-cause determination.
+
 ## Native Binance account-card reads
 
 Account cards and account details read the existing authenticated

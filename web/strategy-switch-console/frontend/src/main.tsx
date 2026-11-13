@@ -11,7 +11,15 @@ document.documentElement.lang = preferences.language === "zh" ? "zh-CN" : "en";
 const root = document.getElementById("root");
 // The Meridian desk lives under #/desk/* and loads as its own chunk; every other URL
 // boots the existing console unchanged.
-if (root && /^#\/desk(?:[/?]|$)/.test(window.location.hash)) {
+const startsInDesk = /^#\/desk(?:[/?]|$)/.test(window.location.hash);
+window.addEventListener("hashchange", () => {
+  // A document reload releases the previous React root and pending imports.
+  // Within either application, its existing router retains ownership.
+  if (/^#\/desk(?:[/?]|$)/.test(window.location.hash) !== startsInDesk) {
+    window.location.reload();
+  }
+});
+if (root && startsInDesk) {
   void import("./desk/DeskApp").then(({ mountDesk }) => mountDesk(root));
 } else if (root) {
   createRoot(root).render(<App />);

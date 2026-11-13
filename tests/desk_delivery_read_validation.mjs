@@ -32,6 +32,54 @@ assert.equal(reads, 0);
 assert.equal((await consoleApiResponse(new Request(url, { method: "POST" }), {}, deps)).status, 405);
 
 const { deskDelivery } = await import("../web/strategy-switch-console/application/console_api/desk_delivery.js");
+// Top-level diagnostics are bounded independently from per-item receipt errors.
+const { RECEIPT_READ_ERROR_CODES } = await import("../web/strategy-switch-console/application/console_api/notification_receipts.js");
+const diagnosticNow = () => Date.parse("2030-01-07T12:00:00Z");
+const diagnosticProject = source => deskDelivery({}, { notificationReceipts: async () => source }, diagnosticNow);
+for (const code of RECEIPT_READ_ERROR_CODES) {
+  const result = await diagnosticProject({ read_status: "read_failed", read_reason_codes: ["notification_receipts_read_failed"],
+    read_error_code: code, items: [] });
+  assert.equal(result.source.read_error_code, code, "allowlisted top-level diagnostic must survive projection");
+  assert.equal(result.source.read_status, "read_failed");
+  assert.equal(result.channel.status.reason, "read_failed");
+}
+for (const code of [undefined, null, "", "FAKE_PRIVATE_PROVIDER_DETAIL", 403, {}, ["run_listing_http_403"]]) {
+  const result = await diagnosticProject({ read_status: "read_failed", read_reason_codes: [], read_error_code: code, items: [] });
+  assert.equal(result.source.read_error_code, "unknown", "missing or untrusted diagnostic stays unknown");
+  assert.doesNotMatch(JSON.stringify(result), /FAKE_PRIVATE/);
+}
+for (const read_status of ["read_failed", "no_data", "partial"]) {
+  const result = await diagnosticProject({ read_status, read_reason_codes: [], read_error_code: "run_listing_http_403",
+    items: [{ status: "dry_run", dry_run: true, test_message: true, delivered: true,
+      read_error_code: "artifact_listing_http_404", receiver_ack: "accepted" }] });
+  assert.equal(result.source.read_status, read_status);
+  assert.equal(result.source.read_error_code, "run_listing_http_403");
+  assert.equal(result.source.items[0].read_error_code, "artifact_listing_http_404");
+  assert.equal(result.source.items[0].dry_run, true);
+  assert.equal(result.source.items[0].test_message, true);
+  assert.equal(result.source.items[0].receiver_ack, "unknown");
+}
+for (const source of [null, { read_status: "complete", read_reason_codes: [], items: null, read_error_code: "run_listing_http_403" }]) {
+  const result = await diagnosticProject(source);
+  assert.equal(result.source.read_status, "unknown");
+  assert.equal(result.source.read_error_code, "unknown", "malformed source cannot supply trusted diagnostics");
+}
+const diagnosticThrown = await deskDelivery({}, { notificationReceipts: () => { throw Error("FAKE_PRIVATE_PROVIDER_DETAIL"); } }, diagnosticNow);
+assert.equal(diagnosticThrown.source.read_error_code, "unknown");
+assert.equal(diagnosticThrown.source.read_status, "read_failed");
+assert.doesNotMatch(JSON.stringify(diagnosticThrown), /FAKE_PRIVATE/);
+let diagnosticCurrent = { read_status: "partial", read_reason_codes: [], read_error_code: "run_listing_http_403", items: [] };
+const diagnosticDeps = { notificationReceipts: async () => diagnosticCurrent };
+const diagnosticSnapshot = structuredClone(diagnosticCurrent);
+const diagnosticConcurrent = await Promise.all(Array.from({ length: 8 }, () => deskDelivery({}, diagnosticDeps, diagnosticNow)));
+assert.ok(diagnosticConcurrent.every(result => result.source.read_error_code === "run_listing_http_403"));
+assert.deepEqual(diagnosticCurrent, diagnosticSnapshot);
+diagnosticCurrent = { read_status: "read_failed", read_reason_codes: [], items: [] };
+assert.equal((await deskDelivery({}, diagnosticDeps, diagnosticNow)).source.read_error_code, "unknown", "no stale diagnostic retained");
+const { deskDelivery: restartedProjection } = await import("../web/strategy-switch-console/application/console_api/desk_delivery.js?diagnostic-restart");
+assert.equal((await restartedProjection({}, diagnosticDeps, diagnosticNow)).source.read_error_code, "unknown");
+console.log("Desk top-level diagnostic allowlist, unknown fallback, redaction and independent reads passed");
+
 const { createRequire } = await import("node:module");
 const { readFileSync } = await import("node:fs");
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
@@ -46,6 +94,43 @@ const now = () => Date.parse("2030-01-07T12:00:00Z");
 const project = source => deskDelivery({}, { notificationReceipts: async () => source }, now);
 const validate = value => assert.ok(check(value), ajv.errorsText(check.errors));
 validate(body);
+// The completed schema declares source.read_error_code: the reader allowlist plus literal unknown.
+const sourceErrorEnum = schema.properties.source.properties.read_error_code.enum;
+const itemErrorEnum = schema.properties.source.properties.items.items.properties.read_error_code.anyOf[0].enum;
+assert.deepEqual(itemErrorEnum, [...RECEIPT_READ_ERROR_CODES], "item enum is exactly the shared reader allowlist");
+assert.deepEqual(sourceErrorEnum, [...RECEIPT_READ_ERROR_CODES, "unknown"], "source enum adds only the unknown fallback");
+assert.ok(schema.properties.source.required.includes("read_error_code"));
+assert.equal(schema.properties.source.additionalProperties, false, "source stays a closed object");
+assert.deepEqual(schema.properties.source.properties.items.items.properties.read_error_code.anyOf[1], { type: "null" },
+  "item-level diagnostics stay nullable");
+for (const code of RECEIPT_READ_ERROR_CODES) {
+  validate(await diagnosticProject({ read_status: "read_failed", read_reason_codes: ["notification_receipts_read_failed"],
+    read_error_code: code, items: [] }));
+}
+for (const code of [undefined, null, "", "FAKE_PRIVATE_PROVIDER_DETAIL", 403, {}, ["run_listing_http_403"]]) {
+  validate(await diagnosticProject({ read_status: "read_failed", read_reason_codes: [], read_error_code: code, items: [] }));
+}
+validate(diagnosticThrown);
+for (const read_status of ["read_failed", "no_data", "partial"]) {
+  validate(await diagnosticProject({ read_status, read_reason_codes: [], read_error_code: "run_listing_http_403",
+    items: [{ status: "dry_run", dry_run: true, test_message: true, read_error_code: "artifact_listing_http_404" }] }));
+}
+const projectedBase = await diagnosticProject({ read_status: "read_failed", read_reason_codes: [], read_error_code: "run_listing_http_403",
+  items: [{ status: "read_failed", read_error_code: null }] });
+validate(projectedBase);
+assert.equal(projectedBase.source.items[0].read_error_code, null, "a null item diagnostic is still valid");
+for (const [label, edit] of [
+  ["missing source diagnostic", body => { delete body.source.read_error_code; }],
+  ["null source diagnostic", body => { body.source.read_error_code = null; }],
+  ["free-text source diagnostic", body => { body.source.read_error_code = "provider said: FAKE"; }],
+  ["unallowlisted source diagnostic", body => { body.source.read_error_code = "run_listing_http_418"; }],
+  ["unknown is not an item-level code", body => { body.source.items[0].read_error_code = "unknown"; }],
+]) {
+  const mutated = structuredClone(projectedBase);
+  edit(mutated);
+  assert.equal(check(mutated), false, label);
+}
+console.log("Desk source.read_error_code schema linkage passed");
 for (const [read_status, reason, sender_status] of [
   ["partial", "receipt_missing", "receipt_missing"],
   ["partial", "receipt_expired", "receipt_expired"],
