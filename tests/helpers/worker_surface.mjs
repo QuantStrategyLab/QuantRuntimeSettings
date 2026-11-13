@@ -27,12 +27,14 @@ export async function loadWorkerSurface({
   for (const rel of applicationModules) {
     moduleSources.push(await readFile(new URL(rel, ROOT), "utf8"));
   }
+  const extraSource = moduleSources.join("\n");
   return {
     workerSource,
     supportSource,
     durableSource,
     moduleSources,
-    wiredSource: `${workerSource}\n${supportSource}\n${durableSource}\n${moduleSources.join("\n")}`,
+    extraSource,
+    wiredSource: `${workerSource}\n${supportSource}\n${durableSource}\n${extraSource}`,
   };
 }
 
@@ -44,6 +46,16 @@ export function surfaceImportsModule(surface, modulePathSuffix) {
     new RegExp(`import\\s+\\([^)]*["'][^"']*${escapeRegExp(needle)}["']`),
   ];
   return patterns.some((re) => re.test(surface.workerSource) || re.test(surface.supportSource));
+}
+
+/** True if `function name(` / `async function name(` appears in any surface source. */
+export function surfaceDefinesFunction(surface, name) {
+  const pattern = new RegExp(`(?:export )?(?:async )?function ${escapeRegExp(name)}\\(`);
+  const extras = Array.isArray(surface.moduleSources) && surface.moduleSources.length
+    ? surface.moduleSources
+    : [surface.extraSource || ""];
+  return [surface.workerSource, surface.supportSource, surface.durableSource, ...extras]
+    .some((source) => pattern.test(source));
 }
 
 export function stripComments(source) {
