@@ -225,6 +225,7 @@ jobs:
           node tests/account_facts_sync_extract_validation.mjs
           node tests/owner_decision_extract_validation.mjs
           node tests/research_promotion_application_extract_validation.mjs
+          node tests/hk_stop_extract_validation.mjs
           node --experimental-strip-types tests/research_summary_worker_validation.mjs
           node tests/console_v2_worker_validation.mjs
           node --experimental-strip-types tests/console_update_notice_validation.mjs
