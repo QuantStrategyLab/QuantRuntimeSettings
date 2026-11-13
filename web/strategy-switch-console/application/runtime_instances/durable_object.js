@@ -40,6 +40,8 @@ import {
   decideAccountFactsDailyUpsert,
   decideAccountFactsPut,
   historyRetentionCutoff,
+  normalizeAccountFactsHistoricalPayload,
+  normalizeAccountFactsHistoryPayload,
   normalizeIbkrPeriodReturn,
   publicIbkrPeriodReturn,
   validFirstradeAccountId,
