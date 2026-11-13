@@ -297,6 +297,14 @@ not permission to send again. Never expire a sending reservation or clear it
 automatically. A claim timeout or an accepted send followed by an ACK-write
 failure remains uncertain. Read retries and delivery retries are different.
 
+For a normal report, the private reservation also records the source status for
+each account slot and a SHA-256 fingerprint of each available candidate,
+settled-cash record or wallet observation. These are the inputs from that
+attempt, captured before the send; a duplicate attempt cannot replace them.
+Compare them to a later read to identify which inputs changed before comparing
+the message hash. A fingerprint does not reconstruct an overwritten source.
+The receipt stores neither the message body nor the raw account data.
+
 The runtime logs only fixed status fields: report date, business day, coverage,
 delivery and lateness. Never print message bodies, private paths, account IDs,
 headers, tokens or exception details. `accepted` means Telegram accepted the

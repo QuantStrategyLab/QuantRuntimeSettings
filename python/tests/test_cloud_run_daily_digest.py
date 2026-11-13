@@ -1,4 +1,5 @@
 """Cloud Run delivery tests use synthetic rows, clocks, storage and transport."""
+import hashlib
 import io
 import json
 import os
@@ -459,6 +460,42 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertTrue(all(status == 200 for status, _ in results))
         self.assertEqual(len(self.store.records), 1)
         self.assertEqual(next(iter(self.store.records.values()))['delivery'], 'accepted')
+
+    def test_receipt_keeps_source_at_first_send_when_candidate_is_replaced(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'ibkr', 'candidate_slot': 'ibkr-slot'}
+        candidate_key = 'ibkr/2026-10-15/ibkr-slot.json'
+        cash_key = 'ibkr/flex-cash/ibkr-slot.json'
+        row = {**ROW, 'platform_id': 'ibkr', 'notification_events': []}
+        row.pop('notification_event', None)
+        old = {'runs': [row]}
+        cash = {'schema_version': 'ibkr_digest_settled_cash.v1', 'currency': 'USD', 'amount': '123456.75',
+                'statement_date': '2026-10-14', **{k: binding[k] for k in ('target_id', 'opaque_account_uid')}}
+        self.store = MemoryStore({candidate_key: old, cash_key: cash})
+        configured = replace(self.enable(), expected=[binding])
+        key = 'synthetic/2026-10-16.json'
+
+        def verify_before_send(text):
+            pending = self.store.records[key]
+            self.assertEqual(pending['delivery'], 'sending')
+            self.assertEqual([x['source'] for x in pending['source_evidence']], ['candidate', 'settled_cash'])
+            self.assertEqual([x['status'] for x in pending['source_evidence']], ['present', 'present'])
+            self.assertEqual(pending['source_evidence'][1]['sha256'], hashlib.sha256(
+                json.dumps(cash, sort_keys=True, separators=(',', ':')).encode()).hexdigest())
+            self.assertNotIn(cash['amount'], json.dumps(pending))
+            self.assertNotIn(binding['opaque_account_uid'], json.dumps(pending))
+            return self.send(text)
+
+        _, first = self.run_request(configuration=configured, sender=verify_before_send)
+        self.assertEqual(first['delivery'], 'accepted')
+        self.assertNotIn('source_evidence', first)
+        receipt = self.store.records[key]
+        self.store.rows[cash_key] = {**cash, 'statement_date': '2026-10-15', 'amount': '222222.75'}
+        _, repeat = self.run_request(configuration=configured)
+        self.assertEqual(repeat['delivery'], 'duplicate')
+        self.assertEqual(self.store.records[key], receipt)
+        self.assertEqual(len(self.sent), 1)
 
     def test_telegram_unknown_is_not_automatically_resent(self):
         def uncertain(text):
