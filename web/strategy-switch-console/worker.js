@@ -229,6 +229,8 @@ const {
   binanceDigestSnapshotResponse,
   binancePrivateScopeResponse,
   binanceWalletHistoryResponse,
+  BOOTSTRAP_CONFIG_JS,
+  BOOT_RECOVERY_JS,
   buildRiskProfileBindings,
   calculateAdaptiveSelectionDecisionDigest,
   calculateM0ResearchLedgerSha256,

@@ -6,19 +6,26 @@ const workerSource = await readFile(
   new URL("../web/strategy-switch-console/worker.js", import.meta.url),
   "utf8",
 );
+const supportSource = await readFile(
+  new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url),
+  "utf8",
+);
 const syncSource = await readFile(
   new URL("../web/strategy-switch-console/application/account_facts/sync.js", import.meta.url),
   "utf8",
 );
+const wiredSource = `${workerSource}\n${supportSource}`;
 
 assert.equal(
-  workerSource.includes('from "./application/account_facts/sync.js"'),
+  workerSource.includes('from "./application/account_facts/sync.js"')
+    || supportSource.includes('from "../account_facts/sync.js"')
+    || supportSource.includes("from '../account_facts/sync.js'"),
   true,
-  "Worker imports the B10-b account-facts sync module",
+  "Worker stack imports the B10-b account-facts sync module",
 );
-assert.match(workerSource, /\/api\/account-facts\/sync"/);
-assert.match(workerSource, /async function syncAccountFactsResponse/);
-assert.match(workerSource, /syncAccountFactsResponseImpl/);
+assert.match(wiredSource, /\/api\/account-facts\/sync"/);
+assert.match(supportSource, /async function syncAccountFactsResponse/);
+assert.match(wiredSource, /syncAccountFactsResponseImpl/);
 const syncSourceNoComments = syncSource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 assert.equal(
   /transactionSync/.test(syncSourceNoComments),
@@ -40,11 +47,11 @@ assert.equal(
   true,
   "sync still issues account_facts_put via injected repository",
 );
-assert.match(workerSource, /async function syncAccountPeriodReturnResponse/);
+assert.match(wiredSource, /async function syncAccountPeriodReturnResponse|syncAccountPeriodReturnResponse/);
 assert.equal(
   /syncAccountPeriodReturnResponse/.test(syncSource),
   false,
-  "B10-b smallest slice: period-return sync stays in worker",
+  "B10-b smallest slice: period-return sync stays outside sync.js",
 );
 
 function json(payload, status = 200) {

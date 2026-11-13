@@ -645,7 +645,7 @@ const SECURITY_HEADERS = {
 // contains only the config projections already shown by the public console;
 // private account routing still arrives after an authenticated /api/config
 // request. Keeping it external preserves the strict CSP without unsafe-inline.
-const BOOTSTRAP_CONFIG_JS = [
+export const BOOTSTRAP_CONFIG_JS = [
   "// Generated from non-secret console configuration. Do not edit by hand.",
   `window.__PLATFORM_META__ = ${JSON.stringify(PLATFORM_META)};`,
   `window.__PLATFORM_REPOSITORIES__ = ${JSON.stringify(PLATFORM_REPOSITORIES)};`,
@@ -664,7 +664,7 @@ const BOOTSTRAP_CONFIG_JS = [
 // trapping a visitor behind the loading screen forever. It does not fetch,
 // mutate configuration, or grant access: it only reveals the static login
 // surface after the main boot flow has had time to finish its own timeout.
-const BOOT_RECOVERY_JS = [
+export const BOOT_RECOVERY_JS = [
   "(() => {",
   "  const delayMs = 20_000;",
   "  window.setTimeout(() => {",
@@ -13977,4 +13977,3 @@ export function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
-

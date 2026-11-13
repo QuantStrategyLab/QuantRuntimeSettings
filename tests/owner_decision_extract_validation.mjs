@@ -9,21 +9,28 @@ const workerSource = await readFile(
   new URL("../web/strategy-switch-console/worker.js", import.meta.url),
   "utf8",
 );
+const supportSource = await readFile(
+  new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url),
+  "utf8",
+);
 const moduleSource = await readFile(
   new URL("../web/strategy-switch-console/application/approval/owner_decisions.js", import.meta.url),
   "utf8",
 );
+const wiredSource = `${workerSource}\n${supportSource}`;
 
 assert.equal(
-  workerSource.includes('from "./application/approval/owner_decisions.js"'),
+  workerSource.includes('from "./application/approval/owner_decisions.js"')
+    || supportSource.includes('from "../approval/owner_decisions.js"')
+    || supportSource.includes("from '../approval/owner_decisions.js'"),
   true,
-  "Worker imports the B10-c owner-decision module",
+  "Worker stack imports the B10-c owner-decision module",
 );
-assert.match(workerSource, /\/api\/owner-decisions"/);
-assert.match(workerSource, /ownerDecisionQueueResponseImpl/);
-assert.match(workerSource, /recordOwnerDecisionResponseImpl/);
-assert.match(workerSource, /async function ownerDecisionQueueResponse/);
-assert.match(workerSource, /async function recordOwnerDecisionResponse/);
+assert.match(wiredSource, /\/api\/owner-decisions"/);
+assert.match(wiredSource, /ownerDecisionQueueResponseImpl/);
+assert.match(wiredSource, /recordOwnerDecisionResponseImpl/);
+assert.match(supportSource, /async function ownerDecisionQueueResponse/);
+assert.match(supportSource, /async function recordOwnerDecisionResponse/);
 
 const moduleNoComments = moduleSource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 assert.equal(
