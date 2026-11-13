@@ -12,11 +12,19 @@ export async function runtimeInstanceCommand(env, command) {
     const response = await stub.fetch("https://runtime-instances/", command ? {
       method: "POST", body: JSON.stringify(command),
     } : {});
-    const result = await response.json();
+    let result;
+    try {
+      result = await response.json();
+    } catch {
+      throw new HttpError("runtime_instances_unavailable", response.status || 503);
+    }
     if (!response.ok) throw new HttpError(result.error || "runtime_instances_unavailable", response.status);
     return result;
   } catch (error) {
     if (error instanceof HttpError) throw error;
+    if (error && typeof error.status === "number") {
+      throw new HttpError(error.message || "runtime_instances_unavailable", error.status);
+    }
     throw new HttpError("runtime_instances_unavailable", 503);
   }
 }

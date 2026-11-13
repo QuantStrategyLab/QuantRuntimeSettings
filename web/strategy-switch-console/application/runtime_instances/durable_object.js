@@ -32,6 +32,7 @@ import {
 } from "../../account_facts.js";
 import { normalizeBinanceWalletHistoryEntry } from "../../binance_account_facts.js";
 import { normalizeMarketBenchmarkSyncPayload } from "../../infrastructure/market_benchmark/market_benchmark.js";
+import { BROKER_ENVIRONMENTS } from "../../account_options_schema.js";
 import {
   accountSettingsIdentity,
   accountSettingsIdentityIsComplete,
@@ -2361,7 +2362,12 @@ export class RuntimeInstances {
         if (changed) {
           state.revision += 1;
           this.sql.exec("INSERT INTO instance_state (id, revision, payload) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, payload = excluded.payload", state.revision, JSON.stringify(state.instances));
-          this.sql.exec("INSERT INTO instance_history (revision, entry) VALUES (?, ?)", state.revision, JSON.stringify({ revision: state.revision, ts, login: command.actor, action: command.action, before, after }));
+          try {
+            this.sql.exec("INSERT INTO instance_history (revision, entry) VALUES (?, ?)", state.revision, JSON.stringify({ revision: state.revision, ts, login: command.actor, action: command.action, before, after }));
+          } catch (error) {
+            // Fixture / storage aborts must surface as revision conflicts, not DO crashes.
+            throw new HttpError(error?.message || "runtime_instance_transaction_failed", 409);
+          }
         }
         return this.response(state);
       }));

@@ -193,7 +193,8 @@ import {
 } from "./application/ux1/research.js";
 
 import * as api from './application/worker/runtime_support.js';
-export { RuntimeInstances } from './application/runtime_instances/durable_object.js';
+import { RuntimeInstances } from "./application/runtime_instances/durable_object.js";
+export { RuntimeInstances };
 
 const {
   ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH,

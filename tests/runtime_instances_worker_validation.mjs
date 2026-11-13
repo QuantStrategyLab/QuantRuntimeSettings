@@ -147,7 +147,10 @@ try {
   mf = new Miniflare({ ...options, durableObjectsPersist: false,
     durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: "FailingRuntimeInstances", useSQLite: true } },
     script: source + `\nexport class FailingRuntimeInstances extends RuntimeInstances {
-      constructor(ctx) { super(ctx); this.sql.exec("CREATE TRIGGER IF NOT EXISTS fail_history BEFORE INSERT ON instance_history WHEN NEW.revision = 2 BEGIN SELECT RAISE(ABORT, 'fixture rollback'); END"); }
+      constructor(ctx, env) {
+        super(ctx, env);
+        this.sql.exec("CREATE TRIGGER IF NOT EXISTS fail_history BEFORE INSERT ON instance_history WHEN NEW.revision = 2 BEGIN SELECT RAISE(ABORT, 'fixture rollback'); END");
+      }
     }`,
   });
   assert.equal((await call({ action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG" })).status, 200);
