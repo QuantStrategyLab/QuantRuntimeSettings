@@ -2761,7 +2761,6 @@ function reconciliationRecoveryRuntimeDeps() {
     appendAuditLog,
     initialEnrollmentAccountOption,
     exactHumanDecisionResponse,
-    recordInitialEnrollmentDecision,
     recoveryDecisionMaterialKey,
     humanDecisionTimestamp,
     humanDecisionRequestKey,

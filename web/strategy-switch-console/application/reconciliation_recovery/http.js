@@ -25,6 +25,7 @@ import {
 } from "./constants.js";
 import {
   buildReconciliationRecoveryConfirmation,
+  calculateReconciliationRecoveryConfirmationSha256,
   currentReconciliationRecoveryRequest,
   emptyReconciliationRecoveryPayload,
   emptyReconciliationRecoverySourceSnapshot,
@@ -242,12 +243,103 @@ export async function readReconciliationRecoveryConfirmation(env, recoveryId, de
 }
 
 /**
+ * @param {any} env
+ * @param {any} session
+ * @param {any} requested
+ * @param {any} recovery
+ * @param {{
+ *   recoveryDecisionMaterialKey: Function,
+ *   humanDecisionTimestamp: Function,
+ *   humanDecisionRequestKey: Function,
+ *   humanDecisionReceipt: Function,
+ *   runtimeInstanceCommand: Function,
+ * }} deps
+ */
+export async function recordInitialEnrollmentDecision(env, session, requested, recovery, deps) {
+  const {
+    recoveryDecisionMaterialKey,
+    humanDecisionTimestamp,
+    humanDecisionRequestKey,
+    humanDecisionReceipt,
+    runtimeInstanceCommand,
+  } = deps;
+  if (recovery.mode !== "initial_enrollment" || requested.candidate_sha256 !== recovery.candidate_sha256
+      || requested.facts_sha256 !== recovery.facts_sha256) {
+    return json({ ok: false, error: "initial_enrollment_changed" }, 409);
+  }
+  const decidedAt = humanDecisionTimestamp();
+  const materialKey = await recoveryDecisionMaterialKey(recovery);
+  const base = {
+    mode: "initial_enrollment",
+    recovery_id: recovery.recovery_id,
+    candidate_sha256: recovery.candidate_sha256,
+    facts_sha256: recovery.facts_sha256,
+    no_order: true,
+    execution_authority_granted: false,
+  };
+  const payload = requested.decision === "approve"
+    ? {
+      schema_version: "qsl_initial_enrollment_confirmation.v1",
+      ...base,
+      confirmed_at: decidedAt,
+      confirmed_by: session.login,
+    }
+    : {
+      schema_version: "qsl_initial_enrollment_rejection.v1",
+      ...base,
+      decision: "reject",
+      decided_at: decidedAt,
+      decided_by: session.login,
+    };
+  if (requested.decision === "approve") {
+    payload.confirmation_sha256 = await calculateReconciliationRecoveryConfirmationSha256(payload);
+  }
+  const target = { decision: requested.decision };
+  try {
+    const requestKey = await humanDecisionRequestKey({
+      requestId: requested.request_id,
+      kind: "recovery",
+      actor: session.login,
+      subjectId: recovery.recovery_id,
+      materialKey,
+      action: requested.decision,
+      target,
+    });
+    const recorded = await runtimeInstanceCommand(env, {
+      action: "recovery_decide",
+      actor: session.login,
+      subject_id: recovery.recovery_id,
+      material_key: materialKey,
+      action_name: requested.decision,
+      request_key: requestKey,
+      target_json: canonicalResearchTaskJson(target),
+      decided_at: decidedAt,
+      now_ms: Date.now(),
+      payload,
+    });
+    const decisionReceipt = await humanDecisionReceipt(recorded.record, {
+      kind: "recovery",
+      subject_id: recovery.recovery_id,
+      material_sha256: materialKey,
+    });
+    return json({
+      ok: true,
+      confirmation: recorded.record?.action === "approve" ? recorded.record.payload : null,
+      rejection: recorded.record?.action === "reject" ? recorded.record.payload : null,
+      decision_receipt: decisionReceipt,
+      replayed: recorded.replayed === true,
+    });
+  } catch (error) {
+    return json({ ok: false, error: error.message || "initial_enrollment_unavailable" }, error.status || 503);
+  }
+}
+
+/**
  * @param {Request} request
  * @param {any} env
  * @param {{
  *   readBoundedJson: Function,
  *   aggregateReconciliationRecoverySources: Function,
- *   recordInitialEnrollmentDecision: Function,
  *   recoveryDecisionMaterialKey: Function,
  *   humanDecisionTimestamp: Function,
  *   humanDecisionRequestKey: Function,
@@ -261,7 +353,6 @@ export async function recordReconciliationRecoveryConfirmationResponse(request, 
   const {
     readBoundedJson,
     aggregateReconciliationRecoverySources,
-    recordInitialEnrollmentDecision,
     recoveryDecisionMaterialKey,
     humanDecisionTimestamp,
     humanDecisionRequestKey,
@@ -296,7 +387,9 @@ export async function recordReconciliationRecoveryConfirmationResponse(request, 
   } catch (error) {
     return json({ ok: false, error: error.message || "reconciliation recovery confirmation is unavailable" }, error.status || 409);
   }
-  if (requested.mode === "initial_enrollment") return recordInitialEnrollmentDecision(env, session, requested, recovery);
+  if (requested.mode === "initial_enrollment") {
+    return recordInitialEnrollmentDecision(env, session, requested, recovery, deps);
+  }
   if (recovery.mode === "initial_enrollment"
     || requested.candidate_sha256 !== recovery.candidate_sha256
     || requested.dual_review_binding_sha256 !== recovery.dual_review.evidence_binding_sha256
