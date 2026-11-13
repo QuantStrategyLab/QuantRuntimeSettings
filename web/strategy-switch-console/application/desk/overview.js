@@ -24,6 +24,8 @@ const nonPaper = (target, row) => target.config?.broker_environment !== "paper" 
   && row?.broker_environment !== "paper" && row?.account_scope !== "paper";
 const legacyUnknown = (reason) => ({ status: "unknown", reason });
 const RUN_COVERED = new Set(["ok", "stale"]);
+// A stale record still counts only when its source coverage is complete.
+const runCovered = (row) => Boolean(row) && RUN_COVERED.has(row.status) && row.completeness === "complete";
 
 /** v1 Nav from one stored snapshot; several balances or a missing one stay unknown. */
 export function bookNav(row, facts, now) {
@@ -46,7 +48,7 @@ export function bookNav(row, facts, now) {
 
 /** The latest finished run in a covered stored daily record, or null. */
 export function lastRun(summaryRow) {
-  if (!summaryRow || !RUN_COVERED.has(summaryRow.status)) return null;
+  if (!runCovered(summaryRow)) return null;
   const finished = (summaryRow.runs || []).map(run => ({ run, at: utcInstant(run.finished_at) })).filter(item => item.at !== null);
   finished.sort((a, b) => a.at.localeCompare(b.at));
   const latest = finished.at(-1);
@@ -68,7 +70,7 @@ export function runsToday({ targets, summary, businessDate, now }) {
   const source = { source_business_date: businessDate, source_timezone: RUNTIME_DAILY_TIMEZONE };
   if (!targets.length) return known({ done: 0, expected: 0, pending: [], ...source }, now, coverage("verified_empty", 0, 0));
   if (!summary) return unknown("read_failed", coverage("unavailable", 0, targets.length, ["read_failed"]));
-  const covered = targets.map(target => summaryRowFor(summary, target)).filter(row => row && RUN_COVERED.has(row.status));
+  const covered = targets.map(target => summaryRowFor(summary, target)).filter(runCovered);
   if (!covered.length) return unknown("source_unavailable", coverage("unavailable", 0, targets.length, ["source_unavailable"]));
   const done = covered.reduce((count, row) => count + (row.runs || []).filter(run => utcInstant(run.finished_at) !== null).length, 0);
   const times = covered.map(row => utcInstant(row.as_of)).filter(Boolean).sort();
@@ -130,9 +132,10 @@ export function needsYou(credential, now) {
     kind: "credential_expiring",
     severity: SEVERITY[credential.item.phase] || "warning",
     target_id: null,
-    title: "IBKR Flex 令牌需要轮换",
-    detail: credential.item.expiry.status === "known" ? `到期时间 ${credential.item.expiry.at}` : "到期时间未知",
-    action: { label: "轮换凭据", route: "#/desk/accounts?tab=credentials" },
+    // Dictionary keys: the Desk translates title, detail and action label.
+    title: "overview.needs.credential.title",
+    detail: credential.item.expiry.status === "known" ? "overview.needs.credential.detail_known" : "overview.needs.credential.detail_unknown",
+    action: { label: "overview.needs.credential.action", route: "#/desk/accounts?tab=credentials" },
   }] : [];
   return partial(items, now, coverage("partial", 1, null, ["not_supported"]));
 }

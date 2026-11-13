@@ -83,8 +83,8 @@ const PROFILES = [
   { profile: "fake_crypto", label: "Fake Crypto", domain: "crypto", allowed_execution_modes: ["live"], lifecycle_stage: "live_enabled" },
 ];
 
-function summaryFor(accounts, date, { runs = true, status = "ok" } = {}) {
-  return { date, accounts: accounts.map(acct => ({ platform: "firstrade", account_alias: acct.key, status, unavailable_reason: null,
+function summaryFor(accounts, date, { runs = true, status = "ok", completeness = "complete" } = {}) {
+  return { date, accounts: accounts.map(acct => ({ platform: "firstrade", account_alias: acct.key, status, unavailable_reason: null, completeness,
     as_of: `${date}T14:30:00Z`,
     runs: runs ? [{ id: `run-${acct.key}`, started_at: `${date}T14:31:00Z`, finished_at: `${date}T14:32:00Z`, activity: "no_signal", errors_present: false }] : [] })) };
 }
@@ -269,9 +269,19 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   golden("ribbon", "empty", emptyBody);
 
   // A newer response time cannot refresh an old stored observation.
-  const old = ribbonTape({ days: [{ date: "2030-01-07", summary: { accounts: [{ platform: "firstrade", account_alias: "fake-0", status: "stale", as_of: "2030-01-05T00:00:00Z", runs: [] }] } }],
+  const old = ribbonTape({ days: [{ date: "2030-01-07", summary: { accounts: [{ platform: "firstrade", account_alias: "fake-0", status: "stale", completeness: "complete", as_of: "2030-01-05T00:00:00Z", runs: [] }] } }],
     accounts: [{ platform: "firstrade", key: "fake-0", target_id: "firstrade/target0" }], date: "2030-01-08", readAt: NOW });
   assert.equal(old.tape.status, "stale");
+  // Stale and incomplete: freshness never stands in for complete source coverage.
+  const staleIncomplete = { platform: "firstrade", account_alias: "fake-0", status: "stale", completeness: "incomplete", as_of: "2030-01-05T00:00:00Z", runs: [] };
+  const gap = ribbonTape({ days: [{ date: "2030-01-07", summary: { accounts: [staleIncomplete] } }],
+    accounts: [{ platform: "firstrade", key: "fake-0", target_id: "firstrade/target0" }], date: "2030-01-08", readAt: NOW });
+  assert.notEqual(gap.tape.coverage.state, "verified_empty", "an incomplete stale record is not a verified empty tape");
+  assert.notEqual(gap.tape.status, "known");
+  assert.notEqual(gap.tape.status, "stale");
+  const gapRuns = runsToday({ targets: [{ platform: "firstrade", key: "fake-0" }], summary: { accounts: [{ ...staleIncomplete, runs: [{ id: "r", started_at: "2030-01-08T14:31:00Z", finished_at: "2030-01-08T14:32:00Z" }] }] },
+    businessDate: "2030-01-08", now: NOW });
+  assert.equal(gapRuns.status, "unknown", "an incomplete record does not count toward runs today");
   assert.equal(freshness(old.observed, { now: NOW, ttlSeconds: 36 * 3600, staleKnown: old.stale }).data_status, "stale");
   const failedConfig = world({ config: false });
   const unreadable = await body(await deskRibbonResponse(get("/api/desk/ribbon"), failedConfig.env, failedConfig.deps));

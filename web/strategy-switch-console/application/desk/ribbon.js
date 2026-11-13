@@ -49,10 +49,12 @@ export function tapeOutcome(run) {
   return NO_OP.has(run.activity) ? "no_op" : null;
 }
 
-function covered(row) {
-  return ["ok", "stale"].includes(row.status)
-    || (row.status === "no_data" && row.unavailable_reason === "non_trading_weekend");
+/** Fully read stored record: fresh or stale, but always complete; or a verified weekend. */
+export function runRowCovered(row) {
+  return (["ok", "stale"].includes(row?.status) && row.completeness === "complete")
+    || (row?.status === "no_data" && row.unavailable_reason === "non_trading_weekend");
 }
+
 
 /**
  * Pure tape projection. `days` holds one stored-reader summary per business date
@@ -82,9 +84,9 @@ export function ribbonTape({ days, accounts, date, readAt }) {
       const row = (day.summary.accounts || []).find(item => item.platform === account.platform && item.account_alias === account.key);
       if (!row) { coveredAccounts.delete(account.target_id); continue; }
       if (row.status === "read_failed") anyFailure = true;
-      if (!covered(row)) coveredAccounts.delete(account.target_id);
+      if (!runRowCovered(row)) coveredAccounts.delete(account.target_id);
       if (row.status === "stale") anyStale = true;
-      if (row.as_of && (covered(row) || row.status === "partial")) observed.push(row.as_of);
+      if (row.as_of && (runRowCovered(row) || row.status === "partial")) observed.push(row.as_of);
       for (const run of Array.isArray(row.runs) ? row.runs : []) {
         const at = utcInstant(run.started_at);
         if (at === null) { undated = true; continue; }

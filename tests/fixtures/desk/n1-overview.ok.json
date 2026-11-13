@@ -230,10 +230,10 @@
         "kind": "credential_expiring",
         "severity": "warning",
         "target_id": null,
-        "title": "IBKR Flex 令牌需要轮换",
-        "detail": "到期时间 2030-01-15T00:00:00.000Z",
+        "title": "overview.needs.credential.title",
+        "detail": "overview.needs.credential.detail_known",
         "action": {
-          "label": "轮换凭据",
+          "label": "overview.needs.credential.action",
           "route": "#/desk/accounts?tab=credentials"
         }
       }

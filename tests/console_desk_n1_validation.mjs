@@ -185,6 +185,12 @@ for (const language of ["zh", "en"]) {
   assert.ok(ok.includes(t("overview.curve.unknown", { reason: t(n1ReasonKey(curveReason)) })), "unknown curve names its reason");
   assert.equal(ok.includes("mrd-ov-curve-line"), false, "no curve drawn from an unknown read");
   assert.equal(ok.includes(t("mock.title")), false, "a live payload carries no fixture note");
+  // Server to-do items carry dictionary keys, so both languages render their own copy.
+  for (const key of ["overview.needs.credential.title", "overview.needs.credential.detail_known", "overview.needs.credential.action"]) {
+    assert.ok(DESK_MESSAGES[language][key], `missing ${language} ${key}`);
+    assert.ok(ok.includes(t(key)), `${language}: ${key} rendered`);
+  }
+  if (language === "en") assert.doesNotMatch(text(ok), /[\u4e00-\u9fff]/, "the English overview shows no Chinese copy");
 
   const degraded = view(golden("overview", "degraded"));
   assert.ok(degraded.includes(t("overview.needs.unavailable", { reason: t("read.reason.read_failed") })), "unknown to-do list is not empty");
