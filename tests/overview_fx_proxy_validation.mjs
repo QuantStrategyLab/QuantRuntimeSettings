@@ -14,14 +14,24 @@ const workerSource = await fs.readFile(
   new URL("../web/strategy-switch-console/worker.js", import.meta.url),
   "utf8",
 );
+const supportSource = await fs.readFile(
+  new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url),
+  "utf8",
+);
 const fxSource = await fs.readFile(
   new URL("../web/strategy-switch-console/infrastructure/fx/overview_fx.js", import.meta.url),
   "utf8",
 );
-assert.match(workerSource, /connect-src 'self'/, "CSP stays same-origin; Frankfurter is not widened into connect-src");
+assert.match(supportSource, /connect-src 'self'/, "CSP stays same-origin; Frankfurter is not widened into connect-src");
 assert.equal(fxSource.includes("api.frankfurter.dev"), true, "FX module retains the fixed Frankfurter upstream");
-assert.equal(workerSource.includes("infrastructure/fx/overview_fx.js"), true, "Worker imports the FX module");
-assert.equal(/connect-src[^;]*frankfurter/.test(workerSource), false, "browser CSP must not allow frankfurter");
+assert.equal(
+  workerSource.includes("infrastructure/fx/overview_fx.js")
+    || supportSource.includes("infrastructure/fx/overview_fx.js"),
+  true,
+  "Worker stack imports the FX module",
+);
+assert.equal(/connect-src[^;]*frankfurter/.test(supportSource), false, "browser CSP must not allow frankfurter");
+assert.equal(/connect-src[^;]*frankfurter/.test(workerSource), false, "facade CSP must not allow frankfurter");
 
 __test.resetOverviewFxCache();
 const frankfurterBody = JSON.stringify({

@@ -1,0 +1,30 @@
+export function researchPromotionApplicationFromRow(row) {
+  if (!row) return null;
+  return {
+    application_id: row.application_id,
+    ticket_id: row.ticket_id,
+    status: row.status,
+    dispatch_state: row.dispatch_state,
+    claim_token: row.claim_token,
+    platform_id: row.platform_id,
+    account_key: row.account_key,
+    account_scope: row.account_scope,
+    account_selector: row.account_selector,
+    service_name: row.service_name,
+    broker_environment: row.broker_environment,
+    expected_revision: Number(row.expected_revision),
+    expected_strategy_profile: row.expected_strategy_profile,
+    strategy_profile: row.strategy_profile,
+    candidate_id: row.candidate_id,
+    config_sha256: row.config_sha256,
+    source_commit: row.source_commit,
+    approved_ues_revision: row.approved_ues_revision,
+    desired_state: row.desired_state,
+    workflow_run_id: row.workflow_run_id || null,
+    workflow_run_attempt: row.workflow_run_attempt || null,
+    reason_code: row.reason_code || "",
+    readback: row.readback_json ? JSON.parse(row.readback_json) : null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}

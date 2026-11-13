@@ -9,26 +9,36 @@ const workerSource = await readFile(
   new URL("../web/strategy-switch-console/worker.js", import.meta.url),
   "utf8",
 );
+const supportSource = await readFile(
+  new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url),
+  "utf8",
+);
+const durableSource = await readFile(
+  new URL("../web/strategy-switch-console/application/runtime_instances/durable_object.js", import.meta.url),
+  "utf8",
+);
 const moduleSource = await readFile(
   new URL("../web/strategy-switch-console/application/research_promotion/applications.js", import.meta.url),
   "utf8",
 );
+const wiredSource = `${workerSource}\n${supportSource}`;
 
 assert.equal(
-  workerSource.includes('from "./application/research_promotion/applications.js"'),
+  workerSource.includes('from "./application/research_promotion/applications.js"')
+    || supportSource.includes('from "../research_promotion/applications.js"')
+    || supportSource.includes("from '../research_promotion/applications.js'"),
   true,
-  "Worker imports the B10-d research-promotion applications module",
+  "Worker stack imports the B10-d research-promotion applications module",
 );
-assert.match(workerSource, /\/api\/research-promotion-applications"/);
-assert.match(workerSource, /\/api\/internal\/research-promotion-application\//);
-assert.match(workerSource, /researchPromotionApplicationResponseImpl/);
-assert.match(workerSource, /researchPromotionApplicationInternalResponseImpl/);
-assert.match(workerSource, /async function researchPromotionApplicationResponse/);
-assert.match(workerSource, /async function researchPromotionApplicationInternalResponse/);
-assert.match(workerSource, /function applicationIdFromPath/);
-assert.match(workerSource, /function validateV7PaperApplicationReadback/);
-assert.match(workerSource, /CREATE TABLE IF NOT EXISTS research_promotion_applications/);
-
+assert.match(wiredSource, /\/api\/research-promotion-applications"/);
+assert.match(wiredSource, /\/api\/internal\/research-promotion-application\//);
+assert.match(wiredSource, /researchPromotionApplicationResponseImpl/);
+assert.match(wiredSource, /researchPromotionApplicationInternalResponseImpl/);
+assert.match(supportSource, /async function researchPromotionApplicationResponse/);
+assert.match(supportSource, /async function researchPromotionApplicationInternalResponse/);
+assert.match(supportSource, /function applicationIdFromPath|applicationIdFromPath/);
+assert.match(supportSource, /function validateV7PaperApplicationReadback|validateV7PaperApplicationReadback/);
+assert.match(durableSource, /CREATE TABLE IF NOT EXISTS research_promotion_applications/);
 const moduleNoComments = moduleSource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 assert.equal(
   /transactionSync/.test(moduleNoComments),

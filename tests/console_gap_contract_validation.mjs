@@ -130,7 +130,14 @@ for (const reason of controlReasons.filter(r => r !== "available")) {
 }
 const controlSource = readFileSync(new URL("../web/strategy-switch-console/application/console_api/run_controls.js", import.meta.url), "utf8");
 const workerSource = readFileSync(new URL("../web/strategy-switch-console/worker.js", import.meta.url), "utf8");
+const supportSource = readFileSync(new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url), "utf8");
+const profileStateSources = [workerSource, supportSource]
+  .map((source) => {
+    const start = source.indexOf("    profileState: async () => {");
+    return start < 0 ? "" : source.slice(start).split("\n  });")[0];
+  })
+  .join("\n");
 const reasons = [...controlSource.matchAll(/(?:blocked\(|reason: )"([a-z_]+)"/g),
-  ...workerSource.slice(workerSource.indexOf("    profileState: async () => {")).split("\n  });")[0].matchAll(/reason: "([a-z_]+)"/g)].map(m => m[1]);
+  ...profileStateSources.matchAll(/reason: "([a-z_]+)"/g)].map(m => m[1]);
 assert.deepEqual([...new Set(reasons)].sort(), [...controlReasons].sort(), "handoff reasons cover every current control gate");
 console.log("console_gap_contract_validation: PASS (M0 12, currency 7, ten identities, failure/unknown/control semantics)");

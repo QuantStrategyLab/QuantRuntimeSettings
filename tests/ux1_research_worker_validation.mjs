@@ -569,8 +569,15 @@ try {
 
   assert.equal(__test.ux1CalculatorDeadlineMs, 30000);
   assert.equal(__test.ux1CalculatorMaxBytes, 65536);
-  const workerSource = await readFile(new URL("../web/strategy-switch-console/worker.js", import.meta.url), "utf8");
-  const previewFn = workerSource.slice(workerSource.indexOf("async function ux1PreviewPost"), workerSource.indexOf("async function ux1IntentPost"));
+  // Implementation lives in application/ux1/research.js; worker.js only imports and routes.
+  const ux1ResearchSource = await readFile(
+    new URL("../web/strategy-switch-console/application/ux1/research.js", import.meta.url),
+    "utf8",
+  );
+  const previewStart = ux1ResearchSource.indexOf("async function ux1PreviewPost");
+  const intentStart = ux1ResearchSource.indexOf("async function ux1IntentPost");
+  assert.equal(previewStart >= 0 && intentStart > previewStart, true);
+  const previewFn = ux1ResearchSource.slice(previewStart, intentStart);
   assert.equal(previewFn.includes("readUx1CalculatorExchange(binding, canonicalJson(calculatorRequest))"), true);
   assert.equal(previewFn.includes("deadlineMs"), false);
   assert.equal(previewFn.includes("maxBytes"), false);

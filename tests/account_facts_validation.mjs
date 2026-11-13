@@ -1960,12 +1960,15 @@ for (const platform of ["longbridge", "ibkr", "schwab", "firstrade"]) {
 }
 
 const workerSource = readFileSync(join(root, "web/strategy-switch-console/worker.js"), "utf8");
-assert.match(workerSource, /account_facts_put/);
-assert.match(workerSource, /account_facts_history_read|account_facts_daily/);
-assert.match(workerSource, /account_facts_stale_write|decideAccountFactsPut/);
-assert.doesNotMatch(workerSource, /writeConfigJson\(env, accountFactsStorageKey/);
-assert.doesNotMatch(workerSource, /account_facts:\$\{platform\}/);
-assert.match(workerSource, /\/api\/account-facts\/history/);
+const supportSource = readFileSync(join(root, "web/strategy-switch-console/application/worker/runtime_support.js"), "utf8");
+const durableSource = readFileSync(join(root, "web/strategy-switch-console/application/runtime_instances/durable_object.js"), "utf8");
+const wiredSource = `${workerSource}\n${supportSource}\n${durableSource}`;
+assert.match(wiredSource, /account_facts_put/);
+assert.match(wiredSource, /account_facts_history_read|account_facts_daily/);
+assert.match(wiredSource, /account_facts_stale_write|decideAccountFactsPut/);
+assert.doesNotMatch(wiredSource, /writeConfigJson\(env, accountFactsStorageKey/);
+assert.doesNotMatch(wiredSource, /account_facts:\$\{platform\}/);
+assert.match(wiredSource, /\/api\/account-facts\/history/);
 
 await mf.dispose();
 console.log("account_facts_validation ok");

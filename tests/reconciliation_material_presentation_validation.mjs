@@ -16,10 +16,20 @@ import { recoveryMaterialPresentation, currentReconciliationObservationPresentat
 // Exercise the production aggregation/freshness functions with in-memory inputs.
 // No Worker, storage adapter, KV, server, or network is instantiated.
 const workerText = readFileSync(new URL("../web/strategy-switch-console/worker.js", import.meta.url), "utf8");
+const runtimeSupportText = readFileSync(
+  new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url),
+  "utf8",
+);
 function productionFunction(name, dependencies = {}) {
-  const start = workerText.search(new RegExp(`(?:async )?function ${name}\\(`));
+  const pattern = new RegExp(`(?:export )?(?:async )?function ${name}\\(`);
+  let source = workerText;
+  let start = source.search(pattern);
+  if (start < 0) {
+    source = runtimeSupportText;
+    start = source.search(pattern);
+  }
   assert.ok(start >= 0, name);
-  const code = workerText.slice(start, workerText.indexOf("\n}", start) + 2);
+  const code = source.slice(start, source.indexOf("\n}", start) + 2).replace(/^export\s+/, "");
   return new Function(...Object.keys(dependencies), `return (${code});`)(...Object.values(dependencies));
 }
 const now = Date.parse("2001-10-17T04:05:00Z");
