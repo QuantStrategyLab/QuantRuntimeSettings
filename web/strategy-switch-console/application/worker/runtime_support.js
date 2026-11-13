@@ -407,6 +407,56 @@ import {
   aggregateControlPlaneSources as aggregateControlPlaneSourcesImpl,
   readControlPlaneSources as readControlPlaneSourcesImpl,
 } from "../control_plane/http.js";
+import {
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_AUDIENCE,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REPOSITORY,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REF,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_WORKFLOW_REF,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_JWKS_URL,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_TOKEN_BYTES,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_JWKS_BYTES,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_TIMEOUT_MS,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_TIMEOUT_MS,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_MAX_BODY_BYTES,
+  ACCOUNT_SETTINGS_DO_ACTIONS,
+  ACCOUNT_SETTING_OVERRIDE_FIELDS,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY,
+} from "../account_settings/constants.js";
+import {
+  accountSettingsIdentity,
+  accountSettingsIdentityIsComplete,
+  accountSettingsProfileName,
+  accountSettingPositiveAmount,
+  accountSettingRatio,
+  applyAccountSettingOverrides,
+  accountSettingsOperations,
+  accountSettingsPayload,
+  accountSettingsAuditChanges,
+  profileDefinesOptionOverlay,
+  optionOverlayDraftAllowed,
+  dcaDraftSupported as dcaDraftSupportedImpl,
+  accountDraftStrategyChoices as accountDraftStrategyChoicesImpl,
+  assertAccountDraftPatch as assertAccountDraftPatchImpl,
+  accountSettingsProfileApplicationIsFixedHk,
+  decodeProfileApplicationJwtPart,
+} from "../account_settings/helpers.js";
+import {
+  readGitHubProfileApplicationJwks,
+  verifyGitHubProfileApplicationToken,
+  readGitHubProfileApplicationRequestBody,
+} from "../account_settings/oidc.js";
+import {
+  loadAccountDraftProfiles as loadAccountDraftProfilesImpl,
+  presentAccountSettings as presentAccountSettingsImpl,
+  accountSettingsResponse as accountSettingsResponseImpl,
+  saveCombinedAccountDraft as saveCombinedAccountDraftImpl,
+  saveAccountSettings as saveAccountSettingsImpl,
+  riskProfileBindingsResponse as riskProfileBindingsResponseImpl,
+  saveRiskProfileBindings as saveRiskProfileBindingsImpl,
+  approveAccountSettingsProfileApplication as approveAccountSettingsProfileApplicationImpl,
+  claimAccountSettingsProfileApplicationFromGitHub as claimAccountSettingsProfileApplicationFromGitHubImpl,
+} from "../account_settings/http.js";
 import { startLogin, finishLogin } from "../auth/login.js";
 import { readSession, makeSession } from "../auth/session.js";
 import {
@@ -580,22 +630,43 @@ export {
   accountDiagnosisNativeIO,
 };
 
+export {
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_AUDIENCE,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REPOSITORY,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REF,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_WORKFLOW_REF,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_JWKS_URL,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_TOKEN_BYTES,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_JWKS_BYTES,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_TIMEOUT_MS,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_TIMEOUT_MS,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_MAX_BODY_BYTES,
+  ACCOUNT_SETTINGS_DO_ACTIONS,
+  ACCOUNT_SETTING_OVERRIDE_FIELDS,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY,
+  accountSettingsIdentity,
+  accountSettingsIdentityIsComplete,
+  accountSettingsProfileName,
+  accountSettingPositiveAmount,
+  accountSettingRatio,
+  applyAccountSettingOverrides,
+  accountSettingsOperations,
+  accountSettingsPayload,
+  accountSettingsAuditChanges,
+  profileDefinesOptionOverlay,
+  optionOverlayDraftAllowed,
+  accountSettingsProfileApplicationIsFixedHk,
+  decodeProfileApplicationJwtPart,
+  readGitHubProfileApplicationJwks,
+  verifyGitHubProfileApplicationToken,
+  readGitHubProfileApplicationRequestBody,
+};
 
 export const CYCLE_HEALTH_HISTORY_PAGE_SIZE = 50;
 export const CYCLE_HEALTH_SUMMARY_SCHEMA_VERSION = "qsl_runtime_cycle_health_state_summary.v1";
 export const DEFAULT_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
 export const DEFAULT_WORKFLOW = "manual-strategy-switch.yml";
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH = "/api/internal/account-settings/profile-application/claim";
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_AUDIENCE = "qrs-profile-application";
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REF = "refs/heads/main";
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_WORKFLOW_REF = "QuantStrategyLab/QuantRuntimeSettings/.github/workflows/apply-approved-hk-profile.yml@refs/heads/main";
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_JWKS_URL = "https://token.actions.githubusercontent.com/.well-known/jwks";
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_TOKEN_BYTES = 8192;
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_JWKS_BYTES = 32 * 1024;
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_TIMEOUT_MS = 5000;
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_TIMEOUT_MS = 1000;
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_MAX_BODY_BYTES = 1024;
 export const ACCOUNT_OPTIONS_KEY = "account_options";
 export const STRATEGY_PROFILES_KEY = "strategy_profiles";
 // Risk preferences are a separate, low-frequency owner-intent record.  They
@@ -812,12 +883,6 @@ export const HUMAN_DECISION_DO_ACTIONS = new Set([
   "owner_decide", "recovery_decide", "promotion_decide",
   "owner_read", "recovery_read", "promotion_read",
 ]);
-export const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
-  "risk_profile_read", "risk_profile_replace", "risk_profile_set",
-  "account_settings_read", "account_settings_save", "account_declarations_read",
-  "account_settings_profile_application_lookup", "account_settings_profile_application_approve",
-  "account_settings_profile_application_claim",
-]);
 export const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_external_flow_put",
   "account_executions_put", "account_executions_read",
@@ -826,8 +891,6 @@ export const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "binance_wallet_history_put", "binance_wallet_history_read",
   "binance_detail_put", "binance_detail_read",
 ]);
-export const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio", "dca_mode", "dca_base_investment_usd"];
-export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export const V7_PAPER_PREVIEW_PROFILE = "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve";
 export const V7_PAPER_APPLICATION_WORKFLOW_REPOSITORY = "QuantStrategyLab/LongBridgePlatform";
 export const V7_PAPER_APPLICATION_WORKFLOW = "apply-paper-candidate.yml";
@@ -1149,107 +1212,49 @@ export async function saveAdminConfig(request, env) {
   return json(await buildAdminState(session, env));
 }
 
+function accountSettingsDraftDeps() {
+  return {
+    supportedDomainsForAccount,
+    supportedExecutionModesForPlatform,
+    assertDcaPlatform,
+    isFrozenStrategyProfile,
+    isDcaProfile,
+  };
+}
+
+function accountSettingsRuntimeDeps() {
+  return {
+    ...accountSettingsDraftDeps(),
+    readSession,
+    json,
+    requireSameOrigin,
+    readBoundedJson,
+    readRiskProfileLegacy,
+    effectiveAccountSettings,
+    loadStrategyProfilesConfig,
+    buildRiskProfileBindings,
+    loadRiskProfileBindings,
+    loadLegacyAccountOptionsConfig,
+    riskProfileBindingTargets,
+    mirrorConfigJson,
+    RISK_PROFILE_BINDINGS_KEY,
+    RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
+    appendAuditLog,
+    canonicalResearchTaskJson,
+    accountSettingsProfileRuntimeReadback,
+    resolveVariableScope,
+    resolveGithubEnvironment,
+    platformRepositories,
+    saveAccountSettings,
+  };
+}
+
 export async function riskProfileBindingsResponse(request, env) {
-  const session = await readSession(request, env);
-  if (!session) return json({ ok: false, error: "login required" }, 401);
-  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
-  const bindingState = await loadRiskProfileBindings(env);
-  if (bindingState.error) {
-    return json({
-      ok: false,
-      error: "risk profile bindings are unavailable",
-      reason: bindingState.error,
-      no_order: true,
-      execution_authority_granted: false,
-    }, bindingState.status || 409);
-  }
-  return json({
-    ok: true,
-    revision: bindingState.revision,
-    bindings: bindingState.bindings,
-    tier_bindings: bindingState.bindings.map((binding) => riskTierBindingView({
-      scope_id: binding.scope_id,
-      platform: binding.platform,
-      target_name: binding.target_name,
-      binding,
-      revision: bindingState.revision,
-    })),
-    configured_targets: riskProfileBindingTargets(bindingState.account_options || {}),
-    no_order: true,
-    execution_authority_granted: false,
-  });
+  return riskProfileBindingsResponseImpl(request, env, accountSettingsRuntimeDeps());
 }
 
 export async function saveRiskProfileBindings(request, env) {
-  requireSameOrigin(request, { requireOrigin: true });
-  const session = await readSession(request, env);
-  if (!session) return json({ ok: false, error: "login required" }, 401);
-  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
-  let raw;
-  try {
-    raw = await request.json();
-  } catch {
-    return json({ ok: false, error: "request body must be valid JSON" }, 400);
-  }
-  if (!hasRuntimeInstanceStore(env)) {
-    try {
-      await buildRiskProfileBindings({ bindings: raw?.bindings }, (await loadLegacyAccountOptionsConfig(env)).options || {}, session.login);
-    } catch (error) {
-      return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
-    }
-    return json({ ok: false, error: "runtime_instances_not_bound", no_order: true, execution_authority_granted: false }, 503);
-  }
-  const legacy = await readRiskProfileLegacy(env);
-  let observed;
-  try {
-    observed = await runtimeInstanceCommand(env, { action: "risk_profile_read", actor: session.login, legacy });
-  } catch (error) {
-    const status = error instanceof HttpError ? error.status : 503;
-    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
-  }
-  if (!Number.isSafeInteger(raw?.expected_revision)) return json({ ok: false, error: "risk_profile_revision_required" }, 400);
-  if (raw.expected_revision !== observed.revision) return json({ ok: false, error: "risk_profile_revision_conflict" }, 409);
-  let bindings;
-  try {
-    bindings = await buildRiskProfileBindings({ bindings: raw.bindings }, observed.account_options, session.login);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
-  }
-  let saved;
-  try {
-    saved = await runtimeInstanceCommand(env, {
-      action: "risk_profile_replace",
-      actor: session.login,
-      expected_revision: observed.revision,
-      bindings,
-      legacy,
-    });
-  } catch (error) {
-    const status = error instanceof HttpError ? error.status : 503;
-    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
-  }
-  if (hasConfigStore(env)) {
-    await mirrorConfigJson(env, RISK_PROFILE_BINDINGS_KEY, {
-      schema_version: RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
-      bindings: saved.bindings,
-    });
-  }
-  try {
-    await appendAuditLog(env, {
-      ts: new Date().toISOString(),
-      login: session.login,
-      action: "save_risk_profile_bindings",
-      binding_count: saved.bindings.length,
-    });
-  } catch { /* audit failure does not undo the durable object decision */ }
-  return json({
-    ok: true,
-    revision: saved.revision,
-    bindings: saved.bindings,
-    configured_targets: riskProfileBindingTargets(saved.account_options || {}),
-    no_order: true,
-    execution_authority_granted: false,
-  });
+  return saveRiskProfileBindingsImpl(request, env, accountSettingsRuntimeDeps());
 }
 
 export async function consoleRunControls(_request, env, account, session) {
@@ -1306,727 +1311,44 @@ export async function consoleRunControls(_request, env, account, session) {
   });
 }
 
-export function accountSettingsOperations(admin, optionSupported) {
-  const allowed = Boolean(admin);
-  return {
-    save_draft: allowed,
-    save_draft_reason: allowed ? "available" : "admin_required",
-    save_risk_preference: allowed,
-    save_risk_preference_reason: allowed ? "available" : "admin_required",
-    save_declaration: allowed,
-    save_declaration_reason: allowed ? "available" : "admin_required",
-    save_option_draft: allowed && optionSupported === true,
-    save_option_draft_reason: !allowed ? "admin_required" : optionSupported === true ? "available" : "option_overlay_not_defined",
-    apply_strategy: false,
-    activation: false,
-    reason: "strategy_application_not_connected",
-    apply_strategy_reason: "strategy_application_not_connected",
-    activation_reason: "strategy_application_not_connected",
-  };
-}
-
-export function accountSettingsPayload(observed, effective, admin, extras = {}) {
-  const optionSupported = extras.pendingStrategy ? extras.pendingOptionSupported === true : extras.currentOptionSupported === true;
-  return {
-    ok: true,
-    platform: observed.platform,
-    key: observed.key,
-    instance_revision: observed.instance_revision,
-    identity: observed.identity,
-    effective,
-    effective_read: extras.effectiveRead,
-    draft: observed.draft,
-    declaration: observed.declaration,
-    strategy_options: Array.isArray(extras.strategyOptions) ? extras.strategyOptions : [],
-    current_option_supported: extras.currentOptionSupported === true,
-    risk: {
-      revision: observed.risk.revision,
-      scope_id: observed.risk.scope_id,
-      preference: observed.risk.preference,
-    },
-    tier_binding: riskTierBindingView({
-      scope_id: observed.risk.scope_id,
-      platform: observed.platform,
-      target_name: observed.identity?.target_name || null,
-      binding: observed.risk.binding || null,
-      revision: observed.risk.revision,
-    }),
-    operations: accountSettingsOperations(admin, optionSupported),
-    adopted: false,
-    no_order: true,
-    execution_authority_granted: false,
-    current_dca_supported: extras.currentDcaSupported === true,
-  };
-}
-
-export async function accountSettingsResponse(request, env) {
-  const session = await readSession(request, env);
-  if (!session) return json({ ok: false, error: "login required" }, 401);
-  const url = new URL(request.url);
-  const platform = url.searchParams.get("platform") || "";
-  const key = url.searchParams.get("key") || "";
-  if (!SUPPORTED_PLATFORMS.includes(platform) || !key) return json({ ok: false, error: "account_settings_account_required" }, 400);
-  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "runtime_instances_not_bound", no_order: true, execution_authority_granted: false }, 503);
-  const legacy = await readRiskProfileLegacy(env);
-  let observed;
-  try {
-    observed = await runtimeInstanceCommand(env, { action: "account_settings_read", actor: session.login, platform, key, legacy });
-  } catch (error) {
-    const status = error instanceof HttpError ? error.status : 503;
-    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
-  }
-  return json(await presentAccountSettings(env, observed, session.admin));
-}
-
-export async function presentAccountSettings(env, observed, admin) {
-  const { effective, effectiveRead } = await effectiveAccountSettings(env, observed);
-  const profiles = await loadAccountDraftProfiles(env);
-  const strategyOptions = profiles ? accountDraftStrategyChoices(observed.platform, observed.config, profiles) : [];
-  const conflict = observed.draft?.status === "identity_conflict";
-  const pending = !conflict && typeof observed.draft?.overrides?.strategy_profile === "string" ? observed.draft.overrides.strategy_profile : "";
-  const trusted = effective.strategy_profile?.status === "known" && typeof effective.strategy_profile.value === "string" ? effective.strategy_profile.value : "";
-  return accountSettingsPayload(observed, effective, admin, {
-    effectiveRead,
-    strategyOptions,
-    pendingStrategy: Boolean(pending),
-    pendingOptionSupported: Boolean(pending) && optionOverlayDraftAllowed(observed.platform, profiles, pending),
-    currentOptionSupported: Boolean(trusted) && optionOverlayDraftAllowed(observed.platform, profiles, trusted),
-    currentDcaSupported: dcaDraftSupported(observed.platform, profiles, trusted),
-  });
-}
-
-export async function loadAccountDraftProfiles(env) {
-  try {
-    return await loadStrategyProfilesConfig(env);
-  } catch {
-    return null;
-  }
-}
-
-export function profileDefinesOptionOverlay(profiles, profileId) {
-  if (!Array.isArray(profiles) || typeof profileId !== "string" || !profileId) return false;
-  const found = profiles.find((item) => sameStrategyProfile(item?.profile, profileId));
-  return found?.option_overlay_enabled === true;
-}
-
-export function optionOverlayDraftAllowed(platform, profiles, profileId) {
-  return PLATFORM_CONFIG[platform]?.option_overlay === true && profileDefinesOptionOverlay(profiles, profileId);
-}
-
 export function dcaDraftSupported(platform, profiles, profileId) {
-  if (!profileId || !Array.isArray(profiles)) return false;
-  if (!DCA_SUPPORTED_PLATFORMS.has(platform) || !isDcaProfile(profileId)) return false;
-  return profiles.some((item) => sameStrategyProfile(item?.profile, profileId));
+  return dcaDraftSupportedImpl(platform, profiles, profileId, accountSettingsDraftDeps());
 }
 
 export function accountDraftStrategyChoices(platform, accountOption, profiles) {
-  if (!Array.isArray(profiles)) return [];
-  let domains = [];
-  try {
-    domains = supportedDomainsForAccount(platform, accountOption || {});
-  } catch {
-    return [];
-  }
-  const choices = [];
-  const allowsDryRunOnly = accountOption?.default_execution_mode === "dry_run"
-    && supportedExecutionModesForPlatform(platform).includes("dry_run");
-  for (const profile of profiles) {
-    if (!profile || typeof profile.profile !== "string" || !profile.profile) continue;
-    if (profile.domain_explicit !== true || profile.lifecycle_stage === "frozen" || isFrozenStrategyProfile(profile)) continue;
-    if (!profile.domain || !domains.includes(profile.domain)) continue;
-    const modes = Array.isArray(profile.allowed_execution_modes) ? profile.allowed_execution_modes : [];
-    if (!modes.some((mode) => mode === "paper" || mode === "live"
-      || (allowsDryRunOnly && mode === "dry_run"))) continue;
-    try {
-      assertDcaPlatform(platform, profile.profile);
-    } catch {
-      continue;
-    }
-    choices.push({
-      profile: profile.profile,
-      label: profile.label || profile.profile,
-      label_zh: profile.label_zh || profile.label || profile.profile,
-      label_en: profile.label_en || profile.label || profile.profile,
-      domain: profile.domain,
-      // Existing catalog declarations only, never broker or execution permission.
-      lifecycle_stage: typeof profile.lifecycle_stage === "string" ? profile.lifecycle_stage : null,
-      allowed_execution_modes: Array.isArray(profile.allowed_execution_modes) && profile.allowed_execution_modes.length ? [...profile.allowed_execution_modes] : null,
-      can_switch_live: typeof profile.can_switch_live === "boolean" ? profile.can_switch_live : null,
-      blocked_live_reason: typeof profile.blocked_live_reason === "string" ? profile.blocked_live_reason : null,
-      option_overlay_enabled: profile.option_overlay_enabled === true,
-      dca_supported: dcaDraftSupported(platform, profiles, profile.profile),
-    });
-  }
-  return choices;
+  return accountDraftStrategyChoicesImpl(platform, accountOption, profiles, accountSettingsDraftDeps());
 }
 
 export function assertAccountDraftPatch(profiles, observed, patch, trustedProfile, options = {}) {
-  if (!patch || Array.isArray(patch) || typeof patch !== "object") throw new HttpError("invalid_account_setting_overrides", 400);
-  const choices = profiles ? accountDraftStrategyChoices(observed.platform, observed.config, profiles) : [];
-  const rebuilding = observed.draft?.status === "identity_conflict" && options.acknowledgeIdentityConflict === true;
-  const stored = observed.draft?.overrides && typeof observed.draft.overrides === "object" && !Array.isArray(observed.draft.overrides) ? observed.draft.overrides : {};
-  const current = rebuilding ? {} : stored;
-  const touchesStrategy = Object.prototype.hasOwnProperty.call(patch, "strategy_profile");
-  const touchesOption = Object.prototype.hasOwnProperty.call(patch, "option_overlay_enabled");
-  const touchesDcaMode = Object.prototype.hasOwnProperty.call(patch, "dca_mode");
-  const touchesDcaBase = Object.prototype.hasOwnProperty.call(patch, "dca_base_investment_usd");
-  if (touchesDcaMode !== touchesDcaBase) throw new HttpError("account_settings_dca_rejected", 400);
-  if (touchesDcaMode && (patch.dca_mode === null) !== (patch.dca_base_investment_usd === null)) {
-    throw new HttpError("account_settings_dca_rejected", 400);
-  }
-  if (touchesDcaMode && patch.dca_mode !== null && patch.dca_mode !== "fixed" && patch.dca_mode !== "smart") {
-    throw new HttpError("invalid_account_setting_overrides", 400);
-  }
-  if (touchesDcaBase && patch.dca_base_investment_usd !== null && !accountSettingPositiveAmount(patch.dca_base_investment_usd)) {
-    throw new HttpError("invalid_account_setting_overrides", 400);
-  }
-  if (!profiles && (touchesDcaMode || touchesDcaBase)) throw new HttpError("account_settings_dca_rejected", 400);
-  if (touchesStrategy && patch.strategy_profile !== null) {
-    const allowedChoice = choices.some((item) => sameStrategyProfile(item.profile, patch.strategy_profile));
-    const currentEditable = sameStrategyProfile(patch.strategy_profile, trustedProfile) && dcaDraftSupported(observed.platform, profiles, patch.strategy_profile);
-    if (typeof patch.strategy_profile !== "string" || (!allowedChoice && !currentEditable)) {
-      throw new HttpError("account_settings_strategy_rejected", 400);
-    }
-  }
-  if (!touchesStrategy && !touchesOption && !touchesDcaMode && !touchesDcaBase) return;
-  const bound = touchesStrategy
-    ? patch.strategy_profile || trustedProfile || ""
-    : (typeof current.strategy_profile === "string" && current.strategy_profile ? current.strategy_profile : trustedProfile || "");
-  const supports = optionOverlayDraftAllowed(observed.platform, profiles, bound);
-  if (touchesOption && patch.option_overlay_enabled !== null && (typeof patch.option_overlay_enabled !== "boolean" || !supports)) {
-    throw new HttpError("account_settings_option_rejected", 400);
-  }
-  const nextOption = touchesOption
-    ? patch.option_overlay_enabled
-    : (Object.prototype.hasOwnProperty.call(current, "option_overlay_enabled") ? current.option_overlay_enabled : undefined);
-  if ((nextOption === true || nextOption === false) && !supports) throw new HttpError("account_settings_option_strategy_conflict", 400);
-  // Other setting groups can be edited on a DCA account without rebinding its strategy.
-  if (!touchesStrategy && !touchesDcaMode && !touchesDcaBase) return;
-  const previous = typeof current.strategy_profile === "string" && current.strategy_profile ? current.strategy_profile : trustedProfile || "";
-  const next = touchesStrategy
-    ? (patch.strategy_profile === null ? trustedProfile || "" : String(patch.strategy_profile || ""))
-    : previous;
-  const mergedMode = touchesDcaMode ? patch.dca_mode : (Object.prototype.hasOwnProperty.call(current, "dca_mode") ? current.dca_mode : null);
-  const mergedBase = touchesDcaBase ? patch.dca_base_investment_usd : (Object.prototype.hasOwnProperty.call(current, "dca_base_investment_usd") ? current.dca_base_investment_usd : null);
-  const hasMergedDca = (mergedMode !== null && mergedMode !== undefined) || (mergedBase !== null && mergedBase !== undefined);
-  if (!dcaDraftSupported(observed.platform, profiles, next)) {
-    if (hasMergedDca) throw new HttpError("account_settings_dca_rejected", 400);
-    if (!sameStrategyProfile(previous, next) && dcaDraftSupported(observed.platform, profiles, previous)
-      && (!touchesDcaMode || patch.dca_mode !== null || !touchesDcaBase || patch.dca_base_investment_usd !== null)) {
-      throw new HttpError("account_settings_dca_rejected", 400);
-    }
-    return;
-  }
-  if (touchesDcaMode || touchesDcaBase) {
-    const clearingDca = patch.dca_mode === null && patch.dca_base_investment_usd === null;
-    const boundToProfile = sameStrategyProfile(patch.strategy_profile, next);
-    const clearingCurrentBinding = patch.strategy_profile === null && clearingDca;
-    if (!touchesStrategy || (!boundToProfile && !clearingCurrentBinding)) {
-      throw new HttpError("account_settings_dca_rejected", 400);
-    }
-  }
-  if (!sameStrategyProfile(previous, next) || touchesDcaMode || touchesDcaBase) {
-    if (!touchesDcaMode || !touchesDcaBase) throw new HttpError("account_settings_dca_rejected", 400);
-  }
+  return assertAccountDraftPatchImpl(profiles, observed, patch, trustedProfile, options, accountSettingsDraftDeps());
+}
+
+export async function loadAccountDraftProfiles(env) {
+  return loadAccountDraftProfilesImpl(env, accountSettingsRuntimeDeps());
+}
+
+export async function presentAccountSettings(env, observed, admin) {
+  return presentAccountSettingsImpl(env, observed, admin, accountSettingsRuntimeDeps());
+}
+
+export async function accountSettingsResponse(request, env) {
+  return accountSettingsResponseImpl(request, env, accountSettingsRuntimeDeps());
 }
 
 export async function saveCombinedAccountDraft(request, env) {
-  requireSameOrigin(request, { requireOrigin: true });
-  const session = await readSession(request, env);
-  if (!session) return json({ ok: false, error: "login required" }, 401);
-  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
-  let raw;
-  try { raw = await readBoundedJson(request, 16 * 1024); } catch (error) { return json({ ok: false, error: "invalid_account_setting_overrides" }, error.status || 400); }
-  const allowed = ["platform", "key", "identity", "expected_draft_revision", "acknowledge_identity_conflict", "overrides"];
-  if (!raw || Array.isArray(raw) || Object.keys(raw).some(key => !allowed.includes(key)) || !Object.hasOwn(raw, "overrides")) return json({ ok: false, error: "invalid_account_setting_overrides" }, 400);
-  return saveAccountSettings(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(raw) }), env);
+  return saveCombinedAccountDraftImpl(request, env, accountSettingsRuntimeDeps());
 }
 
 export async function saveAccountSettings(request, env) {
-  requireSameOrigin(request, { requireOrigin: true });
-  const session = await readSession(request, env);
-  if (!session) return json({ ok: false, error: "login required" }, 401);
-  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
-  let raw;
-  try { raw = await request.json(); } catch { return json({ ok: false, error: "request body must be valid JSON" }, 400); }
-  const platform = raw?.platform;
-  const key = raw?.key;
-  if (!SUPPORTED_PLATFORMS.includes(platform) || typeof key !== "string" || !key) return json({ ok: false, error: "account_settings_account_required" }, 400);
-  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "runtime_instances_not_bound", no_order: true, execution_authority_granted: false }, 503);
-  const legacy = await readRiskProfileLegacy(env);
-  let observed;
-  try {
-    observed = await runtimeInstanceCommand(env, { action: "account_settings_read", actor: session.login, platform, key, legacy });
-  } catch (error) {
-    const status = error instanceof HttpError ? error.status : 503;
-    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
-  }
-  const wantsDraft = Object.prototype.hasOwnProperty.call(raw, "overrides");
-  const wantsRisk = Object.prototype.hasOwnProperty.call(raw, "risk_preference");
-  const wantsDeclaration = Object.prototype.hasOwnProperty.call(raw, "declaration");
-  if ((wantsDraft || wantsRisk || wantsDeclaration) && (!raw.identity || Array.isArray(raw.identity) || typeof raw.identity !== "object")) {
-    return json({ ok: false, error: "account_settings_identity_required" }, 400);
-  }
-  if ((wantsDraft || wantsRisk || wantsDeclaration) && canonicalResearchTaskJson(raw.identity) !== canonicalResearchTaskJson(observed.identity)) {
-    return json({ ok: false, error: "account_settings_identity_conflict" }, 409);
-  }
-  const command = { action: "account_settings_save", actor: session.login, platform, key, legacy };
-  if (wantsDraft || wantsRisk || wantsDeclaration) command.identity = raw.identity;
-  if (wantsDeclaration) {
-    if (!Number.isSafeInteger(raw.expected_declaration_revision) || raw.expected_declaration_revision !== observed.declaration.revision) return json({ ok: false, error: "account_settings_declaration_revision_conflict" }, 409);
-    command.declaration = raw.declaration;
-    command.expected_declaration_revision = raw.expected_declaration_revision;
-  }
-  if (wantsDraft) {
-    if (!Number.isSafeInteger(raw.expected_draft_revision)) return json({ ok: false, error: "account_settings_draft_revision_required" }, 400);
-    if (raw.expected_draft_revision !== observed.draft.revision) return json({ ok: false, error: "account_settings_draft_revision_conflict" }, 409);
-    command.overrides = raw.overrides;
-    command.expected_draft_revision = observed.draft.revision;
-    if (raw.acknowledge_identity_conflict === true) command.acknowledge_identity_conflict = true;
-    const profiles = await loadAccountDraftProfiles(env);
-    const { effective: beforeEffective } = await effectiveAccountSettings(env, observed);
-    const trusted = beforeEffective.strategy_profile?.status === "known" && typeof beforeEffective.strategy_profile.value === "string" ? beforeEffective.strategy_profile.value : "";
-    try {
-      assertAccountDraftPatch(profiles, observed, raw.overrides, trusted, { acknowledgeIdentityConflict: raw.acknowledge_identity_conflict === true });
-    } catch (error) {
-      const status = error instanceof HttpError ? error.status : 400;
-      return json({ ok: false, error: error instanceof HttpError ? error.message : "invalid_account_setting_overrides", no_order: true, execution_authority_granted: false }, status);
-    }
-  }
-  if (wantsRisk) {
-    if (!Number.isSafeInteger(raw.expected_risk_revision)) return json({ ok: false, error: "risk_profile_revision_required" }, 400);
-    if (raw.expected_risk_revision !== observed.risk.revision) return json({ ok: false, error: "risk_profile_revision_conflict" }, 409);
-    command.expected_risk_revision = observed.risk.revision;
-    if (raw.risk_preference === null) command.risk_change = "clear";
-    else {
-      let built;
-      try {
-        built = await buildRiskProfileBindings(
-          { bindings: [{ platform, target_name: observed.identity.target_name, risk_preference: raw.risk_preference }] },
-          observed.account_options,
-          session.login,
-        );
-      } catch (error) {
-        return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
-      }
-      command.risk_change = "set";
-      command.binding = built[0];
-    }
-  }
-  if (!Object.prototype.hasOwnProperty.call(command, "overrides") && !Object.prototype.hasOwnProperty.call(command, "risk_change") && !Object.prototype.hasOwnProperty.call(command, "declaration")) {
-    return json({ ok: false, error: "account_settings_change_required" }, 400);
-  }
-  let saved;
-  try {
-    saved = await runtimeInstanceCommand(env, command);
-  } catch (error) {
-    const status = error instanceof HttpError ? error.status : 503;
-    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
-  }
-  if (command.risk_change && hasConfigStore(env)) {
-    await mirrorConfigJson(env, RISK_PROFILE_BINDINGS_KEY, {
-      schema_version: RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
-      bindings: saved.bindings,
-    });
-  }
-  const changes = accountSettingsAuditChanges(observed, saved, command);
-  let auditLogged = false;
-  if (changes.length && hasConfigStore(env)) {
-    const entry = {
-      ts: new Date().toISOString(),
-      login: session.login,
-      action: "save_account_settings",
-      platform,
-      key,
-      changes,
-    };
-    if (changes.some((kind) => kind === "cash_draft" || kind === "income_draft" || kind === "option_draft" || kind === "strategy_draft")) entry.draft_revision = saved.draft.revision;
-    if (changes.includes("risk_saved") || changes.includes("risk_cleared")) entry.risk_revision = saved.risk.revision;
-    if (changes.includes("account_declaration_saved")) entry.declaration_revision = saved.declaration.revision;
-    try {
-      await appendAuditLog(env, entry);
-      auditLogged = true;
-    } catch { /* the setting is already stored; a missed audit line must not be saved again */ }
-  }
-  const presented = await presentAccountSettings(env, saved, true);
-  presented.audit_logged = auditLogged;
-  return json(presented);
+  return saveAccountSettingsImpl(request, env, accountSettingsRuntimeDeps());
 }
 
 export async function approveAccountSettingsProfileApplication(request, env) {
-  requireSameOrigin(request, { requireOrigin: true });
-  const session = await readSession(request, env);
-  if (!session) return json({ ok: false, error: "login required" }, 401);
-  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
-  let raw;
-  try { raw = await request.json(); } catch { return json({ ok: false, error: "request body must be valid JSON" }, 400); }
-  const allowedFields = new Set([
-    "platform", "key", "request_key", "identity", "expected_instance_revision",
-    "expected_draft_revision", "old_profile", "new_profile",
-  ]);
-  if (!raw || Array.isArray(raw) || typeof raw !== "object" || Object.keys(raw).some((key) => !allowedFields.has(key))) {
-    return json({ ok: false, error: "account_settings_profile_application_request_invalid" }, 400);
-  }
-  if (!SUPPORTED_PLATFORMS.includes(raw.platform) || typeof raw.key !== "string" || !raw.key) {
-    return json({ ok: false, error: "account_settings_account_required" }, 400);
-  }
-  if (!ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY.test(String(raw.request_key || ""))
-    || !Number.isSafeInteger(raw.expected_instance_revision) || raw.expected_instance_revision < 0
-    || !Number.isSafeInteger(raw.expected_draft_revision) || raw.expected_draft_revision < 0
-    || !accountSettingsIdentityIsComplete(raw.identity)) {
-    return json({ ok: false, error: "account_settings_profile_application_request_invalid" }, 400);
-  }
-  const oldProfile = accountSettingsProfileName(raw.old_profile);
-  const newProfile = accountSettingsProfileName(raw.new_profile);
-  if (!oldProfile || !newProfile || oldProfile === newProfile) {
-    return json({ ok: false, error: "account_settings_profile_application_profile_invalid" }, 400);
-  }
-  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "runtime_instances_not_bound" }, 503);
-
-  const command = {
-    action: "account_settings_profile_application_approve",
-    actor: session.login,
-    platform: raw.platform,
-    key: raw.key,
-    request_key: raw.request_key,
-    identity: raw.identity,
-    expected_instance_revision: raw.expected_instance_revision,
-    expected_draft_revision: raw.expected_draft_revision,
-    old_profile: oldProfile,
-    new_profile: newProfile,
-  };
-  try {
-    const prior = await runtimeInstanceCommand(env, {
-      action: "account_settings_profile_application_lookup",
-      actor: session.login,
-      request_key: raw.request_key,
-    });
-    if (prior.application) {
-      const replay = await runtimeInstanceCommand(env, command);
-      return json({
-        ok: true,
-        replayed: true,
-        application: replay.application,
-        runtime_applied: false,
-        variables_updated: false,
-        no_order: true,
-        execution_authority_granted: false,
-      });
-    }
-
-    const observed = await runtimeInstanceCommand(env, {
-      action: "account_settings_read", actor: session.login, platform: raw.platform, key: raw.key,
-    });
-    if (observed.instance_revision !== raw.expected_instance_revision
-      || canonicalResearchTaskJson(observed.identity) !== canonicalResearchTaskJson(raw.identity)) {
-      return json({ ok: false, error: "account_settings_profile_application_identity_conflict" }, 409);
-    }
-    const draft = observed.draft;
-    if (draft?.status !== "current" || draft.revision !== raw.expected_draft_revision
-      || canonicalResearchTaskJson(draft.identity) !== canonicalResearchTaskJson(observed.identity)
-      || Object.keys(draft.overrides || {}).length !== 1
-      || draft.overrides?.strategy_profile !== newProfile) {
-      return json({ ok: false, error: "account_settings_profile_application_draft_conflict" }, 409);
-    }
-    if (isDcaProfile(oldProfile) || isDcaProfile(newProfile)) {
-      return json({ ok: false, error: "account_settings_profile_application_profile_only_required" }, 409);
-    }
-    const profiles = await loadAccountDraftProfiles(env);
-    const selectable = accountDraftStrategyChoices(raw.platform, observed.config, profiles);
-    if (!selectable.some((profile) => profile.profile === newProfile && profile.dca_supported !== true)) {
-      return json({ ok: false, error: "account_settings_profile_application_profile_not_selectable" }, 409);
-    }
-    const readback = await accountSettingsProfileRuntimeReadback(env, observed);
-    if (!readback) return json({ ok: false, error: "account_settings_runtime_readback_unavailable" }, 503);
-    if (readback.runtime_target_enabled !== "false") {
-      return json({ ok: false, error: "account_settings_runtime_target_not_disabled" }, 409);
-    }
-    if (readback.strategy_profile !== oldProfile) {
-      return json({ ok: false, error: "account_settings_profile_application_current_profile_conflict" }, 409);
-    }
-    command.current_profile = readback.strategy_profile;
-    command.runtime_target_enabled = false;
-    const approved = await runtimeInstanceCommand(env, command);
-    let auditLogged = false;
-    if (!approved.replayed && hasConfigStore(env)) {
-      try {
-        await appendAuditLog(env, {
-          ts: approved.application.approved_at,
-          login: session.login,
-          action: "approve_account_settings_profile_application",
-          platform: raw.platform,
-          key: raw.key,
-          request_key: raw.request_key,
-          instance_revision: raw.expected_instance_revision,
-          draft_revision: raw.expected_draft_revision,
-          old_profile: oldProfile,
-          new_profile: newProfile,
-        });
-        auditLogged = true;
-      } catch { /* the durable approval is authoritative if its audit mirror is unavailable */ }
-    }
-    return json({
-      ok: true,
-      replayed: approved.replayed === true,
-      application: approved.application,
-      audit_logged: auditLogged,
-      runtime_applied: false,
-      variables_updated: false,
-      no_order: true,
-      execution_authority_granted: false,
-    });
-  } catch (error) {
-    const status = error instanceof HttpError ? error.status : 503;
-    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
-  }
-}
-
-export function decodeProfileApplicationJwtPart(value, maxBytes, parseJson = true) {
-  if (typeof value !== "string" || value.length === 0 || value.length > maxBytes * 2
-    || !/^[A-Za-z0-9_-]+$/.test(value)) throw new HttpError("github_oidc_token_invalid", 401);
-  const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - value.length % 4) % 4);
-  let binary;
-  try { binary = atob(padded); } catch { throw new HttpError("github_oidc_token_invalid", 401); }
-  if (binary.length > maxBytes) throw new HttpError("github_oidc_token_invalid", 401);
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  if (!parseJson) return { bytes };
-  try { return { bytes, value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) }; }
-  catch { throw new HttpError("github_oidc_token_invalid", 401); }
-}
-
-export async function readGitHubProfileApplicationJwks() {
-  const controller = new AbortController();
-  let rejectAbort = () => {};
-  const abortPromise = new Promise((_, reject) => { rejectAbort = reject; });
-  abortPromise.catch(() => {});
-  const onAbort = () => rejectAbort(new HttpError("github_oidc_jwks_unavailable", 503));
-  controller.signal.addEventListener("abort", onAbort);
-  const timeout = setTimeout(() => controller.abort(), ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_TIMEOUT_MS);
-  let response;
-  try {
-    response = await Promise.race([
-      fetch(ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_JWKS_URL, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        redirect: "manual",
-        signal: controller.signal,
-      }),
-      abortPromise,
-    ]);
-    if (response.status !== 200 || response.redirected) throw new HttpError("github_oidc_jwks_unavailable", 503);
-    const contentLength = response.headers.get("Content-Length");
-    if (contentLength && (!/^\d+$/.test(contentLength) || Number(contentLength) > ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_JWKS_BYTES)) {
-      throw new HttpError("github_oidc_jwks_unavailable", 503);
-    }
-    const contentType = response.headers.get("Content-Type") || "";
-    if (!/^application\/json(?:\s*;|$)/i.test(contentType)) throw new HttpError("github_oidc_jwks_unavailable", 503);
-    const text = await readLimitedUtf8Body(response, ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_JWKS_BYTES, controller, abortPromise);
-    const jwks = JSON.parse(text);
-    if (!jwks || Array.isArray(jwks) || typeof jwks !== "object" || !Array.isArray(jwks.keys) || jwks.keys.length < 1 || jwks.keys.length > 16) {
-      throw new HttpError("github_oidc_jwks_unavailable", 503);
-    }
-    return jwks.keys;
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    throw new HttpError("github_oidc_jwks_unavailable", 503);
-  } finally {
-    clearTimeout(timeout);
-    controller.signal.removeEventListener("abort", onAbort);
-  }
-}
-
-export async function verifyGitHubProfileApplicationToken(request, env) {
-  const workflowSha = env.ACCOUNT_SETTINGS_PROFILE_APPLICATION_WORKFLOW_SHA;
-  if (typeof workflowSha !== "string" || !/^[a-f0-9]{40}$/.test(workflowSha)) {
-    throw new HttpError("github_oidc_workflow_sha_not_configured", 503);
-  }
-  const authorization = request.headers.get("Authorization") || "";
-  const match = /^Bearer ([A-Za-z0-9._~-]+)$/.exec(authorization);
-  if (!match || match[1].length > ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_TOKEN_BYTES) {
-    throw new HttpError("github_oidc_token_invalid", 401);
-  }
-  const parts = match[1].split(".");
-  if (parts.length !== 3) throw new HttpError("github_oidc_token_invalid", 401);
-  const header = decodeProfileApplicationJwtPart(parts[0], 2048).value;
-  const claims = decodeProfileApplicationJwtPart(parts[1], 4096).value;
-  const signature = decodeProfileApplicationJwtPart(parts[2], 1024, false).bytes;
-  if (!header || Array.isArray(header) || typeof header !== "object"
-    || header.alg !== "RS256" || header.typ !== "JWT"
-    || typeof header.kid !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(header.kid)
-    || Object.hasOwn(header, "jku") || Object.hasOwn(header, "x5u") || Object.hasOwn(header, "crit")) {
-    throw new HttpError("github_oidc_token_invalid", 401);
-  }
-  if (!claims || Array.isArray(claims) || typeof claims !== "object"
-    || claims.iss !== "https://token.actions.githubusercontent.com"
-    || claims.aud !== ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_AUDIENCE
-    || claims.repository !== ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REPOSITORY
-    || claims.ref !== ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REF
-    || claims.workflow_ref !== ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_WORKFLOW_REF
-    || claims.workflow_sha !== workflowSha
-    || Object.hasOwn(claims, "job_workflow_ref") || Object.hasOwn(claims, "job_workflow_sha")
-    || claims.event_name !== "workflow_dispatch"
-    || typeof claims.run_id !== "string" || !/^[1-9]\d{0,19}$/.test(claims.run_id)
-    || typeof claims.run_attempt !== "string" || !/^[1-9]\d{0,5}$/.test(claims.run_attempt)) {
-    throw new HttpError("github_oidc_token_invalid", 401);
-  }
-  const now = Math.floor(Date.now() / 1000);
-  if (![claims.iat, claims.nbf, claims.exp].every(Number.isSafeInteger)
-    || claims.iat > now + 30 || claims.iat < now - 600
-    || claims.nbf > now + 30 || claims.nbf > claims.exp
-    || claims.exp <= now || claims.exp <= claims.iat || claims.exp - claims.iat > 600) {
-    throw new HttpError("github_oidc_token_invalid", 401);
-  }
-  const keys = await readGitHubProfileApplicationJwks();
-  const matches = keys.filter((key) => key?.kid === header.kid);
-  if (matches.length !== 1) throw new HttpError("github_oidc_token_invalid", 401);
-  const jwk = matches[0];
-  if (jwk.kty !== "RSA" || jwk.use !== "sig" || (jwk.alg && jwk.alg !== "RS256")
-    || (jwk.key_ops !== undefined && (!Array.isArray(jwk.key_ops) || !jwk.key_ops.includes("verify")))
-    || typeof jwk.n !== "string" || typeof jwk.e !== "string") {
-    throw new HttpError("github_oidc_token_invalid", 401);
-  }
-  let valid = false;
-  try {
-    const publicKey = await crypto.subtle.importKey(
-      "jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"],
-    );
-    valid = await crypto.subtle.verify(
-      "RSASSA-PKCS1-v1_5", publicKey, signature, new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
-    );
-  } catch { throw new HttpError("github_oidc_token_invalid", 401); }
-  if (!valid) throw new HttpError("github_oidc_token_invalid", 401);
-  return { runId: claims.run_id, runAttempt: claims.run_attempt };
-}
-
-export function accountSettingsProfileApplicationIsFixedHk(application) {
-  const identity = application?.identity;
-  return application?.platform === "longbridge" && application?.key === "hk"
-    && accountSettingsIdentityIsComplete(identity)
-    && identity.platform === "longbridge" && identity.key === "hk";
+  return approveAccountSettingsProfileApplicationImpl(request, env, accountSettingsRuntimeDeps());
 }
 
 export async function claimAccountSettingsProfileApplicationFromGitHub(request, env) {
-  if (new URL(request.url).search || !hasRuntimeInstanceStore(env)) {
-    return json({ ok: false, error: "account_settings_profile_application_unavailable", no_order: true, execution_authority_granted: false }, 503);
-  }
-  try {
-    const run = await verifyGitHubProfileApplicationToken(request, env);
-    const raw = await readGitHubProfileApplicationRequestBody(request);
-    if (!ux1ExactKeys(raw, ["request_key"]) || !ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY.test(String(raw.request_key || ""))) {
-      return json({ ok: false, error: "account_settings_profile_application_request_invalid", no_order: true, execution_authority_granted: false }, 400);
-    }
-    const actor = "github-oidc-profile-application";
-    const lookup = await runtimeInstanceCommand(env, {
-      action: "account_settings_profile_application_lookup", actor, request_key: raw.request_key,
-    });
-    const application = lookup.application;
-    if (!application) return json({ ok: false, error: "account_settings_profile_application_not_found", no_order: true, execution_authority_granted: false }, 404);
-    if (!accountSettingsProfileApplicationIsFixedHk(application)) {
-      return json({ ok: false, error: "account_settings_profile_application_target_conflict", no_order: true, execution_authority_granted: false }, 409);
-    }
-    const command = {
-      action: "account_settings_profile_application_claim",
-      actor,
-      request_key: application.request_key,
-      identity: application.identity,
-      expected_instance_revision: application.instance_revision,
-      expected_draft_revision: application.draft_revision,
-      old_profile: application.old_profile,
-      new_profile: application.new_profile,
-      current_profile: application.old_profile,
-      runtime_target_enabled: false,
-      workflow_run_id: run.runId,
-      workflow_run_attempt: run.runAttempt,
-    };
-    if (application.status === "claimed") {
-      const replay = await runtimeInstanceCommand(env, command);
-      return json({ ...replay, ok: true });
-    }
-    if (application.status !== "approved") {
-      return json({ ok: false, error: "account_settings_profile_application_conflict", no_order: true, execution_authority_granted: false }, 409);
-    }
-    const observed = await runtimeInstanceCommand(env, {
-      action: "account_settings_read", actor, platform: application.platform, key: application.key,
-    });
-    if (observed.instance_revision !== application.instance_revision
-      || canonicalResearchTaskJson(observed.identity) !== canonicalResearchTaskJson(application.identity)) {
-      return json({ ok: false, error: "account_settings_profile_application_identity_conflict", no_order: true, execution_authority_granted: false }, 409);
-    }
-    const draft = observed.draft;
-    if (draft?.status !== "current" || draft.revision !== application.draft_revision
-      || canonicalResearchTaskJson(draft.identity) !== canonicalResearchTaskJson(application.identity)
-      || Object.keys(draft.overrides || {}).length !== 1
-      || draft.overrides?.strategy_profile !== application.new_profile) {
-      return json({ ok: false, error: "account_settings_profile_application_draft_conflict", no_order: true, execution_authority_granted: false }, 409);
-    }
-    const variableScope = resolveVariableScope(application.platform, observed.config);
-    const githubEnvironment = resolveGithubEnvironment(application.platform, observed.config, variableScope);
-    const repository = platformRepositories(env)?.[application.platform];
-    if (repository !== "QuantStrategyLab/LongBridgePlatform"
-      || variableScope !== "environment"
-      || githubEnvironment !== "longbridge-hk") {
-      return json({ ok: false, error: "account_settings_profile_application_target_conflict", no_order: true, execution_authority_granted: false }, 409);
-    }
-    const readback = await accountSettingsProfileRuntimeReadback(env, observed, {
-      repository, variableScope, githubEnvironment,
-    });
-    if (!readback) return json({ ok: false, error: "account_settings_runtime_readback_unavailable", no_order: true, execution_authority_granted: false }, 503);
-    if (readback.runtime_target_enabled !== "false" || readback.strategy_profile !== application.old_profile) {
-      return json({ ok: false, error: "account_settings_profile_application_runtime_conflict", no_order: true, execution_authority_granted: false }, 409);
-    }
-    const claimed = await runtimeInstanceCommand(env, command);
-    return json({ ...claimed, ok: true });
-  } catch (error) {
-    const status = error instanceof HttpError ? error.status : 503;
-    return json({ ok: false, error: error instanceof HttpError ? error.message : "account_settings_profile_application_unavailable", no_order: true, execution_authority_granted: false }, status);
-  }
-}
-
-export async function readGitHubProfileApplicationRequestBody(request) {
-  const contentLength = request.headers.get("Content-Length");
-  if (contentLength && (!/^\d+$/.test(contentLength) || Number(contentLength) > ACCOUNT_SETTINGS_PROFILE_APPLICATION_MAX_BODY_BYTES)) {
-    throw new HttpError("account_settings_profile_application_body_too_large", 413);
-  }
-  const controller = new AbortController();
-  let rejectAbort = () => {};
-  const abortPromise = new Promise((_, reject) => { rejectAbort = reject; });
-  abortPromise.catch(() => {});
-  const onAbort = () => rejectAbort(new HttpError("account_settings_profile_application_body_timeout", 408));
-  controller.signal.addEventListener("abort", onAbort);
-  const timeout = setTimeout(() => controller.abort(), ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_TIMEOUT_MS);
-  try {
-    const text = await readLimitedUtf8Body(request, ACCOUNT_SETTINGS_PROFILE_APPLICATION_MAX_BODY_BYTES, controller, abortPromise);
-    try { return JSON.parse(text); } catch { throw new HttpError("request body must be valid JSON", 400); }
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    if (String(error?.message || "") === "ux1_calculator_body_limit") {
-      throw new HttpError("account_settings_profile_application_body_too_large", 413);
-    }
-    throw new HttpError("account_settings_profile_application_body_invalid", 400);
-  } finally {
-    clearTimeout(timeout);
-    controller.signal.removeEventListener("abort", onAbort);
-  }
-}
-
-export function accountSettingsAuditChanges(before, after, requested) {
-  const changes = [];
-  const left = before?.draft?.overrides && typeof before.draft.overrides === "object" && !Array.isArray(before.draft.overrides) ? before.draft.overrides : {};
-  const right = after?.draft?.overrides && typeof after.draft.overrides === "object" && !Array.isArray(after.draft.overrides) ? after.draft.overrides : {};
-  const patch = requested?.overrides && typeof requested.overrides === "object" && !Array.isArray(requested.overrides) ? requested.overrides : {};
-  const stored = (record, name) => Object.prototype.hasOwnProperty.call(record, name) ? record[name] : undefined;
-  const asked = (name) => Object.prototype.hasOwnProperty.call(patch, name);
-  if (["reserved_cash_floor", "reserved_cash_ratio"].some(asked) && ["reserved_cash_floor", "reserved_cash_ratio"].some((name) => stored(left, name) !== stored(right, name))) changes.push("cash_draft");
-  if (asked("income_layer_enabled") && stored(left, "income_layer_enabled") !== stored(right, "income_layer_enabled")) changes.push("income_draft");
-  if (asked("option_overlay_enabled") && stored(left, "option_overlay_enabled") !== stored(right, "option_overlay_enabled")) changes.push("option_draft");
-  const strategyDraftChanged = (asked("strategy_profile") && stored(left, "strategy_profile") !== stored(right, "strategy_profile"))
-    || ((asked("dca_mode") || asked("dca_base_investment_usd")) && ["dca_mode", "dca_base_investment_usd"].some((name) => stored(left, name) !== stored(right, name)));
-  if (strategyDraftChanged) changes.push("strategy_draft");
-  if (requested?.declaration && before?.declaration?.revision !== after?.declaration?.revision) changes.push("account_declaration_saved");
-  const beforePreference = before?.risk?.preference || null;
-  const afterPreference = after?.risk?.preference || null;
-  if ((requested?.risk_change === "set" || requested?.risk_change === "clear") && beforePreference !== afterPreference) changes.push(afterPreference ? "risk_saved" : "risk_cleared");
-  return changes;
+  return claimAccountSettingsProfileApplicationFromGitHubImpl(request, env, accountSettingsRuntimeDeps());
 }
 
 export async function buildAdminState(session, env) {
@@ -11287,87 +10609,6 @@ export async function buildRiskProfileBindings(payload, accountOptions, updatedB
     bindings.push(await normalizeRiskProfileBinding(binding, `risk profile bindings request.bindings[${index}]`));
   }
   return bindings.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
-}
-
-export function accountSettingsIdentity(instance) {
-  const config = instance?.config || {};
-  const broker = config.broker_environment;
-  return {
-    platform: instance.platform,
-    key: instance.key,
-    target_name: typeof config.target_name === "string" ? config.target_name : "",
-    broker_environment: broker === "live" || broker === "paper" ? broker : null,
-    account_selector: typeof config.account_selector === "string" ? config.account_selector : "",
-    deployment_selector: typeof config.deployment_selector === "string" ? config.deployment_selector : "",
-    account_scope: typeof config.account_scope === "string" ? config.account_scope : "",
-    service_name: typeof config.service_name === "string" ? config.service_name : "",
-  };
-}
-
-export function accountSettingsIdentityIsComplete(identity) {
-  if (!identity || Array.isArray(identity) || typeof identity !== "object"
-    || !SUPPORTED_PLATFORMS.includes(identity.platform)
-    || (identity.broker_environment !== "paper" && identity.broker_environment !== "live")) return false;
-  return ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name"]
-    .every((field) => typeof identity[field] === "string" && identity[field].trim() !== "");
-}
-
-export function accountSettingsProfileName(value) {
-  if (typeof value !== "string" || value.length > 128 || value !== value.trim()
-    || !/^[a-z0-9][a-z0-9._-]*$/.test(value)) return "";
-  return value;
-}
-
-export function accountSettingPositiveAmount(value) {
-  if (typeof value !== "string" || value.length > 32 || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return false;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric > 0;
-}
-
-export function accountSettingRatio(value) {
-  if (typeof value !== "string" || value.length > 32 || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return null;
-  const [whole, frac = ""] = value.split(".");
-  if (whole === "0") return value;
-  if (whole === "1" && (frac === "" || /^0+$/.test(frac))) return value;
-  return null;
-}
-
-export function applyAccountSettingOverrides(current, patch) {
-  if (!patch || Array.isArray(patch) || typeof patch !== "object") throw new HttpError("invalid_account_setting_overrides", 400);
-  const next = current && typeof current === "object" && !Array.isArray(current) ? { ...current } : {};
-  for (const key of Object.keys(patch)) {
-    if (!ACCOUNT_SETTING_OVERRIDE_FIELDS.includes(key)) throw new HttpError("invalid_account_setting_overrides", 400);
-    const value = patch[key];
-    if (value === null) {
-      delete next[key];
-      continue;
-    }
-    if (typeof value === "number") throw new HttpError("invalid_account_setting_overrides", 400);
-    if (key === "income_layer_enabled" || key === "option_overlay_enabled") {
-      if (typeof value !== "boolean") throw new HttpError("invalid_account_setting_overrides", 400);
-      next[key] = value;
-    } else if (key === "reserved_cash_floor") {
-      if (typeof value !== "string" || value.length > 32 || !/^\d+(?:\.\d+)?$/.test(value) || !Number.isFinite(Number(value))) {
-        throw new HttpError("invalid_account_setting_overrides", 400);
-      }
-      next[key] = value;
-    } else if (key === "reserved_cash_ratio") {
-      const ratio = accountSettingRatio(value);
-      if (ratio === null) throw new HttpError("invalid_account_setting_overrides", 400);
-      next[key] = ratio;
-    } else if (key === "dca_mode") {
-      if (value !== "fixed" && value !== "smart") throw new HttpError("invalid_account_setting_overrides", 400);
-      next[key] = value;
-    } else if (key === "dca_base_investment_usd") {
-      if (!accountSettingPositiveAmount(value)) throw new HttpError("invalid_account_setting_overrides", 400);
-      next[key] = value;
-    } else if (typeof value !== "string" || value.trim() === "" || value !== value.trim()) {
-      throw new HttpError("invalid_account_setting_overrides", 400);
-    } else {
-      next[key] = value;
-    }
-  }
-  return next;
 }
 
 export async function readRiskProfileLegacy(env) {
