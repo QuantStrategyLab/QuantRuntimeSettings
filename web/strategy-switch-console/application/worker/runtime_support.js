@@ -428,6 +428,33 @@ import {
   readControlPlaneSources as readControlPlaneSourcesImpl,
 } from "../control_plane/http.js";
 import {
+  HUMAN_DECISION_DO_ACTIONS,
+  RESEARCH_PROMOTION_REVIEW_INVALID,
+} from "../human_decisions/constants.js";
+import {
+  ResearchPromotionReviewMaterialError,
+  humanDecisionRequestKey,
+  researchPromotionMaterialKey,
+  researchPromotionReviewMaterial,
+  researchPromotionReviewBinding,
+  promotionReviewBindingsMatch,
+  promotionMaterialReviewBinding,
+  recoveryDecisionMaterialKey,
+  humanDecisionTimestamp,
+  recoveryMaterialEligible,
+  humanDecisionAuthorityView,
+  overlayPromotionDecision as overlayPromotionDecisionImpl,
+  humanDecisionReceipt as humanDecisionReceiptImpl,
+} from "../human_decisions/helpers.js";
+import {
+  publishHumanOwnerMaterials as publishHumanOwnerMaterialsImpl,
+  publishHumanRecoveryMaterials as publishHumanRecoveryMaterialsImpl,
+  publishHumanPromotionMaterial as publishHumanPromotionMaterialImpl,
+  exactHumanDecisionResponse as exactHumanDecisionResponseImpl,
+  readHumanDecisionAuthority as readHumanDecisionAuthorityImpl,
+  promotionTicketWithAuthority as promotionTicketWithAuthorityImpl,
+} from "../human_decisions/materials.js";
+import {
   ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH,
   ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_AUDIENCE,
   ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REPOSITORY,
@@ -900,11 +927,20 @@ export const RUNTIME_TARGET_LIFECYCLE_EXECUTION_OBSERVATIONS = ["not_due", "moni
 const RUNTIME_TARGET_LIFECYCLE_REASON_CODES = [
   "none", "target_intentionally_disabled", "runtime_guard_attention", "execution_heartbeat_attention", "monitoring_unavailable",
 ];
-export const HUMAN_DECISION_DO_ACTIONS = new Set([
-  "owner_sync_materials", "recovery_sync_materials", "promotion_sync_materials",
-  "owner_decide", "recovery_decide", "promotion_decide",
-  "owner_read", "recovery_read", "promotion_read",
-]);
+export { HUMAN_DECISION_DO_ACTIONS, RESEARCH_PROMOTION_REVIEW_INVALID };
+export {
+  ResearchPromotionReviewMaterialError,
+  humanDecisionRequestKey,
+  researchPromotionMaterialKey,
+  researchPromotionReviewMaterial,
+  researchPromotionReviewBinding,
+  promotionReviewBindingsMatch,
+  promotionMaterialReviewBinding,
+  recoveryDecisionMaterialKey,
+  humanDecisionTimestamp,
+  recoveryMaterialEligible,
+  humanDecisionAuthorityView,
+};
 export const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_external_flow_put",
   "account_executions_put", "account_executions_read",
@@ -2471,86 +2507,6 @@ export async function strategyHealthResponse(request, env) {
   return json(snapshot);
 }
 
-export async function humanDecisionRequestKey({ requestId, kind, actor, subjectId, materialKey, action, target }) {
-  if (requestId !== undefined && requestId !== null && requestId !== "") {
-    const text = String(requestId).trim();
-    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(text)) throw new HttpError("invalid request_id", 400);
-    return `id:${kind}:${text}`;
-  }
-  const digest = await calculateOwnerDecisionSha256({
-    actor, kind, subject_id: subjectId, material_key: materialKey, action, target: target || null,
-  });
-  return `fp:${digest}`;
-}
-
-export async function researchPromotionMaterialKey(ticket) {
-  return calculateOwnerDecisionSha256({
-    ticket_id: ticket.ticket_id,
-    strategy_profile: ticket.strategy_profile,
-    domain: ticket.domain,
-    proposed_params: ticket.proposed_params,
-    shadow_passed: ticket.shadow_passed,
-    shadow_evidence_kind: ticket.shadow_evidence_kind,
-  });
-}
-
-// The legacy six-field material key remains the durable terminal index. This
-// independent versioned snapshot binds all saved producer review content without
-// rekeying historical records or hashing post-decision/observation-only fields.
-export function researchPromotionReviewMaterial(ticket) {
-  return {
-    schema_version: "qsl_promotion_review_material.v2",
-    ticket_id: ticket.ticket_id, strategy_profile: ticket.strategy_profile, domain: ticket.domain,
-    proposed_params: ticket.proposed_params, shadow_passed: ticket.shadow_passed,
-    shadow_evidence_kind: ticket.shadow_evidence_kind,
-    drift_status: ticket.drift_status, drift_score: ticket.drift_score,
-    budget: ticket.budget, search_iterations: ticket.search_iterations,
-    suggested_risk_profile: ticket.suggested_risk_profile,
-    notification_subject: ticket.notification_subject, notification_body: ticket.notification_body,
-    notes: ticket.notes, research_summary: ticket.research_summary || null,
-  };
-}
-export const RESEARCH_PROMOTION_REVIEW_INVALID = "research_promotion_review_material_invalid";
-export class ResearchPromotionReviewMaterialError extends HttpError {
-  constructor() { super(RESEARCH_PROMOTION_REVIEW_INVALID, 400); }
-}
-export async function researchPromotionReviewBinding(ticket) {
-  let canonical;
-  try {
-    canonical = canonicalResearchTaskJson(researchPromotionReviewMaterial(ticket));
-  } catch (error) {
-    // Only canonical data validation is recoverable per ticket. Hash/storage
-    // failures must not be relabelled as invalid material or a healthy queue.
-    if (error?.message === "research task must use finite JSON values"
-      || error?.message === "research task must use JSON values") throw new ResearchPromotionReviewMaterialError();
-    throw error;
-  }
-  return { schema_version: "qsl_promotion_review_binding.v2", review_sha256: await sha256Hex(canonical) };
-}
-export function promotionReviewBindingsMatch(left, right) {
-  return left?.schema_version === "qsl_promotion_review_binding.v2" && right?.schema_version === left.schema_version
-    && /^[0-9a-f]{64}$/.test(left.review_sha256) && left.review_sha256 === right.review_sha256;
-}
-export function promotionMaterialReviewBinding(row) {
-  try {
-    const binding = JSON.parse(row?.summary_json || "{}").review_binding;
-    return promotionReviewBindingsMatch(binding, binding) ? { schema_version: "qsl_promotion_review_binding.v2", review_sha256: binding.review_sha256 } : null;
-  } catch { return null; }
-}
-
-export async function recoveryDecisionMaterialKey(recovery) {
-  if (recovery.mode === "initial_enrollment") return calculateOwnerDecisionSha256({
-    mode: recovery.mode, recovery_id: recovery.recovery_id,
-    candidate_sha256: recovery.candidate?.candidate_sha256 || recovery.candidate_sha256,
-    facts_sha256: recovery.candidate?.facts_sha256 || recovery.facts_sha256,
-  });
-  return calculateOwnerDecisionSha256({
-    recovery_id: recovery.recovery_id,
-    candidate_sha256: recovery.candidate_sha256,
-    dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
-  });
-}
-
 export async function mirrorConfigJson(env, key, value) {
   try {
     await writeConfigJson(env, key, value);
@@ -2569,10 +2525,6 @@ export async function readLegacyConfig(env, key) {
   }
 }
 
-export function humanDecisionTimestamp(value) {
-  return String(value || new Date().toISOString()).replace(/\.\d{3}Z$/, "Z");
-}
-
 // Actionable material expires when the evidence that produced it would itself be
 // stale. A missing or future-dated anchor yields null, which callers treat as
 // "not actionable" rather than inventing authority.
@@ -2588,344 +2540,68 @@ export function reconciliationRecoveryDecisionExpiryAt(recovery, source, ttlSeco
   return Math.min(sourceExpiry, observedAt + ttlSeconds * 1000);
 }
 
-export async function publishHumanOwnerMaterials(env, snapshot, sourceId) {
-  const ownerCandidates = (snapshot.candidates || []).filter(isOwnerDecisionCandidate);
-  if (!ownerCandidates.length && !hasRuntimeInstanceStore(env)) return { ok: true, skipped: true };
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const expiresAtMs = controlPlaneDecisionExpiryAt(snapshot, controlPlaneStaleTtlSeconds(env));
-  const grouped = new Map();
-  for (const candidate of ownerCandidates) {
-    const list = grouped.get(candidate.candidate_id) || [];
-    list.push(candidate);
-    grouped.set(candidate.candidate_id, list);
-  }
-  const materials = [];
-  const duplicateSubjectIds = [];
-  for (const [subjectId, list] of grouped) {
-    if (list.length > 1) duplicateSubjectIds.push(subjectId);
-    const candidate = list[0];
-    const materialKey = await ownerDecisionCandidateEvidenceSha256(candidate);
-    const legacyRead = await readLegacyConfig(env, ownerDecisionCurrentKey(subjectId));
-    if (legacyRead.unreadable) throw new HttpError("human_decision_legacy_unreadable", 503);
-    let legacy = null;
-    if (legacyRead.blocked) legacy = { blocked: true };
-    else if (legacyRead.value) {
-      try {
-        const intent = await normalizeOwnerDecisionIntent(legacyRead.value, ownerDecisionCurrentKey(subjectId));
-        if (intent.candidate_id !== subjectId || intent.candidate_evidence_sha256 !== materialKey) legacy = { blocked: true };
-        else {
-          legacy = {
-            record: {
-              action: intent.decision,
-              actor: intent.decided_by,
-              decided_at: intent.decided_at,
-              material_key: materialKey,
-              target_json: canonicalResearchTaskJson({ decision: intent.decision }),
-              payload: intent,
-            },
-          };
-        }
-      } catch {
-        legacy = { blocked: true };
-      }
-    }
-    materials.push({
-      subject_id: subjectId,
-      material_key: materialKey,
-      summary_json: JSON.stringify({ candidate_id: subjectId }),
-      eligible: list.length === 1 && candidate.freshness?.status === "fresh",
-      expires_at_ms: expiresAtMs,
-      legacy,
-    });
-  }
-  return runtimeInstanceCommand(env, {
-    action: "owner_sync_materials",
-    actor: "control-plane-sync",
-    source_id: sourceId,
-    updated_at: humanDecisionTimestamp(),
-    now_ms: Date.now(),
-    replace_source: true,
-    materials,
-    duplicate_subject_ids: duplicateSubjectIds,
-  });
+function humanDecisionReceiptDeps() {
+  return {
+    calculateReconciliationRecoveryConfirmationSha256,
+  };
 }
 
-export function recoveryMaterialEligible(recovery, sourceFreshness, evidenceFreshness) {
-  if (recovery.mode === "initial_enrollment") return sourceFreshness?.data_status === "ready" && evidenceFreshness?.data_status === "ready"
-    && Object.values(recovery.candidate.coverage).every(status => status === "complete");
-  return sourceFreshness?.data_status === "ready"
-    && evidenceFreshness?.data_status === "ready"
-    && recovery.readiness === "awaiting_human_confirmation"
-    && recovery.reconciliation_state === "RECONCILE_ONLY"
-    && !recovery.blocker_codes.length
-    && recovery.dual_review.evidence_binding_sha256 === recovery.candidate_sha256
-    && recovery.evidence_sample_count >= 1;
+function humanDecisionPromotionDeps() {
+  return {
+    normalizeResearchPromotionTicket,
+  };
+}
+
+function humanDecisionOwnerMaterialDeps() {
+  return {
+    ownerDecisionCandidateEvidenceSha256,
+    readLegacyConfig,
+    ownerDecisionCurrentKey,
+    normalizeOwnerDecisionIntent,
+  };
+}
+
+function humanDecisionRecoveryMaterialDeps() {
+  return {
+    reconciliationRecoveryStaleTtlSeconds,
+    reconciliationRecoveryEvidenceFreshness,
+    readLegacyConfig,
+    reconciliationRecoveryConfirmationCurrentKey,
+    normalizeReconciliationRecoveryConfirmation,
+    reconciliationRecoveryDecisionExpiryAt,
+  };
+}
+
+export async function publishHumanOwnerMaterials(env, snapshot, sourceId) {
+  return publishHumanOwnerMaterialsImpl(env, snapshot, sourceId, humanDecisionOwnerMaterialDeps());
 }
 
 export async function publishHumanRecoveryMaterials(env, source) {
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const ttlSeconds = reconciliationRecoveryStaleTtlSeconds(env);
-  const now = Date.now();
-  const sourceFreshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
-  const grouped = new Map();
-  for (const recovery of source.recoveries || []) {
-    const list = grouped.get(recovery.recovery_id) || [];
-    list.push(recovery);
-    grouped.set(recovery.recovery_id, list);
-  }
-  const materials = [];
-  const duplicateSubjectIds = [];
-  for (const [subjectId, list] of grouped) {
-    if (list.length > 1) duplicateSubjectIds.push(subjectId);
-    const recovery = list[0];
-    const evidenceFreshness = reconciliationRecoveryEvidenceFreshness(recovery, sourceFreshness, ttlSeconds, now);
-    const materialKey = await recoveryDecisionMaterialKey(recovery);
-    const legacyRead = recovery.mode === "initial_enrollment" ? { unreadable: false, blocked: false, value: null }
-      : await readLegacyConfig(env, reconciliationRecoveryConfirmationCurrentKey(subjectId));
-    if (legacyRead.unreadable) throw new HttpError("human_decision_legacy_unreadable", 503);
-    let legacy = null;
-    if (legacyRead.blocked) legacy = { blocked: true };
-    else if (legacyRead.value) {
-      try {
-        const confirmation = await normalizeReconciliationRecoveryConfirmation(legacyRead.value, reconciliationRecoveryConfirmationCurrentKey(subjectId));
-        if (confirmation.recovery_id !== subjectId || confirmation.candidate_sha256 !== recovery.candidate_sha256 || confirmation.dual_review_binding_sha256 !== recovery.dual_review.evidence_binding_sha256) {
-          legacy = { blocked: true };
-        } else {
-          legacy = {
-            record: {
-              action: "approve",
-              actor: confirmation.confirmed_by,
-              decided_at: confirmation.confirmed_at,
-              material_key: materialKey,
-              target_json: canonicalResearchTaskJson({ decision: "approve" }),
-              payload: confirmation,
-            },
-          };
-        }
-      } catch {
-        legacy = { blocked: true };
-      }
-    }
-    materials.push({
-      subject_id: subjectId,
-      material_key: materialKey,
-      summary_json: JSON.stringify({ recovery_id: subjectId }),
-      eligible: list.length === 1 && recoveryMaterialEligible(recovery, sourceFreshness, evidenceFreshness),
-      expires_at_ms: reconciliationRecoveryDecisionExpiryAt(recovery, source, ttlSeconds, now),
-      legacy,
-    });
-  }
-  return runtimeInstanceCommand(env, {
-    action: "recovery_sync_materials",
-    actor: "reconciliation-recovery-source-sync",
-    source_id: source.source_id,
-    updated_at: humanDecisionTimestamp(),
-    now_ms: Date.now(),
-    replace_source: true,
-    materials,
-    duplicate_subject_ids: duplicateSubjectIds,
-  });
+  return publishHumanRecoveryMaterialsImpl(env, source, humanDecisionRecoveryMaterialDeps());
 }
 
 export async function publishHumanPromotionMaterial(env, ticket, existing) {
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const materialKey = await researchPromotionMaterialKey(ticket);
-  let legacy = null;
-  if (existing && (existing.state === "human_accepted" || existing.state === "human_rejected")) {
-    const existingKey = await researchPromotionMaterialKey(existing);
-    const actor = String(existing.human_decision_actor || "").trim();
-    if (!actor || !existing.human_decided_at || existingKey !== materialKey) legacy = { blocked: true };
-    else {
-      legacy = {
-        record: {
-          action: existing.state === "human_accepted" ? "accept" : "reject",
-          actor,
-          decided_at: existing.human_decided_at,
-          material_key: materialKey,
-          target_json: canonicalResearchTaskJson({
-            selected_account: existing.selected_account || null,
-            confirmation: {
-              target_platform: existing.confirmation_target_platform,
-              execution_mode: existing.confirmation_execution_mode,
-              risk_profile: existing.confirmation_risk_profile,
-            },
-          }),
-          payload: { ticket: existing, selected_account: existing.selected_account || null, proposed_params: existing.proposed_params },
-        },
-      };
-    }
-  }
-  return runtimeInstanceCommand(env, {
-    action: "promotion_sync_materials",
-    actor: "research-promotion-ticket-sync",
-    source_id: "research-promotion",
-    updated_at: humanDecisionTimestamp(),
-    now_ms: Date.now(),
-    replace_source: false,
-    materials: [{
-      subject_id: ticket.ticket_id,
-      material_key: materialKey,
-      summary_json: JSON.stringify({
-        ticket_id: ticket.ticket_id,
-        strategy_profile: ticket.strategy_profile,
-        domain: ticket.domain,
-        review_binding: await researchPromotionReviewBinding(ticket),
-      }),
-      eligible: true,
-      expires_at_ms: Date.now() + controlPlaneStaleTtlSeconds(env) * 1000,
-      legacy,
-    }],
-  });
+  return publishHumanPromotionMaterialImpl(env, ticket, existing);
 }
 
-// A fixed projection of the durable terminal record, never a request echo or KV fallback.
 export async function humanDecisionReceipt(record, expected) {
-  const invalid = () => { throw new HttpError("human_decision_receipt_unavailable", 503); };
-  const text = (value, max) => typeof value === "string" && value.length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value);
-  const actions = { owner: ["approve_limited_live_canary", "keep_parked"], recovery: ["approve", "reject"], promotion: ["accept", "reject"] };
-  if (!record || !actions[record.kind]?.includes(record.action) || !text(record.subject_id, 256)
-    || !/^[0-9a-f]{64}$/.test(record.material_key) || !text(record.actor, 100)
-    || !text(record.decided_at, 40) || !Number.isFinite(Date.parse(record.decided_at))
-    || record.kind !== expected.kind || record.subject_id !== expected.subject_id || record.material_key !== expected.material_sha256) invalid();
-  let target;
-  try { target = JSON.parse(record.target_json); } catch { invalid(); }
-  let projection;
-  if (record.kind === "promotion") {
-    const account = target?.selected_account;
-    const confirmation = target?.confirmation;
-    if (account != null && (!SUPPORTED_PLATFORMS.includes(account.platform) || !text(account.key, 128))) invalid();
-    if (confirmation != null && (!SUPPORTED_PLATFORMS.includes(confirmation.target_platform)
-      || !["live", "paper", "dry_run"].includes(confirmation.execution_mode)
-      || !RESEARCH_PROMOTION_RISK_PROFILES.includes(confirmation.risk_profile))) invalid();
-    if (record.action === "accept" && (!account || !confirmation || account.platform !== confirmation.target_platform)) invalid();
-    if (record.payload?.ticket?.live_authority_granted !== false || record.payload?.ticket?.human_decision !== record.action
-      || record.payload?.ticket?.ticket_id !== record.subject_id || record.payload.ticket.human_decided_at !== record.decided_at
-      || await researchPromotionMaterialKey(record.payload.ticket) !== record.material_key
-      || canonicalResearchTaskJson(record.payload.selected_account ?? null) !== canonicalResearchTaskJson(account ?? null)
-      || canonicalResearchTaskJson(record.payload.confirmation ?? null) !== canonicalResearchTaskJson(confirmation ?? null)) invalid();
-    projection = {
-      selected_account: account ? { platform: account.platform, key: account.key } : null,
-      confirmation: confirmation ? { target_platform: confirmation.target_platform, execution_mode: confirmation.execution_mode, risk_profile: confirmation.risk_profile } : null,
-    };
-  } else {
-    if (target?.decision !== record.action || record.payload?.no_order !== true || record.payload?.execution_authority_granted !== false) invalid();
-    const payload = record.payload;
-    if (record.kind === "owner") {
-      if (payload.schema_version !== "qsl_owner_decision_intent.v1" || payload.candidate_id !== record.subject_id
-        || payload.candidate_evidence_sha256 !== record.material_key || payload.decision !== record.action
-        || payload.decided_by !== record.actor || payload.decided_at !== record.decided_at
-        || payload.decision_sha256 !== await calculateOwnerDecisionSha256(payload)) invalid();
-    } else if (payload.mode === "initial_enrollment") {
-      const approval = record.action === "approve";
-      if (payload.schema_version !== (approval ? "qsl_initial_enrollment_confirmation.v1" : "qsl_initial_enrollment_rejection.v1")
-        || payload.recovery_id !== record.subject_id || (approval ? payload.confirmed_by : payload.decided_by) !== record.actor
-        || (approval ? payload.confirmed_at : payload.decided_at) !== record.decided_at || (!approval && payload.decision !== "reject")
-        || (approval && payload.confirmation_sha256 !== await calculateReconciliationRecoveryConfirmationSha256(payload))
-        || await recoveryDecisionMaterialKey(payload) !== record.material_key) invalid();
-    } else {
-      const approval = record.action === "approve";
-      if (payload.schema_version !== (approval ? "qsl_reconciliation_recovery_confirmation.v1" : "qsl_reconciliation_recovery_rejection.v1")
-        || payload.recovery_id !== record.subject_id || (approval ? payload.confirmed_by : payload.decided_by) !== record.actor
-        || (approval ? payload.confirmed_at : payload.decided_at) !== record.decided_at || (!approval && payload.decision !== "reject")
-        || await recoveryDecisionMaterialKey({ recovery_id: payload.recovery_id, candidate_sha256: payload.candidate_sha256, dual_review: { evidence_binding_sha256: payload.dual_review_binding_sha256 } }) !== record.material_key) invalid();
-    }
-    projection = { decision: target.decision };
-  }
-  // Extra stored target fields must not be silently dropped into an apparently matching receipt.
-  if (canonicalResearchTaskJson(target) !== canonicalResearchTaskJson(projection)) invalid();
-  let reviewBinding = null;
-  if (record.kind === "promotion" && record.payload?.review_binding !== undefined) {
-    const material = record.payload.review_material;
-    if (material?.schema_version !== "qsl_promotion_review_material.v2" || material.ticket_id !== record.subject_id
-      || await researchPromotionMaterialKey(material) !== record.material_key
-      || !promotionReviewBindingsMatch(record.payload.review_binding, { schema_version: "qsl_promotion_review_binding.v2", review_sha256: await calculateOwnerDecisionSha256(material) })) invalid();
-    reviewBinding = { schema_version: "qsl_promotion_review_binding.v2", review_sha256: record.payload.review_binding.review_sha256 };
-  }
-  const receipt = {
-    schema_version: reviewBinding ? "qsl_human_decision_receipt.v2" : "qsl_human_decision_receipt.v1",
-    ...(reviewBinding ? { review_binding: reviewBinding } : {}),
-    kind: record.kind, subject_id: record.subject_id, material_sha256: record.material_key,
-    action: record.action, target: projection, decided_at: record.decided_at, decided_by: record.actor,
-    no_order: true, execution_authority_granted: false,
-  };
-  return { ...receipt, receipt_sha256: await calculateOwnerDecisionSha256(receipt) };
+  return humanDecisionReceiptImpl(record, expected, humanDecisionReceiptDeps());
 }
 
 export async function exactHumanDecisionResponse(request, env, session, kind) {
-  const params = new URL(request.url).searchParams;
-  if (!params.has("decision_subject_id") && !params.has("decision_material_sha256")) return null;
-  requireSameOrigin(request);
-  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
-  const subjectId = params.get("decision_subject_id");
-  const material = params.get("decision_material_sha256");
-  if (params.getAll("decision_subject_id").length !== 1 || params.getAll("decision_material_sha256").length !== 1
-    || !subjectId || subjectId.length > 256 || /[\u0000-\u001f\u007f]/.test(subjectId) || !/^[0-9a-f]{64}$/.test(material || "")) {
-    return json({ ok: false, error: "human_decision_lookup_invalid" }, 400);
-  }
-  try {
-    if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-    const result = await runtimeInstanceCommand(env, {
-      action: `${kind}_read`, actor: session.login, subject_id: subjectId, exact_material_key: material, now_ms: Date.now(),
-    });
-    if (result.ok !== true || result.exact_material_key !== material || !Object.prototype.hasOwnProperty.call(result, "decision")) {
-      throw new HttpError("human_decision_receipt_unavailable", 503);
-    }
-    const receipt = result.decision === null ? null : await humanDecisionReceipt(result.decision, { kind, subject_id: subjectId, material_sha256: material });
-    return json({ ok: true, decision_readback: {
-      schema_version: "qsl_human_decision_readback.v1", source: "durable_human_decision_record",
-      kind, subject_id: subjectId, requested_material_sha256: material, observed_at: new Date().toISOString(),
-      lookup_status: receipt ? "found" : "not_found", receipt, current_material: result.current_material,
-    } });
-  } catch {
-    // Unreadable authority is never reported as a completed empty lookup.
-    return json({ ok: false, error: "human_decision_receipt_unavailable" }, 503);
-  }
+  return exactHumanDecisionResponseImpl(request, env, session, kind, humanDecisionReceiptDeps());
 }
 
 export async function readHumanDecisionAuthority(env, kind, subjectId) {
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  return runtimeInstanceCommand(env, { action: `${kind}_read`, actor: `${kind}-decision-read`, subject_id: subjectId });
-}
-
-// A safe projection of durable material authority. It carries only digests and
-// server-side expiry; raw provider payloads and credentials never enter a read model.
-export function humanDecisionAuthorityView(authority) {
-  if (!authority || typeof authority !== "object") return null;
-  const materialKey = /^[0-9a-f]{64}$/.test(authority.material_key || "") ? authority.material_key : null;
-  const expiresAt = typeof authority.expires_at === "string" && Number.isFinite(Date.parse(authority.expires_at))
-    ? authority.expires_at
-    : null;
-  return {
-    material_sha256: materialKey,
-    expires_at: expiresAt,
-    eligible: typeof authority.eligible === "boolean" ? authority.eligible : null,
-    blocked: authority.blocked === true,
-    unavailable: authority.migrated === false,
-    source: "durable_human_decision_material",
-  };
+  return readHumanDecisionAuthorityImpl(env, kind, subjectId);
 }
 
 export function overlayPromotionDecision(ticket, authority) {
-  if (!authority || authority.migrated === false) return ticket;
-  const current = authority.eligible === true && authority.blocked !== true ? authority.decision : null;
-  if (current?.payload?.ticket && (current.action === "accept" || current.action === "reject")) {
-    return normalizeResearchPromotionTicket(current.payload.ticket, "human decision ticket");
-  }
-  if (ticket.state !== "human_accepted" && ticket.state !== "human_rejected") return ticket;
-  return normalizeResearchPromotionTicket({
-    ...ticket,
-    state: "awaiting_human",
-    human_decision: "",
-    human_decided_at: "",
-    confirmation_target_platform: "",
-    confirmation_execution_mode: "",
-    confirmation_risk_profile: "",
-  }, "human decision ticket");
+  return overlayPromotionDecisionImpl(ticket, authority, humanDecisionPromotionDeps());
 }
 
 export async function promotionTicketWithAuthority(env, ticket) {
-  const authority = await readHumanDecisionAuthority(env, "promotion", ticket.ticket_id);
-  return overlayPromotionDecision(ticket, authority);
+  return promotionTicketWithAuthorityImpl(env, ticket, humanDecisionPromotionDeps());
 }
 
 function controlPlaneRuntimeDeps() {
