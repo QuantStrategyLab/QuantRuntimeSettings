@@ -8742,9 +8742,15 @@ async function binanceDigestSnapshotResponse(request, env, url) {
     if (observedFrom < start || observedUntil >= end) {
       return json({ ok: false, error: "digest_snapshot_missing" }, 404);
     }
+    const valuation = report.wallet_valuation;
+    const wallet = url.searchParams.get("include_valuation") === "1" && valuation?.status === "available"
+      ? { wallet_valuation: {
+          amount: valuation.amount, currency: valuation.currency, as_of: valuation.observed_at,
+        } }
+      : {};
     return json({ ok: true, business_day: day, account_key: binding.account_key,
       target_id: binding.target_id, as_of: report.observed_finished_at,
-      holdings: report.assets.map(({ asset, quantity }) => ({ asset, quantity })) });
+      holdings: report.assets.map(({ asset, quantity }) => ({ asset, quantity })), ...wallet });
   } catch {
     return json({ ok: false, error: "digest_snapshot_read_unavailable" }, 503);
   }

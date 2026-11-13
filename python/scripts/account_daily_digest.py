@@ -327,6 +327,13 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         asset_line = ('💰 总资产：' if zh else '💰 Total assets: ') + equity
         if stamp_label:
             asset_line += ' · ' + stamp_label
+        wallet = account_fact.get('wallet_valuation') if snapshot_only and platform == 'binance' else None
+        if wallet:
+            whole, _, fraction = wallet['amount'].partition('.')
+            amount = f'USDT {int(whole):,}.{fraction.ljust(2, "0")}'
+            stamp = _snapshot_label(datetime.fromisoformat(wallet['as_of']), window, zh)
+            label = '💰 钱包估值（券商返回范围）：' if zh else '💰 Wallet valuation (provider-reported scope): '
+            asset_line = label + amount + ' · ' + stamp
         cash_lines = []
         if platform == 'ibkr':
             cash = account_fact.get('settled_cash')
@@ -393,7 +400,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         elif snapshot_only or (platform == 'longbridge' and snapshots
                                and all(outcome == 'not_run' for _, outcome in bindings)):
             state = '仅核实持仓快照，交易情况未知' if zh else 'Holdings snapshot verified, trading activity unknown'
-            if equity != unknown:
+            if equity != unknown or wallet:
                 state = '仅核实账户快照，交易情况未知' if zh else 'Account snapshot verified, trading activity unknown'
         elif all(outcome == 'not_run' for _, outcome in bindings):
             state = '策略未运行，账户交易未知' if zh else 'Strategy did not run; account trades unknown'
