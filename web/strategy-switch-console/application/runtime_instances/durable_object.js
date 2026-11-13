@@ -30,6 +30,7 @@ import { binanceDetailCommand } from "../../binance_detail_archive.js";
 import {
   ACCOUNT_FACTS_FUTURE_SKEW_MS,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
+  ACCOUNT_FACTS_RETURN_UNAVAILABLE,
   ACCOUNT_FACTS_STALE_MS,
   ACCOUNT_FACTS_SUPPORTED_PLATFORMS,
   AccountFactsError,
