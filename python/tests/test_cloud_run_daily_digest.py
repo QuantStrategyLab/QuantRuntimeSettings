@@ -168,7 +168,7 @@ class CloudRunDigestTests(unittest.TestCase):
                 text, = self.sent
                 self.assertIn('钱包估值（券商返回范围）：USDT 25.50', text)
                 self.assertIn('提交订单 未知｜成交回报 未知', text)
-                self.assertEqual('归档执行回执：1 轮，已核实 1 轮无交易' in text, verified)
+                self.assertEqual('已核实 1/1 轮无交易' in text, verified)
 
     def test_binance_snapshot_rejects_wrong_account_or_out_of_window(self):
         from dataclasses import replace
@@ -362,7 +362,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertEqual(self.run_request(configuration=configuration, headers=headers)[1]['delivery'], 'confirmed')
         self.assertEqual(len(self.sent), 1)
         self.assertIn('总资产：USD 250.00', self.sent[0])
-        self.assertIn('期末已结算现金：USD 0.00 · 2026-10-14', self.sent[0])
+        self.assertIn('期末已结算现金：USD 0.00 · Flex 结单 2026-10-14', self.sent[0])
         self.assertIn('TQQQ 3股', self.sent[0])
         self.assertIn('成交回报 未知', self.sent[0])
         self.assertNotIn('成交回报 0笔', self.sent[0])
