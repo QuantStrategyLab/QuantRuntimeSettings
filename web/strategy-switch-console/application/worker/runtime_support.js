@@ -6,7 +6,6 @@ import { auditPageQuery, auditEventInPage, auditEventOrder, auditNextCursor } fr
 import { runtimeReadbackProjection } from "../console_api/runtime_readback.js";
 import { initialEnrollmentBindingsMatch, initialEnrollmentDigest } from "../console_api/initial_enrollment.js";
 import { readNotificationLog } from "../console_api/notification_receipts.js";
-import { readRuntimeControlReceipt } from "../console_api/runtime_control_receipts.js";
 import { KvDirectory, currentStrategiesSignature, DIRECTORY_PATH, directoryCommand, directoryList, directoryStatus, indexedKey, maintainDirectory } from "../../kv_directory.js";
 import { sourceListFailure } from "../console_api/read_failures.js";
 import { strategyTargetExecution, accountExecutionEvidence } from "../console_api/strategy_execution.js";
@@ -264,6 +263,17 @@ import {
   acceptHkStopResult as acceptHkStopResultImpl,
   loadHkStopAccount as loadHkStopAccountImpl,
 } from "../hk_stop/http.js";
+import { RUNTIME_CONTROL_DO_ACTIONS } from "../runtime_control/constants.js";
+import {
+  presentRuntimeControl,
+  runtimeControlIdentityIsComplete,
+  runtimeControlStopRequest as runtimeControlStopRequestImpl,
+} from "../runtime_control/helpers.js";
+import {
+  runtimeControlSource as runtimeControlSourceImpl,
+  readPlatformRuntimeControl as readPlatformRuntimeControlImpl,
+  dispatchPlatformRuntimeControl as dispatchPlatformRuntimeControlImpl,
+} from "../runtime_control/http.js";
 import { startLogin, finishLogin } from "../auth/login.js";
 import { readSession, makeSession } from "../auth/session.js";
 import {
@@ -346,6 +356,9 @@ export {
   requireMarketBenchmarkRevisionToken,
   reviseMarketBenchmarkResponse,
   syncMarketBenchmarkResponse,
+  RUNTIME_CONTROL_DO_ACTIONS,
+  presentRuntimeControl,
+  runtimeControlIdentityIsComplete,
 };
 export {
   ACCOUNT_DIAGNOSIS_REQUEST_PATH,
@@ -634,7 +647,6 @@ export const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "binance_wallet_history_put", "binance_wallet_history_read",
   "binance_detail_put", "binance_detail_read",
 ]);
-export const RUNTIME_CONTROL_DO_ACTIONS = new Set(["runtime_control_claim", "runtime_control_record", "runtime_control_read", "runtime_control_resolve", "runtime_control_capture", "runtime_control_begin_check", "runtime_control_record_check"]);
 export const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio", "dca_mode", "dca_base_investment_usd"];
 export const ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 // Research tasks are a separate, immutable and no-order index.  They do not
@@ -2406,78 +2418,31 @@ export async function loadHkStopAccount(env) {
   return loadHkStopAccountImpl(env, { loadAccountOptionsConfig });
 }
 
-export async function runtimeControlSource(env, platform, targetName) {
-  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
-  const source = await loadAccountOptionsConfig(env);
-  if (source.source !== "durable_object" || !Number.isSafeInteger(source.revision)) throw new HttpError("runtime_control_source_unavailable", 409);
-  const matches = (source.options?.[platform] || []).filter(item => item.target_name === targetName);
-  if (matches.length !== 1) throw new HttpError("runtime_control_identity_incomplete", 409);
-  const item = matches[0];
-  const identity = accountSettingsIdentity({ platform, key: item.key, config: item });
-  if (!runtimeControlIdentityIsComplete(identity)) throw new HttpError("runtime_control_identity_incomplete", 409);
-  return { item, identity, revision: source.revision };
+function runtimeControlRuntimeDeps() {
+  return {
+    loadAccountOptionsConfig,
+    accountSettingsIdentity,
+    resolvedVariableScope,
+    cleanSlug,
+    defaultRepository: DEFAULT_REPOSITORY,
+    json,
+  };
 }
 
-export function presentRuntimeControl(record) {
-  let reason = null;
-  try { reason = record?.result_json ? JSON.parse(record.result_json).reason || null : null; } catch { /* invalid persisted result stays unclassified */ }
-  return { ok: record?.phase !== "rejected", request_id: record?.request_id || null, action: record?.action || null,
-    phase: record?.phase || null, updated_at: record?.updated_at || null,
-    unavailable_reason: reason || (record?.phase === "unknown" ? "runtime_control_result_unavailable" : null),
-    platform_applied: record?.phase === "applied" };
+export async function runtimeControlSource(env, platform, targetName) {
+  return runtimeControlSourceImpl(env, platform, targetName, runtimeControlRuntimeDeps());
 }
 
 export async function readPlatformRuntimeControl(env, platform, targetName) {
-  const source = await runtimeControlSource(env, platform, targetName);
-  const args = { platform, key: source.item.key };
-  let { record } = await runtimeInstanceCommand(env, { action: "runtime_control_read", ...args });
-  if (record && ["reserved", "accepted", "unknown", "partial"].includes(record.phase)) {
-    const result = await readRuntimeControlReceipt({ repository: env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY,
-      token: env.RUNTIME_SETTINGS_DISPATCH_TOKEN, requestId: record.request_id, operation: record.action,
-      runId: record.workflow_run_id, requestedAt: record.requested_at });
-    if (result.run_id && !record.workflow_run_id) {
-      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_record", ...args,
-        request_id: record.request_id, phase: "unknown", run_id: result.run_id }));
-    }
-    if (result.platform_run_id && record.workflow_run_id) {
-      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_capture", ...args,
-        request_id: record.request_id, run_id: record.workflow_run_id, platform_run_id: result.platform_run_id, reason: result.reason }));
-    }
-    if (["applied", "partial", "protected", "rejected"].includes(result.status) && record.workflow_run_id) {
-      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_resolve", ...args,
-        request_id: record.request_id, phase: result.status, run_id: record.workflow_run_id, reason: result.reason }));
-    }
-  }
-  let details = {};
-  try { details = JSON.parse(record?.result_json || "{}"); } catch { /* retain unknown */ }
-  if (record && ["accepted", "unknown", "partial"].includes(record.phase) && details.check_id && !details.check_complete) {
-    const checked = await readRuntimeControlReceipt({ repository: env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY,
-      token: env.RUNTIME_SETTINGS_DISPATCH_TOKEN, requestId: record.request_id, operation: record.action,
-      checkId: details.check_id, runId: details.check_run_id, requestedAt: details.check_requested_at });
-    if (checked.run_id) {
-      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_record_check", ...args,
-        request_id: record.request_id, check_id: details.check_id, run_id: checked.run_id, complete: checked.complete === true }));
-    }
-    if (["applied", "partial", "protected", "rejected"].includes(checked.status) && checked.complete
-        && checked.platform_run_id === details.platform_run_id) {
-      ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_resolve", ...args,
-        request_id: record.request_id, phase: checked.status, run_id: record.workflow_run_id,
-        check_id: details.check_id, check_run_id: checked.run_id, reason: checked.reason }));
-    }
-  }
-  return presentRuntimeControl(record);
+  return readPlatformRuntimeControlImpl(env, platform, targetName, runtimeControlRuntimeDeps());
 }
 
 export function runtimeControlStopRequest(env, platform, targetName, source) {
-  const item = source.item;
-  const inputs = { ...item, platform, target_name: targetName };
-  const github = { repository: platformRepositories(env)[platform], variable_scope: resolvedVariableScope(item.variable_scope, inputs) };
-  if (github.variable_scope === "environment") github.environment = item.github_environment;
-  return { target_id: `${platform}/${targetName}`, github, runtime_target: {
-    platform_id: platform, deployment_selector: source.identity.deployment_selector,
-    account_selector: source.identity.account_selector.split(',').map(value => value.trim()).filter(Boolean),
-    account_scope: source.identity.account_scope, service_name: source.identity.service_name,
-  } };
+  return runtimeControlStopRequestImpl(env, platform, targetName, source, runtimeControlRuntimeDeps());
+}
+
+export async function dispatchPlatformRuntimeControl(env, raw) {
+  return dispatchPlatformRuntimeControlImpl(env, raw, runtimeControlRuntimeDeps());
 }
 
 export async function dispatchPlatformControlReadback(env, raw) {
@@ -2512,40 +2477,6 @@ export async function dispatchPlatformControlReadback(env, raw) {
   if (runId || rejected) ({ record } = await runtimeInstanceCommand(env, { action: "runtime_control_record_check", ...args,
     request_id: record.request_id, check_id: checkId, run_id: runId, complete: rejected, reason: rejected ? "readback_dispatch_rejected" : null }));
   return json(presentRuntimeControl(record));
-}
-
-export async function dispatchPlatformRuntimeControl(env, raw) {
-  if (raw.confirm !== "CONTROL_ONLY" || !["ibkr", "schwab"].includes(raw.platform)
-      || !["enable", "disable"].includes(raw.operation)
-      || Object.keys(raw).some(key => !["platform", "target_name", "operation", "request_id", "confirm"].includes(key))) throw new HttpError("runtime_control_request_invalid", 400);
-  const targetName = cleanSlug(raw.target_name, "target_name");
-  const requestId = raw.request_id || crypto.randomUUID();
-  if (!HK_STOP_REQUEST_ID.test(requestId)) throw new HttpError("runtime_control_request_invalid", 400);
-  const source = await runtimeControlSource(env, raw.platform, targetName);
-  const args = { platform: raw.platform, key: source.item.key };
-  const claimed = await runtimeInstanceCommand(env, { action: "runtime_control_claim", ...args, identity: source.identity,
-    source_revision: source.revision, request_id: requestId, operation: raw.operation });
-  if (claimed.state !== "reserved") {
-    const body = presentRuntimeControl(claimed.record);
-    return json(claimed.state === "blocked" ? { ...body, ok: false, error: "runtime_control_pending" } : body, claimed.state === "blocked" ? 409 : 200);
-  }
-  const stopRequest = runtimeControlStopRequest(env, raw.platform, targetName, source);
-  let phase = "unknown", runId = null;
-  try {
-    const response = await fetchWithTimeout(`https://api.github.com/repos/${env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY}/actions/workflows/manual-runtime-stop.yml/dispatches`, {
-      method: "POST", headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN), body: JSON.stringify({ ref: "main", return_run_details: true,
-        inputs: { stop_request: JSON.stringify(stopRequest), apply: "true", confirm: "CONTROL_ONLY", apply_hk_stop: "false",
-          runtime_control_operation: raw.operation, runtime_control_request_id: requestId } }),
-    });
-    if (response.status === 200) {
-      const body = await response.json();
-      if (Number.isSafeInteger(body.workflow_run_id) && body.workflow_run_id > 0) { phase = "accepted"; runId = String(body.workflow_run_id); }
-    } else if (response.status >= 400 && response.status < 500 && response.status !== 429) phase = "rejected";
-  } catch { /* Outcome may already have occurred; never resend. */ }
-  try {
-    const recorded = await runtimeInstanceCommand(env, { action: "runtime_control_record", ...args, request_id: requestId, phase, run_id: runId });
-    return json(presentRuntimeControl(recorded.record), recorded.record?.phase === "rejected" ? 502 : 200);
-  } catch { return json({ ...presentRuntimeControl(claimed.record), phase: "unknown" }); }
 }
 
 export async function readRuntimeStop(request, env, url) {
@@ -12676,13 +12607,6 @@ export function accountSettingsIdentityIsComplete(identity) {
     || (identity.broker_environment !== "paper" && identity.broker_environment !== "live")) return false;
   return ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name"]
     .every((field) => typeof identity[field] === "string" && identity[field].trim() !== "");
-}
-
-export function runtimeControlIdentityIsComplete(identity) {
-  return Boolean(identity && SUPPORTED_PLATFORMS.includes(identity.platform)
-    && [null, "live", "paper"].includes(identity.broker_environment)
-    && ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name"]
-      .every((field) => typeof identity[field] === "string" && identity[field].trim() !== ""));
 }
 
 export function accountSettingsProfileName(value) {
