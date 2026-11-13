@@ -20,13 +20,23 @@ const runtimeSupportText = readFileSync(
   new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url),
   "utf8",
 );
+const authHelperTexts = [
+  "application/auth/identity_lists.js",
+  "application/auth/principals.js",
+  "application/auth/cookies.js",
+  "application/auth/require_env.js",
+].map((path) => readFileSync(new URL(`../web/strategy-switch-console/${path}`, import.meta.url), "utf8"));
 function productionFunction(name, dependencies = {}) {
   const pattern = new RegExp(`(?:export )?(?:async )?function ${name}\\(`);
-  let source = workerText;
-  let start = source.search(pattern);
-  if (start < 0) {
-    source = runtimeSupportText;
-    start = source.search(pattern);
+  const sources = [workerText, runtimeSupportText, ...authHelperTexts];
+  let source = null;
+  let start = -1;
+  for (const candidate of sources) {
+    start = candidate.search(pattern);
+    if (start >= 0) {
+      source = candidate;
+      break;
+    }
   }
   assert.ok(start >= 0, name);
   const code = source.slice(start, source.indexOf("\n}", start) + 2).replace(/^export\s+/, "");
