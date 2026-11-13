@@ -131,6 +131,9 @@ class Configuration:
                 if row['platform_id'] != 'binance' or row['snapshot_only'] is not True:
                     raise ValueError('digest_snapshot_binding_invalid')
                 snapshot_bindings += 1
+            if 'receipt_candidate' in row and (
+                    row.get('snapshot_only') is not True or row['receipt_candidate'] is not True):
+                raise ValueError('digest_receipt_binding_invalid')
         if snapshot_bindings > 1:
             raise ValueError('digest_snapshot_binding_invalid')
         date.fromisoformat(self.cutover_date)
@@ -270,15 +273,26 @@ def _sources(configuration, store, day, end, *, now, monotonic):
         outcome = 'read_failed'
         if timeout > 0:
             key = f"{binding['platform_id']}/{day}/{binding['candidate_slot']}.json"
-            try:
-                if binding.get('snapshot_only'):
+            snapshot_outcome = None
+            if binding.get('snapshot_only'):
+                try:
                     snapshot, wallet = _binance_snapshot(configuration, binding, day, timeout)
                     if snapshot is not None:
                         rows.append(snapshot)
                     if wallet is not None:
                         stale_observations.append(wallet)
-                    outcomes.append('snapshot_only' if snapshot is not None else 'missing')
+                    snapshot_outcome = 'snapshot_only' if snapshot is not None else 'missing'
+                except StoreUnavailable:
+                    snapshot_outcome = 'read_failed'
+                except (ValueError, TypeError, KeyError, AttributeError):
+                    snapshot_outcome = 'invalid'
+                if not binding.get('receipt_candidate'):
+                    outcomes.append(snapshot_outcome)
                     continue
+                timeout = min(20, budget_end - monotonic(), (end - now()).total_seconds())
+            try:
+                if timeout <= 0:
+                    raise StoreUnavailable()
                 raw = store.candidate(key, timeout)
                 if raw is None:
                     outcome = 'missing'
@@ -301,6 +315,8 @@ def _sources(configuration, store, day, end, *, now, monotonic):
                 outcome = 'read_failed'
             except (ValueError, TypeError, KeyError, AttributeError):
                 outcome = 'invalid'
+            if binding.get('receipt_candidate') and outcome != 'present' and snapshot_outcome == 'snapshot_only':
+                outcome = 'snapshot_only'
         outcomes.append(outcome)
     for binding in configuration.expected:
         if binding['platform_id'] != 'ibkr':
@@ -368,7 +384,8 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
             facts['ibkr', observation.account_uid]['settled_cash'] = {
                 'amount': observation.amount, 'statement_date': observation.statement_date,
             }
-    if coverage == 'complete' and (payload.notification_summary or {}).get('counts_unknown'):
+    if coverage == 'complete' and ((payload.notification_summary or {}).get('counts_unknown')
+                                   or any(binding.get('receipt_candidate') for binding in configuration.expected)):
         coverage = 'partial'
     platforms = dict.fromkeys((*adapter.PLATFORMS, *config.get('platforms', {})))
     text = render_account_daily(payload, configuration.expected, outcomes, facts=facts, known_platforms=platforms,
