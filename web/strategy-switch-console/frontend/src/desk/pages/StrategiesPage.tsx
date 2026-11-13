@@ -1,9 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { Language } from "../../lib/prefs";
 import type { DeskApi, DeskResult } from "../api/endpoints.ts";
-import type { Mode, Read, StrategyOption, StrategyRef, SwitchTargets } from "../contract/types";
-import type { N1StrategyRow, N1SwitchStrategies } from "../contract/n1";
-import { coverageText, n1ReasonKey, readValue } from "../api/n1.ts";
+import type { Mode, Read, StrategyOption, StrategyRef, SwitchStrategies, SwitchTargets } from "../contract/types";
 import { formatAge } from "../format.ts";
 import type { DeskKey, DeskTranslate } from "../i18n/index.ts";
 import { EmptyState, LoadingState, RecoverableErrorState } from "../components/StateBlocks.tsx";
@@ -17,36 +15,7 @@ import {
 import type { StrategyFilter } from "../strategies/model.ts";
 
 function reasonText(reason: string, t: DeskTranslate): string {
-  return t(n1ReasonKey(reason));
-}
-
-/** Rows whose eligibility the configuration/catalog proves, in the model's shape. */
-function provenOption(row: N1StrategyRow): StrategyOption | null {
-  if (row.eligibility.status !== "known" && row.eligibility.status !== "stale") return null;
-  return {
-    profile: row.profile, label: row.label, domain: row.domain, eligibility: row.eligibility.value,
-    reason: row.reason, allowed_execution_modes: row.allowed_execution_modes, lifecycle_stage: row.lifecycle_stage,
-  };
-}
-
-/** A catalog row whose eligibility is not proven: shown, counted in "all", never selectable. */
-function UnprovenStrategyCard({ row, t }: { row: N1StrategyRow; t: DeskTranslate }) {
-  const modes = row.allowed_execution_modes.map(mode => t(`mode.${mode}` as DeskKey)).join(", ");
-  return (
-    <article style={P.card} data-profile={row.profile} data-eligibility="unknown" data-selected="false">
-      <div style={P.cardHead}>
-        <b style={{ fontSize: 13.5 }}>{row.label}</b>
-        <span style={P.badge("unknown")}>{t("strategies.card.eligibility_unknown")}</span>
-      </div>
-      <span style={P.mono}>{t("strategies.card.profile")}: {row.profile}</span>
-      <span style={P.muted}>{t("strategies.card.domain", { domain: row.domain })}</span>
-      <span style={P.muted}>{t("strategies.card.modes", { modes })}</span>
-      <span style={P.muted}>{t("strategies.card.lifecycle", { stage: row.lifecycle_stage })}</span>
-      <div style={P.actionRow}>
-        <button type="button" className="mrd-chip" aria-pressed={false} disabled title="eligibility.status=unknown">{t("strategies.card.select")}</button>
-      </div>
-    </article>
-  );
+  return t(`read.reason.${reason}` as DeskKey);
 }
 
 function strategyText(read: Read<StrategyRef>, t: DeskTranslate, language: Language): string {
@@ -154,7 +123,7 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
   const narrow = useNarrow();
 
   const targets = useDeskLoad<DeskResult<SwitchTargets>>(() => api.switchTargets(), [api]);
-  const strategies = useDeskLoad<DeskResult<N1SwitchStrategies> | null>(
+  const strategies = useDeskLoad<DeskResult<SwitchStrategies> | null>(
     () => (targetId ? api.switchStrategies(targetId) : Promise.resolve(null)),
     [api, targetId],
   );
@@ -179,12 +148,9 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
   }, [targetId, targets.load]);
 
   const catalogMatchesTarget = strategies.load.state === "ready" && strategies.load.result?.data.target_id === targetId;
-  const catalogRead = catalogMatchesTarget && strategies.load.state === "ready" && strategies.load.result
+  const catalog: StrategyOption[] = catalogMatchesTarget && strategies.load.state === "ready" && strategies.load.result
     ? strategies.load.result.data.strategies
-    : null;
-  const rows = catalogRead ? readValue(catalogRead) ?? [] : [];
-  const catalog: StrategyOption[] = rows.map(provenOption).filter((option): option is StrategyOption => option !== null);
-  const unproven = rows.filter(row => provenOption(row) === null);
+    : [];
 
   useEffect(() => {
     if (!initialProfile || flow.profile) return;
@@ -197,10 +163,8 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
     ? targets.load.result.data.targets.find(entry => entry.target_id === targetId) ?? null
     : null;
   const selectedOption = catalog.find(entry => entry.profile === flow.profile) ?? null;
-  // "All" counts every catalog row; the other filters count only proven eligibility.
-  const counts = { ...catalogCounts(catalog), all: catalog.length + unproven.length };
+  const counts = catalogCounts(catalog);
   const filtered = filterCatalog(catalog, filter);
-  const shownUnproven = filter === "all" ? unproven : [];
   const switchable = selectedTarget?.switchable ?? null;
   const currentStepIndex = SWITCH_STEPS.indexOf(flow.step);
 
@@ -278,24 +242,15 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
     catalogBody = <LoadingState t={t} label={t("strategies.catalog.title")} startedAt={strategies.load.state === "loading" ? strategies.load.startedAt : undefined} onRetry={strategies.reload} />;
   } else if (strategies.load.state === "failed") {
     catalogBody = <RecoverableErrorState t={t} onRetry={strategies.reload} />;
-  } else if (catalogRead?.status === "unknown") {
-    // An unreadable catalog is not an empty one.
-    catalogBody = <p style={P.muted} role="status" data-read="unknown">{t("strategies.catalog.unknown", { reason: reasonText(catalogRead.reason, t) })}</p>;
-  } else if (filtered.length === 0 && shownUnproven.length === 0) {
+  } else if (filtered.length === 0) {
     catalogBody = <EmptyState t={t} title={t("strategies.catalog.empty")} />;
   } else {
     catalogBody = (
-      <>
-        {catalogRead?.status === "partial" ? (
-          <p style={P.muted} role="status">{t("strategies.catalog.partial", { coverage: coverageText(catalogRead.coverage) })}</p>
-        ) : null}
-        <div style={P.grid}>
-          {filtered.map(option => (
-            <StrategyCard key={option.profile} option={option} selected={option.profile === flow.profile} onSelect={() => selectStrategy(option)} t={t} />
-          ))}
-          {shownUnproven.map(row => <UnprovenStrategyCard key={row.profile} row={row} t={t} />)}
-        </div>
-      </>
+      <div style={P.grid}>
+        {filtered.map(option => (
+          <StrategyCard key={option.profile} option={option} selected={option.profile === flow.profile} onSelect={() => selectStrategy(option)} t={t} />
+        ))}
+      </div>
     );
   }
 
@@ -303,11 +258,9 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
 
   const readyTargets = targets.load.state === "ready" ? targets.load.result.data.targets : null;
   const eligible = readyTargets ? readyTargets.filter(target => target.switchable.allowed === true).length : 0;
-  // A projection fingerprint (not a Git commit); unknown reads "?".
-  const revisionRead = catalogMatchesTarget && strategies.load.state === "ready" && strategies.load.result
+  const catalogRevision = catalogMatchesTarget && strategies.load.state === "ready" && strategies.load.result
     ? strategies.load.result.data.catalog_revision
-    : null;
-  const catalogRevision = revisionRead && revisionRead.status !== "unknown" ? revisionRead.value.value.slice(0, 12) : t("read.unknown_mark");
+    : t("read.unknown");
 
   return (
     <section style={P.page} aria-labelledby="mrd-page-title" data-flow-step={flow.step}>

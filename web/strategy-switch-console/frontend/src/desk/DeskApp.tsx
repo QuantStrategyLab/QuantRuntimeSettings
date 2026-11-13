@@ -171,7 +171,7 @@ export default function DeskApp() {
     window.location.assign("/login");
   }, []);
   const admin = session.state === "ready" && session.result.data.admin === true;
-  // Source freshness from the ribbon's stored observations; generated_at is response time, not data age.
+  // Source freshness from the ribbon's stored observations; the response time is not data age.
   const freshness: FreshnessChipState = ribbon.state === "loading" ? { kind: "loading" }
     : ribbon.state === "failed" ? { kind: "failed" }
     : { kind: "read", ...ribbon.result.data.freshness };

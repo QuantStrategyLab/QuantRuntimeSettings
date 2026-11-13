@@ -226,3 +226,17 @@ workflow age alone cannot establish staleness or current channel health.
 A fresh HTTP 200 and ok envelope mean the read projection succeeded, not that
 a notification arrived. Source integration and offline tests do not establish
 active serving routes, deployed adoption or runtime delivery.
+
+## N1 read projections (v2)
+
+Five additional responses implement the N1 read-only projection delta in
+[`docs/desk-n1-read-projection-contract.md`](../../docs/desk-n1-read-projection-contract.md):
+`n1-ribbon`, `n1-overview`, `n1-accounts`, `n1-switch-strategies` and
+`n1-performance` (`qsl.desk.*.v2`). `n1-common.json` holds their shared `$defs`
+(`N1Read`, `N1Coverage`, reasons, time basis) and is a helper, not a response.
+The v1 schemas, fixtures and the global `Read`/`Mode` definitions above are
+unchanged. Each N1 response has four golden fixtures
+(`ok`, `degraded`, `partial`, `empty`); the same payloads are checked by Ajv, the
+frontend TypeScript guard and the page render in
+`tests/console_desk_n1_validation.mjs`, and against the route handlers in
+`tests/desk_n1_projection_validation.mjs`. Both run inside `test:operations`.

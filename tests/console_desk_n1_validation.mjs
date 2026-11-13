@@ -98,10 +98,11 @@ for (const [method, v1, v2] of [
   assert.deepEqual([result.source, result.scenario], ["live", null]);
   assert.deepEqual(result.data, v2, `${method}: live v2 passes through unchanged`);
 }
-reply = forTarget("firstrade/target0", "ok");
-await assert.rejects(live.switchStrategies("firstrade/target0"), DeskContractError);
+// The strategies page keeps its v1 catalog client in this change (open item); the N1
+// switch-strategies payload is pinned by the guard and the normalisation below.
 reply = golden("switch-strategies", "ok");
-assert.equal((await live.switchStrategies("firstrade/target0")).source, "live");
+await assert.rejects(live.switchStrategies("firstrade/target0"), DeskContractError, "the v1 client never reads a v2 body as v1");
+assert.ok(isN1SwitchStrategies(reply));
 
 // Mock: v1 fixtures normalise into valid N1 and keep their mock source label.
 const forced = createDeskApi({ forcedScenario: "degraded", delayMs: 0, fetchJson: async () => { throw Error("mock must not fetch"); } });
@@ -122,8 +123,8 @@ for (const scenario of ["ok", "degraded"]) {
   }
 }
 
-// Alerts and logs stay fixtures. The five N1 areas also stay fixture-labelled in this change:
-// flipping DESK_SOURCES is a separate step (see the projection contract, open item).
+// Alerts and logs stay fixtures. The five N1 areas also keep their fixture label in this
+// change: flipping their DESK_SOURCES entries is a separate step (projection contract, open item).
 for (const endpoint of ["alerts", "logs"]) assert.equal(DESK_SOURCES[endpoint], "mock");
 
 // 4. Reading helpers: unknown is null, partial is a subset, an unknown total is "?".
@@ -180,7 +181,8 @@ for (const language of ["zh", "en"]) {
   assert.equal(ok.includes(t("overview.needs.empty")), false, "partial is never 'nothing needs you'");
   assert.ok(ok.includes('data-tone="unknown"'), "drift unknown is marked");
   assert.equal(ok.includes(t("config.drift", { count: 0 })), false, "no healthy zero drift");
-  assert.ok(ok.includes(t("overview.curve.unknown", { reason: t("read.reason.source_unavailable") })), "unknown curve names its reason");
+  const curveReason = golden("overview", "ok").equity_curve.reason;
+  assert.ok(ok.includes(t("overview.curve.unknown", { reason: t(n1ReasonKey(curveReason)) })), "unknown curve names its reason");
   assert.equal(ok.includes("mrd-ov-curve-line"), false, "no curve drawn from an unknown read");
   assert.equal(ok.includes(t("mock.title")), false, "a live payload carries no fixture note");
 

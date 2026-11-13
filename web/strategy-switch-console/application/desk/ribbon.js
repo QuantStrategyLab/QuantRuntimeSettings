@@ -185,4 +185,3 @@ export async function deskRibbonResponse(request, env, deps) {
     }, { now });
   });
 }
-

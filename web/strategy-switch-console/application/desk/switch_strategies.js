@@ -130,4 +130,3 @@ export async function deskSwitchStrategiesResponse(request, env, deps) {
     }, { now });
   });
 }
-
