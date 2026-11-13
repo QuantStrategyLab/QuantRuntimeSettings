@@ -6,31 +6,24 @@ import {
   accountFactsHistoryResponse,
   accountFactsResponse,
 } from "../web/strategy-switch-console/application/account_facts/read.js";
+import { loadWorkerSurface, surfaceImportsModule } from "./helpers/worker_surface.mjs";
 
-const workerSource = await readFile(
-  new URL("../web/strategy-switch-console/worker.js", import.meta.url),
-  "utf8",
-);
-const supportSource = await readFile(
-  new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url),
-  "utf8",
-);
+const surface = await loadWorkerSurface();
+const { supportSource, wiredSource } = surface;
 const readSource = await readFile(
   new URL("../web/strategy-switch-console/application/account_facts/read.js", import.meta.url),
   "utf8",
 );
-const wiredSource = `${workerSource}\n${supportSource}`;
 
 assert.equal(
-  workerSource.includes('from "./application/account_facts/read.js"')
-    || supportSource.includes('from "../account_facts/read.js"')
-    || supportSource.includes("from '../account_facts/read.js'"),
+  surfaceImportsModule(surface, "account_facts/read.js"),
   true,
   "Worker stack imports the B10-a account-facts read module",
 );
 assert.match(wiredSource, /\/api\/account-facts"/);
 assert.match(wiredSource, /\/api\/account-facts\/history"/);
-assert.match(supportSource, /async function syncAccountFactsResponse/);assert.equal(
+assert.match(supportSource, /async function syncAccountFactsResponse/);
+assert.equal(
   /transactionSync/.test(readSource),
   false,
   "read module must not open Durable Object transactions",
