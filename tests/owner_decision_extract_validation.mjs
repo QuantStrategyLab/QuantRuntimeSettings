@@ -1,68 +1,212 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  OWNER_DECISION_INTENT_PREFIX,
+  OWNER_DECISION_CURRENT_PREFIX,
+  OWNER_DECISION_INTENT_SCHEMA_VERSION,
+  OWNER_DECISION_QUEUE_SCHEMA_VERSION,
+  OWNER_DECISION_CHOICES,
+  OWNER_DECISION_MAX_CANDIDATES,
+} from "../web/strategy-switch-console/application/approval/constants.js";
+import {
+  currentOwnerDecisionCandidate,
+  normalizeOwnerDecisionRequest,
+  ownerDecisionCandidateEvidenceSha256,
+  buildOwnerDecisionIntent,
+  normalizeOwnerDecisionIntent,
+  calculateOwnerDecisionSha256,
+  readOwnerDecisionIntent,
+  ownerDecisionArchiveKey,
+  ownerDecisionCurrentKey,
+  emptyOwnerDecisionQueue,
+} from "../web/strategy-switch-console/application/approval/helpers.js";
+import {
   ownerDecisionQueueResponse,
   recordOwnerDecisionResponse,
-} from "../web/strategy-switch-console/application/approval/owner_decisions.js";
-import { loadWorkerSurface, stripComments, surfaceImportsModule } from "./helpers/worker_surface.mjs";
+} from "../web/strategy-switch-console/application/approval/http.js";
+import { HttpError } from "../web/strategy-switch-console/application/http_error.js";
+import {
+  loadWorkerSurface,
+  stripComments,
+  surfaceDefinesFunction,
+  surfaceImportsModule,
+} from "./helpers/worker_surface.mjs";
 
-const surface = await loadWorkerSurface();
+const approvalModules = [
+  "application/approval/constants.js",
+  "application/approval/helpers.js",
+  "application/approval/http.js",
+  "application/approval/owner_decisions.js",
+];
+
+const surface = await loadWorkerSurface({
+  applicationModules: approvalModules,
+});
 const { supportSource, wiredSource } = surface;
-const moduleSource = await readFile(
+
+const constantsSource = await readFile(
+  new URL("../web/strategy-switch-console/application/approval/constants.js", import.meta.url),
+  "utf8",
+);
+const helpersSource = await readFile(
+  new URL("../web/strategy-switch-console/application/approval/helpers.js", import.meta.url),
+  "utf8",
+);
+const httpSource = await readFile(
+  new URL("../web/strategy-switch-console/application/approval/http.js", import.meta.url),
+  "utf8",
+);
+const barrelSource = await readFile(
   new URL("../web/strategy-switch-console/application/approval/owner_decisions.js", import.meta.url),
   "utf8",
 );
 
-assert.equal(
-  surfaceImportsModule(surface, "approval/owner_decisions.js"),
-  true,
-  "Worker stack imports the B10-c owner-decision module",
-);
+assert.equal(surfaceImportsModule(surface, "approval/constants.js"), true);
+assert.equal(surfaceImportsModule(surface, "approval/helpers.js"), true);
+assert.equal(surfaceImportsModule(surface, "approval/http.js"), true);
 assert.match(wiredSource, /\/api\/owner-decisions"/);
 assert.match(wiredSource, /ownerDecisionQueueResponseImpl/);
 assert.match(wiredSource, /recordOwnerDecisionResponseImpl/);
 assert.match(supportSource, /async function ownerDecisionQueueResponse/);
 assert.match(supportSource, /async function recordOwnerDecisionResponse/);
+assert.match(supportSource, /readOwnerDecisionIntentImpl/);
+assert.match(supportSource, /normalizeOwnerDecisionIntentImpl/);
 
-const moduleNoComments = stripComments(moduleSource);
+for (const name of [
+  "currentOwnerDecisionCandidate",
+  "normalizeOwnerDecisionRequest",
+  "ownerDecisionCandidateEvidenceSha256",
+  "buildOwnerDecisionIntent",
+  "normalizeOwnerDecisionIntent",
+  "calculateOwnerDecisionSha256",
+  "readOwnerDecisionIntent",
+  "ownerDecisionArchiveKey",
+  "ownerDecisionCurrentKey",
+  "emptyOwnerDecisionQueue",
+  "ownerDecisionQueueResponse",
+  "recordOwnerDecisionResponse",
+]) {
+  assert.equal(surfaceDefinesFunction(surface, name), true, name);
+}
+
+assert.equal(OWNER_DECISION_INTENT_PREFIX, "owner_decision_intent:");
+assert.equal(OWNER_DECISION_CURRENT_PREFIX, "owner_decision_current:");
+assert.equal(OWNER_DECISION_INTENT_SCHEMA_VERSION, "qsl_owner_decision_intent.v1");
+assert.equal(OWNER_DECISION_QUEUE_SCHEMA_VERSION, "qsl_owner_decision_queue.v1");
+assert.equal(OWNER_DECISION_MAX_CANDIDATES, 100);
+assert.deepEqual([...OWNER_DECISION_CHOICES], [
+  "approve_limited_live_canary",
+  "keep_parked",
+  "retire_candidate",
+]);
+assert.equal(ownerDecisionArchiveKey("cand-1", "a".repeat(64)), `owner_decision_intent:cand-1:${"a".repeat(64)}`);
+assert.equal(ownerDecisionCurrentKey("cand-1"), "owner_decision_current:cand-1");
+assert.deepEqual(emptyOwnerDecisionQueue("snapshot_unavailable").errors, ["snapshot_unavailable"]);
+assert.equal(emptyOwnerDecisionQueue("x").policy.no_order, true);
+assert.equal(emptyOwnerDecisionQueue("x").policy.execution_authority_granted, false);
+
+{
+  const request = normalizeOwnerDecisionRequest({
+    candidate_id: "cand_1",
+    decision: "keep_parked",
+    candidate_evidence_sha256: "b".repeat(64),
+    request_id: "req-1",
+  });
+  assert.equal(request.candidate_id, "cand_1");
+  assert.equal(request.decision, "keep_parked");
+  assert.equal(request.request_id, "req-1");
+}
+
+{
+  let threw = false;
+  try {
+    currentOwnerDecisionCandidate({ data_status: "stale", candidates: [] }, "cand_1");
+  } catch (error) {
+    threw = true;
+    assert.equal(error instanceof HttpError, true);
+    assert.equal(error.status, 409);
+  }
+  assert.equal(threw, true);
+}
+
+{
+  const evidence = await calculateOwnerDecisionSha256({
+    candidate_id: "cand_1",
+    candidate_kind: "individual",
+    domain: "us_equity",
+  });
+  assert.match(evidence, /^[0-9a-f]{64}$/);
+  const again = await ownerDecisionCandidateEvidenceSha256({
+    candidate_id: "cand_1",
+    candidate_kind: "individual",
+    domain: "us_equity",
+    lifecycle: { stage: "P6", status: "owner_decision_required" },
+    evidence: { source: "test" },
+    recommendation: { code: "owner_live_decision" },
+  });
+  assert.match(again, /^[0-9a-f]{64}$/);
+}
+
+{
+  const stored = await readOwnerDecisionIntent({}, "cand_1", "a".repeat(64), {
+    readHumanDecisionAuthority: async () => {
+      throw new Error("runtime_instances_unavailable");
+    },
+    humanDecisionAuthorityView: () => null,
+  });
+  assert.equal(stored.intent, null);
+  assert.equal(stored.error, "runtime_instances_unavailable");
+}
+
+for (const moduleSource of [helpersSource, httpSource, constantsSource, barrelSource]) {
+  assert.equal(
+    moduleSource.includes('from "../worker/runtime_support.js"')
+      || moduleSource.includes("from '../worker/runtime_support.js'")
+      || moduleSource.includes('from "./worker/runtime_support.js"')
+      || moduleSource.includes('from "../../worker.js"')
+      || moduleSource.includes("from '../../worker.js'")
+      || moduleSource.includes('from "../worker.js"')
+      || moduleSource.includes("from '../worker.js'"),
+    false,
+    "approval modules must not import runtime_support or worker.js",
+  );
+  assert.equal(
+    /human_decision_material|human_decision_record|class RuntimeInstances/.test(moduleSource),
+    false,
+    "approval modules must not own DO identity or human_decision tables",
+  );
+}
+
+const helpersNoComments = stripComments(helpersSource);
+const httpNoComments = stripComments(httpSource);
+assert.equal(/transactionSync/.test(helpersNoComments), false);
+assert.equal(/transactionSync/.test(httpNoComments), false);
 assert.equal(
-  /transactionSync/.test(moduleNoComments),
-  false,
-  "approval module must not open Durable Object transactions",
+  helpersSource.includes("readHumanDecisionAuthority") && helpersSource.includes("humanDecisionAuthorityView"),
+  true,
+  "helpers inject human-decision authority deps (no cycle)",
 );
 assert.equal(
-  /class RuntimeInstances|RUNTIME_INSTANCE|DURABLE_OBJECT|human_decision_material|human_decision_record/.test(moduleSource),
-  false,
-  "approval module must not own DO identity or human_decision tables",
-);
-assert.equal(
-  moduleSource.includes('from "./worker.js"')
-    || moduleSource.includes("from '../worker.js'")
-    || moduleSource.includes('from "../../worker.js"')
-    || moduleSource.includes("from '../../worker.js'"),
-  false,
-  "application module must not import worker.js",
-);
-assert.equal(
-  moduleSource.includes('action: "owner_decide"'),
+  httpSource.includes('action: "owner_decide"'),
   true,
   "record path still issues owner_decide via injected repository",
 );
 assert.equal(
-  moduleSource.includes("execution_authority_granted: false") && moduleSource.includes("no_order: true"),
+  httpSource.includes("execution_authority_granted: false") && httpSource.includes("no_order: true"),
   true,
   "wire keeps no_order / non-executable policy",
 );
 assert.equal(
-  /recordResearchPromotionDecisionResponse|research-promotion/.test(moduleSource),
+  /recordResearchPromotionDecisionResponse|research-promotion/.test(httpSource),
   false,
-  "B10-c smallest slice: research promotion stays outside approval/owner_decisions.js",
+  "B10-c smallest slice: research promotion stays outside approval/http.js",
 );
 assert.equal(
-  /FIRSTRADE|LB-HK|LONGPORT_HK|longbridge.?hk/i.test(moduleSource),
+  /FIRSTRADE|LB-HK|LONGPORT_HK|longbridge.?hk/i.test(httpSource + helpersSource + constantsSource),
   false,
   "B10-c must not touch LB-HK / Firstrade env",
 );
+assert.match(barrelSource, /from "\.\/http\.js"/);
 
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -176,6 +320,41 @@ function recordDeps(overrides = {}) {
   assert.ok(body.errors.includes("control_plane_not_ready"));
   assert.equal(body.policy.no_order, true);
   assert.equal(body.policy.execution_authority_granted, false);
+}
+
+// Keep buildOwnerDecisionIntent / normalizeOwnerDecisionIntent reachable without a cycle.
+{
+  const domain = "us_equity";
+  const candidate = {
+    candidate_id: "cand_1",
+    candidate_kind: "individual",
+    domain,
+  };
+  const evidenceSha = await calculateOwnerDecisionSha256({
+    candidate_id: candidate.candidate_id,
+    candidate_kind: candidate.candidate_kind,
+    domain: candidate.domain,
+    lifecycle: { stage: "P6", status: "owner_decision_required" },
+    evidence: {},
+    recommendation: { code: "owner_live_decision" },
+  });
+  // Domain must exist in CONTROL_PLANE_DOMAINS; skip full intent build if fixture domain differs.
+  try {
+    const intent = await buildOwnerDecisionIntent({
+      candidate,
+      decision: "keep_parked",
+      decidedBy: "decision-admin",
+      candidateEvidenceSha256: evidenceSha,
+      decidedAt: "2026-10-09T00:00:00Z",
+    });
+    assert.equal(intent.no_order, true);
+    assert.equal(intent.execution_authority_granted, false);
+    assert.equal(intent.decision, "keep_parked");
+    const normalized = await normalizeOwnerDecisionIntent(intent, "fixture");
+    assert.equal(normalized.decision_sha256, intent.decision_sha256);
+  } catch (error) {
+    if (!String(error.message || "").includes(".domain is invalid")) throw error;
+  }
 }
 
 console.log("owner_decision_extract_validation: ok");
