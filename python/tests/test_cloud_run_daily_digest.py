@@ -143,6 +143,32 @@ class CloudRunDigestTests(unittest.TestCase):
                 self.assertIn('BTC 0.0125', text)
                 self.assertIn('提交订单 未知｜成交回报 未知', text)
 
+    def test_binance_receipts_show_verified_runs_without_claiming_daily_totals(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True,
+                   'receipt_candidate': True, 'strategy_profile': 'crypto_live_pool_rotation'}
+        cfg = replace(self.enable(), expected=[binding],
+                      binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
+                      binance_snapshot_token='synthetic-read-only-token-for-tests')
+        response = {'ok': True, 'business_day': '2026-10-15', 'as_of': '2026-10-15T16:00:00Z',
+                    'account_key': binding['opaque_account_uid'], 'target_id': binding['target_id'],
+                    'holdings': [{'asset': 'BTC', 'quantity': '0.0125'}],
+                    'wallet_valuation': {'amount': '25.5', 'currency': 'USDT', 'as_of': '2026-10-15T15:59:00Z'}}
+        row = {k: v for k, v in ROW.items() if k != 'notification_event'}
+        row.update({name: binding[name] for name in app.IDENTITY})
+        row.update(status='ok', execution_status='no_action', execution_mode='live')
+        key = 'binance/2026-10-15/synthetic-slot.json'
+        for archived, verified in ((row, True), ({**row, 'target_id': 'wrong-target'}, False)):
+            with self.subTest(verified=verified), patch.object(app.urllib.request, 'build_opener') as opener:
+                self.store, self.sent = MemoryStore({key: {'runs': [archived]}}), []
+                opener.return_value.open.return_value = io.BytesIO(json.dumps(response).encode())
+                self.run_request(configuration=cfg, platform_config=config([binding]))
+                text, = self.sent
+                self.assertIn('钱包估值（券商返回范围）：USDT 25.50', text)
+                self.assertIn('提交订单 未知｜成交回报 未知', text)
+                self.assertEqual('归档执行回执：1 轮，已核实 1 轮无交易' in text, verified)
+
     def test_binance_snapshot_rejects_wrong_account_or_out_of_window(self):
         from dataclasses import replace
 

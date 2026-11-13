@@ -197,9 +197,10 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         mixed_fill_window = account_fact.get('fills_window_mixed') is True
         legacy_fill_window_unreliable = unknown_fill_window or mixed_fill_window
         all_present = all(outcome == 'present' for _, outcome in bindings)
+        binance_receipts = platform == 'binance' and any(binding.get('receipt_candidate') for binding, _ in bindings)
         bound_rows = all(any(r.target_id == b.get('target_id') and r.strategy_profile == b.get('strategy_profile') for r in rows)
                          for b, _ in bindings)
-        verified_idle_rows = (all_present and bound_rows and bool(rows) and not legacy_fill_window_unreliable
+        verified_idle_rows = (not binance_receipts and all_present and bound_rows and bool(rows) and not legacy_fill_window_unreliable
                               and not account_fact.get('additional_fills')
                               and all(_verified_no_trade(row) for row in rows))
         counts = {}
@@ -211,7 +212,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 count = len(records)
             elif verified_idle_rows and not records:
                 count = 0
-            elif (all_present and bound_rows and len(rows) == 1 and _known_count(rows[0], name)
+            elif (not binance_receipts and all_present and bound_rows and len(rows) == 1 and _known_count(rows[0], name)
                   and getattr(rows[0], name + '_count') >= len(records)
                   and not (name == 'fill' and (legacy_fill_window_unreliable or account_fact.get('additional_fills') is True))):
                 count = getattr(rows[0], name + '_count')
@@ -224,6 +225,10 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 observed = max([observed, *(getattr(row, name + '_count') for row in rows if _known_count(row, name))])
             value = _count_value(count, observed, zh)
             count_lines.append(f'{label} {value}' if zh else f'{label}: {value}')
+        if binance_receipts and rows:
+            quiet = sum(_verified_no_trade(row) for row in rows)
+            details.append((f'归档执行回执：{len(rows)} 轮，已核实 {quiet} 轮无交易；全天交易总数未核实' if zh else
+                            f'Archived execution receipts: {len(rows)} runs, {quiet} verified without trades; daily totals unverified'))
         blocked = [row for row in rows if _execution_blocked(row)]
         for row in blocked:
             reason = (render_reasons(row.approved_gate_reasons, locale) if row.approved_gate_reasons
@@ -329,7 +334,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         asset_line = ('💰 总资产：' if zh else '💰 Total assets: ') + equity
         if stamp_label:
             asset_line += ' · ' + stamp_label
-        wallet = account_fact.get('wallet_valuation') if snapshot_only and platform == 'binance' else None
+        wallet = account_fact.get('wallet_valuation') if platform == 'binance' else None
         if wallet:
             whole, _, fraction = wallet['amount'].partition('.')
             amount = f'USDT {int(whole):,}.{fraction.ljust(2, "0")}'
