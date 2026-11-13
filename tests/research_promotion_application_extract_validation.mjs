@@ -4,29 +4,17 @@ import {
   researchPromotionApplicationResponse,
   researchPromotionApplicationInternalResponse,
 } from "../web/strategy-switch-console/application/research_promotion/applications.js";
+import { loadWorkerSurface, stripComments, surfaceImportsModule } from "./helpers/worker_surface.mjs";
 
-const workerSource = await readFile(
-  new URL("../web/strategy-switch-console/worker.js", import.meta.url),
-  "utf8",
-);
-const supportSource = await readFile(
-  new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url),
-  "utf8",
-);
-const durableSource = await readFile(
-  new URL("../web/strategy-switch-console/application/runtime_instances/durable_object.js", import.meta.url),
-  "utf8",
-);
+const surface = await loadWorkerSurface({ includeDurableObject: true });
+const { supportSource, durableSource, wiredSource } = surface;
 const moduleSource = await readFile(
   new URL("../web/strategy-switch-console/application/research_promotion/applications.js", import.meta.url),
   "utf8",
 );
-const wiredSource = `${workerSource}\n${supportSource}`;
 
 assert.equal(
-  workerSource.includes('from "./application/research_promotion/applications.js"')
-    || supportSource.includes('from "../research_promotion/applications.js"')
-    || supportSource.includes("from '../research_promotion/applications.js'"),
+  surfaceImportsModule(surface, "research_promotion/applications.js"),
   true,
   "Worker stack imports the B10-d research-promotion applications module",
 );
@@ -39,7 +27,7 @@ assert.match(supportSource, /async function researchPromotionApplicationInternal
 assert.match(supportSource, /function applicationIdFromPath|applicationIdFromPath/);
 assert.match(supportSource, /function validateV7PaperApplicationReadback|validateV7PaperApplicationReadback/);
 assert.match(durableSource, /CREATE TABLE IF NOT EXISTS research_promotion_applications/);
-const moduleNoComments = moduleSource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+const moduleNoComments = stripComments(moduleSource);
 assert.equal(
   /transactionSync/.test(moduleNoComments),
   false,
