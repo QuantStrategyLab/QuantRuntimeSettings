@@ -2,9 +2,9 @@
 🕒 Reporting window: 2026-10-15 06:00 – 2026-10-16 06:00 (UTC+8)
 Platforms without a digest source: IBKR, LongBridge, Binance, Firstrade
 The management console summarizes platform data
+
 🏦 Schwab · Account · Unnamed strategy
 😴 No trades (verified strategy scope)
-Orders submitted: 0 | Fill reports: 0
-Orders with fills: 0
+Orders submitted: 0 | Fill reports: 0 | Orders with fills: 0
 💰 Total assets: unknown
 📦 Holdings: unknown

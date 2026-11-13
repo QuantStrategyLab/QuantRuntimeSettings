@@ -155,6 +155,11 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 execution_mode=binding.get('execution_mode', '')))
     account_labels = [_account_label(row, group['bindings'], locale)
                       for row, group in zip(representatives, groups.values(), strict=True)]
+    account_labels = [
+        ('账户' if zh else 'Account')
+        if row.platform_id == 'binance' and label.casefold() == 'binance' else label
+        for row, label in zip(representatives, account_labels, strict=True)
+    ]
     contexts = _run_display_contexts(representatives, locale, account_labels=account_labels)
     all_idle = bool(groups)
     blocks = []
@@ -180,8 +185,6 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         strategy_label = ' / '.join(strategies)
         if snapshot_only:
             strategy_label = '账户快照' if zh else 'Account snapshot'
-            if account.casefold() == platform_label.casefold():
-                account = '账户' if zh else 'Account'
         header = '🏦 ' + ' · '.join((platform_label, account, strategy_label))
         details = []
         for binding, outcome in bindings:
@@ -190,8 +193,6 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 strategy = safe_display_text(display_name('strategies', binding.get('strategy_profile', ''), locale, fallback=fallback)) or fallback
                 text = outcome_text.get(outcome, ('状态未知', 'Status unknown'))[0 if zh else 1]
                 details.append(f'{strategy}：{text}' if zh else f'{strategy}: {text}')
-        if has_simulation:
-            details.append('模拟记录未计入实际交易' if zh else 'Simulated records excluded from actual trades')
         account_fact = facts.get((platform, uid)) or {}
         unknown_fill_window = account_fact.get('fills_window_unknown') is True
         mixed_fill_window = account_fact.get('fills_window_mixed') is True
@@ -225,10 +226,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 observed = max([observed, *(getattr(row, name + '_count') for row in rows if _known_count(row, name))])
             value = _count_value(count, observed, zh)
             count_lines.append(f'{label} {value}' if zh else f'{label}: {value}')
-        if binance_receipts and rows:
-            quiet = sum(_verified_no_trade(row) for row in rows)
-            details.append((f'归档执行回执：{len(rows)} 轮，已核实 {quiet} 轮无交易；全天交易总数未核实' if zh else
-                            f'Archived execution receipts: {len(rows)} runs, {quiet} verified without trades; daily totals unverified'))
+        quiet = sum(_verified_no_trade(row) for row in rows) if binance_receipts else 0
         blocked = [row for row in rows if _execution_blocked(row)]
         for row in blocked:
             reason = (render_reasons(row.approved_gate_reasons, locale) if row.approved_gate_reasons
@@ -245,10 +243,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             return (row.execution_status.strip().lower() in order_states
                     or (_known_count(row, 'order') and row.order_count > 0))
 
-        if any(not has_order_evidence(row) for row in unconfirmed):
-            details.append('执行结果待核对' if zh else 'Execution result unconfirmed')
-        if any(has_order_evidence(row) for row in unconfirmed):
-            details.append('订单最终状态待确认' if zh else 'Final order state unconfirmed')
+        unconfirmed_runs = any(not has_order_evidence(row) for row in unconfirmed)
+        unconfirmed_orders = any(has_order_evidence(row) for row in unconfirmed)
         details.extend(dict.fromkeys(
             _evidence_attention_text(row, locale) for row in rows
             if row.evidence_persistence_status == 'persistence_failed' or row.evidence_delivery_status == 'delivery_failed'
@@ -344,7 +340,10 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         cash_lines = []
         if platform == 'ibkr':
             cash = account_fact.get('settled_cash')
-            value = f"USD {Decimal(cash['amount']):,f} · {cash['statement_date']}" if cash else unknown
+            value = unknown
+            if cash:
+                date_label = 'Flex 结单' if zh else 'Flex statement'
+                value = f"USD {Decimal(cash['amount']):,f} · {date_label} {cash['statement_date']}"
             cash_lines.append(('期末已结算现金：' if zh else 'Period-end settled cash: ') + value)
         holding_label = '📦 持仓：' if zh else '📦 Holdings: '
         if not holdings:
@@ -364,7 +363,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             # Older LongBridge snapshots tagged every position returned by the
             # stock-positions endpoint as stock, including US option contracts.
             if (platform == 'longbridge' and asset == 'stock'
-                    and isinstance(symbol, str) and re.fullmatch(r'[A-Z0-9]{1,6}[0-9]{6}[CP][0-9]{5,8}\.US', symbol)):
+                    and isinstance(symbol, str) and re.fullmatch(r'[A-Z0-9]{1,6}[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])[CP][0-9]{4,8}\.US', symbol)):
                 asset = 'option'
             holding_lines.append(f"{_symbol(symbol, unknown, asset_type=asset)} "
                                  f"{_quantity(holding.get('quantity'), asset, zh, unknown)}")
@@ -376,8 +375,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             filled_order_count = 0
         elif account_fact.get('fills_complete') is True and all(fill.get('order_id') for fill in fills):
             filled_order_count = len(filled_order_ids)
-        filled_orders = ('成交订单 ' if zh else 'Orders with fills: ') + _count_value(
-            filled_order_count, len(filled_order_ids), zh)
+        count_lines.append(('成交订单 ' if zh else 'Orders with fills: ') + _count_value(
+            filled_order_count, len(filled_order_ids), zh))
         if counts['order'] is not None and counts['order'] > len(orders):
             details.append('部分委托明细未取得' if zh else 'Some order details are unavailable')
         if counts['fill'] is not None and counts['fill'] > len(fills):
@@ -399,6 +398,9 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         if mixed_fill_window:
             details.append('委托累计成交跨统计窗口；本期仅列实际发生的成交' if zh else
                            'Order fills span reporting windows; only fills in this window are listed')
+        simulation_in_state = False
+        uncertain_run_in_state = False
+        uncertain_order_in_state = False
         if partial and filled and not legacy_fill_window_unreliable:
             state = '✅ 部分成交' if zh else '✅ Partially filled'
         elif filled:
@@ -406,9 +408,26 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         elif terminal:
             state = '委托已结束，详见状态' if zh else 'Orders closed; statuses below'
         elif pending:
-            state = '⏳ 已提交，成交待确认' if zh else '⏳ Submitted, fills unconfirmed'
+            if unconfirmed_orders:
+                uncertain_order_in_state = True
+                state = '⏳ 已提交，订单最终状态待确认' if zh else '⏳ Submitted, final order status unconfirmed'
+            else:
+                state = '⏳ 已提交，成交待确认' if zh else '⏳ Submitted, fills unconfirmed'
         elif account_idle:
             state = '😴 无交易' if zh else '😴 No trades'
+        elif binance_receipts and rows:
+            uncertain_run_in_state = True
+            state = (f'已核实 {quiet}/{len(rows)} 轮无交易，全天交易未确认' if zh else
+                     f'{quiet} of {len(rows)} runs verified without trades. Daily activity unconfirmed.')
+        elif blocked:
+            state = '策略触发风控，全天交易未确认' if zh else 'Strategy runs blocked. Daily activity unconfirmed.'
+        elif has_simulation and (unconfirmed_runs or not rows):
+            simulation_in_state = True
+            uncertain_run_in_state = True
+            state = '实盘交易未确认（模拟记录已排除）' if zh else 'Live activity unconfirmed (simulated runs excluded)'
+        elif unconfirmed_runs:
+            uncertain_run_in_state = True
+            state = '未能确认策略执行结果' if zh else 'Strategy execution unconfirmed'
         elif snapshot_only or (platform == 'longbridge' and snapshots
                                and all(outcome == 'not_run' for _, outcome in bindings)):
             state = '仅核实持仓快照，交易情况未知' if zh else 'Holdings snapshot verified, trading activity unknown'
@@ -417,10 +436,16 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         elif all(outcome == 'not_run' for _, outcome in bindings):
             state = '策略未运行，账户交易未知' if zh else 'Strategy did not run; account trades unknown'
         else:
-            state = '⚠️ 昨日交易情况未确认' if zh else '⚠️ Trading activity unconfirmed'
+            state = '全天交易未确认' if zh else 'Daily activity unconfirmed'
+        if unconfirmed_runs and not uncertain_run_in_state:
+            details.append('有策略轮次执行结果未确认' if zh else 'Some strategy runs remain unconfirmed')
+        if unconfirmed_orders and not uncertain_order_in_state:
+            details.append('有订单的最终状态待确认' if zh else 'Some final order statuses are unconfirmed')
+        if has_simulation and not simulation_in_state:
+            details.append('模拟记录已排除' if zh else 'Simulated runs excluded')
         if not full_scope and any(count is not None for count in counts.values()):
             state += '（已核验策略范围）' if zh else ' (verified strategy scope)'
-        blocks.append((header, [state, ('｜' if zh else ' | ').join(count_lines), filled_orders, asset_line, *cash_lines, holding_label],
+        blocks.append((header, [state, ('｜' if zh else ' | ').join(count_lines), asset_line, *cash_lines, holding_label],
                        details, holding_lines))
     lines = [('📊 昨日账户日报｜' if zh else '📊 Daily account report | ') + payload.business_day,
              '🕒 ' + _window_text(payload.business_day, locale)]
@@ -443,20 +468,20 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
     reserved, omitted, omitted_holdings = [], 0, 0
     upper_bound = sum(1 + len(core) + len(details) + len(holdings) for _, core, details, holdings in blocks)
     for header, core, details, holdings in blocks:
-        prior = [line for h, c, _, _ in reserved for line in [h, *c]]
-        if _units('\n'.join(lines + prior + [header, *core, suffix(upper_bound)])) <= max_units:
+        prior = [line for h, c, _, _ in reserved for line in ['', h, *c]]
+        if _units('\n'.join(lines + prior + ['', header, *core, suffix(upper_bound)])) <= max_units:
             reserved.append((header, core, details, holdings))
         else:
             omitted += 1 + len(core) + len(details) + len(holdings)
             omitted_holdings += len(holdings)
     for index, (header, core, details, holdings) in enumerate(reserved):
-        lines.extend((header, *core[:3]))
-        later = [line for h, c, _, _ in reserved[index + 1:] for line in [h, *c]]
+        lines.extend(('', header, *core[:2]))
+        later = [line for h, c, _, _ in reserved[index + 1:] for line in ['', h, *c]]
         for group, is_holding in ((details, False), (holdings, True)):
             if is_holding:
-                lines.extend(core[3:])
+                lines.extend(core[2:])
             for detail in group:
-                remaining_core = [] if is_holding else core[3:]
+                remaining_core = [] if is_holding else core[2:]
                 if _units('\n'.join(lines + [detail] + remaining_core + later + [suffix(upper_bound)])) <= max_units:
                     lines.append(detail)
                 else:
