@@ -1,6 +1,7 @@
 /**
  * Desk routes live in the URL hash (#/desk/<page>), so the Worker needs no new path: it
- * already serves the shell at "/". The old console keeps its ?page= routes untouched.
+ * already serves the shell at "/". The Desk is the default entry: "/", an empty hash and
+ * any unknown hash open it. The old console only answers explicit legacy deep links.
  */
 export const DESK_PAGES = ["overview", "accounts", "switch", "performance", "alerts", "logs"] as const;
 export type DeskPage = (typeof DESK_PAGES)[number];
@@ -11,6 +12,24 @@ export const DESK_HASH = /^#\/desk(?:[/?]|$)/;
 
 export function isDeskHash(hash: string): boolean {
   return DESK_HASH.test(hash);
+}
+
+/** Old console pages still reachable by explicit deep link. Its old overview is not one of them. */
+const LEGACY_CONSOLE_PAGES: readonly string[] = ["performance", "decisions", "accounts", "strategies", "health"];
+
+/**
+ * True only for an explicit legacy console deep link outside #/desk: "?page=<legacy page>"
+ * (the Worker still emits "/?page=health#credential-rotation") or the older
+ * "?workspace=research|accounts" form. Everything else, including "/", "?page=overview"
+ * and unknown pages, opens the Desk.
+ */
+export function bootsLegacyConsole(search: string, hash: string): boolean {
+  if (DESK_HASH.test(hash)) return false;
+  const params = new URLSearchParams(search);
+  const page = params.get("page");
+  if (page) return LEGACY_CONSOLE_PAGES.includes(page);
+  const workspace = params.get("workspace");
+  return workspace === "research" || workspace === "accounts";
 }
 
 /** "#/desk/accounts?target=ibkr/tqqq" -> { page: "accounts", params }. Unknown pages fall back to overview. */

@@ -7,7 +7,7 @@ import { MOCK_STORAGE_KEY, resolveMockScenario } from "./api/mock.ts";
 import type { DeskSession, Ribbon } from "./contract/types";
 import { clockOffsetMs, secondsBetween, serverNowIso } from "./format.ts";
 import { deskTranslator, resolveDeskLanguage } from "./i18n/index.ts";
-import { deskHash, hotkeyPage, isDeskHash, parseDeskHash, urlOverrides, type DeskPage } from "./router.ts";
+import { deskHash, hotkeyPage, parseDeskHash, urlOverrides, type DeskPage } from "./router.ts";
 import { classifySessionFailure, deskAccess, type SessionFailure } from "./shell/access.ts";
 import { AccessCard, DeskShell } from "./shell/DeskShell";
 import type { GatewayChip, ShellLock } from "./shell/TopBar";
@@ -81,11 +81,8 @@ export default function DeskApp() {
   }, []);
 
   useEffect(() => {
-    const onHash = () => {
-      // Leaving #/desk returns to the existing console, which boots from main.tsx.
-      if (!isDeskHash(window.location.hash)) window.location.reload();
-      else setRoute(parseDeskHash(window.location.hash));
-    };
+    // main.tsx owns switching to the legacy console; any other hash stays in the Desk.
+    const onHash = () => setRoute(parseDeskHash(window.location.hash));
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
