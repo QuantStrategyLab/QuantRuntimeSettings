@@ -55,6 +55,7 @@ import {
   MARKET_BENCHMARK_SCHEMA,
   MarketBenchmarkError,
   normalizeMarketBenchmarkSyncPayload,
+  publicMarketBenchmarkReadModel,
 } from "../../infrastructure/market_benchmark/market_benchmark.js";
 import { BROKER_ENVIRONMENTS } from "../../account_options_schema.js";
 import { RISK_TIER_POLICY_BINDINGS } from "../console_api/risk_tiers.js";

@@ -213,6 +213,8 @@ import {
   ux1RunMatches,
   ux1RuntimeEpoch,
   readUx1CalculatorExchange,
+  readLimitedUtf8Body,
+  ux1ExactKeys,
 } from "../ux1/research.js";
 import {
   hasRuntimeInstanceStore,

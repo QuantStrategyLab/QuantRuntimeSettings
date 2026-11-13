@@ -207,7 +207,7 @@ function abandonUx1Response(response) {
   }
 }
 
-async function readLimitedUtf8Body(response, maxBytes, controller, abortPromise) {
+export async function readLimitedUtf8Body(response, maxBytes, controller, abortPromise) {
   if (!response?.body) return "";
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -490,7 +490,7 @@ function ux1BearerMatches(header, secret) {
   return diff === 0;
 }
 
-function ux1ExactKeys(value, keys) {
+export function ux1ExactKeys(value, keys) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value)
     && Object.keys(value).length === keys.length
     && keys.every((key) => Object.hasOwn(value, key)));
