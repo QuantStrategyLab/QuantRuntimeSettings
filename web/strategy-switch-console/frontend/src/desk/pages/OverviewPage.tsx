@@ -66,9 +66,13 @@ function BookCard({ row, t, language }: { row: N1BookRow; t: DeskTranslate; lang
     row.sparkline_30d.points, row.sparkline_30d.gap_dates, row.sparkline_30d.dates_from, row.sparkline_30d.dates_to, 120, 32,
   );
   const strategy = row.strategy.status === "known" ? row.strategy.value.label : null;
-  const run = row.last_run
-    ? t("overview.book.last_run", { time: row.last_run.at.slice(11, 16), state: t(tapeStateKey({ state: "done", outcome: row.last_run.outcome }) as DeskKey) })
-    : t("overview.book.no_run");
+  // Only a fully read record may say "no run"; an unknown read names its reason.
+  const lastRun = readValue(row.last_run);
+  const run = row.last_run.status === "unknown"
+    ? t("overview.book.run_unknown", { reason: t(n1ReasonKey(row.last_run.reason)) })
+    : lastRun
+      ? t("overview.book.last_run", { time: lastRun.at.slice(11, 16), state: t(tapeStateKey({ state: "done", outcome: lastRun.outcome }) as DeskKey) })
+      : t("overview.book.no_run");
 
   return (
     <article className="mrd-ov-book" data-config={row.config.state} data-drawdown={row.drawdown.state}>
@@ -96,7 +100,7 @@ function BookCard({ row, t, language }: { row: N1BookRow; t: DeskTranslate; lang
         <span className="mrd-ov-book-value" data-tone={cells.tone}>{drawdown ?? UNKNOWN}</span>
       </div>
       <p className="mrd-ov-book-meta" data-state={row.config.state}>{configText(row.config, t)}</p>
-      <p className="mrd-ov-book-meta">{run}</p>
+      <p className="mrd-ov-book-meta" data-read={row.last_run.status}>{run}</p>
     </article>
   );
 }

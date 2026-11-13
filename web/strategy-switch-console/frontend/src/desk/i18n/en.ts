@@ -576,6 +576,7 @@ export const en: Record<DeskKey, string> = {
   "overview.needs.credential.detail_unknown": "Expiry unknown.",
   "overview.needs.credential.action": "Rotate credential",
   "overview.book.unknown": "Accounts could not be read: {reason}",
+  "overview.book.run_unknown": "Last run unknown: {reason}",
   "overview.curve.unknown": "Portfolio curve unavailable: {reason}",
   "accounts.brokers.unknown": "Broker list could not be read: {reason}. Unknown is not no accounts.",
   "strategies.catalog.partial": "Eligibility proven for {coverage} strategies; the rest stay unknown.",

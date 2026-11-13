@@ -350,7 +350,19 @@
                     "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/drawdown"
                   },
                   "last_run": {
-                    "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/last_run"
+                    "allOf": [
+                      {
+                        "$ref": "https://schemas.example.invalid/qsl/desk/n1-common.json#/$defs/Read"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/last_run"
+                          }
+                        }
+                      }
+                    ]
                   },
                   "return_basis": {
                     "$ref": "https://schemas.example.invalid/qsl/desk/overview.json#/properties/book/items/properties/return_basis"

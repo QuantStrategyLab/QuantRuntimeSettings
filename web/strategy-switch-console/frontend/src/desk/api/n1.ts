@@ -146,7 +146,7 @@ const isBookRow = (value: unknown) => closed(value, {
   sparkline_30d: v => closed(v, { points: arrayOf(isDecimal), dates_from: nullable(isDate), dates_to: nullable(isDate), gap_dates: arrayOf(isDate) }),
   drawdown: v => closed(v, { ratio: nullable(isDecimal), limit_ratio: nullable(isDecimal), state: oneOf("ok", "near_limit", "breached", "unknown") }),
   config: v => closed(v, { state: oneOf("synced", "drift", "unknown"), drift_count: read(isCount), checked_at: nullable(isIso) }),
-  last_run: nullable(v => closed(v, { at: isIso, outcome: OUTCOME })),
+  last_run: read(nullable(v => closed(v, { at: isIso, outcome: OUTCOME }))),
   return_basis: oneOf("native_ibkr_twr", "nav_change_unadjusted", "unavailable"),
 });
 const isNeed = (value: unknown) => closed(value, {
@@ -314,7 +314,11 @@ export function ribbonFromMock(v1: Ribbon): N1Ribbon {
 }
 
 function bookFromMock(row: BookRow, at: string): N1BookRow {
-  return { ...row, config: { state: row.config.state, drift_count: mockKnown(row.config.drift_count, at), checked_at: row.config.checked_at ?? null } };
+  return {
+    ...row,
+    config: { state: row.config.state, drift_count: mockKnown(row.config.drift_count, at), checked_at: row.config.checked_at ?? null },
+    last_run: mockKnown(row.last_run, at),
+  };
 }
 
 export function overviewFromMock(v1: Overview): N1Overview {

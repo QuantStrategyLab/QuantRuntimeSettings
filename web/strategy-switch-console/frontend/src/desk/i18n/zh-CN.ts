@@ -584,6 +584,7 @@ export const zh = {
   "overview.needs.credential.detail_unknown": "到期时间未知。",
   "overview.needs.credential.action": "轮换凭据",
   "overview.book.unknown": "账户读取失败：{reason}",
+  "overview.book.run_unknown": "最近运行未知：{reason}",
   "overview.curve.unknown": "组合曲线不可用：{reason}",
   "accounts.brokers.unknown": "券商列表读取失败：{reason}。未知不等于没有账户。",
   "strategies.catalog.partial": "已证明资格 {coverage} 个策略；其余资格未知。",

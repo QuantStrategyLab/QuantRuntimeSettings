@@ -134,7 +134,7 @@ assert.equal(n1ReasonKey("mixed_currency"), "read.reason.mixed_currency");
 assert.equal(n1ReasonKey("brand_new_reason"), "read.reason.other");
 for (const key of ["read.reason.coverage_incomplete", "read.reason.mixed_currency", "read.reason.time_basis_unavailable", "n1.partial",
   "nav.alert_badge_unknown", "mode.unknown_chip", "overview.runs.partial", "overview.runs.source_day", "overview.needs.partial",
-  "overview.needs.unavailable", "overview.book.unknown", "overview.curve.unknown", "overview.headline.unread", "accounts.brokers.unknown",
+  "overview.needs.unavailable", "overview.book.unknown", "overview.book.run_unknown", "overview.curve.unknown", "overview.headline.unread", "accounts.brokers.unknown",
   "strategies.catalog.partial", "strategies.catalog.unknown", "strategies.card.eligibility_unknown", "perf.portfolio_unknown",
   "perf.history.truncated", "logs.runs.unknown", "logs.runs.partial", "logs.runs.utc_day"]) {
   for (const language of ["zh", "en"]) assert.ok(DESK_MESSAGES[language][key], `missing ${language} ${key}`);
@@ -195,6 +195,19 @@ for (const language of ["zh", "en"]) {
   const degraded = view(golden("overview", "degraded"));
   assert.ok(degraded.includes(t("overview.needs.unavailable", { reason: t("read.reason.read_failed") })), "unknown to-do list is not empty");
   assert.ok(degraded.includes(t("states.partial_detail", { included: 0, total: 2 })));
+
+  // A per-account last run that could not be read is never "no run today".
+  const unreadRun = golden("overview", "ok");
+  unreadRun.book.value[0].last_run = { status: "unknown", reason: "read_failed", observed_at: null, coverage: cover("unavailable", 0, 1, ["read_failed"]) };
+  assert.ok(isN1Overview(unreadRun));
+  const unreadRunHtml = view(unreadRun);
+  assert.ok(unreadRunHtml.includes(t("overview.book.run_unknown", { reason: t("read.reason.read_failed") })), "unknown last run names its reason");
+  assert.equal(unreadRunHtml.includes(t("overview.book.no_run")), false, "an unknown last run never says 'no run'");
+  const noRun = golden("overview", "ok");
+  noRun.book.value[0].last_run = { status: "known", value: null, observed_at: at, coverage: cover("complete") };
+  assert.ok(view(noRun).includes(t("overview.book.no_run")), "a verified absence may say 'no run'");
+  const bareRun = golden("overview", "ok"); bareRun.book.value[0].last_run = null;
+  assert.equal(isN1Overview(bareRun), false, "a bare null last run is rejected: it must be a read");
 
   const unread = golden("overview", "ok");
   unread.book = { status: "unknown", reason: "read_failed", observed_at: null, coverage: cover("unavailable", 0, null, ["read_failed"]) };

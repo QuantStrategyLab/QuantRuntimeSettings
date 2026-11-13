@@ -46,13 +46,24 @@ export function bookNav(row, facts, now) {
   return { status: "known", ...base };
 }
 
-/** The latest finished run in a covered stored daily record, or null. */
-export function lastRun(summaryRow) {
-  if (!runCovered(summaryRow)) return null;
+/**
+ * The latest finished run for one target as an N1 read. Known null only when the
+ * stored daily record was read completely and holds no finished run; a failed,
+ * missing, unbound or incomplete record stays unknown, never "no run".
+ */
+export function lastRun(summary, summaryRow, now) {
+  if (!summary) return unknown("read_failed", coverage("unavailable", 0, 1, ["read_failed"]));
+  if (!runCovered(summaryRow)) {
+    const reason = summaryRow?.status === "read_failed" ? "read_failed" : "source_unavailable";
+    return unknown(reason, coverage("unavailable", 0, 1, [reason]));
+  }
   const finished = (summaryRow.runs || []).map(run => ({ run, at: utcInstant(run.finished_at) })).filter(item => item.at !== null);
   finished.sort((a, b) => a.at.localeCompare(b.at));
   const latest = finished.at(-1);
-  return latest ? { at: latest.at, outcome: tapeOutcome(latest.run) } : null;
+  const observedAt = utcInstant(summaryRow.as_of) ?? now;
+  const value = latest ? { at: latest.at, outcome: tapeOutcome(latest.run) } : null;
+  const cover = coverage("complete", 1, 1);
+  return summaryRow.status === "stale" ? stale(value, observedAt, now, cover) : known(value, observedAt, cover);
 }
 
 function summaryRowFor(summary, target) {
@@ -190,7 +201,7 @@ export function overviewProjection({ config, facts, credential, summary, busines
       sparkline_30d: { points: [], dates_from: null, dates_to: null, gap_dates: [] },
       drawdown: { ratio: null, limit_ratio: null, state: "unknown" },
       config: { state: "unknown", drift_count: unknown("not_supported", coverage("unavailable", 0, 1, ["not_supported"])), checked_at: null },
-      last_run: lastRun(summaryRowFor(summary, target)),
+      last_run: lastRun(summary, summaryRowFor(summary, target), now),
       return_basis: "unavailable",
     };
   });

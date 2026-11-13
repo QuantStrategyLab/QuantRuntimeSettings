@@ -12,7 +12,7 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import { coverage, freshness, known, partial, unknown, utcInstant } from "../web/strategy-switch-console/application/desk/n1.js";
 import { deskAccountsResponse } from "../web/strategy-switch-console/application/desk/accounts.js";
-import { deskOverviewResponse, overviewTotals, runsToday } from "../web/strategy-switch-console/application/desk/overview.js";
+import { deskOverviewResponse, lastRun, overviewTotals, runsToday } from "../web/strategy-switch-console/application/desk/overview.js";
 import {
   deskPerformanceResponse, performanceProjection, performanceQuery, performanceWindow, decimal,
 } from "../web/strategy-switch-console/application/desk/performance.js";
@@ -282,6 +282,14 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   const gapRuns = runsToday({ targets: [{ platform: "firstrade", key: "fake-0" }], summary: { accounts: [{ ...staleIncomplete, runs: [{ id: "r", started_at: "2030-01-08T14:31:00Z", finished_at: "2030-01-08T14:32:00Z" }] }] },
     businessDate: "2030-01-08", now: NOW });
   assert.equal(gapRuns.status, "unknown", "an incomplete record does not count toward runs today");
+  // Last run: only a fully read record may report "no run"; anything else stays unknown.
+  const fullNoRun = { ...staleIncomplete, status: "ok", completeness: "complete", as_of: "2030-01-08T14:30:00Z" };
+  assert.equal(lastRun(null, null, NOW).status, "unknown", "a failed daily read is not 'no run'");
+  assert.equal(lastRun({ accounts: [] }, null, NOW).status, "unknown", "a missing record is not 'no run'");
+  assert.equal(lastRun({ accounts: [staleIncomplete] }, staleIncomplete, NOW).status, "unknown", "an incomplete record is not 'no run'");
+  assert.equal(lastRun({ accounts: [{ status: "read_failed" }] }, { status: "read_failed" }, NOW).reason, "read_failed");
+  const verifiedNone = lastRun({ accounts: [fullNoRun] }, fullNoRun, NOW);
+  assert.deepEqual([verifiedNone.status, verifiedNone.value], ["known", null], "a complete record with no finished run is a known null");
   assert.equal(freshness(old.observed, { now: NOW, ttlSeconds: 36 * 3600, staleKnown: old.stale }).data_status, "stale");
   const failedConfig = world({ config: false });
   const unreadable = await body(await deskRibbonResponse(get("/api/desk/ribbon"), failedConfig.env, failedConfig.deps));

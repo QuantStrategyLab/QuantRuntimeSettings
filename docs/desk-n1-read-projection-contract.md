@@ -162,11 +162,17 @@ readbacks, credentials and alert-delivery routes intact.
   currencies: `status: unavailable`, `nav: null`, `fx` unknown, coverage reason
   `mixed_currency`, `excluded_reasons: [fx_unavailable]`, display-only USD
   convention. Missing accounts make the totals partial.
+- A stored daily record counts as covered only when its source coverage is
+  complete (fresh or stale alike); a stale, incomplete record is never a
+  verified empty tape or a counted run.
 - `runs_today`: partial at most (`expected`/`pending` null without a verified
   schedule source); `config_drift`: unknown/not_supported; a known count read
   may not hide a `null` member.
 - `book`: per-target masked rows; strategy/mode/runtime are not inferred from
-  configuration; NAV only from a bound stored snapshot.
+  configuration; NAV only from a bound stored snapshot. `last_run` is an N1
+  Read: known `null` only when the stored daily record was read completely and
+  holds no finished run; a failed, missing, unbound or incomplete record is
+  unknown and never rendered as "no run".
 - `needs_you`: credential-maintenance items only; pending decisions are not read,
   so the list is partial and never "nothing needs you".
 - `drawdown`, exposures: `null` (no risk thresholds or three-tier runtime).

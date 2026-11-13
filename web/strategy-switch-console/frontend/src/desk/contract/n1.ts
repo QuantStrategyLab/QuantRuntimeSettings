@@ -74,8 +74,10 @@ export interface N1Ribbon extends N1Envelope<"qsl.desk.ribbon.v2"> {
 
 // ---------------------------------------------------------------- overview
 
-export interface N1BookRow extends Omit<BookRow, "config"> {
+export interface N1BookRow extends Omit<BookRow, "config" | "last_run"> {
   config: { state: BookRow["config"]["state"]; drift_count: N1Read<number>; checked_at: IsoTime | null };
+  /** Known null: the stored daily record was fully read and holds no finished run. */
+  last_run: N1Read<BookRow["last_run"]>;
 }
 
 export interface N1RunsToday {
