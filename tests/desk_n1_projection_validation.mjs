@@ -6,6 +6,7 @@
 // commands are reached, with zero writes and zero outbound fetches.
 // DESK_N1_WRITE_FIXTURES=1 rewrites the golden fixtures from these scenarios.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
@@ -514,6 +515,15 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   assert.equal(kvPuts, 0, "zero config-store writes");
   assert.equal(outbound, 0, "zero outbound provider/collector fetches");
   assert.deepEqual([...__test.DESK_N1_READ_COMMANDS], ["account_facts_list", "account_facts_history_read", "credential_maintenance_read"]);
+}
+
+// The frozen v1 contract stays byte-for-byte recoverable from its indented copy.
+{
+  const frozen = readFileSync(new URL("../docs/desk-api-contract-v1-frozen.md", import.meta.url), "utf8");
+  const start = frozen.indexOf("checks.\n\n") + "checks.\n\n".length;
+  const recovered = frozen.slice(start).split(/(?<=\n)/).map(line => (line.trim() ? line.slice(4) : line)).join("");
+  assert.equal(createHash("sha256").update(recovered, "utf8").digest("hex"),
+    "45e5b9f79ad623425becc6b506b6b082086f2e98a905a6c7e7193cab948a91fe", "frozen v1 contract bytes changed");
 }
 
 console.log("Desk N1 projection validation passed: five read routes, golden payloads, read allowlist and zero writes");
