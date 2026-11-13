@@ -16,10 +16,30 @@ import { recoveryMaterialPresentation, currentReconciliationObservationPresentat
 // Exercise the production aggregation/freshness functions with in-memory inputs.
 // No Worker, storage adapter, KV, server, or network is instantiated.
 const workerText = readFileSync(new URL("../web/strategy-switch-console/worker.js", import.meta.url), "utf8");
+const runtimeSupportText = readFileSync(
+  new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url),
+  "utf8",
+);
+const authHelperTexts = [
+  "application/auth/identity_lists.js",
+  "application/auth/principals.js",
+  "application/auth/cookies.js",
+  "application/auth/require_env.js",
+].map((path) => readFileSync(new URL(`../web/strategy-switch-console/${path}`, import.meta.url), "utf8"));
 function productionFunction(name, dependencies = {}) {
-  const start = workerText.search(new RegExp(`(?:async )?function ${name}\\(`));
+  const pattern = new RegExp(`(?:export )?(?:async )?function ${name}\\(`);
+  const sources = [workerText, runtimeSupportText, ...authHelperTexts];
+  let source = null;
+  let start = -1;
+  for (const candidate of sources) {
+    start = candidate.search(pattern);
+    if (start >= 0) {
+      source = candidate;
+      break;
+    }
+  }
   assert.ok(start >= 0, name);
-  const code = workerText.slice(start, workerText.indexOf("\n}", start) + 2);
+  const code = source.slice(start, source.indexOf("\n}", start) + 2).replace(/^export\s+/, "");
   return new Function(...Object.keys(dependencies), `return (${code});`)(...Object.values(dependencies));
 }
 const now = Date.parse("2001-10-17T04:05:00Z");

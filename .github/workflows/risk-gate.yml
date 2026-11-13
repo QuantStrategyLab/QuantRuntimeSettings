@@ -51,10 +51,11 @@ jobs:
       statuses: write
     steps:
       - name: Record label head
-        uses: QuantStrategyLab/.github/pr-governance@fc9ec65785670e0e6db3d8a60b807c0798ca7329
+        uses: QuantStrategyLab/.github/pr-governance@eec647dfa42e27f2caa0dc0e0ba289155488fe86
         env:
           GOVERNANCE_OWNER_ID: ${{ vars.RISK_GATE_OWNER_ID }}
           GOVERNANCE_OWNER_LOGIN: ${{ vars.RISK_GATE_OWNER }}
+          GOVERNANCE_REVIEWERS_JSON: ${{ vars.GOVERNANCE_REVIEWERS_JSON }}
         with:
           mode: gate
           record-label: 'true'
@@ -84,10 +85,11 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Evaluate
-        uses: QuantStrategyLab/.github/pr-governance@fc9ec65785670e0e6db3d8a60b807c0798ca7329
+        uses: QuantStrategyLab/.github/pr-governance@eec647dfa42e27f2caa0dc0e0ba289155488fe86
         env:
           GOVERNANCE_OWNER_ID: ${{ vars.RISK_GATE_OWNER_ID }}
           GOVERNANCE_OWNER_LOGIN: ${{ vars.RISK_GATE_OWNER }}
+          GOVERNANCE_REVIEWERS_JSON: ${{ vars.GOVERNANCE_REVIEWERS_JSON }}
         with:
           mode: gate
           record-label: 'false'

@@ -69,6 +69,79 @@ export function readbackTargets(config) {
   })));
 }
 
+/**
+ * Desk target readback use-case. Inject runtime_support helpers via DI so this
+ * module never imports runtime_support.js (avoids circular Worker/DO graphs).
+ */
+export function createDeskTargetReadback(deps) {
+  const {
+    runtimeInstanceCommand,
+    readRiskProfileLegacy,
+    platformRepositories,
+    fetchGithubVariables,
+    resolveCurrentStrategyForAccount,
+    resolveVariableScope,
+    resolveGithubEnvironment,
+    runtimeTargetFromServiceTargets,
+    parseJsonObject,
+    runtimeTargetMatchesAccount,
+    cleanCurrentRatio,
+    splitSelectorValues,
+  } = deps;
+
+  // Desk reads deliberately bypass the current-strategies memory/KV cache. Raw
+  // variable maps stay local; only explicit resolver fields enter the projection.
+  return async function deskTargetReadback(env, target, actor, suppliedObserved = undefined) {
+    let observed = suppliedObserved;
+    if (observed === undefined) {
+      try {
+        observed = await runtimeInstanceCommand(env, { action: "account_settings_read", actor,
+          platform: target.platform, key: target.key, legacy: await readRiskProfileLegacy(env) });
+      } catch { observed = null; }
+    }
+    if (observed && observed.config?.target_name !== target.config.target_name) throw new DeskError("not_found", 404);
+    const config = observed?.config || target.config;
+    const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
+    const repository = platformRepositories(env)?.[target.platform];
+    let platform = {}, platformReason = "source_unavailable";
+    if (token && repository && config) {
+      const cache = new Map();
+      let failed = false;
+      const readVariable = async (repo, scope, environment, name) => {
+        const key = JSON.stringify([repo, scope, environment]);
+        if (!cache.has(key)) cache.set(key, fetchGithubVariables(token, repo, scope, environment, { reportReadErrors: true }));
+        const variables = await cache.get(key);
+        if (variables === null) failed = true;
+        return variables?.get(name) || "";
+      };
+      try {
+        const options = observed?.account_options?.[target.platform] || [];
+        const current = await resolveCurrentStrategyForAccount({ platform: target.platform, option: config,
+          optionsCount: options.length || target.optionsCount || 1, repository, readVariable });
+        if (failed) throw new Error("read_failed");
+        const scope = resolveVariableScope(target.platform, config);
+        const environment = resolveGithubEnvironment(target.platform, config, scope);
+        // Identity must come from a uniquely matched runtime record, never config.
+        const service = current?.source === "CLOUD_RUN_SERVICE_TARGETS_JSON"
+          ? runtimeTargetFromServiceTargets(await readVariable(repository, "repository", "", "CLOUD_RUN_SERVICE_TARGETS_JSON"), target.platform, config) : null;
+        const runtime = current?.source === "RUNTIME_TARGET_JSON"
+          ? parseJsonObject(await readVariable(repository, scope, environment, "RUNTIME_TARGET_JSON")) : null;
+        if (failed) throw new Error("read_failed");
+        const identity = current?.source === "CLOUD_RUN_SERVICE_TARGETS_JSON" ? service
+          : runtime && runtimeTargetMatchesAccount(runtime, target.platform, config) ? runtime : null;
+        platform = { strategy_profile: current?.strategy_profile, enabled: current?.runtime_target_enabled,
+          income_layer_enabled: current?.income_layer_enabled, option_overlay_enabled: current?.option_overlay_enabled,
+          reserved_cash_floor: current?.min_reserved_cash_usd, reserved_cash_ratio: current?.reserved_cash_ratio,
+          dca_mode: current?.dca_mode, dca_base_investment_usd: current?.dca_base_investment_usd,
+          broker_environment: identity?.broker_environment, account_selector: identity?.account_selector,
+          cash_currency: identity?.cash_currency, runtime_status_target_id: identity?.runtime_status_target_id };
+        platformReason = "never_read";
+      } catch { platform = {}; platformReason = "read_failed"; }
+    }
+    return buildReadback({ target, observed, platform, platformReason, now: Date.now(), cleanRatio: cleanCurrentRatio, splitSelectorValues });
+  };
+}
+
 export async function deskReadbackResponse(request, env, deps) {
   try {
     const url = new URL(request.url);

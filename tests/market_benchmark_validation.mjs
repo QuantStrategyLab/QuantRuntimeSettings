@@ -18,6 +18,28 @@ import { MARKET_BENCHMARK_API_URL, loadMarketBenchmarkPoints } from "../web/stra
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import { benchmarkHistoryWindow, buildUpstreamRevisionPayload, closedSessionPoints, diagnoseBenchmarkPoints, newYorkDate } from "../scripts/sync_market_benchmark_closes.mjs";
 import { createHash } from "node:crypto";
+import {
+  loadWorkerSurface,
+  surfaceDefinesFunction,
+  surfaceImportsModule,
+} from "./helpers/worker_surface.mjs";
+
+{
+  const surface = await loadWorkerSurface({
+    applicationModules: ["application/market_benchmark/http.js"],
+  });
+  assert.equal(surfaceImportsModule(surface, "market_benchmark/http.js"), true);
+  for (const name of [
+    "requireMarketBenchmarkSyncToken",
+    "marketBenchmarkResponse",
+    "requireMarketBenchmarkRevisionToken",
+    "reviseMarketBenchmarkResponse",
+    "syncMarketBenchmarkResponse",
+  ]) {
+    assert.equal(surfaceDefinesFunction(surface, name), true, name);
+  }
+  assert.match(surface.extraSource, /MARKET_BENCHMARK_DO_ACTIONS/);
+}
 
 assert.equal(MARKET_BENCHMARK_MAX_POINTS, 64);
 assert.equal(MARKET_BENCHMARK_API_URL, "/api/market-benchmark");
