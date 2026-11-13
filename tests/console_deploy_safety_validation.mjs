@@ -233,6 +233,8 @@ const dailySource = "4b6cbedc731d3352a9c9dbe4f57fc2b948207ef6";
 const settingsSource = "3782a3e87260f10d101cb5ca79b20e1da9ada078";
 const ibkrTree = "3ac93c0b2caf30a650ab46d4bf62220e45582a46";
 const control = "0041b6beb2c4c319b4605eb34f5a721d46bec799";
+// S1 desk alert release source; CONTROL is always a later reviewed main commit.
+const s1Source = "aa05d670f9a51a52c91f142beae65888f7b110fc";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
 assert.ok(selectionStep);
 assert.ok(deploy.indexOf("Select reviewed historical main source") < deploy.indexOf("Setup Python"), "reject unapproved source before running project code");
@@ -257,6 +259,13 @@ const fakeGit = `git() {
     'rev-parse ${frontend}:${assetPath}') printf '%s' "$FAKE_FRONTEND_BLOB" ;;
     '-c advice.detachedHead=false checkout --detach 084ba4281cfff3304cf226ce511a2fc0a6b67b08'|'-c advice.detachedHead=false checkout --detach c1b737d6e721eb9fe71a12c613fbb49d3fa51563'|'-c advice.detachedHead=false checkout --detach 6f9b84e6192b68bac1627337fb4e633e178fcee3'|'-c advice.detachedHead=false checkout --detach ${runtimeDailyMultiSource}'|'-c advice.detachedHead=false checkout --detach ${runtimeDailySource}'|'-c advice.detachedHead=false checkout --detach ${approved}'|'-c advice.detachedHead=false checkout --detach ${pr764Source}'|'-c advice.detachedHead=false checkout --detach ${ibkrSource}'|'-c advice.detachedHead=false checkout --detach ${integratedSource}'|'-c advice.detachedHead=false checkout --detach ${cpuSource}'|'-c advice.detachedHead=false checkout --detach ${statusSource}'|'-c advice.detachedHead=false checkout --detach ${settingsSource}'|'-c advice.detachedHead=false checkout --detach ${dailySource}') touch "$SELECTED" ;;
     'rev-parse 6f9b84e6192b68bac1627337fb4e633e178fcee3^@') printf '%s' "$FAKE_PARENT" ;;
+    'cat-file -e ${s1Source}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
+    'merge-base --is-ancestor ${s1Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
+    'merge-base --is-ancestor ${s1Source} ${s1Source}') return 0 ;;
+    'rev-parse ${s1Source}^@') printf '%s' "$FAKE_PARENT" ;;
+    'rev-parse ${s1Source}^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${s1Source}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
+    '-c advice.detachedHead=false checkout --detach ${s1Source}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -345,6 +354,82 @@ for (const delta of [{FAKE_PARENT:"b".repeat(40)},
   assert.equal(sourceCase({...consoleEnv,...delta},false).selected,false);
 }
 assert.equal(sourceCase({...consoleEnv,FAKE_SELECTED_HEAD:"b".repeat(40)},false).selected,true);
+
+// S1 desk alert release source: four exact pins (source, sole parent, tree, map),
+// retained receiver checks and a distinct later CONTROL commit. Prior pins stay valid.
+const s1Parent = "deb6e39714c0b5d16e2b68b26c3ff35b40933aa5";
+const s1Tree = "fc81143c36bbd4f733f21a1ea9a18048232adf02";
+const s1Blob = "68449f66f877f39a9f23715d1ec1f2cba2963937";
+const s1MapSha256 = "20583561345ec26ebeda13e431a8a2df9e2c0a2479d7dfba418f61991caca0ce";
+const s1BuildId = "20fa83a0aa97324e0b7fee8de0b8fc96908374268584300c5093eb8fc9aa6982";
+const repoRoot = new URL("..", import.meta.url);
+{
+  const identity = spawnSync("git", ["rev-parse", `${s1Source}^{commit}`, `${s1Source}^@`, `${s1Source}^{tree}`, `${s1Source}:${assetPath}`], {cwd: repoRoot, encoding:"utf8"});
+  assert.equal(identity.status, 0);
+  assert.deepEqual(identity.stdout.trim().split("\n"), [s1Source, s1Parent, s1Tree, s1Blob], "S1 source has exactly one parent and the frozen tree/map");
+  assert.equal(spawnSync("git", ["merge-base", "--is-ancestor", s1Source, "HEAD"], {cwd: repoRoot}).status, 0, "S1 source must be adopted in this checkout");
+}
+// Producer and frontend ship as one generation: the S1 Worker emits the new
+// source-level read_error_code and the S1 bundle's guard requires exactly that
+// key set. The older map (shared by the parent and 6f9b84e) lacks the guard, so
+// mixing generations is exactly what the four pins reject.
+function mapGeneration(commit) {
+  const text = spawnSync("git", ["show", `${commit}:${assetPath}`], {cwd: repoRoot, encoding:"utf8", maxBuffer:64*1024*1024}).stdout;
+  const assets = [...text.matchAll(/"(\/v2\/assets\/[^"]+)": \{ contentType: "[^"]+", base64: "([A-Za-z0-9+/=]*)"/g)];
+  const guard = assets.filter(([, , b64]) => Buffer.from(b64, "base64").toString("utf8")
+    .includes("as_of,items,read_error_code,read_reason_codes,read_status")).length;
+  return { text, assets: assets.length, guard, build: text.match(/^export const V2_BUILD_ID = "([0-9a-f]{64})";$/m)?.[1] };
+}
+function producerEmitsReadErrorCode(commit) {
+  const text = spawnSync("git", ["show", `${commit}:web/strategy-switch-console/application/console_api/desk_delivery.js`], {cwd: repoRoot, encoding:"utf8"}).stdout;
+  return /source: \{\n\s+read_status: readStatus,\n\s+read_error_code: /.test(text);
+}
+{
+  const s1Map = mapGeneration(s1Source);
+  assert.equal(createHash("sha256").update(s1Map.text).digest("hex"), s1MapSha256);
+  assert.equal(s1Map.build, s1BuildId);
+  assert.equal(s1Map.assets, 45);
+  assert.equal(s1Map.guard, 1, "S1 frontend requires the S1 producer field");
+  assert.equal(producerEmitsReadErrorCode(s1Source), true, "S1 Worker producer emits the field");
+  const parentMap = mapGeneration(s1Parent);
+  assert.equal(parentMap.guard, 0);
+  assert.notEqual(parentMap.build, s1BuildId);
+  assert.equal(producerEmitsReadErrorCode(s1Parent), false, "parent producer is the previous generation");
+  assert.equal(spawnSync("git", ["rev-parse", `${s1Parent}:${assetPath}`], {cwd: repoRoot, encoding:"utf8"}).stdout.trim(),
+    "d883bc7f5a36a822c1c73e45d043a9792f4be64c", "parent shares the previous console map");
+}
+const s1Env = {...mergedEnv, RELEASE_SOURCE_SHA:s1Source, FAKE_SELECTED_HEAD:s1Source,
+  FAKE_PARENT:s1Parent, FAKE_TREE:s1Tree, FAKE_PR764_BLOB:s1Blob};
+{
+  const accepted = sourceCase(s1Env, true);
+  assert.equal(accepted.selected, true);
+  const ancestry = accepted.calls.indexOf(`merge-base --is-ancestor ${s1Source} ${control}`);
+  const checkout = accepted.calls.indexOf(`-c advice.detachedHead=false checkout --detach ${s1Source}`);
+  assert.ok(accepted.calls[0] === "rev-parse HEAD" && ancestry > 0 && checkout > ancestry, "CONTROL is read, then SOURCE ancestry, then checkout");
+  for (const pin of [`rev-parse ${s1Source}^@`, `rev-parse ${s1Source}^{tree}`, `rev-parse ${s1Source}:${assetPath}`])
+    assert.ok(accepted.calls.indexOf(pin) > ancestry && accepted.calls.indexOf(pin) < checkout, pin);
+  assert.ok(!accepted.calls.some(call => call.startsWith("fetch")), "SOURCE comes from main history, never a branch fetch");
+}
+// Mode, main-ref and unknown-source rejection happen before any Git call.
+for (const delta of [{RELEASE_FRONTEND_ASSETS:"false"},{RELEASE_FRONTEND_ASSETS:"true\n"},{SYNC_SECRETS:"true"},
+  {SYNC_STRATEGY_PROFILES:"true"},{SKIP_BINANCE_RECEIVER_CHECKS:"true"},
+  {GITHUB_REF:"refs/heads/other"},{GITHUB_REF:"refs/tags/main"},{IBKR_CANDIDATE_RESUME:"verify"},{IBKR_CANDIDATE_RESUME:"activate"},
+  {EXTERNAL_FLOW_ENABLE:"true"},{RELEASE_SOURCE_SHA:s1Source.toUpperCase()},{RELEASE_SOURCE_SHA:s1Source.slice(0,8)},
+  {RELEASE_SOURCE_SHA:s1Source+"\n"},{RELEASE_SOURCE_SHA:s1Parent},{RELEASE_SOURCE_SHA:"b".repeat(40)}]) {
+  assert.deepEqual(sourceCase({...s1Env,...delta},false).calls,[], JSON.stringify(delta));
+}
+// Wrong parent/tree/map/object/ancestry/CONTROL rejects before selection.
+for (const delta of [{FAKE_PARENT:"b".repeat(40)},{FAKE_PARENT:""},{FAKE_PARENT:s1Parent+"\n"+"b".repeat(40)},
+  {FAKE_PARENT:"49781f1be3061a27ad05afc3c675c91744ac27d2"},
+  {FAKE_TREE:"b".repeat(40)},{FAKE_TREE:"04196ebc2293f7c146cc788948d312afdcf5cf99"},
+  {FAKE_PR764_BLOB:"b".repeat(40)},{FAKE_PR764_BLOB:"d883bc7f5a36a822c1c73e45d043a9792f4be64c"},
+  {FAKE_OBJECT_EXIT:"1"},{FAKE_ANCESTRY_EXIT:"1"},{FAKE_CONTROL_HEAD:"b".repeat(40)},
+  {FAKE_CONTROL_HEAD:s1Source,GITHUB_SHA:s1Source}]) {
+  assert.equal(sourceCase({...s1Env,...delta},false).selected,false, JSON.stringify(delta));
+}
+assert.equal(sourceCase({...s1Env,FAKE_SELECTED_HEAD:"b".repeat(40)},false).selected,true, "verify the actual selected checkout too");
+// No cross-acceptance: S1 pins never validate the previous console source.
+assert.equal(sourceCase({...consoleEnv,FAKE_PARENT:s1Parent,FAKE_TREE:s1Tree,FAKE_PR764_BLOB:s1Blob},false).selected,false);
 
 const validSource = sourceCase({}, true);
 assert.equal(validSource.selected, true);
@@ -502,6 +587,7 @@ const fakeOverlayGit = `git() {
     hash-object*) command git "$@" ;;
     'diff --name-only ${approved}') printf '%s' "$FAKE_DIFF" ;;
     'diff --name-only 6f9b84e6192b68bac1627337fb4e633e178fcee3'|'diff --name-only ${inboxSource}'|'diff --name-only ${mergedSource}'|'diff --name-only ${ibkrSource}'|'diff --name-only ${cpuSource}'|'diff --name-only ${settingsSource}'|'diff --name-only ${dailySource}'|'diff --name-only ${statusSource}') printf '%s' "$FAKE_DIFF" ;;
+    'diff --name-only ${s1Source}') printf '%s' "$FAKE_DIFF" ;;
     'ls-files --others --exclude-standard') printf '%s' "$FAKE_UNTRACKED" ;;
     *) return 91 ;;
   esac
@@ -593,6 +679,34 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
     writeFileSync(dest, "fake modified asset");
     assert.notEqual(spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env}).status, 0);
     overlayCases++;
+  } finally {rmSync(temp, {recursive:true,force:true});}
+}
+// The S1 source must keep its own matched map and reject tampering, dirty output,
+// an older map generation, or a head that was not selected for this source.
+{
+  const asset = spawnSync("git", ["show", `${s1Source}:${assetPath}`], {cwd: repoRoot, maxBuffer:64*1024*1024}).stdout;
+  assert.equal(spawnSync("git", ["hash-object", "--stdin"], {input:asset,encoding:"utf8",maxBuffer:64*1024*1024}).stdout.trim(), s1Blob);
+  const olderAsset = spawnSync("git", ["show", `${s1Parent}:${assetPath}`], {cwd: repoRoot, maxBuffer:64*1024*1024}).stdout;
+  const temp = mkdtempSync(join(tmpdir(), "console-s1-overlay-"));
+  try {
+    const dest = join(temp, assetPath);
+    mkdirSync(join(temp, "web/strategy-switch-console"), {recursive:true});
+    const env = {PATH:process.env.PATH, GITHUB_REF:"refs/heads/main", RELEASE_SOURCE_SHA:s1Source, FAKE_HEAD:s1Source,
+      FAKE_TREE:s1Tree, FAKE_DIFF:"", FAKE_UNTRACKED:""};
+    for (const delta of [{}, {FAKE_DIFF:"fake-file"}, {FAKE_DIFF:"web/strategy-switch-console/application/console_api/desk_delivery.js"},
+      {FAKE_UNTRACKED:"fake-file"}, {FAKE_TREE:"a".repeat(40)}, {FAKE_TREE:"04196ebc2293f7c146cc788948d312afdcf5cf99"},
+      {GITHUB_REF:"refs/heads/other"}, {RELEASE_SOURCE_SHA:""}, {RELEASE_SOURCE_SHA:"6f9b84e6192b68bac1627337fb4e633e178fcee3"}]) {
+      writeFileSync(dest, asset);
+      const result = spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env:{...env,...delta}});
+      assert.equal(result.status === 0, Object.keys(delta).length === 0, `S1 overlay must validate exact pins: ${JSON.stringify(delta)}`);
+      overlayCases++;
+      assert.deepEqual(readFileSync(dest), asset, "never overlay an older asset");
+    }
+    for (const bytes of [olderAsset, Buffer.from("fake modified asset")]) {
+      writeFileSync(dest, bytes);
+      assert.notEqual(spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env}).status, 0, "a mismatched frontend generation must stop");
+      overlayCases++;
+    }
   } finally {rmSync(temp, {recursive:true,force:true});}
 }
 // The CPU candidate carries its own exact generated map, never the older overlay.
@@ -809,7 +923,7 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
 async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false, baselineItems=undefined, preUploadVersion=null, preDeployWitness=null, uploadId=null, ambiguousActive=false, expectFailure=null, testHandlers=null, deployed=false } = {}, expected=true) {
  const calls=[], stdout=[], stderr=[], prior=settings?"7ffe9227-686a-48ad-baa9-72665969d918":daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
  active ??= prior; latest ??= active;
- const separateWitness = reviewedMain && (reviewedMainSource === deskSource || reviewedMainSource === inboxSource || reviewedMainSource === consoleSource) && !flow;
+ const separateWitness = reviewedMain && (reviewedMainSource === deskSource || reviewedMainSource === inboxSource || reviewedMainSource === consoleSource || reviewedMainSource === s1Source) && !flow;
  const responses=responseSequence(false,active);
  if (ambiguousActive) responses[0].result.deployments[0].versions.push({version_id:"00000000-0000-4000-8000-000000000024",percentage:0});
  responses.splice(3,0,wrap({items:baselineItems===undefined?[{id:latest}]:baselineItems}));
@@ -943,6 +1057,25 @@ await integratedReleaseCase({...consoleRelease,uploadedTag:"wrong-tag"},false);
 await integratedReleaseCase({...consoleRelease,postTag:null},false);
 await integratedReleaseCase({...consoleRelease,testHandlers:{active:["alpha","beta"],uploaded:["alpha"],post:["alpha"]},expectFailure:{...configStop,checkpoint:"test_export_handlers_removed"}},false);
 await integratedReleaseCase({...consoleRelease,deployed:true,testHandlers:{active:["alpha"],uploaded:["alpha","beta"],post:["alpha"]},expectFailure:postTestStop},false);
+// The S1 source uses the current reviewed-main publisher: active version as the
+// only configuration donor, version-pinned upload, newest upload as a separate
+// concurrency witness, verified module/migration/configuration and 100% activation.
+const s1Release = {reviewedMain:true,reviewedMainSource:s1Source};
+await integratedReleaseCase(s1Release);
+await integratedReleaseCase({...s1Release,latest:orphanWitness});
+for (const baselineItems of [[],null,[{id:"not-a-uuid"}],Array.from({length:11},(_,i)=>({id:`00000000-0000-4000-8000-${String(i).padStart(12,"0")}`}))])
+  await integratedReleaseCase({...s1Release,latest:orphanWitness,baselineItems,expectFailure:baselineStop},false);
+await integratedReleaseCase({...s1Release,ambiguousActive:true,expectFailure:{...stopped,stage:"pre_release_active",upload_attempted:false,outcome:"NOT_ATTEMPTED"}},false);
+await integratedReleaseCase({...s1Release,latest:orphanWitness,preUploadVersion:driftedActive,expectFailure:{...stopped,stage:"pre_upload_active",upload_attempted:false,outcome:"NOT_ATTEMPTED"}},false);
+await integratedReleaseCase({...s1Release,latest:orphanWitness,lineage:driftedWitness,expectFailure:{...stopped,stage:"inherit_lineage",checkpoint:"inherit_lineage_mismatch",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...s1Release,latest:orphanWitness,preDeployWitness:driftedWitness,expectFailure:{...stopped,stage:"pre_deploy_lineage",checkpoint:"inherit_lineage_mismatch",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...s1Release,latest:orphanWitness,uploadId:orphanWitness,expectFailure:{...stopped,checkpoint:"uploaded_matches_witness",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...s1Release,moduleContent:Buffer.from("wrong").toString("base64")},false);
+await integratedReleaseCase({...s1Release,uploadedTag:"wrong-tag"},false);
+await integratedReleaseCase({...s1Release,postTag:null},false);
+await integratedReleaseCase({...s1Release,testHandlers:{active:["alpha"],uploaded:["alpha"],post:["alpha"],runtimeUploaded:["other"]},expectFailure:{...configStop,checkpoint:"configuration_hash_mismatch"}},false);
+await integratedReleaseCase({...s1Release,testHandlers:{active:["alpha","beta"],uploaded:["alpha"],post:["alpha"]},expectFailure:{...configStop,checkpoint:"test_export_handlers_removed"}},false);
+await integratedReleaseCase({...s1Release,deployed:true,testHandlers:{active:["alpha"],uploaded:["alpha","beta"],post:["alpha"]},expectFailure:postTestStop},false);
 await integratedReleaseCase();
 await integratedReleaseCase({flow:true});
 await integratedReleaseCase({flow:true,oldFlag:{name:"CONSOLE_EXTERNAL_FLOW_ENABLED",type:"plain_text",text:"false"}});
