@@ -155,6 +155,11 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 execution_mode=binding.get('execution_mode', '')))
     account_labels = [_account_label(row, group['bindings'], locale)
                       for row, group in zip(representatives, groups.values(), strict=True)]
+    account_labels = [
+        ('账户' if zh else 'Account')
+        if row.platform_id == 'binance' and label.casefold() == 'binance' else label
+        for row, label in zip(representatives, account_labels, strict=True)
+    ]
     contexts = _run_display_contexts(representatives, locale, account_labels=account_labels)
     all_idle = bool(groups)
     blocks = []
@@ -180,8 +185,6 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         strategy_label = ' / '.join(strategies)
         if snapshot_only:
             strategy_label = '账户快照' if zh else 'Account snapshot'
-        if account.casefold() == platform_label.casefold():
-            account = '账户' if zh else 'Account'
         header = '🏦 ' + ' · '.join((platform_label, account, strategy_label))
         details = []
         for binding, outcome in bindings:
@@ -396,6 +399,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             details.append('委托累计成交跨统计窗口；本期仅列实际发生的成交' if zh else
                            'Order fills span reporting windows; only fills in this window are listed')
         simulation_in_state = False
+        uncertain_run_in_state = False
+        uncertain_order_in_state = False
         if partial and filled and not legacy_fill_window_unreliable:
             state = '✅ 部分成交' if zh else '✅ Partially filled'
         elif filled:
@@ -404,20 +409,24 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             state = '委托已结束，详见状态' if zh else 'Orders closed; statuses below'
         elif pending:
             if unconfirmed_orders:
+                uncertain_order_in_state = True
                 state = '⏳ 已提交，订单最终状态待确认' if zh else '⏳ Submitted, final order status unconfirmed'
             else:
                 state = '⏳ 已提交，成交待确认' if zh else '⏳ Submitted, fills unconfirmed'
         elif account_idle:
             state = '😴 无交易' if zh else '😴 No trades'
         elif binance_receipts and rows:
+            uncertain_run_in_state = True
             state = (f'已核实 {quiet}/{len(rows)} 轮无交易，全天交易未确认' if zh else
                      f'{quiet} of {len(rows)} runs verified without trades. Daily activity unconfirmed.')
         elif blocked:
             state = '策略触发风控，全天交易未确认' if zh else 'Strategy runs blocked. Daily activity unconfirmed.'
         elif has_simulation and (unconfirmed_runs or not rows):
             simulation_in_state = True
+            uncertain_run_in_state = True
             state = '实盘交易未确认（模拟记录已排除）' if zh else 'Live activity unconfirmed (simulated runs excluded)'
         elif unconfirmed_runs:
+            uncertain_run_in_state = True
             state = '未能确认策略执行结果' if zh else 'Strategy execution unconfirmed'
         elif snapshot_only or (platform == 'longbridge' and snapshots
                                and all(outcome == 'not_run' for _, outcome in bindings)):
@@ -428,7 +437,9 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             state = '策略未运行，账户交易未知' if zh else 'Strategy did not run; account trades unknown'
         else:
             state = '全天交易未确认' if zh else 'Daily activity unconfirmed'
-        if unconfirmed_orders and state not in ('⏳ 已提交，订单最终状态待确认', '⏳ Submitted, final order status unconfirmed'):
+        if unconfirmed_runs and not uncertain_run_in_state:
+            details.append('有策略轮次执行结果未确认' if zh else 'Some strategy runs remain unconfirmed')
+        if unconfirmed_orders and not uncertain_order_in_state:
             details.append('有订单的最终状态待确认' if zh else 'Some final order statuses are unconfirmed')
         if has_simulation and not simulation_in_state:
             details.append('模拟记录已排除' if zh else 'Simulated runs excluded')

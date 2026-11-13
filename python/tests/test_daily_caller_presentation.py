@@ -106,6 +106,23 @@ class DailyCallerPresentationTests(unittest.TestCase):
         text, _ = self.report([submitted], ["present"])
         self.assertIn("订单最终状态待确认", text)
 
+    def test_recorded_fill_does_not_hide_an_unconfirmed_execution(self):
+        filled = with_facts({**ROW, "order_count": 1, "fill_count": 1}, fills=[record("actual-fill")])
+        unknown = with_facts({**ROW, "source_run_id": "unconfirmed-run", "status": "alert",
+                              "execution_status": "execution_unknown", "order_count": None, "fill_count": None})
+        text, _ = self.report([filled, unknown], ["present"])
+        self.assertIn("有交易", text)
+        self.assertIn("有策略轮次执行结果未确认", text)
+
+    def test_binance_account_label_collision_uses_distinct_headings(self):
+        first = {**EXPECTED[0], "platform_id": "binance", "account_label": "Binance"}
+        second = {**first, "opaque_account_uid": "different-account", "target_id": "different-target",
+                  "candidate_slot": "different-slot", "account_label": "Account"}
+        text = render_account_daily(DailyDigestInput(DAY, locale="en"), [first, second], ["present", "present"])
+        headings = [line for line in text.splitlines() if line.startswith("🏦 ")]
+        self.assertEqual(len(set(headings)), 2)
+        self.assertEqual(text.count("\n\n🏦 "), 2)
+
     def test_verified_risk_block_reports_the_reason_without_an_execution_error(self):
         reason = {"reason_code": "consecutive_loss_limit_exceeded", "observed_value": 6, "limit": 5}
         item = with_facts({**ROW, "status": "alert", "execution_status": "strategy_risk_rejected",
