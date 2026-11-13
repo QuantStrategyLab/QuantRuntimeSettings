@@ -25,6 +25,7 @@ const authHelperTexts = [
   "application/auth/principals.js",
   "application/auth/cookies.js",
   "application/auth/require_env.js",
+  "application/control_plane/helpers.js",
 ].map((path) => readFileSync(new URL(`../web/strategy-switch-console/${path}`, import.meta.url), "utf8"));
 function productionFunction(name, dependencies = {}) {
   const pattern = new RegExp(`(?:export )?(?:async )?function ${name}\\(`);
