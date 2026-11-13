@@ -354,6 +354,59 @@ import {
   readPlatformRuntimeControl as readPlatformRuntimeControlImpl,
   dispatchPlatformRuntimeControl as dispatchPlatformRuntimeControlImpl,
 } from "../runtime_control/http.js";
+import {
+  CONTROL_PLANE_SNAPSHOT_KEY,
+  CONTROL_PLANE_SOURCE_PREFIX,
+  CONTROL_PLANE_SOURCE_SCHEMA_VERSION,
+  CONTROL_PLANE_SOURCE_RETIREMENTS_KEY,
+  CONTROL_PLANE_ATTENTION_STATUSES,
+  CONTROL_PLANE_MAX_SOURCES,
+  CONTROL_PLANE_MAX_BODY_BYTES,
+  CONTROL_PLANE_DEFAULT_STALE_TTL_SECONDS,
+  CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_DAYS,
+  CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_HOUR,
+  CONTROL_PLANE_RESEARCH_DELIVERY_GRACE_MS,
+  CONTROL_PLANE_CANDIDATE_KINDS,
+  CONTROL_PLANE_STAGES,
+  CONTROL_PLANE_AUTOMATION_STATES,
+  FORWARD_OBSERVATION_RESEARCH_STAGES,
+} from "../control_plane/constants.js";
+import {
+  controlPlaneDecisionExpiryAt,
+  isOwnerDecisionCandidate,
+  normalizeControlPlaneSourceRetirements,
+  controlPlaneSourceKey,
+  controlPlaneSnapshotFreshness,
+  controlPlaneResearchSnapshotFreshness,
+  nextControlPlaneResearchScheduleAfter,
+  mergeControlPlaneFreshness,
+  earliestControlPlaneTimestamp,
+  requireDedicatedControlPlaneSyncToken,
+  requireControlPlaneSourceSyncToken,
+  normalizeControlPlaneSnapshot,
+  normalizeControlPlaneSourceSnapshot,
+  emptyControlPlaneSourceSnapshot,
+  normalizeControlPlaneCandidates,
+  normalizeForwardObservation,
+  normalizeForwardObservationDate,
+  normalizeControlPlaneIdentifier,
+  normalizeControlPlaneLifecycle,
+  normalizeControlPlaneEvidence,
+  normalizeControlPlaneRecommendation,
+  normalizeControlPlaneSummary,
+  normalizeControlPlaneAttention,
+  normalizeControlPlanePolicy,
+  emptyControlPlanePayload,
+  controlPlaneStaleTtlSeconds,
+} from "../control_plane/helpers.js";
+import {
+  syncControlPlaneResponse as syncControlPlaneResponseImpl,
+  syncControlPlaneSourceResponse as syncControlPlaneSourceResponseImpl,
+  controlPlaneResponse as controlPlaneResponseImpl,
+  currentControlPlanePayload as currentControlPlanePayloadImpl,
+  aggregateControlPlaneSources as aggregateControlPlaneSourcesImpl,
+  readControlPlaneSources as readControlPlaneSourcesImpl,
+} from "../control_plane/http.js";
 import { startLogin, finishLogin } from "../auth/login.js";
 import { readSession, makeSession } from "../auth/session.js";
 import {
@@ -586,34 +639,24 @@ const SUPPORTED_STRATEGY_DOMAINS = Object.freeze([
 ]);
 export const STRATEGY_HEALTH_DOMAINS = SUPPORTED_STRATEGY_DOMAINS;
 export const STRATEGY_HEALTH_DATA_STATUSES = ["ready", "unavailable", "stale"];
-export const CONTROL_PLANE_SNAPSHOT_KEY = "control_plane_snapshot";
-export const CONTROL_PLANE_SOURCE_PREFIX = "control_plane_source:";
-export const CONTROL_PLANE_SOURCE_SCHEMA_VERSION = "qsl_control_plane_source_snapshot.v1";
-export const CONTROL_PLANE_SOURCE_RETIREMENTS_KEY = "control_plane_source_retirements";
-export const CONTROL_PLANE_ATTENTION_STATUSES = ["research_only", "attention_required", "unavailable"];
-export const CONTROL_PLANE_MAX_SOURCES = 100;
-export const CONTROL_PLANE_MAX_BODY_BYTES = 256 * 1024;
-// The current source is a once-per-trading-day P1/P3 lane, rather than a live
-// execution heartbeat. Freshness therefore preserves the normal TTL, but also
-// waits for the next scheduled research window across the weekend before it
-// calls an otherwise usable Friday/Saturday snapshot stale.
-export const CONTROL_PLANE_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
-export const CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_DAYS = new Set([2, 3, 4, 5, 6]);
-export const CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_HOUR = 3;
-export const CONTROL_PLANE_RESEARCH_DELIVERY_GRACE_MS = 4 * 60 * 60 * 1000;
-export const CONTROL_PLANE_CANDIDATE_KINDS = ["individual", "portfolio", "plugin"];
-export const CONTROL_PLANE_STAGES = ["P1", "P2", "P3", "P4", "P5", "P6"];
-const CONTROL_PLANE_LIFECYCLE_STATUSES = [
-  "research", "evidence_pending", "verified", "deferred", "parked", "paper", "shadow", "owner_decision_required",
-];
-const CONTROL_PLANE_RECOMMENDATIONS = [
-  "none", "keep_research", "defer", "park", "auto_paper_evaluation", "auto_shadow_evaluation", "owner_live_decision",
-];
-export const CONTROL_PLANE_AUTOMATION_STATES = ["not_configured", "configured", "active"];
-const FORWARD_OBSERVATION_STATES = [
-  "PARKED", "FORWARD_ACTIVE", "PAUSED", "FORWARD_COMPLETE_HUMAN_REVIEW", "MANUAL_HOLD", "IDENTITY_MISMATCH", "RISK_BLOCKED", "REVOKED", "SUPERSEDED",
-];
-export const FORWARD_OBSERVATION_RESEARCH_STAGES = new Set(["P1", "P2", "P3", "P4"]);
+export {
+  CONTROL_PLANE_SNAPSHOT_KEY,
+  CONTROL_PLANE_SOURCE_PREFIX,
+  CONTROL_PLANE_SOURCE_SCHEMA_VERSION,
+  CONTROL_PLANE_SOURCE_RETIREMENTS_KEY,
+  CONTROL_PLANE_ATTENTION_STATUSES,
+  CONTROL_PLANE_MAX_SOURCES,
+  CONTROL_PLANE_MAX_BODY_BYTES,
+  CONTROL_PLANE_DEFAULT_STALE_TTL_SECONDS,
+  CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_DAYS,
+  CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_HOUR,
+  CONTROL_PLANE_RESEARCH_DELIVERY_GRACE_MS,
+  CONTROL_PLANE_CANDIDATE_KINDS,
+  CONTROL_PLANE_STAGES,
+  CONTROL_PLANE_AUTOMATION_STATES,
+  FORWARD_OBSERVATION_RESEARCH_STAGES,
+};
+
 // M1 adaptive selections are a separate read-only projection. They are not
 // lifecycle evidence, an account instruction, or an execution permission.
 export const ADAPTIVE_SELECTION_SOURCE_PREFIX = "adaptive_selection_source:";
@@ -3189,16 +3232,7 @@ export function humanDecisionTimestamp(value) {
 // Actionable material expires when the evidence that produced it would itself be
 // stale. A missing or future-dated anchor yields null, which callers treat as
 // "not actionable" rather than inventing authority.
-export function controlPlaneDecisionExpiryAt(snapshot, ttlSeconds, now = Date.now()) {
-  const timestamps = [snapshot?.generated_at, snapshot?.computed_at]
-    .filter(Boolean)
-    .map((value) => Date.parse(value))
-    .filter((value) => Number.isFinite(value));
-  if (!timestamps.length) return null;
-  const observedAt = Math.min(...timestamps);
-  if (observedAt > now + 5 * 60 * 1000) return null;
-  return observedAt + ttlSeconds * 1000;
-}
+export { controlPlaneDecisionExpiryAt };
 
 export function reconciliationRecoveryDecisionExpiryAt(recovery, source, ttlSeconds, now = Date.now()) {
   const sourceExpiry = controlPlaneDecisionExpiryAt(source, ttlSeconds, now);
@@ -3550,149 +3584,31 @@ export async function promotionTicketWithAuthority(env, ticket) {
   return overlayPromotionDecision(ticket, authority);
 }
 
+function controlPlaneRuntimeDeps() {
+  return {
+    readBoundedJson,
+    publishHumanOwnerMaterials,
+    appendAuditLog,
+  };
+}
+
 export async function syncControlPlaneResponse(request, env) {
-  requireDedicatedControlPlaneSyncToken(request, env);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "control plane KV is not configured" }, 503);
-  }
-
-  let raw;
-  try {
-    raw = await readBoundedJson(request, CONTROL_PLANE_MAX_BODY_BYTES);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid control plane payload" }, error.status || 400);
-  }
-
-  let snapshot;
-  try {
-    snapshot = normalizeControlPlaneSnapshot(raw, "control plane snapshot");
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid control plane payload" }, 400);
-  }
-  try {
-    await publishHumanOwnerMaterials(env, snapshot, "control-plane-snapshot");
-  } catch (error) {
-    return json({ ok: false, error: error.message || "owner decision material unavailable" }, error.status || 503);
-  }
-
-  await writeConfigJson(env, CONTROL_PLANE_SNAPSHOT_KEY, snapshot);
-  try {
-    await appendAuditLog(env, {
-      ts: new Date().toISOString(),
-      login: "control-plane-sync",
-      action: "sync_control_plane",
-      schema_version: snapshot.schema_version,
-      candidate_count: snapshot.summary.candidate_count,
-      data_status: snapshot.data_status,
-    });
-  } catch {
-    // A successful snapshot must not expose its payload through audit failures.
-  }
-  return json({
-    ok: true,
-    schema_version: snapshot.schema_version,
-    candidate_count: snapshot.summary.candidate_count,
-    generated_at: snapshot.generated_at,
-  });
+  return syncControlPlaneResponseImpl(request, env, controlPlaneRuntimeDeps());
 }
 
 export async function syncControlPlaneSourceResponse(request, env) {
-  const validationOnly = requireControlPlaneSourceSyncToken(request, env);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "control plane KV is not configured" }, 503);
-  }
-
-  let raw;
-  try {
-    raw = await readBoundedJson(request, CONTROL_PLANE_MAX_BODY_BYTES);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid control plane source payload" }, error.status || 400);
-  }
-
-  let source;
-  try {
-    source = normalizeControlPlaneSourceSnapshot(raw, "control plane source snapshot");
-  } catch (error) {
-    return json({ ok: false, error: error.message || "invalid control plane source payload" }, 400);
-  }
-
-  if (validationOnly) {
-    const candidate = source.candidates[0];
-    const runId = candidate?.candidate_id?.match(/^soxl_three_asset_mid_weight_validation_([1-9][0-9]*)$/)?.[1];
-    if (
-      source.source_id !== "aiaudit.soxl_manual_validation" ||
-      source.candidates.length !== 1 || !runId ||
-      candidate.candidate_kind !== "individual" || candidate.domain !== "us_equity" ||
-      candidate.lifecycle.stage !== "P3" || candidate.lifecycle.status !== "parked" ||
-      candidate.recommendation.code !== "park" || candidate.evidence.p3_evidence_id !== runId
-    ) {
-      return json({ ok: false, error: "validation publisher scope mismatch" }, 403);
-    }
-  }
-  try {
-    await publishHumanOwnerMaterials(env, source, source.source_id);
-  } catch (error) {
-    return json({ ok: false, error: error.message || "owner decision material unavailable" }, error.status || 503);
-  }
-
-  await writeConfigJson(env, controlPlaneSourceKey(source.source_id), source);
-  try {
-    await appendAuditLog(env, {
-      ts: new Date().toISOString(),
-      login: "control-plane-source-sync",
-      action: "sync_control_plane_source",
-      source_id: source.source_id,
-      schema_version: source.schema_version,
-      candidate_count: source.candidates.length,
-      data_status: source.data_status,
-    });
-  } catch {
-    // The source snapshot is accepted independently of an optional audit write.
-  }
-  return json({
-    ok: true,
-    source_id: source.source_id,
-    schema_version: source.schema_version,
-    candidate_count: source.candidates.length,
-    generated_at: source.generated_at,
-  });
+  return syncControlPlaneSourceResponseImpl(request, env, controlPlaneRuntimeDeps());
 }
 
 export async function controlPlaneResponse(request, env) {
-  const session = await readSession(request, env);
-  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  return json(await currentControlPlanePayload(env));
+  return controlPlaneResponseImpl(request, env);
 }
 
 export async function currentControlPlanePayload(env) {
-  if (!hasConfigStore(env)) return emptyControlPlanePayload("snapshot_unavailable");
-
-  const sourceSnapshot = await aggregateControlPlaneSources(env);
-  if (sourceSnapshot) return sourceSnapshot;
-
-  let snapshot;
-  try {
-    const stored = await readConfigJson(env, CONTROL_PLANE_SNAPSHOT_KEY);
-    if (!stored) return emptyControlPlanePayload("snapshot_unavailable");
-    snapshot = normalizeControlPlaneSnapshot(stored, CONTROL_PLANE_SNAPSHOT_KEY);
-  } catch {
-    return emptyControlPlanePayload("snapshot_invalid");
-  }
-
-  const freshness = controlPlaneResearchSnapshotFreshness(
-    snapshot,
-    controlPlaneStaleTtlSeconds(env),
-    Date.now(),
-  );
-  snapshot.data_status = freshness.data_status;
-  return snapshot;
+  return currentControlPlanePayloadImpl(env);
 }
 
-export function isOwnerDecisionCandidate(candidate) {
-  return candidate?.lifecycle?.stage === "P6"
-    && candidate.lifecycle.status === "owner_decision_required"
-    && candidate.recommendation?.code === "owner_live_decision";
-}
+export { isOwnerDecisionCandidate };
 
 export function currentOwnerDecisionCandidate(controlPlane, candidateId) {
   if (controlPlane?.data_status !== "ready") {
@@ -5993,137 +5909,16 @@ export async function readResearchTaskSources(env) {
 }
 
 export async function aggregateControlPlaneSources(env) {
-  const now = Date.now();
-  let retirements;
-  try {
-    const stored = await configStore(env).get(CONTROL_PLANE_SOURCE_RETIREMENTS_KEY);
-    retirements = stored === null || stored === undefined
-      ? new Map()
-      : normalizeControlPlaneSourceRetirements(JSON.parse(stored), now);
-  } catch {
-    return emptyControlPlanePayload("control_plane_source_retirements_invalid");
-  }
-  const sources = await readControlPlaneSources(env);
-  // A legacy aggregate has no source identity and cannot honor a retirement.
-  if (!sources?.length && !retirements.size) return null;
-
-  const ttlSeconds = controlPlaneStaleTtlSeconds(env);
-  const candidates = [];
-  const historicalSources = [];
-  const candidateIds = new Set();
-  const duplicateCandidateIds = new Set();
-  const errors = [];
-  const timestamps = [];
-  let hasReadySource = false;
-  let hasStaleSource = false;
-
-  for (const source of sources || []) {
-    const sourceFreshness = controlPlaneResearchSnapshotFreshness(source, ttlSeconds, now);
-    const retirement = retirements.get(source.source_id);
-    if (retirement) {
-      historicalSources.push({ retirement, snapshot: source, freshness: sourceFreshness });
-      continue;
-    }
-    if (source.generated_at) timestamps.push(source.generated_at);
-    if (source.computed_at) timestamps.push(source.computed_at);
-    if (sourceFreshness.data_status === "ready") hasReadySource = true;
-    if (sourceFreshness.data_status === "stale") {
-      hasStaleSource = true;
-      errors.push("control_plane_source_stale");
-    }
-    for (const candidate of source.candidates) {
-      if (candidateIds.has(candidate.candidate_id)) {
-        duplicateCandidateIds.add(candidate.candidate_id);
-        errors.push("control_plane_duplicate_candidate");
-        continue;
-      }
-      candidateIds.add(candidate.candidate_id);
-      candidates.push({
-        ...candidate,
-        source_id: source.source_id,
-        freshness: mergeControlPlaneFreshness(candidate.freshness, sourceFreshness),
-      });
-    }
-    errors.push(...source.errors);
-  }
-
-  const dataStatus = hasStaleSource ? "stale" : (hasReadySource ? "ready" : "unavailable");
-  const uniqueCandidates = candidates.filter((candidate) => !duplicateCandidateIds.has(candidate.candidate_id));
-  const uniqueErrors = uniqueStrings(errors);
-  return {
-    schema_version: "qsl_control_plane_dashboard.v1",
-    generated_at: earliestControlPlaneTimestamp(timestamps),
-    computed_at: earliestControlPlaneTimestamp(timestamps),
-    data_status: dataStatus,
-    summary: normalizeControlPlaneSummary(uniqueCandidates),
-    attention: normalizeControlPlaneAttention({
-      dataStatus,
-      candidates: uniqueCandidates,
-      errors: uniqueErrors,
-    }),
-    candidates: uniqueCandidates,
-    ...(retirements.size ? { historical_sources: historicalSources } : {}),
-    policy: normalizeControlPlanePolicy({
-      p4_p5_automation: "not_configured",
-      p6_owner_decision_required: true,
-      notice: "P1–P3 自动研究已接入；P4/P5 尚未配置，live 仍需所有者明确决定。",
-    }, "aggregated control plane policy"),
-    errors: uniqueErrors,
-  };
+  return aggregateControlPlaneSourcesImpl(env);
 }
 
-export function normalizeControlPlaneSourceRetirements(payload, now) {
-  const value = assertExactFields(payload, ["schema_version", "retirements"], CONTROL_PLANE_SOURCE_RETIREMENTS_KEY);
-  if (value.schema_version !== "qsl_control_plane_source_retirements.v1"
-      || !Array.isArray(value.retirements) || value.retirements.length > CONTROL_PLANE_MAX_SOURCES) {
-    throw new Error("invalid control plane source retirements");
-  }
-  const retirements = new Map();
-  for (const entry of value.retirements) {
-    const item = assertExactFields(entry, ["source_id", "retired_at", "reason"], "source retirement");
-    const sourceId = normalizeControlPlaneIdentifier(item.source_id, "source retirement.source_id", false);
-    const retiredAt = normalizeStrategyHealthTimestamp(item.retired_at, "source retirement.retired_at");
-    const reason = typeof item.reason === "string"
-      ? sanitizeStrategyHealthText(item.reason, "source retirement.reason", 240, false, null) : null;
-    // "unavailable" is the diagnostic identity for unreadable source records.
-    if (sourceId === "unavailable" || retirements.has(sourceId) || Date.parse(retiredAt) > now || !reason) {
-      throw new Error("invalid control plane source retirement");
-    }
-    retirements.set(sourceId, { source_id: sourceId, retired_at: retiredAt, reason });
-  }
-  return retirements;
-}
+export { normalizeControlPlaneSourceRetirements };
 
 export async function readControlPlaneSources(env) {
-  const store = configStore(env);
-  if (!store) return null;
-  let listing;
-  try {
-    listing = await directoryList(env, CONTROL_PLANE_SOURCE_PREFIX, CONTROL_PLANE_MAX_SOURCES);
-  } catch (error) {
-    return [emptyControlPlaneSourceSnapshot(sourceListFailure(error, "control_plane_source_list_unavailable"))];
-  }
-  const keys = Array.isArray(listing?.keys) ? listing.keys : [];
-  const sources = [];
-  for (const entry of keys.slice(0, CONTROL_PLANE_MAX_SOURCES)) {
-    const key = typeof entry?.name === "string" ? entry.name : "";
-    if (!key.startsWith(CONTROL_PLANE_SOURCE_PREFIX)) continue;
-    try {
-      const stored = await readConfigJson(env, key);
-      if (!stored) throw new Error("indexed_record_unavailable");
-      const source = normalizeControlPlaneSourceSnapshot(stored, key);
-      if (key !== controlPlaneSourceKey(source.source_id)) throw new Error("control plane source identity mismatch");
-      sources.push(source);
-    } catch {
-      sources.push(emptyControlPlaneSourceSnapshot("control_plane_source_invalid"));
-    }
-  }
-  return sources;
+  return readControlPlaneSourcesImpl(env);
 }
 
-export function controlPlaneSourceKey(sourceId) {
-  return `${CONTROL_PLANE_SOURCE_PREFIX}${sourceId}`;
-}
+export { controlPlaneSourceKey };
 
 export async function syncAdaptiveSelectionSourceResponse(request, env) {
   requireDedicatedAdaptiveSelectionSyncToken(request, env);
@@ -6402,61 +6197,11 @@ export function adaptiveSelectionSourceKey(sourceId) {
   return `${ADAPTIVE_SELECTION_SOURCE_PREFIX}${sourceId}`;
 }
 
-export function controlPlaneSnapshotFreshness(snapshot, ttlSeconds, now) {
-  const timestamps = [snapshot.generated_at, snapshot.computed_at]
-    .filter(Boolean)
-    .map((value) => Date.parse(value));
-  const freshnessAt = timestamps.length ? Math.min(...timestamps) : Number.NaN;
-  const futureBeyondClockSkew = Number.isFinite(freshnessAt) && freshnessAt > now + 5 * 60 * 1000;
-  const ageSeconds = futureBeyondClockSkew
-    ? Number.POSITIVE_INFINITY
-    : Number.isFinite(freshnessAt)
-      ? Math.max(0, Math.round((now - freshnessAt) / 1000))
-      : Number.POSITIVE_INFINITY;
-  const dataStatus = snapshot.data_status === "ready" && ageSeconds > ttlSeconds
-    ? "stale"
-    : snapshot.data_status;
-  return { data_status: dataStatus, age_seconds: Number.isFinite(ageSeconds) ? ageSeconds : null };
-}
-
-export function controlPlaneResearchSnapshotFreshness(snapshot, ttlSeconds, now) {
-  if (snapshot.data_status !== "ready") {
-    return controlPlaneSnapshotFreshness(snapshot, ttlSeconds, now);
-  }
-  const timestamps = [snapshot.generated_at, snapshot.computed_at]
-    .filter(Boolean)
-    .map((value) => Date.parse(value));
-  const freshnessAt = timestamps.length ? Math.min(...timestamps) : Number.NaN;
-  const futureBeyondClockSkew = Number.isFinite(freshnessAt) && freshnessAt > now + 5 * 60 * 1000;
-  const ageSeconds = futureBeyondClockSkew
-    ? Number.POSITIVE_INFINITY
-    : Number.isFinite(freshnessAt)
-      ? Math.max(0, Math.round((now - freshnessAt) / 1000))
-      : Number.POSITIVE_INFINITY;
-  if (!Number.isFinite(freshnessAt) || futureBeyondClockSkew) {
-    return { data_status: "stale", age_seconds: null };
-  }
-
-  const ttlDeadline = freshnessAt + ttlSeconds * 1000;
-  const nextScheduledRefresh = nextControlPlaneResearchScheduleAfter(freshnessAt);
-  const scheduledDeadline = nextScheduledRefresh + CONTROL_PLANE_RESEARCH_DELIVERY_GRACE_MS;
-  const staleDeadline = Math.max(ttlDeadline, scheduledDeadline);
-  return {
-    data_status: now > staleDeadline ? "stale" : "ready",
-    age_seconds: ageSeconds,
-  };
-}
-
-export function nextControlPlaneResearchScheduleAfter(freshnessAt) {
-  const scheduled = new Date(freshnessAt);
-  scheduled.setUTCMinutes(0, 0, 0);
-  scheduled.setUTCHours(CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_HOUR);
-  if (scheduled.getTime() <= freshnessAt) scheduled.setUTCDate(scheduled.getUTCDate() + 1);
-  while (!CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_DAYS.has(scheduled.getUTCDay())) {
-    scheduled.setUTCDate(scheduled.getUTCDate() + 1);
-  }
-  return scheduled.getTime();
-}
+export {
+  controlPlaneSnapshotFreshness,
+  controlPlaneResearchSnapshotFreshness,
+  nextControlPlaneResearchScheduleAfter,
+};
 
 // A recently published source must not be able to re-advertise an old
 // reconciliation candidate as current.  The private controller independently
@@ -6478,26 +6223,10 @@ export function reconciliationRecoveryEvidenceFreshness(recovery, sourceFreshnes
   return { data_status: dataStatus, age_seconds: Number.isFinite(ageSeconds) ? ageSeconds : null };
 }
 
-export function mergeControlPlaneFreshness(candidateFreshness, sourceFreshness) {
-  const sourceAgeSeconds = sourceFreshness.age_seconds;
-  const candidateAge = candidateFreshness.age_seconds;
-  const ageSeconds = sourceAgeSeconds === null
-    ? candidateAge
-    : (candidateAge === null ? sourceAgeSeconds : Math.max(candidateAge, sourceAgeSeconds));
-  const status = candidateFreshness.status === "stale" || sourceFreshness.data_status !== "ready"
-    ? "stale"
-    : candidateFreshness.status;
-  return { status, age_seconds: ageSeconds };
-}
-
-export function earliestControlPlaneTimestamp(values) {
-  const timestamps = values
-    .filter(Boolean)
-    .map((value) => ({ value, timestamp: Date.parse(value) }))
-    .filter((item) => Number.isFinite(item.timestamp))
-    .sort((left, right) => left.timestamp - right.timestamp);
-  return timestamps[0]?.value || null;
-}
+export {
+  mergeControlPlaneFreshness,
+  earliestControlPlaneTimestamp,
+};
 
 export async function readBoundedJson(request, maxBytes) {
   const declaredLength = Number(request.headers.get("Content-Length") || 0);
@@ -6519,25 +6248,10 @@ export function requireDedicatedStrategyHealthSyncToken(request, env) {
   if (token !== expected) throw new HttpError("strategy health sync token is invalid", 401);
 }
 
-export function requireDedicatedControlPlaneSyncToken(request, env) {
-  const expected = String(env.CONTROL_PLANE_SYNC_TOKEN || "");
-  if (!expected) throw new HttpError("control plane sync token is not configured", 500);
-  const header = request.headers.get("Authorization") || "";
-  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
-  if (token !== expected) throw new HttpError("control plane sync token is invalid", 401);
-}
-
-export function requireControlPlaneSourceSyncToken(request, env) {
-  const validationToken = String(env.AAB_VALIDATION_SYNC_TOKEN || "");
-  const token = (request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
-  // Check the narrower credential first, including accidental equal bindings.
-  if (validationToken && token === validationToken) return true;
-  if (validationToken && !env.CONTROL_PLANE_SYNC_TOKEN) {
-    throw new HttpError("control plane source sync token is invalid", 401);
-  }
-  requireDedicatedControlPlaneSyncToken(request, env);
-  return false;
-}
+export {
+  requireDedicatedControlPlaneSyncToken,
+  requireControlPlaneSourceSyncToken,
+};
 
 export function requireDedicatedAdaptiveSelectionSyncToken(request, env) {
   const expected = String(env.ADAPTIVE_SELECTION_SYNC_TOKEN || "");
@@ -8544,68 +8258,11 @@ export function strategyHealthStaleTtlSeconds(env) {
   return Math.floor(configured);
 }
 
-export function normalizeControlPlaneSnapshot(payload, fieldName = "control plane snapshot") {
-  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
-    throw new Error(`${fieldName} must be an object`);
-  }
-  if (payload.schema_version !== "qsl_control_plane_dashboard.v1") {
-    throw new Error(`${fieldName}.schema_version is unsupported`);
-  }
-  for (const required of ["generated_at", "computed_at", "data_status", "summary", "candidates", "policy", "errors"]) {
-    if (!(required in payload)) throw new Error(`${fieldName}.${required} is required`);
-  }
-  if (!payload.summary || Array.isArray(payload.summary) || typeof payload.summary !== "object") {
-    throw new Error(`${fieldName}.summary must be an object`);
-  }
-  const dataStatus = cleanChoice(payload.data_status || "unavailable", STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
-  const candidates = dataStatus === "unavailable" ? [] : normalizeControlPlaneCandidates(payload.candidates, fieldName);
-  const errors = normalizeStrategyHealthErrors(payload.errors);
-  return {
-    schema_version: "qsl_control_plane_dashboard.v1",
-    generated_at: normalizeStrategyHealthTimestamp(payload.generated_at, `${fieldName}.generated_at`, true),
-    computed_at: normalizeStrategyHealthTimestamp(payload.computed_at, `${fieldName}.computed_at`, true),
-    data_status: dataStatus,
-    summary: normalizeControlPlaneSummary(candidates),
-    attention: normalizeControlPlaneAttention({ dataStatus, candidates, errors }),
-    candidates,
-    policy: normalizeControlPlanePolicy(payload.policy, fieldName),
-    errors,
-  };
-}
-
-export function normalizeControlPlaneSourceSnapshot(payload, fieldName = "control plane source snapshot") {
-  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
-    throw new Error(`${fieldName} must be an object`);
-  }
-  if (payload.schema_version !== CONTROL_PLANE_SOURCE_SCHEMA_VERSION) {
-    throw new Error(`${fieldName}.schema_version is unsupported`);
-  }
-  for (const required of ["source_id", "generated_at", "computed_at", "data_status", "candidates", "errors"]) {
-    if (!(required in payload)) throw new Error(`${fieldName}.${required} is required`);
-  }
-  const dataStatus = cleanChoice(payload.data_status || "unavailable", STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
-  return {
-    schema_version: CONTROL_PLANE_SOURCE_SCHEMA_VERSION,
-    source_id: normalizeControlPlaneIdentifier(payload.source_id, `${fieldName}.source_id`, false),
-    generated_at: normalizeStrategyHealthTimestamp(payload.generated_at, `${fieldName}.generated_at`, true),
-    computed_at: normalizeStrategyHealthTimestamp(payload.computed_at, `${fieldName}.computed_at`, true),
-    data_status: dataStatus,
-    candidates: dataStatus === "unavailable" ? [] : normalizeControlPlaneCandidates(payload.candidates, fieldName),
-    errors: normalizeStrategyHealthErrors(payload.errors),
-  };
-}
-
-export function emptyControlPlaneSourceSnapshot(errorCode) {
-  return {
-    schema_version: CONTROL_PLANE_SOURCE_SCHEMA_VERSION,
-    source_id: "unavailable",
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    candidates: [],
-    errors: [errorCode],
-  };
-}
+export {
+  normalizeControlPlaneSnapshot,
+  normalizeControlPlaneSourceSnapshot,
+  emptyControlPlaneSourceSnapshot,
+};
 
 export function requireDedicatedM0ResearchSyncToken(request, env) {
   const expected = String(env.M0_RESEARCH_SYNC_TOKEN || "");
@@ -9367,154 +9024,18 @@ export function adaptiveSelectionStaleTtlSeconds(env) {
   return Math.floor(configured);
 }
 
-export function normalizeControlPlaneCandidates(value, fieldName) {
-  if (!Array.isArray(value) || value.length > 1000) {
-    throw new Error(`${fieldName}.candidates must be an array with at most 1000 items`);
-  }
-  const seen = new Set();
-  return value.map((item, index) => {
-    const prefix = `${fieldName}.candidates[${index}]`;
-    if (!item || Array.isArray(item) || typeof item !== "object") throw new Error(`${prefix} must be an object`);
-    const candidateId = normalizeControlPlaneIdentifier(item.candidate_id, `${prefix}.candidate_id`, false);
-    if (seen.has(candidateId)) throw new Error(`${fieldName}.candidates contains duplicate candidate_id`);
-    seen.add(candidateId);
-    const lifecycle = normalizeControlPlaneLifecycle(item.lifecycle, prefix);
-    const recommendation = normalizeControlPlaneRecommendation(item.recommendation, prefix);
-    const isOwnerDecision = lifecycle.stage === "P6";
-    if (isOwnerDecision && (lifecycle.status !== "owner_decision_required" || recommendation.code !== "owner_live_decision")) {
-      throw new Error(`${prefix} P6 must be an owner_live_decision`);
-    }
-    if (!isOwnerDecision && (lifecycle.status === "owner_decision_required" || recommendation.code === "owner_live_decision")) {
-      throw new Error(`${prefix} only P6 can require an owner_live_decision`);
-    }
-    const forwardObservation = item.forward_observation === undefined
-      ? undefined
-      : normalizeForwardObservation(item.forward_observation, lifecycle, prefix);
-    return {
-      candidate_id: candidateId,
-      candidate_kind: cleanChoice(item.candidate_kind, CONTROL_PLANE_CANDIDATE_KINDS, `${prefix}.candidate_kind`),
-      domain: cleanChoice(item.domain, STRATEGY_HEALTH_DOMAINS, `${prefix}.domain`),
-      lifecycle,
-      evidence: normalizeControlPlaneEvidence(item.evidence, prefix),
-      recommendation,
-      freshness: normalizeStrategyHealthFreshness(item.freshness, `${prefix}.freshness`),
-      ...(forwardObservation === undefined ? {} : { forward_observation: forwardObservation }),
-    };
-  });
-}
-
-export function normalizeForwardObservation(value, lifecycle, prefix) {
-  if (!FORWARD_OBSERVATION_RESEARCH_STAGES.has(lifecycle.stage)) {
-    throw new Error(`${prefix}.forward_observation is only allowed for research stages`);
-  }
-  const observation = assertExactFields(value, [
-    "state", "observations_completed", "required_trading_sessions", "last_observed_session", "observed_at", "no_order", "live_authority_granted",
-  ], `${prefix}.forward_observation`);
-  const completed = observation.observations_completed;
-  const required = observation.required_trading_sessions;
-  if (!Number.isSafeInteger(completed) || !Number.isSafeInteger(required) || completed < 0 || required < 1 || completed > required || required > 10000) {
-    throw new Error(`${prefix}.forward_observation observation counts are invalid`);
-  }
-  if (observation.no_order !== true) throw new Error(`${prefix}.forward_observation.no_order must be true`);
-  if (observation.live_authority_granted !== false) throw new Error(`${prefix}.forward_observation.live_authority_granted must be false`);
-  return {
-    state: cleanChoice(observation.state, FORWARD_OBSERVATION_STATES, `${prefix}.forward_observation.state`),
-    observations_completed: completed,
-    required_trading_sessions: required,
-    last_observed_session: normalizeForwardObservationDate(observation.last_observed_session, `${prefix}.forward_observation.last_observed_session`),
-    observed_at: normalizeStrategyHealthTimestamp(observation.observed_at, `${prefix}.forward_observation.observed_at`),
-    no_order: true,
-    live_authority_granted: false,
-  };
-}
-
-export function normalizeForwardObservationDate(value, fieldName) {
-  const text = normalizeStrategyHealthText(value, fieldName, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(`${text}T00:00:00.000Z`)) || new Date(`${text}T00:00:00.000Z`).toISOString().slice(0, 10) !== text) {
-    throw new Error(`${fieldName} must be an ISO date`);
-  }
-  return text;
-}
-
-export function normalizeControlPlaneIdentifier(value, fieldName, nullable = true) {
-  if ((value === null || value === undefined || value === "") && nullable) return null;
-  const text = String(value || "").trim();
-  if (!/^[A-Za-z0-9._=-]{1,128}$/.test(text)) throw new Error(`${fieldName} is invalid`);
-  if (/(token|secret|password|cookie|private|api[_-]?key)/i.test(text)) throw new Error(`${fieldName} is sensitive`);
-  return text;
-}
-
-export function normalizeControlPlaneLifecycle(value, prefix) {
-  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    stage: cleanChoice(source.stage, CONTROL_PLANE_STAGES, `${prefix}.lifecycle.stage`),
-    status: cleanChoice(source.status, CONTROL_PLANE_LIFECYCLE_STATUSES, `${prefix}.lifecycle.status`),
-  };
-}
-
-export function normalizeControlPlaneEvidence(value, prefix) {
-  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    p1_input_digest: normalizeControlPlaneIdentifier(source.p1_input_digest, `${prefix}.evidence.p1_input_digest`),
-    p2_config_digest: normalizeControlPlaneIdentifier(source.p2_config_digest, `${prefix}.evidence.p2_config_digest`),
-    p3_evidence_id: normalizeControlPlaneIdentifier(source.p3_evidence_id, `${prefix}.evidence.p3_evidence_id`),
-    source_revision: normalizeControlPlaneIdentifier(source.source_revision, `${prefix}.evidence.source_revision`),
-  };
-}
-
-export function normalizeControlPlaneRecommendation(value, prefix) {
-  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    code: cleanChoice(source.code || "none", CONTROL_PLANE_RECOMMENDATIONS, `${prefix}.recommendation.code`),
-    reason: sanitizeStrategyHealthText(source.reason, `${prefix}.recommendation.reason`, 240, false, "没有可用的机器建议。"),
-  };
-}
-
-export function normalizeControlPlaneSummary(candidates) {
-  return {
-    candidate_count: candidates.length,
-    deferred: candidates.filter((item) => item.lifecycle.status === "deferred").length,
-    parked: candidates.filter((item) => item.lifecycle.status === "parked").length,
-    owner_decision_required: candidates.filter((item) => item.lifecycle.status === "owner_decision_required").length,
-  };
-}
-
-export function normalizeControlPlaneAttention({ dataStatus, candidates, errors }) {
-  const normalizedCandidates = Array.isArray(candidates) ? candidates : [];
-  const normalizedErrors = uniqueStrings(Array.isArray(errors) ? errors : []);
-  const reasonCodes = new Set(normalizedErrors);
-  if (dataStatus !== "ready") reasonCodes.add("control_plane_source_unavailable");
-  if (!normalizedCandidates.length && dataStatus === "ready") reasonCodes.add("control_plane_candidate_missing");
-  if (normalizedCandidates.some((item) => item.lifecycle?.status === "deferred")) {
-    reasonCodes.add("control_plane_candidate_deferred");
-  }
-  if (normalizedCandidates.some((item) => item.lifecycle?.status === "parked")) {
-    reasonCodes.add("control_plane_candidate_parked");
-  }
-  const status = dataStatus !== "ready"
-    ? "unavailable"
-    : (reasonCodes.size ? "attention_required" : "research_only");
-  return {
-    status: cleanChoice(status, CONTROL_PLANE_ATTENTION_STATUSES, "control plane attention status"),
-    reason_codes: [...reasonCodes].sort(),
-  };
-}
-
-export function normalizeControlPlanePolicy(value, fieldName) {
-  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  if (source.p6_owner_decision_required !== true) {
-    throw new Error(`${fieldName}.policy.p6_owner_decision_required must be true`);
-  }
-  return {
-    p4_p5_automation: cleanChoice(
-      source.p4_p5_automation || "not_configured",
-      CONTROL_PLANE_AUTOMATION_STATES,
-      `${fieldName}.policy.p4_p5_automation`,
-    ),
-    p6_owner_decision_required: true,
-    notice: sanitizeStrategyHealthText(source.notice, `${fieldName}.policy.notice`, 240, false, "live 仍需所有者明确决定。"),
-  };
-}
+export {
+  normalizeControlPlaneCandidates,
+  normalizeForwardObservation,
+  normalizeForwardObservationDate,
+  normalizeControlPlaneIdentifier,
+  normalizeControlPlaneLifecycle,
+  normalizeControlPlaneEvidence,
+  normalizeControlPlaneRecommendation,
+  normalizeControlPlaneSummary,
+  normalizeControlPlaneAttention,
+  normalizeControlPlanePolicy,
+};
 
 export function normalizeBinancePrivateScopeReport(payload, { requireIngestFreshness = false } = {}) {
   const report = assertExactFields(payload, [
@@ -10053,27 +9574,10 @@ export function executionEvidenceStaleTtlSeconds(env) {
   return Math.floor(configured);
 }
 
-export function emptyControlPlanePayload(errorCode) {
-  return {
-    schema_version: "qsl_control_plane_dashboard.v1",
-    generated_at: null,
-    computed_at: null,
-    data_status: "unavailable",
-    summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
-    attention: { status: "unavailable", reason_codes: ["control_plane_source_unavailable", errorCode] },
-    candidates: [],
-    policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true, notice: "live 仍需所有者明确决定。" },
-    errors: [errorCode],
-  };
-}
-
-export function controlPlaneStaleTtlSeconds(env) {
-  const configured = Number(env.CONTROL_PLANE_STALE_TTL_SECONDS);
-  if (!Number.isFinite(configured) || configured < 300 || configured > 604800) {
-    return CONTROL_PLANE_DEFAULT_STALE_TTL_SECONDS;
-  }
-  return Math.floor(configured);
-}
+export {
+  emptyControlPlanePayload,
+  controlPlaneStaleTtlSeconds,
+};
 
 export async function syncStrategyProfilesConfig(env, session) {
   const profiles = normalizeStrategyProfilesPayload(DEFAULT_STRATEGY_PROFILES, "DEFAULT_STRATEGY_PROFILES");
