@@ -198,7 +198,7 @@ def report_slot(headers, configuration, now):
 @dataclass(frozen=True)
 class _BinanceWalletObservation:
     account_uid: str
-    amount: float
+    amount: str
     as_of: str
 
 
@@ -258,7 +258,7 @@ def _binance_snapshot(configuration, binding, day, timeout):
             pass
         else:
             if priced.tzinfo is not None and start <= priced <= observed:
-                wallet = _BinanceWalletObservation(binding['opaque_account_uid'], float(valuation['amount']), priced.isoformat())
+                wallet = _BinanceWalletObservation(binding['opaque_account_uid'], valuation['amount'], priced.isoformat())
     return snapshot, wallet
 
 

@@ -128,6 +128,8 @@ class CloudRunDigestTests(unittest.TestCase):
                     'account_key': binding['opaque_account_uid'], 'target_id': binding['target_id'],
                     'holdings': [{'asset': 'BTC', 'quantity': '0.0125'}]}
         for change, expected in (({}, '钱包估值（券商返回范围）：USDT 25.50 · 快照 2026-10-15 23:59'),
+                                 ({'amount': '1234.12345678901234567890123456789'},
+                                  '钱包估值（券商返回范围）：USDT 1,234.12345678901234567890123456789'),
                                  ({'currency': 'USD'}, '总资产：未知'),
                                  ({'as_of': '2026-10-15T16:00:01Z'}, '总资产：未知')):
             with self.subTest(change=change), patch.object(app.urllib.request, 'build_opener') as opener:

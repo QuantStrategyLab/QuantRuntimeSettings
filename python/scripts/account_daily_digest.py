@@ -55,7 +55,7 @@ def _quantity(value, asset, zh, unknown):
 
 
 def _money(value, currency, unknown):
-    if not _number(value) or not isinstance(currency, str) or not re.fullmatch(r'[A-Z]{3}|USDT', currency):
+    if not _number(value) or not isinstance(currency, str) or not re.fullmatch(r'[A-Z]{3}', currency):
         return unknown
     text = _value(value, unknown)
     if '.' not in text:
@@ -329,7 +329,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             asset_line += ' · ' + stamp_label
         wallet = account_fact.get('wallet_valuation') if snapshot_only and platform == 'binance' else None
         if wallet:
-            amount = _money(wallet['amount'], 'USDT', unknown)
+            whole, _, fraction = wallet['amount'].partition('.')
+            amount = f'USDT {int(whole):,}.{fraction.ljust(2, "0")}'
             stamp = _snapshot_label(datetime.fromisoformat(wallet['as_of']), window, zh)
             label = '💰 钱包估值（券商返回范围）：' if zh else '💰 Wallet valuation (provider-reported scope): '
             asset_line = label + amount + ' · ' + stamp
