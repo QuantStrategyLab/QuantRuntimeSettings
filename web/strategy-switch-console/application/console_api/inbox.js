@@ -1,3 +1,4 @@
+import { todoLifecycle, todoLifecycleItem } from "./todo_lifecycle.js";
 import { canonicalItem } from "./presentation.js";
 import { riskTierPolicyCatalog } from "./risk_tiers.js";
 import { directoryStatus } from "../../kv_directory.js";
@@ -120,13 +121,18 @@ export async function inbox(request, env, deps, { paginate = true } = {}) {
       (a.created_at || "").localeCompare(b.created_at || "") ||
       String(a.id ?? "").localeCompare(String(b.id ?? "")),
   );
-  const items = page ? ordered.slice(page.offset, page.offset + page.limit) : ordered;
+  const selected = page ? ordered.slice(page.offset, page.offset + page.limit) : ordered;
+  const items = page
+    ? await Promise.all(selected.map(item => todoLifecycleItem(item, deps.decisionCompletion
+      ? current => deps.decisionCompletion(current, env) : null)))
+    : selected.map(item => ({ ...item, todo_lifecycle: todoLifecycle(item) }));
+  const completionUnknown = page && items.some(item => item.todo_lifecycle.completion.status === "unknown");
   return {
     schema_version: "qsl.decision_inbox.v1",
     server_time: new Date().toISOString(),
     status: results.some((r) => r.status === "read_failed")
       ? "read_failed"
-      : results.some((r) => r.status !== "ok")
+      : completionUnknown || results.some((r) => r.status !== "ok")
         ? "partial"
         : "ok",
     error_state: failure?.error_state || null,

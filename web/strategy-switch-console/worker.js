@@ -1,3 +1,4 @@
+import { todoLifecycle } from "./application/console_api/todo_lifecycle.js";
 import { performanceBenchmarkResponse } from "./application/console_api/performance_benchmarks.js";
 import { binanceDetailCommand } from "./binance_detail_archive.js";
 import { createDeskAuth, DeskError, deskErrorResponse } from "./application/desk/http.js";
@@ -859,6 +860,7 @@ export default {
           json, readSession: today ? readTodaySession : readSession, command: runtimeInstanceCommand,
           accountOptions: today ? readTodayOptions : loadAccountOptionsConfig,
           settings: accountSettingsResponse, saveDraft: saveCombinedAccountDraft,
+          decisionCompletion: readTodoDecisionCompletion,
           owner: ownerDecisionQueueResponse, promotion: researchPromotionTicketsResponse,
           recovery: reconciliationRecoveryResponse, credential: (req, e) => credentialMaintenanceResponse(req, e, new URL("/api/credential-maintenance", req.url)),
           audit: loadAuditLog,
@@ -12990,6 +12992,7 @@ const DECISION_POLICY = Object.freeze({
 
 function decisionInboxSources() {
   return {
+    decisionCompletion: readTodoDecisionCompletion,
     owner: ownerDecisionQueueResponse,
     promotion: researchPromotionTicketsResponse,
     recovery: reconciliationRecoveryResponse,
@@ -13131,6 +13134,30 @@ async function readDecisionAuthorityOrNull(env, kind, subjectId) {
   return readHumanDecisionAuthority(env, kind, subjectId);
 }
 
+// Reuse the existing receipt integrity validator; never expose raw actors/targets.
+async function readTodoDecisionCompletion(item, env, loadedAuthority = undefined, validatedReceipt = undefined) {
+  const kind = decisionKind(item.category);
+  if (!kind) return { status: "unsupported" };
+  const binding = item.decision_binding;
+  if (!binding || binding.kind !== kind || !binding.subject_id || !/^[0-9a-f]{64}$/.test(binding.material_sha256 || ""))
+    return { status: "unavailable" };
+  const authority = loadedAuthority !== undefined ? loadedAuthority
+    : await readDecisionAuthorityOrNull(env, kind, binding?.subject_id);
+  if (authority?.ok !== true || authority.migrated !== true || authority.material_key !== binding?.material_sha256)
+    return { status: "unavailable" };
+  const expectedReview = binding?.review_binding?.review_sha256 ?? null;
+  if ((authority.review_binding?.review_sha256 ?? null) !== expectedReview) return { status: "unavailable" };
+  if (!authority.decision) return { status: "not_found" };
+  const receipt = validatedReceipt !== undefined ? validatedReceipt : await humanDecisionReceipt(authority.decision, {
+    kind, subject_id: binding.subject_id, material_sha256: binding.material_sha256,
+  });
+  if (!receipt) return { status: "unavailable" };
+  return { status: "found", kind: receipt.kind, subject_id: receipt.subject_id,
+    material_sha256: receipt.material_sha256, review_sha256: receipt.review_binding?.review_sha256 ?? null,
+    action: receipt.action, acknowledged_at: receipt.decided_at, receipt_sha256: receipt.receipt_sha256,
+    actor_alias: await actorAlias(receipt.decided_by) };
+}
+
 async function decisionReviewResponse(request, env, rawId) {
   if (request.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
   const session = await readSession(request, env);
@@ -13167,6 +13194,11 @@ async function decisionReviewResponse(request, env, rawId) {
       errors.push("decision_receipt_unavailable");
     }
   }
+  let acknowledgement;
+  try { acknowledgement = await readTodoDecisionCompletion(item, env, authorityRaw, receipt); }
+  catch { acknowledgement = { status: "unavailable" }; }
+  const lifecycle = todoLifecycle(item, acknowledgement);
+  if (lifecycle.completion.status === "unknown") errors.push("decision_completion_unknown");
   if (authorityRaw?.migrated === false) errors.push("decision_authority_unavailable");
   if (queue.status !== "ok") errors.push("decision_source_partial");
   return json({
@@ -13174,7 +13206,7 @@ async function decisionReviewResponse(request, env, rawId) {
     server_time: new Date(now).toISOString(),
     data_status: errors.length ? "partial" : "ready",
     decision_id: item.id,
-    decision: item,
+    decision: { ...item, todo_lifecycle: lifecycle },
     current_eligibility: decisionCurrentEligibility(item, authority, now),
     decision_authority: authority,
     decision_receipt: receipt,

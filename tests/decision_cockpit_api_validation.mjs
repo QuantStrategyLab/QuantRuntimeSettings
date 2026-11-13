@@ -93,7 +93,7 @@ const options = {
   kvNamespaces: ["STRATEGY_SWITCH_CONFIG"],
   outboundService: () => new Response("offline only", { status: 503 }),
 };
-const mf = new Miniflare(options);
+let mf = new Miniflare(options);
 async function initializeDirectory(runtime) {
   const namespace = await runtime.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
   const response = await namespace.get(namespace.idFromName("console-kv-directory-v1")).fetch("https://fixture.invalid/kv-directory", {
@@ -173,6 +173,9 @@ const ownerItem = inbox.body.items.find((item) => item.decision_id === "owner_de
 assert.ok(ownerItem, "owner decision item is present");
 assert.match(ownerItem.revision, /^rev1-[0-9a-f]{16}$/);
 assert.equal(ownerItem.actionable, true);
+assert.equal(ownerItem.todo_lifecycle.completion.status, "pending");
+assert.equal(ownerItem.todo_lifecycle.owner.assignment_status, "not_recorded");
+validate("todo_lifecycle", ownerItem.todo_lifecycle);
 assert.ok(ownerItem.expires_at, "actionable decisions must carry expiry");
 assert.ok(ownerItem.allowed_actions.some((entry) => entry.action === "keep_parked"));
 assert.equal(ownerItem.request_id_required, true);
@@ -263,6 +266,24 @@ assert.ok(decidedReview.body.current_eligibility.reason_codes.includes("decision
 assert.equal(decidedReview.body.decision.allowed_actions.length, 0);
 assert.equal(decidedReview.body.decision.decision_state.status, "decided");
 validate("decision_review", decidedReview.body);
+const todoAck = decidedReview.body.decision.todo_lifecycle;
+assert.equal(todoAck.state, "acknowledged");
+assert.equal(todoAck.completion.receipt_sha256, decided.body.decision_receipt.receipt_sha256);
+assert.match(todoAck.completion.actor_alias, /^actor-[0-9a-f]{16}$/);
+assert.doesNotMatch(JSON.stringify(todoAck), /cockpit-admin/);
+validate("todo_lifecycle", todoAck);
+for (let attempt = 0; attempt < 2; attempt++) {
+  const queue = await call("/api/decisions-inbox");
+  const same = queue.body.items.find(item => item.id === ownerItem.id);
+  assert.deepEqual(same.todo_lifecycle.completion, todoAck.completion);
+}
+// Reconstruct the same exact decision from durable storage with a fresh Worker.
+await mf.dispose();
+mf = new Miniflare(options);
+const restartedReview = await call(`/api/decisions/${encodeURIComponent(ownerItem.id)}`);
+assert.equal(restartedReview.status, 200);
+assert.deepEqual(restartedReview.body.decision.todo_lifecycle.completion, todoAck.completion);
+
 // A new operation id is a new intent even when it repeats the recorded action.
 const otherOperationSameAction = await call(actionUrl, { method: "POST", body: {
   action: "keep_parked", expected_revision: ownerItem.revision, operation_id: "cockpit-request-other",
@@ -618,4 +639,6 @@ assert.equal(missingRuntime.body.observed_at, null);
 assert.equal(missingRuntime.body.policy.execution_authority_granted, false);
 
 await mf.dispose();
-console.log("decision_cockpit_api_validation: PASS");
+console.log("decision_cockpit_api_validation: PASS (including durable todo ACK restart)");
+
+await import("./todo_lifecycle_validation.mjs");
