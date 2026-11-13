@@ -104,7 +104,7 @@ class CloudRunDigestTests(unittest.TestCase):
             opener.return_value.open.return_value = io.BytesIO(json.dumps(response).encode())
             self.run_request(configuration=cfg, platform_config=config([binding]))
             request = opener.return_value.open.call_args.args[0]
-            self.assertEqual(request.full_url, cfg.binance_snapshot_endpoint + '?business_day=2026-10-15')
+            self.assertEqual(request.full_url, cfg.binance_snapshot_endpoint + '?business_day=2026-10-15&include_valuation=1')
             self.assertEqual(request.get_header('User-agent'), 'QSL-Daily-Digest/1.0')
             self.assertIsNone(opener.call_args.args[0].redirect_request(None, None, 302, None, None, None))
         text, = self.sent
@@ -115,6 +115,31 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertIn('A' * 128 + ' 3', text)
         self.assertIn('提交订单 未知｜成交回报 未知', text)
         self.assertNotIn('策略未运行', text)
+
+    def test_binance_wallet_valuation_is_dated_and_separate_from_holdings(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        cfg = replace(self.enable(), expected=[binding],
+                      binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
+                      binance_snapshot_token='synthetic-read-only-token-for-tests')
+        valuation = {'amount': '25.5', 'currency': 'USDT', 'as_of': '2026-10-15T15:59:00Z'}
+        response = {'ok': True, 'business_day': '2026-10-15', 'as_of': '2026-10-15T16:00:00Z',
+                    'account_key': binding['opaque_account_uid'], 'target_id': binding['target_id'],
+                    'holdings': [{'asset': 'BTC', 'quantity': '0.0125'}]}
+        for change, expected in (({}, '钱包估值（券商返回范围）：USDT 25.50 · 快照 2026-10-15 23:59'),
+                                 ({'currency': 'USD'}, '总资产：未知'),
+                                 ({'as_of': '2026-10-15T16:00:01Z'}, '总资产：未知')):
+            with self.subTest(change=change), patch.object(app.urllib.request, 'build_opener') as opener:
+                self.store, self.sent = MemoryStore(), []
+                opener.return_value.open.return_value = io.BytesIO(json.dumps({
+                    **response, 'wallet_valuation': {**valuation, **change},
+                }).encode())
+                self.run_request(configuration=cfg, platform_config=config([binding]))
+                text, = self.sent
+                self.assertIn(expected, text)
+                self.assertIn('BTC 0.0125', text)
+                self.assertIn('提交订单 未知｜成交回报 未知', text)
 
     def test_binance_snapshot_rejects_wrong_account_or_out_of_window(self):
         from dataclasses import replace

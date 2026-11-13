@@ -195,13 +195,20 @@ def report_slot(headers, configuration, now):
     return report_date, day, stamp, check
 
 
+@dataclass(frozen=True)
+class _BinanceWalletObservation:
+    account_uid: str
+    amount: float
+    as_of: str
+
+
 def _binance_snapshot(configuration, binding, day, timeout):
     endpoint = urllib.parse.urlsplit(configuration.binance_snapshot_endpoint)
     if (endpoint.scheme != 'https' or not endpoint.hostname or endpoint.netloc != endpoint.hostname
             or endpoint.path != BINANCE_SNAPSHOT_PATH or endpoint.query or endpoint.fragment
             or not re.fullmatch(r'[A-Za-z0-9_-]{32,256}', configuration.binance_snapshot_token)):
         raise StoreUnavailable()
-    query = urllib.parse.urlencode({'business_day': day})
+    query = urllib.parse.urlencode({'business_day': day, 'include_valuation': '1'})
     request = urllib.request.Request(configuration.binance_snapshot_endpoint + '?' + query,
                                      headers={'Authorization': 'Bearer ' + configuration.binance_snapshot_token,
                                               'Accept': 'application/json',
@@ -211,14 +218,14 @@ def _binance_snapshot(configuration, binding, day, timeout):
             body = response.read(256 * 1024 + 1)
     except HTTPError as error:
         if error.code == 404:
-            return None
+            return None, None
         raise StoreUnavailable() from None
     except (HTTPException, OSError):
         raise StoreUnavailable() from None
     if len(body) > 256 * 1024:
         raise ValueError('digest_snapshot_invalid')
     data = json.loads(body)
-    if (set(data) != {'ok', 'business_day', 'account_key', 'target_id', 'as_of', 'holdings'}
+    if (set(data) - {'wallet_valuation'} != {'ok', 'business_day', 'account_key', 'target_id', 'as_of', 'holdings'}
             or data['ok'] is not True or data['business_day'] != day
             or data['account_key'] != binding['opaque_account_uid'] or data['target_id'] != binding['target_id']):
         raise ValueError('digest_snapshot_binding_mismatch')
@@ -238,8 +245,21 @@ def _binance_snapshot(configuration, binding, day, timeout):
             raise ValueError('digest_snapshot_invalid')
         if amount:
             holdings.append({'symbol': symbol, 'quantity': amount, 'asset_type': 'crypto'})
-    return {**{name: binding[name] for name in IDENTITY}, 'business_day': day, 'actually_ran': False,
-            'account_daily_facts': {'snapshots': [{'as_of': data['as_of'], 'holdings': holdings}]}}
+    snapshot = {**{name: binding[name] for name in IDENTITY}, 'business_day': day, 'actually_ran': False,
+                'account_daily_facts': {'snapshots': [{'as_of': data['as_of'], 'holdings': holdings}]}}
+    wallet = None
+    valuation = data.get('wallet_valuation')
+    if (isinstance(valuation, dict) and set(valuation) == {'amount', 'currency', 'as_of'}
+            and valuation['currency'] == 'USDT' and isinstance(valuation['amount'], str)
+            and re.fullmatch(r'(?:0|[1-9][0-9]{0,29})(?:\.[0-9]{0,29}[1-9])?', valuation['amount'])):
+        try:
+            priced = datetime.fromisoformat(valuation['as_of'])
+        except (TypeError, ValueError):
+            pass
+        else:
+            if priced.tzinfo is not None and start <= priced <= observed:
+                wallet = _BinanceWalletObservation(binding['opaque_account_uid'], float(valuation['amount']), priced.isoformat())
+    return snapshot, wallet
 
 
 def _sources(configuration, store, day, end, *, now, monotonic):
@@ -252,9 +272,11 @@ def _sources(configuration, store, day, end, *, now, monotonic):
             key = f"{binding['platform_id']}/{day}/{binding['candidate_slot']}.json"
             try:
                 if binding.get('snapshot_only'):
-                    snapshot = _binance_snapshot(configuration, binding, day, timeout)
+                    snapshot, wallet = _binance_snapshot(configuration, binding, day, timeout)
                     if snapshot is not None:
                         rows.append(snapshot)
+                    if wallet is not None:
+                        stale_observations.append(wallet)
                     outcomes.append('snapshot_only' if snapshot is not None else 'missing')
                     continue
                 raw = store.candidate(key, timeout)
@@ -335,9 +357,14 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
         )
     covered = sum(value in {'present', 'not_run', 'snapshot_only'} for value in outcomes)
     coverage = 'complete' if covered == len(outcomes) else 'partial' if covered else 'unavailable'
-    facts = collect_account_facts([*rows, *stale_observations], configuration.expected, day)
+    facts = collect_account_facts([*rows, *(row for row in stale_observations if isinstance(row, dict))],
+                                  configuration.expected, day)
     for observation in stale_observations:
-        if isinstance(observation, _SettledCashObservation):
+        if isinstance(observation, _BinanceWalletObservation):
+            facts['binance', observation.account_uid]['wallet_valuation'] = {
+                'as_of': observation.as_of, 'amount': observation.amount,
+            }
+        elif isinstance(observation, _SettledCashObservation):
             facts['ibkr', observation.account_uid]['settled_cash'] = {
                 'amount': observation.amount, 'statement_date': observation.statement_date,
             }
