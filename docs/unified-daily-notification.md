@@ -420,7 +420,7 @@ runtime, broker, deployment or notification authority.
 Run `Central digest package release` from the default branch. Select the
 protected package environment and configure the fixed previous and candidate
 digests. Start with `verify`. The caller requires successful validation of its
-exact main commit and uploads the two reviewed digest scripts as a same-run
+exact main commit and uploads the three reviewed digest scripts as a same-run
 artifact. The shared workflow rebuilds the ZIP from the authenticated active
 package, changing only those existing scripts. Verify checks the candidate
 digest without writes. Select `deploy` to stage that exact ZIP in the private

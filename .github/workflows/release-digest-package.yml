@@ -43,11 +43,12 @@ jobs:
             echo "This main commit must pass Validate before package publication." >&2
             exit 1
           fi
-      - name: Prepare the two reviewed digest scripts
+      - name: Prepare the reviewed digest scripts
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/digest-source/python/scripts"
-          cp python/scripts/account_daily_digest.py python/scripts/cloud_run_daily_digest.py \
+          cp python/scripts/account_daily_digest.py python/scripts/account_daily_facts.py \
+            python/scripts/cloud_run_daily_digest.py \
             "$RUNNER_TEMP/digest-source/python/scripts/"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -64,7 +65,7 @@ jobs:
     permissions:
       id-token: write
       actions: read
-    uses: QuantStrategyLab/.github/.github/workflows/deploy-azure-blob.yml@6b0581a02e419f4534886c27df5d99b951c23178
+    uses: QuantStrategyLab/.github/.github/workflows/deploy-azure-blob.yml@dee8bd9edca02c3466bfc1ceccb7f3dd9ae84237
     with:
       environment: ${{ inputs.target }}
       operation: ${{ inputs.operation }}
