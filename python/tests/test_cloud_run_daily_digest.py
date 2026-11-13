@@ -91,7 +91,8 @@ class CloudRunDigestTests(unittest.TestCase):
     def test_binance_snapshot_shows_holdings_and_keeps_trade_counts_unknown(self):
         from dataclasses import replace
 
-        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True,
+                   'account_label': 'Binance'}
         cfg = replace(self.enable(), expected=[binding],
                       binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
                       binance_snapshot_token='synthetic-read-only-token-for-tests')
@@ -107,6 +108,7 @@ class CloudRunDigestTests(unittest.TestCase):
             self.assertEqual(request.get_header('User-agent'), 'QSL-Daily-Digest/1.0')
             self.assertIsNone(opener.call_args.args[0].redirect_request(None, None, 302, None, None, None))
         text, = self.sent
+        self.assertIn('🏦 Binance · 账户 · 账户快照', text)
         self.assertIn('仅核实持仓快照，交易情况未知', text)
         self.assertIn('BTC 0.0125', text)
         self.assertIn('币 1.5', text)
@@ -186,6 +188,42 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertIn('执行已拦截', text)
         self.assertIn('证据留存失败', text)
         self.assertIn('证据传递失败', text)
+
+    def test_schwab_confirmed_risk_block_keeps_run_scope(self):
+        row = {**ROW, 'status': 'alert', 'execution_status': 'blocked',
+               'order_count': None, 'fill_count': None,
+               'block_reason': {'reason_code': 'strategy_risk_rejected',
+                                'order_submitted_this_run': False}}
+        row.pop('notification_event')
+        self.store.rows[next(iter(self.store.rows))] = {'runs': [row]}
+        self.run_request(configuration=self.enable())
+        text, = self.sent
+        self.assertIn('策略风控拦截 · 本轮 0 单', text)
+        self.assertNotIn('执行异常', text)
+        self.assertIn('提交订单 未知｜成交回报 未知', text)
+
+    def test_platform_order_and_longbridge_snapshot_do_not_depend_on_roster_order(self):
+        from dataclasses import replace
+
+        longbridge = {**EXPECTED[0], 'platform_id': 'longbridge', 'account_label': 'HK'}
+        fact = {k: longbridge[k] for k in app.IDENTITY}
+        fact.update(business_day=ROW['business_day'], actually_ran=False,
+                    account_daily_facts={'snapshots': [{
+                        'as_of': '2026-10-16T05:55:00+08:00',
+                        'equity': 250, 'equity_currency': 'HKD', 'holdings_scope': 'stocks_only',
+                        'holdings': [
+                            {'symbol': 'AAPL261120C345000.US', 'quantity': -1, 'asset_type': 'stock'},
+                            {'symbol': 'SYN.US', 'quantity': 3, 'asset_type': 'stock'},
+                        ],
+                    }]})
+        self.store.rows['longbridge/2026-10-15/synthetic-slot.json'] = {'runs': [fact]}
+        self.run_request(configuration=replace(self.enable(), expected=[longbridge, *EXPECTED]))
+        text, = self.sent
+        self.assertLess(text.index('🏦 Schwab'), text.index('🏦 LongBridge'))
+        self.assertIn('仅核实账户快照，交易情况未知', text)
+        self.assertIn('AAPL261120C345000.US -1张', text)
+        self.assertIn('SYN.US 3股', text)
+        self.assertNotIn('空仓', text)
 
     def test_legacy_reported_assets_retain_unknown_snapshot_time(self):
         key = next(iter(self.store.rows))

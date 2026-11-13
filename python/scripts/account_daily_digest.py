@@ -8,7 +8,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from account_daily_facts import SIMULATION_MODES
-from daily_digest_notify import normalize_locale
+from daily_digest_notify import block_reason_text, normalize_locale
 from display_names import broker_account_identity, display_name, safe_display_text
 from notification_approved_gates import render_reasons
 from notification_snapshot.unified_contract import SGT, sgt_business_window
@@ -23,6 +23,16 @@ from unified_daily_digest import (
     _verified_no_trade,
     _window_text,
 )
+
+
+# Display order is independent of the storage roster and its read outcomes.
+_PLATFORM_DISPLAY_ORDER = ('ibkr', 'firstrade', 'schwab', 'binance', 'longbridge')
+
+
+def _platform_display_rank(platform):
+    if platform in _PLATFORM_DISPLAY_ORDER:
+        return _PLATFORM_DISPLAY_ORDER.index(platform)
+    return len(_PLATFORM_DISPLAY_ORDER)
 
 
 def _number(value):
@@ -65,7 +75,8 @@ def _symbol(value, unknown, *, asset_type=None):
     if asset_type == 'crypto' and valid_crypto_symbol(value):
         return value
     value = str(value or '').strip()
-    return value if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.\-^/]{0,19}', value) else unknown
+    limit = 31 if asset_type == 'option' else 19
+    return value if re.fullmatch(rf'[A-Za-z0-9][A-Za-z0-9.\-^/]{{0,{limit}}}', value) else unknown
 
 
 def _account_label(row, bindings, locale):
@@ -120,7 +131,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
     facts = facts or {}
     telegram_ibkr_accounts = telegram_ibkr_accounts or {}
     groups = {}
-    for i, binding in enumerate(expected):
+    indexed = sorted(enumerate(expected), key=lambda item: _platform_display_rank(item[1].get('platform_id')))
+    for i, binding in indexed:
         key = (binding.get('platform_id', ''), binding.get('opaque_account_uid', ''))
         group = groups.setdefault(key, {'bindings': [], 'rows': []})
         group['bindings'].append((binding, outcomes[i] if i < len(outcomes) else 'missing'))
@@ -164,7 +176,13 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             name = safe_display_text(display_name('strategies', binding.get('strategy_profile', ''), locale, fallback=fallback)) or fallback
             if name not in strategies:
                 strategies.append(name)
-        header = '🏦 ' + ' · '.join((platform_label, account, ' / '.join(strategies)))
+        snapshot_only = all(outcome == 'snapshot_only' for _, outcome in bindings)
+        strategy_label = ' / '.join(strategies)
+        if snapshot_only:
+            strategy_label = '账户快照' if zh else 'Account snapshot'
+            if account.casefold() == platform_label.casefold():
+                account = '账户' if zh else 'Account'
+        header = '🏦 ' + ' · '.join((platform_label, account, strategy_label))
         details = []
         for binding, outcome in bindings:
             if outcome not in {'present', 'snapshot_only'} and not (outcome == 'not_run' and len(bindings) == 1):
@@ -207,12 +225,14 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             value = _count_value(count, observed, zh)
             count_lines.append(f'{label} {value}' if zh else f'{label}: {value}')
         blocked = [row for row in rows if _execution_blocked(row)]
-        if any(not row.approved_gate_reasons for row in blocked):
-            details.append('执行已拦截' if zh else 'Execution blocked')
-        details.extend(dict.fromkeys(render_reasons(row.approved_gate_reasons, locale)
-                                    for row in blocked if row.approved_gate_reasons))
-        if any(row.status == 'alert' and not row.approved_gate_reasons and not _execution_unconfirmed(row)
-               for row in rows):
+        for row in blocked:
+            reason = (render_reasons(row.approved_gate_reasons, locale) if row.approved_gate_reasons
+                      else block_reason_text(row, locale))
+            reason = reason or ('执行已拦截' if zh else 'Execution blocked')
+            if reason not in details:
+                details.append(reason)
+        if any(row.status == 'alert' and row not in blocked and not row.approved_gate_reasons
+               and not _execution_unconfirmed(row) for row in rows):
             details.append('执行异常' if zh else 'Execution issue')
         unconfirmed = [row for row in rows if _execution_unconfirmed(row)]
         order_states = {'order_submitted', 'submitted', 'broker_acknowledged', 'partially_filled'}
@@ -319,10 +339,16 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             holding_label += '仅列已核实持仓' if zh else 'Verified positions only'
         if holding_stamp_label:
             holding_label += (' · ' if not holdings or not complete else '') + holding_stamp_label
-        holding_lines = [
-            f"{_symbol(h.get('symbol'), unknown, asset_type=h.get('asset_type'))} {_quantity(h.get('quantity'), h.get('asset_type'), zh, unknown)}"
-            for h in holdings
-        ]
+        holding_lines = []
+        for holding in holdings:
+            symbol, asset = holding.get('symbol'), holding.get('asset_type')
+            # Older LongBridge snapshots tagged every position returned by the
+            # stock-positions endpoint as stock, including US option contracts.
+            if (platform == 'longbridge' and asset == 'stock'
+                    and isinstance(symbol, str) and re.fullmatch(r'[A-Z0-9]{1,6}[0-9]{6}[CP][0-9]{5,8}\.US', symbol)):
+                asset = 'option'
+            holding_lines.append(f"{_symbol(symbol, unknown, asset_type=asset)} "
+                                 f"{_quantity(holding.get('quantity'), asset, zh, unknown)}")
         # Every binding must have a matching run, not merely an outcome marker.
         orders, fills = account_fact.get('orders') or [], account_fact.get('fills') or []
         filled_order_ids = {fill['order_id'] for fill in fills if fill.get('order_id')}
@@ -364,8 +390,11 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             state = '⏳ 已提交，成交待确认' if zh else '⏳ Submitted, fills unconfirmed'
         elif account_idle:
             state = '😴 无交易' if zh else '😴 No trades'
-        elif all(outcome == 'snapshot_only' for _, outcome in bindings):
+        elif snapshot_only or (platform == 'longbridge' and snapshots
+                               and all(outcome == 'not_run' for _, outcome in bindings)):
             state = '仅核实持仓快照，交易情况未知' if zh else 'Holdings snapshot verified, trading activity unknown'
+            if equity != unknown:
+                state = '仅核实账户快照，交易情况未知' if zh else 'Account snapshot verified, trading activity unknown'
         elif all(outcome == 'not_run' for _, outcome in bindings):
             state = '策略未运行，账户交易未知' if zh else 'Strategy did not run; account trades unknown'
         else:
