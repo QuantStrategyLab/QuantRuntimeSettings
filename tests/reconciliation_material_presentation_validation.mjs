@@ -12,46 +12,19 @@ import { displayName } from "../web/strategy-switch-console/display_names.js";
 import { decorateQueue } from "../web/strategy-switch-console/application/console_api/presentation.js";
 import { inbox } from "../web/strategy-switch-console/application/console_api/inbox.js";
 import { recoveryMaterialPresentation, currentReconciliationObservationPresentation } from "../web/strategy-switch-console/application/console_api/reconciliation_presentation.js";
+import { controlPlaneSnapshotFreshness, earliestControlPlaneTimestamp } from "../web/strategy-switch-console/application/control_plane/helpers.js";
+import {
+  emptyReconciliationRecoveryPayload,
+} from "../web/strategy-switch-console/application/reconciliation_recovery/helpers.js";
+import { aggregateReconciliationRecoverySources } from "../web/strategy-switch-console/application/reconciliation_recovery/http.js";
 
 // Exercise the production aggregation/freshness functions with in-memory inputs.
 // No Worker, storage adapter, KV, server, or network is instantiated.
-const workerText = readFileSync(new URL("../web/strategy-switch-console/worker.js", import.meta.url), "utf8");
-const runtimeSupportText = readFileSync(
-  new URL("../web/strategy-switch-console/application/worker/runtime_support.js", import.meta.url),
-  "utf8",
-);
-const authHelperTexts = [
-  "application/auth/identity_lists.js",
-  "application/auth/principals.js",
-  "application/auth/cookies.js",
-  "application/auth/require_env.js",
-  "application/control_plane/helpers.js",
-].map((path) => readFileSync(new URL(`../web/strategy-switch-console/${path}`, import.meta.url), "utf8"));
-function productionFunction(name, dependencies = {}) {
-  const pattern = new RegExp(`(?:export )?(?:async )?function ${name}\\(`);
-  const sources = [workerText, runtimeSupportText, ...authHelperTexts];
-  let source = null;
-  let start = -1;
-  for (const candidate of sources) {
-    start = candidate.search(pattern);
-    if (start >= 0) {
-      source = candidate;
-      break;
-    }
-  }
-  assert.ok(start >= 0, name);
-  const code = source.slice(start, source.indexOf("\n}", start) + 2).replace(/^export\s+/, "");
-  return new Function(...Object.keys(dependencies), `return (${code});`)(...Object.values(dependencies));
-}
 const now = Date.parse("2001-10-17T04:05:00Z");
 const old = "2001-09-20T18:37:32Z";
 const observed = "2001-09-20T18:37:27Z";
 const digest = "a".repeat(64);
-const schema = "qsl_reconciliation_recovery_dashboard.v1";
-const empty = productionFunction("emptyReconciliationRecoveryPayload", {
-  RECONCILIATION_RECOVERY_DASHBOARD_SCHEMA_VERSION: schema,
-  currentReconciliationObservationPresentation,
-});
+const empty = emptyReconciliationRecoveryPayload;
 const recovery = {
   recovery_id: "synthetic-recovery", strategy_profile: "soxl_soxx_trend_income",
   platform: "synthetic-platform", target_name: "synthetic-private-account",
@@ -64,20 +37,22 @@ const historicalSource = {
   data_status: "ready", recoveries: [recovery], errors: [],
 };
 async function aggregate(sources, result) {
-  return productionFunction("aggregateReconciliationRecoverySources", {
-    readReconciliationRecoverySources: async () => structuredClone(sources),
-    readReconciliationRecoveryConfirmation: async () => structuredClone(result),
-    reconciliationRecoveryStaleTtlSeconds: () => 1800,
-    Date: class extends Date { static now() { return now; } },
-    controlPlaneSnapshotFreshness: productionFunction("controlPlaneSnapshotFreshness"),
-    reconciliationRecoveryEvidenceFreshness: productionFunction("reconciliationRecoveryEvidenceFreshness"),
-    earliestControlPlaneTimestamp: productionFunction("earliestControlPlaneTimestamp"),
-    uniqueStrings: productionFunction("uniqueStrings"),
-    recoveryDecisionMaterialKey: async () => "b".repeat(64),
-    emptyReconciliationRecoveryPayload: empty,
-    RECONCILIATION_RECOVERY_DASHBOARD_SCHEMA_VERSION: schema,
-    recoveryMaterialPresentation, currentReconciliationObservationPresentation,
-  })({});
+  const originalNow = Date.now;
+  Date.now = () => now;
+  try {
+    return await aggregateReconciliationRecoverySources({}, {
+      readReconciliationRecoverySources: async () => structuredClone(sources),
+      readReconciliationRecoveryConfirmation: async () => structuredClone(result),
+      controlPlaneSnapshotFreshness,
+      earliestControlPlaneTimestamp,
+      recoveryDecisionMaterialKey: async () => "b".repeat(64),
+      initialEnrollmentAccountOption: async () => {
+        throw new Error("initial enrollment unexpected in presentation fixture");
+      },
+    });
+  } finally {
+    Date.now = originalNow;
+  }
 }
 const confirmation = { candidate_sha256: digest, dual_review_binding_sha256: digest };
 const decided = await aggregate([historicalSource], { confirmation, error: null });
