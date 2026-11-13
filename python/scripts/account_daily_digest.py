@@ -457,15 +457,15 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
     reserved, omitted, omitted_holdings = [], 0, 0
     upper_bound = sum(1 + len(core) + len(details) + len(holdings) for _, core, details, holdings in blocks)
     for header, core, details, holdings in blocks:
-        prior = [line for h, c, _, _ in reserved for line in [h, *c]]
-        if _units('\n'.join(lines + prior + [header, *core, suffix(upper_bound)])) <= max_units:
+        prior = [line for h, c, _, _ in reserved for line in ['', h, *c]]
+        if _units('\n'.join(lines + prior + ['', header, *core, suffix(upper_bound)])) <= max_units:
             reserved.append((header, core, details, holdings))
         else:
             omitted += 1 + len(core) + len(details) + len(holdings)
             omitted_holdings += len(holdings)
     for index, (header, core, details, holdings) in enumerate(reserved):
-        lines.extend((header, *core[:2]))
-        later = [line for h, c, _, _ in reserved[index + 1:] for line in [h, *c]]
+        lines.extend(('', header, *core[:2]))
+        later = [line for h, c, _, _ in reserved[index + 1:] for line in ['', h, *c]]
         for group, is_holding in ((details, False), (holdings, True)):
             if is_holding:
                 lines.extend(core[2:])
