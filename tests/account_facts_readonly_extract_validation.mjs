@@ -6,24 +6,23 @@ import {
   accountFactsHistoryResponse,
   accountFactsResponse,
 } from "../web/strategy-switch-console/application/account_facts/read.js";
+import { loadWorkerSurface, surfaceImportsModule } from "./helpers/worker_surface.mjs";
 
-const workerSource = await readFile(
-  new URL("../web/strategy-switch-console/worker.js", import.meta.url),
-  "utf8",
-);
+const surface = await loadWorkerSurface();
+const { supportSource, wiredSource } = surface;
 const readSource = await readFile(
   new URL("../web/strategy-switch-console/application/account_facts/read.js", import.meta.url),
   "utf8",
 );
 
 assert.equal(
-  workerSource.includes('from "./application/account_facts/read.js"'),
+  surfaceImportsModule(surface, "account_facts/read.js"),
   true,
-  "Worker imports the B10-a account-facts read module",
+  "Worker stack imports the B10-a account-facts read module",
 );
-assert.match(workerSource, /\/api\/account-facts"/);
-assert.match(workerSource, /\/api\/account-facts\/history"/);
-assert.match(workerSource, /async function syncAccountFactsResponse/);
+assert.match(wiredSource, /\/api\/account-facts"/);
+assert.match(wiredSource, /\/api\/account-facts\/history"/);
+assert.match(supportSource, /async function syncAccountFactsResponse/);
 assert.equal(
   /transactionSync/.test(readSource),
   false,
