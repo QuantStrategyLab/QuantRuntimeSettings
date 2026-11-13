@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
 import { readFileSync } from "node:fs";
-import { DESK_PAGES, deskHash, hotkeyPage, isDeskHash, parseDeskHash, urlOverrides } from "../web/strategy-switch-console/frontend/src/desk/router.ts";
+import { DESK_PAGES, bootsLegacyConsole, deskHash, hotkeyPage, isDeskHash, parseDeskHash, urlOverrides } from "../web/strategy-switch-console/frontend/src/desk/router.ts";
 import { deskAccess } from "../web/strategy-switch-console/frontend/src/desk/shell/access.ts";
 import { DESK_MESSAGES, deskTranslate, resolveDeskLanguage } from "../web/strategy-switch-console/frontend/src/desk/i18n/index.ts";
 
@@ -26,8 +26,21 @@ assert.equal(parseDeskHash("#/desk/ACCOUNTS").page, "accounts");
 assert.equal(parseDeskHash("#/desk/nope").page, "overview");
 assert.equal(parseDeskHash("#/desk/accounts?target=fake-broker/demo").params.get("target"), "fake-broker/demo");
 for (const hash of ["", "#", "#/desktop", "#/deskx", "#desk", "#/overview"]) assert.equal(isDeskHash(hash), false, hash);
-// The boot switch in main.tsx uses the same pattern, so the old console keeps every other URL.
-assert.match(src("main.tsx"), /\/\^#\\\/desk\(\?:\[\/\?\]\|\$\)\/\.test\(window\.location\.hash\)/);
+// The Desk is the default entry. Only explicit legacy deep links outside #/desk boot the old console.
+for (const [search, hash] of [["", ""], ["", "#"], ["", "#/overview"], ["", "#/desktop"], ["?page=overview", ""], ["?page=nope", ""],
+  ["?theme=dark", ""], ["?page=health", "#/desk/accounts"], ["?page=nope&workspace=research", ""]]) {
+  assert.equal(bootsLegacyConsole(search, hash), false, `${search}${hash}`);
+}
+for (const [search, hash] of [["?page=health", "#credential-rotation"], ["?page=decisions&decision=fake-1", ""], ["?page=accounts", "#/desktop"],
+  ["?page=performance", ""], ["?page=strategies", ""], ["?workspace=research", ""], ["?workspace=accounts", ""]]) {
+  assert.equal(bootsLegacyConsole(search, hash), true, `${search}${hash}`);
+}
+assert.match(src("main.tsx"), /bootsLegacyConsole\(window\.location\.search, window\.location\.hash\)/);
+assert.doesNotMatch(src("main.tsx"), /startsInDesk/);
+// The static shell title is the Desk's, not the old overview's.
+const indexHtml = readFileSync(new URL("../web/strategy-switch-console/frontend/index.html", import.meta.url), "utf8");
+assert.match(indexHtml, /<title>工作台 · QuantStrategyLab<\/title>/);
+assert.doesNotMatch(indexHtml, /<title>总览/);
 
 // 2. Hotkeys 1-6 follow dock order; ignored with modifiers or while typing.
 const key = (k, extra = {}) => ({ key: k, altKey: false, ctrlKey: false, metaKey: false, target: { tagName: "BODY" }, ...extra });
