@@ -11,7 +11,7 @@ import time as clock
 import urllib.parse
 import urllib.request
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from http.client import HTTPException
 from pathlib import Path
@@ -265,16 +265,29 @@ def _binance_snapshot(configuration, binding, day, timeout):
     return snapshot, wallet
 
 
-def _sources(configuration, store, day, end, *, now, monotonic):
+def _sources(configuration, store, day, end, *, now, monotonic, evidence=None):
+    def remember(binding, source, status, payload=None):
+        if evidence is None:
+            return
+        entry = {'platform': binding['platform_id'], 'slot': binding['candidate_slot'],
+                 'source': source, 'status': status}
+        if payload is not None:
+            data = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(',', ':'))
+            entry['sha256'] = hashlib.sha256(data.encode()).hexdigest()
+        evidence.append(entry)
+
     rows, outcomes, stale_observations = [], [], []
     budget_end = monotonic() + min(120, max(0, (end - now()).total_seconds()))
     for binding in configuration.expected:
         timeout = min(20, budget_end - monotonic(), (end - now()).total_seconds())
-        outcome = 'read_failed'
+        outcome, raw = 'read_failed', None
+        if timeout <= 0 and binding.get('snapshot_only'):
+            remember(binding, 'wallet', 'read_failed')
         if timeout > 0:
             key = f"{binding['platform_id']}/{day}/{binding['candidate_slot']}.json"
             snapshot_outcome = None
             if binding.get('snapshot_only'):
+                wallet_data = None
                 try:
                     snapshot, wallet = _binance_snapshot(configuration, binding, day, timeout)
                     if snapshot is not None:
@@ -282,10 +295,13 @@ def _sources(configuration, store, day, end, *, now, monotonic):
                     if wallet is not None:
                         stale_observations.append(wallet)
                     snapshot_outcome = 'snapshot_only' if snapshot is not None else 'missing'
+                    if snapshot is not None:
+                        wallet_data = [snapshot, asdict(wallet) if wallet is not None else None]
                 except StoreUnavailable:
                     snapshot_outcome = 'read_failed'
                 except (ValueError, TypeError, KeyError, AttributeError):
                     snapshot_outcome = 'invalid'
+                remember(binding, 'wallet', snapshot_outcome, wallet_data)
                 if not binding.get('receipt_candidate'):
                     outcomes.append(snapshot_outcome)
                     continue
@@ -315,21 +331,30 @@ def _sources(configuration, store, day, end, *, now, monotonic):
                 outcome = 'read_failed'
             except (ValueError, TypeError, KeyError, AttributeError):
                 outcome = 'invalid'
+            remember(binding, 'candidate', outcome, raw)
             if binding.get('receipt_candidate') and outcome != 'present' and snapshot_outcome == 'snapshot_only':
                 outcome = 'snapshot_only'
+        elif not binding.get('snapshot_only') or binding.get('receipt_candidate'):
+            remember(binding, 'candidate', outcome)
         outcomes.append(outcome)
     for binding in configuration.expected:
         if binding['platform_id'] != 'ibkr':
             continue
         timeout = min(20, budget_end - monotonic(), (end - now()).total_seconds())
+        cash = None
         if timeout <= 0:
-            break
+            remember(binding, 'settled_cash', 'read_failed')
+            continue
         try:
             cash = store.candidate(f"ibkr/flex-cash/{binding['candidate_slot']}.json", timeout)
             if cash is not None:
-                stale_observations.append(_ibkr_settled_cash(cash, binding, day))
-        except (StoreUnavailable, ValueError, TypeError, KeyError, AttributeError):
-            continue
+                observation = _ibkr_settled_cash(cash, binding, day)
+                stale_observations.append(observation)
+            remember(binding, 'settled_cash', 'present' if cash is not None else 'missing', cash)
+        except StoreUnavailable:
+            remember(binding, 'settled_cash', 'read_failed')
+        except (ValueError, TypeError, KeyError, AttributeError):
+            remember(binding, 'settled_cash', 'invalid', cash)
     return rows, outcomes, stale_observations
 
 
@@ -436,12 +461,13 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
     stop = datetime.combine(report_date, time(7, 20), SGT)
     deadline_at = datetime.combine(report_date, time(7, 30), SGT)
     late = now() + timedelta(seconds=30) >= deadline_at
+    evidence = None if preview else []
     if late and not preview:
         text, coverage = '', 'unavailable'
     else:
         read_end = now() + timedelta(seconds=120) if preview else stop
         rows, outcomes, stale = _sources(
-            configuration, store, day, read_end, now=now, monotonic=monotonic)
+            configuration, store, day, read_end, now=now, monotonic=monotonic, evidence=evidence)
         text, coverage = _report(configuration, rows, outcomes, day, platform_config, stale_observations=stale,
                                  include_telegram_account_ids=(
                                      not preview and schedule_record.get('trigger_provenance') == 'azure_logic_sliding_window'))
@@ -456,6 +482,8 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
     record = {**safe, 'schema_version': 'qsl.daily_digest_delivery.v1', 'delivery': 'sending',
               'recipient_scope': configuration.recipient_scope, 'attempt_id': str(uuid4()),
               **schedule_record, 'message_sha256': hashlib.sha256(text.encode()).hexdigest()}
+    if not late:
+        record['source_evidence'] = evidence
     try:
         created, generation = store.reserve(key, record)
     except StoreUnavailable:
