@@ -59,6 +59,9 @@ function BookCard({ row, t, language }: { row: N1BookRow; t: DeskTranslate; lang
   const nav = row.nav.status === "unknown"
     ? null
     : formatMoney(row.nav.usd ?? row.nav.amount, row.nav.usd ? "USD" : row.nav.currency, language);
+  // A stale NAV keeps its qualification and age; it is never shown as a current figure.
+  const navStale = row.nav.status === "stale"
+    ? t("overview.book.nav_stale", { age: formatAge(row.nav.age_seconds, language) ?? "\u2014" }) : null;
   const day = row.day_change ? formatSignedPercent(row.day_change.ratio) : null;
   const drawdown = formatSignedPercent(row.drawdown.ratio);
   const limit = formatSignedPercent(row.drawdown.limit_ratio, 0);
@@ -95,11 +98,12 @@ function BookCard({ row, t, language }: { row: N1BookRow; t: DeskTranslate; lang
       <h3 className="mrd-ov-strategy">{strategy ?? t("read.unknown")}</h3>
       <p className="mrd-ov-target">{row.target_id}</p>
       <div className="mrd-ov-book-figures">
-        <span className="mrd-ov-book-nav">{nav ?? UNKNOWN}</span>
+        <span className="mrd-ov-book-nav" data-read={row.nav.status}>{nav ?? UNKNOWN}</span>
         <span className="mrd-ov-book-day" data-sign={day === null ? "unknown" : day.startsWith("+") ? "up" : day.startsWith("\u2212") ? "down" : "flat"}>
           {day ?? UNKNOWN}
         </span>
       </div>
+      {navStale && nav ? <p className="mrd-ov-book-meta" data-read="stale" role="status">{navStale}</p> : null}
       {paths.length > 0 ? (
         <svg className="mrd-ov-spark" viewBox="0 0 120 32" preserveAspectRatio="none" role="img"
           aria-label={t("overview.book.spark", { target: row.target_id })}>
@@ -171,7 +175,8 @@ export function OverviewView({ data, source, ribbon, t, language, narrow }: {
     : unknownText(runs, t);
   const drift = totals.config_drift;
   const tape = ribbon.state === "ready" ? ribbon.data.tape : null;
-  const signals = tape ? (readValue(tape) ?? []).slice(0, 5) : [];
+  // The tape is oldest first: Recent Signals shows the newest five, newest first.
+  const signals = tape ? (readValue(tape) ?? []).slice(-5).reverse() : [];
   const coverageTotal = totals.coverage.total ?? t("read.unknown_mark");
 
   // An unread book proves nothing about what is running.
@@ -333,20 +338,27 @@ export function OverviewView({ data, source, ribbon, t, language, narrow }: {
         </div>
         <div className="mrd-ov-signals">
           <span className="mrd-label">{t("overview.signals.title")}</span>
-          {ribbon.state === "failed" ? <p className="mrd-ov-note">{t("states.error")}</p>
+          {ribbon.state === "loading" ? <p className="mrd-ov-note" aria-busy="true" data-read="loading">{t("overview.signals.loading")}</p>
+            : ribbon.state === "failed" ? <p className="mrd-ov-note">{t("states.error")}</p>
             : tape?.status === "unknown" ? <p className="mrd-ov-note" data-read="unknown">{unknownText(tape, t)}</p>
             : signals.length === 0 && tape?.status === "partial" ? <p className="mrd-ov-note" role="status">{t("n1.partial", { coverage: coverageText(tape.coverage) })}</p>
             : signals.length === 0 ? <p className="mrd-ov-note">{t("overview.signals.empty")}</p>
             : (
-              <ul className="mrd-ov-signal-rows">
-                {signals.map(entry => (
-                  <li key={entry.id} className="mrd-ov-signal-row" data-state={entry.state} data-outcome={entry.outcome ?? ""}>
-                    <span className="mrd-ov-signal-time">{entry.at.slice(11, 16)}</span>
-                    <span className="mrd-ov-signal-label">{entry.label}</span>
-                    <span className="mrd-ov-signal-state">{t(tapeStateKey(entry) as DeskKey)}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="mrd-ov-signal-rows">
+                  {signals.map(entry => (
+                    <li key={entry.id} className="mrd-ov-signal-row" data-state={entry.state} data-outcome={entry.outcome ?? ""}>
+                      <span className="mrd-ov-signal-time">{entry.at.slice(11, 16)}</span>
+                      <span className="mrd-ov-signal-label">{entry.label}</span>
+                      <span className="mrd-ov-signal-state">{t(tapeStateKey(entry) as DeskKey)}</span>
+                    </li>
+                  ))}
+                </ul>
+                {/* A populated list keeps its qualification: a subset or old read is not the whole day. */}
+                {tape?.status === "partial" ? <p className="mrd-ov-note" role="status" data-read="partial">{t("n1.partial", { coverage: coverageText(tape.coverage) })}</p>
+                  : tape?.status === "stale" ? <p className="mrd-ov-note" role="status" data-read="stale">{t("read.stale", { age: formatAge(tape.age_seconds, language) ?? "\u2014" })}</p>
+                  : null}
+              </>
             )}
         </div>
       </div>

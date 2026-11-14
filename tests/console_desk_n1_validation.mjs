@@ -159,7 +159,7 @@ const compiled = require("esbuild").buildSync({
     contents: `
       export { OverviewView } from "./desk/pages/OverviewPage";
       export { BrokersView } from "./desk/pages/AccountsPage";
-      export { portfolioStatsFor } from "./desk/pages/PerformancePage";
+      export { portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed } from "./desk/pages/PerformancePage";
       export { Dock } from "./desk/shell/Dock";
       export { TopBar } from "./desk/shell/TopBar";
       export { DeskShell } from "./desk/shell/DeskShell";
@@ -173,7 +173,8 @@ const compiled = require("esbuild").buildSync({
 }).outputFiles[0].text;
 const desk = { exports: {} };
 new Function("require", "module", "exports", compiled)(require, desk, desk.exports);
-const { OverviewView, BrokersView, portfolioStatsFor, Dock, TopBar, DeskShell, catalogEntries, entryCounts, filterEntries, catalogRevisionText } = desk.exports;
+const { OverviewView, BrokersView, portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed,
+  Dock, TopBar, DeskShell, catalogEntries, entryCounts, filterEntries, catalogRevisionText } = desk.exports;
 const text = html => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
 
 for (const language of ["zh", "en"]) {
@@ -285,6 +286,138 @@ for (const language of ["zh", "en"]) {
     lock: { crumb: "access.title", chip: "access.chip.login" }, onNavigate: () => {}, children: null }));
   assert.equal(locked.includes("mrd-badge"), false, "no badge behind the lock");
   assert.equal(locked.includes(t("mode.unknown_chip")), false, "no mode chip behind the lock");
+}
+
+// S2 corrections: presentation of existing reads (#4/F2/F3), Performance metadata (F4) and the
+// next scheduled run chip (#6 option 1a). Both languages; light and dark shell.
+const tapeEntry = (index, at) => ({ id: `firstrade/target0#run-${index}`, at, target_id: "firstrade/target0", label: `Run${index}`, kind: "runtime_run",
+  outcome: "no_op", outcome_detail: null, state: "done", source_business_date: "2030-01-08", source_timezone: "America/New_York" });
+const sixRuns = ["13:01", "13:12", "13:23", "13:34", "13:45", "13:56"].map((hm, index) => tapeEntry(index, `2030-01-08T${hm}:00Z`));
+const ribbonWith = tape => { const data = golden("ribbon", "ok"); data.tape = tape; return { state: "ready", data }; };
+const nextRead = (status, due_at = "2030-01-08T19:30:00Z", extra = {}) => ({ status, value: { target_id: "firstrade/target1", kind: "scheduled_run", due_at },
+  observed_at: at, coverage: status === "partial" ? cover("partial", 1, 2, ["coverage_incomplete"]) : cover("complete", 2, 2), ...extra });
+for (const language of ["zh", "en"]) {
+  const t = (key, params) => deskTranslate(language, key, params);
+  const view = (data, ribbon) => render(h(OverviewView, { data, source: "live", ribbon, t, language, narrow: false }));
+  const ok = golden("overview", "ok");
+  // F2: newest five, newest first; the oldest of six is not shown.
+  const sixTape = { status: "known", value: sixRuns, observed_at: at, coverage: cover("complete", 1, 1) };
+  assert.ok(isN1Ribbon(ribbonWith(sixTape).data));
+  const six = view(ok, ribbonWith(sixTape));
+  assert.equal(six.includes("Run0"), false, "the oldest of six runs is not a recent signal");
+  for (let index = 1; index < 6; index += 1) assert.ok(six.includes(`Run${index}`), `run ${index} shown`);
+  assert.ok(six.indexOf("13:56") < six.indexOf("13:12"), "newest first");
+  // F2: a loading ribbon is not an empty signal list.
+  const loading = view(ok, { state: "loading" });
+  assert.ok(loading.includes(t("overview.signals.loading")), "loading is named");
+  assert.equal(loading.includes(t("overview.signals.empty")), false, "loading is never 'no signals'");
+  assert.equal(view(ok, { state: "failed" }).includes(t("overview.signals.empty")), false, "a failed ribbon is never 'no signals'");
+  // #4: a populated partial or stale list keeps its qualification.
+  const partialTape = { status: "partial", value: sixRuns.slice(0, 2), observed_at: at, coverage: cover("partial", 1, 2, ["coverage_incomplete"]) };
+  const partialHtml = view(ok, ribbonWith(partialTape));
+  assert.ok(partialHtml.includes("Run1") && partialHtml.includes(t("n1.partial", { coverage: "1/2" })), "partial list keeps its coverage");
+  const staleTape = { status: "stale", value: sixRuns.slice(0, 2), observed_at: at, age_seconds: 7200, coverage: cover("complete", 1, 1) };
+  const staleHtml = view(ok, ribbonWith(staleTape));
+  assert.ok(staleHtml.includes("Run1") && staleHtml.includes('data-read="stale"'), "stale list keeps its staleness");
+  assert.ok(staleHtml.includes(t("read.stale", { age: "@" }).split("@")[0]), "stale list names its age");
+  const knownHtml = view(ok, ribbonWith(sixTape));
+  assert.equal(knownHtml.includes(t("n1.partial", { coverage: "1/1" })), false, "a complete list carries no partial note");
+  // F3: a stale NAV is displayed with its stale label and age, never as a current figure.
+  const staleNav = golden("overview", "ok");
+  staleNav.book.value[0].nav = { status: "stale", currency: "USD", amount: "1000", usd: "1000", observed_at: "2030-01-06T15:00:00Z", age_seconds: 172800 };
+  staleNav.freshness = { data_status: "stale", age_seconds: 172800 };
+  assert.ok(isN1Overview(staleNav) && schemaOk("overview", staleNav));
+  const staleNavHtml = view(staleNav, ribbonWith(sixTape));
+  assert.ok(staleNavHtml.includes(t("overview.book.nav_stale", { age: "@" }).split("@")[0]), "stale NAV is labelled");
+  assert.ok(staleNavHtml.includes('class="mrd-ov-book-nav" data-read="stale"'), "the figure itself is marked stale");
+  assert.ok(staleNavHtml.includes(t("states.stale", { age: "@" }).split("@")[0]) && !staleNavHtml.includes(t("states.stale", { age: "—" })), "all-stale age is shown, not dropped");
+  assert.equal(view(ok, ribbonWith(sixTape)).includes(t("overview.book.nav_stale", { age: "@" }).split("@")[0]), false, "a known NAV has no stale label");
+
+  // F4: Performance minimum-set metadata renders even when the curve is unavailable.
+  const perfView = (data, source = "live", benchmarks = { phase: "failed" }) => render(h(PerformanceView, {
+    perf: { state: "ready", result: { data, source, scenario: null } }, benchmarks, t, language, narrow: false }));
+  const unknownPerf = golden("performance", "ok");
+  const perfHtml = perfView(unknownPerf);
+  assert.ok(perfHtml.includes(t("perf.portfolio_unknown", { reason: t(n1ReasonKey(unknownPerf.equity.reason)) })));
+  assert.ok(perfHtml.includes(t("perf.meta.window", { range: "6M", from: "2029-07-08" })), "requested window");
+  assert.ok(perfHtml.includes(t("perf.meta.first_date", { date: "2030-01-02" })), "first stored date");
+  assert.ok(perfHtml.includes(t("perf.history.truncated", { range: "6M", date: "2030-01-02" })), "truncation note");
+  assert.ok(perfHtml.includes(t("perf.meta.basis", { basis: t("basis.nav_change_unadjusted") })), "portfolio return basis");
+  for (const target of ["firstrade/target0", "firstrade/target1"]) {
+    assert.ok(perfHtml.includes(t("perf.meta.basis_target", { target, basis: t("basis.nav_change_unadjusted") })), `per-target basis ${target}`);
+  }
+  const fullHistory = golden("performance", "ok"); fullHistory.history.truncated_by = null;
+  assert.ok(isN1Performance(fullHistory));
+  const fullHtml = perfView(fullHistory);
+  assert.equal(fullHtml.includes("data-truncated"), false, "no truncation note for a complete window");
+  assert.ok(fullHtml.includes(t("perf.meta.first_date", { date: "2030-01-02" })), "first date still shown");
+  const allHistory = golden("performance", "empty");
+  assert.ok(perfView(allHistory).includes(t("perf.meta.window_all", { range: allHistory.range })), "an open window is named");
+  if (language === "en") assert.doesNotMatch(text(perfHtml), /[一-鿿]/, "the English performance page shows no Chinese copy");
+
+  // #6/1a: the next-run chip in the shared bar, all states, both themes, hidden behind the lock.
+  for (const theme of ["light", "dark"]) {
+    const bar = { page: "overview", t, language, theme, gateway: { kind: "read", read: { status: "unknown", reason: "not_supported" } },
+      nowIso: at, serverClock: true, mock: null, freshness: { kind: "read", data_status: "ready", age_seconds: 60 }, onLanguage: () => {}, onTheme: () => {} };
+    const chip = read => render(h(TopBar, { ...bar, nextRun: read }));
+    const known = chip(nextRead("known"));
+    assert.ok(known.includes(t("next_run.known", { time: "19:30", target: "firstrade/target1" })) && known.includes('data-next-run="known"'));
+    const part = chip(nextRead("partial"));
+    assert.ok(part.includes(t("next_run.partial", { time: "19:30", target: "firstrade/target1", coverage: "1/2" })), "partial names itself");
+    assert.equal(part.includes(t("next_run.known", { time: "19:30", target: "firstrade/target1" })), false, "partial is never the global next run");
+    const old = chip(nextRead("stale", "2030-01-08T19:30:00Z", { age_seconds: 7200 }));
+    assert.ok(old.includes('data-next-run="stale"') && old.includes(t("next_run.stale", { time: "19:30", target: "firstrade/target1", age: "@" }).split("@")[0]));
+    const past = chip(nextRead("known", "2030-01-08T14:59:00Z"));
+    assert.ok(past.includes(t("next_run.unknown")) && past.includes('data-next-run="unknown"'), "a time already past is not upcoming");
+    const unknownChip = chip({ status: "unknown", reason: "source_unavailable", observed_at: null, coverage: cover("unavailable", 0, null, ["source_unavailable"]) });
+    assert.ok(unknownChip.includes(t("next_run.unknown")), "unknown is '?', never 'no run'");
+    assert.ok(chip({ ...nextRead("known"), value: null }).includes(t("next_run.unknown")), "a null value never proves no future run");
+    assert.equal(render(h(TopBar, bar)).includes("data-next-run"), false, "no chip without a ribbon read");
+    const shell = (lock) => render(h(DeskShell, { ...bar, alertCount: null, alertUnknown: true, nextRun: nextRead("known"), lock, onNavigate: () => {}, children: null }));
+    assert.ok(shell(null).includes('data-next-run="known"'), "the shell passes the read through");
+    assert.equal(shell({ crumb: "access.title", chip: "access.chip.login" }).includes("data-next-run"), false, "no next run behind the lock");
+  }
+  for (const key of ["overview.signals.loading", "overview.book.nav_stale", "perf.meta.window", "perf.meta.window_all", "perf.meta.first_date",
+    "perf.meta.basis", "perf.meta.basis_target", "perf.bench.contained", "next_run.known", "next_run.stale", "next_run.partial", "next_run.unknown", "next_run.title"]) {
+    assert.ok(DESK_MESSAGES[language][key], `missing ${language} ${key}`);
+  }
+}
+
+// F5: the live N1 path never reads the non-approved benchmark source, even with a qualified curve.
+{
+  let benchmarkCalls = 0;
+  const outbound = [];
+  const spy = { benchmarks: async () => { benchmarkCalls += 1; throw Error("benchmark read attempted"); } };
+  const qualified = golden("performance", "ok");
+  qualified.equity = { status: "known", value: { dates: ["2030-01-02", "2030-01-03", "2030-01-06"], portfolio_indexed: ["100", "101", "102"],
+    drawdown_ratio: ["0", "0", "0"], gap_dates: [], gap_semantics: "break_before_observation" }, observed_at: at, coverage: cover("complete", 2, 2) };
+  assert.ok(isN1Performance(qualified) && schemaOk("performance", qualified), "a synthetic qualified curve");
+  const window = { start: "2030-01-02", end: "2030-01-06" };
+  assert.equal(benchmarkReadAllowed("live"), false);
+  assert.deepEqual(await loadBenchmarks(spy, { data: qualified, source: "live", scenario: null }, window), { phase: "failed" });
+  assert.equal(benchmarkCalls, 0, "no api.benchmarks() call on the live path");
+  // Through the real API object: a live benchmark read would hit /api/market-benchmark/performance.
+  const liveApi = createDeskApi({ forcedScenario: null, delayMs: 0, sources: liveSources, fetchJson: async url => { outbound.push(url); throw Error("no network"); } });
+  await loadBenchmarks(liveApi, { data: qualified, source: "live", scenario: null }, window);
+  assert.deepEqual(outbound, [], "no request to the benchmark route");
+  // Fixture pages keep their synthetic comparison.
+  assert.equal(benchmarkReadAllowed("mock"), true);
+  await loadBenchmarks(spy, { data: qualified, source: "mock", scenario: "ok" }, window);
+  assert.equal(benchmarkCalls, 1, "mock keeps the fixture benchmark read");
+  const tEn = (key, params) => deskTranslate("en", key, params);
+  const liveCurve = render(h(PerformanceView, { perf: { state: "ready", result: { data: qualified, source: "live", scenario: null } },
+    benchmarks: { phase: "failed" }, t: tEn, language: "en", narrow: false }));
+  assert.ok(liveCurve.includes(tEn("perf.bench.contained")), "the live page says the comparison is not read");
+  assert.ok(liveCurve.includes(tEn("perf.meta.first_date", { date: qualified.history.first_date })), "metadata with a curve too");
+  const perfSrc = readFileSync(new URL("../web/strategy-switch-console/frontend/src/desk/pages/PerformancePage.tsx", import.meta.url), "utf8");
+  assert.equal(perfSrc.match(/api\.benchmarks\(/g)?.length, 1, "the only benchmark call sits behind benchmarkReadAllowed");
+
+  // Logs (outside this binding) prints any non-unknown next run without its read status, so its
+  // copy must stay true for a partial earliest candidate: never "the next run".
+  for (const language of ["zh", "en"]) {
+    const copy = DESK_MESSAGES[language]["logs.runs.next"];
+    assert.match(copy, language === "en" ? /^Earliest observed scheduled run / : /^已观测到的最早计划运行 /, `${language}: Logs next-run copy is qualified`);
+  }
 }
 
 // Performance KPIs: backend reads only, no computed fallback; CAGR has no N1 source.

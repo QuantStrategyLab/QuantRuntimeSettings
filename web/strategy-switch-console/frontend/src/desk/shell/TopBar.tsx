@@ -1,5 +1,7 @@
 import type { Language } from "../../lib/prefs";
 import type { GatewayState, Read } from "../contract/types";
+import type { N1Ribbon } from "../contract/n1";
+import { coverageText } from "../api/n1.ts";
 import type { MockScenario } from "../api/mock.ts";
 import { FreshnessChip } from "../components/StateBlocks.tsx";
 import type { FreshnessChipState } from "../components/stateModel.ts";
@@ -11,6 +13,9 @@ import { P } from "../components/deskStyles.ts";
 
 /** Gateway chip state: a read, still loading, or a failed ribbon request. Unknown is never "down". */
 export type GatewayChip = { kind: "read"; read: Read<GatewayState> } | { kind: "loading" } | { kind: "failed" };
+
+/** The shared ribbon's `next_run` read; null while the ribbon is not ready. */
+export type NextRunRead = N1Ribbon["next_run"];
 
 /** Locked shell: the crumb and the single chip that replaces every data read. */
 export interface ShellLock {
@@ -37,6 +42,8 @@ interface TopBarProps {
   lock?: ShellLock | null;
   /** N1: the global runtime mode read is unknown. */
   modeUnknown?: boolean;
+  /** N1 ribbon `next_run`; omitted or null shows no chip. */
+  nextRun?: NextRunRead | null;
   onLanguage: (language: Language) => void;
   onTheme: () => void;
 }
@@ -51,8 +58,23 @@ function gatewayView(chip: GatewayChip): { key: DeskKey; tone: string; ageSecond
   return { key: `gateway.${read.value}` as DeskKey, tone };
 }
 
-export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock, mock, mockPartial = false, freshness, lock, modeUnknown = false, onLanguage, onTheme }: TopBarProps) {
+/**
+ * Next scheduled run chip. A partial read is only the earliest observed candidate and says
+ * so; a stale read keeps its age; a time already past (the ribbon polls) or a null value
+ * is unknown, never "no run".
+ */
+export function nextRunView(read: NextRunRead, nowIso: string, t: DeskTranslate, language: Language): { text: string; tone: string; state: string } {
+  const value = read.status === "unknown" ? null : read.value;
+  if (!value || !(Date.parse(value.due_at) > Date.parse(nowIso))) return { text: t("next_run.unknown"), tone: "unknown", state: "unknown" };
+  const params = { time: formatUtcHm(value.due_at) ?? "--:--", target: value.target_id };
+  if (read.status === "partial") return { text: t("next_run.partial", { ...params, coverage: coverageText(read.coverage) }), tone: "unknown", state: "partial" };
+  if (read.status === "stale") return { text: t("next_run.stale", { ...params, age: formatAge(read.age_seconds, language) ?? "—" }), tone: "unknown", state: "stale" };
+  return { text: t("next_run.known", params), tone: "muted", state: "known" };
+}
+
+export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock, mock, mockPartial = false, freshness, lock, modeUnknown = false, nextRun = null, onLanguage, onTheme }: TopBarProps) {
   const chip = gatewayView(gateway);
+  const next = nextRun ? nextRunView(nextRun, nowIso, t, language) : null;
   const time = formatUtcHm(nowIso) ?? "--:--";
   const day = formatUtcDayLabel(nowIso, language);
   return (
@@ -78,6 +100,9 @@ export function TopBar({ page, t, language, theme, gateway, nowIso, serverClock,
               <span className="mrd-chip" data-tone="unknown" data-mode="unknown" title={t("mode.unknown_title")}>
                 {t("mode.unknown_chip")}
               </span>
+            ) : null}
+            {next ? (
+              <span className="mrd-chip" data-tone={next.tone} data-next-run={next.state} title={t("next_run.title")}>{next.text}</span>
             ) : null}
             <span className="mrd-chip" data-tone={chip.tone} role="status">
               <i aria-hidden="true" />
