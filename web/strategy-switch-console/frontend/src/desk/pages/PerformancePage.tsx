@@ -43,7 +43,7 @@ export async function loadBenchmarks(
   loaded: DeskResult<N1Performance>,
   window: { start: string; end: string },
 ): Promise<BenchmarkState> {
-  if (!benchmarkReadAllowed(loaded.source)) return { phase: "failed" };
+  if (!benchmarkReadAllowed(loaded.source)) return { phase: "not_requested" };
   try {
     const model = parseBenchmarks(await api.benchmarks(window, loaded.source, loaded.scenario), window);
     return model ? { phase: "ready", model } : { phase: "failed" };
@@ -51,6 +51,15 @@ export async function loadBenchmarks(
     // Any HTTP 400/503 or network error: every benchmark is unavailable, the portfolio stays.
     return { phase: "failed" };
   }
+}
+
+/**
+ * The benchmark state a page shows: a source that allows no read is always `not_requested`
+ * (never loading or failed), and an allowed source is `loading` until its read settles.
+ */
+export function shownBenchmarkState(source: DeskResult<N1Performance>["source"], state: BenchmarkState): BenchmarkState {
+  if (!benchmarkReadAllowed(source)) return { phase: "not_requested" };
+  return state.phase === "not_requested" ? { phase: "loading" } : state;
 }
 
 const basisKey = (basis: string) => `basis.${basis}` as DeskKey;
@@ -88,7 +97,7 @@ function HistoryMeta({ data, t }: { data: N1Performance; t: DeskTranslate }) {
 export function PerformancePage({ api, t, language }: { api: DeskApi; t: DeskTranslate; language: Language }) {
   const narrow = useNarrow();
   const [perf, setPerf] = useState<Loaded>({ state: "loading" });
-  const [benchmarks, setBenchmarks] = useState<BenchmarkState>({ phase: "loading" });
+  const [benchmarks, setBenchmarks] = useState<BenchmarkState>({ phase: "not_requested" });
 
   useEffect(() => {
     let alive = true;
@@ -107,7 +116,7 @@ export function PerformancePage({ api, t, language }: { api: DeskApi; t: DeskTra
   useEffect(() => {
     if (!loaded || !window) return;
     let alive = true;
-    setBenchmarks({ phase: "loading" });
+    setBenchmarks(benchmarkReadAllowed(loaded.source) ? { phase: "loading" } : { phase: "not_requested" });
     loadBenchmarks(api, loaded, window).then(state => alive && setBenchmarks(state));
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,17 +154,14 @@ export function PerformanceView({ perf, benchmarks, t, language, narrow }: {
     )
     : perf.state === "failed" || !loaded || !curve || !window ? <section className="mrd-card" role="status"><p>{t("perf.portfolio_unavailable")}</p></section>
     : (
-      <>
-        <BenchmarkPanel
-          t={t}
-          language={language}
-          portfolio={curve}
-          portfolioStats={portfolioStatsFor(loaded.data)}
-          window={window}
-          benchmarks={benchmarks}
-        />
-        {benchmarkReadAllowed(loaded.source) ? null : <p style={S.note} role="status" data-benchmark="contained">{t("perf.bench.contained")}</p>}
-      </>
+      <BenchmarkPanel
+        t={t}
+        language={language}
+        portfolio={curve}
+        portfolioStats={portfolioStatsFor(loaded.data)}
+        window={window}
+        benchmarks={shownBenchmarkState(loaded.source, benchmarks)}
+      />
     );
   return (
     <section style={S.page} aria-labelledby="mrd-page-title">

@@ -25,7 +25,12 @@ export function useNarrow(): boolean {
   return narrow;
 }
 
+/**
+ * `not_requested`: the source does not allow a benchmark read, so none was made. It is neither a
+ * load in progress nor a failure, and the panel says only that the comparison is not read.
+ */
 export type BenchmarkState =
+  | { phase: "not_requested" }
   | { phase: "loading" }
   | { phase: "failed" }
   | { phase: "ready"; model: BenchmarkModel };
@@ -124,6 +129,7 @@ export function BenchmarkPanel({ t, language, portfolio, portfolioStats, window:
       </div>
 
       {benchmarks.phase === "failed" ? <p style={S.note} role="status">{t("perf.fetch_failed")}</p> : null}
+      {benchmarks.phase === "not_requested" ? <p style={S.note} role="status" data-benchmark="contained">{t("perf.bench.contained")}</p> : null}
 
       <div style={S.chips} role="group" aria-label={t("perf.bench.group")}>
         <span className="mrd-chip" style={S.chip(null)}><Swatch token="--mrd-p" dash="" primary /><span>{t("perf.portfolio")}</span></span>

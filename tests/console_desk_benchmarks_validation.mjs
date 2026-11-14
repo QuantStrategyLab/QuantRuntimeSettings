@@ -179,7 +179,7 @@ try {
       const curve = portfolioCurve(dates, ['100', '125', '150']);
       const window = { start: dates[0], end: dates[2] };
       const model = raw ? parseBenchmarks(raw, window) : null;
-      const benchmarks = phase === 'failed' || !model ? { phase: 'failed' } : { phase: 'ready', model };
+      const benchmarks = phase === 'not_requested' || phase === 'loading' ? { phase } : phase === 'failed' || !model ? { phase: 'failed' } : { phase: 'ready', model };
       return renderToStaticMarkup(h(BenchmarkPanel, { t: (k, p) => deskTranslate(language, k, p), language, portfolio: curve,
         portfolioStats: computeStats(curve.points), window, benchmarks, initialSelection: selection }));
     };
@@ -233,6 +233,20 @@ try {
     assert.match(plain(failed), /S&amp;P 500 comparison unavailable/);
     assert.match(plain(failed), /No benchmark has data for this window\./);
     assert.ok(!/data-sign="(pos|neg|zero)"/.test(failed));
+  }
+  // Item 3: a read the source never allowed is not a failure and not a load in progress.
+  for (const language of ["en", "zh"]) {
+    const t = key => (language === "en" ? en : zh)[key];
+    const unrequested = render(language, null, ["spx", "ndx"], "not_requested");
+    assert.match(unrequested, /data-benchmark-phase="not_requested"/);
+    assert.equal(unrequested.match(/data-benchmark="contained"/g)?.length, 1, `${language}: contained copy once`);
+    assert.ok(unrequested.includes(t("perf.bench.contained")), `${language}: contained copy`);
+    assert.equal(unrequested.includes(t("perf.fetch_failed")), false, `${language}: no fetch-failed copy when not requested`);
+    assert.deepEqual(lineIds(unrequested), ["pf"], `${language}: portfolio alone`);
+    const loading = render(language, null, ["spx"], "loading");
+    assert.match(loading, /data-benchmark-phase="loading"/);
+    assert.equal(loading.includes(t("perf.fetch_failed")) || loading.includes('data-benchmark="contained"'), false, `${language}: loading claims neither`);
+    assert.equal(render(language, null, ["spx"], "failed").includes('data-benchmark="contained"'), false, `${language}: a failure is not containment`);
   }
   for (const [name, raw] of Object.entries(badEnvelopes)) {
     const html = render("en", raw, DEFAULT);

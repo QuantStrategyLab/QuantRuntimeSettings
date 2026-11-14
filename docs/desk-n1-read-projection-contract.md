@@ -11,6 +11,13 @@ definition and existing `/api/...` route keeps its behaviour.
 
 - Five new GET routes, each answering a new `qsl.desk.{ribbon,overview,accounts,switch_strategies,performance}.v2`
   payload. These routes did not exist before, so no served API changes shape.
+- Compatibility of the shared runtime-daily reader (`todaySummary`): without
+  the `schedule` opt-in its default output shape is unchanged and carries no
+  `schedule` key. Its values are not frozen: the approved completeness
+  correction (a row is complete only when the reader's `read_summary` says so)
+  and the chronological correction (the oldest observation is the earliest
+  instant, not the first string) intentionally change values that were wrong
+  before. The same holds for the Desk projections' chronological instant picks.
 - Schemas: `schemas/desk/n1-*.json` (unique `$id` each; `n1-common.json` is a
   shared helper, not a response). Golden fixtures:
   `tests/fixtures/desk/n1-<area>.<ok|degraded|partial|empty>.json`.
@@ -107,9 +114,10 @@ readbacks, credentials and alert-delivery routes intact.
   schedules, through an explicit opt-in on the existing reader:
   `todaySummary(..., { schedule: true })` adds a `schedule` field
   (`state`, `business_date`, `timezone`, `next_due_at`) to each row. Without
-  the option the legacy summary output is unchanged. Only the read for the
-  current New York business day opts in; no additional storage read or write
-  is made and no schedule is collected.
+  the option the default output shape is unchanged and no `schedule` key is
+  present (see §1 for the intentional value corrections). Only the read for
+  the current New York business day opts in; no additional storage read or
+  write is made and no schedule is collected.
   - A candidate is a fully read, complete record (fresh or stale) whose
     schedule belongs to that business day in `America/New_York`, whose state is
     not `unevaluable`, that carries no `schedule_unverified` or
@@ -125,8 +133,15 @@ readbacks, credentials and alert-delivery routes intact.
   - None: unknown (`read_failed`, `coverage_incomplete` or
     `source_unavailable`). Missing, conflicting, disabled, unevaluable and
     schedule-unverified records stay unknown; a null `next_due_at` never proves
-    that no run is due. A past `?date=` does not read today's record, so its
-    `next_run` is unknown.
+    that no run is due.
+  - A `?date=` UTC day reads the New York business days it overlaps, up to New
+    York today. UTC midnight comes before New York midnight (19:00 EST, 20:00
+    EDT), so until New York midnight yesterday's UTC slice still overlaps the
+    current New York business day: it reads today's record with the opt-in and
+    its `next_run` follows the rules above. Only a UTC day that no longer
+    overlaps the current New York business day reads no record of it; its
+    `next_run` is unknown (`source_unavailable`). The DST change moves the
+    boundary instant, never the rule.
   - Overview `runs_today.expected` and `pending` stay null: neighbouring
     schedule instants are not a full-day occurrence count, and recorded runs
     may include retries or manual runs.
@@ -193,7 +208,9 @@ readbacks, credentials and alert-delivery routes intact.
   complete non-paper cohort (`reporting_currency` = that currency). Mixed
   currencies: `status: unavailable`, `nav: null`, `fx` unknown, coverage reason
   `mixed_currency`, `excluded_reasons: [fx_unavailable]`, display-only USD
-  convention. Missing accounts make the totals partial.
+  convention. Missing accounts make the totals partial. Aggregatability does
+  not decide freshness: a mixed-currency cohort keeps these unavailable totals
+  while `freshness` still reports its displayed observations (below).
 - A stored daily record counts as covered only when its source coverage is
   complete (fresh or stale alike); a stale, incomplete record is never a
   verified empty tape or a counted run.
@@ -225,8 +242,11 @@ readbacks, credentials and alert-delivery routes intact.
   identity-unverified, currency-mismatched or non-cohort (paper) history, or
   fewer than two points, gives `points: []`.
 - `freshness`/`data_age_seconds`: from the oldest displayed bound stored
-  observation; when every displayed fact is stale, it is `stale` with that age,
-  never unavailable. A stale NAV is rendered with its stale label and age.
+  observation, whenever a fresh bound non-paper observation is displayed,
+  whether or not the cohort aggregates (mixed currencies included); when every
+  displayed fact is stale, it is `stale` with that age, never unavailable.
+  Without a displayed identity-bound observation it stays unavailable. A stale
+  NAV is rendered with its stale label and age.
 - `needs_you`: credential-maintenance items only; pending decisions are not read,
   so the list is partial and never "nothing needs you".
 - `drawdown`, exposures: `null` (no risk thresholds or three-tier runtime).
@@ -255,9 +275,21 @@ readbacks, credentials and alert-delivery routes intact.
 - TopBar next-run chip from the ribbon `next_run`: known shows the time and
   target; stale adds its age; partial says it is the earliest observed run and
   not the overall next run; unknown, null or a time already past shows
-  `Next run ?`. The chip is hidden behind the lock. Logs prints any
-  non-unknown next run without its read status, so its copy reads "earliest
-  observed scheduled run" and never claims the overall next run.
+  `Next run ?`. The time is UTC; when its UTC date is not the viewer's current
+  UTC day, the UTC date is shown in front of it. The chip is hidden behind the
+  lock. No expected or pending count is derived from it.
+- Logs reads the ribbon once when the page opens: a one-time snapshot, beside
+  the shell's polled ribbon, never polled or re-read and never an added
+  storage read. It says so on the page. Its next-run line keeps the whole
+  read: the headline "earliest observed scheduled run" (true for a partial
+  candidate too), then coverage, the stored observation instant and, when
+  stale, the reported age; unknown names its reason and a null value is "not
+  observed", never "none due". A local clock, anchored to the snapshot's
+  `generated_at` only to place "now", turns a candidate whose due instant has
+  passed into "has passed; reload to read again"; it never refreshes an
+  observation or its age. Every Logs time is UTC and carries its UTC date when
+  that date is not the current UTC day. Behind the lock the shell renders the
+  access card, so the Logs page and its read do not exist.
 - Overview Recent Signals shows the newest five tape entries, newest first; a
   loading ribbon is not shown as empty, and a populated partial or stale tape
   keeps its coverage or age note.
@@ -266,8 +298,8 @@ readbacks, credentials and alert-delivery routes intact.
   never calls `api.benchmarks()` (`/api/market-benchmark/performance` is not an
   approved N1 source); only fixture pages show a benchmark comparison.
 - Overview/Accounts/Strategies/Performance unwrap validated reads: unknown and
-  partial are never success-empty; stale is greyed. Logs only adapts the shared
-  ribbon tape; it keeps its fixture read.
+  partial are never success-empty; stale is greyed. Logs adapts its one-time
+  ribbon snapshot (above); its log tail keeps its fixture read.
 - Strategy live eligibility is never derived from configuration alone;
   `switchable` stays false.
 

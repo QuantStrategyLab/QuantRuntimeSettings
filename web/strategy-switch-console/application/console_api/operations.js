@@ -42,7 +42,10 @@ function oldestObservation(values) {
 }
 /**
  * `options.schedule` is an explicit N1 opt-in: rows then carry `schedule` (null when no
- * record was read). Without it the legacy output is unchanged.
+ * record was read). Without it the default output shape is unchanged and carries no
+ * `schedule` key. Values are not frozen: the approved completeness correction (the
+ * reader's own `read_summary` decision) and the chronological `as_of` correction
+ * intentionally change values that were wrong before.
  */
 export async function todaySummary(request, env, deps, accounts, now = Date.now(), options = {}) {
   // Daily records, their reader, and this summary must share one date domain.

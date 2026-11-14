@@ -59,14 +59,26 @@ function gatewayView(chip: GatewayChip): { key: DeskKey; tone: string; ageSecond
 }
 
 /**
+ * A stored UTC instant as "HH:MM", with its UTC date label in front when that date is not
+ * the viewer's current UTC day (`nowIso`), so a time across UTC midnight is never read as
+ * today's. Null for a malformed instant.
+ */
+export function utcWhen(iso: string, nowIso: string, language: Language): string | null {
+  const time = formatUtcHm(iso);
+  if (time === null) return null;
+  const day = iso.slice(0, 10) === nowIso.slice(0, 10) ? null : formatUtcDayLabel(iso, language);
+  return day ? `${day} ${time}` : time;
+}
+
+/**
  * Next scheduled run chip. A partial read is only the earliest observed candidate and says
  * so; a stale read keeps its age; a time already past (the ribbon polls) or a null value
- * is unknown, never "no run".
+ * is unknown, never "no run". A run on another UTC day than the viewer's carries its date.
  */
 export function nextRunView(read: NextRunRead, nowIso: string, t: DeskTranslate, language: Language): { text: string; tone: string; state: string } {
   const value = read.status === "unknown" ? null : read.value;
   if (!value || !(Date.parse(value.due_at) > Date.parse(nowIso))) return { text: t("next_run.unknown"), tone: "unknown", state: "unknown" };
-  const params = { time: formatUtcHm(value.due_at) ?? "--:--", target: value.target_id };
+  const params = { time: utcWhen(value.due_at, nowIso, language) ?? "--:--", target: value.target_id };
   if (read.status === "partial") return { text: t("next_run.partial", { ...params, coverage: coverageText(read.coverage) }), tone: "unknown", state: "partial" };
   if (read.status === "stale") return { text: t("next_run.stale", { ...params, age: formatAge(read.age_seconds, language) ?? "—" }), tone: "unknown", state: "stale" };
   return { text: t("next_run.known", params), tone: "muted", state: "known" };

@@ -72,10 +72,14 @@ for(const record of [{...complete.record,kind:'incomplete'},{...complete.record,
 summary=await summarise({...complete,data_status:'stale',read_summary:summaryOf('partial')});
 assert.deepEqual([summary.accounts[0].status,summary.accounts[0].completeness],['stale','incomplete']);
 
-// Schedule projection: explicit opt-in only; the legacy output is unchanged by default.
+// Schedule projection: explicit opt-in only. By default the output shape is unchanged and
+// carries no schedule key; values follow the approved completeness and chronological
+// corrections, which intentionally changed values that were wrong before.
 summary=await summarise({...complete,read_summary:summaryOf('complete')});
 assert.equal('schedule' in summary.accounts[0],false,'no schedule field without the opt-in');
+const defaultKeys=Object.keys(summary.accounts[0]).sort();
 summary=await summarise({...complete,read_summary:summaryOf('complete')},{schedule:true});
+assert.deepEqual(Object.keys(summary.accounts[0]).filter(key=>key!=='schedule').sort(),defaultKeys,'the opt-in adds only the schedule key');
 assert.deepEqual(summary.accounts[0].schedule,{state:'not_due',business_date:date,timezone:'America/New_York',next_due_at:'2026-10-16T19:55:00Z'});
 assert.equal(JSON.stringify(summary.accounts[0].schedule).includes('latest_due_at'),false,'only the fields the projection needs');
 summary=await summarise({...complete,record:{...complete.record,schedule:null}},{schedule:true});

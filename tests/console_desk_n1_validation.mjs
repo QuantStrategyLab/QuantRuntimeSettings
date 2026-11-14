@@ -19,6 +19,7 @@ import * as v1Performance from "../web/strategy-switch-console/frontend/src/desk
 import { forTarget } from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/switchStrategies.ts";
 import { DESK_MESSAGES, deskTranslate } from "../web/strategy-switch-console/frontend/src/desk/i18n/index.ts";
 import { ribbonTape } from "../web/strategy-switch-console/application/desk/ribbon.js";
+import { formatAge, formatUtcDayLabel } from "../web/strategy-switch-console/frontend/src/desk/format.ts";
 
 const workerRequire = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const ajv = new (workerRequire("ajv/dist/2020").default)({ strict: false, allErrors: true });
@@ -160,9 +161,9 @@ const compiled = require("esbuild").buildSync({
     contents: `
       export { OverviewView } from "./desk/pages/OverviewPage";
       export { BrokersView } from "./desk/pages/AccountsPage";
-      export { portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed } from "./desk/pages/PerformancePage";
+      export { portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed, shownBenchmarkState } from "./desk/pages/PerformancePage";
       export { Dock } from "./desk/shell/Dock";
-      export { TopBar } from "./desk/shell/TopBar";
+      export { TopBar, utcWhen } from "./desk/shell/TopBar";
       export { DeskShell } from "./desk/shell/DeskShell";
       export { catalogEntries, entryCounts, filterEntries, catalogRevisionText } from "./desk/pages/StrategiesPage";
     `,
@@ -174,8 +175,8 @@ const compiled = require("esbuild").buildSync({
 }).outputFiles[0].text;
 const desk = { exports: {} };
 new Function("require", "module", "exports", compiled)(require, desk, desk.exports);
-const { OverviewView, BrokersView, portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed,
-  Dock, TopBar, DeskShell, catalogEntries, entryCounts, filterEntries, catalogRevisionText } = desk.exports;
+const { OverviewView, BrokersView, portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed, shownBenchmarkState,
+  Dock, TopBar, utcWhen, DeskShell, catalogEntries, entryCounts, filterEntries, catalogRevisionText } = desk.exports;
 const text = html => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
 
 for (const language of ["zh", "en"]) {
@@ -347,7 +348,7 @@ for (const language of ["zh", "en"]) {
   assert.equal(view(ok, ribbonWith(sixTape)).includes(t("overview.book.nav_stale", { age: "@" }).split("@")[0]), false, "a known NAV has no stale label");
 
   // F4: Performance minimum-set metadata renders even when the curve is unavailable.
-  const perfView = (data, source = "live", benchmarks = { phase: "failed" }) => render(h(PerformanceView, {
+  const perfView = (data, source = "live", benchmarks = { phase: "not_requested" }) => render(h(PerformanceView, {
     perf: { state: "ready", result: { data, source, scenario: null } }, benchmarks, t, language, narrow: false }));
   const unknownPerf = golden("performance", "ok");
   const perfHtml = perfView(unknownPerf);
@@ -390,6 +391,30 @@ for (const language of ["zh", "en"]) {
     assert.ok(shell(null).includes('data-next-run="known"'), "the shell passes the read through");
     assert.equal(shell({ crumb: "access.title", chip: "access.chip.login" }).includes("data-next-run"), false, "no next run behind the lock");
   }
+  // S2 completion #5: a next run on another UTC day than the viewer's carries its UTC date;
+  // coverage and stale age stay. Exact midnight, cross-date and a DST switch day.
+  {
+    const dayOf = iso => formatUtcDayLabel(iso, language);
+    const bar = { page: "overview", t, language, theme: "light", gateway: { kind: "read", read: { status: "unknown", reason: "not_supported" } },
+      serverClock: true, mock: null, onLanguage: () => {}, onTheme: () => {} };
+    const chipAt = (read, nowIso) => render(h(TopBar, { ...bar, nowIso, nextRun: read }));
+    const target = "firstrade/target1";
+    const tomorrow = chipAt(nextRead("known", "2030-01-09T00:30:00Z"), "2030-01-08T23:00:00Z");
+    assert.ok(tomorrow.includes(t("next_run.known", { time: `${dayOf("2030-01-09T00:30:00Z")} 00:30`, target })), "a next UTC day run is dated");
+    assert.ok(chipAt(nextRead("known", "2030-01-09T00:00:00Z"), "2030-01-08T23:59:59Z").includes(t("next_run.known", { time: `${dayOf("2030-01-09T00:00:00Z")} 00:00`, target })),
+      "one second before UTC midnight, a midnight run is tomorrow's");
+    assert.ok(chipAt(nextRead("known", "2030-01-09T00:00:01Z"), "2030-01-09T00:00:00Z").includes(t("next_run.known", { time: "00:00", target })), "at UTC midnight it is today's");
+    assert.ok(chipAt(nextRead("known"), at).includes(t("next_run.known", { time: "19:30", target })), "same UTC day: time only");
+    const partTomorrow = chipAt(nextRead("partial", "2030-01-09T00:30:00Z"), "2030-01-08T23:00:00Z");
+    assert.ok(partTomorrow.includes(t("next_run.partial", { time: `${dayOf("2030-01-09T00:30:00Z")} 00:30`, target, coverage: "1/2" })), "partial keeps its coverage");
+    const staleTomorrow = chipAt(nextRead("stale", "2030-01-09T00:30:00Z", { age_seconds: 7200 }), "2030-01-08T23:00:00Z");
+    assert.ok(staleTomorrow.includes(t("next_run.stale", { time: `${dayOf("2030-01-09T00:30:00Z")} 00:30`, target, age: formatAge(7200, language) })), "stale keeps its age");
+    // 2030-03-10 is the NY DST switch day; the label is UTC and moves with nothing but the UTC date.
+    assert.ok(chipAt(nextRead("known", "2030-03-10T07:30:00Z"), "2030-03-10T06:59:00Z").includes(t("next_run.known", { time: "07:30", target })));
+    assert.ok(chipAt(nextRead("known", "2030-03-11T03:30:00Z"), "2030-03-10T23:30:00Z").includes(t("next_run.known", { time: `${dayOf("2030-03-11T00:00:00Z")} 03:30`, target })));
+    assert.deepEqual(utcWhen("2030-01-09T00:30:00Z", "2030-01-08T23:00:00Z", language), `${dayOf("2030-01-09T00:30:00Z")} 00:30`);
+    assert.equal(utcWhen("2030-01-09T00:30", "2030-01-08T23:00:00Z", language), null, "a malformed instant is not formatted");
+  }
   for (const key of ["overview.signals.loading", "overview.book.nav_stale", "perf.meta.window", "perf.meta.window_all", "perf.meta.first_date",
     "perf.meta.basis", "perf.meta.basis_target", "perf.bench.contained", "next_run.known", "next_run.stale", "next_run.partial", "next_run.unknown", "next_run.title"]) {
     assert.ok(DESK_MESSAGES[language][key], `missing ${language} ${key}`);
@@ -407,7 +432,8 @@ for (const language of ["zh", "en"]) {
   assert.ok(isN1Performance(qualified) && schemaOk("performance", qualified), "a synthetic qualified curve");
   const window = { start: "2030-01-02", end: "2030-01-06" };
   assert.equal(benchmarkReadAllowed("live"), false);
-  assert.deepEqual(await loadBenchmarks(spy, { data: qualified, source: "live", scenario: null }, window), { phase: "failed" });
+  assert.deepEqual(await loadBenchmarks(spy, { data: qualified, source: "live", scenario: null }, window), { phase: "not_requested" },
+    "an unrequested live read is not_requested, never failed");
   assert.equal(benchmarkCalls, 0, "no api.benchmarks() call on the live path");
   // Through the real API object: a live benchmark read would hit /api/market-benchmark/performance.
   const liveApi = createDeskApi({ forcedScenario: null, delayMs: 0, sources: liveSources, fetchJson: async url => { outbound.push(url); throw Error("no network"); } });
@@ -418,15 +444,33 @@ for (const language of ["zh", "en"]) {
   await loadBenchmarks(spy, { data: qualified, source: "mock", scenario: "ok" }, window);
   assert.equal(benchmarkCalls, 1, "mock keeps the fixture benchmark read");
   const tEn = (key, params) => deskTranslate("en", key, params);
-  const liveCurve = render(h(PerformanceView, { perf: { state: "ready", result: { data: qualified, source: "live", scenario: null } },
-    benchmarks: { phase: "failed" }, t: tEn, language: "en", narrow: false }));
-  assert.ok(liveCurve.includes(tEn("perf.bench.contained")), "the live page says the comparison is not read");
-  assert.ok(liveCurve.includes(tEn("perf.meta.first_date", { date: qualified.history.first_date })), "metadata with a curve too");
   const perfSrc = readFileSync(new URL("../web/strategy-switch-console/frontend/src/desk/pages/PerformancePage.tsx", import.meta.url), "utf8");
+  const liveView = benchmarks => render(h(PerformanceView, { perf: { state: "ready", result: { data: qualified, source: "live", scenario: null } },
+    benchmarks, t: tEn, language: "en", narrow: false }));
+  const liveCurve = liveView({ phase: "not_requested" });
+  assert.ok(liveCurve.includes(tEn("perf.bench.contained")), "the live page says the comparison is not read");
+  // Item 3: the live page never claims a benchmark load or failure it did not attempt, whatever state it holds.
+  for (const held of [{ phase: "not_requested" }, { phase: "loading" }, { phase: "failed" }]) {
+    const html = liveView(held);
+    assert.ok(html.includes('data-benchmark-phase="not_requested"'), `live ${held.phase}: shown as not_requested`);
+    assert.equal(html.match(/data-benchmark="contained"/g)?.length, 1, `live ${held.phase}: the contained copy once`);
+    assert.equal(html.includes(tEn("perf.fetch_failed")), false, `live ${held.phase}: no fetch-failed copy`);
+    assert.equal(html.includes('data-benchmark-phase="loading"'), false, `live ${held.phase}: no loading phase`);
+  }
+  assert.deepEqual(shownBenchmarkState("live", { phase: "loading" }), { phase: "not_requested" });
+  assert.deepEqual(shownBenchmarkState("mock", { phase: "not_requested" }), { phase: "loading" }, "an allowed read is loading until it settles");
+  assert.deepEqual(shownBenchmarkState("mock", { phase: "failed" }), { phase: "failed" }, "a real mock failure stays failed");
+  const mockView = benchmarks => render(h(PerformanceView, { perf: { state: "ready", result: { data: qualified, source: "mock", scenario: "ok" } },
+    benchmarks, t: tEn, language: "en", narrow: false }));
+  assert.ok(mockView({ phase: "loading" }).includes('data-benchmark-phase="loading"'), "a mock read in flight is loading");
+  assert.equal(mockView({ phase: "loading" }).includes('data-benchmark="contained"'), false, "a mock page is not contained");
+  assert.ok(mockView({ phase: "failed" }).includes(tEn("perf.fetch_failed")), "a mock read failure keeps its copy");
+  assert.match(perfSrc, /useState<BenchmarkState>\(\{ phase: "not_requested" \}\)/, "the page starts not_requested");
+  assert.ok(liveCurve.includes(tEn("perf.meta.first_date", { date: qualified.history.first_date })), "metadata with a curve too");
   assert.equal(perfSrc.match(/api\.benchmarks\(/g)?.length, 1, "the only benchmark call sits behind benchmarkReadAllowed");
 
-  // Logs (outside this binding) prints any non-unknown next run without its read status, so its
-  // copy must stay true for a partial earliest candidate: never "the next run".
+  // Logs keeps the read status beside its headline (tests/console_desk_phase8_validation.mjs), and the
+  // headline itself must stay true for a partial earliest candidate: never "the next run".
   for (const language of ["zh", "en"]) {
     const copy = DESK_MESSAGES[language]["logs.runs.next"];
     assert.match(copy, language === "en" ? /^Earliest observed scheduled run / : /^已观测到的最早计划运行 /, `${language}: Logs next-run copy is qualified`);

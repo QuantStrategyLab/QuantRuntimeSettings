@@ -198,8 +198,12 @@ export function performanceProjection({ members, range, end, now, readable = tru
     };
     const lastDate = qualified.at(-1).date;
     // The stored observation instant of the last day, never the response time.
-    const lastTimes = allPoints.filter(point => point.date === lastDate).map(point => point.observed_at ?? null);
-    const observedAt = lastTimes.length && lastTimes.every(Boolean) ? lastTimes.sort().at(-1) : null;
+    // Normalized instants keep nonzero milliseconds, so the newest is chosen by
+    // epoch time, not string; equal instants normalize to the same text. Any
+    // missing or unusable observation leaves the day without a time basis.
+    const lastTimes = allPoints.filter(point => point.date === lastDate).map(point => utcInstant(point.observed_at ?? null));
+    const observedAt = lastTimes.length && lastTimes.every(Boolean)
+      ? lastTimes.reduce((newest, at) => Date.parse(at) > Date.parse(newest) ? at : newest) : null;
     const wrap = (payload) => truncatedBy
       ? partial(payload, observedAt, coverage("partial", included, total, ["insufficient_history"]))
       : businessAge(lastDate, end) > STALE_DAYS
