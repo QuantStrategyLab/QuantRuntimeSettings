@@ -528,7 +528,9 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   assert.deepEqual(partRun.coverage, { state: "partial", included: 0, total: 1, reasons: ["coverage_incomplete"] });
   assert.equal(partRun.observed_at, "2030-01-08T14:40:00Z", "the stored observation, never the response time");
   const staleIncompleteRun = { ...incomplete, status: "stale", unavailable_reason: "runtime_daily_stale" };
-  assert.equal(lastRun({ accounts: [staleIncompleteRun] }, staleIncompleteRun, NOW).status, "partial");
+  const staleIncompleteRead = lastRun({ accounts: [staleIncompleteRun] }, staleIncompleteRun, NOW);
+  assert.deepEqual([staleIncompleteRead.status, staleIncompleteRead.reason], ["unknown", "coverage_incomplete"],
+    "a partial read has no age: a stale incomplete record never hides its staleness behind a run time");
   const noFinished = { ...incomplete, runs: [incomplete.runs[1]] };
   const noFinishedRun = lastRun({ accounts: [noFinished] }, noFinished, NOW);
   assert.deepEqual([noFinishedRun.status, noFinishedRun.reason], ["unknown", "coverage_incomplete"], "an incomplete record without a finished run is not 'no run'");

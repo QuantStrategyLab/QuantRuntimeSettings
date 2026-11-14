@@ -175,9 +175,11 @@ readbacks, credentials and alert-delivery routes intact.
   configuration; NAV only from a bound stored snapshot. `last_run` is an N1
   Read: known `null` only when the stored daily record was read completely and
   holds no finished run; a failed, missing or unbound record is unknown and
-  never rendered as "no run". A record that was read but is incomplete gives its
-  latest finished run as `partial` (coverage `0/1`, `coverage_incomplete`: a
-  later run may be missing) and is otherwise unknown/`coverage_incomplete`.
+  never rendered as "no run". A fresh record that was read but is incomplete
+  gives its latest finished run as `partial` (coverage `0/1`,
+  `coverage_incomplete`: a later run may be missing); a stale incomplete record
+  (a partial read carries no age) or one without a finished run is
+  unknown/`coverage_incomplete`.
   `runs_today` still counts only complete records.
 - `book[].sparkline_30d` (frozen contract §3.3): the stored net-asset strings
   of the last 30 stored days (Asia/Shanghai history domain) from the same

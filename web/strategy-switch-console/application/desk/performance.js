@@ -162,7 +162,9 @@ export function performanceProjection({ members, range, end, now, readable = tru
     // No server FX: a mixed-currency cohort has no combined curve.
     equity = unknown("mixed_currency", coverage("unavailable", 0, total, ["mixed_currency"]));
   } else {
-    const combined = aggregateEquity(members.flatMap(member => member.series.map(series => ({ id: `${member.target_id}:${series.currency}`, points: series.points }))));
+    // The curve sees exactly the arithmetic fields; the stored text is for the overview sparkline only.
+    const combined = aggregateEquity(members.flatMap(member => member.series.map(series => ({ id: `${member.target_id}:${series.currency}`,
+      points: series.points.map(point => ({ date: point.date, value: point.value, externalFlow: point.externalFlow, observed_at: point.observed_at })) }))));
     const points = combined.points.filter(point => (!window.start || point.date >= window.start) && point.date <= window.end);
     const chained = chainReturns(points);
     if (combined.missingAccounts.length || points.length < 2 || chained.invalidPeriod || chained.index.length < 2) {

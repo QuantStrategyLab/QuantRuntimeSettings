@@ -84,15 +84,17 @@ function latestFinishedRun(row) {
 /**
  * The latest finished run for one target as an N1 read. Known null only when the
  * stored daily record was read completely and holds no finished run; a failed,
- * missing, unbound or incomplete record is never "no run". A record that was read
- * but is incomplete gives its latest finished run as a partial read (a verified
- * subset: a later run may be missing) and otherwise names the coverage gap.
+ * missing, unbound or incomplete record is never "no run". A fresh record that was
+ * read but is incomplete gives its latest finished run as a partial read (a verified
+ * subset: a later run may be missing); a stale incomplete one, or one without a
+ * finished run, names the coverage gap.
  */
 export function lastRun(summary, summaryRow, now) {
   if (!summary) return unknown("read_failed", coverage("unavailable", 0, 1, ["read_failed"]));
   if (!runCovered(summaryRow)) {
     if (runRowReadIncomplete(summaryRow)) {
-      const latest = latestFinishedRun(summaryRow);
+      // A partial read carries no age, so a stale incomplete record names only its coverage gap.
+      const latest = summaryRow.status === "partial" ? latestFinishedRun(summaryRow) : null;
       return latest
         ? partial({ at: latest.at, outcome: tapeOutcome(latest.run) }, summaryRow.as_of, coverage("partial", 0, 1, ["coverage_incomplete"]))
         : unknown("coverage_incomplete", coverage("unavailable", 0, 1, ["coverage_incomplete"]));
