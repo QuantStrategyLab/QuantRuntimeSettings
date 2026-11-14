@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { runStatus } from '../web/strategy-switch-console/application/console_api/run_status.js';
 import { todaySummary } from '../web/strategy-switch-console/application/console_api/operations.js';
+import { lastRun, runsToday } from '../web/strategy-switch-console/application/desk/overview.js';
 const now=Date.parse('2026-10-16T18:00:00Z');
 const account={platform:'ibkr',key:'synthetic'};
 const binding={platform:'ibkr',account_key:'synthetic',target_key:'synthetic-target',status:'bound'};
@@ -27,4 +28,65 @@ for(const extra of [{},{read_error_count:2,read_error_codes:['coverage_unconfirm
 for(const state of ['failed','blocked']) {row=await check({read_error_count:1,read_error_codes:['target_disabled'],record:{...base.record,status:state}},state);}
 assert.equal(runStatus({status:'partial',activity:'read_incomplete',runs:[],read_error_count:2,
  read_error_codes:['list_failed','unrecognized']}),'unknown','an unknown code makes mixed diagnostics unknown');
-console.log('runtime today incomplete: coverage, read failures, unknown and execution priority passed');
+
+// The reader's completeness decision is preserved, never rebuilt into a weaker one.
+const complete={...base,read_error_count:0,read_error_codes:[],
+ record:{...base.record,completeness:'complete',status:'no_rebalance',kind:'run',runs:[{run_id:'one',started_at:'2026-10-16T14:31:00Z',finished_at:'2026-10-16T14:32:00Z',activity:'no_rebalance',errors_present:false}],
+  schedule:{state:'not_due',business_date:date,timezone:'America/New_York',latest_due_at:null,next_due_at:'2026-10-16T19:55:00Z',grace_ends_at:null,publication_grace_ended:null,expected_window:'unspecified'}}};
+async function summarise(body,options){
+ return todaySummary(new Request('https://synthetic.invalid/api/runtime/today'),{},
+  {dailyBindings:async()=>[binding],daily:async()=>Response.json(body)},[account],now,options);
+}
+const summaryOf=(status,observed=1)=>({source:'stored_runtime_daily_projection',status,reason:status==='complete'?null:'runtime_daily_incomplete',observed_run_count:observed,total_run_count:status==='complete'?observed:null});
+const target=[{platform:'ibkr',key:'synthetic'}];
+// Accepted projection, outer read incomplete, record complete: never complete here.
+let summary=await summarise({...complete,read_summary:summaryOf('partial')});
+assert.deepEqual([summary.accounts[0].status,summary.accounts[0].completeness,summary.counts.runs],['partial','incomplete',null]);
+let last=lastRun(summary,summary.accounts[0],now);
+assert.equal(last.status,'partial','an outer-incomplete record is a verified subset, never a complete read');
+assert.notDeepEqual([last.status,last.value],['known',null],'never a known-null last run');
+assert.notEqual(runsToday({targets:target,summary,businessDate:date,now}).coverage.included,1,'never a covered count');
+// Same, without a finished run: unknown coverage gap, never "no run" or a covered zero.
+summary=await summarise({...complete,record:{...complete.record,runs:[]},read_summary:summaryOf('partial',0)});
+last=lastRun(summary,summary.accounts[0],now);
+assert.deepEqual([last.status,last.reason],['unknown','coverage_incomplete']);
+const zero=runsToday({targets:target,summary,businessDate:date,now});
+assert.deepEqual([zero.status,zero.reason],['unknown','coverage_incomplete'],'no covered zero runs');
+// Any non-complete or malformed reader summary stays incomplete.
+for(const read_summary of [summaryOf('no_data'),summaryOf('read_failed'),null,{status:'COMPLETE'}]) {
+ summary=await summarise({...complete,read_summary});
+ assert.equal(summary.accounts[0].completeness,'incomplete',`read_summary ${JSON.stringify(read_summary)}`);
+}
+// Complete reader decision and complete record: complete, a real (known) count.
+summary=await summarise({...complete,read_summary:summaryOf('complete')});
+assert.deepEqual([summary.accounts[0].status,summary.accounts[0].completeness,summary.counts.runs],['ok','complete',1]);
+assert.equal(lastRun(summary,summary.accounts[0],now).status,'known');
+summary=await summarise({...complete,record:{...complete.record,runs:[]},read_summary:summaryOf('complete',0)});
+last=lastRun(summary,summary.accounts[0],now);
+assert.deepEqual([last.status,last.value],['known',null],'only a complete reader decision is a verified empty day');
+// Legacy bodies without read_summary keep working; the record's own incomplete kind/status still counts.
+assert.equal((await summarise(complete)).accounts[0].completeness,'complete','legacy complete body unchanged');
+for(const record of [{...complete.record,kind:'incomplete'},{...complete.record,status:'read_incomplete'},{...complete.record,status:'missing_report'}])
+ assert.equal((await summarise({...complete,record})).accounts[0].completeness,'incomplete');
+// Stale and fresh partials keep their status.
+summary=await summarise({...complete,data_status:'stale',read_summary:summaryOf('partial')});
+assert.deepEqual([summary.accounts[0].status,summary.accounts[0].completeness],['stale','incomplete']);
+
+// Schedule projection: explicit opt-in only; the legacy output is unchanged by default.
+summary=await summarise({...complete,read_summary:summaryOf('complete')});
+assert.equal('schedule' in summary.accounts[0],false,'no schedule field without the opt-in');
+summary=await summarise({...complete,read_summary:summaryOf('complete')},{schedule:true});
+assert.deepEqual(summary.accounts[0].schedule,{state:'not_due',business_date:date,timezone:'America/New_York',next_due_at:'2026-10-16T19:55:00Z'});
+assert.equal(JSON.stringify(summary.accounts[0].schedule).includes('latest_due_at'),false,'only the fields the projection needs');
+summary=await summarise({...complete,record:{...complete.record,schedule:null}},{schedule:true});
+assert.equal(summary.accounts[0].schedule,null,'a missing schedule is null, not invented');
+let reads=0;
+const counted=await todaySummary(new Request('https://synthetic.invalid/api/runtime/today'),{},
+ {dailyBindings:async()=>[binding],daily:async()=>{reads+=1;return Response.json({...complete,read_summary:summaryOf('complete')});}},[account],now,{schedule:true});
+assert.equal(reads,1,'the opt-in makes no additional storage read');
+assert.equal(counted.accounts[0].schedule.next_due_at,'2026-10-16T19:55:00Z');
+const missing=await todaySummary(new Request('https://synthetic.invalid/api/runtime/today'),{},
+ {dailyBindings:async()=>[],daily:async()=>{throw Error('unreachable');}},[account],now,{schedule:true});
+assert.equal(missing.accounts[0].schedule,null,'an unbound account carries no schedule');
+
+console.log('runtime today incomplete: coverage, read failures, unknown, execution priority, reader completeness and schedule opt-in passed');

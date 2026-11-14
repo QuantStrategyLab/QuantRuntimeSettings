@@ -808,7 +808,8 @@ function deskN1Deps() {
     // The stored-facts loader issues only the allowlisted account_facts_list read.
     factsStored: (e, options, bindings) => loadStoredAccountFactsMap(e, options, bindings),
     // One stored runtime-daily summary for a New York business date (16:00Z is inside it).
-    runtimeDay: (req, e, accounts, date) => todaySummary(req, e, dailyDeps, accounts, Date.parse(`${date}T16:00:00Z`)),
+    // `options.schedule` is the ribbon's explicit opt-in; the same single read is made.
+    runtimeDay: (req, e, accounts, date, options) => todaySummary(req, e, dailyDeps, accounts, Date.parse(`${date}T16:00:00Z`), options),
   };
 }
 

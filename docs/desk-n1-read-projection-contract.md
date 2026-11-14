@@ -103,7 +103,33 @@ readbacks, credentials and alert-delivery routes intact.
 - `alert_badge`: fixed unknown/not_supported (no alerts store); the UI shows
   `?`, never 0, and hides it behind the lock.
 - `sessions`: US/HK/CN slots, every state unknown with null times.
-- `next_run`: unknown/source_unavailable (no verified schedule source is read).
+- `next_run`: the next scheduled observation from stored runtime-daily
+  schedules, through an explicit opt-in on the existing reader:
+  `todaySummary(..., { schedule: true })` adds a `schedule` field
+  (`state`, `business_date`, `timezone`, `next_due_at`) to each row. Without
+  the option the legacy summary output is unchanged. Only the read for the
+  current New York business day opts in; no additional storage read or write
+  is made and no schedule is collected.
+  - A candidate is a fully read, complete record (fresh or stale) whose
+    schedule belongs to that business day in `America/New_York`, whose state is
+    not `unevaluable`, that carries no `schedule_unverified` or
+    `target_disabled` diagnostic, and whose `next_due_at` is still after the
+    request time. A timestamp already past at request time is not an upcoming
+    run.
+  - Every configured account has a candidate: `known` with the earliest
+    `{target_id, kind: "scheduled_run", due_at}` (or `stale` with its age when
+    any candidate record is stale). `observed_at` is the oldest candidate
+    record observation.
+  - Some accounts have one: `partial` with the earliest observed candidate.
+    It is not the global next run, and the UI labels it as such.
+  - None: unknown (`read_failed`, `coverage_incomplete` or
+    `source_unavailable`). Missing, conflicting, disabled, unevaluable and
+    schedule-unverified records stay unknown; a null `next_due_at` never proves
+    that no run is due. A past `?date=` does not read today's record, so its
+    `next_run` is unknown.
+  - Overview `runs_today.expected` and `pending` stay null: neighbouring
+    schedule instants are not a full-day occurrence count, and recorded runs
+    may include retries or manual runs.
 - `freshness`: from the oldest displayed stored observation and the source
   stale threshold, never from `generated_at`.
 - Tape mapping per stored run: a `finished_at` instant gives `state: done`,
@@ -115,7 +141,10 @@ readbacks, credentials and alert-delivery routes intact.
   most 100 entries (truncation makes it partial). An empty tape with no fully
   read account names `coverage_incomplete` when a record was read (it carries
   its own observation instant) but is incomplete, `read_failed` on a failed
-  read, and `source_unavailable` only when no record was read.
+  read, and `source_unavailable` only when no record was read. A missing record
+  is never coverage, on a weekend too. Tape `observed_at` is the oldest stored
+  observation of every record that was read, stale incomplete ones included;
+  the request time is never substituted.
 
 ### C. `GET /api/desk/accounts`
 
@@ -168,8 +197,15 @@ readbacks, credentials and alert-delivery routes intact.
 - A stored daily record counts as covered only when its source coverage is
   complete (fresh or stale alike); a stale, incomplete record is never a
   verified empty tape or a counted run.
+- Runtime-daily completeness comes from the reader: a row is complete only
+  when the reader's `read_summary.status` is `complete` (a legacy body without
+  `read_summary` falls back to the record's own kind/status/completeness and
+  diagnostics). An accepted record whose outer read is incomplete is never a
+  known-null `last_run` or a covered zero.
 - `runs_today`: partial at most (`expected`/`pending` null without a verified
-  schedule source); `config_drift`: unknown/not_supported; a known count read
+  schedule source). With no covered record it is unknown `read_failed` when any
+  read failed, `coverage_incomplete` when a record was read but is incomplete,
+  and `source_unavailable` otherwise; `config_drift`: unknown/not_supported; a known count read
   may not hide a `null` member.
 - `book`: per-target masked rows; strategy/mode/runtime are not inferred from
   configuration; NAV only from a bound stored snapshot. `last_run` is an N1
@@ -188,6 +224,9 @@ readbacks, credentials and alert-delivery routes intact.
   inside the drawn window. Never interpolated and never a return. An unread,
   identity-unverified, currency-mismatched or non-cohort (paper) history, or
   fewer than two points, gives `points: []`.
+- `freshness`/`data_age_seconds`: from the oldest displayed bound stored
+  observation; when every displayed fact is stale, it is `stale` with that age,
+  never unavailable. A stale NAV is rendered with its stale label and age.
 - `needs_you`: credential-maintenance items only; pending decisions are not read,
   so the list is partial and never "nothing needs you".
 - `drawdown`, exposures: `null` (no risk thresholds or three-tier runtime).
@@ -213,6 +252,19 @@ readbacks, credentials and alert-delivery routes intact.
   response time never drives data age.
 - Dock badge: unknown shows `?`; TopBar shows a "mode unknown" chip; both are
   hidden behind the lock. Old callers keep their behaviour.
+- TopBar next-run chip from the ribbon `next_run`: known shows the time and
+  target; stale adds its age; partial says it is the earliest observed run and
+  not the overall next run; unknown, null or a time already past shows
+  `Next run ?`. The chip is hidden behind the lock. Logs prints any
+  non-unknown next run without its read status, so its copy reads "earliest
+  observed scheduled run" and never claims the overall next run.
+- Overview Recent Signals shows the newest five tape entries, newest first; a
+  loading ribbon is not shown as empty, and a populated partial or stale tape
+  keeps its coverage or age note.
+- Performance renders the requested window, first stored date, return basis per
+  target and any truncation note whether or not a curve exists. The live path
+  never calls `api.benchmarks()` (`/api/market-benchmark/performance` is not an
+  approved N1 source); only fixture pages show a benchmark comparison.
 - Overview/Accounts/Strategies/Performance unwrap validated reads: unknown and
   partial are never success-empty; stale is greyed. Logs only adapts the shared
   ribbon tape; it keeps its fixture read.

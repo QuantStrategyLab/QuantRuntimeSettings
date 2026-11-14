@@ -16,7 +16,7 @@ import { bookSparkline, deskOverviewResponse, lastRun, overviewTotals, runsToday
 import {
   deskPerformanceResponse, performanceProjection, performanceQuery, performanceWindow, decimal,
 } from "../web/strategy-switch-console/application/desk/performance.js";
-import { deskRibbonResponse, ribbonBusinessDates, ribbonDate, ribbonTape, tapeOutcome } from "../web/strategy-switch-console/application/desk/ribbon.js";
+import { deskRibbonResponse, nextScheduledRun, ribbonBusinessDates, ribbonDate, ribbonTape, tapeOutcome } from "../web/strategy-switch-console/application/desk/ribbon.js";
 import {
   catalogFingerprint, deskSwitchStrategiesResponse, switchStrategiesTargetId,
 } from "../web/strategy-switch-console/application/desk/switch_strategies.js";
@@ -119,7 +119,7 @@ function world({ accounts = [account(0), account(1)], config = true, facts = tru
       }
       throw Error("unexpected");
     },
-    runtimeDay: async (request, env, list, date) => { calls.push(`runtime:${date}`); if (summaries[date] === "fail") throw Error("down"); return summaries[date] ?? summaryFor(accounts, date); },
+    runtimeDay: async (request, env, list, date, options) => { calls.push(`runtime:${date}`); if (options !== undefined) calls.push(`options:${date}:${JSON.stringify(options)}`); if (summaries[date] === "fail") throw Error("down"); return summaries[date] ?? summaryFor(accounts, date); },
   };
   return { deps, calls, env: { ACCOUNT_FACTS_READ_MODEL_ENABLED: "true" } };
 }
@@ -556,6 +556,151 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   assert.equal(mixedBody.book.value[0].last_run.status, "partial");
   assert.equal(mixedBody.book.value[1].last_run.status, "known");
   assert.deepEqual([mixedBody.totals.runs_today.value.done, mixedBody.totals.runs_today.coverage.included], [1, 1], "runs today still counts complete records only");
+}
+
+// ---------------------------------------------------------------- S2 corrections: coverage, failures, observation time
+{
+  const tapeAccounts = [{ platform: "firstrade", key: "fake-0", target_id: "firstrade/target0" }];
+  const day = (accounts, date = "2030-01-07") => [{ date, summary: { accounts } }];
+  // F1: a missing record on a weekend is not a verified-empty tape.
+  const weekendMissing = { platform: "firstrade", account_alias: "fake-0", status: "no_data", unavailable_reason: "non_trading_weekend",
+    completeness: null, as_of: null, runs: [] };
+  const weekendTape = ribbonTape({ days: day([weekendMissing], "2030-01-05"), accounts: tapeAccounts, date: "2030-01-05", readAt: NOW });
+  assert.notEqual(weekendTape.tape.status, "known", "a weekend without a record is not a known tape");
+  assert.notEqual(weekendTape.tape.coverage.state, "verified_empty", "a weekend does not prove that nothing ran");
+  assert.deepEqual([weekendTape.tape.status, weekendTape.tape.reason, weekendTape.tape.coverage.included], ["unknown", "source_unavailable", 0]);
+  const weekendRuns = runsToday({ targets: [{ platform: "firstrade", key: "fake-0" }], summary: { accounts: [weekendMissing] }, businessDate: "2030-01-05", now: NOW });
+  assert.equal(weekendRuns.status, "unknown", "no weekend zero runs");
+
+  // #3: a summary of only failed rows stays read_failed, never source_unavailable or empty.
+  const failedRow = (key) => ({ platform: "firstrade", account_alias: key, status: "read_failed", unavailable_reason: "stored_records_unreadable",
+    completeness: null, as_of: null, runs: [] });
+  const targets2 = [{ platform: "firstrade", key: "fake-0" }, { platform: "firstrade", key: "fake-1" }];
+  const failedOnly = runsToday({ targets: targets2, summary: { accounts: [failedRow("fake-0"), failedRow("fake-1")] }, businessDate: "2030-01-08", now: NOW });
+  assert.deepEqual([failedOnly.status, failedOnly.reason, failedOnly.coverage.reasons], ["unknown", "read_failed", ["read_failed"]]);
+  assert.notEqual(failedOnly.coverage.state, "verified_empty");
+  const covered = summaryFor([account(1)], "2030-01-08").accounts[0];
+  const mixedFail = runsToday({ targets: targets2, summary: { accounts: [failedRow("fake-0"), covered] }, businessDate: "2030-01-08", now: NOW });
+  assert.equal(mixedFail.status, "partial");
+  assert.deepEqual([mixedFail.value.done, mixedFail.value.expected, mixedFail.value.pending], [1, null, null], "no invented totals");
+  assert.ok(mixedFail.coverage.reasons.includes("read_failed") && mixedFail.coverage.reasons.includes("coverage_incomplete"));
+  const failedTape = ribbonTape({ days: day([failedRow("fake-0")]), accounts: tapeAccounts, date: "2030-01-08", readAt: NOW });
+  assert.deepEqual([failedTape.tape.status, failedTape.tape.reason], ["unknown", "read_failed"]);
+
+  // #23: a stale incomplete record keeps its stored observation; the request time is never substituted.
+  const staleIncomplete = { platform: "firstrade", account_alias: "fake-0", status: "stale", completeness: "incomplete",
+    unavailable_reason: "runtime_daily_stale", as_of: "2030-01-08T03:00:00Z",
+    runs: [{ id: "early", started_at: "2030-01-08T01:00:00Z", finished_at: "2030-01-08T01:05:00Z", activity: "no_signal", errors_present: false }] };
+  const historical = ribbonTape({ days: day([staleIncomplete]), accounts: tapeAccounts, date: "2030-01-08", readAt: NOW });
+  assert.equal(historical.tape.status, "partial");
+  assert.equal(historical.tape.observed_at, "2030-01-08T03:00:00Z", "the stored observation, not the request time");
+  assert.notEqual(historical.tape.observed_at, utcInstant(NOW));
+  assert.deepEqual(historical.observed, ["2030-01-08T03:00:00Z"], "freshness keeps the stale incomplete record's observation");
+  assert.deepEqual(freshness(historical.observed, { now: NOW, ttlSeconds: 36 * 3600, staleKnown: historical.stale }), { data_status: "stale", age_seconds: 43200 });
+  // Mixed coverage: one complete, one stale incomplete: oldest stored observation of both.
+  const twoAccounts = [...tapeAccounts, { platform: "firstrade", key: "fake-1", target_id: "firstrade/target1" }];
+  const mixedTape = ribbonTape({ days: day([staleIncomplete, { ...covered, as_of: "2030-01-08T14:30:00Z" }]), accounts: twoAccounts, date: "2030-01-08", readAt: NOW });
+  assert.deepEqual([mixedTape.tape.status, mixedTape.tape.coverage.included, mixedTape.tape.coverage.total], ["partial", 1, 2]);
+  assert.equal(mixedTape.tape.observed_at, "2030-01-08T03:00:00Z");
+  // A covered record without a usable observation instant has no time basis, never "now".
+  const noInstant = ribbonTape({ days: day([{ ...covered, account_alias: "fake-0", as_of: "not-an-instant", runs: [] }]), accounts: tapeAccounts, date: "2030-01-08", readAt: NOW });
+  assert.deepEqual([noInstant.tape.status, noInstant.tape.reason], ["unknown", "time_basis_unavailable"]);
+
+  // F3: when every displayed fact is stale, Overview freshness keeps their age; totals are not upgraded.
+  const allStale = world({ accounts: [account(0, { staleHours: 40 }), account(1, { staleHours: 50 })] });
+  const allStaleBody = await body(await deskOverviewResponse(get("/api/desk/overview"), allStale.env, allStale.deps));
+  conforms("overview", allStaleBody);
+  assert.equal(allStaleBody.freshness.data_status, "stale");
+  assert.equal(allStaleBody.freshness.age_seconds, 50 * 3600 + 120, "the oldest stored observation's age");
+  assert.equal(allStaleBody.totals.data_age_seconds, allStaleBody.freshness.age_seconds);
+  assert.deepEqual([allStaleBody.totals.status, allStaleBody.totals.nav], ["unavailable", null], "stale facts never make a total");
+  assert.ok(allStaleBody.book.value.every(row => row.nav.status === "stale" && Number.isInteger(row.nav.age_seconds)), "stale NAV keeps its age");
+  const mixedAge = world({ accounts: [account(0, { staleHours: 40 }), account(1)] });
+  const mixedAgeBody = await body(await deskOverviewResponse(get("/api/desk/overview"), mixedAge.env, mixedAge.deps));
+  conforms("overview", mixedAgeBody);
+  assert.deepEqual([mixedAgeBody.freshness.data_status, mixedAgeBody.freshness.age_seconds], ["stale", 40 * 3600 + 120]);
+  assert.deepEqual([mixedAgeBody.totals.status, mixedAgeBody.totals.nav], ["partial", null], "partial facts are never a total");
+}
+
+// ---------------------------------------------------------------- S2 #6: next scheduled observation (option 1/1a)
+{
+  const today = "2030-01-08";
+  const accts = [{ platform: "firstrade", key: "fake-0", target_id: "firstrade/target0" }, { platform: "firstrade", key: "fake-1", target_id: "firstrade/target1" }];
+  const schedule = (next_due_at, extra = {}) => ({ state: "not_due", business_date: today, timezone: "America/New_York", next_due_at, ...extra });
+  const row = (key, next, extra = {}) => ({ platform: "firstrade", account_alias: key, status: "ok", completeness: "complete", unavailable_reason: null,
+    as_of: "2030-01-08T14:30:00Z", read_error_codes: [], runs: [], schedule: typeof next === "object" && next !== null ? next : schedule(next), ...extra });
+  const next = (rows) => nextScheduledRun({ summary: { accounts: rows }, accounts: accts, businessDate: today, now: NOW });
+  // Every account has a future candidate: known earliest, with the oldest stored observation.
+  const both = next([row("fake-0", "2030-01-08T20:55:00Z"), row("fake-1", "2030-01-08T19:30:00Z", { as_of: "2030-01-08T14:00:00Z" })]);
+  assert.deepEqual([both.status, both.value, both.observed_at, both.coverage.state], ["known",
+    { target_id: "firstrade/target1", kind: "scheduled_run", due_at: "2030-01-08T19:30:00Z" }, "2030-01-08T14:00:00Z", "complete"]);
+  // An offset is honoured: 14:20-05:00 is 19:20Z, earlier than 19:30Z.
+  const offset = next([row("fake-0", "2030-01-08T14:20:00-05:00"), row("fake-1", "2030-01-08T19:30:00Z")]);
+  assert.deepEqual([offset.value.target_id, offset.value.due_at], ["firstrade/target0", "2030-01-08T19:20:00Z"]);
+  // A time already past at request time is not an upcoming run (valid for its observation, expired now).
+  const expired = next([row("fake-0", "2030-01-08T14:45:00Z"), row("fake-1", "2030-01-08T19:30:00Z")]);
+  assert.equal(expired.status, "partial", "an expired candidate leaves coverage incomplete");
+  assert.deepEqual([expired.value.target_id, expired.coverage.included, expired.coverage.total], ["firstrade/target1", 1, 2]);
+  const exactlyNow = next([row("fake-0", utcInstant(NOW)), row("fake-1", utcInstant(NOW))]);
+  assert.deepEqual([exactlyNow.status, exactlyNow.reason], ["unknown", "source_unavailable"], "due exactly now is not upcoming");
+  // Partial account coverage: earliest observed candidate, partial, never known.
+  const half = next([row("fake-0", "2030-01-08T20:55:00Z")]);
+  assert.deepEqual([half.status, half.coverage.state, half.coverage.reasons], ["partial", "partial", ["coverage_incomplete"]]);
+  // Stale complete records: stale with their age.
+  const staleBoth = next([row("fake-0", "2030-01-08T20:55:00Z", { status: "stale", as_of: "2030-01-07T00:00:00Z" }), row("fake-1", "2030-01-08T19:30:00Z")]);
+  assert.deepEqual([staleBoth.status, staleBoth.age_seconds, staleBoth.observed_at], ["stale", 54000 + 86400, "2030-01-07T00:00:00Z"]);
+  // Missing, null, conflicting, disabled, unevaluable, schedule-unverified, wrong day: unknown, never "no run".
+  const cases = {
+    "null next due": [row("fake-0", null), row("fake-1", null)],
+    "no schedule field (legacy summary)": [row("fake-0", null, { schedule: undefined }), row("fake-1", null, { schedule: null })],
+    "unevaluable": [row("fake-0", schedule("2030-01-08T20:55:00Z", { state: "unevaluable" })), row("fake-1", schedule("2030-01-08T20:55:00Z", { state: "unevaluable" }))],
+    "schedule unverified": [row("fake-0", "2030-01-08T20:55:00Z", { read_error_codes: ["schedule_unverified"] }), row("fake-1", "2030-01-08T20:55:00Z", { read_error_codes: ["target_disabled"] })],
+    "binding conflict": [row("fake-0", "2030-01-08T20:55:00Z", { status: "partial", completeness: null, unavailable_reason: "runtime_daily_binding_conflict", as_of: null }),
+      row("fake-1", "2030-01-08T20:55:00Z", { status: "not_connected", completeness: null, as_of: null })],
+    "duplicate rows": [row("fake-0", "2030-01-08T20:55:00Z"), row("fake-0", "2030-01-08T21:55:00Z"), row("fake-1", "2030-01-08T20:55:00Z", { status: "no_data", completeness: null, as_of: null })],
+    "previous NY business day": [row("fake-0", schedule("2030-01-08T20:55:00Z", { business_date: "2030-01-07" })), row("fake-1", schedule("2030-01-08T20:55:00Z", { timezone: "UTC" }))],
+    "unparseable instant": [row("fake-0", "2030-01-08T20:55:00"), row("fake-1", "tomorrow")],
+  };
+  for (const [label, rows] of Object.entries(cases)) {
+    const read = next(rows);
+    assert.equal(read.status, "unknown", `${label}: unknown`);
+    assert.equal("value" in read, false, `${label}: an unknown read carries no value, so no "no next run"`);
+    assert.notEqual(read.coverage.state, "verified_empty", `${label}: null never proves no future run`);
+  }
+  const incompleteRows = [row("fake-0", "2030-01-08T20:55:00Z", { status: "partial", completeness: "incomplete" }), row("fake-1", "2030-01-08T20:55:00Z", { status: "partial", completeness: "incomplete" })];
+  assert.equal(next(incompleteRows).reason, "coverage_incomplete", "an incomplete record's schedule is not trusted");
+  assert.equal(next([{ ...row("fake-0", null), status: "read_failed" }, row("fake-1", null)]).reason, "read_failed");
+  assert.equal(nextScheduledRun({ summary: null, accounts: accts, businessDate: today, now: NOW }).reason, "read_failed");
+
+  // Route: only today's NY business-day read opts in; the same number of reads is made.
+  const scheduled = { date: today, accounts: [row("fake-0", "2030-01-08T20:55:00Z"), row("fake-1", "2030-01-08T19:30:00Z")] };
+  const scheduledWorld = world({ summaries: { [today]: scheduled } });
+  const ribbon = await body(await deskRibbonResponse(get("/api/desk/ribbon"), scheduledWorld.env, scheduledWorld.deps));
+  conforms("ribbon", ribbon);
+  assert.deepEqual([ribbon.next_run.status, ribbon.next_run.value.due_at, ribbon.next_run.value.target_id], ["known", "2030-01-08T19:30:00Z", "firstrade/target1"]);
+  assert.deepEqual(scheduledWorld.calls.filter(call => /^(runtime|options):/.test(call)),
+    ["runtime:2030-01-07", "runtime:2030-01-08", 'options:2030-01-08:{"schedule":true}'], "one read per business day; only today opts in");
+  const partialWorld = world({ summaries: { [today]: { date: today, accounts: [row("fake-0", "2030-01-08T20:55:00Z")] } } });
+  const partialRibbon = await body(await deskRibbonResponse(get("/api/desk/ribbon"), partialWorld.env, partialWorld.deps));
+  conforms("ribbon", partialRibbon);
+  assert.equal(partialRibbon.next_run.status, "partial");
+  const pastWorld = world({ summaries: { [today]: scheduled } });
+  const pastDay = await body(await deskRibbonResponse(get("/api/desk/ribbon?date=2030-01-06"), pastWorld.env, pastWorld.deps));
+  conforms("ribbon", pastDay);
+  assert.equal(pastDay.next_run.status, "unknown", "a past UTC day does not read today's schedule");
+  assert.equal(pastWorld.calls.some(call => call.startsWith("options:")), false, "and makes no opt-in read");
+  // Overview counts stay unknown: neighbouring schedule instants are not a full-day count.
+  const overviewWorld = world({ summaries: { [today]: scheduled } });
+  const overview = await body(await deskOverviewResponse(get("/api/desk/overview"), overviewWorld.env, overviewWorld.deps));
+  assert.deepEqual([overview.totals.runs_today.value.expected, overview.totals.runs_today.value.pending], [null, null]);
+  assert.equal(overviewWorld.calls.some(call => call.startsWith("options:")), false, "overview does not opt in");
+  // Worker deps pass the opt-in through to the existing reader; the default output is unchanged.
+  const workerDeps = __test.deskN1Deps();
+  const req = get("/api/desk/ribbon");
+  const optedIn = await workerDeps.runtimeDay(req, {}, [{ platform: "firstrade", key: "fake-0" }], today, { schedule: true });
+  const legacy = await workerDeps.runtimeDay(req, {}, [{ platform: "firstrade", key: "fake-0" }], today);
+  assert.equal(optedIn.accounts[0].schedule, null, "no record read: schedule is null, not invented");
+  assert.equal("schedule" in legacy.accounts[0], false, "legacy summary unchanged without the opt-in");
 }
 
 // ---------------------------------------------------------------- worker-level: exact routes, read allowlist, zero writes

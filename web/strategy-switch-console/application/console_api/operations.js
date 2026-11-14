@@ -14,17 +14,36 @@ function nonTradingWeekend(date) {
   const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
   return weekday === 0 || weekday === 6;
 }
-export async function todaySummary(request, env, deps, accounts, now = Date.now()) {
+// The reader's own decision; mirrored locally only for a legacy body that carries none.
+const INCOMPLETE_RECORD_STATUSES = new Set(["read_incomplete", "missing_report", "insufficient", "conflict"]);
+function readerIncomplete(body, record) {
+  if (body.read_summary !== undefined) return body.read_summary?.status !== "complete";
+  return record.kind === "incomplete" || INCOMPLETE_RECORD_STATUSES.has(record.status);
+}
+/** Public schedule fields for the opt-in N1 projection; anything malformed stays null. */
+function scheduleFields(schedule) {
+  if (!schedule || typeof schedule !== "object") return null;
+  const text = value => (typeof value === "string" ? value : null);
+  return { state: text(schedule.state), business_date: text(schedule.business_date),
+    timezone: text(schedule.timezone), next_due_at: text(schedule.next_due_at) };
+}
+/**
+ * `options.schedule` is an explicit N1 opt-in: rows then carry `schedule` (null when no
+ * record was read). Without it the legacy output is unchanged.
+ */
+export async function todaySummary(request, env, deps, accounts, now = Date.now(), options = {}) {
   // Daily records, their reader, and this summary must share one date domain.
   const date = runtimeDailyBusinessDate(now);
   const weekend = nonTradingWeekend(date);
+  const withSchedule = options?.schedule === true;
   let bindings;
   try { bindings = await deps.dailyBindings(env); }
   catch { bindings = null; }
   const rows = await Promise.all(accounts.map(async (account) => {
     const base = { account_alias: account.key, platform: account.platform,
       status: "not_connected", unavailable_reason: "runtime_daily_not_connected",
-      as_of: null, activity: null, completeness: null, run_count: null, runs: [] };
+      as_of: null, activity: null, completeness: null, run_count: null, runs: [],
+      ...(withSchedule ? { schedule: null } : {}) };
     if (!bindings || bindings.some(b => b.platform === account.platform && b.status === "read_failed"))
       return { ...base, status: "read_failed", unavailable_reason: "stored_records_unreadable" };
     if (bindings.some(b => b.platform === account.platform && b.account_key === account.key && b.status === "conflict"))
@@ -60,7 +79,9 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
         && body.read_error_codes.length === readErrorCount
         && body.read_error_codes.every(code => typeof code === "string" && safeReadCodes.has(code))
         ? body.read_error_codes : null;
-      const incomplete = record.completeness !== "complete" || body.read_error_count > 0 || body.unmatched_count > 0 || record.conflict_count > 0;
+      // An accepted projection whose outer read is incomplete stays incomplete here.
+      const incomplete = readerIncomplete(body, record) || record.completeness !== "complete"
+        || body.read_error_count > 0 || body.unmatched_count > 0 || record.conflict_count > 0;
       return { ...base, status: body.data_status !== "fresh" ? "stale" : incomplete ? "partial" : "ok",
         unavailable_reason: body.data_status !== "fresh" ? "runtime_daily_stale" : incomplete ? "runtime_daily_incomplete" : null,
         as_of: record.observed_at, activity: record.status,
@@ -71,6 +92,7 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
         runs: record.runs.map(run => ({ id: run.run_id, started_at: run.started_at,
           finished_at: run.finished_at, activity: run.activity,
           execution_lane: run.execution_lane, errors_present: run.errors_present, ...(run.issue ? { issue: run.issue } : {}) })),
+        ...(withSchedule ? { schedule: scheduleFields(record.schedule) } : {}),
       };
     } catch {
       return { ...base, status: "read_failed", unavailable_reason: "stored_records_unreadable" };
