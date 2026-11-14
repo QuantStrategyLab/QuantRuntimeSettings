@@ -112,7 +112,10 @@ readbacks, credentials and alert-delivery routes intact.
   `filled`; confirmed `no_submission|no_signal|no_rebalance` gives `no_op`.
   Transport acceptance is never read as execution success. Tape coverage
   counts configured accounts whose relevant business days were fully read; at
-  most 100 entries (truncation makes it partial).
+  most 100 entries (truncation makes it partial). An empty tape with no fully
+  read account names `coverage_incomplete` when a record was read (it carries
+  its own observation instant) but is incomplete, `read_failed` on a failed
+  read, and `source_unavailable` only when no record was read.
 
 ### C. `GET /api/desk/accounts`
 
@@ -171,8 +174,18 @@ readbacks, credentials and alert-delivery routes intact.
 - `book`: per-target masked rows; strategy/mode/runtime are not inferred from
   configuration; NAV only from a bound stored snapshot. `last_run` is an N1
   Read: known `null` only when the stored daily record was read completely and
-  holds no finished run; a failed, missing, unbound or incomplete record is
-  unknown and never rendered as "no run".
+  holds no finished run; a failed, missing or unbound record is unknown and
+  never rendered as "no run". A record that was read but is incomplete gives its
+  latest finished run as `partial` (coverage `0/1`, `coverage_incomplete`: a
+  later run may be missing) and is otherwise unknown/`coverage_incomplete`.
+  `runs_today` still counts only complete records.
+- `book[].sparkline_30d` (frozen contract §3.3): the stored net-asset strings
+  of the last 30 stored days (Asia/Shanghai history domain) from the same
+  `account_facts_history_read` series the curve uses (no second read), oldest
+  first, in the NAV's own currency, with the series' own calendar `gap_dates`
+  inside the drawn window. Never interpolated and never a return. An unread,
+  identity-unverified, currency-mismatched or non-cohort (paper) history, or
+  fewer than two points, gives `points: []`.
 - `needs_you`: credential-maintenance items only; pending decisions are not read,
   so the list is partial and never "nothing needs you".
 - `drawdown`, exposures: `null` (no risk thresholds or three-tier runtime).

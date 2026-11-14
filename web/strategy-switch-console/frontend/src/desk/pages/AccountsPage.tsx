@@ -132,10 +132,13 @@ export function BrokersView({ data, source, t, language, narrow, onManage }: {
   }
   const brokers = readValue(read) ?? [];
   if (brokers.length === 0 && read.status === "known") return <EmptyState t={t} title={t("accounts.brokers.empty")} />;
-  const stale = brokers.filter(broker => broker.data_freshness.data_status !== "ready").length;
+  const notReady = brokers.filter(broker => broker.data_freshness.data_status !== "ready");
+  // The banner carries the oldest age the payload already reports; an unavailable broker has none.
+  const ages = notReady.map(broker => broker.data_freshness.age_seconds).filter((age): age is number => typeof age === "number");
+  const oldestAge = ages.length ? Math.max(...ages) : null;
   return (
     <div style={P.page}>
-      {stale > 0 ? <StalePartialBanner t={t} language={language} included={brokers.length - stale} total={brokers.length} /> : null}
+      {notReady.length > 0 ? <StalePartialBanner t={t} language={language} ageSeconds={oldestAge} included={brokers.length - notReady.length} total={brokers.length} /> : null}
       {read.status === "partial" ? <p style={P.muted} role="status">{t("n1.partial", { coverage: coverageText(read.coverage) })}</p> : null}
       <div style={P.grid}>
         {brokers.map(broker => (

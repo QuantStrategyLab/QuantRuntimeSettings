@@ -12,7 +12,7 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import { coverage, freshness, known, partial, unknown, utcInstant } from "../web/strategy-switch-console/application/desk/n1.js";
 import { deskAccountsResponse } from "../web/strategy-switch-console/application/desk/accounts.js";
-import { deskOverviewResponse, lastRun, overviewTotals, runsToday } from "../web/strategy-switch-console/application/desk/overview.js";
+import { bookSparkline, deskOverviewResponse, lastRun, overviewTotals, runsToday } from "../web/strategy-switch-console/application/desk/overview.js";
 import {
   deskPerformanceResponse, performanceProjection, performanceQuery, performanceWindow, decimal,
 } from "../web/strategy-switch-console/application/desk/performance.js";
@@ -473,6 +473,87 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   const t = overviewTotals({ targets: [{ id: "firstrade/target0", platform: "firstrade", key: "fake-0", config: {} }], facts: { ok: false }, now: NOW });
   assert.equal(t.totals.status, "unavailable");
   assert.equal(runsToday({ targets: [{ platform: "firstrade", key: "fake-0" }], summary: null, businessDate: "2030-01-08", now: NOW }).status, "unknown");
+}
+
+// ---------------------------------------------------------------- E2. overview: stored data already read is projected
+{
+  // Per-account 30-day sparkline (frozen contract §3.3 book[].sparkline_30d) from the same
+  // stored daily history the curve reads: net-asset strings oldest→newest, the history
+  // series' own calendar gap dates, never interpolated, fewer than 2 points → no history.
+  const series = { "fake-0": ["1000", "1010", "1005.5", "1020"], "fake-1": ["2000"] };
+  const { deps, env, calls } = world({ history: series });
+  const withHistory = await body(await deskOverviewResponse(get("/api/desk/overview"), env, deps));
+  conforms("overview", withHistory);
+  const [first, second] = withHistory.book.value;
+  assert.deepEqual(first.sparkline_30d, {
+    points: ["1000", "1010", "1005.5", "1020"], dates_from: "2030-01-02", dates_to: "2030-01-07", gap_dates: ["2030-01-05", "2030-01-06"],
+  }, "stored net assets drawn on their own dates");
+  assert.deepEqual(second.sparkline_30d, { points: [], dates_from: null, dates_to: null, gap_dates: [] }, "one stored day is not a curve");
+  assert.equal(calls.filter(call => call === "account_facts_history_read").length, 2, "one stored history read per account, shared with the curve");
+  assert.equal(withHistory.equity_curve.status, "unknown", "a sparkline never turns asset change into a return curve");
+  assertNoPrivate(withHistory);
+
+  const empty = { points: [], dates_from: null, dates_to: null, gap_dates: [] };
+  const usd = { status: "known", currency: "USD", amount: "1020" };
+  const member = (points, extra = {}) => ({ target_id: "firstrade/target0", failure: null, truncated: false,
+    series: [{ currency: "USD", gapDates: [], points: points.map(([date, text]) => ({ date, text, value: Number(text) })) }], ...extra });
+  const two = [["2030-01-06", "1000"], ["2030-01-07", "1001"]];
+  assert.deepEqual(bookSparkline(member(two), usd, "2030-01-08").points, ["1000", "1001"]);
+  assert.deepEqual(bookSparkline(member(two, { failure: "read_failed" }), usd, "2030-01-08"), empty, "an unread history draws nothing");
+  assert.deepEqual(bookSparkline(member(two, { failure: "identity_unverified" }), usd, "2030-01-08"), empty, "an unverified identity draws nothing");
+  assert.deepEqual(bookSparkline(null, usd, "2030-01-08"), empty, "no history read for this account");
+  assert.deepEqual(bookSparkline(member(two), { status: "unknown", reason: "not_supported" }, "2030-01-08"), empty, "no NAV currency to match");
+  assert.deepEqual(bookSparkline(member(two), { ...usd, currency: "HKD" }, "2030-01-08"), empty, "a different currency is never mixed in");
+  const windowed = bookSparkline(member([["2029-12-01", "900"], ["2029-12-09", "950"], ["2029-12-10", "960"], ["2030-01-08", "1000"]]), usd, "2030-01-08");
+  assert.deepEqual([windowed.points, windowed.dates_from, windowed.dates_to], [["960", "1000"], "2029-12-10", "2030-01-08"], "only the last 30 stored days");
+  assert.deepEqual(bookSparkline(member([["2030-01-06", "1e3"], ["2030-01-07", "1001"]]), usd, "2030-01-08"), empty, "an unexpected amount text fails closed");
+  const gapped = bookSparkline({ ...member(two), series: [{ currency: "USD", gapDates: ["2029-11-01", "2030-01-06"], points: [
+    { date: "2030-01-05", text: "1", value: 1 }, { date: "2030-01-07", text: "2", value: 2 }] }] }, usd, "2030-01-08");
+  assert.deepEqual(gapped.gap_dates, ["2030-01-06"], "gap dates are clipped to the drawn window");
+  const failedHistory = world({ history: { "fake-0": "fail", "fake-1": ["2000", "2001"] } });
+  const failedBody = await body(await deskOverviewResponse(get("/api/desk/overview"), failedHistory.env, failedHistory.deps));
+  conforms("overview", failedBody);
+  assert.deepEqual(failedBody.book.value[0].sparkline_30d, empty, "a failed history read is never drawn");
+  assert.deepEqual(failedBody.book.value[1].sparkline_30d.points, ["2000", "2001"]);
+
+  // A stored runtime-daily record that was read but is incomplete: its finished runs are
+  // a verified subset (partial), and the reason is coverage, never "source unavailable".
+  const incomplete = { platform: "firstrade", account_alias: "fake-0", status: "partial", completeness: "incomplete",
+    unavailable_reason: "runtime_daily_incomplete", as_of: "2030-01-08T14:40:00Z",
+    runs: [{ id: "r1", started_at: "2030-01-08T14:31:00Z", finished_at: "2030-01-08T14:32:00Z", activity: "no_signal", errors_present: false },
+      { id: "r2", started_at: "2030-01-08T14:35:00Z", finished_at: null, activity: null, errors_present: false }] };
+  const partRun = lastRun({ accounts: [incomplete] }, incomplete, NOW);
+  assert.equal(partRun.status, "partial", "finished runs in an incomplete record are a verified subset");
+  assert.deepEqual(partRun.value, { at: "2030-01-08T14:32:00Z", outcome: "no_op" });
+  assert.deepEqual(partRun.coverage, { state: "partial", included: 0, total: 1, reasons: ["coverage_incomplete"] });
+  assert.equal(partRun.observed_at, "2030-01-08T14:40:00Z", "the stored observation, never the response time");
+  const staleIncompleteRun = { ...incomplete, status: "stale", unavailable_reason: "runtime_daily_stale" };
+  assert.equal(lastRun({ accounts: [staleIncompleteRun] }, staleIncompleteRun, NOW).status, "partial");
+  const noFinished = { ...incomplete, runs: [incomplete.runs[1]] };
+  const noFinishedRun = lastRun({ accounts: [noFinished] }, noFinished, NOW);
+  assert.deepEqual([noFinishedRun.status, noFinishedRun.reason], ["unknown", "coverage_incomplete"], "an incomplete record without a finished run is not 'no run'");
+  const notConnected = { platform: "firstrade", account_alias: "fake-0", status: "not_connected", completeness: null, as_of: null, runs: [] };
+  assert.equal(lastRun({ accounts: [notConnected] }, notConnected, NOW).reason, "source_unavailable", "no record stays source unavailable");
+  const conflict = { ...notConnected, status: "partial", unavailable_reason: "runtime_daily_binding_conflict" };
+  assert.equal(lastRun({ accounts: [conflict] }, conflict, NOW).reason, "source_unavailable", "an unread conflicting binding is not a coverage read");
+  const target = [{ platform: "firstrade", key: "fake-0" }];
+  const runsIncomplete = runsToday({ targets: target, summary: { accounts: [incomplete] }, businessDate: "2030-01-08", now: NOW });
+  assert.deepEqual([runsIncomplete.status, runsIncomplete.reason], ["unknown", "coverage_incomplete"], "runs today: an incomplete record is a coverage gap");
+  assert.equal(runsToday({ targets: target, summary: { accounts: [notConnected] }, businessDate: "2030-01-08", now: NOW }).reason, "source_unavailable");
+  const tapeAccounts = [{ platform: "firstrade", key: "fake-0", target_id: "firstrade/target0" }];
+  const incompleteTape = ribbonTape({ days: [{ date: "2030-01-07", summary: { accounts: [{ ...incomplete, runs: [] }] } }], accounts: tapeAccounts, date: "2030-01-08", readAt: NOW });
+  assert.deepEqual([incompleteTape.tape.status, incompleteTape.tape.reason], ["unknown", "coverage_incomplete"], "tape: read but incomplete is a coverage gap");
+  const missingTape = ribbonTape({ days: [{ date: "2030-01-07", summary: { accounts: [notConnected] } }], accounts: tapeAccounts, date: "2030-01-08", readAt: NOW });
+  assert.equal(missingTape.tape.reason, "source_unavailable");
+
+  // Overview end-to-end with an incomplete record for one account.
+  const mixedRuns = world({ summaries: { "2030-01-08": { date: "2030-01-08", accounts: [incomplete,
+    { ...summaryFor([account(1)], "2030-01-08").accounts[0] }] } } });
+  const mixedBody = await body(await deskOverviewResponse(get("/api/desk/overview"), mixedRuns.env, mixedRuns.deps));
+  conforms("overview", mixedBody);
+  assert.equal(mixedBody.book.value[0].last_run.status, "partial");
+  assert.equal(mixedBody.book.value[1].last_run.status, "known");
+  assert.deepEqual([mixedBody.totals.runs_today.value.done, mixedBody.totals.runs_today.coverage.included], [1, 1], "runs today still counts complete records only");
 }
 
 // ---------------------------------------------------------------- worker-level: exact routes, read allowlist, zero writes
