@@ -1,7 +1,7 @@
 import { useContext } from "react";
 import { AccountDirectoryContext } from "../app/context";
 import { useLanguage, useT } from "../i18n";
-import { accountOption, type AccountRef, type DirectoryConfig } from "./accountDirectory";
+import { accountOption, ibkrAccountName, type AccountRef, type DirectoryConfig } from "./accountDirectory";
 import { strategyName, laneName, domainName } from "./displayNames";
 
 export function useDisplayNames(override?: DirectoryConfig | null) {
@@ -12,6 +12,9 @@ export function useDisplayNames(override?: DirectoryConfig | null) {
     account: (alias: string | null | undefined, platform?: string | null) => {
       if (!alias) return t("common.account");
       const option = platform ? accountOption(config, platform, alias) : undefined;
+      // An IBKR account is named only by its validated broker ID; keys, labels and
+      // target names are strategy-derived and never stand in for it.
+      if (platform?.toLowerCase() === "ibkr") return ibkrAccountName(option) ?? t("common.account_id_unavailable");
       for (const value of [option?.label, option?.key, option?.target_name]) {
         const label = safeAccountLabel(value);
         if (label) return label;

@@ -261,9 +261,9 @@ Each account item supports:
 ```json
 {
   "key": "ibkr-primary",
-  "label": "ibkr-primary",
+  "label": "U00000001",
   "target_name": "ibkr-primary",
-  "account_selector": "DEMO_IBKR_PRIMARY",
+  "account_selector": "U00000001",
   "deployment_selector": "demo-ibkr-tqqq",
   "account_scope": "demo-ibkr-tqqq",
   "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
@@ -273,6 +273,14 @@ Each account item supports:
 ```
 
 The Worker validates dispatch inputs against this config, including whether the selected strategy domain is supported by the selected account. Keep only routing metadata here. Do not store broker passwords, tokens, or API keys in this config.
+
+`U00000001` above is a synthetic placeholder, never a real account. The three names are separate:
+
+- `key` is the internal technical account key. Selections, API `account_alias` values, settings, bindings and history are keyed by it. It is not a display name, and renaming it is an identity migration, not a cosmetic edit.
+- `account_selector` is the broker account. For IBKR it is the native account ID (`U` followed by digits for live, `DU` for paper). Authenticated console and Desk surfaces show this validated ID as the IBKR account name and Desk `account_ref`; when it is missing or invalid they show "Account ID unavailable" instead of guessing.
+- `strategy_profile` is the strategy, set through GitHub variables and shown as its own field. Strategy-family names such as `tqqq` may remain in `key` and `target_name` for compatibility, but they never stand in for the IBKR account name.
+
+`label` is still required by the schema. For IBKR it is not used as the account identity or name; the example sets it to the same synthetic ID only to avoid a misleading nickname.
 
 `/api/strategy-profiles` returns the public live-enabled strategy catalog for the dropdown. It reads the KV `strategy_profiles` key first, then `STRATEGY_SWITCH_STRATEGY_PROFILES_JSON`, then `strategy-profiles.example.json`.
 

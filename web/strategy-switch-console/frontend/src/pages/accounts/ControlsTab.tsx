@@ -1,4 +1,5 @@
 import { useDisplayNames } from "../../lib/useDisplayNames";
+import { accountOption, ibkrAccountName } from "../../lib/accountDirectory";
 import { useEffect, useState } from "react";
 import type { RunControlAvailability } from "../../api/contracts";
 import { loadAccountSettings, loadRunControls } from "../../api/endpoints";
@@ -72,6 +73,13 @@ export function ControlsTab({
   const data: RunControlAvailability = state.data;
   if (data.account_alias !== account.account_alias || data.platform !== account.platform) return <Skeleton height={200} />;
   const isRuntimeControlPlatform = RUNTIME_CONTROL_PLATFORMS.has(account.platform.toLowerCase());
+  // IBKR stops are confirmed against the validated broker ID; requests keep the internal key.
+  const isIbkr = account.platform.toLowerCase() === "ibkr";
+  const ibkrAccountId = isIbkr ? ibkrAccountName(accountOption(config, account.platform, account.account_alias)) : null;
+  const stopBlocked = isIbkr && !ibkrAccountId;
+  const stopChallenge = ibkrAccountId
+    ? { label: t("controls.stop_type_account_id", { id: ibkrAccountId }), expected: ibkrAccountId, mismatch: t("controls.account_id_mismatch") }
+    : { label: t("controls.stop_type_alias", { alias: account.account_alias }), expected: account.account_alias, mismatch: t("controls.alias_mismatch") };
 
   const reasonText = (reason: string): string => t(`reason.${reason}`);
 
@@ -119,6 +127,7 @@ export function ControlsTab({
   };
 
   const submitStop = async () => {
+    if (stopBlocked) return;
     if (isRuntimeControlPlatform) {
       await submitControl("disable");
       return;
@@ -130,11 +139,7 @@ export function ControlsTab({
       consequence: t("controls.stop_consequence"),
       tone: "danger",
       confirmLabel: t("controls.stop"),
-      typeToConfirm: {
-        label: t("controls.stop_type_alias", { alias: account.account_alias }),
-        expected: account.account_alias,
-        mismatch: t("controls.alias_mismatch"),
-      },
+      typeToConfirm: stopChallenge,
     });
     if (!accepted) return;
     setBusy("stop");
@@ -231,6 +236,7 @@ export function ControlsTab({
 
   const submitControl = async (operation: "enable" | "disable") => {
     const name: ActionName = operation === "enable" ? "enable" : "stop";
+    if (name === "stop" && stopBlocked) return;
     const accepted = await confirm(operation === "enable"
       ? {
           title: t("controls.confirm.enable_title"),
@@ -247,11 +253,7 @@ export function ControlsTab({
           consequence: t("controls.stop_consequence"),
           tone: "danger",
           confirmLabel: t("controls.stop"),
-          typeToConfirm: {
-            label: t("controls.stop_type_alias", { alias: account.account_alias }),
-            expected: account.account_alias,
-            mismatch: t("controls.alias_mismatch"),
-          },
+          typeToConfirm: stopChallenge,
         });
     if (!accepted) return;
     const requestId = crypto.randomUUID();
@@ -307,14 +309,17 @@ export function ControlsTab({
           const action = data.actions[name];
           const lock = locks[name];
           const controlLock = controlLocked && (name === "enable" || name === "stop");
-          const disabled = busy !== null || busyControl?.targetKey === targetKey || Boolean(lock) || controlLock || !action.enabled;
-          const note = lock
-            ? t(lock === "submitted" ? "controls.submitted" : "controls.unknown_result")
-            : controlLock
-              ? controlNote
-              : !action.enabled
-                ? reasonText(action.reason)
-                : null;
+          const identityBlocked = name === "stop" && stopBlocked;
+          const disabled = busy !== null || busyControl?.targetKey === targetKey || Boolean(lock) || controlLock || identityBlocked || !action.enabled;
+          const note = identityBlocked
+            ? t("controls.account_id_required")
+            : lock
+              ? t(lock === "submitted" ? "controls.submitted" : "controls.unknown_result")
+              : controlLock
+                ? controlNote
+                : !action.enabled
+                  ? reasonText(action.reason)
+                  : null;
           return (
             <DangerRow
               key={name}
