@@ -251,6 +251,13 @@ const deskEntrySource = "1618b2488698804e8bedc19d3509694e4c306a75";
 const deskEntryParent = "04f9d56db1e2cfcc2935d9d8d39574296bdb9512";
 const deskEntryTree = "d60cd12bfb0ca5ce23539656b8a33f33ca658b63";
 const deskEntryBlob = "61a1037c87721cc6b81f4621e707774cc1820877";
+// S2 Desk N1 read-only release source (#1166). Its tree carries its own Worker and the
+// reviewed #1126 reader test, so nothing is composed onto it.
+const deskN1Source = "c0ac5848b8af983d4f857e465c6ff64009b0957f";
+const deskN1Parent = "af897f8b215c5e46f436888179be4be26d467679";
+const deskN1Tree = "a7b327c0f41296ba2e92d08371bb84920fe3c84f";
+const deskN1Blob = "281002eae61aac3d12ccdf6a00c6a084964f4604";
+const deskN1WorkerBlob = "bbe906c52ebbbf719b19103c7f808c5bde5f294c";
 const selectionStep = steps.find(step => step.startsWith("Select reviewed historical main source\n"));
 assert.ok(selectionStep);
 assert.ok(deploy.indexOf("Select reviewed historical main source") < deploy.indexOf("Setup Python"), "reject unapproved source before running project code");
@@ -299,6 +306,14 @@ const fakeGit = `git() {
     'rev-parse ${deskEntrySource}:web/strategy-switch-console/worker.js') printf '%s' "$FAKE_DESK_WORKER" ;;
     'rev-parse ${deskEntrySource}:tests/binance_account_facts_validation.mjs') printf '%s' "$FAKE_DESK_TEST" ;;
     '-c advice.detachedHead=false checkout --detach ${deskEntrySource}') touch "$SELECTED" ;;
+    'cat-file -e ${deskN1Source}^{commit}') return "$FAKE_OBJECT_EXIT" ;;
+    'merge-base --is-ancestor ${deskN1Source} ${control}') return "$FAKE_ANCESTRY_EXIT" ;;
+    'rev-parse ${deskN1Source}^@') printf '%s' "$FAKE_PARENT" ;;
+    'rev-parse ${deskN1Source}^{tree}') printf '%s' "$FAKE_TREE" ;;
+    'rev-parse ${deskN1Source}:${assetPath}') printf '%s' "$FAKE_PR764_BLOB" ;;
+    'rev-parse ${deskN1Source}:web/strategy-switch-console/worker.js') printf '%s' "$FAKE_N1_WORKER" ;;
+    'rev-parse ${deskN1Source}:tests/binance_account_facts_validation.mjs') printf '%s' "$FAKE_N1_TEST" ;;
+    '-c advice.detachedHead=false checkout --detach ${deskN1Source}') touch "$SELECTED" ;;
     *) return 91 ;;
   esac
 };\n`;
@@ -315,7 +330,8 @@ function sourceCase(delta, expected) {
       FAKE_WALLET_ANCESTRY_EXIT: "0", FAKE_WALLET_TREE: walletTree, FAKE_WALLET_BASE_WORKER: s1WorkerBlob,
       FAKE_WALLET_BASE_TEST: s1ReaderTestBlob, FAKE_BASE_WORKER: s1WorkerBlob, FAKE_BASE_TEST: s1ReaderTestBlob,
       FAKE_COMPOSED_WORKER: walletWorkerBlob, FAKE_COMPOSED_TEST: walletReaderTestBlob, FAKE_DIFF_CHECK_EXIT: "0",
-      FAKE_DESK_WORKER: walletWorkerBlob, FAKE_DESK_TEST: walletReaderTestBlob, ...delta };
+      FAKE_DESK_WORKER: walletWorkerBlob, FAKE_DESK_TEST: walletReaderTestBlob,
+      FAKE_N1_WORKER: deskN1WorkerBlob, FAKE_N1_TEST: walletReaderTestBlob, ...delta };
     const result = spawnSync("bash", ["-c", fakeGit + selectShell], { env, encoding: "utf8" });
     assert.equal(result.status === 0, expected, result.stderr);
     assert.ok(!result.stdout.includes("PRIVATE_SOURCE_SENTINEL") && !result.stderr.includes("PRIVATE_SOURCE_SENTINEL"));
@@ -543,6 +559,62 @@ assert.equal(sourceCase({...deskEntryEnv,FAKE_SELECTED_HEAD:"b".repeat(40)},fals
 assert.equal(sourceCase({...s1Env,FAKE_PARENT:deskEntryParent,FAKE_TREE:deskEntryTree,FAKE_PR764_BLOB:deskEntryBlob},false).selected,false);
 assert.equal(sourceCase({...deskEntryEnv,FAKE_PARENT:s1Parent,FAKE_TREE:s1Tree,FAKE_PR764_BLOB:s1Blob},false).selected,false);
 
+// S2 Desk N1 read-only source: five exact pins (parent, tree, map, Worker and the reviewed
+// #1126 reader test) in its own tree; receiver checks retained; later distinct CONTROL.
+{
+  const identity = spawnSync("git", ["rev-parse", `${deskN1Source}^{commit}`, `${deskN1Source}^@`, `${deskN1Source}^{tree}`,
+    `${deskN1Source}:${assetPath}`, `${deskN1Source}:${walletPaths[1]}`, `${deskN1Source}:${walletPaths[0]}`], {cwd: repoRoot, encoding:"utf8"});
+  assert.equal(identity.status, 0);
+  assert.deepEqual(identity.stdout.trim().split("\n"), [deskN1Source, deskN1Parent, deskN1Tree, deskN1Blob, deskN1WorkerBlob, walletReaderTestBlob],
+    "S2 Desk N1 source has one parent, the frozen tree/map/Worker and the published reader test");
+  assert.equal(spawnSync("git", ["merge-base", "--is-ancestor", deskN1Source, "HEAD"], {cwd: repoRoot}).status, 0, "S2 Desk N1 source must be adopted in this checkout");
+  assert.equal(spawnSync("git", ["merge-base", "--is-ancestor", deskEntrySource, deskN1Source], {cwd: repoRoot}).status, 0, "S2 descends from the published S1 entry");
+  const n1Map = mapGeneration(deskN1Source);
+  assert.equal(n1Map.assets, 45);
+  assert.equal(n1Map.guard, 1, "the S2 bundle keeps the S1 desk delivery guard");
+  assert.notEqual(n1Map.build, mapGeneration(deskEntrySource).build, "a new frontend generation");
+  assert.equal(producerEmitsReadErrorCode(deskN1Source), true, "its Worker keeps the S1 producer field");
+  const decoded = [...n1Map.text.matchAll(/"\/v2\/assets\/[^"]+": \{ contentType: "[^"]+", base64: "([A-Za-z0-9+/=]*)"/g)]
+    .map(([, b64]) => Buffer.from(b64, "base64").toString("utf8"));
+  assert.ok(decoded.some(text => text.includes("qsl.desk.switch_strategies.v2")), "the bundle reads the N1 switch-strategies projection");
+  const worker = spawnSync("git", ["show", `${deskN1Source}:web/strategy-switch-console/worker.js`], {cwd: repoRoot, encoding:"utf8", maxBuffer:64*1024*1024}).stdout;
+  assert.ok(worker.includes('"/api/desk/ribbon"') && worker.includes("deskN1ReadCommand"), "its Worker serves the N1 read routes");
+}
+const deskN1Env = {...mergedEnv, RELEASE_SOURCE_SHA:deskN1Source, FAKE_SELECTED_HEAD:deskN1Source,
+  FAKE_PARENT:deskN1Parent, FAKE_TREE:deskN1Tree, FAKE_PR764_BLOB:deskN1Blob};
+{
+  const accepted = sourceCase(deskN1Env, true);
+  assert.equal(accepted.selected, true);
+  assert.equal(accepted.composed, false, "nothing is composed onto the S2 Desk N1 source");
+  const ancestry = accepted.calls.indexOf(`merge-base --is-ancestor ${deskN1Source} ${control}`);
+  const checkout = accepted.calls.indexOf(`-c advice.detachedHead=false checkout --detach ${deskN1Source}`);
+  assert.ok(accepted.calls[0] === "rev-parse HEAD" && ancestry > 0 && checkout > ancestry, "CONTROL is read, then SOURCE ancestry, then checkout");
+  for (const pin of [`rev-parse ${deskN1Source}^@`, `rev-parse ${deskN1Source}^{tree}`, `rev-parse ${deskN1Source}:${assetPath}`,
+    `rev-parse ${deskN1Source}:web/strategy-switch-console/worker.js`, `rev-parse ${deskN1Source}:tests/binance_account_facts_validation.mjs`])
+    assert.ok(accepted.calls.indexOf(pin) > ancestry && accepted.calls.indexOf(pin) < checkout, pin);
+  assert.ok(!accepted.calls.some(call => call.startsWith("fetch") || call.startsWith("apply")), "main history only, no fetch or composition");
+}
+for (const delta of [{RELEASE_FRONTEND_ASSETS:"false"},{RELEASE_FRONTEND_ASSETS:"true\n"},{SYNC_SECRETS:"true"},
+  {SYNC_STRATEGY_PROFILES:"true"},{SKIP_BINANCE_RECEIVER_CHECKS:"true"},
+  {GITHUB_REF:"refs/heads/other"},{GITHUB_REF:"refs/tags/main"},{IBKR_CANDIDATE_RESUME:"verify"},{IBKR_CANDIDATE_RESUME:"activate"},
+  {EXTERNAL_FLOW_ENABLE:"true"},{RELEASE_SOURCE_SHA:deskN1Source.toUpperCase()},{RELEASE_SOURCE_SHA:deskN1Source.slice(0,8)},
+  {RELEASE_SOURCE_SHA:deskN1Source+"\n"},{RELEASE_SOURCE_SHA:deskN1Parent},{RELEASE_SOURCE_SHA:"b".repeat(40)}]) {
+  assert.deepEqual(sourceCase({...deskN1Env,...delta},false).calls,[], JSON.stringify(delta));
+}
+// Wrong parent/tree/map/Worker/reader test/object/ancestry/CONTROL rejects before selection;
+// the published S1 entry Worker and map are rejected too.
+for (const delta of [{FAKE_PARENT:"b".repeat(40)},{FAKE_PARENT:""},{FAKE_PARENT:deskN1Parent+"\n"+"b".repeat(40)},{FAKE_PARENT:deskEntryParent},
+  {FAKE_TREE:"b".repeat(40)},{FAKE_TREE:deskEntryTree},{FAKE_PR764_BLOB:"b".repeat(40)},{FAKE_PR764_BLOB:deskEntryBlob},
+  {FAKE_N1_WORKER:walletWorkerBlob},{FAKE_N1_WORKER:"b".repeat(40)},{FAKE_N1_TEST:s1ReaderTestBlob},{FAKE_N1_TEST:""},
+  {FAKE_OBJECT_EXIT:"1"},{FAKE_ANCESTRY_EXIT:"1"},{FAKE_CONTROL_HEAD:"b".repeat(40)},
+  {FAKE_CONTROL_HEAD:deskN1Source,GITHUB_SHA:deskN1Source}]) {
+  assert.equal(sourceCase({...deskN1Env,...delta},false).selected,false, JSON.stringify(delta));
+}
+assert.equal(sourceCase({...deskN1Env,FAKE_SELECTED_HEAD:"b".repeat(40)},false).selected,true, "verify the actual selected checkout too");
+// No cross-acceptance with the S1 Desk default-entry source.
+assert.equal(sourceCase({...deskEntryEnv,FAKE_PARENT:deskN1Parent,FAKE_TREE:deskN1Tree,FAKE_PR764_BLOB:deskN1Blob},false).selected,false);
+assert.equal(sourceCase({...deskN1Env,FAKE_PARENT:deskEntryParent,FAKE_TREE:deskEntryTree,FAKE_PR764_BLOB:deskEntryBlob},false).selected,false);
+
 const validSource = sourceCase({}, true);
 assert.equal(validSource.selected, true);
 assert.ok(validSource.calls.indexOf(`merge-base --is-ancestor ${approved} ${control}`) < validSource.calls.findIndex(line => line.includes("checkout --detach")));
@@ -702,6 +774,7 @@ const fakeOverlayGit = `git() {
     'diff --name-only ${s1Source}') printf '%s' "$FAKE_DIFF" ;;
     'diff --cached --name-only ${s1Source}') printf '%s' "$FAKE_CACHED" ;;
     'diff --name-only ${deskEntrySource}') printf '%s' "$FAKE_DIFF" ;;
+    'diff --name-only ${deskN1Source}') printf '%s' "$FAKE_DIFF" ;;
     'rev-parse :web/strategy-switch-console/worker.js') printf '%s' "$FAKE_STAGED_WORKER" ;;
     'rev-parse :tests/binance_account_facts_validation.mjs') printf '%s' "$FAKE_STAGED_TEST" ;;
     'diff --quiet') return "$FAKE_WORKTREE_EXIT" ;;
@@ -854,6 +927,34 @@ function overlayCase(delta = {}, expected = true, bytes = reviewedMap) {
       assert.deepEqual(readFileSync(dest), asset, "never overlay an older asset");
     }
     for (const bytes of [s1Asset, Buffer.from("fake modified asset")]) {
+      writeFileSync(dest, bytes);
+      assert.notEqual(spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env}).status, 0, "a mismatched frontend generation must stop");
+      overlayCases++;
+    }
+  } finally {rmSync(temp, {recursive:true,force:true});}
+}
+// The S2 Desk N1 source ships its own tree and map unchanged: any staged, unstaged or
+// untracked delta, the previous (S1 entry) map, or a head not selected for it must stop.
+{
+  const asset = spawnSync("git", ["show", `${deskN1Source}:${assetPath}`], {cwd: repoRoot, maxBuffer:64*1024*1024}).stdout;
+  assert.equal(spawnSync("git", ["hash-object", "--stdin"], {input:asset,encoding:"utf8",maxBuffer:64*1024*1024}).stdout.trim(), deskN1Blob);
+  const entryAsset = spawnSync("git", ["show", `${deskEntrySource}:${assetPath}`], {cwd: repoRoot, maxBuffer:64*1024*1024}).stdout;
+  const temp = mkdtempSync(join(tmpdir(), "console-desk-n1-overlay-"));
+  try {
+    const dest = join(temp, assetPath);
+    mkdirSync(join(temp, "web/strategy-switch-console"), {recursive:true});
+    const env = {PATH:process.env.PATH, GITHUB_REF:"refs/heads/main", RELEASE_SOURCE_SHA:deskN1Source, FAKE_HEAD:deskN1Source,
+      FAKE_TREE:deskN1Tree, FAKE_DIFF:"", FAKE_UNTRACKED:""};
+    for (const delta of [{}, {FAKE_DIFF:"fake-file"}, {FAKE_DIFF:walletPaths[1]}, {FAKE_UNTRACKED:"fake-file"},
+      {FAKE_TREE:"a".repeat(40)}, {FAKE_TREE:deskEntryTree}, {GITHUB_REF:"refs/heads/other"}, {RELEASE_SOURCE_SHA:""},
+      {RELEASE_SOURCE_SHA:deskEntrySource}, {RELEASE_SOURCE_SHA:s1Source}]) {
+      writeFileSync(dest, asset);
+      const result = spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env:{...env,...delta}});
+      assert.equal(result.status === 0, Object.keys(delta).length === 0, `S2 Desk N1 overlay must validate exact pins: ${JSON.stringify(delta)}`);
+      overlayCases++;
+      assert.deepEqual(readFileSync(dest), asset, "never overlay an older asset");
+    }
+    for (const bytes of [entryAsset, Buffer.from("fake modified asset")]) {
       writeFileSync(dest, bytes);
       assert.notEqual(spawnSync("bash", ["-c", fakeOverlayGit + overlayShell], {cwd:temp,env}).status, 0, "a mismatched frontend generation must stop");
       overlayCases++;
@@ -1150,7 +1251,7 @@ async function releaseCase({pr764=false,ibkrDaily=false,activeOverride=null,inhe
 async function integratedReleaseCase({ reviewedMain=false, reviewedMainSource="c1b737d6e721eb9fe71a12c613fbb49d3fa51563", lineage=null, settings=false, daily=false, statusCandidate=false, cpu=false, active=null, latest=null, moduleContent=syntheticBundle.toString("base64"), uploadedTag=undefined, postTag=runtime.migration_tag, flow=false, oldFlag=null, drift=false, baselineItems=undefined, preUploadVersion=null, preDeployWitness=null, uploadId=null, ambiguousActive=false, expectFailure=null, testHandlers=null, deployed=false } = {}, expected=true) {
  const calls=[], stdout=[], stderr=[], prior=settings?"7ffe9227-686a-48ad-baa9-72665969d918":daily?"14f0c9c2-09f9-40e9-bfbe-17165f499495":statusCandidate?"175ba768-484a-4fe6-9cea-e5a101bc1618":cpu?"90a0c8e9-b5ad-447a-998f-5d585ec28063":"600ec84d-a804-4ede-8d1d-0a34819ce46a";
  active ??= prior; latest ??= active;
- const separateWitness = reviewedMain && (reviewedMainSource === deskSource || reviewedMainSource === inboxSource || reviewedMainSource === consoleSource || reviewedMainSource === s1Source || reviewedMainSource === deskEntrySource) && !flow;
+ const separateWitness = reviewedMain && (reviewedMainSource === deskSource || reviewedMainSource === inboxSource || reviewedMainSource === consoleSource || reviewedMainSource === s1Source || reviewedMainSource === deskEntrySource || reviewedMainSource === deskN1Source) && !flow;
  const responses=responseSequence(false,active);
  if (ambiguousActive) responses[0].result.deployments[0].versions.push({version_id:"00000000-0000-4000-8000-000000000024",percentage:0});
  responses.splice(3,0,wrap({items:baselineItems===undefined?[{id:latest}]:baselineItems}));
@@ -1296,6 +1397,14 @@ await integratedReleaseCase({...deskEntryRelease,latest:orphanWitness,preDeployW
 await integratedReleaseCase({...deskEntryRelease,latest:orphanWitness,uploadId:orphanWitness,expectFailure:{...stopped,checkpoint:"uploaded_matches_witness",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
 await integratedReleaseCase({...deskEntryRelease,moduleContent:Buffer.from("wrong").toString("base64")},false);
 await integratedReleaseCase({...deskEntryRelease,testHandlers:{active:["alpha"],uploaded:["alpha"],post:["alpha"],runtimeUploaded:["other"]},expectFailure:{...configStop,checkpoint:"configuration_hash_mismatch"}},false);
+// S2 Desk N1 source: the same current reviewed-main publisher path and witness cases.
+const deskN1Release = {reviewedMain:true,reviewedMainSource:deskN1Source};
+await integratedReleaseCase(deskN1Release);
+await integratedReleaseCase({...deskN1Release,latest:orphanWitness});
+await integratedReleaseCase({...deskN1Release,latest:orphanWitness,preDeployWitness:driftedWitness,expectFailure:{...stopped,stage:"pre_deploy_lineage",checkpoint:"inherit_lineage_mismatch",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...deskN1Release,latest:orphanWitness,uploadId:orphanWitness,expectFailure:{...stopped,checkpoint:"uploaded_matches_witness",upload_attempted:true,outcome:"UPLOAD_REQUIRES_READBACK_NOT_ACTIVATED"}},false);
+await integratedReleaseCase({...deskN1Release,moduleContent:Buffer.from("wrong").toString("base64")},false);
+await integratedReleaseCase({...deskN1Release,testHandlers:{active:["alpha"],uploaded:["alpha"],post:["alpha"],runtimeUploaded:["other"]},expectFailure:{...configStop,checkpoint:"configuration_hash_mismatch"}},false);
 await integratedReleaseCase(s1Release);
 await integratedReleaseCase({...s1Release,latest:orphanWitness});
 for (const baselineItems of [[],null,[{id:"not-a-uuid"}],Array.from({length:11},(_,i)=>({id:`00000000-0000-4000-8000-${String(i).padStart(12,"0")}`}))])
