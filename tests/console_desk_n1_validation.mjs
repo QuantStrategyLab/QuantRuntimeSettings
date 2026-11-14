@@ -98,11 +98,18 @@ for (const [method, v1, v2] of [
   assert.deepEqual([result.source, result.scenario], ["live", null]);
   assert.deepEqual(result.data, v2, `${method}: live v2 passes through unchanged`);
 }
-// The strategies page keeps its v1 catalog client in this change (open item); the N1
-// switch-strategies payload is pinned by the guard and the normalisation below.
+// Switch strategies is an N1 read too: a live v1 catalog is a contract mismatch.
+for (const scenario of SCENARIOS) {
+  reply = golden("switch-strategies", scenario);
+  const result = await live.switchStrategies(reply.target_id);
+  assert.deepEqual([result.source, result.scenario], ["live", null]);
+  assert.deepEqual(result.data, reply, `switchStrategies.${scenario}: live v2 passes through unchanged`);
+}
+reply = forTarget("schwab/core", "ok");
+await assert.rejects(live.switchStrategies("schwab/core"), DeskContractError, "a live v1 catalog is never read as N1");
+const defaultLive = createDeskApi({ forcedScenario: null, delayMs: 0, fetchJson: async () => clone(reply) });
 reply = golden("switch-strategies", "ok");
-await assert.rejects(live.switchStrategies("firstrade/target0"), DeskContractError, "the v1 client never reads a v2 body as v1");
-assert.ok(isN1SwitchStrategies(reply));
+assert.equal((await defaultLive.switchStrategies(reply.target_id)).source, "live", "the default sources read the projection");
 
 // Mock: v1 fixtures normalise into valid N1 and keep their mock source label.
 const forced = createDeskApi({ forcedScenario: "degraded", delayMs: 0, fetchJson: async () => { throw Error("mock must not fetch"); } });
@@ -123,8 +130,8 @@ for (const scenario of ["ok", "degraded"]) {
   }
 }
 
-// Alerts and logs stay fixtures. The five N1 areas also keep their fixture label in this
-// change: flipping their DESK_SOURCES entries is a separate step (projection contract, open item).
+// The five N1 areas read their projections by default; alerts and logs stay fixtures.
+for (const endpoint of ["ribbon", "overview", "accounts", "switchStrategies", "performance"]) assert.equal(DESK_SOURCES[endpoint], "live");
 for (const endpoint of ["alerts", "logs"]) assert.equal(DESK_SOURCES[endpoint], "mock");
 
 // 4. Reading helpers: unknown is null, partial is a subset, an unknown total is "?".
@@ -156,6 +163,7 @@ const compiled = require("esbuild").buildSync({
       export { Dock } from "./desk/shell/Dock";
       export { TopBar } from "./desk/shell/TopBar";
       export { DeskShell } from "./desk/shell/DeskShell";
+      export { catalogEntries, entryCounts, filterEntries, catalogRevisionText } from "./desk/pages/StrategiesPage";
     `,
   },
   bundle: true, platform: "node", format: "cjs", jsx: "automatic", logLevel: "silent",
@@ -165,7 +173,7 @@ const compiled = require("esbuild").buildSync({
 }).outputFiles[0].text;
 const desk = { exports: {} };
 new Function("require", "module", "exports", compiled)(require, desk, desk.exports);
-const { OverviewView, BrokersView, portfolioStatsFor, Dock, TopBar, DeskShell } = desk.exports;
+const { OverviewView, BrokersView, portfolioStatsFor, Dock, TopBar, DeskShell, catalogEntries, entryCounts, filterEntries, catalogRevisionText } = desk.exports;
 const text = html => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
 
 for (const language of ["zh", "en"]) {
@@ -252,6 +260,20 @@ const knownPerf = golden("performance", "ok");
 knownPerf.risk.return_ratio = { status: "known", value: "0.12", observed_at: at, coverage: cover("complete") };
 knownPerf.risk.max_drawdown_ratio = { status: "partial", value: "-0.05", observed_at: at, coverage: cover("partial", 1, 2, ["insufficient_history"]) };
 assert.deepEqual(portfolioStatsFor(knownPerf), { ret: 0.12, cagr: null, maxDrawdown: null }, "a partial window metric is not the requested window");
+
+// Strategies page: an unknown eligibility is shown, but never eligible, counted or selectable.
+const tEn = (key, params) => deskTranslate("en", key, params);
+const partialCatalog = catalogEntries(golden("switch-strategies", "partial").strategies.value);
+assert.equal(partialCatalog.length, 4, "every projected row is kept");
+assert.deepEqual(partialCatalog.filter(entry => entry.option === null).map(entry => entry.row.profile), ["fake_dca"]);
+assert.deepEqual(entryCounts(partialCatalog), { all: 4, eligible: 1, paper: 1, blocked: 1 }, "unknown rows only count toward all");
+assert.deepEqual(filterEntries(partialCatalog, "eligible").map(entry => entry.row.profile), ["fake_growth"]);
+assert.equal(filterEntries(partialCatalog, "all").length, 4, "an unknown row is never dropped from the full list");
+assert.equal(filterEntries(partialCatalog, "blocked").some(entry => entry.option === null), false, "unknown is not blocked either");
+const okCatalog = golden("switch-strategies", "ok");
+assert.equal(catalogRevisionText(okCatalog.catalog_revision, tEn), okCatalog.catalog_revision.value.value.slice(0, 12), "fingerprint prefix");
+assert.equal(catalogRevisionText(golden("switch-strategies", "partial").catalog_revision, tEn), tEn("read.unknown"), "no revision for an incomplete catalog");
+assert.deepEqual(entryCounts(catalogEntries(golden("switch-strategies", "empty").strategies.value)), { all: 0, eligible: 0, paper: 0, blocked: 0 });
 
 // Source checks for wiring that has no pure export.
 const src = path => readFileSync(new URL(`../web/strategy-switch-console/frontend/src/desk/${path}`, import.meta.url), "utf8");

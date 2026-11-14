@@ -1,6 +1,7 @@
 // Regression coverage for the actual embedded Worker and target-specific mock callers.
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,18 +38,23 @@ for (const scenario of ["ok", "degraded"]) {
     test(`${scenario}: ${target} exposes only its domain and preserves research restrictions`, async () => {
       const api = createDeskApi({ forcedScenario: scenario, delayMs: 0,
         fetchJson: async () => { throw new Error("mock catalog must not fetch"); } });
-      const { data } = await api.switchStrategies(target);
+      const { data, source } = await api.switchStrategies(target);
+      // The fixture is normalised to the N1 projection (source=mock only).
+      assert.equal(source, "mock");
+      assert.equal(data.schema_version, "qsl.desk.switch_strategies.v2");
       assert.equal(data.target_id, target);
-      assert.equal(data.domain, domain);
-      assert.ok(data.strategies.length > 0);
-      for (const entry of data.strategies) assert.equal(entry.domain, domain, "no US catalog inherited");
-      const entry = data.strategies.find(entry => entry.profile === profile);
+      assert.deepEqual([data.domain.status, data.domain.value], ["known", domain]);
+      assert.equal(data.strategies.status, "known");
+      const rows = data.strategies.value;
+      assert.ok(rows.length > 0);
+      for (const entry of rows) assert.equal(entry.domain, domain, "no US catalog inherited");
+      const entry = rows.find(entry => entry.profile === profile);
       assert.ok(entry, "existing target strategy is represented");
-      assert.equal(entry.eligibility, eligibility);
+      assert.deepEqual([entry.eligibility.status, entry.eligibility.value], ["known", eligibility]);
       assert.deepEqual(entry.allowed_execution_modes, modes);
-      assert.deepEqual(catalogCounts(data.strategies), counts);
+      assert.deepEqual(catalogCounts(rows.map(row => ({ ...row, eligibility: row.eligibility.value }))), counts);
       const state = strategyFlowReducer(INITIAL_STRATEGY_FLOW, { type: "select_target", targetId: target });
-      assert.equal(strategyFlowReducer(state, { type: "select_strategy", ...entry }).step,
+      assert.equal(strategyFlowReducer(state, { type: "select_strategy", profile: entry.profile, eligibility: entry.eligibility.value, reason: entry.reason }).step,
         eligibility === "blocked" ? "strategy" : "preview");
     });
   }
@@ -142,7 +148,7 @@ for (const catalogTarget of ["ibkr/tqqq", "binance/spot"]) {
     const currentTarget = catalogTarget === "ibkr/tqqq" ? "binance/spot" : "ibkr/tqqq";
     const api = createDeskApi({ forcedScenario: "ok", delayMs: 0 });
     const catalog = await api.switchStrategies(catalogTarget);
-    const profile = catalog.data.strategies.find(x => x.eligibility !== "blocked").profile;
+    const profile = catalog.data.strategies.value.find(x => x.eligibility.value !== "blocked").profile;
     const effects = [], actions = [];
     const hooks = { ...React,
       useState: value => [typeof value === "function" ? value() : value, () => {}],
@@ -171,5 +177,65 @@ for (const catalogTarget of ["ibkr/tqqq", "binance/spot"]) {
     components(hooks, globals).StrategiesPage({ api, t: deskTranslator("en"), language: "en", admin: true, initialTarget: catalogTarget, initialProfile: profile });
     for (const effect of effects) effect();
     assert.equal(actions.filter(action => action.type === "select_strategy" && action.profile === profile).length, 1);
+  });
+}
+
+// Live N1 catalog (qsl.desk.switch_strategies.v2) rendered by the real page: unknown is
+// never eligible, empty or selectable; partial keeps its coverage; no fixture label.
+const n1Catalog = scenario => JSON.parse(readFileSync(new URL(`./fixtures/desk/n1-switch-strategies.${scenario}.json`, import.meta.url), "utf8"));
+async function renderLiveCatalog(data, language = "en") {
+  const api = createDeskApi({ forcedScenario: "ok", delayMs: 0 });
+  const targets = { ...await api.switchTargets(), source: "live", scenario: null };
+  const hooks = { ...React,
+    useState: value => [typeof value === "function" ? value() : value, () => {}],
+    useReducer: (_reducer, initial) => [{ ...initial, targetId: data.target_id, step: "strategy" }, () => {}],
+    useRef: value => ({ current: value }),
+    useEffect: () => {},
+  };
+  const globals = { reads: [
+    { load: { state: "ready", result: targets }, reload() {} },
+    { load: { state: "ready", result: { data, source: "live", scenario: null } }, reload() {} },
+  ] };
+  const t = deskTranslator(language);
+  const html = renderToStaticMarkup(components(hooks, globals).StrategiesPage({ api, t, language, admin: true, initialTarget: data.target_id }));
+  return { html, t, running: targets.data.targets.length };
+}
+const card = (html, profile) => html.match(new RegExp(`<article[^>]*data-profile="${profile}"[\\s\\S]*?</article>`))?.[0] ?? "";
+
+for (const language of ["zh", "en"]) {
+  test(`${language}: live N1 catalog shows proven eligibility only, with no fixture label`, async () => {
+    const ok = n1Catalog("ok");
+    const { html, t } = await renderLiveCatalog(ok, language);
+    assert.ok(html.includes(ok.catalog_revision.value.value.slice(0, 12)), "projection fingerprint prefix in the hero line");
+    assert.match(card(html, "fake_growth"), /data-eligibility="eligible"/);
+    assert.match(card(html, "fake_crypto"), /data-eligibility="blocked"/);
+    assert.ok(card(html, "fake_crypto").includes(t("strategies.reason.domain_not_supported")), "N1 reason codes are translated");
+    for (const key of ["strategies.mock_note", "strategies.catalog_mock_note", "mock.badge"]) assert.equal(html.includes(t(key)), false, `no ${key}`);
+    assert.match(html, /data-banner="switch-not-connected"/, "configuration compatibility is still not switchable");
+
+    const partial = n1Catalog("partial");
+    const { html: p, running } = await renderLiveCatalog(partial, language);
+    assert.ok(p.includes(t("strategies.catalog.partial", { coverage: "3/4" })), "partial coverage is stated");
+    const unknownCard = card(p, "fake_dca");
+    assert.match(unknownCard, /data-eligibility="unknown"/);
+    assert.ok(unknownCard.includes(t("strategies.card.eligibility_unknown")));
+    assert.match(unknownCard, /<button[^>]*disabled=""/, "an unknown eligibility cannot be selected");
+    assert.equal(unknownCard.includes(t("strategies.filter.eligible")), false, "unknown is never shown as eligible");
+    assert.match(p, new RegExp(`data-filter="eligible"[^>]*>[^<]*<span[^>]*>${t("strategies.filter.count", { count: 1 })}<`), "only proven rows are counted");
+    assert.ok(p.includes(t("strategies.summary.meta", { running, revision: t("read.unknown") })), "an incomplete catalog has no revision");
+
+    const degraded = n1Catalog("degraded");
+    const d = (await renderLiveCatalog(degraded, language)).html;
+    assert.ok(d.includes(t("strategies.card.domain", { domain: `${t("read.unknown_mark")} · ${t(`read.reason.${degraded.domain.reason}`)}` })), "unknown domain is named, not guessed");
+
+    const empty = (await renderLiveCatalog(n1Catalog("empty"), language)).html;
+    assert.ok(empty.includes(t("strategies.catalog.empty")), "a verified-empty catalog may say empty");
+
+    const unread = { ...n1Catalog("ok"), strategies: { status: "unknown", reason: "read_failed", observed_at: null, coverage: { state: "unavailable", included: 0, total: null, reasons: ["read_failed"] } },
+      catalog_revision: { status: "unknown", reason: "coverage_incomplete", observed_at: null, coverage: { state: "unavailable", included: 0, total: 1, reasons: ["coverage_incomplete"] } } };
+    const u = (await renderLiveCatalog(unread, language)).html;
+    assert.ok(u.includes(t("strategies.catalog.unknown", { reason: t("read.reason.read_failed") })), "an unread catalog names its reason");
+    assert.equal(u.includes(t("strategies.catalog.empty")), false, "unknown is not 'no strategies'");
+    assert.doesNotMatch(u, /data-profile=/, "no cards from an unknown read");
   });
 }

@@ -6,16 +6,16 @@
  */
 import { getJson } from "../../api/client.ts";
 import type {
-  AlertDelivery, Alerts, Credentials, DeskSession, Logs, SwitchStrategies, SwitchTargets,
+  AlertDelivery, Alerts, Credentials, DeskSession, Logs, SwitchTargets,
 } from "../contract/types";
-import type { N1Accounts, N1Overview, N1Performance, N1Ribbon } from "../contract/n1";
+import type { N1Accounts, N1Overview, N1Performance, N1Ribbon, N1SwitchStrategies } from "../contract/n1";
 import {
   isAccounts, isAlertDelivery, isAlerts, isCredentials, isLogs, isOverview, isPerformance, isRibbon,
   isSession, isSwitchStrategies, isSwitchTargets,
 } from "./guards.ts";
 import {
-  accountsFromMock, isN1Accounts, isN1Overview, isN1Performance, isN1Ribbon, overviewFromMock,
-  performanceFromMock, ribbonFromMock,
+  accountsFromMock, isN1Accounts, isN1Overview, isN1Performance, isN1Ribbon, isN1SwitchStrategies, overviewFromMock,
+  performanceFromMock, ribbonFromMock, switchStrategiesFromMock,
 } from "./n1.ts";
 import { PERF_BENCH_API } from "../performance/benchmarks.ts";
 import { loadMock, type MockEndpoint, type MockScenario } from "./mock.ts";
@@ -24,20 +24,19 @@ import type { DeskPage } from "../router.ts";
 export type DeskSource = "live" | "mock";
 
 /** Session is live (server_time landed in #1051); credentials, switch targets and alert
-    delivery are live. Ribbon, overview, accounts and performance read the N1 v2
-    projections when live (strict guard in ./n1.ts); their v1 fixtures are normalised to
-    N1 only under source=mock. Switch strategies keeps its v1 client for now. Alerts and
-    logs stay fixtures. */
+    delivery are live. Ribbon, overview, accounts, switch strategies and performance are
+    live N1 read projections (qsl.desk.*.v2, strict guard in ./n1.ts); their v1 fixtures
+    are normalised to N1 only under source=mock (`?mock=`). Alerts and logs stay fixtures. */
 export const DESK_SOURCES: Record<MockEndpoint, DeskSource> = {
   session: "live",
-  ribbon: "mock",
-  overview: "mock",
-  accounts: "mock",
+  ribbon: "live",
+  overview: "live",
+  accounts: "live",
   credentials: "live",
   switchTargets: "live",
-  switchStrategies: "mock",
-  // /api/desk/performance has no backend yet; the benchmark curves follow this source (see benchmarks()).
-  performance: "mock",
+  switchStrategies: "live",
+  // The benchmark curves follow this source (see benchmarks()).
+  performance: "live",
   // Phase 8 pages (API-CONTRACT.md §3.17–§3.19). Alerts and logs have no backend route yet.
   alerts: "mock",
   // GET /api/desk/alerts/delivery (#1108): sender-log read projection; receiver ACK stays unknown.
@@ -106,7 +105,7 @@ export interface DeskApi {
   accounts(): Promise<DeskResult<N1Accounts>>;
   credentials(): Promise<DeskResult<Credentials>>;
   switchTargets(): Promise<DeskResult<SwitchTargets>>;
-  switchStrategies(targetId: string): Promise<DeskResult<SwitchStrategies>>;
+  switchStrategies(targetId: string): Promise<DeskResult<N1SwitchStrategies>>;
   performance(): Promise<DeskResult<N1Performance>>;
   alerts(): Promise<DeskResult<Alerts>>;
   alertDelivery(): Promise<DeskResult<AlertDelivery>>;
@@ -152,8 +151,7 @@ export function createDeskApi(options: DeskApiOptions): DeskApi {
     accounts: () => readN1("accounts", "/api/desk/accounts", isAccounts, accountsFromMock, isN1Accounts),
     credentials: () => read("credentials", "/api/desk/credentials", isCredentials),
     switchTargets: () => read("switchTargets", "/api/desk/switch/targets", isSwitchTargets),
-    // The strategies page still consumes the v1 catalog shape; its N1 adoption is a
-    // separate step (docs/desk-n1-read-projection-contract.md, open item).
+    // N1 read like the other four; only the mock fixture is chosen per target.
     async switchStrategies(targetId) {
       const scenario = options.forcedScenario ?? (sources.switchStrategies === "mock" ? "ok" : null);
       if (scenario) {
@@ -161,12 +159,15 @@ export function createDeskApi(options: DeskApiOptions): DeskApi {
         // the same failure/delay path as every other mock endpoint.
         await loadMock("switchStrategies", scenario, delayMs);
         const fixtures = await import("./fixtures/switchStrategies.ts");
-        const data = fixtures.forTarget(targetId, scenario === "degraded" ? "degraded" : "ok");
-        if (!isSwitchStrategies(data)) throw new DeskContractError("switchStrategies");
+        const v1 = fixtures.forTarget(targetId, scenario === "degraded" ? "degraded" : "ok");
+        if (!isSwitchStrategies(v1)) throw new DeskContractError("switchStrategies");
+        const data = switchStrategiesFromMock(v1);
+        if (!isN1SwitchStrategies(data)) throw new DeskContractError("switchStrategies");
         return { data, source: "mock", scenario };
       }
       const payload = await fetchJson(`/api/desk/switch/targets/${encodeURIComponent(targetId)}/strategies`);
-      if (!isSwitchStrategies(payload)) throw new DeskContractError("switchStrategies");
+      // A live v1 catalog is a contract mismatch, never upgraded.
+      if (!isN1SwitchStrategies(payload)) throw new DeskContractError("switchStrategies");
       return { data: payload, source: "live", scenario: null };
     },
     performance: () => readN1("performance", "/api/desk/performance", isPerformance, performanceFromMock, isN1Performance),

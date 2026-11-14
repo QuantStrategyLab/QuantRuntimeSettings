@@ -204,12 +204,21 @@ readbacks, credentials and alert-delivery routes intact.
 - Strategy live eligibility is never derived from configuration alone;
   `switchable` stays false.
 
-### Open item: live source flip and strategies page adoption
+### Live source flip and strategies page adoption
 
-`DESK_SOURCES` in `src/desk/api/endpoints.ts` still marks the five areas as
-`mock`, so the console keeps their fixture labels until a follow-up flips them
-to `live`. The strategies page and `api.switchStrategies()` still use the v1
-catalog client; the N1 `switch_strategies` guard and mock normalisation exist
-in `src/desk/api/n1.ts` but are not wired into that page yet. Both follow-ups
-also update the source-pinning assertions in the existing Desk frontend tests.
-Alerts and Logs stay fixtures either way.
+`DESK_SOURCES` in `src/desk/api/endpoints.ts` marks the five areas (`ribbon`,
+`overview`, `accounts`, `switchStrategies`, `performance`) as `live`, so their
+pages read the N1 projections and carry no fixture label. Forcing mocks with
+`?mock=` still normalises the v1 fixtures to N1 and keeps the fixture label.
+
+`api.switchStrategies()` accepts only the strict `qsl.desk.switch_strategies.v2`
+payload when live; a live v1 catalog is a contract mismatch. The strategies page
+renders every projected row. A row whose eligibility is not a known read shows
+"eligibility unknown" with its reason: it is never counted as eligible, paper
+or blocked, and it cannot be selected. A partial catalog states its coverage
+and an unread catalog names its reason; neither is shown as "no strategies".
+The catalog revision line shows the first 12 hex digits of the projection
+fingerprint, or "unknown" when the fingerprint is not a known read.
+
+The alerts list and Logs stay fixtures. This is the source default only; it is
+not evidence of a deployment or of a signed-in browser acceptance.

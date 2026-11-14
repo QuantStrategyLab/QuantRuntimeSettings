@@ -48,10 +48,16 @@ const baseDeps = {
 const withSource = source => ({ ...baseDeps, notificationReceipts: async () => source });
 const live = createDeskApi({ forcedScenario: null, delayMs: 0 });
 
-assert.equal(DESK_SOURCES.alertDelivery, "live", "only alertDelivery is wired live in F1");
-for (const endpoint of ["ribbon", "overview", "accounts", "switchStrategies", "performance", "alerts", "logs"]) {
+assert.equal(DESK_SOURCES.alertDelivery, "live", "alertDelivery is wired live (F1)");
+// N1 (docs/desk-n1-read-projection-contract.md): the five read projections are live; the
+// alerts list and logs have no backend and stay labelled fixtures.
+for (const endpoint of ["ribbon", "overview", "accounts", "switchStrategies", "performance"]) {
+  assert.equal(DESK_SOURCES[endpoint], "live", `${endpoint} reads its N1 projection`);
+}
+for (const endpoint of ["alerts", "logs"]) {
   assert.equal(DESK_SOURCES[endpoint], "mock", `${endpoint} stays a labelled mock`);
 }
+assert.equal(fixtureExposure("alerts", null), "partial", "the alerts page keeps its fixture label next to live delivery");
 
 deps = withSource({ read_status: "partial", as_of: "2030-01-07T12:00:00Z", read_reason_codes: ["receipt_missing"], items: [
   { source_run_id: 11, source_run_attempt: 1, status: "delivered", delivered: true, dry_run: false, test_message: false, business_day: "2030-01-06" },
