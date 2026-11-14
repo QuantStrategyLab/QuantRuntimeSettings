@@ -149,14 +149,19 @@ const EXCLUDED = {
   no_non_paper_accounts: "no_non_paper_accounts",
 };
 
-/** Totals from the existing account-facts aggregation; no FX and no partial sums. */
-export function overviewTotals({ targets, facts, now }) {
+/** Non-paper cohort size and how many of its members carry a fresh, bound stored observation. */
+function cohortObservations({ targets, facts }) {
   const cohort = targets.filter(target => nonPaper(target, facts.ok ? factsRowFor(facts.model, target) : null));
-  const total = cohort.length;
   const included = facts.ok ? cohort.filter(target => {
     const row = factsRowFor(facts.model, target);
     return row?.binding_status === "bound" && row.data_status === "fresh" && factsObservedAt(row) !== null;
   }).length : 0;
+  return { total: cohort.length, included };
+}
+
+/** Totals from the existing account-facts aggregation; no FX and no partial sums. */
+export function overviewTotals({ targets, facts, now }) {
+  const { total, included } = cohortObservations({ targets, facts });
   const base = {
     fx: { status: "unknown", reason: "not_supported" },
     nav: null, day_change: null, drawdown: null, gross_exposure_ratio: null, leveraged_etf_exposure_ratio: null,
@@ -235,10 +240,12 @@ export function overviewProjection({ config, facts, credential, summary, busines
   const shownRows = facts.ok ? targets.map(target => factsRowFor(facts.model, target))
     .filter(row => (row?.data_status === "fresh" || row?.data_status === "stale") && row.binding_status === "bound" && !row.identity_mismatch) : [];
   const includedTimes = shownRows.map(factsObservedAt).filter(Boolean);
-  // When every displayed fact is stale, their age is kept rather than suppressed. This
-  // qualifies the displayed rows only; it never upgrades partial facts into totals.
+  // Freshness qualifies the displayed observations, not whether they aggregate: a
+  // mixed-currency cohort keeps unavailable totals (no FX) while its displayed facts keep
+  // their age. When every displayed fact is stale, their age is kept rather than
+  // suppressed. Neither ever upgrades partial facts into totals.
   const allStale = shownRows.length > 0 && shownRows.every(row => row.data_status === "stale");
-  const fresh = (totals.coverage.included > 0 || allStale) && includedTimes.length
+  const fresh = (cohortObservations({ targets, facts }).included > 0 || allStale) && includedTimes.length
     ? freshness(includedTimes, { now, ttlSeconds: FACTS_STALE_SECONDS, staleKnown: shownRows.some(row => row.data_status === "stale") })
     : { data_status: "unavailable", age_seconds: null };
   const rows = targets.map(target => {

@@ -423,6 +423,69 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   const unknownFlow = performanceProjection({ members: [{ ...member, series: [{ currency: "USD", points: points([100, 110, 99, 120], [0, null, 0, 0]) }] }], range: "ALL", end: "2030-01-05", now: NOW });
   assert.equal(unknownFlow.equity.status, "unknown");
   assert.equal(unknownFlow.risk.return_ratio.status, "unknown", "no UI-side fallback source exists");
+
+  // The last qualified day's observation is the chronologically newest instant
+  // across members, never the lexically last string. Two identity-distinct
+  // synthetic members with known zero flows enter the qualified branch.
+  const WRAPPED = ["return_ratio", "max_drawdown_ratio", "best_day_ratio", "worst_day_ratio"];
+  const lastDayMember = (index, lastAt, flow = 0) => ({ target_id: `firstrade/target${index}`, failure: null, truncated: false,
+    series: [{ currency: "USD", points: [100, 105, 110, 120].map((value, day) => ({ date: `2030-01-0${day + 1}`, value, externalFlow: flow,
+      observed_at: day === 3 ? lastAt : `2030-01-0${day + 1}T21:00:00Z` })) }] });
+  const observedOf = (projection) => [projection.equity, ...WRAPPED.map(key => projection.risk[key])]
+    .map(read => [read.status, read.observed_at, read.age_seconds ?? null]);
+  const allAt = (status, at, age = null) => Array(5).fill([status, at, age]);
+  const lastDay = (times, options = {}) => performanceProjection({ members: times.map((at, index) => lastDayMember(index, at, options.flow)),
+    range: options.range ?? "ALL", end: options.end ?? "2030-01-05", now: options.now ?? NOW });
+
+  // Whole second vs a later fractional instant, in both member orders.
+  for (const times of [["2030-01-04T14:00:00Z", "2030-01-04T14:00:00.500Z"], ["2030-01-04T14:00:00.500Z", "2030-01-04T14:00:00Z"]]) {
+    assert.deepEqual(observedOf(lastDay(times)), allAt("known", "2030-01-04T14:00:00.500Z"),
+      "known: the later fractional instant is the newest, not the lexically last whole second");
+  }
+  // An offset instant later in UTC than a lexically larger Z string.
+  assert.deepEqual(observedOf(lastDay(["2030-01-04T14:00:00Z", "2030-01-04T09:30:00-05:00"])), allAt("known", "2030-01-04T14:30:00Z"),
+    "an offset is honoured: 09:30-05:00 is 14:30Z, newer than 14:00Z");
+  assert.deepEqual(observedOf(lastDay(["2030-01-04T22:30:00+08:00", "2030-01-04T14:15:00Z"])), allAt("known", "2030-01-04T14:30:00Z"),
+    "an offset is honoured: 22:30+08:00 is 14:30Z, newer than 14:15Z");
+  // Equal instants in different spellings yield one normalized instant.
+  assert.deepEqual(observedOf(lastDay(["2030-01-04T14:00:00.5Z", "2030-01-04T09:00:00.500-05:00"])), allAt("known", "2030-01-04T14:00:00.500Z"),
+    "equal instants normalize to the same observation");
+  assert.deepEqual(observedOf(lastDay(["2030-01-04T14:00:00Z", "2030-01-04T14:00:00.000Z"])), allAt("known", "2030-01-04T14:00:00Z"));
+
+  // Stale-age boundary: a fractional request instant 0.1 s short of four whole days after the newest observation.
+  const staleNow = Date.parse("2030-01-08T14:00:00.400Z");
+  assert.deepEqual(observedOf(lastDay(["2030-01-04T14:00:00Z", "2030-01-04T14:00:00.500Z"], { end: "2030-01-08", now: staleNow })),
+    allAt("stale", "2030-01-04T14:00:00.500Z", 345599), "stale age counts from the newest instant: 345599, not 345600");
+  assert.deepEqual(observedOf(lastDay(["2030-01-04T14:00:00.500Z"], { end: "2030-01-08", now: Date.parse("2030-01-08T14:00:00.500Z") })),
+    allAt("stale", "2030-01-04T14:00:00.500Z", 345600), "an exact four-day age is whole");
+
+  // Partial (window before inception / truncated history) keeps the same newest instant.
+  const partialLast = lastDay(["2030-01-04T14:00:00Z", "2030-01-04T14:00:00.500Z"], { range: "6M" });
+  assert.equal(partialLast.history.truncated_by, "inception");
+  assert.deepEqual(observedOf(partialLast), allAt("partial", "2030-01-04T14:00:00.500Z"));
+  const retained = performanceProjection({ members: [lastDayMember(0, "2030-01-04T14:00:00Z"), { ...lastDayMember(1, "2030-01-04T14:00:00.500Z"), truncated: true }],
+    range: "6M", end: "2030-01-05", now: NOW });
+  assert.equal(retained.history.truncated_by, "retention");
+  assert.deepEqual(observedOf(retained), allAt("partial", "2030-01-04T14:00:00.500Z"));
+
+  // A missing or unusable observation on the last day leaves no time basis, in either order.
+  for (const times of [["2030-01-04T14:00:00.500Z", null], [null, "2030-01-04T14:00:00.500Z"], ["2030-01-04T14:00:00.500Z", undefined],
+    ["2030-01-04T14:00:00.500Z", "2030-01-04 14:00"]]) {
+    assert.deepEqual(observedOf(lastDay(times)).map(([status, at]) => [status, at]), Array(5).fill(["unknown", null]),
+      "no observation instant is invented for the last day");
+    assert.equal(lastDay(times).equity.reason, "time_basis_unavailable");
+  }
+
+  // Current null-flow control (the live reader's path): unknown, no instant, and the
+  // minimum-set metadata (history, return basis) is identical to the qualified case.
+  const qualifiedLast = lastDay(["2030-01-04T14:00:00Z", "2030-01-04T14:00:00.500Z"]);
+  const nullFlow = lastDay(["2030-01-04T14:00:00Z", "2030-01-04T14:00:00.500Z"], { flow: null });
+  assert.deepEqual([nullFlow.equity.status, nullFlow.equity.reason, nullFlow.equity.observed_at], ["unknown", "source_unavailable", null]);
+  for (const key of WRAPPED) assert.deepEqual([nullFlow.risk[key].status, nullFlow.risk[key].observed_at], ["unknown", null]);
+  assert.deepEqual(nullFlow.history, qualifiedLast.history, "history metadata does not depend on the observation pick");
+  assert.deepEqual(nullFlow.return_basis, qualifiedLast.return_basis, "return basis does not depend on the observation pick");
+  assert.deepEqual(nullFlow.history, { first_date: "2030-01-01", requested_from: "2030-01-01", truncated_by: null, retention_days: qualifiedLast.history.retention_days });
+  assert.deepEqual(nullFlow.return_basis, { kind: "nav_change_unadjusted", per_target: { "firstrade/target0": "nav_change_unadjusted", "firstrade/target1": "nav_change_unadjusted" } });
 }
 
 // ---------------------------------------------------------------- E. overview
@@ -674,6 +737,47 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   conforms("overview", mixedAgeBody);
   assert.deepEqual([mixedAgeBody.freshness.data_status, mixedAgeBody.freshness.age_seconds], ["stale", 40 * 3600 + 120]);
   assert.deepEqual([mixedAgeBody.totals.status, mixedAgeBody.totals.nav], ["partial", null], "partial facts are never a total");
+
+  // S2 completion #4: displayed-observation freshness is not aggregatability. Mixed currencies
+  // keep unavailable totals (no FX) but no longer suppress the displayed facts' age.
+  const mixedTotals = (overview) => {
+    assert.deepEqual([overview.totals.status, overview.totals.nav, overview.totals.excluded_reasons, overview.reporting_currency],
+      ["unavailable", null, ["fx_unavailable"], "USD"], "mixed currencies never invent an FX total");
+    assert.deepEqual(overview.totals.coverage, { state: "unavailable", included: 0, total: 2, reasons: ["mixed_currency"] });
+    assert.equal(overview.totals.data_age_seconds, overview.freshness.age_seconds, "the totals age is the displayed age");
+  };
+  const overviewOf = async (accounts) => {
+    const mixed = world({ accounts });
+    const read = await body(await deskOverviewResponse(get("/api/desk/overview"), mixed.env, mixed.deps));
+    conforms("overview", read);
+    return read;
+  };
+  const allFreshMixed = await overviewOf([account(0), account(1, { currency: "HKD", amount: "8000" })]);
+  mixedTotals(allFreshMixed);
+  assert.deepEqual(allFreshMixed.freshness, { data_status: "ready", age_seconds: 120 }, "all fresh, mixed currencies: ready with its age");
+  assert.equal(allFreshMixed.snapshot_at, "2030-01-08T14:58:00Z");
+  const mixedAgesMixed = await overviewOf([account(0, { staleHours: 40 }), account(1, { currency: "HKD", amount: "8000" })]);
+  const noTotal = (overview) => {
+    assert.deepEqual([overview.totals.nav, overview.totals.fx], [null, { status: "unknown", reason: "not_supported" }], "no total, no FX");
+    assert.notEqual(overview.totals.status, "complete");
+    assert.equal(overview.totals.data_age_seconds, overview.freshness.age_seconds);
+  };
+  noTotal(mixedAgesMixed);
+  assert.deepEqual(mixedAgesMixed.freshness, { data_status: "stale", age_seconds: 40 * 3600 + 120 }, "mixed ages: stale, oldest displayed age");
+  const allStaleMixed = await overviewOf([account(0, { staleHours: 40 }), account(1, { currency: "HKD", amount: "8000", staleHours: 50 })]);
+  noTotal(allStaleMixed);
+  assert.deepEqual(allStaleMixed.freshness, { data_status: "stale", age_seconds: 50 * 3600 + 120 }, "all stale, mixed currencies: stale with its age");
+  // Unavailable identities stay unavailable: no displayed bound observation, no age.
+  const unbound = (index, extra) => { const acct = account(index, extra); acct.current = { ...acct.current, broker_account_id: `fake-other-${index}` }; return acct; };
+  const unverified = await overviewOf([unbound(0), unbound(1, { currency: "HKD", amount: "8000" })]);
+  assert.deepEqual([unverified.freshness, unverified.snapshot_at], [{ data_status: "unavailable", age_seconds: null }, null],
+    "no identity-verified displayed fact: freshness stays unavailable");
+  assert.equal(unverified.totals.nav, null);
+  assert.ok(unverified.book.value.every(row => row.nav.status === "unknown"), "unverified NAVs are not displayed");
+  // One verified fresh fact beside an unverified one in another currency: its age is shown, no total.
+  const oneVerified = await overviewOf([account(0), unbound(1, { currency: "HKD", amount: "8000" })]);
+  assert.deepEqual([oneVerified.freshness, oneVerified.totals.nav], [{ data_status: "ready", age_seconds: 120 }, null]);
+  assert.notEqual(oneVerified.totals.status, "complete", "an unverified member never completes the totals");
 }
 
 // ---------------------------------------------------------------- S2 #6: next scheduled observation (option 1/1a)
@@ -781,6 +885,43 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   conforms("ribbon", pastDay);
   assert.equal(pastDay.next_run.status, "unknown", "a past UTC day does not read today's schedule");
   assert.equal(pastWorld.calls.some(call => call.startsWith("options:")), false, "and makes no opt-in read");
+  // Item 5 boundary: before NY midnight, yesterday's UTC slice overlaps the current NY business
+  // day, so it reads today's record (with the opt-in) and may carry a next run. Same read count.
+  const lateSchedule = { date: today, accounts: [row("fake-0", "2030-01-09T14:35:00Z"), row("fake-1", "2030-01-09T14:30:00Z")] };
+  for (const [label, lateNow, date, expected] of [
+    ["NY 22:00, yesterday's UTC slice", "2030-01-09T03:00:00Z", "2030-01-08", ["runtime:2030-01-07", "runtime:2030-01-08", 'options:2030-01-08:{"schedule":true}']],
+    ["NY 22:00, today's UTC slice", "2030-01-09T03:00:00Z", "2030-01-09", ["runtime:2030-01-08", 'options:2030-01-08:{"schedule":true}']],
+    ["one second before NY midnight", "2030-01-09T04:59:59Z", "2030-01-08", ["runtime:2030-01-07", "runtime:2030-01-08", 'options:2030-01-08:{"schedule":true}']],
+  ]) {
+    const lateWorld = world({ summaries: { [today]: lateSchedule } });
+    lateWorld.deps.now = () => Date.parse(lateNow);
+    const late = await body(await deskRibbonResponse(get(`/api/desk/ribbon?date=${date}`), lateWorld.env, lateWorld.deps));
+    conforms("ribbon", late);
+    assert.deepEqual([late.next_run.status, late.next_run.value?.due_at, late.next_run.value?.target_id], ["known", "2030-01-09T14:30:00Z", "firstrade/target1"],
+      `${label}: the UTC slice overlaps NY today, so today's schedule is read`);
+    assert.deepEqual(lateWorld.calls.filter(call => /^(runtime|options):/.test(call)), expected, `${label}: one read per overlapping business day`);
+  }
+  // At NY midnight the NY business day advances: yesterday's UTC slice no longer reaches NY today.
+  const midnightWorld = world({ summaries: { [today]: lateSchedule } });
+  midnightWorld.deps.now = () => Date.parse("2030-01-09T05:00:00Z");
+  const midnight = await body(await deskRibbonResponse(get("/api/desk/ribbon?date=2030-01-08"), midnightWorld.env, midnightWorld.deps));
+  assert.deepEqual([midnight.next_run.status, midnight.next_run.reason], ["unknown", "source_unavailable"], "NY midnight: no overlap with NY today");
+  assert.equal(midnightWorld.calls.some(call => call.startsWith("options:")), false, "and no opt-in read");
+  // DST: the NY/UTC offset changes, never the overlap rule (EDT 2030-03-11: NY 20:00 is 00:00Z next day).
+  const edtLate = Date.parse("2030-03-12T03:59:59Z");
+  const edtMidnight = Date.parse("2030-03-12T04:00:00Z");
+  assert.deepEqual([ribbonBusinessDates("2030-03-11", edtLate), ribbonDate(new URL("https://x/?date=2030-03-11"), edtLate)],
+    [["2030-03-10", "2030-03-11"], "2030-03-11"], "EDT: one second before NY midnight, yesterday's UTC slice still holds NY today (2030-03-11)");
+  assert.equal(ribbonBusinessDates("2030-03-11", edtMidnight).includes("2030-03-12"), false, "EDT: NY midnight is 04:00Z, after which NY today is 2030-03-12");
+  const edtWorld = world({ summaries: { "2030-03-11": { date: "2030-03-11", accounts: [] } } });
+  edtWorld.deps.now = () => edtLate;
+  await body(await deskRibbonResponse(get("/api/desk/ribbon?date=2030-03-11"), edtWorld.env, edtWorld.deps));
+  assert.ok(edtWorld.calls.includes('options:2030-03-11:{"schedule":true}'), "EDT overlap reads NY today with the opt-in");
+  edtWorld.calls.length = 0;
+  edtWorld.deps.now = () => edtMidnight;
+  await body(await deskRibbonResponse(get("/api/desk/ribbon?date=2030-03-11"), edtWorld.env, edtWorld.deps));
+  assert.equal(edtWorld.calls.some(call => call.startsWith("options:")), false, "EDT: from NY midnight the slice is past");
+  assert.deepEqual(ribbonBusinessDates("2030-03-10", Date.parse("2030-03-10T12:00:00Z")), ["2030-03-09", "2030-03-10"], "the DST switch day spans two NY days");
   // Overview counts stay unknown: neighbouring schedule instants are not a full-day count.
   const overviewWorld = world({ summaries: { [today]: scheduled } });
   const overview = await body(await deskOverviewResponse(get("/api/desk/overview"), overviewWorld.env, overviewWorld.deps));

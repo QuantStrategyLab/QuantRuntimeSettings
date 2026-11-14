@@ -21,8 +21,8 @@
   },
   "snapshot_at": "2030-01-08T14:58:00Z",
   "freshness": {
-    "data_status": "unavailable",
-    "age_seconds": null
+    "data_status": "ready",
+    "age_seconds": 120
   },
   "reporting_currency": "USD",
   "totals": {
@@ -79,7 +79,7 @@
         ]
       }
     },
-    "data_age_seconds": null
+    "data_age_seconds": 120
   },
   "book": {
     "status": "known",

@@ -4,10 +4,12 @@ import type { DeskApi, DeskResult } from "../api/endpoints.ts";
 import type { LogLevel, Logs } from "../contract/types";
 import type { N1Ribbon } from "../contract/n1";
 import { coverageText, n1ReasonKey, readValue } from "../api/n1.ts";
+import { clockOffsetMs, formatAge, serverNowIso } from "../format.ts";
 import type { DeskKey, DeskTranslate } from "../i18n/index.ts";
 import { levelCounts, runSummary, tapeStateKey, type LevelFilter } from "../logs/model.ts";
+import { utcWhen } from "../shell/TopBar.tsx";
 
-type Loaded<T> = { state: "loading" } | { state: "failed" } | { state: "ready"; result: DeskResult<T> };
+export type Loaded<T> = { state: "loading" } | { state: "failed" } | { state: "ready"; result: DeskResult<T> };
 const LEVELS: LogLevel[] = ["error", "warn", "info", "debug"];
 const LEVEL_KEYS: Record<LevelFilter, DeskKey> = {
   all: "logs.filter.all",
@@ -17,19 +19,58 @@ const LEVEL_KEYS: Record<LevelFilter, DeskKey> = {
   debug: "logs.level.debug",
 };
 
-const clock = (iso: string): string => iso.slice(11, 16);
+/** Local re-evaluation only: the clock advances, nothing is read again. */
+const LOCAL_TICK_MS = 30_000;
 
-export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language: Language }) {
+export interface LogsNextRun {
+  state: "known" | "stale" | "partial" | "expired" | "missing" | "unknown";
+  text: string;
+  /** Coverage, stale age and the stored observation instant of the read; null when there is none. */
+  detail: string | null;
+}
+
+/**
+ * The snapshot's `next_run` read, kept whole: status, coverage, stored observation instant
+ * and stale age. The headline always says "earliest observed scheduled run", which stays
+ * true for a partial candidate. A candidate that has passed on the local clock is shown as
+ * passed, never as upcoming; this page does not re-read the schedule to replace it.
+ */
+export function logsNextRun(read: N1Ribbon["next_run"], nowIso: string, t: DeskTranslate, language: Language): LogsNextRun {
+  if (read.status === "unknown") return { state: "unknown", text: t("logs.runs.next_unknown", { reason: t(n1ReasonKey(read.reason)) }), detail: null };
+  const value = read.value;
+  if (!value) return { state: "missing", text: t("logs.runs.next_missing"), detail: null };
+  const time = utcWhen(value.due_at, nowIso, language) ?? "--:--";
+  if (!(Date.parse(value.due_at) > Date.parse(nowIso))) return { state: "expired", text: t("logs.runs.next_expired", { time }), detail: null };
+  const text = t("logs.runs.next", { time, target: value.target_id });
+  const params = { coverage: coverageText(read.coverage), observed: utcWhen(read.observed_at, nowIso, language) ?? "--:--" };
+  if (read.status === "partial") return { state: "partial", text, detail: t("logs.runs.next_partial", params) };
+  if (read.status === "stale") return { state: "stale", text, detail: t("logs.runs.next_stale", { ...params, age: formatAge(read.age_seconds, language) ?? "—" }) };
+  return { state: "known", text, detail: t("logs.runs.next_known", params) };
+}
+
+/**
+ * Logs reads the ribbon once when it opens (a one-time snapshot, in addition to the shell's
+ * own polled ribbon; it neither polls nor shares that read). Its local clock is anchored to
+ * the snapshot's `generated_at` only to place "now": it expires a passed next-run candidate
+ * and dates timestamps, and never refreshes an observation or its age.
+ */
+export function LogsPage({ api, t, language }: { api: DeskApi; t: DeskTranslate; language: Language }) {
   const [ribbon, setRibbon] = useState<Loaded<N1Ribbon>>({ state: "loading" });
   const [logs, setLogs] = useState<Loaded<Logs>>({ state: "loading" });
   const [level, setLevel] = useState<LevelFilter>("all");
+  const [offsetMs, setOffsetMs] = useState<number | null>(null);
+  const [clientNow, setClientNow] = useState(() => Date.now());
 
   useEffect(() => {
     let alive = true;
     setRibbon({ state: "loading" });
     setLogs({ state: "loading" });
     api.ribbon().then(
-      result => alive && setRibbon({ state: "ready", result }),
+      result => {
+        if (!alive) return;
+        setOffsetMs(clockOffsetMs(result.data.generated_at, Date.now()));
+        setRibbon({ state: "ready", result });
+      },
       () => alive && setRibbon({ state: "failed" }),
     );
     api.logs().then(
@@ -39,13 +80,32 @@ export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language:
     return () => { alive = false; };
   }, [api]);
 
+  useEffect(() => {
+    const tick = window.setInterval(() => setClientNow(Date.now()), LOCAL_TICK_MS);
+    return () => window.clearInterval(tick);
+  }, []);
+
+  return <LogsView ribbon={ribbon} logs={logs} level={level} onLevel={setLevel} nowIso={serverNowIso(offsetMs, clientNow)} t={t} language={language} />;
+}
+
+/** Pure render of the Logs page, so the next-run, snapshot and date rules are testable. */
+export function LogsView({ ribbon, logs, level, onLevel, nowIso, t, language }: {
+  ribbon: Loaded<N1Ribbon>;
+  logs: Loaded<Logs>;
+  level: LevelFilter;
+  onLevel: (level: LevelFilter) => void;
+  nowIso: string;
+  t: DeskTranslate;
+  language: Language;
+}) {
+  const clock = (iso: string): string => utcWhen(iso, nowIso, language) ?? "--:--";
   const ribbonData = ribbon.state === "ready" ? ribbon.result.data : null;
   const logsData = logs.state === "ready" ? logs.result.data : null;
-  // Shared ribbon consumer only: the tape is an N1 read, so an unread tape is not "no runs".
+  // One-time ribbon snapshot: the tape is an N1 read, so an unread tape is not "no runs".
   const tapeRead = ribbonData ? ribbonData.tape : null;
   const tape = tapeRead ? readValue(tapeRead) : null;
   const summary = tape ? runSummary(tape) : null;
-  const nextRun = ribbonData ? readValue(ribbonData.next_run) : null;
+  const nextRun = ribbonData ? logsNextRun(ribbonData.next_run, nowIso, t, language) : null;
   const counts = useMemo(() => levelCounts(logsData?.items ?? []), [logsData]);
   const visible = useMemo(() => {
     const items = logsData?.items ?? [];
@@ -109,8 +169,12 @@ export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language:
         <div className="mrd-card mrd-tape">
           <span className="mrd-label">{t("logs.runs.title")}</span>
           <p className="mrd-note">{t("logs.runs.utc_day", { date: ribbonData.date })}</p>
+          <p className="mrd-note" data-snapshot="once">{t("logs.runs.snapshot", { time: clock(ribbonData.generated_at) })}</p>
           {nextRun ? (
-            <p className="mrd-note">{t("logs.runs.next", { time: clock(nextRun.due_at), target: nextRun.target_id })}</p>
+            <p className="mrd-note" data-next-run={nextRun.state}>
+              {nextRun.text}
+              {nextRun.detail ? <><br /><small>{nextRun.detail}</small></> : null}
+            </p>
           ) : null}
           {tapeRead?.status === "unknown" ? (
             <p className="mrd-note" role="status" data-read="unknown">{t("logs.runs.unknown", { reason: t(n1ReasonKey(tapeRead.reason)) })}</p>
@@ -143,7 +207,7 @@ export function LogsPage({ api, t }: { api: DeskApi; t: DeskTranslate; language:
               className="mrd-chip mrd-level-chip"
               aria-pressed={level === key}
               data-level={key}
-              onClick={() => setLevel(key)}
+              onClick={() => onLevel(key)}
             >
               {t(LEVEL_KEYS[key])} · {counts[key]}
             </button>

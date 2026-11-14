@@ -215,7 +215,8 @@ export async function ribbonProjection(request, env, deps, { date, now, config }
   }
   const result = ribbonTape({ days, accounts, date, readAt: now });
   const todayRead = days.find(day => day.date === today);
-  // A past UTC day does not read today's record, so its next run stays unknown.
+  // Until NY midnight, yesterday's UTC slice still overlaps NY today and reads its record
+  // (with the opt-in); only a UTC day that no longer overlaps NY today leaves it unknown.
   const nextRun = todayRead
     ? nextScheduledRun({ summary: todayRead.summary, accounts, businessDate: today, now })
     : unknown("source_unavailable", coverage("unavailable", 0, null, ["source_unavailable"]));

@@ -19,6 +19,7 @@ import * as v1Performance from "../web/strategy-switch-console/frontend/src/desk
 import { forTarget } from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/switchStrategies.ts";
 import { DESK_MESSAGES, deskTranslate } from "../web/strategy-switch-console/frontend/src/desk/i18n/index.ts";
 import { ribbonTape } from "../web/strategy-switch-console/application/desk/ribbon.js";
+import { formatAge, formatUtcDayLabel } from "../web/strategy-switch-console/frontend/src/desk/format.ts";
 
 const workerRequire = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const ajv = new (workerRequire("ajv/dist/2020").default)({ strict: false, allErrors: true });
@@ -162,7 +163,7 @@ const compiled = require("esbuild").buildSync({
       export { BrokersView } from "./desk/pages/AccountsPage";
       export { portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed } from "./desk/pages/PerformancePage";
       export { Dock } from "./desk/shell/Dock";
-      export { TopBar } from "./desk/shell/TopBar";
+      export { TopBar, utcWhen } from "./desk/shell/TopBar";
       export { DeskShell } from "./desk/shell/DeskShell";
       export { catalogEntries, entryCounts, filterEntries, catalogRevisionText } from "./desk/pages/StrategiesPage";
     `,
@@ -175,7 +176,7 @@ const compiled = require("esbuild").buildSync({
 const desk = { exports: {} };
 new Function("require", "module", "exports", compiled)(require, desk, desk.exports);
 const { OverviewView, BrokersView, portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed,
-  Dock, TopBar, DeskShell, catalogEntries, entryCounts, filterEntries, catalogRevisionText } = desk.exports;
+  Dock, TopBar, utcWhen, DeskShell, catalogEntries, entryCounts, filterEntries, catalogRevisionText } = desk.exports;
 const text = html => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
 
 for (const language of ["zh", "en"]) {
@@ -390,6 +391,30 @@ for (const language of ["zh", "en"]) {
     assert.ok(shell(null).includes('data-next-run="known"'), "the shell passes the read through");
     assert.equal(shell({ crumb: "access.title", chip: "access.chip.login" }).includes("data-next-run"), false, "no next run behind the lock");
   }
+  // S2 completion #5: a next run on another UTC day than the viewer's carries its UTC date;
+  // coverage and stale age stay. Exact midnight, cross-date and a DST switch day.
+  {
+    const dayOf = iso => formatUtcDayLabel(iso, language);
+    const bar = { page: "overview", t, language, theme: "light", gateway: { kind: "read", read: { status: "unknown", reason: "not_supported" } },
+      serverClock: true, mock: null, onLanguage: () => {}, onTheme: () => {} };
+    const chipAt = (read, nowIso) => render(h(TopBar, { ...bar, nowIso, nextRun: read }));
+    const target = "firstrade/target1";
+    const tomorrow = chipAt(nextRead("known", "2030-01-09T00:30:00Z"), "2030-01-08T23:00:00Z");
+    assert.ok(tomorrow.includes(t("next_run.known", { time: `${dayOf("2030-01-09T00:30:00Z")} 00:30`, target })), "a next UTC day run is dated");
+    assert.ok(chipAt(nextRead("known", "2030-01-09T00:00:00Z"), "2030-01-08T23:59:59Z").includes(t("next_run.known", { time: `${dayOf("2030-01-09T00:00:00Z")} 00:00`, target })),
+      "one second before UTC midnight, a midnight run is tomorrow's");
+    assert.ok(chipAt(nextRead("known", "2030-01-09T00:00:01Z"), "2030-01-09T00:00:00Z").includes(t("next_run.known", { time: "00:00", target })), "at UTC midnight it is today's");
+    assert.ok(chipAt(nextRead("known"), at).includes(t("next_run.known", { time: "19:30", target })), "same UTC day: time only");
+    const partTomorrow = chipAt(nextRead("partial", "2030-01-09T00:30:00Z"), "2030-01-08T23:00:00Z");
+    assert.ok(partTomorrow.includes(t("next_run.partial", { time: `${dayOf("2030-01-09T00:30:00Z")} 00:30`, target, coverage: "1/2" })), "partial keeps its coverage");
+    const staleTomorrow = chipAt(nextRead("stale", "2030-01-09T00:30:00Z", { age_seconds: 7200 }), "2030-01-08T23:00:00Z");
+    assert.ok(staleTomorrow.includes(t("next_run.stale", { time: `${dayOf("2030-01-09T00:30:00Z")} 00:30`, target, age: formatAge(7200, language) })), "stale keeps its age");
+    // 2030-03-10 is the NY DST switch day; the label is UTC and moves with nothing but the UTC date.
+    assert.ok(chipAt(nextRead("known", "2030-03-10T07:30:00Z"), "2030-03-10T06:59:00Z").includes(t("next_run.known", { time: "07:30", target })));
+    assert.ok(chipAt(nextRead("known", "2030-03-11T03:30:00Z"), "2030-03-10T23:30:00Z").includes(t("next_run.known", { time: `${dayOf("2030-03-11T00:00:00Z")} 03:30`, target })));
+    assert.deepEqual(utcWhen("2030-01-09T00:30:00Z", "2030-01-08T23:00:00Z", language), `${dayOf("2030-01-09T00:30:00Z")} 00:30`);
+    assert.equal(utcWhen("2030-01-09T00:30", "2030-01-08T23:00:00Z", language), null, "a malformed instant is not formatted");
+  }
   for (const key of ["overview.signals.loading", "overview.book.nav_stale", "perf.meta.window", "perf.meta.window_all", "perf.meta.first_date",
     "perf.meta.basis", "perf.meta.basis_target", "perf.bench.contained", "next_run.known", "next_run.stale", "next_run.partial", "next_run.unknown", "next_run.title"]) {
     assert.ok(DESK_MESSAGES[language][key], `missing ${language} ${key}`);
@@ -425,8 +450,8 @@ for (const language of ["zh", "en"]) {
   const perfSrc = readFileSync(new URL("../web/strategy-switch-console/frontend/src/desk/pages/PerformancePage.tsx", import.meta.url), "utf8");
   assert.equal(perfSrc.match(/api\.benchmarks\(/g)?.length, 1, "the only benchmark call sits behind benchmarkReadAllowed");
 
-  // Logs (outside this binding) prints any non-unknown next run without its read status, so its
-  // copy must stay true for a partial earliest candidate: never "the next run".
+  // Logs keeps the read status beside its headline (tests/console_desk_phase8_validation.mjs), and the
+  // headline itself must stay true for a partial earliest candidate: never "the next run".
   for (const language of ["zh", "en"]) {
     const copy = DESK_MESSAGES[language]["logs.runs.next"];
     assert.match(copy, language === "en" ? /^Earliest observed scheduled run / : /^已观测到的最早计划运行 /, `${language}: Logs next-run copy is qualified`);
