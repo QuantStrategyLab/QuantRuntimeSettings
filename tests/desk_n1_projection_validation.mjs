@@ -340,6 +340,32 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   const disabled = world();
   const off = await body(await deskAccountsResponse(get("/api/desk/accounts"), {}, disabled.deps));
   assert.equal(off.brokers.value[0].data_freshness.data_status, "unavailable", "a disabled facts model is not fresh");
+
+  // Authenticated IBKR account refs are the validated native ID (U live, DU
+  // paper); target IDs stay platform/target_name and other selectors stay masked.
+  const ibkrOptions = {
+    ibkr: [
+      { key: "tqqq", label: "tqqq", target_name: "tqqq", account_selector: "U00000001" },
+      { key: "soxl", label: "soxl", target_name: "soxl", account_selector: "DU0000002" },
+      { key: "invalid", label: "tqqq", target_name: "invalid", account_selector: "EXAMPLE0003" },
+      { key: "unbound", label: "soxl", target_name: "unbound" },
+    ],
+    firstrade: [{ key: "fake-9", target_name: "target9", account_selector: "U00000009" }],
+  };
+  const optionsBefore = JSON.stringify(ibkrOptions);
+  const ibkrWorld = world();
+  const ibkrDeps = { ...ibkrWorld.deps, options: async () => ({ options: ibkrOptions, revision: 3 }) };
+  const ibkrBody = await body(await deskAccountsResponse(get("/api/desk/accounts"), {}, ibkrDeps));
+  conforms("accounts", ibkrBody);
+  const refs = Object.fromEntries(ibkrBody.brokers.value.flatMap(broker => broker.targets.map(row => [row.target_id, row.account_ref])));
+  assert.deepEqual(refs, {
+    "firstrade/target9": "Firstrade ••••0009",
+    "ibkr/tqqq": "U00000001",
+    "ibkr/soxl": "DU0000002",
+    "ibkr/invalid": "IBKR ••••0003",
+    "ibkr/unbound": "IBKR ••••",
+  }, "IBKR refs are native IDs; target IDs and other platforms are unchanged");
+  assert.equal(JSON.stringify(ibkrOptions), optionsBefore, "the configured options are not rewritten");
 }
 
 // ---------------------------------------------------------------- D. performance

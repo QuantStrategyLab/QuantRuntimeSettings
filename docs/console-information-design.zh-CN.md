@@ -15,6 +15,12 @@ Blocking design checks cover only the two hard requirements: `tests/console_fron
 
 History: the owner adopted a flat design spec on 2026-11-01 (#1034) and revoked it on 2026-11-02. It no longer applies, and existing pages need no migration for it. Its last assertions (fixed grid, hairline borders, paddings, control heights, no shadows and a ban on literal colours) lived in `tests/console_credential_rotation_ui_validation.mjs`; #1046 removes them. Until #1046 merges, that test on `main` still enforces them.
 
+## IBKR 账户名称（2026-11-14 兼容说明）
+
+登录后的页面以匹配账户项中经过校验的 `account_selector`（IBKR 原生账户号：实盘为 `U` 加数字，模拟盘为 `DU` 加数字）作为 IBKR 账户名称；缺失或无效时显示“账户号不可用”，不使用策略名、`key`、`label` 或 `target_name` 代替。平台和策略继续作为单独字段显示。停止确认要求输入该账户号；无法确认账户号时停止操作被阻止。`account_alias` 仍是内部技术账户键，请求、选择、分组和历史均不变。
+
+English summary: authenticated surfaces name an IBKR account by its validated native ID, or show "Account ID unavailable"; `account_alias` stays the technical key and the strategy stays a separate field.
+
 ## 日常需要回答的问题
 
 | 页面 | 主要内容 | 次级内容 |

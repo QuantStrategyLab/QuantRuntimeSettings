@@ -52,12 +52,23 @@ may supply the hint when the producer has none. Opaque IDs, scopes and target
 IDs are never guessed into titles. Other notification formats retain their
 existing display rules.
 
-The authenticated console follows the same `label`, `key`, `target_name`
-priority within the matching platform's account option. Config names are kept
-as configured in either language; a generated alias or an IBKR selector cannot
-override them. If no safe config name exists, it uses a safe alias, then a
-masked broker identity or the localized generic account title. Selector-based
-grouping and routing remain unchanged.
+For platforms other than IBKR, the authenticated console follows the same
+`label`, `key`, `target_name` priority within the matching platform's account
+option. Config names are kept as configured in either language; a generated
+alias cannot override them. If no safe config name exists, it uses a safe
+alias, then a masked broker identity or the localized generic account title.
+Selector-based grouping and routing remain unchanged.
+
+Compatibility note (2026-11-14): on authenticated console surfaces an IBKR
+account is named by the validated `account_selector` of its matched account
+option, the native broker ID (`U` followed by digits for live, `DU` for paper).
+It takes precedence over `label`, `key`, `target_name` and aliases. A missing
+or invalid selector shows the localized "Account ID unavailable" text, never a
+strategy name, key, label or target name. Platform and strategy stay separate
+fields. `account_alias` and `key` remain the technical account key for
+selection, requests, grouping and history; only the displayed name changes.
+The `account_aliases` section no longer maps the strategy-family names `soxl`
+and `tqqq`.
 
 An account block requires at least one known positive order or fill count across
 its runs. Account blocks with only zero or unknown counts are omitted; safe risk

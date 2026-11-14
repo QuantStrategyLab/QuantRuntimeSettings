@@ -41,9 +41,9 @@
   "ibkr": [
     {
       "key": "soxl",
-      "label": "soxl",
+      "label": "U00000002",
       "target_name": "soxl",
-      "account_selector": "EXAMPLE_IBKR_SOXL",
+      "account_selector": "U00000002",
       "deployment_selector": "example-ibkr-soxl",
       "account_scope": "example-ibkr-soxl",
       "service_name": "example-ibkr-soxl-service",
@@ -57,9 +57,9 @@
     },
     {
       "key": "tqqq",
-      "label": "tqqq",
+      "label": "U00000001",
       "target_name": "tqqq",
-      "account_selector": "EXAMPLE_IBKR_TQQQ",
+      "account_selector": "U00000001",
       "deployment_selector": "example-ibkr-tqqq",
       "account_scope": "example-ibkr-tqqq",
       "service_name": "example-ibkr-tqqq-service",

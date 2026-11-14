@@ -4,6 +4,16 @@ This file freezes the approved v1 Desk API contract (draft v1) that the N1 read
 projection delta in [`desk-n1-read-projection-contract.md`](desk-n1-read-projection-contract.md)
 overrides for five routes. Do not edit the frozen text.
 
+Compatibility note (2026-11-14), outside the frozen text: on the authenticated
+Desk accounts and switch-targets projections, an IBKR target's `account_ref` is
+the full validated native broker ID from `account_selector` (`U` or `DU`
+followed by digits), not the masked suffix shown in the §1.3 example. Missing or
+invalid IBKR selectors and all other platforms keep the masked form. Target
+readback displays valid IBKR selector values in full and still compares complete
+values with the existing unknown-state rules. `target_id`, `account_suffix` and
+the field types are unchanged; `account_alias` remains the technical key, and
+the strategy stays a separate field.
+
 The original document is kept byte-for-byte below as an indented block: remove
 the first four spaces of every non-empty line to recover it. The recovered
 UTF-8 bytes have SHA-256

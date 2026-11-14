@@ -20,6 +20,13 @@ export function findAccount<T extends AccountRef>(accounts: T[], selected: strin
 export function accountOption(config: DirectoryConfig | null, platform: string, alias: string): AccountOption | undefined {
   return config?.accountOptions?.[platform]?.find(item => item.key === alias);
 }
+/** Complete native IBKR account ID, as account facts validate it: U (live) or DU (paper) plus digits. */
+const IBKR_ACCOUNT_ID = /^(?:U|DU)[0-9]+$/;
+/** Presentation text only: the matched option's validated IBKR ID, or null. Never a selection or request key. */
+export function ibkrAccountName(option: AccountOption | undefined): string | null {
+  const selector = typeof option?.account_selector === "string" ? option.account_selector.trim() : "";
+  return IBKR_ACCOUNT_ID.test(selector) ? selector : null;
+}
 export function brokerIdentity(config: DirectoryConfig | null, account: AccountRef): string {
   const selector = accountOption(config, account.platform, account.account_alias)?.account_selector?.trim();
   return selector || account.account_alias;
