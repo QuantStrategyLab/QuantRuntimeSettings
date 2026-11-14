@@ -121,7 +121,9 @@ export function ribbonTape({ days, accounts, date, readAt }) {
       }
     }
   }
-  entries.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+  // Normalized instants keep nonzero milliseconds, so order by epoch time, not string;
+  // the entry id breaks only an exact tie.
+  entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));
   const truncated = entries.length > TAPE_LIMIT;
   const value = truncated ? entries.slice(-TAPE_LIMIT) : entries;
   const included = coveredAccounts.size;
@@ -130,7 +132,7 @@ export function ribbonTape({ days, accounts, date, readAt }) {
   if (undated) reasons.push("time_basis_unavailable");
   if (truncated && !reasons.includes("coverage_incomplete")) reasons.push("coverage_incomplete");
   // The request time is never an observation: without a stored instant the read has no time basis.
-  const observedAt = observed.map(utcInstant).filter(Boolean).sort()[0] ?? null;
+  const observedAt = observed.map(utcInstant).filter(Boolean).sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
   let tape;
   if (included === total && !undated && !truncated) {
     const cover = coverage(value.length ? "complete" : "verified_empty", included, total);

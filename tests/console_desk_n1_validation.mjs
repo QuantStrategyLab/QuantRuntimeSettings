@@ -18,6 +18,7 @@ import * as v1Accounts from "../web/strategy-switch-console/frontend/src/desk/ap
 import * as v1Performance from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/performance.ts";
 import { forTarget } from "../web/strategy-switch-console/frontend/src/desk/api/fixtures/switchStrategies.ts";
 import { DESK_MESSAGES, deskTranslate } from "../web/strategy-switch-console/frontend/src/desk/i18n/index.ts";
+import { ribbonTape } from "../web/strategy-switch-console/application/desk/ribbon.js";
 
 const workerRequire = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const ajv = new (workerRequire("ajv/dist/2020").default)({ strict: false, allErrors: true });
@@ -293,6 +294,11 @@ for (const language of ["zh", "en"]) {
 const tapeEntry = (index, at) => ({ id: `firstrade/target0#run-${index}`, at, target_id: "firstrade/target0", label: `Run${index}`, kind: "runtime_run",
   outcome: "no_op", outcome_detail: null, state: "done", source_business_date: "2030-01-08", source_timezone: "America/New_York" });
 const sixRuns = ["13:01", "13:12", "13:23", "13:34", "13:45", "13:56"].map((hm, index) => tapeEntry(index, `2030-01-08T${hm}:00Z`));
+// Six stored runs: the oldest and newest whole seconds each have a later fractional instant.
+const fractionRun = (id, started_at, extra = {}) => ({ id, started_at, finished_at: "2030-01-08T13:59:00Z", activity: "no_signal", errors_present: false, ...extra });
+const fractionRuns = [fractionRun("old-fraction", "2030-01-08T13:01:00.500Z"), fractionRun("old-whole", "2030-01-08T13:01:00Z", { errors_present: true }),
+  fractionRun("mid-1", "2030-01-08T13:23:00Z"), fractionRun("mid-2", "2030-01-08T13:34:00Z"),
+  fractionRun("new-fraction", "2030-01-08T13:56:00.500Z", { activity: "filled" }), fractionRun("new-whole", "2030-01-08T13:56:00Z")];
 const ribbonWith = tape => { const data = golden("ribbon", "ok"); data.tape = tape; return { state: "ready", data }; };
 const nextRead = (status, due_at = "2030-01-08T19:30:00Z", extra = {}) => ({ status, value: { target_id: "firstrade/target1", kind: "scheduled_run", due_at },
   observed_at: at, coverage: status === "partial" ? cover("partial", 1, 2, ["coverage_incomplete"]) : cover("complete", 2, 2), ...extra });
@@ -307,6 +313,13 @@ for (const language of ["zh", "en"]) {
   assert.equal(six.includes("Run0"), false, "the oldest of six runs is not a recent signal");
   for (let index = 1; index < 6; index += 1) assert.ok(six.includes(`Run${index}`), `run ${index} shown`);
   assert.ok(six.indexOf("13:56") < six.indexOf("13:12"), "newest first");
+  // F2 across a fractional-second boundary, from the projected tape: chronological, never lexical.
+  const fractionTape = ribbonTape({ days: [{ date: "2030-01-07", summary: { accounts: [{ platform: "firstrade", account_alias: "fake-0", status: "ok",
+    completeness: "complete", as_of: "2030-01-08T14:00:00Z", runs: fractionRuns }] } }],
+    accounts: [{ platform: "firstrade", key: "fake-0", target_id: "firstrade/target0" }], date: "2030-01-08", readAt: Date.parse(at) }).tape;
+  const fractionHtml = view(ok, ribbonWith(fractionTape));
+  assert.equal(fractionHtml.includes('data-outcome="error"'), false, "the whole-second oldest run is the one left out");
+  assert.ok(fractionHtml.indexOf('data-outcome="filled"') < fractionHtml.indexOf('data-outcome="no_op"'), "the later fractional run leads");
   // F2: a loading ribbon is not an empty signal list.
   const loading = view(ok, { state: "loading" });
   assert.ok(loading.includes(t("overview.signals.loading")), "loading is named");

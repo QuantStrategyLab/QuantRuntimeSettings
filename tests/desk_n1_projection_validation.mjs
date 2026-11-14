@@ -606,6 +606,38 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   const noInstant = ribbonTape({ days: day([{ ...covered, account_alias: "fake-0", as_of: "not-an-instant", runs: [] }]), accounts: tapeAccounts, date: "2030-01-08", readAt: NOW });
   assert.deepEqual([noInstant.tape.status, noInstant.tape.reason], ["unknown", "time_basis_unavailable"]);
 
+  // Tape order is chronological, never lexical: "14:31:00.500Z" sorts before "14:31:00Z" as a
+  // string but is the later instant. Within one second, then an exact tie broken by entry id.
+  const tapeRun = (id, started_at, extra = {}) => ({ id, started_at, finished_at: "2030-01-08T14:59:00Z", activity: "no_signal", errors_present: false, ...extra });
+  const withinSecond = ribbonTape({ days: day([{ ...covered, account_alias: "fake-0", as_of: "2030-01-08T14:59:30Z",
+    runs: [tapeRun("c", "2030-01-08T14:31:00.500Z"), tapeRun("b", "2030-01-08T14:31:00Z"), tapeRun("a", "2030-01-08T14:31:00.250Z"),
+      tapeRun("tie-2", "2030-01-08T09:31:00.75-05:00"), tapeRun("tie-1", "2030-01-08T14:31:00.750Z")] }]), accounts: tapeAccounts, date: "2030-01-08", readAt: NOW });
+  assert.equal(withinSecond.tape.status, "known");
+  assert.deepEqual(withinSecond.tape.value.map(entry => [entry.id, entry.at]), [
+    ["firstrade/target0#b", "2030-01-08T14:31:00Z"], ["firstrade/target0#a", "2030-01-08T14:31:00.250Z"], ["firstrade/target0#c", "2030-01-08T14:31:00.500Z"],
+    ["firstrade/target0#tie-1", "2030-01-08T14:31:00.750Z"], ["firstrade/target0#tie-2", "2030-01-08T14:31:00.750Z"]], "epoch order; the id breaks an exact tie");
+  // Truncation keeps the newest TAPE_LIMIT (100) chronologically; the newest five come from the end.
+  const minuteRuns = Array.from({ length: 99 }, (_, index) => {
+    const minute = 12 * 60 + index;
+    return tapeRun(`m${String(index).padStart(2, "0")}`, `2030-01-08T${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}:00Z`);
+  });
+  const truncatedTape = ribbonTape({ days: day([{ ...covered, account_alias: "fake-0", as_of: "2030-01-08T14:59:30Z",
+    runs: [...minuteRuns, tapeRun("first-fraction", "2030-01-08T12:00:00.500Z"), tapeRun("last-fraction", "2030-01-08T13:38:00.500Z")] }]),
+    accounts: tapeAccounts, date: "2030-01-08", readAt: NOW });
+  assert.deepEqual([truncatedTape.tape.status, truncatedTape.tape.value.length, truncatedTape.tape.coverage.reasons], ["partial", 100, ["coverage_incomplete"]]);
+  assert.equal(truncatedTape.tape.value.some(entry => entry.id === "firstrade/target0#m00"), false, "the whole-second oldest entry is the one truncated");
+  assert.equal(truncatedTape.tape.value[0].id, "firstrade/target0#first-fraction", "the later fractional instant survives truncation");
+  assert.deepEqual(truncatedTape.tape.value.slice(-5).reverse().map(entry => entry.id),
+    ["firstrade/target0#last-fraction", "firstrade/target0#m98", "firstrade/target0#m97", "firstrade/target0#m96", "firstrade/target0#m95"],
+    "newest five, newest first: the fractional instant after its whole second leads");
+  // The oldest stored observation is chosen chronologically, with mixed whole and fractional instants.
+  const fractionObserved = ribbonTape({ days: day([{ ...covered, account_alias: "fake-0", as_of: "2030-01-08T14:00:00Z", runs: [] },
+    { ...covered, account_alias: "fake-1", as_of: "2030-01-08T13:59:59.900Z", runs: [] }]), accounts: twoAccounts, date: "2030-01-08", readAt: NOW });
+  assert.equal(fractionObserved.tape.observed_at, "2030-01-08T13:59:59.900Z", "a fractional instant earlier than a whole second is the oldest");
+  const wholeObserved = ribbonTape({ days: day([{ ...covered, account_alias: "fake-0", as_of: "2030-01-08T14:00:00.500Z", runs: [] },
+    { ...covered, account_alias: "fake-1", as_of: "2030-01-08T14:00:00Z", runs: [] }]), accounts: twoAccounts, date: "2030-01-08", readAt: NOW });
+  assert.equal(wholeObserved.tape.observed_at, "2030-01-08T14:00:00Z", "the whole second precedes its own fractional instants");
+
   // F3: when every displayed fact is stale, Overview freshness keeps their age; totals are not upgraded.
   const allStale = world({ accounts: [account(0, { staleHours: 40 }), account(1, { staleHours: 50 })] });
   const allStaleBody = await body(await deskOverviewResponse(get("/api/desk/overview"), allStale.env, allStale.deps));
