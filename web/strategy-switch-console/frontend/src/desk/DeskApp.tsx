@@ -152,6 +152,7 @@ export default function DeskApp() {
   const alertCount = badge && badge.status === "known" ? badge.value.open_count : null;
   const alertUnknown = badge !== null && badge.status !== "known";
   const modeUnknown = ribbon.state === "ready" && ribbon.result.data.console_state.mode.status !== "known";
+  const nextRun = ribbon.state === "ready" ? ribbon.result.data.next_run : null;
   // A page may mix live reads and fixtures. Derive the chip from every endpoint
   // that page renders, so a newly live endpoint cannot make fixtures look real.
   const exposure = fixtureExposure(page, scenario);
@@ -207,6 +208,7 @@ export default function DeskApp() {
       alertCount={alertCount}
       alertUnknown={alertUnknown}
       modeUnknown={modeUnknown}
+      nextRun={lock ? null : nextRun}
       nowIso={nowIso}
       serverClock={serverClock}
       mock={mock}

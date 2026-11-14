@@ -49,10 +49,12 @@ export function tapeOutcome(run) {
   return NO_OP.has(run.activity) ? "no_op" : null;
 }
 
-/** Fully read stored record: fresh or stale, but always complete; or a verified weekend. */
+/**
+ * Fully read stored record: fresh or stale, but always complete. A missing record is
+ * never coverage, on a weekend too: a weekend does not prove no stored or manual run.
+ */
 export function runRowCovered(row) {
-  return (["ok", "stale"].includes(row?.status) && row.completeness === "complete")
-    || (row?.status === "no_data" && row.unavailable_reason === "non_trading_weekend");
+  return ["ok", "stale"].includes(row?.status) && row.completeness === "complete";
 }
 
 /**
@@ -97,7 +99,8 @@ export function ribbonTape({ days, accounts, date, readAt }) {
       if (runRowReadIncomplete(row)) anyIncomplete = true;
       if (!runRowCovered(row)) coveredAccounts.delete(account.target_id);
       if (row.status === "stale") anyStale = true;
-      if (row.as_of && (runRowCovered(row) || row.status === "partial")) observed.push(row.as_of);
+      // Every record that was read keeps its own stored observation, stale incomplete ones too.
+      if (row.as_of && (runRowCovered(row) || runRowReadIncomplete(row) || row.status === "partial")) observed.push(row.as_of);
       for (const run of Array.isArray(row.runs) ? row.runs : []) {
         const at = utcInstant(run.started_at);
         if (at === null) { undated = true; continue; }
@@ -118,7 +121,9 @@ export function ribbonTape({ days, accounts, date, readAt }) {
       }
     }
   }
-  entries.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+  // Normalized instants keep nonzero milliseconds, so order by epoch time, not string;
+  // the entry id breaks only an exact tie.
+  entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));
   const truncated = entries.length > TAPE_LIMIT;
   const value = truncated ? entries.slice(-TAPE_LIMIT) : entries;
   const included = coveredAccounts.size;
@@ -126,7 +131,8 @@ export function ribbonTape({ days, accounts, date, readAt }) {
   if (included < total) reasons.push(anyFailure ? "read_failed" : "coverage_incomplete");
   if (undated) reasons.push("time_basis_unavailable");
   if (truncated && !reasons.includes("coverage_incomplete")) reasons.push("coverage_incomplete");
-  const observedAt = observed.map(utcInstant).filter(Boolean).sort()[0] ?? readAt;
+  // The request time is never an observation: without a stored instant the read has no time basis.
+  const observedAt = observed.map(utcInstant).filter(Boolean).sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
   let tape;
   if (included === total && !undated && !truncated) {
     const cover = coverage(value.length ? "complete" : "verified_empty", included, total);
@@ -137,6 +143,54 @@ export function ribbonTape({ days, accounts, date, readAt }) {
     tape = partial(value, observedAt, coverage("partial", included, total, reasons));
   }
   return { tape, observed, stale: anyStale };
+}
+
+const NEXT_RUN_UNVERIFIED = new Set(["schedule_unverified", "target_disabled"]);
+
+/**
+ * Next scheduled observation from the stored runtime-daily schedule of the current New
+ * York business day (opt-in `schedule` rows). Only a complete, schedule-verified record
+ * whose `next_due_at` is still in the future at request time is a candidate. Known (or
+ * stale) only when every configured account has one; otherwise the earliest candidate is
+ * a partial read, never the global next run. A null or past `next_due_at` proves no
+ * absence of a future run, so no candidates stays unknown. Expected/pending counts are
+ * not derived from these instants.
+ */
+export function nextScheduledRun({ summary, accounts, businessDate, now }) {
+  const total = accounts.length;
+  // Unknown reads keep a null total, as before this projection existed.
+  if (!summary) return unknown("read_failed", coverage("unavailable", 0, null, ["read_failed"]));
+  if (total === 0) return unknown("source_unavailable", coverage("unavailable", 0, null, ["source_unavailable"]));
+  const candidates = [];
+  let anyFailure = false;
+  let anyIncomplete = false;
+  for (const account of accounts) {
+    const rows = (summary.accounts || []).filter(item => item.platform === account.platform && item.account_alias === account.key);
+    const row = rows.length === 1 ? rows[0] : null;
+    if (row?.status === "read_failed") anyFailure = true;
+    if (runRowReadIncomplete(row)) anyIncomplete = true;
+    const schedule = row?.schedule;
+    if (!row || !runRowCovered(row) || !schedule || utcInstant(row.as_of) === null) continue;
+    if (schedule.business_date !== businessDate || schedule.timezone !== RUNTIME_DAILY_TIMEZONE || schedule.state === "unevaluable") continue;
+    if ((row.read_error_codes || []).some(code => NEXT_RUN_UNVERIFIED.has(code))) continue;
+    const due = utcInstant(schedule.next_due_at);
+    if (due === null || Date.parse(due) <= Number(now)) continue;
+    candidates.push({ target_id: account.target_id, due_at: due, observed_at: utcInstant(row.as_of), stale: row.status === "stale" });
+  }
+  if (!candidates.length) {
+    const reason = anyFailure ? "read_failed" : anyIncomplete ? "coverage_incomplete" : "source_unavailable";
+    return unknown(reason, coverage("unavailable", 0, null, [reason]));
+  }
+  // Normalized instants keep nonzero milliseconds, so order by epoch time, not string;
+  // the target id breaks only an exact tie.
+  candidates.sort((a, b) => Date.parse(a.due_at) - Date.parse(b.due_at) || a.target_id.localeCompare(b.target_id));
+  const value = { target_id: candidates[0].target_id, kind: "scheduled_run", due_at: candidates[0].due_at };
+  const observedAt = candidates.map(item => item.observed_at).sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+  if (candidates.length < total) {
+    return partial(value, observedAt, coverage("partial", candidates.length, total, [anyFailure ? "read_failed" : "coverage_incomplete"]));
+  }
+  const cover = coverage("complete", total, total);
+  return candidates.some(item => item.stale) ? stale(value, observedAt, now, cover) : known(value, observedAt, cover);
 }
 
 export function ribbonDate(url, now) {
@@ -150,12 +204,21 @@ export function ribbonDate(url, now) {
 export async function ribbonProjection(request, env, deps, { date, now, config }) {
   const accounts = configuredAccounts(config);
   const dates = ribbonBusinessDates(date, now);
+  // Only the current NY business day's read opts in to its schedule fields; no extra read.
+  const today = zonedDate(now, RUNTIME_DAILY_TIMEZONE);
   const days = [];
   for (const businessDate of dates) {
-    const read = await readOnce(() => deps.runtimeDay(request, env, accounts, businessDate));
+    const read = await readOnce(() => (businessDate === today
+      ? deps.runtimeDay(request, env, accounts, businessDate, { schedule: true })
+      : deps.runtimeDay(request, env, accounts, businessDate)));
     days.push({ date: businessDate, summary: read.ok && read.value && Array.isArray(read.value.accounts) ? read.value : null });
   }
   const result = ribbonTape({ days, accounts, date, readAt: now });
+  const todayRead = days.find(day => day.date === today);
+  // A past UTC day does not read today's record, so its next run stays unknown.
+  const nextRun = todayRead
+    ? nextScheduledRun({ summary: todayRead.summary, accounts, businessDate: today, now })
+    : unknown("source_unavailable", coverage("unavailable", 0, null, ["source_unavailable"]));
   return {
     date,
     date_basis: "utc_day",
@@ -168,8 +231,8 @@ export async function ribbonProjection(request, env, deps, { date, now, config }
     // No alerts store exists: unknown, never zero.
     alert_badge: notSupported(),
     sessions: ["US", "HK", "CN"].map(market => ({ market, state: "unknown", open_utc: null, close_utc: null, next_change_at: null, holiday: null })),
-    // No verified schedule source is read here; "no next run" is never inferred.
-    next_run: unknown("source_unavailable", coverage("unavailable", 0, null, ["source_unavailable"])),
+    // Observed schedule instants only; "no next run" is never inferred.
+    next_run: nextRun,
     tape: result.tape,
   };
 }

@@ -6,7 +6,7 @@ import type { DeskTranslate } from "../i18n/index.ts";
 import type { DeskPage } from "../router.ts";
 import { AuthPage } from "../pages/AuthPage";
 import { Dock } from "./Dock";
-import { TopBar, type GatewayChip, type ShellLock } from "./TopBar";
+import { TopBar, type GatewayChip, type NextRunRead, type ShellLock } from "./TopBar";
 
 export interface DeskShellProps {
   page: DeskPage;
@@ -19,6 +19,8 @@ export interface DeskShellProps {
   alertUnknown?: boolean;
   /** N1: the global runtime mode is unknown; the bar says so instead of guessing. */
   modeUnknown?: boolean;
+  /** N1 ribbon `next_run`; never shown behind the lock. */
+  nextRun?: NextRunRead | null;
   nowIso: string;
   serverClock: boolean;
   mock: MockScenario | null;
@@ -35,12 +37,12 @@ export interface DeskShellProps {
 
 /** Meridian frame: dock + top bar + page. Pure; state lives in DeskApp. */
 export function DeskShell(props: DeskShellProps) {
-  const { page, t, alertCount, alertUnknown = false, lock, onNavigate, children, ...bar } = props;
+  const { page, t, alertCount, alertUnknown = false, lock, nextRun = null, onNavigate, children, ...bar } = props;
   return (
     <div className="mrd" data-page={page} data-access={lock ? "locked" : "open"}>
       <Dock page={page} t={t} alertCount={lock ? null : alertCount} alertUnknown={!lock && alertUnknown} locked={Boolean(lock)} onNavigate={onNavigate} />
       <main className="mrd-main" id="mrd-main">
-        <TopBar page={page} t={t} lock={lock} {...bar} />
+        <TopBar page={page} t={t} lock={lock} nextRun={lock ? null : nextRun} {...bar} />
         {children}
       </main>
     </div>
