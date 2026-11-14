@@ -77,7 +77,9 @@ export function bookNav(row, facts, now) {
 
 function latestFinishedRun(row) {
   const finished = (row.runs || []).map(run => ({ run, at: utcInstant(run.finished_at) })).filter(item => item.at !== null);
-  finished.sort((a, b) => a.at.localeCompare(b.at));
+  // Normalized instants keep nonzero milliseconds, so order by epoch time, not string;
+  // the stable sort keeps record order for an exact tie, so the last such run is picked.
+  finished.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   return finished.at(-1) ?? null;
 }
 
@@ -134,7 +136,7 @@ export function runsToday({ targets, summary, businessDate, now }) {
     return unknown(reason, coverage("unavailable", 0, targets.length, [reason]));
   }
   const done = covered.reduce((count, row) => count + (row.runs || []).filter(run => utcInstant(run.finished_at) !== null).length, 0);
-  const times = covered.map(row => utcInstant(row.as_of)).filter(Boolean).sort();
+  const times = covered.map(row => utcInstant(row.as_of)).filter(Boolean).sort((a, b) => Date.parse(a) - Date.parse(b));
   const reasons = ["not_supported", ...(covered.length < targets.length ? ["coverage_incomplete"] : []), ...(failed ? ["read_failed"] : [])];
   return partial({ done, expected: null, pending: null, ...source }, times[0] ?? null,
     coverage("partial", covered.length, targets.length, reasons));
@@ -264,7 +266,7 @@ export function overviewProjection({ config, facts, credential, summary, busines
   });
   const book = rows.length ? known(rows, now, coverage("complete", rows.length, rows.length)) : known([], now, coverage("verified_empty", 0, 0));
   return {
-    snapshot_at: includedTimes.sort()[0] ?? null,
+    snapshot_at: includedTimes.sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null,
     freshness: fresh,
     reporting_currency: reporting,
     totals: {

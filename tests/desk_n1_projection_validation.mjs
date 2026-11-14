@@ -638,6 +638,28 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
     { ...covered, account_alias: "fake-1", as_of: "2030-01-08T14:00:00Z", runs: [] }]), accounts: twoAccounts, date: "2030-01-08", readAt: NOW });
   assert.equal(wholeObserved.tape.observed_at, "2030-01-08T14:00:00Z", "the whole second precedes its own fractional instants");
 
+  // Overview instants are chronological too: "14:32:00.500Z" is after "14:32:00Z" though it sorts first as a string.
+  const run = (id, finished_at, activity = "no_signal") => ({ id, started_at: "2030-01-08T14:31:00Z", finished_at, activity, errors_present: false });
+  const lastOf = (runs, extra = {}) => { const row = { ...covered, account_alias: "fake-0", runs, ...extra }; return lastRun({ accounts: [row] }, row, NOW); };
+  const fractionLast = lastOf([run("later", "2030-01-08T14:32:00.500Z", "filled"), run("whole", "2030-01-08T14:32:00Z")]);
+  assert.deepEqual([fractionLast.status, fractionLast.value], ["known", { at: "2030-01-08T14:32:00.500Z", outcome: "filled" }],
+    "the last run is the later fractional finish, not the whole second");
+  const partialLast = lastOf([run("later", "2030-01-08T14:32:00.500Z", "filled"), run("whole", "2030-01-08T14:32:00Z")],
+    { status: "partial", completeness: "incomplete", unavailable_reason: "runtime_daily_incomplete" });
+  assert.deepEqual([partialLast.status, partialLast.value], ["partial", { at: "2030-01-08T14:32:00.500Z", outcome: "filled" }], "partial reads pick chronologically too");
+  const tieLast = lastOf([run("z-first", "2030-01-08T14:32:00.500Z", "filled"), run("tie", "2030-01-08T09:32:00.5-05:00")]);
+  assert.deepEqual(tieLast.value, { at: "2030-01-08T14:32:00.500Z", outcome: "no_op" }, "an exact tie keeps record order: the later record wins");
+  const runsObserved = runsToday({ targets: targets2, businessDate: "2030-01-08", now: NOW, summary: { accounts: [
+    { ...covered, account_alias: "fake-0", as_of: "2030-01-08T14:30:00.500Z" }, { ...covered, account_alias: "fake-1", as_of: "2030-01-08T14:30:00Z" }] } });
+  assert.equal(runsObserved.observed_at, "2030-01-08T14:30:00Z", "runs today: the oldest observation, the whole second before its fraction");
+  const fractionFacts = [account(0), account(1)];
+  fractionFacts[0].current = { ...fractionFacts[0].current, observed_finished_at: "2030-01-08T14:58:00.500Z" };
+  assert.equal(fractionFacts[1].current.observed_finished_at, "2030-01-08T14:58:00.000Z");
+  const fractionWorld = world({ accounts: fractionFacts });
+  const fractionBody = await body(await deskOverviewResponse(get("/api/desk/overview"), fractionWorld.env, fractionWorld.deps));
+  conforms("overview", fractionBody);
+  assert.equal(fractionBody.snapshot_at, "2030-01-08T14:58:00Z", "snapshot: the oldest fact observation, the whole second before its fraction");
+
   // F3: when every displayed fact is stale, Overview freshness keeps their age; totals are not upgraded.
   const allStale = world({ accounts: [account(0, { staleHours: 40 }), account(1, { staleHours: 50 })] });
   const allStaleBody = await body(await deskOverviewResponse(get("/api/desk/overview"), allStale.env, allStale.deps));
