@@ -89,4 +89,27 @@ const missing=await todaySummary(new Request('https://synthetic.invalid/api/runt
  {dailyBindings:async()=>[],daily:async()=>{throw Error('unreachable');}},[account],now,{schedule:true});
 assert.equal(missing.accounts[0].schedule,null,'an unbound account carries no schedule');
 
-console.log('runtime today incomplete: coverage, read failures, unknown, execution priority, reader completeness and schedule opt-in passed');
+// Summary as_of is the chronologically oldest raw observed_at: "14:00:00.500Z" is after "14:00:00Z" though it sorts first as a string.
+async function oldestOf(times){
+ const keys=times.map((_,i)=>`synthetic-${i}`);
+ const bindings=keys.map(key=>({...binding,account_key:key}));
+ const result=await todaySummary(new Request('https://synthetic.invalid/api/runtime/today'),{},
+  {dailyBindings:async()=>bindings,daily:async req=>{const key=new URL(req.url).searchParams.get('account_key');
+   return Response.json({...complete,account_key:key,read_summary:summaryOf('complete'),record:{...complete.record,observed_at:times[keys.indexOf(key)]}});}},
+  keys.map(key=>({platform:'ibkr',key})),now);
+ assert.deepEqual(result.accounts.map(r=>r.as_of),times,'rows keep their own raw observed_at');
+ return result.as_of;
+}
+assert.equal(await oldestOf(['2026-10-16T14:00:00.500Z','2026-10-16T14:00:00Z']),'2026-10-16T14:00:00Z','the whole second precedes its own fraction');
+assert.equal(await oldestOf(['2026-10-16T14:00:00Z','2026-10-16T14:00:00.500Z']),'2026-10-16T14:00:00Z','independent of row order');
+assert.equal(await oldestOf(['2026-10-16T14:00:00.001000000Z','2026-10-16T14:00:00Z']),'2026-10-16T14:00:00Z','nine fractional digits order by time');
+// Epochs resolve to milliseconds, as the reader's own check does: a sub-millisecond difference is a tie.
+assert.equal(await oldestOf(['2026-10-16T14:00:00Z','2026-10-16T14:00:00.000000001Z']),'2026-10-16T14:00:00.000000001Z','a sub-millisecond tie keeps the legacy string pick');
+assert.equal(await oldestOf(['2026-10-16T10:00:00.250-04:00','2026-10-16T13:30:00Z']),'2026-10-16T13:30:00Z','an offset instant orders by its UTC time');
+for(const times of [['2026-10-16T14:00:00Z','2026-10-16T14:00:00.000Z'],['2026-10-16T14:00:00.000Z','2026-10-16T10:00:00-04:00']])
+ assert.equal(await oldestOf(times),[...times].sort()[0],'an exact instant tie keeps the legacy string pick');
+assert.equal(await oldestOf(['2026-10-16T14:00:00.500Z']),'2026-10-16T14:00:00.500Z','a single row is its own oldest');
+assert.equal((await summarise({...complete,record:null})).as_of,null,'no observation is null, never invented');
+assert.equal(await oldestOf(['2026-10-16T14:00:00.500Z','2026-10-16T14:00:00Z','not-a-time']),'2026-10-16T14:00:00.500Z','an unparseable value keeps the legacy string pick');
+
+console.log('runtime today incomplete: coverage, read failures, unknown, execution priority, reader completeness, schedule opt-in and chronological as_of passed');

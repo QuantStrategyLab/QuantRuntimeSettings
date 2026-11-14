@@ -27,6 +27,19 @@ function scheduleFields(schedule) {
   return { state: text(schedule.state), business_date: text(schedule.business_date),
     timezone: text(schedule.timezone), next_due_at: text(schedule.next_due_at) };
 }
+// The daily reader validates observed_at but returns it raw, so fractional digits and
+// offsets vary: the oldest observation is the earliest epoch, not the first string.
+const DAILY_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+function oldestObservation(values) {
+  const present = values.filter(Boolean);
+  const epochs = present.map(value => (typeof value === "string" && DAILY_INSTANT.test(value) ? Date.parse(value) : NaN));
+  // A value this grammar cannot place keeps the legacy string pick; no time is invented.
+  if (epochs.some(epoch => !Number.isFinite(epoch))) return present.sort()[0] || null;
+  // An exact instant tie keeps the string order the legacy pick used.
+  const order = present.map((value, i) => ({ value, epoch: epochs[i] }))
+    .sort((a, b) => a.epoch - b.epoch || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
+  return order[0]?.value || null;
+}
 /**
  * `options.schedule` is an explicit N1 opt-in: rows then carry `schedule` (null when no
  * record was read). Without it the legacy output is unchanged.
@@ -106,7 +119,7 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
   return { status: rows.some(r => r.status === "read_failed") ? "read_failed"
     : rows.some(r => r.status !== "ok") ? "partial" : "ok",
     date, timezone: RUNTIME_DAILY_TIMEZONE, market_session: weekend ? "weekend" : "trading_day",
-    as_of: rows.map(r => r.as_of).filter(Boolean).sort()[0] || null,
+    as_of: oldestObservation(rows.map(r => r.as_of)),
     accounts: rows, counts: { configured: rows.length, by_state: runStateCounts(rows),
       observed: rows.filter(r => r.run_count !== null).length,
       runs: rows.some(r => r.run_count === null || r.completeness !== "complete") ? null : rows.reduce((n, r) => n + r.run_count, 0) },
