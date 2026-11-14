@@ -185,44 +185,69 @@ assert.equal(resolveMockScenario("?mock=0", "ok"), null);
 assert.equal(resolveMockScenario("?page=overview", "fail"), "fail");
 assert.equal(resolveMockScenario("?mock=<script>", null), null);
 
-// 5. Endpoint sources: session, credentials, the switch target list and alert delivery are live;
-//    the rest stay mock until their backend lands.
+// 5. Endpoint sources: session, credentials, the switch target list, alert delivery and the
+//    five N1 read projections (ribbon, overview, accounts, switch strategies, performance)
+//    are live; the alerts list and logs have no backend and stay mock.
 assert.deepEqual(DESK_SOURCES, {
-  session: "live", ribbon: "mock", overview: "mock", accounts: "mock", credentials: "live",
-  switchTargets: "live", switchStrategies: "mock", performance: "mock",
+  session: "live", ribbon: "live", overview: "live", accounts: "live", credentials: "live",
+  switchTargets: "live", switchStrategies: "live", performance: "live",
   alerts: "mock", alertDelivery: "live", logs: "mock",
 });
+const n1Golden = name => JSON.parse(readFileSync(new URL(`./fixtures/desk/n1-${name}.ok.json`, import.meta.url), "utf8"));
 const calls = [];
 const fetchJson = async path => {
   calls.push(path);
   if (path === "/api/desk/credentials") return structuredClone(credentials.ok);
   if (path === "/api/desk/switch/targets") return structuredClone(switchTargets.ok);
+  if (path.startsWith("/api/desk/ribbon")) return n1Golden("ribbon");
+  if (path === "/api/desk/accounts") return n1Golden("accounts");
+  if (path.startsWith("/api/desk/switch/targets/")) return { ...n1Golden("switch-strategies"), target_id: "schwab/core" };
   return structuredClone(session.ok);
 };
 const api = createDeskApi({ forcedScenario: null, delayMs: 0, fetchJson });
 const s = await api.session();
 assert.deepEqual([s.source, s.scenario, calls], ["live", null, ["/api/session"]]);
 const r = await api.ribbon("2026-11-02");
-assert.deepEqual([r.source, r.scenario], ["mock", "ok"]);
+assert.deepEqual([r.source, r.scenario], ["live", null]);
+assert.match(calls.at(-1), /^\/api\/desk\/ribbon\?date=\d{4}-\d{2}-\d{2}$/, "a valid UTC day is passed through");
+assert.equal(r.data.schema_version, "qsl.desk.ribbon.v2");
 const acc = await api.accounts();
-assert.deepEqual([acc.source, acc.scenario], ["mock", "ok"]);
-// N1: the five reads are normalised to v2 for source=mock; fixture counts are mock-known values.
-assert.equal(acc.data.schema_version, "qsl.desk.accounts.v2");
-assert.equal(acc.data.brokers.status, "known");
-assert.equal(acc.data.brokers.value.length, 5);
+assert.deepEqual([acc.source, acc.scenario], ["live", null]);
+// N1: live reads accept only the strict v2 projection and pass it through unchanged.
+assert.deepEqual(acc.data, n1Golden("accounts"));
 const cred = await api.credentials();
-assert.deepEqual([cred.source, cred.scenario, calls], ["live", null, ["/api/session", "/api/desk/credentials"]]);
+assert.deepEqual([cred.source, cred.scenario, calls.at(-1)], ["live", null, "/api/desk/credentials"]);
 assert.ok(cred.data.items.some(item => item.phase === "7"), "fixture covers the 7-day phase");
 const st = await api.switchTargets();
 assert.deepEqual([st.source, st.scenario], ["live", null]);
 assert.equal(st.data.targets[0].target_id, "ibkr/tqqq");
 const sc = await api.switchStrategies("schwab/core");
-assert.deepEqual([sc.source, sc.scenario], ["mock", "ok"]);
+assert.deepEqual([sc.source, sc.scenario], ["live", null]);
+assert.equal(calls.at(-1), "/api/desk/switch/targets/schwab%2Fcore/strategies", "the target id is encoded once");
+assert.equal(sc.data.schema_version, "qsl.desk.switch_strategies.v2");
 assert.equal(sc.data.target_id, "schwab/core");
-assert.equal(sc.data.domain, "us_equity");
-assert.equal(calls.length, 3, "mock endpoints never hit the network; only live sources do");
-r.data.tape.value.length = 0;
-assert.ok((await api.ribbon()).data.tape.value.length > 0, "mock responses are copies");
+assert.deepEqual(calls.filter(path => !path.startsWith("/api/desk/ribbon")), [
+  "/api/session", "/api/desk/accounts", "/api/desk/credentials", "/api/desk/switch/targets",
+  "/api/desk/switch/targets/schwab%2Fcore/strategies",
+], "each live read hits its own route once");
+assert.equal(calls.length, 6);
+// Mock (?mock=): v1 fixtures, normalised to N1, never on the network, and copies.
+const mocked = createDeskApi({ forcedScenario: "ok", delayMs: 0, fetchJson });
+calls.length = 0;
+const mr = await mocked.ribbon();
+assert.deepEqual([mr.source, mr.scenario], ["mock", "ok"]);
+const macc = await mocked.accounts();
+assert.equal(macc.data.schema_version, "qsl.desk.accounts.v2");
+assert.equal(macc.data.brokers.status, "known");
+assert.equal(macc.data.brokers.value.length, 5);
+const msc = await mocked.switchStrategies("schwab/core");
+assert.deepEqual([msc.source, msc.scenario], ["mock", "ok"]);
+assert.equal(msc.data.schema_version, "qsl.desk.switch_strategies.v2");
+assert.deepEqual(msc.data.domain.value, "us_equity");
+assert.equal(msc.data.catalog_revision.status, "unknown", "a fixture label is not a projection fingerprint");
+assert.equal(calls.length, 0, "mock endpoints never hit the network");
+mr.data.tape.value.length = 0;
+assert.ok((await mocked.ribbon()).data.tape.value.length > 0, "mock responses are copies");
 const forced = createDeskApi({ forcedScenario: "degraded", delayMs: 0, fetchJson });
 assert.equal((await forced.session()).source, "mock");
 assert.equal((await forced.overview()).data.totals.status, "partial");
@@ -253,12 +278,12 @@ for (const [page, endpoints] of Object.entries(DESK_PAGE_ENDPOINTS)) {
   assert.ok(endpoints.length > 0, `${page} declares its data sources`);
   for (const endpoint of endpoints) assert.ok(endpoint in DESK_SOURCES, `${page}: ${endpoint} is a real endpoint`);
 }
-assert.equal(fixtureExposure("accounts", null), "partial", "accounts fixture + live credentials");
-assert.equal(fixtureExposure("switch", null), "partial", "live targets + fixture catalog");
-assert.equal(fixtureExposure("alerts", null), "partial", "fixture alerts + live delivery");
-for (const page of ["overview", "logs", "performance"]) {
-  assert.equal(fixtureExposure(page, null), "all", `${page} is still fixture-backed`);
+// The five N1 areas are live, so their pages (and the shell ribbon) carry no fixture chip.
+for (const page of ["overview", "accounts", "switch", "performance"]) {
+  assert.equal(fixtureExposure(page, null), "none", `${page} reads live projections only`);
 }
+assert.equal(fixtureExposure("alerts", null), "partial", "fixture alerts + live delivery");
+assert.equal(fixtureExposure("logs", null), "partial", "fixture logs + live ribbon tape");
 for (const scenario of ["ok", "degraded", "fail"]) {
   assert.equal(fixtureExposure("accounts", scenario), "all", "?mock= forces every endpoint");
 }
@@ -266,14 +291,14 @@ for (const scenario of ["ok", "degraded", "fail"]) {
 // every page, so a page only looks fully live once that read is live too.
 assert.deepEqual([...DESK_SHELL_ENDPOINTS], ["ribbon"]);
 const originalSources = { ...DESK_SOURCES };
-DESK_SOURCES.accounts = "live";
+DESK_SOURCES.ribbon = "mock";
 assert.equal(fixtureExposure("accounts", null), "partial", "a fixture ribbon in the shell keeps the chip");
-DESK_SOURCES.performance = "live";
 assert.equal(fixtureExposure("performance", null), "partial", "single-endpoint page with a fixture shell");
-// When a backend lands, flipping its source must retire the chip for that page.
+assert.equal(fixtureExposure("logs", null), "all", "fixture logs and a fixture ribbon");
+// Flipping a source back to live retires the chip for that page.
 DESK_SOURCES.ribbon = "live";
 assert.equal(fixtureExposure("accounts", null), "none");
-assert.equal(fixtureExposure("performance", null), "none");
+DESK_SOURCES.overview = "mock";
 assert.equal(fixtureExposure("overview", null), "partial", "overview fixture with a live ribbon");
 Object.assign(DESK_SOURCES, originalSources);
 

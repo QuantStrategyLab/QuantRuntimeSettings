@@ -1,7 +1,9 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { Language } from "../../lib/prefs";
 import type { DeskApi, DeskResult } from "../api/endpoints.ts";
-import type { Mode, Read, StrategyOption, StrategyRef, SwitchStrategies, SwitchTargets } from "../contract/types";
+import type { Mode, Read, StrategyOption, StrategyRef, SwitchTargets } from "../contract/types";
+import type { N1Read, N1StrategyRow, N1SwitchStrategies } from "../contract/n1";
+import { coverageText, n1ReasonKey } from "../api/n1.ts";
 import { formatAge } from "../format.ts";
 import type { DeskKey, DeskTranslate } from "../i18n/index.ts";
 import { EmptyState, LoadingState, RecoverableErrorState } from "../components/StateBlocks.tsx";
@@ -30,7 +32,8 @@ function modeText(read: Read<Mode>, t: DeskTranslate, language: Language): strin
   return t(`mode.${read.value}` as DeskKey);
 }
 
-function eligibilityView(option: StrategyOption, t: DeskTranslate): { text: string; tone: "ok" | "warn" | "risk" } {
+function eligibilityView(option: StrategyOption | null, t: DeskTranslate): { text: string; tone: "ok" | "warn" | "risk" | "unknown" } {
+  if (!option) return { text: t("strategies.card.eligibility_unknown"), tone: "unknown" };
   if (option.eligibility === "blocked") return { text: t("strategies.card.blocked"), tone: "risk" };
   if (option.eligibility === "no_live") return { text: t("strategies.card.no_live"), tone: "warn" };
   return { text: t("strategies.filter.eligible"), tone: "ok" };
@@ -79,27 +82,73 @@ export function TargetRow({ target, selected, onSelect, t, language }: {
   );
 }
 
-function StrategyCard({ option, selected, onSelect, t }: {
-  option: StrategyOption;
+/** One N1 catalog row. `option` is set only when the projection proved its eligibility
+    (a known read); an unknown eligibility stays visible but is never eligible, counted
+    or selectable. Configuration compatibility is still not runtime switchability. */
+export interface CatalogEntry {
+  row: N1StrategyRow;
+  option: StrategyOption | null;
+}
+
+export function catalogEntries(rows: readonly N1StrategyRow[]): CatalogEntry[] {
+  return rows.map(row => ({
+    row,
+    option: row.eligibility.status === "known" ? {
+      profile: row.profile, label: row.label, domain: row.domain, eligibility: row.eligibility.value, reason: row.reason,
+      allowed_execution_modes: row.allowed_execution_modes, lifecycle_stage: row.lifecycle_stage,
+    } : null,
+  }));
+}
+
+/** Filter counts: "all" is every row; the other filters only count proven rows. */
+export function entryCounts(entries: readonly CatalogEntry[]) {
+  return { ...catalogCounts(provenOptions(entries)), all: entries.length };
+}
+
+export function filterEntries(entries: readonly CatalogEntry[], filter: StrategyFilter): CatalogEntry[] {
+  if (filter === "all") return [...entries];
+  const kept = new Set(filterCatalog(provenOptions(entries), filter).map(option => option.profile));
+  return entries.filter(entry => entry.option !== null && kept.has(entry.option.profile));
+}
+
+function provenOptions(entries: readonly CatalogEntry[]): StrategyOption[] {
+  return entries.flatMap(entry => entry.option ? [entry.option] : []);
+}
+
+/** Short projection fingerprint for the hero line; anything but a known read is unknown. */
+export function catalogRevisionText(read: N1SwitchStrategies["catalog_revision"], t: DeskTranslate): string {
+  return read.status === "known" ? read.value.value.slice(0, 12) : t("read.unknown");
+}
+
+function domainText(read: N1Read<string>, t: DeskTranslate): string {
+  if (read.status === "unknown") return `${t("read.unknown_mark")} · ${t(n1ReasonKey(read.reason))}`;
+  return read.value;
+}
+
+function StrategyCard({ entry, selected, onSelect, t }: {
+  entry: CatalogEntry;
   selected: boolean;
   onSelect: () => void;
   t: DeskTranslate;
 }) {
+  const { row, option } = entry;
   const eligibility = eligibilityView(option, t);
-  const modes = option.allowed_execution_modes.map(mode => t(`mode.${mode}` as DeskKey)).join(", ");
+  const modes = row.allowed_execution_modes.map(mode => t(`mode.${mode}` as DeskKey)).join(", ");
+  const unknownReason = row.eligibility.status === "unknown" ? row.eligibility.reason : null;
   return (
-    <article style={P.card} data-profile={option.profile} data-eligibility={option.eligibility} data-selected={selected ? "true" : "false"}>
+    <article style={P.card} data-profile={row.profile} data-eligibility={option?.eligibility ?? "unknown"} data-selected={selected ? "true" : "false"}>
       <div style={P.cardHead}>
-        <b style={{ fontSize: 13.5 }}>{option.label}</b>
+        <b style={{ fontSize: 13.5 }}>{row.label}</b>
         <span style={P.badge(eligibility.tone)}>{eligibility.text}</span>
       </div>
-      <span style={P.mono}>{t("strategies.card.profile")}: {option.profile}</span>
-      <span style={P.muted}>{t("strategies.card.domain", { domain: option.domain })}</span>
+      <span style={P.mono}>{t("strategies.card.profile")}: {row.profile}</span>
+      <span style={P.muted}>{t("strategies.card.domain", { domain: row.domain })}</span>
       <span style={P.muted}>{t("strategies.card.modes", { modes })}</span>
-      <span style={P.muted}>{t("strategies.card.lifecycle", { stage: option.lifecycle_stage })}</span>
-      {option.reason ? <span style={P.muted}>{t("strategies.card.reason", { reason: switchReasonText(option.reason, t) })}</span> : null}
+      <span style={P.muted}>{t("strategies.card.lifecycle", { stage: row.lifecycle_stage })}</span>
+      {row.reason ? <span style={P.muted}>{t("strategies.card.reason", { reason: switchReasonText(row.reason, t) })}</span> : null}
+      {unknownReason ? <span style={P.muted} data-read="unknown">{t("strategies.card.reason", { reason: t(n1ReasonKey(unknownReason)) })}</span> : null}
       <div style={P.actionRow}>
-        <button type="button" className="mrd-chip" aria-pressed={selected} disabled={option.eligibility === "blocked"} onClick={onSelect}>
+        <button type="button" className="mrd-chip" aria-pressed={selected} disabled={!option || option.eligibility === "blocked"} onClick={option ? onSelect : undefined}>
           {selected ? t("strategies.card.selected") : t("strategies.card.select")}
         </button>
       </div>
@@ -123,7 +172,7 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
   const narrow = useNarrow();
 
   const targets = useDeskLoad<DeskResult<SwitchTargets>>(() => api.switchTargets(), [api]);
-  const strategies = useDeskLoad<DeskResult<SwitchStrategies> | null>(
+  const strategies = useDeskLoad<DeskResult<N1SwitchStrategies> | null>(
     () => (targetId ? api.switchStrategies(targetId) : Promise.resolve(null)),
     [api, targetId],
   );
@@ -148,9 +197,13 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
   }, [targetId, targets.load]);
 
   const catalogMatchesTarget = strategies.load.state === "ready" && strategies.load.result?.data.target_id === targetId;
-  const catalog: StrategyOption[] = catalogMatchesTarget && strategies.load.state === "ready" && strategies.load.result
-    ? strategies.load.result.data.strategies
-    : [];
+  const catalogData = catalogMatchesTarget && strategies.load.state === "ready" && strategies.load.result
+    ? strategies.load.result.data
+    : null;
+  const catalogRead = catalogData?.strategies ?? null;
+  // Unknown is not empty: an unread catalog has no rows to show, and says why.
+  const entries = catalogRead && catalogRead.status !== "unknown" ? catalogEntries(catalogRead.value) : [];
+  const catalog: StrategyOption[] = provenOptions(entries);
 
   useEffect(() => {
     if (!initialProfile || flow.profile) return;
@@ -163,8 +216,8 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
     ? targets.load.result.data.targets.find(entry => entry.target_id === targetId) ?? null
     : null;
   const selectedOption = catalog.find(entry => entry.profile === flow.profile) ?? null;
-  const counts = catalogCounts(catalog);
-  const filtered = filterCatalog(catalog, filter);
+  const counts = entryCounts(entries);
+  const filtered = filterEntries(entries, filter);
   const switchable = selectedTarget?.switchable ?? null;
   const currentStepIndex = SWITCH_STEPS.indexOf(flow.step);
 
@@ -242,15 +295,27 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
     catalogBody = <LoadingState t={t} label={t("strategies.catalog.title")} startedAt={strategies.load.state === "loading" ? strategies.load.startedAt : undefined} onRetry={strategies.reload} />;
   } else if (strategies.load.state === "failed") {
     catalogBody = <RecoverableErrorState t={t} onRetry={strategies.reload} />;
-  } else if (filtered.length === 0) {
-    catalogBody = <EmptyState t={t} title={t("strategies.catalog.empty")} />;
-  } else {
+  } else if (!catalogRead || catalogRead.status === "unknown") {
     catalogBody = (
-      <div style={P.grid}>
-        {filtered.map(option => (
-          <StrategyCard key={option.profile} option={option} selected={option.profile === flow.profile} onSelect={() => selectStrategy(option)} t={t} />
-        ))}
-      </div>
+      <p style={P.muted} role="status" data-read="unknown">
+        {t("strategies.catalog.unknown", { reason: t(n1ReasonKey(catalogRead?.status === "unknown" ? catalogRead.reason : "never_read")) })}
+      </p>
+    );
+  } else {
+    const partialNote = catalogRead.status === "partial"
+      ? <p style={P.muted} role="status" data-read="partial">{t("strategies.catalog.partial", { coverage: coverageText(catalogRead.coverage) })}</p>
+      : null;
+    // A partial list is never "no strategies": it keeps its coverage note even when empty.
+    catalogBody = filtered.length === 0 ? (partialNote ?? <EmptyState t={t} title={t("strategies.catalog.empty")} />) : (
+      <>
+        {partialNote}
+        <div style={P.grid}>
+          {filtered.map(entry => (
+            <StrategyCard key={entry.row.profile} entry={entry} selected={entry.row.profile === flow.profile}
+              onSelect={() => { if (entry.option) selectStrategy(entry.option); }} t={t} />
+          ))}
+        </div>
+      </>
     );
   }
 
@@ -258,9 +323,7 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
 
   const readyTargets = targets.load.state === "ready" ? targets.load.result.data.targets : null;
   const eligible = readyTargets ? readyTargets.filter(target => target.switchable.allowed === true).length : 0;
-  const catalogRevision = catalogMatchesTarget && strategies.load.state === "ready" && strategies.load.result
-    ? strategies.load.result.data.catalog_revision
-    : t("read.unknown");
+  const catalogRevision = catalogData ? catalogRevisionText(catalogData.catalog_revision, t) : t("read.unknown");
 
   return (
     <section style={P.page} aria-labelledby="mrd-page-title" data-flow-step={flow.step}>
@@ -310,6 +373,7 @@ export function StrategiesPage({ api, t, language, admin, initialTarget, initial
       <section className="mrd-card" id="mrd-strategy-catalog" style={P.column} aria-labelledby="mrd-catalog-title">
         <div style={P.rowBetween}>
           <span className="mrd-label" id="mrd-catalog-title">{t("strategies.catalog.title")}</span>
+          {catalogData ? <span style={P.muted} data-domain-read={catalogData.domain.status}>{t("strategies.card.domain", { domain: domainText(catalogData.domain, t) })}</span> : null}
           <div style={P.filterRow} role="group" aria-label={t("strategies.filter.label")}>
             {STRATEGY_FILTERS.map(entry => (
               <button key={entry} type="button" style={P.filterButton(filter === entry)} aria-pressed={filter === entry} onClick={() => setFilter(entry)} data-filter={entry}>
