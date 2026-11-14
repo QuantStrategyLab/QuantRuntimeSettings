@@ -179,9 +179,11 @@ export function nextScheduledRun({ summary, accounts, businessDate, now }) {
     const reason = anyFailure ? "read_failed" : anyIncomplete ? "coverage_incomplete" : "source_unavailable";
     return unknown(reason, coverage("unavailable", 0, null, [reason]));
   }
-  candidates.sort((a, b) => a.due_at.localeCompare(b.due_at) || a.target_id.localeCompare(b.target_id));
+  // Normalized instants keep nonzero milliseconds, so order by epoch time, not string;
+  // the target id breaks only an exact tie.
+  candidates.sort((a, b) => Date.parse(a.due_at) - Date.parse(b.due_at) || a.target_id.localeCompare(b.target_id));
   const value = { target_id: candidates[0].target_id, kind: "scheduled_run", due_at: candidates[0].due_at };
-  const observedAt = candidates.map(item => item.observed_at).sort()[0];
+  const observedAt = candidates.map(item => item.observed_at).sort((a, b) => Date.parse(a) - Date.parse(b))[0];
   if (candidates.length < total) {
     return partial(value, observedAt, coverage("partial", candidates.length, total, [anyFailure ? "read_failed" : "coverage_incomplete"]));
   }

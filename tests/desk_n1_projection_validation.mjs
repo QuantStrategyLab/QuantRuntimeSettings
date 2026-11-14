@@ -661,6 +661,37 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
     "previous NY business day": [row("fake-0", schedule("2030-01-08T20:55:00Z", { business_date: "2030-01-07" })), row("fake-1", schedule("2030-01-08T20:55:00Z", { timezone: "UTC" }))],
     "unparseable instant": [row("fake-0", "2030-01-08T20:55:00"), row("fake-1", "tomorrow")],
   };
+  // Review B1: instants keep nonzero milliseconds, so ordering is chronological, never lexical.
+  // "19:30:00.500Z" sorts before "19:30:00Z" as a string but is the later instant.
+  for (const rows of [[row("fake-0", "2030-01-08T19:30:00Z"), row("fake-1", "2030-01-08T19:30:00.500Z")],
+    [row("fake-1", "2030-01-08T19:30:00.500Z"), row("fake-0", "2030-01-08T19:30:00Z")]]) {
+    const whole = next(rows);
+    assert.deepEqual([whole.status, whole.value], ["known", { target_id: "firstrade/target0", kind: "scheduled_run", due_at: "2030-01-08T19:30:00Z" }],
+      "known: the whole second beats the later fractional instant regardless of row order");
+  }
+  const fractionalFirst = next([row("fake-0", "2030-01-08T19:30:00.500Z"), row("fake-1", "2030-01-08T19:30:00.250Z")]);
+  assert.deepEqual([fractionalFirst.value.target_id, fractionalFirst.value.due_at], ["firstrade/target1", "2030-01-08T19:30:00.250Z"]);
+  const accts3 = [...accts, { platform: "firstrade", key: "fake-2", target_id: "firstrade/target2" }];
+  const partialFraction = nextScheduledRun({ summary: { accounts: [row("fake-0", "2030-01-08T19:30:00Z"), row("fake-1", "2030-01-08T19:30:00.500Z")] },
+    accounts: accts3, businessDate: today, now: NOW });
+  assert.deepEqual([partialFraction.status, partialFraction.value.target_id, partialFraction.value.due_at, partialFraction.coverage.included, partialFraction.coverage.total],
+    ["partial", "firstrade/target0", "2030-01-08T19:30:00Z", 2, 3], "partial: the same chronological earliest candidate");
+  // Equal instants, however written, fall back to the target id only then.
+  const tie = next([row("fake-1", "2030-01-08T19:30:00.000Z"), row("fake-0", "2030-01-08T14:30:00-05:00")]);
+  assert.deepEqual([tie.status, tie.value.target_id, tie.value.due_at], ["known", "firstrade/target0", "2030-01-08T19:30:00Z"]);
+  const fractionTie = next([row("fake-1", "2030-01-08T19:30:00.500Z"), row("fake-0", "2030-01-08T14:30:00.5-05:00")]);
+  assert.deepEqual([fractionTie.value.target_id, fractionTie.value.due_at], ["firstrade/target0", "2030-01-08T19:30:00.500Z"]);
+  // A fractional offset instant is still normalized to UTC before ordering.
+  const fractionOffset = next([row("fake-0", "2030-01-08T14:29:59.750-05:00"), row("fake-1", "2030-01-08T19:30:00Z")]);
+  assert.deepEqual([fractionOffset.value.target_id, fractionOffset.value.due_at], ["firstrade/target0", "2030-01-08T19:29:59.750Z"]);
+  // Past-time rejection keeps millisecond precision at the request instant.
+  const subSecond = next([row("fake-0", "2030-01-08T14:59:59.999Z"), row("fake-1", "2030-01-08T15:00:00.001Z")]);
+  assert.deepEqual([subSecond.status, subSecond.value.target_id, subSecond.value.due_at, subSecond.coverage.included], ["partial", "firstrade/target1", "2030-01-08T15:00:00.001Z", 1]);
+  // The oldest stored observation is chosen chronologically too.
+  const oldest = next([row("fake-0", "2030-01-08T20:55:00Z", { as_of: "2030-01-08T14:00:00.500Z" }), row("fake-1", "2030-01-08T19:30:00Z", { as_of: "2030-01-08T14:00:00Z" })]);
+  assert.deepEqual([oldest.status, oldest.observed_at], ["known", "2030-01-08T14:00:00Z"]);
+  const oldestFraction = next([row("fake-0", "2030-01-08T20:55:00Z", { as_of: "2030-01-08T14:00:00Z" }), row("fake-1", "2030-01-08T19:30:00Z", { as_of: "2030-01-08T13:59:59.900Z" })]);
+  assert.equal(oldestFraction.observed_at, "2030-01-08T13:59:59.900Z");
   for (const [label, rows] of Object.entries(cases)) {
     const read = next(rows);
     assert.equal(read.status, "unknown", `${label}: unknown`);
@@ -684,6 +715,13 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   const partialRibbon = await body(await deskRibbonResponse(get("/api/desk/ribbon"), partialWorld.env, partialWorld.deps));
   conforms("ribbon", partialRibbon);
   assert.equal(partialRibbon.next_run.status, "partial");
+  // Route, B1: the fractional-second case keeps one read per business day and the chronological earliest.
+  const fractionalWorld = world({ summaries: { [today]: { date: today, accounts: [row("fake-0", "2030-01-08T19:30:00Z"), row("fake-1", "2030-01-08T19:30:00.500Z")] } } });
+  const fractionalRibbon = await body(await deskRibbonResponse(get("/api/desk/ribbon"), fractionalWorld.env, fractionalWorld.deps));
+  conforms("ribbon", fractionalRibbon);
+  assert.deepEqual([fractionalRibbon.next_run.status, fractionalRibbon.next_run.value.due_at, fractionalRibbon.next_run.value.target_id], ["known", "2030-01-08T19:30:00Z", "firstrade/target0"]);
+  assert.deepEqual(fractionalWorld.calls.filter(call => /^(runtime|options):/.test(call)),
+    ["runtime:2030-01-07", "runtime:2030-01-08", 'options:2030-01-08:{"schedule":true}'], "fractional instants add no read");
   const pastWorld = world({ summaries: { [today]: scheduled } });
   const pastDay = await body(await deskRibbonResponse(get("/api/desk/ribbon?date=2030-01-06"), pastWorld.env, pastWorld.deps));
   conforms("ribbon", pastDay);
