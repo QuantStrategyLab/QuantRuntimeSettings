@@ -3,6 +3,7 @@ import type { Language } from "../../lib/prefs";
 import type { DeskApi, DeskResult } from "../api/endpoints.ts";
 import type { N1BookRow, N1Overview, N1Read, N1Ribbon } from "../contract/n1";
 import { coverageText, n1ReasonKey, readValue } from "../api/n1.ts";
+import { formatAge } from "../format.ts";
 import type { DeskKey, DeskTranslate } from "../i18n/index.ts";
 import { NeedsYouCard } from "../components/NeedsYouCard.tsx";
 import { EmptyState, FreshnessChip, LoadingState, RecoverableErrorState, StalePartialBanner } from "../components/StateBlocks.tsx";
@@ -66,13 +67,24 @@ function BookCard({ row, t, language }: { row: N1BookRow; t: DeskTranslate; lang
     row.sparkline_30d.points, row.sparkline_30d.gap_dates, row.sparkline_30d.dates_from, row.sparkline_30d.dates_to, 120, 32,
   );
   const strategy = row.strategy.status === "known" ? row.strategy.value.label : null;
-  // Only a fully read record may say "no run"; an unknown read names its reason.
-  const lastRun = readValue(row.last_run);
-  const run = row.last_run.status === "unknown"
-    ? t("overview.book.run_unknown", { reason: t(n1ReasonKey(row.last_run.reason)) })
-    : lastRun
+  // Only a fully read record may say "no run"; an unknown read names its reason. A partial
+  // read (incomplete stored record) says it is a verified subset; a stale read shows its age.
+  const runRead = row.last_run;
+  const lastRun = readValue(runRead);
+  let run: string;
+  if (runRead.status === "unknown") {
+    run = t("overview.book.run_unknown", { reason: t(n1ReasonKey(runRead.reason)) });
+  } else if (runRead.status === "partial") {
+    const subset = t("n1.partial", { coverage: coverageText(runRead.coverage) });
+    run = lastRun
+      ? `${t("overview.book.last_run", { time: lastRun.at.slice(11, 16), state: t(tapeStateKey({ state: "done", outcome: lastRun.outcome }) as DeskKey) })} · ${subset}`
+      : `${t("read.unknown_mark")} · ${subset}`;
+  } else {
+    run = lastRun
       ? t("overview.book.last_run", { time: lastRun.at.slice(11, 16), state: t(tapeStateKey({ state: "done", outcome: lastRun.outcome }) as DeskKey) })
       : t("overview.book.no_run");
+    if (runRead.status === "stale") run = `${t("read.stale", { age: formatAge(runRead.age_seconds, language) ?? "\u2014" })} · ${run}`;
+  }
 
   return (
     <article className="mrd-ov-book" data-config={row.config.state} data-drawdown={row.drawdown.state}>

@@ -2,8 +2,9 @@
 //
 // Composed from the same internal read projections as the accounts, ribbon and
 // performance routes (no HTTP fan-out): stored account facts, stored daily
-// history, the stored runtime-daily records for the current New York business
-// day and the stored credential-maintenance record. There is no server FX
+// history (also the per-account 30-day sparkline), the stored runtime-daily
+// records for the current New York business day and the stored
+// credential-maintenance record. There is no server FX
 // aggregation: only a single-currency, identity-verified, complete cohort gets
 // a combined NAV. Missing sources stay unknown; empty lists are never offered
 // as "nothing to do" or "no accounts".
@@ -12,11 +13,11 @@ import {
   FACTS_STALE_SECONDS, factsObservedAt, factsRowFor, maskedAccount, platformLabel, readConfig, readCredential, readFactsModel,
 } from "./accounts.js";
 import { DeskError } from "./http.js";
-import { readPerformance } from "./performance.js";
+import { readPerformanceSources } from "./performance.js";
 import { readbackTargets } from "./readback.js";
-import { configuredAccounts, tapeOutcome } from "./ribbon.js";
+import { configuredAccounts, runRowReadIncomplete, tapeOutcome } from "./ribbon.js";
 import {
-  coverage, freshness, known, n1Response, n1Route, notSupported, partial, readOnce, stale, timeBasis, unknown, utcInstant, zonedDate,
+  addDays, coverage, freshness, known, n1Response, n1Route, notSupported, partial, readOnce, stale, timeBasis, unknown, utcInstant, zonedDate,
 } from "./n1.js";
 
 const OVERVIEW_RANGE = "6M";
@@ -26,6 +27,34 @@ const legacyUnknown = (reason) => ({ status: "unknown", reason });
 const RUN_COVERED = new Set(["ok", "stale"]);
 // A stale record still counts only when its source coverage is complete.
 const runCovered = (row) => Boolean(row) && RUN_COVERED.has(row.status) && row.completeness === "complete";
+const SPARK_DAYS = 30;
+// Same decimal text as the v2 schema; anything else (exponent, padding) fails closed.
+const AMOUNT_TEXT = /^-?(0|[1-9]\d*)(\.\d+)?$/;
+const noSparkline = () => ({ points: [], dates_from: null, dates_to: null, gap_dates: [] });
+
+/**
+ * Frozen contract §3.3 `book[].sparkline_30d`: the stored net-asset strings of the last
+ * 30 stored days (history date domain), oldest first, in the NAV's own currency, with
+ * the history series' calendar gap dates inside the drawn window. Not interpolated and
+ * not a return. An unread, unverified or currency-mismatched history draws nothing, and
+ * fewer than two points is "no history".
+ */
+export function bookSparkline(member, nav, end) {
+  if (!member || member.failure || !nav || nav.status === "unknown" || typeof nav.currency !== "string") return noSparkline();
+  const series = (member.series || []).filter(item => item.currency === nav.currency);
+  if (series.length !== 1) return noSparkline();
+  const from = addDays(end, 1 - SPARK_DAYS);
+  const points = series[0].points.filter(point => point.date >= from && point.date <= end)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (points.length < 2 || points.some(point => typeof point.text !== "string" || !AMOUNT_TEXT.test(point.text))
+      || new Set(points.map(point => point.date)).size !== points.length) {
+    return noSparkline();
+  }
+  const datesFrom = points[0].date;
+  const datesTo = points.at(-1).date;
+  const gaps = [...new Set((series[0].gapDates || []).filter(date => date >= datesFrom && date <= datesTo))].sort();
+  return { points: points.map(point => point.text), dates_from: datesFrom, dates_to: datesTo, gap_dates: gaps };
+}
 
 /** v1 Nav from one stored snapshot; several balances or a missing one stay unknown. */
 export function bookNav(row, facts, now) {
@@ -46,20 +75,34 @@ export function bookNav(row, facts, now) {
   return { status: "known", ...base };
 }
 
+function latestFinishedRun(row) {
+  const finished = (row.runs || []).map(run => ({ run, at: utcInstant(run.finished_at) })).filter(item => item.at !== null);
+  finished.sort((a, b) => a.at.localeCompare(b.at));
+  return finished.at(-1) ?? null;
+}
+
 /**
  * The latest finished run for one target as an N1 read. Known null only when the
  * stored daily record was read completely and holds no finished run; a failed,
- * missing, unbound or incomplete record stays unknown, never "no run".
+ * missing, unbound or incomplete record is never "no run". A fresh record that was
+ * read but is incomplete gives its latest finished run as a partial read (a verified
+ * subset: a later run may be missing); a stale incomplete one, or one without a
+ * finished run, names the coverage gap.
  */
 export function lastRun(summary, summaryRow, now) {
   if (!summary) return unknown("read_failed", coverage("unavailable", 0, 1, ["read_failed"]));
   if (!runCovered(summaryRow)) {
+    if (runRowReadIncomplete(summaryRow)) {
+      // A partial read carries no age, so a stale incomplete record names only its coverage gap.
+      const latest = summaryRow.status === "partial" ? latestFinishedRun(summaryRow) : null;
+      return latest
+        ? partial({ at: latest.at, outcome: tapeOutcome(latest.run) }, summaryRow.as_of, coverage("partial", 0, 1, ["coverage_incomplete"]))
+        : unknown("coverage_incomplete", coverage("unavailable", 0, 1, ["coverage_incomplete"]));
+    }
     const reason = summaryRow?.status === "read_failed" ? "read_failed" : "source_unavailable";
     return unknown(reason, coverage("unavailable", 0, 1, [reason]));
   }
-  const finished = (summaryRow.runs || []).map(run => ({ run, at: utcInstant(run.finished_at) })).filter(item => item.at !== null);
-  finished.sort((a, b) => a.at.localeCompare(b.at));
-  const latest = finished.at(-1);
+  const latest = latestFinishedRun(summaryRow);
   const observedAt = utcInstant(summaryRow.as_of) ?? now;
   const value = latest ? { at: latest.at, outcome: tapeOutcome(latest.run) } : null;
   const cover = coverage("complete", 1, 1);
@@ -81,8 +124,13 @@ export function runsToday({ targets, summary, businessDate, now }) {
   const source = { source_business_date: businessDate, source_timezone: RUNTIME_DAILY_TIMEZONE };
   if (!targets.length) return known({ done: 0, expected: 0, pending: [], ...source }, now, coverage("verified_empty", 0, 0));
   if (!summary) return unknown("read_failed", coverage("unavailable", 0, targets.length, ["read_failed"]));
-  const covered = targets.map(target => summaryRowFor(summary, target)).filter(runCovered);
-  if (!covered.length) return unknown("source_unavailable", coverage("unavailable", 0, targets.length, ["source_unavailable"]));
+  const rows = targets.map(target => summaryRowFor(summary, target));
+  const covered = rows.filter(runCovered);
+  if (!covered.length) {
+    // Records that were read but are incomplete are a coverage gap, not a missing source.
+    const reason = rows.some(runRowReadIncomplete) ? "coverage_incomplete" : "source_unavailable";
+    return unknown(reason, coverage("unavailable", 0, targets.length, [reason]));
+  }
   const done = covered.reduce((count, row) => count + (row.runs || []).filter(run => utcInstant(run.finished_at) !== null).length, 0);
   const times = covered.map(row => utcInstant(row.as_of)).filter(Boolean).sort();
   const reasons = ["not_supported", ...(covered.length < targets.length ? ["coverage_incomplete"] : [])];
@@ -164,7 +212,7 @@ function equityCurve(performance) {
   return { ...equity, value };
 }
 
-export function overviewProjection({ config, facts, credential, summary, businessDate, performance, now }) {
+export function overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members = [], historyEnd = null }) {
   if (!config.ok) {
     const failed = unknown("read_failed", coverage("unavailable", 0, null, ["read_failed"]));
     return {
@@ -187,6 +235,8 @@ export function overviewProjection({ config, facts, credential, summary, busines
   const rows = targets.map(target => {
     const label = platformLabel(target.platform);
     const row = facts.ok ? factsRowFor(facts.model, target) : null;
+    const nav = bookNav(row, facts, now);
+    const member = historyEnd ? members.find(item => item.target_id === target.id) ?? null : null;
     return {
       target_id: target.id,
       platform: target.platform,
@@ -196,9 +246,9 @@ export function overviewProjection({ config, facts, credential, summary, busines
       strategy: legacyUnknown("never_read"),
       mode: legacyUnknown("not_supported"),
       runtime: legacyUnknown("not_supported"),
-      nav: bookNav(row, facts, now),
+      nav,
       day_change: null,
-      sparkline_30d: { points: [], dates_from: null, dates_to: null, gap_dates: [] },
+      sparkline_30d: bookSparkline(member, nav, historyEnd),
       drawdown: { ratio: null, limit_ratio: null, state: "unknown" },
       config: { state: "unknown", drift_count: unknown("not_supported", coverage("unavailable", 0, 1, ["not_supported"])), checked_at: null },
       last_run: lastRun(summary, summaryRowFor(summary, target), now),
@@ -236,12 +286,12 @@ export async function deskOverviewResponse(request, env, deps) {
       const read = await readOnce(() => deps.runtimeDay(request, env, configuredAccounts(config.value), businessDate));
       summary = read.ok && read.value && Array.isArray(read.value.accounts) ? read.value : null;
     }
-    const performance = await readPerformance(env, deps, { range: OVERVIEW_RANGE, now, config, facts });
+    const { performance, members, end } = await readPerformanceSources(env, deps, { range: OVERVIEW_RANGE, now, config, facts });
     return n1Response("overview", {
       time_basis: timeBasis("UTC", [
         ["account_facts", "UTC"], ["account_facts_history", "Asia/Shanghai"], ["runtime_daily", RUNTIME_DAILY_TIMEZONE],
       ]),
-      ...overviewProjection({ config, facts, credential, summary, businessDate, performance, now }),
+      ...overviewProjection({ config, facts, credential, summary, businessDate, performance, now, members, historyEnd: end }),
     }, { now });
   });
 }

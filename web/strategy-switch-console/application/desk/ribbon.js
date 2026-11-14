@@ -55,6 +55,15 @@ export function runRowCovered(row) {
     || (row?.status === "no_data" && row.unavailable_reason === "non_trading_weekend");
 }
 
+/**
+ * A stored record that was actually read (it carries its own observation instant) but
+ * is incomplete. Its finished runs are a verified subset; it is a coverage gap, not an
+ * unavailable source. A missing record or an unread conflicting binding is neither.
+ */
+export function runRowReadIncomplete(row) {
+  return ["partial", "stale"].includes(row?.status) && row.completeness === "incomplete" && utcInstant(row.as_of) !== null;
+}
+
 
 /**
  * Pure tape projection. `days` holds one stored-reader summary per business date
@@ -72,6 +81,7 @@ export function ribbonTape({ days, accounts, date, readAt }) {
   const observed = [];
   let anyStale = false;
   let anyFailure = false;
+  let anyIncomplete = false;
   let undated = false;
   const coveredAccounts = new Set(accounts.map(account => account.target_id));
   for (const day of days) {
@@ -84,6 +94,7 @@ export function ribbonTape({ days, accounts, date, readAt }) {
       const row = (day.summary.accounts || []).find(item => item.platform === account.platform && item.account_alias === account.key);
       if (!row) { coveredAccounts.delete(account.target_id); continue; }
       if (row.status === "read_failed") anyFailure = true;
+      if (runRowReadIncomplete(row)) anyIncomplete = true;
       if (!runRowCovered(row)) coveredAccounts.delete(account.target_id);
       if (row.status === "stale") anyStale = true;
       if (row.as_of && (runRowCovered(row) || row.status === "partial")) observed.push(row.as_of);
@@ -121,7 +132,7 @@ export function ribbonTape({ days, accounts, date, readAt }) {
     const cover = coverage(value.length ? "complete" : "verified_empty", included, total);
     tape = anyStale ? stale(value, observedAt, readAt, cover) : known(value, observedAt, cover);
   } else if (value.length === 0 && included === 0) {
-    tape = unknown(anyFailure ? "read_failed" : "source_unavailable", coverage("unavailable", 0, total, reasons));
+    tape = unknown(anyFailure ? "read_failed" : anyIncomplete ? "coverage_incomplete" : "source_unavailable", coverage("unavailable", 0, total, reasons));
   } else {
     tape = partial(value, observedAt, coverage("partial", included, total, reasons));
   }

@@ -103,9 +103,12 @@ export async function readCohortHistories(env, deps, { config, facts }) {
       member.truncated ||= model.series?.truncated === true;
       member.series.push({
         currency,
+        // The history series' own calendar gap dates (never interpolated); used by the overview sparkline.
+        gapDates: Array.isArray(model.series?.gap_dates) ? model.series.gap_dates.filter(date => typeof date === "string") : [],
         // The stored snapshot carries no qualified external cash flow: unknown, never zero.
+        // `text` keeps the stored amount exactly as stored; `value` is only used for arithmetic.
         points: (model.series?.points || []).flatMap(point => NUMBER(point.net_assets) === null || point.currency !== currency ? []
-          : [{ date: point.observation_date, value: NUMBER(point.net_assets), externalFlow: null,
+          : [{ date: point.observation_date, value: NUMBER(point.net_assets), text: point.net_assets, externalFlow: null,
             observed_at: utcInstant(point.observed_finished_at) }]),
       });
     }
@@ -159,7 +162,9 @@ export function performanceProjection({ members, range, end, now, readable = tru
     // No server FX: a mixed-currency cohort has no combined curve.
     equity = unknown("mixed_currency", coverage("unavailable", 0, total, ["mixed_currency"]));
   } else {
-    const combined = aggregateEquity(members.flatMap(member => member.series.map(series => ({ id: `${member.target_id}:${series.currency}`, points: series.points }))));
+    // The curve sees exactly the arithmetic fields; the stored text is for the overview sparkline only.
+    const combined = aggregateEquity(members.flatMap(member => member.series.map(series => ({ id: `${member.target_id}:${series.currency}`,
+      points: series.points.map(point => ({ date: point.date, value: point.value, externalFlow: point.externalFlow, observed_at: point.observed_at })) }))));
     const points = combined.points.filter(point => (!window.start || point.date >= window.start) && point.date <= window.end);
     const chained = chainReturns(points);
     if (combined.missingAccounts.length || points.length < 2 || chained.invalidPeriod || chained.index.length < 2) {
@@ -233,12 +238,20 @@ export function performanceProjection({ members, range, end, now, readable = tru
   };
 }
 
-/** Shared read used by the performance and overview routes. */
-export async function readPerformance(env, deps, { range, now, config, facts }) {
+/**
+ * Shared read used by the performance and overview routes: the projection plus the
+ * cohort member series it was built from (one stored history read per member), so
+ * the overview can reuse them without a second read.
+ */
+export async function readPerformanceSources(env, deps, { range, now, config, facts }) {
   const end = zonedDate(now, PERFORMANCE_TIMEZONE);
-  if (!config.ok) return performanceProjection({ members: [], range, end, now, readable: false });
+  if (!config.ok) return { end, members: [], performance: performanceProjection({ members: [], range, end, now, readable: false }) };
   const members = await readCohortHistories(env, deps, { config, facts });
-  return performanceProjection({ members, range, end, now });
+  return { end, members, performance: performanceProjection({ members, range, end, now }) };
+}
+
+export async function readPerformance(env, deps, options) {
+  return (await readPerformanceSources(env, deps, options)).performance;
 }
 
 export async function deskPerformanceResponse(request, env, deps) {

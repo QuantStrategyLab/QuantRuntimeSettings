@@ -216,6 +216,30 @@ for (const language of ["zh", "en"]) {
   assert.ok(view(noRun).includes(t("overview.book.no_run")), "a verified absence may say 'no run'");
   const bareRun = golden("overview", "ok"); bareRun.book.value[0].last_run = null;
   assert.equal(isN1Overview(bareRun), false, "a bare null last run is rejected: it must be a read");
+  // An incomplete stored record: the latest finished run is a verified subset, never the whole day.
+  const partRun = golden("overview", "ok");
+  partRun.book.value[0].last_run = { status: "partial", value: { at: "2030-01-08T14:32:00Z", outcome: "no_op" }, observed_at: at, coverage: cover("partial", 0, 1, ["coverage_incomplete"]) };
+  assert.ok(isN1Overview(partRun) && schemaOk("overview", partRun));
+  const partRunHtml = view(partRun);
+  assert.ok(partRunHtml.includes(t("n1.partial", { coverage: "0/1" })), "a partial last run names its coverage");
+  assert.ok(partRunHtml.includes("14:32"), "the verified run time is shown");
+  assert.equal(partRunHtml.includes(t("overview.book.run_unknown", { reason: t("read.reason.coverage_incomplete") })), false);
+  const partNone = golden("overview", "ok");
+  partNone.book.value[0].last_run = { ...partRun.book.value[0].last_run, value: null };
+  const partNoneHtml = view(partNone);
+  assert.ok(partNoneHtml.includes(`${t("read.unknown_mark")} · ${t("n1.partial", { coverage: "0/1" })}`), "a partial read without a run is '?', not 'no run'");
+  assert.equal(partNoneHtml.includes(t("overview.book.no_run")), false, "a partial read never says 'no run'");
+  const staleRun = golden("overview", "ok");
+  staleRun.book.value[0].last_run = { status: "stale", value: { at: "2030-01-07T14:32:00Z", outcome: "no_op" }, observed_at: at, age_seconds: 90000, coverage: cover("complete") };
+  assert.ok(isN1Overview(staleRun));
+  assert.ok(view(staleRun).includes(t("read.stale", { age: "@" }).split("@")[0]), "a stale last run is marked stale");
+  // The 30-day sparkline is drawn from the stored net-asset series the payload carries.
+  const spark = golden("overview", "ok");
+  spark.book.value[0].sparkline_30d = { points: ["1000", "1010", "1020"], dates_from: "2030-01-03", dates_to: "2030-01-07", gap_dates: ["2030-01-05", "2030-01-06"] };
+  assert.ok(isN1Overview(spark) && schemaOk("overview", spark));
+  const sparkHtml = view(spark);
+  assert.ok(sparkHtml.includes('class="mrd-ov-spark"'), "a stored series is drawn");
+  assert.ok(sparkHtml.includes(t("overview.book.spark", { target: spark.book.value[0].target_id })));
 
   const unread = golden("overview", "ok");
   unread.book = { status: "unknown", reason: "read_failed", observed_at: null, coverage: cover("unavailable", 0, null, ["read_failed"]) };
@@ -232,6 +256,15 @@ for (const language of ["zh", "en"]) {
   assert.equal(accounts.includes(t("config.synced")), false, "never synced without an identity-bound comparison");
   assert.ok(text(accounts).includes(`${t("read.unknown_mark")} · ${t("read.reason.not_supported")}`), "heartbeat/last order unknown with reason");
   assert.equal(accounts.includes(t("accounts.last_order.none")), false, "unknown orders are not 'no orders'");
+  // The stale banner carries the oldest age the payload reports, never a blank age.
+  const staleBrokers = golden("accounts", "ok");
+  staleBrokers.brokers.value[0].data_freshness = { data_status: "stale", age_seconds: 1_300_000 };
+  const staleBrokersHtml = brokers(staleBrokers);
+  assert.ok(staleBrokersHtml.includes(t("states.stale", { age: "@" }).split("@")[0]), "stale brokers raise the banner");
+  assert.equal(staleBrokersHtml.includes(t("states.stale", { age: "—" })), false, "a reported age is not dropped");
+  const unavailableBrokers = golden("accounts", "ok");
+  unavailableBrokers.brokers.value[0].data_freshness = { data_status: "unavailable", age_seconds: null };
+  assert.ok(brokers(unavailableBrokers).includes(t("states.stale", { age: "—" })), "no age is invented for an unavailable broker");
   const failed = golden("accounts", "ok");
   failed.brokers = { status: "unknown", reason: "read_failed", observed_at: null, coverage: cover("unavailable", 0, null, ["read_failed"]) };
   const failedHtml = brokers(failed);
