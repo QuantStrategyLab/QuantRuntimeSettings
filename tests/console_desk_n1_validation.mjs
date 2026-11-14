@@ -161,7 +161,7 @@ const compiled = require("esbuild").buildSync({
     contents: `
       export { OverviewView } from "./desk/pages/OverviewPage";
       export { BrokersView } from "./desk/pages/AccountsPage";
-      export { portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed } from "./desk/pages/PerformancePage";
+      export { portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed, shownBenchmarkState } from "./desk/pages/PerformancePage";
       export { Dock } from "./desk/shell/Dock";
       export { TopBar, utcWhen } from "./desk/shell/TopBar";
       export { DeskShell } from "./desk/shell/DeskShell";
@@ -175,7 +175,7 @@ const compiled = require("esbuild").buildSync({
 }).outputFiles[0].text;
 const desk = { exports: {} };
 new Function("require", "module", "exports", compiled)(require, desk, desk.exports);
-const { OverviewView, BrokersView, portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed,
+const { OverviewView, BrokersView, portfolioStatsFor, PerformanceView, loadBenchmarks, benchmarkReadAllowed, shownBenchmarkState,
   Dock, TopBar, utcWhen, DeskShell, catalogEntries, entryCounts, filterEntries, catalogRevisionText } = desk.exports;
 const text = html => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
 
@@ -348,7 +348,7 @@ for (const language of ["zh", "en"]) {
   assert.equal(view(ok, ribbonWith(sixTape)).includes(t("overview.book.nav_stale", { age: "@" }).split("@")[0]), false, "a known NAV has no stale label");
 
   // F4: Performance minimum-set metadata renders even when the curve is unavailable.
-  const perfView = (data, source = "live", benchmarks = { phase: "failed" }) => render(h(PerformanceView, {
+  const perfView = (data, source = "live", benchmarks = { phase: "not_requested" }) => render(h(PerformanceView, {
     perf: { state: "ready", result: { data, source, scenario: null } }, benchmarks, t, language, narrow: false }));
   const unknownPerf = golden("performance", "ok");
   const perfHtml = perfView(unknownPerf);
@@ -432,7 +432,8 @@ for (const language of ["zh", "en"]) {
   assert.ok(isN1Performance(qualified) && schemaOk("performance", qualified), "a synthetic qualified curve");
   const window = { start: "2030-01-02", end: "2030-01-06" };
   assert.equal(benchmarkReadAllowed("live"), false);
-  assert.deepEqual(await loadBenchmarks(spy, { data: qualified, source: "live", scenario: null }, window), { phase: "failed" });
+  assert.deepEqual(await loadBenchmarks(spy, { data: qualified, source: "live", scenario: null }, window), { phase: "not_requested" },
+    "an unrequested live read is not_requested, never failed");
   assert.equal(benchmarkCalls, 0, "no api.benchmarks() call on the live path");
   // Through the real API object: a live benchmark read would hit /api/market-benchmark/performance.
   const liveApi = createDeskApi({ forcedScenario: null, delayMs: 0, sources: liveSources, fetchJson: async url => { outbound.push(url); throw Error("no network"); } });
@@ -443,11 +444,29 @@ for (const language of ["zh", "en"]) {
   await loadBenchmarks(spy, { data: qualified, source: "mock", scenario: "ok" }, window);
   assert.equal(benchmarkCalls, 1, "mock keeps the fixture benchmark read");
   const tEn = (key, params) => deskTranslate("en", key, params);
-  const liveCurve = render(h(PerformanceView, { perf: { state: "ready", result: { data: qualified, source: "live", scenario: null } },
-    benchmarks: { phase: "failed" }, t: tEn, language: "en", narrow: false }));
-  assert.ok(liveCurve.includes(tEn("perf.bench.contained")), "the live page says the comparison is not read");
-  assert.ok(liveCurve.includes(tEn("perf.meta.first_date", { date: qualified.history.first_date })), "metadata with a curve too");
   const perfSrc = readFileSync(new URL("../web/strategy-switch-console/frontend/src/desk/pages/PerformancePage.tsx", import.meta.url), "utf8");
+  const liveView = benchmarks => render(h(PerformanceView, { perf: { state: "ready", result: { data: qualified, source: "live", scenario: null } },
+    benchmarks, t: tEn, language: "en", narrow: false }));
+  const liveCurve = liveView({ phase: "not_requested" });
+  assert.ok(liveCurve.includes(tEn("perf.bench.contained")), "the live page says the comparison is not read");
+  // Item 3: the live page never claims a benchmark load or failure it did not attempt, whatever state it holds.
+  for (const held of [{ phase: "not_requested" }, { phase: "loading" }, { phase: "failed" }]) {
+    const html = liveView(held);
+    assert.ok(html.includes('data-benchmark-phase="not_requested"'), `live ${held.phase}: shown as not_requested`);
+    assert.equal(html.match(/data-benchmark="contained"/g)?.length, 1, `live ${held.phase}: the contained copy once`);
+    assert.equal(html.includes(tEn("perf.fetch_failed")), false, `live ${held.phase}: no fetch-failed copy`);
+    assert.equal(html.includes('data-benchmark-phase="loading"'), false, `live ${held.phase}: no loading phase`);
+  }
+  assert.deepEqual(shownBenchmarkState("live", { phase: "loading" }), { phase: "not_requested" });
+  assert.deepEqual(shownBenchmarkState("mock", { phase: "not_requested" }), { phase: "loading" }, "an allowed read is loading until it settles");
+  assert.deepEqual(shownBenchmarkState("mock", { phase: "failed" }), { phase: "failed" }, "a real mock failure stays failed");
+  const mockView = benchmarks => render(h(PerformanceView, { perf: { state: "ready", result: { data: qualified, source: "mock", scenario: "ok" } },
+    benchmarks, t: tEn, language: "en", narrow: false }));
+  assert.ok(mockView({ phase: "loading" }).includes('data-benchmark-phase="loading"'), "a mock read in flight is loading");
+  assert.equal(mockView({ phase: "loading" }).includes('data-benchmark="contained"'), false, "a mock page is not contained");
+  assert.ok(mockView({ phase: "failed" }).includes(tEn("perf.fetch_failed")), "a mock read failure keeps its copy");
+  assert.match(perfSrc, /useState<BenchmarkState>\(\{ phase: "not_requested" \}\)/, "the page starts not_requested");
+  assert.ok(liveCurve.includes(tEn("perf.meta.first_date", { date: qualified.history.first_date })), "metadata with a curve too");
   assert.equal(perfSrc.match(/api\.benchmarks\(/g)?.length, 1, "the only benchmark call sits behind benchmarkReadAllowed");
 
   // Logs keeps the read status beside its headline (tests/console_desk_phase8_validation.mjs), and the
