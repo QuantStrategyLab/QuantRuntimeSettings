@@ -233,6 +233,21 @@ export function projectBinanceAccountFacts(raw, binding, { now = Date.now() } = 
   };
 }
 
+const NON_RECEIPT_LD_ASSETS = new Set(["LDO"]);
+
+export function filterBinanceDigestAssets(assets) {
+  if (!Array.isArray(assets)) return [];
+  const symbols = new Set(assets.map((entry) => entry?.asset).filter((symbol) => typeof symbol === "string"));
+  return assets.filter((entry) => {
+    const symbol = entry?.asset;
+    if (typeof symbol !== "string") return false;
+    if (symbol.startsWith("LD") && symbol.length > 2 && !NON_RECEIPT_LD_ASSETS.has(symbol)) {
+      return !symbols.has(symbol.slice(2));
+    }
+    return true;
+  });
+}
+
 export function binanceWalletHistoryStorageKey(binding) {
   return `${binding.account_key}:${binding.source_binding.id}`;
 }

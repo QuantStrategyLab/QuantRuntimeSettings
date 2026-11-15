@@ -106,6 +106,8 @@ def _snapshot(raw, end):
     complete = (isinstance(holdings, list) and raw.get('holdings_scope') == 'account'
                 and raw.get('holdings_complete') is True)
     no_stocks = holdings == [] and raw.get('holdings_scope') == 'stocks_only' and raw.get('holdings_complete') is True
+    no_spot_earn = (holdings == [] and raw.get('holdings_scope') == 'spot_and_flexible_earn'
+                    and raw.get('holdings_complete') is True)
     projected = []
     for item in holdings if isinstance(holdings, list) else ():
         if not isinstance(item, Mapping):
@@ -117,11 +119,13 @@ def _snapshot(raw, end):
             complete = False
             continue
         projected.append({'symbol': symbol, 'quantity': quantity, 'asset_type': asset})
-    if equity is None and not projected and not complete and not no_stocks:
+    if equity is None and not projected and not complete and not no_stocks and not no_spot_earn:
         return None
     projected.sort(key=lambda item: (item['symbol'], item['asset_type'], item['quantity']))
     return {'as_of': stamp.astimezone(timezone.utc).isoformat(), 'equity': equity, 'equity_currency': currency,
-            'holdings': projected, 'holdings_complete': complete, **({'no_stocks': True} if no_stocks else {})}
+            'holdings': projected, 'holdings_complete': complete,
+            **({'no_stocks': True} if no_stocks else {}),
+            **({'no_spot_earn': True} if no_spot_earn else {})}
 
 
 def _add_unique(records, conflicts, key, value):

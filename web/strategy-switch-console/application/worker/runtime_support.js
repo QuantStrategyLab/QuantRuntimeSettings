@@ -32,7 +32,7 @@ import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, RUNTIME_DAILY_TIMEZONE, ru
 import {
   BINANCE_FACTS_KEY, BINANCE_FACTS_MAX_BYTES, BinanceFactsError,
   normalizeBinanceFactsBinding, binanceFactsOptionMatches, assertBinanceFactsSourceBinding,
-  normalizeBinanceAccountFacts, projectBinanceAccountFacts,
+  normalizeBinanceAccountFacts, projectBinanceAccountFacts, filterBinanceDigestAssets,
   binanceWalletHistoryEntry, binanceWalletHistoryStorageKey, normalizeBinanceWalletHistoryEntry,
   projectBinanceWalletHistoryFromSources,
   assertBinanceFactsHistoryBindings, BINANCE_WALLET_HISTORY_MAX_DAYS,
@@ -2994,7 +2994,7 @@ export async function binanceDigestSnapshotResponse(request, env, url) {
       : {};
     return json({ ok: true, business_day: day, account_key: binding.account_key,
       target_id: binding.target_id, as_of: report.observed_finished_at,
-      holdings: report.assets.map(({ asset, quantity }) => ({ asset, quantity })), ...wallet });
+      holdings: filterBinanceDigestAssets(report.assets).map(({ asset, quantity }) => ({ asset, quantity })), ...wallet });
   } catch {
     return json({ ok: false, error: "digest_snapshot_read_unavailable" }, 503);
   }

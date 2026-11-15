@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import worker, { __test } from '../web/strategy-switch-console/worker.js';
-import { normalizeBinanceFactsBinding, normalizeBinanceAccountFacts, projectBinanceAccountFacts,
+import { normalizeBinanceFactsBinding, normalizeBinanceAccountFacts, projectBinanceAccountFacts, filterBinanceDigestAssets,
   BINANCE_FACTS_KEY, binanceWalletHistoryEntry, binanceWalletHistoryStorageKey } from '../web/strategy-switch-console/binance_account_facts.js';
 import { binanceProviderProductTypeForDisplay } from '../web/strategy-switch-console/frontend/src/types.ts';
 import { verifyBinanceAccountFactsReceiver } from '../scripts/verify_binance_account_facts_receiver.mjs';
@@ -671,6 +671,18 @@ assert.equal(/\.innerHTML|item\.asset\b/.test(walletUi), false,
   'live wallet card renders no per-asset native strings, only the valuation');
 // Dropped with the legacy tree: overview wallet asset rows rendering native asset strings
 // unfiltered, and the "API账户类型：现货" product-type label; neither exists in the live UI.
+const filteredDigestAssets = filterBinanceDigestAssets([
+  { asset: 'BTC', quantity: '0.5' },
+  { asset: 'LDBTC', quantity: '0.5' },
+  { asset: 'O', quantity: '1' },
+  { asset: 'LDO', quantity: '2.5' },
+  { asset: 'LDUSDT', quantity: '10' },
+]);
+assert.deepEqual(
+  filteredDigestAssets.map(item => item.asset),
+  ['BTC', 'O', 'LDO', 'LDUSDT'],
+  'filterBinanceDigestAssets removes LD<base> duplicates when <base> exists while retaining LDO and unpaired LD* tokens',
+);
 console.log(`Binance account facts: native decimals, ${invalid.length + invalidNativeAssets.length} rejection cases, privacy, token isolation, binding and worker tests PASS`);
 await mf.dispose();
 rmSync(persist, { recursive: true, force: true });
