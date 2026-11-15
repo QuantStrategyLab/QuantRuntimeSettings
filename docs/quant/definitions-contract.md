@@ -116,7 +116,7 @@ Across session interval `(τ_{t-1}, τ_t]` with opening post-flow sizing-unit eq
 ### 3.1 Sizing-Unit Equity (`E_t`) and Declared Bankroll (`B_0`, `Q4-1`, `Q2-4`)
 
 - **Sizing unit:** One USD account unit for the pilot; declared initial bankroll `B_0 = US$50,000` (separate from outside brokerage holdings, [sizing-unit.md](sizing-unit.md)).
-- **Current sizing-unit equity (`E_t`):** Mark-to-market USD net liquidation value inside the unit (`settled USD cash + T-bill / bill-fund NAV + long ETF market value - accrued unpaid execution fees`; `$0` margin debt).
+- **Current sizing-unit equity (`E_t`):** Mark-to-market USD net liquidation value inside the unit (`settled USD cash + unsettled trade receivables net of payables + T-bill / bill-fund NAV + long ETF market value - accrued unpaid execution fees`; `$0` margin debt).
 - **Initial values at `t = 0`:** `E_0 = B_0 = US$50,000`, `E_0* = B_0 = US$50,000`.
 
 ### 3.2 High-Water Sizing Equity (`E_t*`) and Cash-Flow Rules ([decisions-rebase.md](decisions-rebase.md) R3, `Q2-2`, `Q5-1(c)`)
