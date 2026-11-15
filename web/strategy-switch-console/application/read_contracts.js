@@ -11,7 +11,10 @@
 // - "command": it may write. Includes jobs, alarms and authentication flows.
 // - an exception id, or a list of ids, from
 //   `tests/fixtures/read-contract-exceptions.json`: an observation whose
-//   request lifecycle still reaches a registered, expiring write.
+//   request lifecycle still reaches a registered, expiring write. The list is
+//   the union over everything the handler reaches, including injected
+//   dependencies and callbacks (e.g. the Console group's `settings` and
+//   `runControls` dependencies, the Desk readback store's read callback).
 //
 // `scope` records what a result covers (R4): "static", "session", "command",
 // "contract:<document>" for a declared scope/completeness contract, or
@@ -37,7 +40,7 @@ export const PUBLIC_ROUTES = Object.freeze([
   { id: "/login", match: 'url.pathname === "/login"', handler: "startLogin", effects: { "*": "command" }, scope: "command" },
   { id: "/callback", match: 'url.pathname === "/callback"', handler: "finishLogin", effects: { "*": "command" }, scope: "command" },
   { id: "/api/performance/", match: 'url.pathname.startsWith("/api/performance/")', handler: "performanceResponse", effects: { GET: "B0" }, scope: "undeclared" },
-  { id: "console api group", match: '["/api/decisions-inbox", "/api/owner-decisions/history", "/api/accounts", "/api/account-settings/diff", "/api/account-settings/history", "/api/account-settings/draft", "/api/runtime/today", "/api/strategies/summary", "/api/notifications/send-log", "/api/desk/alerts/delivery", "/api/accounts/run-controls"].includes(url.pathname)', handler: "consoleApiResponse", effects: { GET: ["B7", "B0"], POST: "command" }, scope: "undeclared" },
+  { id: "console api group", match: '["/api/decisions-inbox", "/api/owner-decisions/history", "/api/accounts", "/api/account-settings/diff", "/api/account-settings/history", "/api/account-settings/draft", "/api/runtime/today", "/api/strategies/summary", "/api/notifications/send-log", "/api/desk/alerts/delivery", "/api/accounts/run-controls"].includes(url.pathname)', handler: "consoleApiResponse", effects: { GET: ["B7", "B1", "B3", "B0"], POST: "command" }, scope: "undeclared" },
   { id: "/api/desk/credentials", match: 'url.pathname === "/api/desk/credentials"', handler: "deskCredentialsResponse", effects: { GET: "B0" }, scope: "undeclared" },
   { id: "/api/desk/switch/targets", match: 'url.pathname === "/api/desk/switch/targets"', handler: "deskSwitchTargetsResponse", effects: { GET: "B0" }, scope: "undeclared" },
   { id: "/api/desk/ribbon", match: 'url.pathname === "/api/desk/ribbon"', handler: "deskRibbonResponse", effects: { GET: "B0" }, scope: N1 },
@@ -45,7 +48,7 @@ export const PUBLIC_ROUTES = Object.freeze([
   { id: "/api/desk/accounts", match: 'url.pathname === "/api/desk/accounts"', handler: "deskAccountsResponse", effects: { GET: "B0" }, scope: N1 },
   { id: "/api/desk/performance", match: 'url.pathname === "/api/desk/performance"', handler: "deskPerformanceResponse", effects: { GET: "B0" }, scope: N1 },
   { id: "/api/desk/switch/targets/:id/strategies", match: '/^\\/api\\/desk\\/switch\\/targets\\/[^/]+\\/strategies$/.test(url.pathname)', handler: "deskSwitchStrategiesResponse", effects: { GET: "B0" }, scope: N1 },
-  { id: "/api/desk/readbacks", match: 'url.pathname.startsWith("/api/desk/targets/") || url.pathname === "/api/desk/readbacks" || url.pathname.startsWith("/api/desk/readbacks/")', handler: "deskReadbackResponse", effects: { GET: ["B6", "B0"], POST: "command" }, scope: "undeclared" },
+  { id: "/api/desk/readbacks", match: 'url.pathname.startsWith("/api/desk/targets/") || url.pathname === "/api/desk/readbacks" || url.pathname.startsWith("/api/desk/readbacks/")', handler: "deskReadbackResponse", effects: { GET: ["B6", "B1", "B0"], POST: "command" }, scope: "undeclared" },
   { id: "/api/session", match: 'url.pathname === "/api/session"', handler: "sessionPayload", effects: { "*": "observation" }, scope: "session" },
   { id: "OVERVIEW_FX_PROXY_PATH", match: "url.pathname === OVERVIEW_FX_PROXY_PATH", handler: "overviewFxResponse", effects: { GET: "observation" }, scope: "undeclared" },
   { id: "/api/market-benchmark/performance", match: 'url.pathname === "/api/market-benchmark/performance"', handler: "performanceBenchmarkResponse", effects: { GET: "B0", HEAD: "B0" }, scope: "undeclared" },
@@ -58,7 +61,7 @@ export const PUBLIC_ROUTES = Object.freeze([
   { id: "credential maintenance group", match: 'url.pathname === "/api/credential-maintenance" || url.pathname === "/api/internal/credential-maintenance" || url.pathname === "/api/internal/credential-maintenance/claim" || url.pathname === "/api/internal/credential-maintenance/ack"', handler: "credentialMaintenanceResponse", effects: { GET: "B0", POST: "command" }, scope: "undeclared" },
   { id: "/api/config", match: 'url.pathname === "/api/config"', handler: "configPayload", effects: { "*": ["B7", "B0"] }, scope: "undeclared" },
   { id: "/api/admin/runtime-instances", match: 'url.pathname === "/api/admin/runtime-instances"', handler: "runtimeInstancesResponse", effects: { GET: "B0", POST: "command" }, scope: "undeclared" },
-  { id: "/api/admin/config", match: 'url.pathname === "/api/admin/config" && request.method === "GET"', handler: "adminConfigResponse", effects: { GET: "B0" }, scope: "undeclared" },
+  { id: "/api/admin/config", match: 'url.pathname === "/api/admin/config" && request.method === "GET"', handler: "adminConfigResponse", effects: { GET: ["B1", "B0"] }, scope: "undeclared" },
   { id: "/api/admin/config", match: 'url.pathname === "/api/admin/config" && request.method === "POST"', handler: "saveAdminConfig", effects: { POST: "command" }, scope: "command" },
   { id: "/api/risk-profiles", match: 'url.pathname === "/api/risk-profiles" && request.method === "GET"', handler: "riskProfileBindingsResponse", effects: { GET: ["B1", "B0"] }, scope: "undeclared" },
   { id: "/api/risk-profiles", match: 'url.pathname === "/api/risk-profiles" && request.method === "POST"', handler: "saveRiskProfileBindings", effects: { POST: "command" }, scope: "command" },
@@ -166,7 +169,7 @@ export const INTERNAL_OPERATIONS = Object.freeze({
   // Literal action lists in RuntimeInstances.fetch.
   "action:desk_readback_start": write(),
   "action:desk_readback_get": read(),
-  "action:desk_readback_fresh": read(["B6", "B0"]),
+  "action:desk_readback_fresh": read(["B6", "B1", "B0"]),
   "action:credential_maintenance_read": read(),
   "action:credential_maintenance_save": write(),
   "action:credential_maintenance_claim": write(),

@@ -98,7 +98,9 @@ recomputed.
 workflow. It fails when a route branch or internal action is unclassified or
 stale, when an operation reaches an exception the register does not list, when
 an excepted helper gains or loses a call site without a register change, when a
-helper no longer exists, and when a deadline has passed. B0, B1 and B5 are also
+helper no longer exists, and once a deadline has passed. A deadline is an
+inclusive UTC date: an entry due 2026-12-14 is still valid on that date and
+fails the suite from 2026-12-15 (UTC). B0, B1 and B5 are also
 reproduced under the read-only trap in `tests/helpers/read_only_storage.mjs`;
 when a write disappears the suite fails until the entry is closed.
 

@@ -6,7 +6,9 @@
 // deleteAll, and alarm changes, is recorded and then thrown. The record
 // survives code that catches the error (the RuntimeInstances constructor wraps
 // some ALTERs in try/catch), so a suite asserts `trap.violations` is empty
-// rather than relying on the throw alone.
+// rather than relying on the throw alone. SQL that is not one reviewed read
+// statement (several statements, or text that does not tokenize) is a
+// violation as well, and is never handed to the fixture.
 //
 // Install the trap before constructing the object under test: construction is
 // part of the request lifecycle.
@@ -20,40 +22,113 @@ export class ReadOnlyViolation extends Error {
   }
 }
 
-// Read-only PRAGMA forms. A PRAGMA with `=` or a call argument other than a
-// table name for these introspection functions is treated as a write.
+// Read-only PRAGMA forms. A PRAGMA with `=`, or with a call argument that is
+// not a single name, is treated as a write.
 const READ_PRAGMAS = new Set(["table_info", "table_xinfo", "table_list", "index_list", "index_info", "index_xinfo", "foreign_key_list"]);
+const DDL = new Set(["CREATE", "ALTER", "DROP", "REINDEX", "VACUUM", "ANALYZE", "ATTACH", "DETACH"]);
+const DML = new Set(["INSERT", "UPDATE", "DELETE", "REPLACE", "UPSERT"]);
+const CLOSERS = { "'": "'", '"': '"', "`": "`", "[": "]" };
 
-function stripSql(query) {
-  return String(query)
-    .replace(/--[^\n]*/g, " ")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/'(?:[^']|'')*'/g, "''")
-    .trim();
+/**
+ * Tokenize SQLite text the way SQLite does: quotes and quoted identifiers
+ * first, so comment markers and semicolons inside them are literal text.
+ * Returns null on an unterminated string, identifier or block comment; the
+ * classifier fails closed on that.
+ */
+function tokenizeSql(query) {
+  const text = String(query);
+  const statements = [[]];
+  let index = 0;
+  while (index < text.length) {
+    const ch = text[index];
+    if (/\s/.test(ch)) { index += 1; continue; }
+    if (ch === "-" && text[index + 1] === "-") {
+      const end = text.indexOf("\n", index);
+      index = end < 0 ? text.length : end + 1;
+      continue;
+    }
+    if (ch === "/" && text[index + 1] === "*") {
+      const end = text.indexOf("*/", index + 2);
+      if (end < 0) return null;
+      index = end + 2;
+      continue;
+    }
+    if (CLOSERS[ch]) {
+      const close = CLOSERS[ch];
+      let end = index + 1;
+      for (;;) {
+        end = text.indexOf(close, end);
+        if (end < 0) return null;
+        // A doubled quote is an escaped quote; brackets have no escape.
+        if (close !== "]" && text[end + 1] === close) { end += 2; continue; }
+        break;
+      }
+      statements.at(-1).push({ type: ch === "'" ? "string" : "name", text: ch === "'" ? "''" : text.slice(index, end + 1) });
+      index = end + 1;
+      continue;
+    }
+    if (ch === ";") { statements.push([]); index += 1; continue; }
+    const word = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(text.slice(index))?.[0];
+    if (word) {
+      statements.at(-1).push({ type: "word", text: word, upper: word.toUpperCase() });
+      index += word.length;
+      continue;
+    }
+    const number = /^\d[\w.]*/.exec(text.slice(index))?.[0];
+    if (number) {
+      statements.at(-1).push({ type: "number", text: number });
+      index += number.length;
+      continue;
+    }
+    statements.at(-1).push({ type: "punct", text: ch });
+    index += 1;
+  }
+  return statements.filter(tokens => tokens.length);
 }
+
+/** Comment-free, string-redacted text of a query, for violation details. */
+export function normalizeSql(query) {
+  const statements = tokenizeSql(query);
+  if (!statements) return String(query).replace(/\s+/g, " ").trim();
+  return statements.map(tokens => tokens.map(token => token.text).join(" ")).join("; ");
+}
+
+// `replace(...)` is the string function, not REPLACE INTO.
+const writeWord = (tokens, set) => tokens.some((token, index) => token.type === "word" && set.has(token.upper)
+  && !(token.upper === "REPLACE" && tokens[index + 1]?.text === "("));
 
 /**
  * Classify one SQL statement. Returns null for an allowed read, otherwise the
- * violation kind. A leading SELECT is not enough on its own: multiple
- * statements and write keywords after a CTE are rejected too.
+ * violation kind. The text is tokenized first, so a comment marker or a
+ * semicolon inside a string or quoted identifier cannot hide a later
+ * statement. Only a single SELECT, a WITH ... SELECT, or a reviewed
+ * introspection PRAGMA is a read; anything else, including more than one
+ * statement or text that does not tokenize, is a violation.
  */
 export function classifySql(query) {
-  const sql = stripSql(query);
-  const body = sql.replace(/;\s*$/, "");
-  if (body.includes(";")) return "sql_multiple_statements";
-  const head = body.match(/^\s*([A-Za-z]+)/)?.[1]?.toUpperCase();
-  if (head === "SELECT") return null;
-  if (head === "WITH") {
-    return /\b(INSERT|UPDATE|DELETE|REPLACE)\b/i.test(body) ? "sql_dml" : null;
+  const statements = tokenizeSql(query);
+  if (!statements) return "sql_unsupported_syntax";
+  if (statements.length > 1) return "sql_multiple_statements";
+  const tokens = statements[0] || [];
+  const head = tokens[0]?.type === "word" ? tokens[0].upper : undefined;
+  if (head === "SELECT" || head === "WITH") {
+    if (writeWord(tokens, DML)) return "sql_dml";
+    if (writeWord(tokens, DDL) || writeWord(tokens, new Set(["PRAGMA"]))) return "sql_ddl";
+    return null;
   }
   if (head === "PRAGMA") {
-    const pragma = body.match(/^\s*PRAGMA\s+(?:[A-Za-z_]+\.)?([A-Za-z_]+)\s*(=|\()?/i);
-    if (pragma && READ_PRAGMAS.has(pragma[1].toLowerCase()) && pragma[2] !== "=") return null;
-    if (pragma && !pragma[2]) return "sql_pragma_unreviewed";
-    return "sql_pragma_write";
+    let rest = tokens.slice(1);
+    if (rest[0]?.type !== "word" && rest[0]?.type !== "name") return "sql_pragma_write";
+    if (rest[1]?.text === ".") rest = rest.slice(2);
+    const name = rest[0]?.type === "word" ? rest[0].upper.toLowerCase() : null;
+    const args = rest.slice(1);
+    if (!name) return "sql_pragma_write";
+    if (!args.length) return READ_PRAGMAS.has(name) ? null : "sql_pragma_unreviewed";
+    const singleNameCall = args.length === 3 && args[0].text === "(" && args[2].text === ")" && ["word", "name", "string"].includes(args[1].type);
+    return READ_PRAGMAS.has(name) && singleNameCall ? null : "sql_pragma_write";
   }
-  if (["CREATE", "ALTER", "DROP", "REINDEX", "VACUUM", "ANALYZE", "ATTACH", "DETACH"].includes(head)) return "sql_ddl";
-  if (["INSERT", "UPDATE", "DELETE", "REPLACE", "UPSERT"].includes(head)) return "sql_dml";
+  if (DDL.has(head)) return "sql_ddl";
+  if (DML.has(head)) return "sql_dml";
   return "sql_unclassified";
 }
 
@@ -94,7 +169,7 @@ export function createReadOnlyStorage({ sqlRows = () => [], kv = {}, alarm = nul
     exec(query, ...bindings) {
       statements.push(String(query));
       const kind = classifySql(query);
-      if (kind) trap(kind, stripSql(query).slice(0, 120));
+      if (kind) trap(kind, normalizeSql(query).slice(0, 120));
       return cursor(sqlRows(String(query), bindings));
     },
     get databaseSize() { return 0; },

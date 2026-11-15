@@ -162,10 +162,21 @@
       "title": "Risk-authority read imports the singleton",
       "effect_type": "INSERT into risk_profile_authority from legacy bindings when the row is absent",
       "reachable_operations": [
+        "route:console api group#GET",
+        "route:/api/desk/readbacks#GET",
+        "route:/api/admin/config#GET",
         "route:/api/risk-profiles#GET",
         "route:/api/account-settings#GET",
+        "action:desk_readback_fresh",
         "action:risk_profile_read",
         "action:account_settings_read"
+      ],
+      "reachability": [
+        "Console group GET: injected settings dependency (accountSettingsResponse) serves /api/account-settings/diff and requests account_settings_read; /api/accounts/run-controls requests account_settings_read through consoleRunControls profileState",
+        "Admin config GET: adminConfigResponse -> buildAdminState -> loadRiskProfileBindings requests risk_profile_read",
+        "Desk readbacks GET: the target readback requests desk_readback_fresh",
+        "desk_readback_fresh: the DeskReadbackStore read callback in the RuntimeInstances constructor calls readAccountSettings",
+        "readAccountSettings -> readRiskProfileAuthority -> ensureRiskProfileAuthority, which inserts the absent singleton"
       ],
       "helpers": [
         {
@@ -212,10 +223,16 @@
     {
       "id": "B3",
       "kind": "effect",
-      "title": "Runtime-stop GET reconciles control receipts",
+      "title": "Runtime-control reads reconcile control receipts",
       "effect_type": "runtime_control_record/capture/resolve/record_check commands issued while polling",
       "reachable_operations": [
+        "route:console api group#GET",
         "route:/api/runtime-stop#GET"
+      ],
+      "reachability": [
+        "Runtime-stop GET: readRuntimeStop calls readPlatformRuntimeControl for an IBKR/Schwab target",
+        "Console group GET: /api/accounts/run-controls -> injected runControls (consoleRunControls) -> platformControl dependency -> readPlatformRuntimeControl, for an administrator with dispatch configured and an IBKR/Schwab account",
+        "The third counted caller, dispatchPlatformControlReadback, is reached only from the runtime-stop POST command and needs no exception"
       ],
       "helpers": [
         {
@@ -411,7 +428,18 @@
       "effect_type": "Identity debt: Console, runtime-daily and binding joins on unqualified (platform, key)",
       "reachable_operations": [
         "route:console api group#GET",
-        "route:/api/desk/ribbon#GET"
+        "route:/api/config#*",
+        "route:/api/runtime-daily#GET",
+        "route:/api/runtime-daily/sync#POST",
+        "route:/api/desk/ribbon#GET",
+        "route:/api/desk/overview#GET"
+      ],
+      "reachability": [
+        "Console group GET: account_alias projections and the injected dailyBindings/daily dependencies (runtimeDailyPublicBindings, runtimeDailyResponse)",
+        "Config: configPayload -> runtimeDailyPublicBindings -> runtimeDailyRegisteredBindings",
+        "Runtime-daily GET: a selected-account read resolves through runtimeDailyRegisteredBindings",
+        "Runtime-daily sync POST: a registered-target write resolves its binding through runtimeDailyRegisteredBindings. It stays a command and carries no effect exception; it is listed because identity debt affects command attribution as well as observations, and the canonical resolver must cover it",
+        "Desk Ribbon and Overview GET: deskN1Deps runtimeDay -> todaySummary with dailyBindings (runtimeDailyPublicBindings)"
       ],
       "helpers": [
         {
@@ -442,7 +470,7 @@
       "work_item": "Adoption step 6: canonical account registry/resolver (R3, option B) with bounded legacy adapters",
       "acceptance_test": "Legacy and canonical parity fixtures, no double counting, exact physical/source/revision checks preserved after resolution",
       "expires_on": "2027-01-13",
-      "expiry_basis": "Review checkpoint. The report sets no date for identity migration milestones; on this date the entry needs its migration or a reviewed bounded replan."
+      "expiry_basis": "Review/replan checkpoint, confirmed by the owner on 2026-11-15 (PR #1174); not a canonical-account migration delivery deadline. The report sets no date for identity migration milestones; on this date the entry needs an inventory-informed dated migration plan or a reviewed bounded replan."
     },
     {
       "id": "P1",
