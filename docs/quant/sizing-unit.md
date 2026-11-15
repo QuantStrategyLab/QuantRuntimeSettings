@@ -30,15 +30,10 @@ Standing boundaries are unchanged:
 
 As declared by the owner on 2026-11-15 (`14:36` and `14:38` SGT; broker-side read-back is **not verified** in REBASE):
 
-| Account / Venue | Declared state (2026-11-15) | Quant system boundary | Counts as `H`? |
-| --- | --- | --- | --- |
-| **IBKR** (quant system platform) | **Flat** (no legacy TQQQ/SOXL positions) | Pilot starts from zero | N/A |
-| **Schwab** | **Flat** | Outside pilot sizing unit | No |
-| **Longbridge HK** | Owner **discretionary** account | Outside quant management | No |
-| **Longbridge SG** | **Fully invested in QNDX** (long-term Nasdaq benchmark holding) | Outside quant management | No |
-| **Firstrade** | **Holds IBIT** (from earlier regular investments) | Outside quant management | No |
+- **System accounts:** All system accounts are flat: there are no legacy TQQQ/SOXL positions, and the pilot starts from zero.
+- **Outside accounts and positions:** The owner also holds accounts and positions outside the system boundary. Their details are kept in the coordinator's private record and are deliberately not reproduced in tracked documents.
 
-**Explicit isolation rule:** These outside holdings are declared context only. **The system does not read, size against, hedge, net, or trade them, and they do not count as external capital `H`.** Longbridge SG (`QNDX`) falls with the Nasdaq-100 and Firstrade (`IBIT`) is a volatile asset; neither is safe collateral in a Nasdaq drawdown. Consequently, "controlled drawdown" applies strictly to the US-dollar sizing unit and says nothing about total household wealth.
+**Explicit isolation rule:** Outside holdings are declared context only. **The system does not read, size against, hedge, net, or trade them, and they do not count as external capital `H`.** Equity-correlated or volatile outside assets are not safe collateral in a Nasdaq drawdown. Consequently, "controlled drawdown" applies strictly to the US-dollar sizing unit and says nothing about total household wealth.
 
 ---
 
