@@ -42,7 +42,7 @@ Set these non-secret repository variables before running the affected workflows.
 - 密钥和环境专属配置不要写进共享库代码。
 - 会影响多个平台或策略包的改动，需要在文档中说明。
 
-## P0–P6 运行授权状态
+## 运行授权状态
 
 `platform-config.json.meta.runtime_authority` 是 P0–P6 控制面的机器可读状态。当前 `P0_CONTROL_PLANE_NOT_RUNTIME_WIRED` 表示本仓没有 active 的预授权自治策略，也没有已接入 runtime 的 P0 执行网关。
 

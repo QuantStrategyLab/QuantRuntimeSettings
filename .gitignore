@@ -47,7 +47,6 @@ secrets/
 # personal global ignore excludes Markdown.
 !AGENTS.md
 !CLAUDE.md
-!.github/engineering.md
 
 # Local editor, OS and tool cache files.
 .DS_Store
@@ -72,3 +71,9 @@ docs/audits/
 docs/plans/
 docs/handoffs/
 docs/superpowers/
+
+# Working notes are drafts, not documentation.
+docs/changes/
+docs/acceptance-policy.md
+.claude/
+.codex/
