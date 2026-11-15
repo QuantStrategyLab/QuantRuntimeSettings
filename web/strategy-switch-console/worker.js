@@ -183,6 +183,7 @@ import {
   runtimeInstanceCommand,
 } from "./application/runtime_instances/command.js";
 import { readSession, makeSession } from "./application/auth/session.js";
+import { INVENTORY_ROUTE, accountIdentityInventoryResponse } from "./application/account_identity_inventory/http.js";
 import { startLogin, finishLogin } from "./application/auth/login.js";
 import {
   ux1DraftGet,
@@ -389,6 +390,8 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
+      // Read-only inventory: dispatched before every ordinary console handler.
+      if (url.pathname === INVENTORY_ROUTE) return await accountIdentityInventoryResponse(request, env, { readSession });
       if (url.pathname === "/") {
         if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "method_not_allowed" }, 405);
         const headers = responseHeaders({ "Content-Type": "text/html; charset=utf-8", "X-Console-Build": V2_BUILD_ID, "Cache-Control": "no-store" });
