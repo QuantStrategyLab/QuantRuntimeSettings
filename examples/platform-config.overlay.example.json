@@ -1,0 +1,41 @@
+{
+  "scheduling": {
+    "profiles": {
+      "us_23x5_overnight": {
+        "timezone": "America/New_York",
+        "main_time": "15 21 * * 0-5",
+        "probe_time": "30 21,9,15 * * 0-5",
+        "precheck_time": "5 21 * * 0-5"
+      },
+      "hk_equity_main": {
+        "timezone": "Asia/Hong_Kong",
+        "main_time": "45 15 * * 1-5",
+        "probe_time": "35 9,13,15 * * 1-5",
+        "precheck_time": "10 9 * * 1-5"
+      },
+      "cme_futures_globex": {
+        "timezone": "America/New_York",
+        "main_time": "30 16 * * 1-5",
+        "probe_time": "15 18,9 * * 0-5",
+        "precheck_time": "5 18 * * 0-4"
+      }
+    }
+  },
+  "domains": {
+    "futures_us": {
+      "label_zh": "美股指数期货",
+      "label_en": "US Equity Index Futures",
+      "market": "CME",
+      "market_calendar": "CME_GLOBEX",
+      "market_timezone": "America/New_York",
+      "scheduler_profile": "cme_futures_globex"
+    }
+  },
+  "platforms": {
+    "ibkr": {
+      "default_account": {
+        "target_name": "acct_example_01"
+      }
+    }
+  }
+}

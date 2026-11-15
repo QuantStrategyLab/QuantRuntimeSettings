@@ -22,6 +22,12 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from config_overlay import load_platform_config as load_platform_config_with_overlay  # noqa: E402
+
 LOCAL_TARGETS_DIR = ROOT / "local" / "targets"
 EXAMPLE_TARGETS_DIR = ROOT / "examples" / "targets"
 LOCAL_POLICY_PATH = ROOT / "local" / "policy.json"
@@ -365,9 +371,9 @@ def platform_settings_activation(platform: str) -> str:
     if platform not in SUPPORTED_PLATFORMS:
         raise ValueError(f"unsupported platform: {platform}")
     try:
-        payload = json.loads(PLATFORM_CONFIG_PATH.read_text(encoding="utf-8"))
+        payload = load_platform_config_with_overlay(PLATFORM_CONFIG_PATH)
         value = payload["platforms"][platform]["deployment"]["settings_activation"]
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+    except (KeyError, TypeError, OSError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"platform {platform} settings_activation is not configured") from exc
     value = str(value or "").strip()
     if not value:
@@ -409,8 +415,7 @@ def load_local_policy() -> dict[str, Any]:
 def load_platform_config() -> dict[str, Any]:
     if not PLATFORM_CONFIG_PATH.exists():
         return {}
-    with PLATFORM_CONFIG_PATH.open("r", encoding="utf-8") as handle:
-        config = json.load(handle)
+    config = load_platform_config_with_overlay(PLATFORM_CONFIG_PATH)
     return config if isinstance(config, dict) else {}
 
 
@@ -609,7 +614,12 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
                 value = scheduler.get(field)
                 if not isinstance(value, str) or len(value.split()) not in {2, 5}:
                     errors.append(f"runtime_target.scheduler.{field} must have 2 time fields or 5 cron fields")
-            validate_live_ibkr_us_scheduler(runtime_target, scheduler, errors)
+            validate_live_ibkr_us_scheduler(
+                runtime_target,
+                scheduler,
+                errors,
+                plugin_mounts=_effective_target_plugin_mounts(target, runtime_target),
+            )
 
     configured_market_fields = []
     for field in MARKET_FIELDS:
@@ -816,10 +826,56 @@ def is_live_continuity_target(runtime_target: dict[str, Any]) -> bool:
     return isinstance(runtime_target.get("live_continuity"), dict)
 
 
+def _effective_target_plugin_mounts(target: dict[str, Any], runtime_target: dict[str, Any]) -> Any:
+    """Resolve strategy plugin mounts from top-level target or matched service inventory entry."""
+    if isinstance(target.get("plugin_mounts"), list):
+        return target["plugin_mounts"]
+    platform = str(runtime_target.get("platform_id") or "").strip()
+    platform_cfg = SUPPORTED_PLATFORMS.get(platform)
+    if not isinstance(platform_cfg, dict):
+        return None
+    mounts_variable = f"{platform_cfg.get('plugin_mounts_prefix', '')}STRATEGY_PLUGIN_MOUNTS_JSON"
+    for scope_key in ("extra_variables", "repository_variables"):
+        variables = target.get(scope_key)
+        if not isinstance(variables, dict) or "CLOUD_RUN_SERVICE_TARGETS_JSON" not in variables:
+            continue
+        inventory = variables.get("CLOUD_RUN_SERVICE_TARGETS_JSON")
+        if isinstance(inventory, str):
+            try:
+                inventory = json.loads(inventory)
+            except json.JSONDecodeError:
+                continue
+        raw_entries = inventory.get("targets") if isinstance(inventory, dict) else inventory
+        if not isinstance(raw_entries, list) or any(not isinstance(item, dict) for item in raw_entries):
+            continue
+        try:
+            matched_index = select_service_target_entry_index(runtime_target, raw_entries)
+        except ValueError:
+            continue
+        if matched_index is None:
+            continue
+        entry = raw_entries[matched_index]
+        raw_mounts = entry.get(mounts_variable)
+        if raw_mounts is None and isinstance(entry.get("env"), dict):
+            raw_mounts = entry["env"].get(mounts_variable)
+        if isinstance(raw_mounts, str):
+            try:
+                raw_mounts = json.loads(raw_mounts)
+            except json.JSONDecodeError:
+                continue
+        if isinstance(raw_mounts, dict) and isinstance(raw_mounts.get("strategy_plugins"), list):
+            return raw_mounts["strategy_plugins"]
+        if isinstance(raw_mounts, list):
+            return raw_mounts
+    return None
+
+
 def validate_live_ibkr_us_scheduler(
     runtime_target: dict[str, Any],
     scheduler: dict[str, Any],
     errors: list[str],
+    *,
+    plugin_mounts: Any = None,
 ) -> None:
     if (
         runtime_target.get("platform_id") != "ibkr"
@@ -828,21 +884,46 @@ def validate_live_ibkr_us_scheduler(
     ):
         return
 
+    config = load_platform_config()
+    strategies = config.get("strategies", {})
+    domains = config.get("domains", {})
+    profile = str(runtime_target.get("strategy_profile") or "").strip()
+    normalized_profile = profile.lower().replace("-", "_")
+    canonical_profile = strategy_aliases().get(normalized_profile, normalized_profile)
+    strategy = strategies.get(canonical_profile) if isinstance(strategies, dict) else None
+    if not isinstance(strategy, dict) and isinstance(strategies, dict) and canonical_profile != profile:
+        strategy = strategies.get(profile)
+    domain = (
+        domains.get(strategy.get("domain"))
+        if isinstance(strategy, dict) and isinstance(domains, dict)
+        else None
+    )
+
     market = str(runtime_target.get("market") or "").strip().upper()
-    if not market:
-        config = load_platform_config()
-        strategies = config.get("strategies", {})
-        domains = config.get("domains", {})
-        profile = str(runtime_target.get("strategy_profile") or "").strip()
-        strategy = strategies.get(profile) if isinstance(strategies, dict) else None
-        domain = (
-            domains.get(strategy.get("domain"))
-            if isinstance(strategy, dict) and isinstance(domains, dict)
-            else None
-        )
-        market = str(domain.get("market") or "").strip().upper() if isinstance(domain, dict) else ""
+    if not market and isinstance(domain, dict):
+        market = str(domain.get("market") or "").strip().upper()
     if market != "US":
         return
+
+    scheduler_profile = None
+    if isinstance(strategy, dict):
+        scheduler_profile = strategy.get("scheduler_profile")
+        plugin_overrides = strategy.get("scheduler_profile_by_plugin")
+        if isinstance(plugin_overrides, dict) and isinstance(plugin_mounts, list):
+            for mount in plugin_mounts:
+                if (
+                    isinstance(mount, dict)
+                    and mount.get("strategy") in {canonical_profile, profile}
+                    and mount.get("enabled") is True
+                ):
+                    plugin = str(mount.get("plugin") or "").strip()
+                    if plugin in plugin_overrides:
+                        scheduler_profile = plugin_overrides[plugin]
+    if not scheduler_profile and isinstance(domain, dict):
+        scheduler_profile = domain.get("scheduler_profile")
+
+    allow_23x5 = str(scheduler_profile or "").strip().startswith("us_23x5_")
+    allowed_weekdays = {"1-5", "0-5", "0,1-5"} if allow_23x5 else {"1-5"}
 
     for field in ("main_time", "probe_time", "precheck_time"):
         value = scheduler.get(field)
@@ -851,12 +932,18 @@ def validate_live_ibkr_us_scheduler(
         cron = value.split()
         if len(cron) == 2:
             continue
-        if len(cron) == 5 and cron[2] == "*" and cron[4] == "1-5":
+        if len(cron) == 5 and cron[2] == "*" and cron[4] in allowed_weekdays:
             continue
-        errors.append(
-            f"runtime_target.scheduler.{field} must be a two-field time or Mon-Fri cron "
-            "for live IBKR US targets"
-        )
+        if allow_23x5:
+            errors.append(
+                f"runtime_target.scheduler.{field} must be a two-field time or Sun-Fri 23x5 cron "
+                "for live IBKR US 23x5 targets"
+            )
+        else:
+            errors.append(
+                f"runtime_target.scheduler.{field} must be a two-field time or Mon-Fri cron "
+                "for live IBKR US targets"
+            )
 
 
 def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], errors: list[str]) -> None:

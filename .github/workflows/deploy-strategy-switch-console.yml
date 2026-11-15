@@ -1320,6 +1320,9 @@ jobs:
 
       - name: Build config & assets from platform-config.json
         if: ${{ !inputs.render_and_compare_only }}
+        env:
+          QSL_CONFIG_OVERLAY_PATH: ${{ !inputs.release_frontend_assets && vars.QSL_CONFIG_OVERLAY_PATH || '' }}
+          QSL_CONFIG_OVERLAY_JSON: ${{ !inputs.release_frontend_assets && vars.QSL_CONFIG_OVERLAY_JSON || '' }}
         run: |
           set -euo pipefail
           python3 python/scripts/build_platform_config.py

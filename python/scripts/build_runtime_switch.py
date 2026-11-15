@@ -16,6 +16,7 @@ if str(SCRIPT_DIR) not in sys.path:
 ROOT = SCRIPT_DIR.parents[1]
 
 from cloud_run_name_budget import validate_service_inventory, validate_service_name  # noqa: E402
+from config_overlay import load_platform_config  # noqa: E402
 
 from runtime_settings import (  # noqa: E402
     LIVE_CONTINUITY_STATES,
@@ -690,8 +691,8 @@ def _validate_requested_execution_mode(strategy_profile: str, raw_mode: str) -> 
 
 def _load_platform_config() -> dict[str, Any]:
     try:
-        payload = json.loads(PLATFORM_CONFIG_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        payload = load_platform_config(PLATFORM_CONFIG_PATH)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"unable to load platform config {PLATFORM_CONFIG_PATH}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("platform-config.json must contain an object")
