@@ -13,6 +13,33 @@ The proposed QSL Desk response contracts are documented in
 synthetic fixtures and validation only; it does not connect new routes or
 enable switching.
 
+### Observation effects and coverage
+
+[ADR 0002](adr/0002-observation-and-identity-boundaries.md) classifies every
+route and Durable Object action as an observation, a command or a registered
+exception in
+[`read_contracts.js`](../web/strategy-switch-console/application/read_contracts.js).
+No response or behaviour below changes. The classification records what a GET
+can still do today:
+
+- Every GET that reaches the `RuntimeInstances` Durable Object, which includes
+  any read of account options, runs its schema-initializing constructor (B0).
+- `GET /api/risk-profiles` and `GET /api/account-settings` can import the
+  risk-authority singleton (B1).
+- `GET /api/internal/runtime-cycle-health-source` can migrate checkpoints (B2).
+- `GET /api/runtime-stop` can advance runtime-control receipts (B3).
+- `GET /api/credential-rotation/...` can settle a pending operation (B4).
+- The Binance archive and digest reads can create their table (B5).
+- GET on Desk target readbacks can start a fresh collection with admission and
+  an alarm (B6).
+- `/api/config` and the Console read routes that use current strategies can
+  schedule cache writes after the response (B7).
+
+These GETs are not no-write inspection and are not eligible for inventory or
+migration preflight. Most read projections here do not yet declare scope, cap
+and completeness in their payload (P1); where this document states a bound,
+treat it as prose, not response metadata.
+
 ## Endpoints
 
 | Method and path | Parameters or body | Response contract |

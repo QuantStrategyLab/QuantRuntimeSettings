@@ -1,0 +1,155 @@
+# Observation and identity boundaries
+
+Status: accepted (2026-11-14, adopted in part)
+
+## Context
+
+An architecture assessment of the strategy-switch console found the same
+problems in several layers, not one isolated bug:
+
+- The `RuntimeInstances` Durable Object constructor creates tables and indexes,
+  attempts ALTERs and drops/recreates an index before `fetch` selects an
+  operation. Every read of either named object (`runtime-instances`,
+  `console-kv-directory-v1`) inherits those writes. `binance_detail_read`
+  creates its own table as well.
+- Six read families also repair, migrate, reconcile, refresh or collect: risk
+  authority import, cycle-health checkpoint migration, runtime-stop receipt
+  reconciliation, credential-rotation settlement, the fresh Desk readback and
+  the config/current-strategy cache refresh. Tests protect these behaviours, so
+  they are supported patterns, not leftovers.
+- Technical account keys serve as display names and as operational identity.
+  Joins across registries rely on unqualified `(platform, key)` without a
+  canonical account boundary.
+- Capped, filtered and configured-only projections are reused as though they
+  enumerated retained state, and lose scope and completeness on the way.
+
+The existing authority/evidence separation, exact binding checks, N1 coverage
+semantics and explicit maintenance paths are sound and stay.
+
+## Decision
+
+Adopt a small, enforced baseline. Do not add a global "safe mode" flag, another
+deployment mode, or a rule that every operation is read-only: commands,
+maintenance and scheduled jobs write legitimately. The baseline separates
+whether invoking an observation can change application state, and whether the
+resulting view states its identity and coverage honestly.
+
+The five rules, stated normatively with their test obligations in
+[Observation and identity boundaries](../../.github/engineering.md#observation-and-identity-boundaries):
+
+- **R1** Observations receive read capabilities, end to end, including
+  construction, error branches, cold or old schemas and deferred work.
+- **R2** Initialization, persistent repair and migration are explicit, versioned
+  commands.
+- **R3** Resolve one canonical account identity. Keep account, instance, target
+  and display separate.
+- **R4** Every projection declares its scope, bounds and completeness.
+- **R5** Administrative inspection uses independent retained-state readers.
+
+The rules apply to new and changed observation paths now. Existing violations
+are grandfathered only through a finite register with absolute expiry dates.
+There is no caller-supplied `safe=true` escape hatch, and no second meaning of
+paper, live or dry-run.
+
+## Boundaries
+
+- The effect class of an operation (`observation`, `command`, or a named
+  exception) is recorded per public method and path and per internal action in
+  [`application/read_contracts.js`](../../web/strategy-switch-console/application/read_contracts.js).
+  The HTTP verb alone is not the policy: internal POST RPC can be
+  observational, and a GET can still be a command.
+- A transaction containing only reads is allowed. An atomic read-and-claim,
+  read-and-ack or work reservation is a command.
+- Idempotency and replay records belong to command paths. A GET retry does not
+  reserve an idempotency record.
+- Alarms and scheduled jobs keep their maintenance, expiry and reconciliation
+  under their own registered entry points. A read never creates an alarm.
+- Request-local computation and bounded in-memory caches of already-read,
+  version-qualified data are not persistent effects. Application-owned access
+  auditing and durable rate limiting are; classify them explicitly. No security
+  control is disabled to pass a test.
+- A fresh subset can be incomplete, a complete retained set can be stale, and a
+  fully scanned retained store is not recovered deleted history. Contracts keep
+  these statements separate.
+
+## Exceptions
+
+[`tests/fixtures/read-contract-exceptions.json`](../../tests/fixtures/read-contract-exceptions.json)
+lists each existing violation with its reachable operations, effect type, exact
+helpers and their call sites, responsible work item, acceptance test and an
+absolute expiry date. T0 is 2026-11-14. Dates are materialized once and never
+recomputed.
+
+| Id | Debt | Expires |
+| --- | --- | --- |
+| B0 | Shared constructor DDL/ALTER on both named objects | 2027-01-13; N1 and other declared no-write paths by 2026-12-14 |
+| B1 | Risk-authority import in risk and settings reads | 2026-12-14 |
+| B2 | Cycle-health lazy checkpoint migration | 2026-12-14 |
+| B3 | Runtime-stop receipt reconciliation on GET | 2026-12-14 |
+| B4 | Credential-rotation settlement on GET | 2026-12-14 |
+| B5 | `binance_detail_read` table creation | 2026-12-14 |
+| B6 | Fresh Desk readback admission, snapshot and alarm on GET | 2027-01-13 |
+| B7 | Config/current-strategy durable cache refresh on GET | 2027-01-13 |
+| I1 | Technical keys rendered as account names | 2026-12-14 |
+| I2 | Legacy `(platform, key)` joins without a canonical boundary | 2027-01-13 (review checkpoint) |
+| P1 | Projections without a declared scope/completeness contract | 2027-01-13 |
+
+`tests/read_contract_boundaries_validation.mjs` runs in the `Validate`
+workflow. It fails when a route branch or internal action is unclassified or
+stale, when an operation reaches an exception the register does not list, when
+an excepted helper gains or loses a call site without a register change, when a
+helper no longer exists, and when a deadline has passed. B0, B1 and B5 are also
+reproduced under the read-only trap in `tests/helpers/read_only_storage.mjs`;
+when a write disappears the suite fails until the entry is closed.
+
+An exception is not evidence that a path is safe. All B reads are excluded from
+strict administrative inventory immediately. A missed deadline blocks the
+check until the change, or a documented bounded replan, is reviewed; it never
+switches off running controls or changes production behaviour by itself.
+Touching an excepted effect requires its migration or an explicit bounded
+disposition in the same review. Cosmetic changes need not absorb a subsystem
+rewrite.
+
+## Consequences
+
+Authors classify effects, initialize test fixtures explicitly and write
+old-schema and pending-state cases. Reviewers verify one boundary instead of
+rediscovering hidden effects in each caller. Removing read-triggered writes can
+expose older observations or more unavailable states until maintenance runs,
+and explicit refresh adds a command round trip. These costs are measured under
+synthetic volumes before rollout expands.
+
+The work proceeds in order: this baseline; the bounded display correction and
+the independent inventory reader; ordinary reader separation starting from the
+constructor; explicit import, migration and reconciliation commands; protected
+inventory; canonical identity migration; then projection metadata in bounded
+batches.
+
+## Not changed by this decision
+
+1. Trading authority, strategy selection, risk budgets, leverage,
+   live/paper/dry-run semantics, enablement, source admission or publisher
+   permission. `live_configured` and a console switch remain non-authoritative.
+2. Financial calculations, amounts, currencies, source evidence, fingerprint
+   qualification, date/time domains or retention policies. Matching is not
+   loosened, and no returns, FX or zero values are invented to make a
+   migration look complete.
+3. Runtime target, deployment, service or source IDs, digest/receipt/dedup
+   identities and signed authority tuples merely because they contain "alias".
+   Canonical account migration needs its own approved compatibility scope.
+4. Original historical financial records, approvals, receipts or
+   pending-operation identities. No automatic deduplication, history rewrite,
+   settlement, cancellation, reapproval or replay under a new key.
+5. Existing POST authorization, step-up authentication, CSRF/origin protection,
+   revision guards, idempotency, command transactions, alarms, security
+   controls and required CI or branch protection. Their placement may change;
+   their guarantees do not weaken.
+6. Public privacy boundaries, synthetic examples, generated-file ownership,
+   bilingual UI and both themes. Authenticated IBKR display does not permit
+   public broker IDs or hashes that reveal private objects.
+7. Namespace/class identity, storage bindings, deployment, IAM, secrets,
+   notification delivery, cloud jobs or production configuration. There is no
+   global safe-mode toggle and no all-platform big-bang migration.
+
+This decision changes no request behaviour. Implementation, deployment and
+protected migrations remain separately authorized work.

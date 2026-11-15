@@ -1,0 +1,585 @@
+{
+  "$comment": "Finite exception register for ADR 0002 (docs/adr/0002-observation-and-identity-boundaries.md). Code-only debt data. T0 is adopted_on; dates are absolute and are never recomputed. Validated by tests/read_contract_boundaries_validation.mjs; regenerate operation lists and call sites with its --print-seed flag and review the diff.",
+  "adopted_on": "2026-11-14",
+  "exceptions": [
+    {
+      "id": "B0",
+      "kind": "effect",
+      "title": "Shared RuntimeInstances constructor initializes schema before dispatch",
+      "effect_type": "SQL DDL/ALTER and index drop/recreate in the constructor of both named objects (runtime-instances, console-kv-directory-v1), before fetch selects an operation",
+      "reachable_operations": [
+        "route:/api/admin/kv-directory#GET",
+        "route:/api/performance/#GET",
+        "route:console api group#GET",
+        "route:/api/desk/credentials#GET",
+        "route:/api/desk/switch/targets#GET",
+        "route:/api/desk/ribbon#GET",
+        "route:/api/desk/overview#GET",
+        "route:/api/desk/accounts#GET",
+        "route:/api/desk/performance#GET",
+        "route:/api/desk/switch/targets/:id/strategies#GET",
+        "route:/api/desk/readbacks#GET",
+        "route:/api/market-benchmark/performance#GET",
+        "route:/api/market-benchmark/performance#HEAD",
+        "route:MARKET_BENCHMARK_API_PATH#GET",
+        "route:MARKET_BENCHMARK_API_PATH#HEAD",
+        "route:/api/credential-rotation/#GET",
+        "route:credential maintenance group#GET",
+        "route:/api/config#*",
+        "route:/api/admin/runtime-instances#GET",
+        "route:/api/admin/config#GET",
+        "route:/api/risk-profiles#GET",
+        "route:/api/account-settings#GET",
+        "route:/api/control-plane#GET",
+        "route:/api/adaptive-selection#GET",
+        "route:/api/owner-decisions#GET",
+        "route:/api/decisions/#GET",
+        "route:/api/operations/#GET",
+        "route:/api/runtime/readback#GET",
+        "route:/api/audit-events#GET",
+        "route:/api/internal/reconciliation-recovery-confirmation#GET",
+        "route:/api/reconciliation-recovery#GET",
+        "route:/api/internal/binance-account-facts/archive#GET",
+        "route:/api/internal/binance-account-facts/digest#GET",
+        "route:/api/internal/binance-account-facts#GET",
+        "route:/api/binance-account-facts#GET",
+        "route:/api/binance-account-facts/history#GET",
+        "route:/api/execution-evidence#GET",
+        "route:/api/runtime-daily#GET",
+        "route:/api/account-facts/history#GET",
+        "route:/api/account-facts#GET",
+        "route:/api/internal/runtime-cycle-health-source#GET",
+        "route:/api/runtime-target-lifecycle#GET",
+        "route:ACCOUNT_DIAGNOSIS_REQUEST_PATH#GET",
+        "route:ACCOUNT_DIAGNOSIS_INTERNAL_PREFIX#GET",
+        "route:/api/research-tasks#GET",
+        "route:/api/internal/research-promotion-ticket#GET",
+        "route:/api/research-promotion-tickets#GET",
+        "route:/api/research-promotion-applications#GET",
+        "route:/api/internal/research-promotion-application/#GET",
+        "route:/api/ux1/draft#GET",
+        "route:/api/runtime-stop#GET",
+        "action:instance_state:GET",
+        "action:directory:status",
+        "action:directory:read",
+        "action:desk_readback_get",
+        "action:desk_readback_fresh",
+        "action:credential_maintenance_read",
+        "action:console_decision_history",
+        "action:console_settings_history",
+        "action:console_account_metadata",
+        "action:console_audit_events",
+        "action:cycle_health_admission",
+        "action:cycle_health_read",
+        "action:rotation_read",
+        "action:ux1_lookup_job",
+        "action:ux1_read",
+        "action:diagnosis_latest",
+        "action:diagnosis_read",
+        "action:owner_read",
+        "action:recovery_read",
+        "action:promotion_read",
+        "action:application_latest",
+        "action:application_read",
+        "action:risk_profile_read",
+        "action:account_settings_read",
+        "action:account_declarations_read",
+        "action:account_settings_profile_application_lookup",
+        "action:account_executions_read",
+        "action:account_period_return_read",
+        "action:account_daily_native_return_research_read",
+        "action:account_facts_read",
+        "action:account_facts_list",
+        "action:account_facts_history_read",
+        "action:binance_wallet_history_read",
+        "action:binance_detail_read",
+        "action:market_benchmark_read",
+        "action:runtime_control_read",
+        "action:hk_stop_read"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+          "symbol": "RuntimeInstances",
+          "sites": {}
+        },
+        {
+          "file": "web/strategy-switch-console/application/account_facts/executions.js",
+          "symbol": "initializeExecutions",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/account_facts/external_flow.js",
+          "symbol": "initializeExternalFlow",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/credentialMaintenance.js",
+          "symbol": "initializeCredentialMaintenance",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/secretRotation.js",
+          "symbol": "initializeSecretRotation",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/runtime_instances/command.js",
+          "literal": "idFromName(\"runtime-instances\")",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/command.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/kv_directory.js",
+          "literal": "idFromName(\"console-kv-directory-v1\")",
+          "sites": {
+            "web/strategy-switch-console/kv_directory.js": 1
+          }
+        }
+      ],
+      "work_item": "Adoption step 3: wire-only constructor, observation dispatch before initialization, explicit command initialization; alarm and command initialization preserved",
+      "acceptance_test": "Real Worker/DO suite with read-only trap installed before construction: cold, old, partial and current schemas; every operation listed here accounted for; write and alarm initialization still covered",
+      "expires_on": "2027-01-13",
+      "interim_deadlines": [
+        {
+          "due_on": "2026-12-14",
+          "scope": "N1 projections and other declared no-write paths: route:/api/desk/ribbon#GET, route:/api/desk/overview#GET, route:/api/desk/accounts#GET, route:/api/desk/performance#GET, route:/api/desk/switch/targets/:id/strategies#GET"
+        }
+      ]
+    },
+    {
+      "id": "B1",
+      "kind": "effect",
+      "title": "Risk-authority read imports the singleton",
+      "effect_type": "INSERT into risk_profile_authority from legacy bindings when the row is absent",
+      "reachable_operations": [
+        "route:/api/risk-profiles#GET",
+        "route:/api/account-settings#GET",
+        "action:risk_profile_read",
+        "action:account_settings_read"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+          "symbol": "ensureRiskProfileAuthority",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 3
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+          "symbol": "readRiskProfileAuthority",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 2
+          }
+        }
+      ],
+      "work_item": "Adoption step 4: explicit versioned risk-authority import with no-write preflight",
+      "acceptance_test": "Reading an absent authority performs no INSERT and does not report initialized authority; revision and policy tests retained",
+      "expires_on": "2026-12-14"
+    },
+    {
+      "id": "B2",
+      "kind": "effect",
+      "title": "Cycle-health read migrates checkpoints",
+      "effect_type": "Lazy checkpoint payload migration with attempt/incident writes on cycle_health_read",
+      "reachable_operations": [
+        "route:/api/internal/runtime-cycle-health-source#GET",
+        "action:cycle_health_read"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+          "symbol": "migrateCycleHealthCheckpoint",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        }
+      ],
+      "work_item": "Adoption step 4: explicit cycle-health migration command",
+      "acceptance_test": "GET state-equality proof; explicit migration preserves all attempts, partitions, coverage uncertainty and rollback (reuse the 400-attempt and bad-sibling cases)",
+      "expires_on": "2026-12-14"
+    },
+    {
+      "id": "B3",
+      "kind": "effect",
+      "title": "Runtime-stop GET reconciles control receipts",
+      "effect_type": "runtime_control_record/capture/resolve/record_check commands issued while polling",
+      "reachable_operations": [
+        "route:/api/runtime-stop#GET"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/application/runtime_control/http.js",
+          "symbol": "readPlatformRuntimeControl",
+          "sites": {
+            "web/strategy-switch-console/application/worker/runtime_support.js": 3
+          }
+        }
+      ],
+      "work_item": "Adoption step 4: stored-status read plus explicit reconcile command/job",
+      "acceptance_test": "Stored-status read is observational; explicit reconcile keeps request identity, receipts, replay handling and no-redispatch; pending operations keep a servicing path",
+      "expires_on": "2026-12-14"
+    },
+    {
+      "id": "B4",
+      "kind": "effect",
+      "title": "Credential-rotation GET settles operations",
+      "effect_type": "Proxy read followed by rotation_complete, persisting operation/audit state and maintenance metadata",
+      "reachable_operations": [
+        "route:/api/credential-rotation/#GET"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/secretRotation.js",
+          "symbol": "credentialRotationResponse",
+          "sites": {
+            "web/strategy-switch-console/worker.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/secretRotation.js",
+          "literal": "'rotation_complete'",
+          "sites": {
+            "web/strategy-switch-console/secretRotation.js": 3
+          }
+        }
+      ],
+      "work_item": "Adoption step 4: explicit rotation reconcile command",
+      "acceptance_test": "GET is observational; maintenance-revision conflicts, secret handling, step-up and replay unchanged; no forced completion or cancellation of pending rotation",
+      "expires_on": "2026-12-14"
+    },
+    {
+      "id": "B5",
+      "kind": "effect",
+      "title": "Binance detail read creates its table",
+      "effect_type": "CREATE TABLE binance_detail_daily inside binanceDetailCommand before branching to binance_detail_read",
+      "reachable_operations": [
+        "route:/api/internal/binance-account-facts/archive#GET",
+        "route:/api/internal/binance-account-facts/digest#GET",
+        "action:binance_detail_read"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/binance_detail_archive.js",
+          "symbol": "binanceDetailCommand",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/binance_detail_archive.js",
+          "literal": "binance_detail_read",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1,
+            "web/strategy-switch-console/application/worker/runtime_support.js": 4,
+            "web/strategy-switch-console/binance_detail_archive.js": 2
+          }
+        }
+      ],
+      "work_item": "With B0: move table creation to the write path",
+      "acceptance_test": "Empty and old-schema reads return a declared state without DDL; binance_detail_put creates or upgrades explicitly",
+      "expires_on": "2026-12-14"
+    },
+    {
+      "id": "B6",
+      "kind": "effect",
+      "title": "Fresh Desk readback GET runs a collection job",
+      "effect_type": "desk_readback_fresh claims durable admission, sets an alarm, stores a snapshot and releases admission",
+      "reachable_operations": [
+        "route:/api/desk/readbacks#GET",
+        "action:desk_readback_fresh"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/application/desk/readback.js",
+          "symbol": "DeskReadbackStore",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/desk/readback.js",
+          "literal": "desk_readback_fresh",
+          "sites": {
+            "web/strategy-switch-console/application/desk/readback.js": 2,
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        }
+      ],
+      "work_item": "Adoption step 4: versioned explicit refresh/start command plus stored GET; never eligible for inventory meanwhile",
+      "acceptance_test": "Actor budgets, admission, 24-hour expiry and alarm behaviour stay covered on the command; GET performs no admission, alarm or snapshot write",
+      "expires_on": "2027-01-13"
+    },
+    {
+      "id": "B7",
+      "kind": "effect",
+      "title": "Config and current-strategy GET refresh the durable cache",
+      "effect_type": "Deferred waitUntil cache writes through the directory cache action or KV",
+      "reachable_operations": [
+        "route:console api group#GET",
+        "route:/api/config#*"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/application/worker/runtime_support.js",
+          "symbol": "readCurrentStrategies",
+          "sites": {
+            "web/strategy-switch-console/application/worker/runtime_support.js": 1,
+            "web/strategy-switch-console/worker.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/worker/runtime_support.js",
+          "symbol": "writeCurrentStrategiesCache",
+          "sites": {
+            "web/strategy-switch-console/application/worker/runtime_support.js": 2,
+            "web/strategy-switch-console/worker.js": 1
+          }
+        }
+      ],
+      "work_item": "Adoption step 4: reader returns age and availability; existing maintenance or a reviewed command refreshes; never eligible for inventory meanwhile",
+      "acceptance_test": "Cache miss, stale and degraded data, and same-signature cases perform no write on GET; scheduled maintenance still refreshes",
+      "expires_on": "2027-01-13"
+    },
+    {
+      "id": "I1",
+      "kind": "identity",
+      "title": "Technical account keys render as account names",
+      "effect_type": "Identity debt: label and target_name default to key; display resolver prefers label, key, target_name; raw aliases rendered and used in typed confirmation",
+      "reachable_operations": [
+        "ui:web/strategy-switch-console/frontend/src/lib/useDisplayNames.ts",
+        "ui:web/strategy-switch-console/frontend/src/pages/overview/OverviewPage.tsx",
+        "ui:web/strategy-switch-console/frontend/src/components/cockpit.tsx",
+        "ui:web/strategy-switch-console/frontend/src/pages/accounts/ControlsTab.tsx",
+        "route:console api group#GET"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/frontend/src/lib/useDisplayNames.ts",
+          "literal": "[option?.label, option?.key, option?.target_name]",
+          "sites": {
+            "web/strategy-switch-console/frontend/src/lib/useDisplayNames.ts": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/account_options_schema.js",
+          "literal": "raw.label || key",
+          "sites": {
+            "web/strategy-switch-console/account_options_schema.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/account_options_schema.js",
+          "literal": "raw.target_name || key",
+          "sites": {
+            "web/strategy-switch-console/account_options_schema.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/frontend/src/pages/overview/OverviewPage.tsx",
+          "literal": "{item.account_alias || t(\"decisions.account_unbound\")}",
+          "sites": {
+            "web/strategy-switch-console/frontend/src/pages/overview/OverviewPage.tsx": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/frontend/src/components/cockpit.tsx",
+          "literal": "<dd>{decision.account_alias}",
+          "sites": {
+            "web/strategy-switch-console/frontend/src/components/cockpit.tsx": 1
+          }
+        }
+      ],
+      "work_item": "impl-d1 bounded presentation correction (adoption step 2); canonical identity later (R3)",
+      "acceptance_test": "UI rendering tests reject raw technical aliases as IBKR account titles; label changes cannot change selection, requests or fingerprints",
+      "expires_on": "2026-12-14"
+    },
+    {
+      "id": "I2",
+      "kind": "identity",
+      "title": "Legacy key joins without a canonical account boundary",
+      "effect_type": "Identity debt: Console, runtime-daily and binding joins on unqualified (platform, key)",
+      "reachable_operations": [
+        "route:console api group#GET",
+        "route:/api/desk/ribbon#GET"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/application/console_api/routes.js",
+          "literal": "account_alias: a.key",
+          "sites": {
+            "web/strategy-switch-console/application/console_api/operations.js": 1,
+            "web/strategy-switch-console/application/console_api/routes.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/console_api/operations.js",
+          "literal": "account_alias: account.key",
+          "sites": {
+            "web/strategy-switch-console/application/console_api/operations.js": 3,
+            "web/strategy-switch-console/application/console_api/routes.js": 2,
+            "web/strategy-switch-console/application/console_api/run_controls.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/worker/runtime_support.js",
+          "literal": "option.key === item.account_key",
+          "sites": {
+            "web/strategy-switch-console/application/worker/runtime_support.js": 1
+          }
+        }
+      ],
+      "work_item": "Adoption step 6: canonical account registry/resolver (R3, option B) with bounded legacy adapters",
+      "acceptance_test": "Legacy and canonical parity fixtures, no double counting, exact physical/source/revision checks preserved after resolution",
+      "expires_on": "2027-01-13",
+      "expiry_basis": "Review checkpoint. The report sets no date for identity migration milestones; on this date the entry needs its migration or a reviewed bounded replan."
+    },
+    {
+      "id": "P1",
+      "kind": "projection",
+      "title": "Projections without a declared scope and completeness contract",
+      "effect_type": "Projection debt: capped, filtered or configured-only results without scope, cap, truncation or coverage metadata",
+      "reachable_operations": [
+        "route:/api/admin/kv-directory#GET",
+        "route:/api/performance/#GET",
+        "route:console api group#GET",
+        "route:/api/desk/credentials#GET",
+        "route:/api/desk/switch/targets#GET",
+        "route:/api/desk/readbacks#GET",
+        "route:OVERVIEW_FX_PROXY_PATH#GET",
+        "route:/api/market-benchmark/performance#GET",
+        "route:/api/market-benchmark/performance#HEAD",
+        "route:MARKET_BENCHMARK_API_PATH#GET",
+        "route:MARKET_BENCHMARK_API_PATH#HEAD",
+        "route:/api/strategy-profiles#*",
+        "route:/api/credential-rotation/#GET",
+        "route:credential maintenance group#GET",
+        "route:/api/config#*",
+        "route:/api/admin/runtime-instances#GET",
+        "route:/api/admin/config#GET",
+        "route:/api/risk-profiles#GET",
+        "route:/api/account-settings#GET",
+        "route:/api/strategy-health#GET",
+        "route:/api/control-plane#GET",
+        "route:/api/adaptive-selection#GET",
+        "route:/api/m0-research#GET",
+        "route:/api/owner-decisions#GET",
+        "route:/api/decisions/#GET",
+        "route:/api/operations/#GET",
+        "route:/api/runtime/readback#GET",
+        "route:/api/audit-events#GET",
+        "route:/api/internal/reconciliation-recovery-confirmation#GET",
+        "route:/api/reconciliation-recovery#GET",
+        "route:/api/binance-private-scope#GET",
+        "route:/api/internal/binance-account-facts/archive#GET",
+        "route:/api/internal/binance-account-facts/digest#GET",
+        "route:/api/internal/binance-account-facts#GET",
+        "route:/api/binance-account-facts#GET",
+        "route:/api/binance-account-facts/history#GET",
+        "route:/api/execution-evidence#GET",
+        "route:/api/runtime-daily#GET",
+        "route:/api/account-facts/history#GET",
+        "route:/api/account-facts#GET",
+        "route:/api/internal/runtime-cycle-health-source#GET",
+        "route:/api/runtime-target-lifecycle#GET",
+        "route:ACCOUNT_DIAGNOSIS_REQUEST_PATH#GET",
+        "route:ACCOUNT_DIAGNOSIS_INTERNAL_PREFIX#GET",
+        "route:/api/research-tasks#GET",
+        "route:/api/internal/research-promotion-ticket#GET",
+        "route:/api/research-promotion-tickets#GET",
+        "route:/api/research-promotion-applications#GET",
+        "route:/api/internal/research-promotion-application/#GET",
+        "route:/api/ux1/draft#GET",
+        "route:/api/runtime-stop#GET",
+        "action:instance_state:GET",
+        "action:directory:status",
+        "action:directory:read",
+        "action:desk_readback_get",
+        "action:desk_readback_fresh",
+        "action:credential_maintenance_read",
+        "action:console_decision_history",
+        "action:console_settings_history",
+        "action:console_account_metadata",
+        "action:console_audit_events",
+        "action:cycle_health_admission",
+        "action:cycle_health_read",
+        "action:rotation_read",
+        "action:ux1_lookup_job",
+        "action:ux1_read",
+        "action:diagnosis_latest",
+        "action:diagnosis_read",
+        "action:owner_read",
+        "action:recovery_read",
+        "action:promotion_read",
+        "action:application_latest",
+        "action:application_read",
+        "action:risk_profile_read",
+        "action:account_settings_read",
+        "action:account_declarations_read",
+        "action:account_settings_profile_application_lookup",
+        "action:account_executions_read",
+        "action:account_period_return_read",
+        "action:account_daily_native_return_research_read",
+        "action:account_facts_read",
+        "action:account_facts_list",
+        "action:account_facts_history_read",
+        "action:binance_wallet_history_read",
+        "action:binance_detail_read",
+        "action:market_benchmark_read",
+        "action:runtime_control_read",
+        "action:hk_stop_read"
+      ],
+      "helpers": [
+        {
+          "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+          "literal": "ORDER BY revision DESC LIMIT 50",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+          "literal": ".slice(0, 366)",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/research_promotion/http.js",
+          "literal": "tickets.slice(0, RESEARCH_PROMOTION_MAX_TICKETS)",
+          "sites": {
+            "web/strategy-switch-console/application/research_promotion/http.js": 1
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/worker/runtime_support.js",
+          "literal": ".slice(0, AUDIT_LOG_LIMIT)",
+          "sites": {
+            "web/strategy-switch-console/application/worker/runtime_support.js": 2
+          }
+        },
+        {
+          "file": "web/strategy-switch-console/application/runtime_instances/command.js",
+          "literal": "if (instance.kind !== \"existing\") continue;",
+          "sites": {
+            "web/strategy-switch-console/application/runtime_instances/command.js": 1,
+            "web/strategy-switch-console/application/runtime_instances/durable_object.js": 1
+          }
+        }
+      ],
+      "work_item": "Adoption step 7: add R4 metadata compatibly or version the response, in bounded batches",
+      "acceptance_test": "Contract tests at cap-1, cap and cap+1; partial versus verified-empty rendering; outer projections cannot upgrade inner partial or unknown state",
+      "expires_on": "2027-01-13"
+    }
+  ]
+}

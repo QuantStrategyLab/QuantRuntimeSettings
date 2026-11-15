@@ -42,6 +42,10 @@ Regenerate projections instead of editing them by hand.
 
 Organization documentation rules are checked by `python scripts/check_style.py --phase 2` (`Documentation check` in CI).
 
+Console reads, identity and projection scope follow
+[Observation and identity boundaries](.github/engineering.md#observation-and-identity-boundaries)
+(ADR 0002), enforced by `node tests/read_contract_boundaries_validation.mjs`.
+
 ## Frontend design
 
 Only two frontend design requirements are hard:

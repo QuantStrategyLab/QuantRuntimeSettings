@@ -17,3 +17,8 @@ List the checks run and their results. Explain any checks that could not run.
 ## Risk
 
 <!-- Record the risk tier, affected paths and relevant compatibility or operational impact. -->
+
+<!-- Console changes (ADR 0002): is each new or changed operation classified as an
+observation, a command or a registered exception? Can a read write, migrate, refresh
+or schedule work? Does any name, label or key become identity? Does each projection
+state its scope, cap and completeness? -->
