@@ -9,7 +9,7 @@ on:
         type: boolean
         default: true
   schedule:
-    - cron: "17 2 * * 1"
+    - cron: "17 2 * * *"
 
 permissions:
   contents: read
@@ -209,6 +209,24 @@ jobs:
                 --body-file "$body"
             fi
           fi
+
+      - name: Send redacted Telegram control-plane failure alert
+        if: >
+          always()
+          && (steps.platform_health.outcome == 'failure'
+            || steps.runtime_validation.outcome == 'failure'
+            || steps.web_validation.outcome == 'failure')
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          QSL_GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.QSL_GLOBAL_TELEGRAM_CHAT_ID }}
+          GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.GLOBAL_TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 python/scripts/control_plane_alert.py \
+            --source "platform-health-monitor" \
+            --summary "platform_health=${{ steps.platform_health.outcome }}, runtime_validation=${{ steps.runtime_validation.outcome }}, web_validation=${{ steps.web_validation.outcome }}" \
+            --report-path data/output/platform-health/report.json \
+            --run-url "${RUN_URL}"
 
       - name: Fail if platform health failed
         if: >

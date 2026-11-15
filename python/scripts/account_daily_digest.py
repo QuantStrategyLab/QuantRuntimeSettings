@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Mapping
 from datetime import date, datetime, time
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from types import SimpleNamespace
 
 from account_daily_facts import SIMULATION_MODES
@@ -28,8 +29,68 @@ from unified_daily_digest import (
 # Display order is independent of the storage roster and its read outcomes.
 _PLATFORM_DISPLAY_ORDER = ('ibkr', 'firstrade', 'schwab', 'binance', 'longbridge')
 
+_DEFAULT_PLATFORM_CAPABILITIES = {
+    'hide_broker_account_identity': False,
+    'replace_platform_named_label': False,
+    'supports_wallet_valuation': False,
+    'supports_settled_cash': False,
+    'supports_no_stocks_flag': False,
+    'supports_telegram_account_id': False,
+    'normalize_stock_option_symbol': False,
+    'snapshot_standby_when_not_run': False,
+}
 
-def _platform_display_rank(platform):
+_BUILTIN_PLATFORM_CAPABILITIES = {
+    'ibkr': {
+        'supports_settled_cash': True,
+        'supports_no_stocks_flag': True,
+        'supports_telegram_account_id': True,
+    },
+    'firstrade': {},
+    'schwab': {},
+    'binance': {
+        'hide_broker_account_identity': True,
+        'replace_platform_named_label': True,
+        'supports_wallet_valuation': True,
+    },
+    'longbridge': {
+        'hide_broker_account_identity': True,
+        'normalize_stock_option_symbol': True,
+        'snapshot_standby_when_not_run': True,
+    },
+}
+
+
+def _platform_capabilities(platform, known_platforms=None):
+    caps = dict(_DEFAULT_PLATFORM_CAPABILITIES)
+    caps.update(_BUILTIN_PLATFORM_CAPABILITIES.get(platform, ()))
+    if isinstance(known_platforms, Mapping):
+        meta = known_platforms.get(platform)
+        if isinstance(meta, Mapping):
+            raw_caps = meta.get('digest_capabilities') or meta.get('capabilities')
+            if isinstance(raw_caps, Mapping):
+                for key in _DEFAULT_PLATFORM_CAPABILITIES:
+                    if isinstance(raw_caps.get(key), bool):
+                        caps[key] = raw_caps[key]
+    return caps
+
+
+def _platform_hidden_unbound(meta):
+    if not isinstance(meta, Mapping):
+        return False
+    deployment = meta.get('deployment')
+    if not isinstance(deployment, Mapping):
+        return False
+    return deployment.get('runtime_model') == 'not_configured' or deployment.get('live_configured') is False
+
+
+def _platform_display_rank(platform, known_platforms=None):
+    if isinstance(known_platforms, Mapping):
+        meta = known_platforms.get(platform)
+        if isinstance(meta, Mapping):
+            rank = meta.get('display_rank')
+            if type(rank) is int:
+                return rank
     if platform in _PLATFORM_DISPLAY_ORDER:
         return _PLATFORM_DISPLAY_ORDER.index(platform)
     return len(_PLATFORM_DISPLAY_ORDER)
@@ -54,15 +115,27 @@ def _quantity(value, asset, zh, unknown):
     return text + (unit if text != unknown else '')
 
 
+def _format_money_amount(value, unknown):
+    if isinstance(value, bool):
+        return unknown
+    try:
+        text = str(value).strip() if isinstance(value, str) else str(value)
+        amount = Decimal(text)
+    except (InvalidOperation, ValueError):
+        return unknown
+    if not amount.is_finite():
+        return unknown
+    rounded = amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    if rounded == 0:
+        rounded = Decimal('0.00')
+    return f'{rounded:,f}'
+
+
 def _money(value, currency, unknown):
     if not _number(value) or not isinstance(currency, str) or not re.fullmatch(r'[A-Z]{3}', currency):
         return unknown
-    text = _value(value, unknown)
-    if '.' not in text:
-        text += '.00'
-    elif len(text.rsplit('.', 1)[1]) == 1:
-        text += '0'
-    return f'{currency} {text}'
+    formatted = _format_money_amount(value, unknown)
+    return f'{currency} {formatted}' if formatted != unknown else unknown
 
 
 def valid_crypto_symbol(value):
@@ -79,7 +152,8 @@ def _symbol(value, unknown, *, asset_type=None):
     return value if re.fullmatch(rf'[A-Za-z0-9][A-Za-z0-9.\-^/]{{0,{limit}}}', value) else unknown
 
 
-def _account_label(row, bindings, locale):
+def _account_label(row, bindings, locale, caps=None):
+    caps = caps or _platform_capabilities(row.platform_id)
     private_keys = {row.opaque_account_uid, *(binding.get('target_id') for binding, _ in bindings),
                     *(binding.get('account_hint') for binding, _ in bindings)}
     for binding, _ in bindings:
@@ -91,7 +165,7 @@ def _account_label(row, bindings, locale):
     if account in private_keys:
         return ''
     if broker_account_identity(row.platform_id, account):
-        return '' if row.platform_id in {'binance', 'longbridge'} else '***' + account[-2:]
+        return '' if caps.get('hide_broker_account_identity') else '***' + account[-2:]
     return account
 
 
@@ -131,7 +205,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
     facts = facts or {}
     telegram_ibkr_accounts = telegram_ibkr_accounts or {}
     groups = {}
-    indexed = sorted(enumerate(expected), key=lambda item: _platform_display_rank(item[1].get('platform_id')))
+    indexed = sorted(enumerate(expected), key=lambda item: _platform_display_rank(item[1].get('platform_id'), known_platforms))
     for i, binding in indexed:
         key = (binding.get('platform_id', ''), binding.get('opaque_account_uid', ''))
         group = groups.setdefault(key, {'bindings': [], 'rows': []})
@@ -153,23 +227,30 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 account_label=binding.get('account_label', ''), account_alias=binding.get('account_alias', ''),
                 account_hint=binding.get('account_hint', ''), account_scope=binding.get('account_scope', ''),
                 execution_mode=binding.get('execution_mode', '')))
-    account_labels = [_account_label(row, group['bindings'], locale)
-                      for row, group in zip(representatives, groups.values(), strict=True)]
+    caps_list = [_platform_capabilities(row.platform_id, known_platforms) for row in representatives]
+    account_labels = [_account_label(row, group['bindings'], locale, caps)
+                      for row, group, caps in zip(representatives, groups.values(), caps_list, strict=True)]
     account_labels = [
         ('账户' if zh else 'Account')
-        if row.platform_id == 'binance' and label.casefold() == 'binance' else label
-        for row, label in zip(representatives, account_labels, strict=True)
+        if caps.get('replace_platform_named_label') and label.casefold() == row.platform_id.casefold() else label
+        for row, label, caps in zip(representatives, account_labels, caps_list, strict=True)
     ]
     contexts = _run_display_contexts(representatives, locale, account_labels=account_labels)
     all_idle = bool(groups)
+    summary_counts = {key: 0 for key in ('traded', 'pending', 'quiet', 'standby', 'snapshot', 'unconfirmed')}
     blocks = []
     outcome_text = {
-        'missing': ('报告缺失', 'Report missing'), 'stale': ('报告过期', 'Report stale'),
-        'not_run': ('未运行', 'Not run'), 'read_failed': ('报告读取失败', 'Report read failed'),
+        'missing': ('报告缺失', 'Report missing'),
+        'stale': ('报告过期', 'Report stale'),
+        'not_run': ('未运行', 'Not run'),
+        'scheduled_idle': ('当日无排班，待机', 'Not scheduled today; standing by'),
+        'market_closed': ('休市待机', 'Market closed; standing by'),
+        'read_failed': ('报告读取失败', 'Report read failed'),
         'invalid': ('报告无效', 'Report invalid'),
     }
-    for ((platform, uid), group), (platform_label, account, _) in zip(groups.items(), contexts):
-        if platform == 'ibkr':
+    for ((platform, uid), group), (platform_label, account, _), caps in zip(
+            groups.items(), contexts, caps_list, strict=True):
+        if caps.get('supports_telegram_account_id'):
             account = telegram_ibkr_accounts.get(uid, account)
         rows, bindings = group['rows'], group['bindings']
         actual_rows = [row for row in rows if row.execution_mode.strip().lower() not in SIMULATION_MODES]
@@ -188,7 +269,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         header = '🏦 ' + ' · '.join((platform_label, account, strategy_label))
         details = []
         for binding, outcome in bindings:
-            if outcome not in {'present', 'snapshot_only'} and not (outcome == 'not_run' and len(bindings) == 1):
+            if outcome not in {'present', 'snapshot_only'} and not (
+                    outcome in {'not_run', 'scheduled_idle', 'market_closed'} and len(bindings) == 1):
                 fallback = '未命名策略' if zh else 'Unnamed strategy'
                 strategy = safe_display_text(display_name('strategies', binding.get('strategy_profile', ''), locale, fallback=fallback)) or fallback
                 text = outcome_text.get(outcome, ('状态未知', 'Status unknown'))[0 if zh else 1]
@@ -198,10 +280,10 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         mixed_fill_window = account_fact.get('fills_window_mixed') is True
         legacy_fill_window_unreliable = unknown_fill_window or mixed_fill_window
         all_present = all(outcome == 'present' for _, outcome in bindings)
-        binance_receipts = platform == 'binance' and any(binding.get('receipt_candidate') for binding, _ in bindings)
+        receipt_candidates = any(binding.get('receipt_candidate') for binding, _ in bindings)
         bound_rows = all(any(r.target_id == b.get('target_id') and r.strategy_profile == b.get('strategy_profile') for r in rows)
                          for b, _ in bindings)
-        verified_idle_rows = (not binance_receipts and all_present and bound_rows and bool(rows) and not legacy_fill_window_unreliable
+        verified_idle_rows = (not receipt_candidates and all_present and bound_rows and bool(rows) and not legacy_fill_window_unreliable
                               and not account_fact.get('additional_fills')
                               and all(_verified_no_trade(row) for row in rows))
         counts = {}
@@ -213,7 +295,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 count = len(records)
             elif verified_idle_rows and not records:
                 count = 0
-            elif (not binance_receipts and all_present and bound_rows and len(rows) == 1 and _known_count(rows[0], name)
+            elif (not receipt_candidates and all_present and bound_rows and len(rows) == 1 and _known_count(rows[0], name)
                   and getattr(rows[0], name + '_count') >= len(records)
                   and not (name == 'fill' and (legacy_fill_window_unreliable or account_fact.get('additional_fills') is True))):
                 count = getattr(rows[0], name + '_count')
@@ -226,7 +308,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 observed = max([observed, *(getattr(row, name + '_count') for row in rows if _known_count(row, name))])
             value = _count_value(count, observed, zh)
             count_lines.append(f'{label} {value}' if zh else f'{label}: {value}')
-        quiet = sum(_verified_no_trade(row) for row in rows) if binance_receipts else 0
+        quiet = sum(_verified_no_trade(row) for row in rows) if receipt_candidates else 0
         blocked = [row for row in rows if _execution_blocked(row)]
         for row in blocked:
             reason = (render_reasons(row.approved_gate_reasons, locale) if row.approved_gate_reasons
@@ -234,8 +316,9 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             reason = reason or ('执行已拦截' if zh else 'Execution blocked')
             if reason not in details:
                 details.append(reason)
-        if any(row.status == 'alert' and row not in blocked and not row.approved_gate_reasons
-               and not _execution_unconfirmed(row) for row in rows):
+        execution_issue = any(row.status == 'alert' and row not in blocked and not row.approved_gate_reasons
+                              and not _execution_unconfirmed(row) for row in rows)
+        if execution_issue:
             details.append('执行异常' if zh else 'Execution issue')
         unconfirmed = [row for row in rows if _execution_unconfirmed(row)]
         order_states = {'order_submitted', 'submitted', 'broker_acknowledged', 'partially_filled'}
@@ -309,7 +392,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             for stamp, snapshot in snapshots:
                 holdings = snapshot.get('holdings') or []
                 complete = snapshot.get('holdings_complete') is True
-                no_stocks = platform == 'ibkr' and snapshot.get('no_stocks') is True
+                no_stocks = caps.get('supports_no_stocks_flag') and snapshot.get('no_stocks') is True
                 if holdings or complete or no_stocks:
                     if stamp != asset_stamp:
                         holding_stamp_label = _snapshot_label(stamp, window, zh)
@@ -330,20 +413,26 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         asset_line = ('💰 总资产：' if zh else '💰 Total assets: ') + equity
         if stamp_label:
             asset_line += ' · ' + stamp_label
-        wallet = account_fact.get('wallet_valuation') if platform == 'binance' else None
+        wallet = account_fact.get('wallet_valuation') if caps.get('supports_wallet_valuation') else None
         if wallet:
-            whole, _, fraction = wallet['amount'].partition('.')
-            amount = f'USDT {int(whole):,}.{fraction.ljust(2, "0")}'
+            currency = str(wallet.get('currency') or 'USDT')
+            formatted_wallet = _format_money_amount(wallet.get('amount'), unknown)
+            amount = f'{currency} {formatted_wallet}' if formatted_wallet != unknown else unknown
             stamp = _snapshot_label(datetime.fromisoformat(wallet['as_of']), window, zh)
             label = '💰 钱包估值（券商返回范围）：' if zh else '💰 Wallet valuation (provider-reported scope): '
             asset_line = label + amount + ' · ' + stamp
         cash_lines = []
-        if platform == 'ibkr':
+        if caps.get('supports_settled_cash') or account_fact.get('settled_cash'):
             cash = account_fact.get('settled_cash')
             value = unknown
             if cash:
                 date_label = 'Flex 结单' if zh else 'Flex statement'
-                value = f"USD {Decimal(cash['amount']):,f} · {date_label} {cash['statement_date']}"
+                cash_currency = str(cash.get('currency') or 'USD')
+                formatted_cash = _format_money_amount(cash.get('amount'), unknown)
+                value = (
+                    f"{cash_currency} {formatted_cash} · {date_label} {cash['statement_date']}"
+                    if formatted_cash != unknown else unknown
+                )
             cash_lines.append(('期末已结算现金：' if zh else 'Period-end settled cash: ') + value)
         holding_label = '📦 持仓：' if zh else '📦 Holdings: '
         if not holdings:
@@ -357,16 +446,30 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             holding_label += '仅列已核实持仓' if zh else 'Verified positions only'
         if holding_stamp_label:
             holding_label += (' · ' if not holdings or not complete else '') + holding_stamp_label
-        holding_lines = []
+        elif holdings and complete and not zh:
+            holding_label = '📦 Holdings:'
+        raw_holding_lines = []
+        is_crypto_only = bool(holdings)
         for holding in holdings:
             symbol, asset = holding.get('symbol'), holding.get('asset_type')
             # Older LongBridge snapshots tagged every position returned by the
             # stock-positions endpoint as stock, including US option contracts.
-            if (platform == 'longbridge' and asset == 'stock'
+            if (caps.get('normalize_stock_option_symbol') and asset == 'stock'
                     and isinstance(symbol, str) and re.fullmatch(r'[A-Z0-9]{1,6}[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])[CP][0-9]{4,8}\.US', symbol)):
                 asset = 'option'
-            holding_lines.append(f"{_symbol(symbol, unknown, asset_type=asset)} "
-                                 f"{_quantity(holding.get('quantity'), asset, zh, unknown)}")
+            if str(asset or '').lower() != 'crypto':
+                is_crypto_only = False
+            raw_holding_lines.append(
+                f"{_symbol(symbol, unknown, asset_type=asset)} "
+                f"{_quantity(holding.get('quantity'), asset, zh, unknown)}"
+            )
+        holding_lines = []
+        if is_crypto_only and len(raw_holding_lines) > 6:
+            for index in range(0, len(raw_holding_lines), 2):
+                pair = raw_holding_lines[index:index + 2]
+                holding_lines.append((' · '.join(pair), len(pair)))
+        else:
+            holding_lines = [(line, 1) for line in raw_holding_lines]
         # Every binding must have a matching run, not merely an outcome marker.
         orders, fills = account_fact.get('orders') or [], account_fact.get('fills') or []
         filled_order_ids = {fill['order_id'] for fill in fills if fill.get('order_id')}
@@ -415,10 +518,16 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 state = '⏳ 已提交，成交待确认' if zh else '⏳ Submitted, fills unconfirmed'
         elif account_idle:
             state = '😴 无交易' if zh else '😴 No trades'
-        elif binance_receipts and rows:
+        elif receipt_candidates and rows:
             uncertain_run_in_state = True
-            state = (f'已核实 {quiet}/{len(rows)} 轮无交易，全天交易未确认' if zh else
-                     f'{quiet} of {len(rows)} runs verified without trades. Daily activity unconfirmed.')
+            configured_runs = [
+                binding.get('expected_runs')
+                for binding, _ in bindings
+                if type(binding.get('expected_runs')) is int and binding.get('expected_runs') > 0
+            ]
+            expected_total = max([len(rows), *configured_runs])
+            state = (f'已核实 {quiet}/{expected_total} 轮无交易，全天交易未确认' if zh else
+                     f'{quiet} of {expected_total} runs verified without trades. Daily activity unconfirmed.')
         elif blocked:
             state = '策略触发风控，全天交易未确认' if zh else 'Strategy runs blocked. Daily activity unconfirmed.'
         elif has_simulation and (unconfirmed_runs or not rows):
@@ -428,8 +537,15 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         elif unconfirmed_runs:
             uncertain_run_in_state = True
             state = '未能确认策略执行结果' if zh else 'Strategy execution unconfirmed'
-        elif snapshot_only or (platform == 'longbridge' and snapshots
-                               and all(outcome == 'not_run' for _, outcome in bindings)):
+        elif snapshot_only:
+            state = '仅核实持仓快照，交易情况未知' if zh else 'Holdings snapshot verified, trading activity unknown'
+            if equity != unknown or wallet:
+                state = '仅核实账户快照，交易情况未知' if zh else 'Account snapshot verified, trading activity unknown'
+        elif all(outcome == 'market_closed' for _, outcome in bindings):
+            state = '⏸️ 休市待机' if zh else '⏸️ Market closed; standing by'
+        elif all(outcome in {'scheduled_idle', 'market_closed'} for _, outcome in bindings):
+            state = '⏸️ 当日无排班，待机' if zh else '⏸️ Not scheduled today; standing by'
+        elif caps.get('snapshot_standby_when_not_run') and snapshots and all(outcome == 'not_run' for _, outcome in bindings):
             state = '仅核实持仓快照，交易情况未知' if zh else 'Holdings snapshot verified, trading activity unknown'
             if equity != unknown or wallet:
                 state = '仅核实账户快照，交易情况未知' if zh else 'Account snapshot verified, trading activity unknown'
@@ -445,50 +561,100 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
             details.append('模拟记录已排除' if zh else 'Simulated runs excluded')
         if not full_scope and any(count is not None for count in counts.values()):
             state += '（已核验策略范围）' if zh else ' (verified strategy scope)'
-        blocks.append((header, [state, ('｜' if zh else ' | ').join(count_lines), asset_line, *cash_lines, holding_label],
-                       details, holding_lines))
+        all_counts_unknown = (
+            all(c is None for c in (counts['order'], counts['fill'], filled_order_count))
+            and not orders
+            and not fills
+            and not any((_known_count(r, 'order') and r.order_count > 0) or (_known_count(r, 'fill') and r.fill_count > 0) for r in rows)
+        )
+        standby_outcomes = all(outcome in {'scheduled_idle', 'market_closed', 'not_run', 'snapshot_only'} for _, outcome in bindings)
+        clean_execution = not blocked and not execution_issue and not has_simulation and not unconfirmed_runs and not unconfirmed_orders
+        if filled:
+            summary_counts['traded'] += 1
+        elif terminal or pending:
+            summary_counts['pending'] += 1
+        elif account_idle:
+            summary_counts['quiet'] += 1
+        elif all(outcome in {'scheduled_idle', 'market_closed'} for _, outcome in bindings) and clean_execution and not receipt_candidates:
+            summary_counts['standby'] += 1
+        elif (snapshot_only or (caps.get('snapshot_standby_when_not_run') and snapshots
+                                and all(outcome == 'not_run' for _, outcome in bindings))) and clean_execution:
+            summary_counts['snapshot'] += 1
+        else:
+            summary_counts['unconfirmed'] += 1
+        show_counts = not (all_counts_unknown and clean_execution and ((receipt_candidates and bool(rows)) or snapshot_only or standby_outcomes))
+        core_lines = [state]
+        if show_counts:
+            core_lines.append(('｜' if zh else ' | ').join(count_lines))
+        core_lines.extend((asset_line, *cash_lines, holding_label))
+        blocks.append((header, core_lines, [(d, 1) for d in details], holding_lines))
     lines = [('📊 昨日账户日报｜' if zh else '📊 Daily account report | ') + payload.business_day,
              '🕒 ' + _window_text(payload.business_day, locale)]
     if all_idle:
         lines.append('😴 全部已核验账户无交易（限已核验范围）' if zh else '😴 No trades in all verified accounts (within verified scope)')
+    elif len(groups) >= 2:
+        summary_labels = (
+            ('traded', '有交易', 'traded'),
+            ('pending', '委托待确认', 'pending'),
+            ('quiet', '无交易', 'no trades'),
+            ('standby', '待机', 'standing by'),
+            ('snapshot', '仅快照', 'snapshot only'),
+            ('unconfirmed', '待核实', 'unconfirmed'),
+        )
+        summary_parts = [f'{len(blocks)} 账户' if zh else f'{len(blocks)} accounts']
+        for key, zh_label, en_label in summary_labels:
+            if summary_counts[key]:
+                summary_parts.append(f"{summary_counts[key]} {zh_label if zh else en_label}")
+        summary_sep = '｜' if zh else ' | '
+        summary_prefix = '📋 总览：' if zh else '📋 Summary: '
+        lines.append(summary_prefix + summary_sep.join(summary_parts))
     if not groups:
         lines.append('已绑定账户未知' if zh else 'Bound accounts unknown')
     bound_platforms = {platform for platform, _ in groups}
-    unbound = [display_name('platforms', platform, locale) for platform in known_platforms
-               if platform != 'qrs' and platform not in bound_platforms]
+    if isinstance(known_platforms, Mapping):
+        candidate_platforms = [
+            platform for platform, meta in known_platforms.items()
+            if platform != 'qrs' and platform not in bound_platforms and not _platform_hidden_unbound(meta)
+        ]
+    else:
+        candidate_platforms = [
+            platform for platform in known_platforms
+            if platform != 'qrs' and platform not in bound_platforms
+        ]
+    unbound = [display_name('platforms', platform, locale) for platform in candidate_platforms]
     if unbound:
         lines.append(('未接入日报来源：' + '、'.join(unbound)) if zh else
                      ('Platforms without a digest source: ' + ', '.join(unbound)))
-    if 'qrs' in known_platforms and 'qrs' not in bound_platforms:
-        lines.append('管理站汇总平台数据' if zh else 'The management console summarizes platform data')
     # Reserve space for each fitting account header before adding details.
     def suffix(n):
         return (f'另有 {n} 项省略（持仓展示 {n} 项、省略 {n} 项）' if zh else
                 f'{n} items omitted (holdings: {n} shown, {n} omitted)')
     reserved, omitted, omitted_holdings = [], 0, 0
-    upper_bound = sum(1 + len(core) + len(details) + len(holdings) for _, core, details, holdings in blocks)
+    total_holding_items = sum(item_count for _, _, _, h_items in blocks for _, item_count in h_items)
+    upper_bound = sum(1 + len(core) + len(details) + sum(c for _, c in h_items) for _, core, details, h_items in blocks)
     for header, core, details, holdings in blocks:
         prior = [line for h, c, _, _ in reserved for line in ['', h, *c]]
         if _units('\n'.join(lines + prior + ['', header, *core, suffix(upper_bound)])) <= max_units:
             reserved.append((header, core, details, holdings))
         else:
             omitted += 1 + len(core) + len(details) + len(holdings)
-            omitted_holdings += len(holdings)
+            omitted_holdings += sum(c for _, c in holdings)
     for index, (header, core, details, holdings) in enumerate(reserved):
-        lines.extend(('', header, *core[:2]))
+        head_count = 2 if len(core) >= 2 else len(core)
+        lines.extend(('', header, *core[:head_count]))
         later = [line for h, c, _, _ in reserved[index + 1:] for line in ['', h, *c]]
         for group, is_holding in ((details, False), (holdings, True)):
             if is_holding:
-                lines.extend(core[2:])
-            for detail in group:
-                remaining_core = [] if is_holding else core[2:]
+                lines.extend(core[head_count:])
+            for detail, item_count in group:
+                remaining_core = [] if is_holding else core[head_count:]
                 if _units('\n'.join(lines + [detail] + remaining_core + later + [suffix(upper_bound)])) <= max_units:
                     lines.append(detail)
                 else:
                     omitted += 1
-                    omitted_holdings += is_holding
+                    omitted_holdings += item_count if is_holding else 0
     if omitted:
-        shown = sum(len(holdings) for _, _, _, holdings in blocks) - omitted_holdings
+        shown = total_holding_items - omitted_holdings
         ending = (f'（持仓展示 {shown} 项、省略 {omitted_holdings} 项）' if zh else
                   f' (holdings: {shown} shown, {omitted_holdings} omitted)') if omitted_holdings else ''
         lines.append((f'另有 {omitted} 项省略' if zh else f'{omitted} items omitted') + ending)

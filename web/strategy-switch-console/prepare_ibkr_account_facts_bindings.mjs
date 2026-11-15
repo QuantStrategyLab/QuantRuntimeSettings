@@ -127,6 +127,100 @@ export function verifyIbkrAccountFactsBindings(expectedRaw, actualRaw) {
   }
 }
 
+const emptyRotateCounts = () => ({ request_count: 0, matched_target_count: 0, existing_binding_count: 0, rotated_count: 0 });
+
+function stopRotate(reason, counts = emptyRotateCounts()) {
+  return { ok: false, reason, counts };
+}
+
+function validRotationRequest(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+      || !exactKeys(value.source_binding, ["id", "kind"])
+      || value.source_binding.kind !== IBKR_ACCOUNT_FACTS_SOURCE_KIND
+      || typeof value.source_binding.id !== "string"
+      || !/^[a-f0-9]{64}$/.test(value.source_binding.id)
+      || typeof value.target_id !== "string" || value.target_id.length === 0) {
+    return false;
+  }
+  const allowed = new Set(["target_id", "source_binding", ...PHYSICAL_FIELDS]);
+  if (!Object.keys(value).every((key) => allowed.has(key))) return false;
+  return PHYSICAL_FIELDS.every((field) => !Object.hasOwn(value, field) || (typeof value[field] === "string" && value[field].length > 0));
+}
+
+export function rotateIbkrAccountFactsBindings(existingRaw, requestsRaw, { apply = false } = {}) {
+  let existing;
+  try {
+    existing = normalizeAccountFactsBindings(existingRaw);
+  } catch {
+    return stopRotate("configuration_invalid");
+  }
+  if (!Array.isArray(requestsRaw) || requestsRaw.length === 0 || !requestsRaw.every(validRotationRequest)) {
+    return stopRotate("request_invalid");
+  }
+  const counts = {
+    ...emptyRotateCounts(),
+    request_count: requestsRaw.length,
+    existing_binding_count: existing.bindings.length,
+  };
+  const updatesByTarget = new Map();
+  for (const request of requestsRaw) {
+    if (updatesByTarget.has(request.target_id)) {
+      return stopRotate("target_match_invalid", counts);
+    }
+    const matches = existing.bindings.filter((item) => item.platform === "ibkr" && item.target_id === request.target_id);
+    if (matches.length !== 1) {
+      return stopRotate("target_match_invalid", counts);
+    }
+    const targetBinding = matches[0];
+    for (const field of PHYSICAL_FIELDS) {
+      if (Object.hasOwn(request, field) && targetBinding[field] !== request[field]) {
+        return stopRotate("target_match_invalid", counts);
+      }
+    }
+    updatesByTarget.set(request.target_id, request.source_binding);
+    counts.matched_target_count += 1;
+  }
+
+  let rotatedCount = 0;
+  const seenSourceIds = new Set();
+  const nextBindings = existing.bindings.map((binding) => {
+    const replacement = binding.platform === "ibkr" ? updatesByTarget.get(binding.target_id) : undefined;
+    const nextBinding = replacement ? { ...binding, source_binding: { ...replacement } } : binding;
+    if (seenSourceIds.has(nextBinding.source_binding.id)) {
+      return null;
+    }
+    seenSourceIds.add(nextBinding.source_binding.id);
+    if (replacement && binding.source_binding.id !== replacement.id) {
+      rotatedCount += 1;
+    }
+    return nextBinding;
+  });
+  if (nextBindings.some((binding) => binding === null)) {
+    return stopRotate("existing_binding_conflict", counts);
+  }
+
+  let proposed;
+  try {
+    proposed = normalizeAccountFactsBindings({
+      schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA,
+      bindings: nextBindings,
+    });
+  } catch {
+    return stopRotate("updated_bindings_invalid", counts);
+  }
+  counts.rotated_count = rotatedCount;
+  return {
+    ok: true,
+    reason: "none",
+    status: apply ? "rotated" : "preview",
+    counts,
+    proposed: {
+      schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA,
+      bindings: proposed.bindings,
+    },
+  };
+}
+
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
@@ -140,6 +234,40 @@ function main(argv) {
       result = { ok: false, reason: "readback_mismatch" };
     }
     process.stdout.write(result.ok ? "status=applied\n" : `status=blocked reason=${result.reason}\n`);
+    return result.ok ? 0 : 1;
+  }
+  if (argv[0] === "--rotate") {
+    const rest = argv.slice(1);
+    const hasFile = rest.length === 4 && ["true", "false"].includes(rest[3]);
+    const hasEnv = rest.length === 3 && ["true", "false"].includes(rest[2]);
+    if (!hasFile && !hasEnv) {
+      process.stdout.write("status=blocked reason=request_invalid request_count=0 matched_target_count=0 existing_binding_count=0 rotated_count=0\n");
+      return 1;
+    }
+    const existingPath = rest[0];
+    const rotationsRaw = hasFile ? undefined : process.env.IBKR_ACCOUNT_FACTS_ROTATIONS_JSON || "";
+    const outPath = hasFile ? rest[2] : rest[1];
+    const apply = (hasFile ? rest[3] : rest[2]) === "true";
+    let result;
+    try {
+      const updates = hasFile ? readJson(rest[1]) : JSON.parse(rotationsRaw);
+      result = rotateIbkrAccountFactsBindings(readJson(existingPath), updates, { apply });
+    } catch {
+      result = stopRotate("request_invalid");
+    }
+    const { counts } = result;
+    if (result.ok && apply) {
+      try {
+        writeFileSync(outPath, JSON.stringify(result.proposed), { mode: 0o600, flag: "wx" });
+      } catch {
+        result = stopRotate("output_unavailable", counts);
+      }
+    }
+    process.stdout.write(
+      `status=${result.ok ? result.status : "blocked"} reason=${result.reason}`
+        + ` request_count=${counts.request_count} matched_target_count=${counts.matched_target_count}`
+        + ` existing_binding_count=${counts.existing_binding_count} rotated_count=${counts.rotated_count}\n`,
+    );
     return result.ok ? 0 : 1;
   }
   if (argv.length !== 4 || !["true", "false"].includes(argv[3])) {

@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { inspectIbkrAccountFactsConfiguration } from "../web/strategy-switch-console/inspect_ibkr_account_facts_configuration.mjs";
-import { prepareIbkrAccountFactsBindings } from "../web/strategy-switch-console/prepare_ibkr_account_facts_bindings.mjs";
+import { prepareIbkrAccountFactsBindings, rotateIbkrAccountFactsBindings } from "../web/strategy-switch-console/prepare_ibkr_account_facts_bindings.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const workflow = readFileSync(join(root, ".github/workflows/sync-schwab-account-facts-binding.yml"), "utf8");
@@ -829,4 +829,50 @@ for (const disabledFlag of ["false", ""]) {
   assert.match(legacy.calls[2], /kv key put/);
 }
 assert.match(workflow, /preview_ibkr_source_rotation:[\s\S]*?default: false/);
+
+const rotateTempDir = mkdtempSync(join(tmpdir(), "ibkr-rotate-bindings-"));
+try {
+  const existingDoc = { schema_version: schema, bindings: [primary, secondary, tertiary] };
+  const rotatedOk = rotateIbkrAccountFactsBindings(existingDoc, [
+    { target_id: primary.target_id, source_binding: { kind: "deployment_runtime_account", id: "1".repeat(64) } },
+  ], { apply: true });
+  assert.equal(rotatedOk.ok, true);
+  assert.equal(rotatedOk.status, "rotated");
+  assert.equal(rotatedOk.counts.rotated_count, 1);
+  assert.equal(rotatedOk.proposed.bindings[0].source_binding.id, "1".repeat(64));
+
+  const conflict = rotateIbkrAccountFactsBindings(existingDoc, [
+    { target_id: primary.target_id, source_binding: { kind: "deployment_runtime_account", id: secondary.source_binding.id } },
+  ]);
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.reason, "existing_binding_conflict");
+
+  const unknownTarget = rotateIbkrAccountFactsBindings(existingDoc, [
+    { target_id: "ibkr-unknown", source_binding: { kind: "deployment_runtime_account", id: "2".repeat(64) } },
+  ]);
+  assert.equal(unknownTarget.ok, false);
+  assert.equal(unknownTarget.reason, "target_match_invalid");
+
+  const existingFile = join(rotateTempDir, "existing.json");
+  const outFile = join(rotateTempDir, "out.json");
+  writeFileSync(existingFile, JSON.stringify(existingDoc));
+  const cliResult = spawnSync(
+    process.execPath,
+    [join(root, "web/strategy-switch-console/prepare_ibkr_account_facts_bindings.mjs"), "--rotate", existingFile, outFile, "true"],
+    {
+      env: {
+        ...process.env,
+        IBKR_ACCOUNT_FACTS_ROTATIONS_JSON: JSON.stringify([
+          { target_id: secondary.target_id, source_binding: { kind: "deployment_runtime_account", id: "3".repeat(64) } },
+        ]),
+      },
+      encoding: "utf8",
+    },
+  );
+  assert.equal(cliResult.status, 0, cliResult.stderr);
+  assert.match(cliResult.stdout, /status=rotated reason=none .* rotated_count=1/);
+  assert.equal(JSON.parse(readFileSync(outFile, "utf8")).bindings[1].source_binding.id, "3".repeat(64));
+} finally {
+  rmSync(rotateTempDir, { recursive: true, force: true });
+}
 console.log("IBKR source rotation preview: 15 acceptance/rejection cases without KV writes and 2 unchanged default-path mock write controls passed");

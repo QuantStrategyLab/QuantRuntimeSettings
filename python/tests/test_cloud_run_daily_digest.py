@@ -86,8 +86,21 @@ class CloudRunDigestTests(unittest.TestCase):
         self.run_request(configuration=self.enable(), platform_config=platform_config)
         text = self.sent[0]
         self.assertIn('未接入日报来源：IBKR、LongBridge、Binance、Firstrade、QMT', text)
-        self.assertIn('管理站汇总平台数据', text)
+        self.assertNotIn('管理站汇总平台数据', text)
         self.assertEqual(text.count('🏦 '), 1)
+
+    def test_report_omits_not_configured_unbound_platforms(self):
+        platform_config = {
+            **config(EXPECTED),
+            'platforms': {
+                'qmt': {'deployment': {'runtime_model': 'not_configured', 'live_configured': False}},
+            },
+        }
+        self.run_request(configuration=self.enable(), platform_config=platform_config)
+        text = self.sent[0]
+        self.assertIn('未接入日报来源：IBKR、LongBridge、Binance、Firstrade', text)
+        self.assertNotIn('QMT', text)
+        self.assertNotIn('管理站汇总平台数据', text)
 
     def test_binance_snapshot_shows_holdings_and_keeps_trade_counts_unknown(self):
         from dataclasses import replace
@@ -114,7 +127,8 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertIn('BTC 0.0125', text)
         self.assertIn('币 1.5', text)
         self.assertIn('A' * 128 + ' 3', text)
-        self.assertIn('提交订单 未知｜成交回报 未知', text)
+        self.assertNotIn('提交订单 未知｜成交回报 未知', text)
+        self.assertNotIn('仅列已核实持仓', text)
         self.assertNotIn('策略未运行', text)
 
     def test_binance_wallet_valuation_is_dated_and_separate_from_holdings(self):
@@ -130,7 +144,7 @@ class CloudRunDigestTests(unittest.TestCase):
                     'holdings': [{'asset': 'BTC', 'quantity': '0.0125'}]}
         for change, expected in (({}, '钱包估值（券商返回范围）：USDT 25.50 · 快照 2026-10-15 23:59'),
                                  ({'amount': '1234.12345678901234567890123456789'},
-                                  '钱包估值（券商返回范围）：USDT 1,234.12345678901234567890123456789'),
+                                  '钱包估值（券商返回范围）：USDT 1,234.12'),
                                  ({'currency': 'USD'}, '总资产：未知'),
                                  ({'as_of': '2026-10-15T16:00:01Z'}, '总资产：未知')):
             with self.subTest(change=change), patch.object(app.urllib.request, 'build_opener') as opener:
@@ -142,7 +156,7 @@ class CloudRunDigestTests(unittest.TestCase):
                 text, = self.sent
                 self.assertIn(expected, text)
                 self.assertIn('BTC 0.0125', text)
-                self.assertIn('提交订单 未知｜成交回报 未知', text)
+                self.assertNotIn('提交订单 未知｜成交回报 未知', text)
 
     def test_binance_receipts_show_verified_runs_without_claiming_daily_totals(self):
         from dataclasses import replace
@@ -167,7 +181,7 @@ class CloudRunDigestTests(unittest.TestCase):
                 self.run_request(configuration=cfg, platform_config=config([binding]))
                 text, = self.sent
                 self.assertIn('钱包估值（券商返回范围）：USDT 25.50', text)
-                self.assertIn('提交订单 未知｜成交回报 未知', text)
+                self.assertNotIn('提交订单 未知｜成交回报 未知', text)
                 self.assertEqual('已核实 1/1 轮无交易' in text, verified)
 
     def test_binance_snapshot_rejects_wrong_account_or_out_of_window(self):
@@ -798,6 +812,144 @@ class CloudRunDigestTests(unittest.TestCase):
         _, result = self.run_request(headers=headers, configuration=self.enable())
         self.assertEqual(result['delivery'], 'receipt_unverified')
         self.assertFalse(self.sent or self.store.records)
+
+    def test_standby_outcomes_and_summary_keep_standby_separate_from_verified_no_trades(self):
+        from dataclasses import replace
+
+        idle_binding = {**EXPECTED[0], 'platform_id': 'ibkr', 'target_id': 'ibkr-1', 'candidate_slot': 'ibkr-1',
+                        'opaque_account_uid': 'ibkr-uid-1'}
+        closed_binding = {**EXPECTED[0], 'platform_id': 'firstrade', 'target_id': 'ft-1', 'candidate_slot': 'ft-1',
+                          'opaque_account_uid': 'ft-uid-1'}
+        missing_binding = {**EXPECTED[0], 'platform_id': 'schwab', 'target_id': 'sw-1', 'candidate_slot': 'sw-1',
+                           'opaque_account_uid': 'sw-uid-1'}
+        idle_row = {**{k: v for k, v in ROW.items() if k != 'notification_event'},
+                    **{k: idle_binding[k] for k in app.IDENTITY},
+                    'actually_ran': False, 'status': 'ok', 'scheduled_idle': True,
+                    'execution_status': 'not_run', 'reason_code': 'not_due'}
+        closed_row = {**{k: v for k, v in ROW.items() if k != 'notification_event'},
+                      **{k: closed_binding[k] for k in app.IDENTITY},
+                      'actually_ran': False, 'status': 'ok', 'scheduled_idle': True,
+                      'execution_status': 'not_run', 'reason_code': 'market_closed'}
+        self.store = MemoryStore({
+            f"ibkr/{ROW['business_day']}/ibkr-1.json": {'runs': [idle_row]},
+            f"firstrade/{ROW['business_day']}/ft-1.json": {'runs': [closed_row]},
+        })
+        self.sent = []
+        cfg = replace(self.enable(), expected=[idle_binding, closed_binding, missing_binding])
+        self.run_request(configuration=cfg, platform_config=config([idle_binding, closed_binding, missing_binding]))
+        text, = self.sent
+        self.assertIn('📋 总览：3 账户｜2 待机｜1 待核实', text)
+        self.assertIn('⏸️ 当日无排班，待机', text)
+        self.assertIn('⏸️ 休市待机', text)
+        self.assertNotIn('无交易', text)
+
+    def test_binance_filters_ld_receipts_preserves_ldo_and_compacts_over_six_holdings(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        cfg = replace(self.enable(), expected=[binding],
+                      binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
+                      binance_snapshot_token='synthetic-read-only-token-for-tests')
+        response = {
+            'ok': True, 'business_day': '2026-10-15', 'as_of': '2026-10-15T16:00:00Z',
+            'account_key': binding['opaque_account_uid'], 'target_id': binding['target_id'],
+            'holdings': [
+                {'asset': 'BTC', 'quantity': '0.5'},
+                {'asset': 'LDBTC', 'quantity': '0.5'},
+                {'asset': 'BNB', 'quantity': '1'},
+                {'asset': 'LDBNB', 'quantity': '1'},
+                {'asset': 'O', 'quantity': '2'},
+                {'asset': 'LDO', 'quantity': '3.5'},
+                {'asset': 'SOL', 'quantity': '4'},
+                {'asset': 'ETH', 'quantity': '0.2'},
+                {'asset': 'ADA', 'quantity': '10'},
+                {'asset': 'XRP', 'quantity': '5'},
+            ],
+        }
+        with patch.object(app.urllib.request, 'build_opener') as opener:
+            self.store, self.sent = MemoryStore(), []
+            opener.return_value.open.return_value = io.BytesIO(json.dumps(response).encode())
+            self.run_request(configuration=cfg, platform_config=config([binding]))
+        text, = self.sent
+        self.assertNotIn('LDBTC', text)
+        self.assertNotIn('LDBNB', text)
+        self.assertIn('LDO 3.5', text)
+        self.assertIn(' · ', text.split('📦 持仓：', 1)[1])
+
+    def test_generalized_receipt_candidate_uses_expected_runs_denominator(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'schwab', 'receipt_candidate': True,
+                   'expected_runs': 22, 'strategy_profile': 'crypto_live_pool_rotation'}
+        cfg = replace(self.enable(), expected=[binding])
+        row = {**{k: v for k, v in ROW.items() if k != 'notification_event'},
+               **{k: binding[k] for k in app.IDENTITY},
+               'status': 'ok', 'execution_status': 'no_action', 'execution_mode': 'live'}
+        key = f"schwab/{ROW['business_day']}/{binding['candidate_slot']}.json"
+        self.store, self.sent = MemoryStore({key: {'runs': [row]}}), []
+        self.run_request(configuration=cfg, platform_config=config([binding]))
+        text, = self.sent
+        self.assertIn('已核实 1/22 轮无交易，全天交易未确认', text)
+        self.assertNotIn('提交订单 未知｜成交回报 未知', text)
+
+    def test_deadline_alert_enabled_sends_single_alert_when_receipt_missing(self):
+        from dataclasses import replace
+
+        self.now = NOW + timedelta(minutes=30)
+        headers = {**HEADERS, 'X-CloudScheduler-ScheduleTime': self.now.isoformat()}
+        cfg = replace(self.enable(), deadline_alert_enabled=True)
+        self.run_request(headers=headers, configuration=cfg)
+        self.run_request(headers=headers, configuration=cfg)
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('⚠️ 昨日账户日报未按时确认', self.sent[0])
+
+
+class ControlPlaneAlertTests(unittest.TestCase):
+    def test_control_plane_alert_redacts_secrets_and_dedupes_within_cooldown(self):
+        import tempfile
+        import control_plane_alert as alert
+
+        raw_token = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ12345678'
+        hex_id = 'a' * 64
+        msg = alert.build_alert_message(
+            source='platform-health-monitor',
+            summary=f'failed with Bearer mysecrettoken999 and bot{raw_token} binding={hex_id}',
+            run_url='https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/987654321',
+            locale='zh',
+            extra_secrets=('9988776655',),
+        )
+        self.assertNotIn(raw_token, msg)
+        self.assertNotIn('mysecrettoken999', msg)
+        self.assertNotIn(hex_id, msg)
+        self.assertIn('https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/987654321', msg)
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / 'state.json'
+            calls = []
+
+            class _Resp:
+                status = 200
+                def __enter__(self):
+                    return self
+                def __exit__(self, *args):
+                    return False
+
+            def opener(req, timeout=15):
+                calls.append(req)
+                return _Resp()
+
+            env = {'TELEGRAM_TOKEN': raw_token, 'QSL_GLOBAL_TELEGRAM_CHAT_ID': '9988776655'}
+            first = alert.send_telegram_alert(
+                source='platform-health-monitor', summary='health failed',
+                state_path=state, opener=opener, env=env,
+            )
+            second = alert.send_telegram_alert(
+                source='platform-health-monitor', summary='health failed',
+                state_path=state, opener=opener, env=env,
+            )
+            self.assertTrue(first['sent'])
+            self.assertFalse(second['sent'])
+            self.assertEqual(second['reason'], 'deduped')
+            self.assertEqual(len(calls), 1)
 
 
 class OldSenderRetirementTests(unittest.TestCase):
