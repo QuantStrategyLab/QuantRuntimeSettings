@@ -22,6 +22,12 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from config_overlay import load_platform_config as load_platform_config_with_overlay  # noqa: E402
+
 LOCAL_TARGETS_DIR = ROOT / "local" / "targets"
 EXAMPLE_TARGETS_DIR = ROOT / "examples" / "targets"
 LOCAL_POLICY_PATH = ROOT / "local" / "policy.json"
@@ -365,9 +371,9 @@ def platform_settings_activation(platform: str) -> str:
     if platform not in SUPPORTED_PLATFORMS:
         raise ValueError(f"unsupported platform: {platform}")
     try:
-        payload = json.loads(PLATFORM_CONFIG_PATH.read_text(encoding="utf-8"))
+        payload = load_platform_config_with_overlay(PLATFORM_CONFIG_PATH)
         value = payload["platforms"][platform]["deployment"]["settings_activation"]
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+    except (KeyError, TypeError, OSError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"platform {platform} settings_activation is not configured") from exc
     value = str(value or "").strip()
     if not value:
@@ -409,8 +415,7 @@ def load_local_policy() -> dict[str, Any]:
 def load_platform_config() -> dict[str, Any]:
     if not PLATFORM_CONFIG_PATH.exists():
         return {}
-    with PLATFORM_CONFIG_PATH.open("r", encoding="utf-8") as handle:
-        config = json.load(handle)
+    config = load_platform_config_with_overlay(PLATFORM_CONFIG_PATH)
     return config if isinstance(config, dict) else {}
 
 

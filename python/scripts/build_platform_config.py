@@ -14,7 +14,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from config_overlay import load_platform_config  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "platform-config.json"
@@ -440,7 +447,7 @@ def main() -> int:
         help="Fail when the generated runtime catalog projection does not match platform-config.json",
     )
     args = parser.parse_args()
-    config = json.loads(SOURCE.read_text(encoding="utf-8"))
+    config = load_platform_config(SOURCE)
     outputs = _generated_outputs(config)
 
     if args.check:
