@@ -21,6 +21,11 @@ import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+try:
+    from config_overlay import load_platform_config
+except ImportError:  # pragma: no cover - package import fallback
+    from .config_overlay import load_platform_config
+
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "platform-config.json"
 STRATEGY_PROFILES_PATH = ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json"
@@ -90,8 +95,7 @@ TELEGRAM_CHAT_ID_FALLBACK_ENVS = (
 
 
 def load_config() -> dict:
-    with open(CONFIG_PATH) as f:
-        return json.load(f)
+    return load_platform_config(CONFIG_PATH)
 
 
 def validate(config: dict) -> list[str]:
@@ -128,7 +132,13 @@ def validate(config: dict) -> list[str]:
                     f"scheduler profile {profile}: {field} must have 2 time fields or 5 cron fields"
                 )
                 continue
-            if profile.startswith("us_"):
+            if profile.startswith("us_23x5_"):
+                cron = value.split()
+                if len(cron) != 5 or cron[2] != "*" or cron[4] not in {"1-5", "0-5", "0,1-5"}:
+                    errors.append(
+                        f"scheduler profile {profile}: {field} must be Sun-Fri 23x5 cron with day-of-month '*'"
+                    )
+            elif profile.startswith("us_"):
                 cron = value.split()
                 if len(cron) != 5 or cron[2] != "*" or cron[4] != "1-5":
                     errors.append(
