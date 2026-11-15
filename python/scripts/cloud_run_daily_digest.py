@@ -261,7 +261,7 @@ def _binance_snapshot(configuration, binding, day, timeout):
                 'account_daily_facts': {'snapshots': [{
                     'as_of': data['as_of'],
                     'holdings': holdings,
-                    'holdings_scope': 'account',
+                    'holdings_scope': 'spot_and_flexible_earn',
                     'holdings_complete': True,
                 }]}}
     wallet = None

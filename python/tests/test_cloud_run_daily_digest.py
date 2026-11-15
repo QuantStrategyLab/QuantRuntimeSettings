@@ -128,8 +128,62 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertIn('币 1.5', text)
         self.assertIn('A' * 128 + ' 3', text)
         self.assertNotIn('提交订单 未知｜成交回报 未知', text)
-        self.assertNotIn('仅列已核实持仓', text)
+        self.assertIn('仅列已核实持仓', text)
         self.assertNotIn('策略未运行', text)
+
+    def test_binance_empty_spot_and_earn_snapshot_preserves_scope_caveat(self):
+        from dataclasses import replace
+
+        binding = {**EXPECTED[0], 'platform_id': 'binance', 'snapshot_only': True}
+        response = {
+            'ok': True, 'business_day': '2026-10-15', 'as_of': '2026-10-15T16:00:00Z',
+            'account_key': binding['opaque_account_uid'], 'target_id': binding['target_id'],
+            'holdings': [],
+        }
+        for locale, expected_text, forbidden in (
+            ('zh', '已核实现货与活期理财无持仓；其他钱包未知', '持仓：空仓'),
+            ('en', 'No spot or flexible Earn holdings verified; other wallets unknown', 'No holdings'),
+        ):
+            with self.subTest(locale=locale), patch.object(app.urllib.request, 'build_opener') as opener:
+                self.store, self.sent = MemoryStore(), []
+                cfg = replace(self.enable(), locale=locale, expected=[binding],
+                              binance_snapshot_endpoint='https://console.example' + app.BINANCE_SNAPSHOT_PATH,
+                              binance_snapshot_token='synthetic-read-only-token-for-tests')
+                opener.return_value.open.return_value = io.BytesIO(json.dumps(response).encode())
+                self.run_request(configuration=cfg, platform_config=config([binding]))
+                text, = self.sent
+                self.assertIn(expected_text, text)
+                self.assertNotIn(forbidden, text)
+
+    def test_sub_cent_fill_price_keeps_precision_while_equity_rounds_to_cents(self):
+        key = next(iter(self.store.rows))
+        snapshot = {
+            'as_of': '2026-10-16T05:10:00+08:00',
+            'equity': 30.137374132,
+            'equity_currency': 'USD',
+            'holdings_scope': 'account',
+            'holdings_complete': True,
+            'holdings': [],
+        }
+        fill = {
+            'id': 'sub-cent-fill',
+            'order_id': 'sub-cent-order',
+            'symbol': 'SHIB',
+            'side': 'buy',
+            'quantity': 1000,
+            'asset_type': 'crypto',
+            'price': 0.0042,
+            'currency': 'USD',
+            'occurred_at': '2026-10-16T05:00:00+08:00',
+        }
+        row = {**ROW, 'order_count': 1, 'fill_count': 1,
+               'account_daily_facts': {'fills': [fill], 'snapshots': [snapshot]}}
+        row.pop('notification_event')
+        self.store, self.sent = MemoryStore({key: {'runs': [row]}}), []
+        self.run_request(configuration=self.enable())
+        text, = self.sent
+        self.assertIn('SHIB 1,000 @ USD 0.0042', text)
+        self.assertIn('总资产：USD 30.14', text)
 
     def test_binance_wallet_valuation_is_dated_and_separate_from_holdings(self):
         from dataclasses import replace

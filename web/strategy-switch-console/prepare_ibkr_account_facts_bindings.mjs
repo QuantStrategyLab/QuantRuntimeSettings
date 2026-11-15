@@ -185,12 +185,23 @@ export function rotateIbkrAccountFactsBindings(existingRaw, requestsRaw, { apply
   const seenSourceIds = new Set();
   const nextBindings = existing.bindings.map((binding) => {
     const replacement = binding.platform === "ibkr" ? updatesByTarget.get(binding.target_id) : undefined;
-    const nextBinding = replacement ? { ...binding, source_binding: { ...replacement } } : binding;
+    const rotated = Boolean(replacement && binding.source_binding.id !== replacement.id);
+    const priorHistory = Array.isArray(binding.history_source_binding_ids) ? binding.history_source_binding_ids : [];
+    const nextHistory = rotated
+      ? [...new Set([...priorHistory.filter((id) => id !== replacement.id), binding.source_binding.id])]
+      : priorHistory;
+    const nextBinding = replacement
+      ? {
+          ...binding,
+          source_binding: { ...replacement },
+          ...(nextHistory.length > 0 ? { history_source_binding_ids: nextHistory } : {}),
+        }
+      : binding;
     if (seenSourceIds.has(nextBinding.source_binding.id)) {
       return null;
     }
     seenSourceIds.add(nextBinding.source_binding.id);
-    if (replacement && binding.source_binding.id !== replacement.id) {
+    if (rotated) {
       rotatedCount += 1;
     }
     return nextBinding;

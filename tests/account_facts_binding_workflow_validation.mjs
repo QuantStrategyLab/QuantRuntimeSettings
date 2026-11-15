@@ -840,6 +840,25 @@ try {
   assert.equal(rotatedOk.status, "rotated");
   assert.equal(rotatedOk.counts.rotated_count, 1);
   assert.equal(rotatedOk.proposed.bindings[0].source_binding.id, "1".repeat(64));
+  assert.deepEqual(rotatedOk.proposed.bindings[0].history_source_binding_ids, [primary.source_binding.id]);
+
+  const rotatedAgain = rotateIbkrAccountFactsBindings(rotatedOk.proposed, [
+    { target_id: primary.target_id, source_binding: { kind: "deployment_runtime_account", id: "4".repeat(64) } },
+  ], { apply: true });
+  assert.equal(rotatedAgain.ok, true);
+  assert.deepEqual(rotatedAgain.proposed.bindings[0].history_source_binding_ids, [
+    primary.source_binding.id,
+    "1".repeat(64),
+  ]);
+
+  const rotatedBack = rotateIbkrAccountFactsBindings(rotatedAgain.proposed, [
+    { target_id: primary.target_id, source_binding: { kind: "deployment_runtime_account", id: primary.source_binding.id } },
+  ], { apply: true });
+  assert.equal(rotatedBack.ok, true);
+  assert.deepEqual(rotatedBack.proposed.bindings[0].history_source_binding_ids, [
+    "1".repeat(64),
+    "4".repeat(64),
+  ]);
 
   const conflict = rotateIbkrAccountFactsBindings(existingDoc, [
     { target_id: primary.target_id, source_binding: { kind: "deployment_runtime_account", id: secondary.source_binding.id } },

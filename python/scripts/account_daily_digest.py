@@ -134,6 +134,17 @@ def _format_money_amount(value, unknown):
 def _money(value, currency, unknown):
     if not _number(value) or not isinstance(currency, str) or not re.fullmatch(r'[A-Z]{3}', currency):
         return unknown
+    text = _value(value, unknown)
+    if '.' not in text:
+        text += '.00'
+    elif len(text.rsplit('.', 1)[1]) == 1:
+        text += '0'
+    return f'{currency} {text}'
+
+
+def _balance_money(value, currency, unknown):
+    if not _number(value) or not isinstance(currency, str) or not re.fullmatch(r'[A-Z]{3}', currency):
+        return unknown
     formatted = _format_money_amount(value, unknown)
     return f'{currency} {formatted}' if formatted != unknown else unknown
 
@@ -379,12 +390,13 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 pass
         complete, holdings, equity = False, [], unknown
         no_stocks = False
+        no_spot_earn = False
         stamp_label, holding_stamp_label = '', ''
         if snapshots:
             snapshots.sort(key=lambda pair: pair[0], reverse=True)
             asset_stamp = None
             for stamp, snapshot in snapshots:
-                equity = _money(snapshot.get('equity'), snapshot.get('equity_currency'), unknown)
+                equity = _balance_money(snapshot.get('equity'), snapshot.get('equity_currency'), unknown)
                 if equity != unknown:
                     asset_stamp = stamp
                     stamp_label = _snapshot_label(stamp, window, zh)
@@ -393,7 +405,8 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 holdings = snapshot.get('holdings') or []
                 complete = snapshot.get('holdings_complete') is True
                 no_stocks = caps.get('supports_no_stocks_flag') and snapshot.get('no_stocks') is True
-                if holdings or complete or no_stocks:
+                no_spot_earn = snapshot.get('no_spot_earn') is True
+                if holdings or complete or no_stocks or no_spot_earn:
                     if stamp != asset_stamp:
                         holding_stamp_label = _snapshot_label(stamp, window, zh)
                     break
@@ -402,7 +415,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                             for row in rows if row.equity is not None or row.holdings}
             if len(observations) == 1:
                 observed_equity, currency, observed_holdings, scope = next(iter(observations))
-                observed = _money(observed_equity, currency, unknown)
+                observed = _balance_money(observed_equity, currency, unknown)
                 if observed != unknown:
                     stamp_label = (f'来源报告 {observed}，快照时间未知' if zh else
                                    f'Source reported {observed}, snapshot time unknown')
@@ -440,6 +453,9 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 holding_label += '空仓' if zh else 'No holdings'
             elif no_stocks:
                 holding_label += '已核实无股票持仓；其他资产未知' if zh else 'No stock positions verified; other assets unknown'
+            elif no_spot_earn:
+                holding_label += ('已核实现货与活期理财无持仓；其他钱包未知' if zh else
+                                  'No spot or flexible Earn holdings verified; other wallets unknown')
             else:
                 holding_label += unknown
         elif not complete:
