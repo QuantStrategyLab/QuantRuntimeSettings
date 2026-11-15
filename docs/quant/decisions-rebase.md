@@ -18,7 +18,7 @@ Standing boundaries are unchanged:
 
 ---
 
-## (a) Owner's four decided items (2026-11-15)
+## (a) Owner's decided items and direction (2026-11-15)
 
 Recorded by the owner on 2026-11-15 and closed as binding inputs:
 
@@ -33,6 +33,13 @@ Recorded by the owner on 2026-11-15 and closed as binding inputs:
 3. **"Upgrade complete" definition (14:36 SGT).** Measured at completion of the TQQQ/SOXL pilot sleeve: the phases through `PAPER` (closing target T2), together with the `LIVE-GATE` checklist (`PAPER` closed; controls armed and tested with broker-side limits; kill switch and dead-man's switch tested; daily reconciliation running; starting account holdings known; tier chosen from published outcome ranges; owner's tax and domicile position reviewed). Settling this measuring point does not open `LIVE-GATE`, which remains separately owner-approved.
 4. **PAPER venue = Longbridge paper (14:40 SGT).** Fixes Longbridge paper as the single broker for `PAPER` (T2). Naming the venue authorizes nothing. Protected prerequisites as recorded on 2026-11-10 — the LongBridge P1 pre-mask environment-printing defect and the PAPER IAM names (current state since 2026-11-10: **not verified**) — remain separately gated. Because the owner's live HK and SG accounts share the same Longbridge application key and secret, PAPER requires: P1 fixed and verified under its own card, a runtime secret scope holding only the paper access token, the SDK paper switch enabled, session-start account whitelist verification (`O5`), and the 90-day legacy token expiry (to be confirmed against Longbridge SDK documentation) tracked in the credential calendar (`#26`). *(Decision still open before `SUPPLY-B` is scheduled: name the live account for the sleeve, because PAPER on Longbridge proves the Longbridge adapter and not IBKR's, while live execution at Longbridge would require a separate account distinct from HK and SG.)*
 
+Decided direction recorded by the owner on 2026-11-15 (`OWNER-INPUT-C.md`):
+
+5. **Open market scope (decided 2026-11-15 17:09 SGT, clarified 17:26 SGT; `OWNER-INPUT-C.md`, `PART-C.md` §5.3 item 6).** Market expansion is not limited to US equities (`BREADTH` / `HORIZON` direction for the next roadmap refresh): Hong Kong stocks, futures, and gold are examples only, not a whitelist and not a limit. Any market enters through the same yardstick — trustworthy point-in-time data supply, exact cost/fee accounting, and verified market-specific risk plumbing before admission — and this direction does not change the TQQQ/SOXL pilot scope.
+6. **Legacy strategy/plugin disposition (decided 2026-11-15 17:47 SGT; `OWNER-INPUT-C.md`, `PART-C.md` §5.3 item 7).** At evaluation time, components worth keeping are kept and continue to be optimized; components with clear evidence of no contribution — after exact cost accounting and a `DSR`/`PBO`-style luck adjustment, never on raw returns alone — are removed from the active system (code path and configuration) without per-item approval. Borderline or ambiguous evidence (including insufficient evidence) is escalated to the owner and never auto-removed. Removal is from the active system only; historical records and data are preserved and never erased. **Timing boundary (`PART-C.md` §5.3 item 7 / `Q6-1`):** legacy evaluation happens after `PILOT` (`Q6-1`) and requires the `YARDSTICK` experiment ledger (`Q4-3`) before the `DSR`/`PBO`-style luck adjustment exists.
+
+Recording these rules authorizes nothing by itself: no removal, research run, new market, or production operation is authorized by this document.
+
 ---
 
 ## (b) Premise corrections R1–R3 and glide-path mechanics
@@ -40,6 +47,7 @@ Recorded by the owner on 2026-11-15 and closed as binding inputs:
 ### R1 — Kelly's role
 
 - **Correction:** The two-outcome formula `f = p − (1 − p) / b` (win rate and payoff ratio) is rejected for sizing 3× daily-reset ETFs. It ignores losses worse than the historical average loss, suffers severe small-sample error on ~40 historical round trips, and assumes discrete independent bets rather than daily-scaled correlated exposure.
+- **Illustrative counterexample (`PART-C.md` §3.2, *illustrative and unmeasured*):** For a trend strategy on a 3× fund with a `40%` win rate, average win `45%`, and average loss `12%` (payoff ratio `3.75`), the two-outcome formula gives `f = 0.24` (risk `24%` of bankroll per losing trade). Sized on the `12%` average loss, that implies `0.24 / 0.12 = 200%` of capital in the 3× fund (`6×` the index) — recommending borrowing to hold a 3× fund because the formula has never heard of a loss larger than `12%`, illustrating why a loss-sized two-outcome Kelly fraction must not be mistaken for a fund allocation.
 - **Approved rule (`Q2-3`):** Kelly is a **ceiling**, not the sizing engine. Compute the growth-optimal ceiling on the full return distribution of the underlying index over the long synthetic history (`x_K = k × μ / σ²`), with `μ` shrunk by one posterior standard deviation from a pre-registered broad-equity prior, alongside a conditional ceiling scaled by `min(1, (σ_long / σ_forecast)²)`. Every honest tier holds 3× funds as a minority of capital.
 - **Pilot status:** Computed and recorded in every shadow and paper ledger entry (alongside a flag showing whether it would have bound); **never applied** to position sizes until a separate Kelly card is signed.
 - **Diagnostic:** Win rate and payoff ratio (with a Bayesian interval on win rate) are recorded monthly in the shadow ledger strictly as a review diagnostic; no sizing step reads them.
@@ -91,7 +99,7 @@ The legacy `"all stop-loss OFF"` switch is split into two distinct mechanisms:
 
 1. **"Unattended" → Attention budget:** *"Changes are attended, operation is not."*
    - **Unattended (for a frozen policy):** side-effect-free observation, deterministic signals and sizing on frozen parameters, automatic interlock/breaker tripping with notifications, exception-only monitoring backed by a dead-man's switch (`O7`/`Q5-4`), and scheduled liquid-ETF execution once `#25` and daily reconciliation exist.
-   - **Human-only:** parameter updates, tier/`H`/`E*` changes (with 30-day cooling-off), adopting or retiring a strategy, re-arming latched breakers, and bounded scheduled credential renewals tracked in the credential calendar (`#26`).
+   - **Human-only:** run-time policy changes — parameter updates, tier/`H`/`E*` changes (with 30-day cooling-off), and adopting or retiring an active run-time strategy/policy (distinct from the separately governed, post-`PILOT` evidence-backed evaluation and removal of non-contributing legacy strategies and plugins from the active system in item 6 above) — plus re-arming latched breakers and bounded scheduled credential renewals tracked in the credential calendar (`#26`).
    - **AI boundary:** AI holds no trading authority and cannot alter budgets or limits; no scheduled run depends on an active AI session.
 
 2. **"Institutional-grade" → Six checkable properties:**

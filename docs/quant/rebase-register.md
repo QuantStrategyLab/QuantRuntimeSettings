@@ -2,7 +2,7 @@
 
 **Status date:** 2026-11-15  
 **Phase:** 0 (`REBASE`) — documents only. This register authorizes no code edits, data reads, deployments, paper orders, or live orders.  
-**Related documents:** [decisions-2026-11-15.md](decisions-2026-11-15.md) | [sizing-unit.md](sizing-unit.md)
+**Related documents:** [decisions-rebase.md](decisions-rebase.md) | [sizing-unit.md](sizing-unit.md)
 
 ## Authorization state
 

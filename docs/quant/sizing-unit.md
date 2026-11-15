@@ -2,7 +2,7 @@
 
 **Status date:** 2026-11-15  
 **Phase:** 0 (`REBASE`) — documents only. Specifying the sizing unit and starting tier constants authorizes no code edits, data reads, deployments, paper orders, or live orders.  
-**Related documents:** [rebase-register.md](rebase-register.md) | [decisions-2026-11-15.md](decisions-2026-11-15.md)
+**Related documents:** [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md)
 
 ## Authorization state
 
@@ -82,7 +82,7 @@ Each step may only lower the exposure permitted by the step before it (`PART-C.m
 
 - **Step 3(a) Absolute bound:** `x ≤ 3c` (combined fund weight `≤ c`; rests solely on the absence of margin).
 - **Step 3(b) One-day gap bound *(proposal)*:** `x ≤ 2c` (a 25% one-session index fall consumes at most half of `c`; set above the 20% S&P 500 Level 3 trading halt because Nasdaq-100 can fall further on the same day).
-- **Step 3(c) Scenario bound `x ≤ M(c)`:** Largest exposure holding policy loss inside `c` across the pre-registered stress set (*proposal*: synthetic 3× history through 2000–02, 2008, February–March 2020, and 2022; one-day gap; and 97.5% expected shortfall of 250-session block-bootstrap bankroll losses re-centred on shrunk mean, `Q3-2`). Before `PILOT`, `M` takes the unhedged buy-and-hold bound `M₀(c) = ln(1 − c) ÷ ln(1 − 0.83)` (`0.09`, `0.20`, and `0.39` at full cushion for budgets of `15%`, `30%`, and `50%`). `M` can never exceed bounds (a) or (b).
+- **Step 3(c) Scenario bound `x ≤ M(c)`:** Largest exposure holding policy loss inside `c` across the pre-registered stress set (*proposal*: synthetic 3× history through 2000–02, 2008, February–March 2020, and 2022; one-day gap; and 97.5% expected shortfall of 250-session block-bootstrap bankroll losses re-centred on shrunk mean, `Q3-2`). Multi-day maximum loss is an estimate for a stated policy on a stated scenario set, not a path-independent guarantee (`PART-C.md` §3.2 `Q1`). Before `PILOT`, `M` takes the first-order constant-index-exposure approximation (`PART-C.md` §3.2 `Q1`, `1 − (1 − d)^x`, carried forward in `PART-C.md` §4.2 as a position held without any de-risking through the worst `2000–02`-class `−83%` index fall scenario): `M₀(c) = ln(1 − c) ÷ ln(1 − 0.83)` (`0.09`, `0.20`, and `0.39` at full cushion for budgets of `15%`, `30%`, and `50%`). `PILOT` replaces `M₀` with `M` simulated for the policy on the long synthetic history (with next-session execution, costs, and only de-risking rules adopted at the class-`K` bar), and `M` can never exceed bounds (a) or (b).
 
 *Balanced-tier cushion example (`D = 30%`, `H = 0`, `M₀`, illustrative):*
 
@@ -97,7 +97,7 @@ Each step may only lower the exposure permitted by the step before it (`PART-C.m
 
 ## The three tiers and §4.3 constants
 
-> **Status notice:** Every numeric constant in the table below is a **proposal — starting value, to be measured at PILOT** (`PART-C.md` §4.3). Values are calibrated once against pre-registered tables in `PILOT` and frozen only by an owner decision. Percentages are shares of the bankroll unless noted.
+> **Status notice:** Except for the already-declared pilot notional bankroll `B₀ = US$50,000` in line 9 (decided on 2026-11-15; not reopened by tier calibration), every numeric tier constant in the table below is a **proposal — starting value, to be measured at PILOT** (`PART-C.md` §4.3), including the `3 × E*` cap on `H`. Tier constants are calibrated once against pre-registered tables in `PILOT` and frozen only by an owner decision. Percentages are shares of the bankroll unless noted.
 
 | Line | Constant | Conservative (`CAPITAL_PRESERVATION`) | Balanced (`BALANCED_COMPOUNDING`) | Aggressive (`GROWTH_COMPOUNDING`) |
 | --- | --- | --- | --- | --- |
@@ -114,7 +114,7 @@ Each step may only lower the exposure permitted by the step before it (`PART-C.m
 | 6 | No-trade band; annual one-way turnover budget | `20% of target weight; 50%` | `20%; 100%` | `20%; 200%` |
 | 7 | Unallocated capital | Treasury bills ≤ 3 months, or a bill fund; no credit or duration risk | same | same |
 | 8 | Margin, short positions, options | `never` | `never` | `never` |
-| 9 | Bankroll | One USD sizing unit; `H = 0` default, ≤ `3 × E*` (`B₀ = US$50,000` in pilot) | same | same |
+| 9 | Bankroll | One USD sizing unit; `H = 0` default, ≤ `3 × E*` (*proposal*); declared `B₀ = US$50,000` in pilot (decided, not a proposal) | same | same |
 | 10 | Maximum-loss cap at full cushion, pre-PILOT (`M₀`) | `0.09` | `0.20` | `0.39` |
 | 10a | … equivalent TQQQ-only weight | `3%` | `6.7%` | `13%` |
 | 11 | Kelly ceiling, illustrative, recorded only | `0.11` | `0.23` | `0.46` |
