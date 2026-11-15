@@ -37,7 +37,7 @@ Set these non-secret repository variables before running the affected workflows.
 | `maintenance_pause` | Start and end of the daily maintenance pause | `["20:00", "21:00"]` |
 | `sessions` | Each session's `start`, `end`, and boolean `enabled` flag | `overnight` 21:00–04:00, `pre` 04:00–09:30, `regular` 09:30–16:00, `post` 16:00–20:00 |
 
-Only `regular.enabled` defaults to `true`; all extended sessions default to `false`. An end time earlier than its start crosses midnight. These keys prepare configuration for US equity 23x5; this change does not connect platform consumers or change existing trading or scheduling behavior. `scheduling.profiles` remains unchanged.
+Only `regular.enabled` defaults to `true`; all extended sessions default to `false`. An end time earlier than its start crosses midnight. These keys prepare configuration for US equity 23x5; these keys do not connect platform consumers or change existing trading or scheduling behavior. `scheduling.profiles` keeps its existing schema.
 
 ## QSL architecture role
 
@@ -54,7 +54,7 @@ Only `regular.enabled` defaults to `true`; all extended sessions default to `fal
 - Keep secrets and environment-specific settings outside the shared library code.
 - Document changes that affect multiple platforms or strategy packages.
 
-## P0–P6 runtime-authority status
+## Runtime-authority status
 
 `platform-config.json.meta.runtime_authority` is the machine-readable status for the P0–P6 control plane. Its current `P0_CONTROL_PLANE_NOT_RUNTIME_WIRED` status means that this repository has no active preauthorized autonomy policy and no runtime-wired P0 execution gateway.
 

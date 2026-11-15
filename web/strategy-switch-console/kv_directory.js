@@ -2,7 +2,7 @@
 // record store; the manifest contains names only and grants no authority.
 export const DIRECTORY_PATH = "/kv-directory";
 const CACHE_WRITE_KEY = "console-current-strategies-write-v1";
-const CACHE_BUMP_MS = 900_000;
+const CACHE_BUMP_MS = 3_600_000;
 const STATE_KEY = "console-kv-directory-v1";
 export const MANIFEST_KEY = "console_kv_directory:v1";
 const SCHEMA = "qsl_console_kv_directory.v1";

@@ -845,13 +845,13 @@ export const AUDIT_LOG_KEY = "audit_log";
 export const AUDIT_LOG_LIMIT = 50;
 export const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
 export const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
-// The keep-alive bump stays below the KV fresh window so one missed cron tick
-// (the schedule is */5) still leaves the entry inside it; a cold isolate then
+// The keep-alive bump stays well below the KV fresh window so two missed cron ticks
+// (the schedule is */20) still leave the entry inside it; a cold isolate then
 // never has to fan out to GitHub just because the stamp aged out.
 export const CURRENT_STRATEGIES_MEMO_TTL_MS = 60_000;      // 60 sec — a warm isolate re-checks GitHub after this
-export const CURRENT_STRATEGIES_KV_FRESH_MS = 1_800_000;   // 30 min — a cold isolate serves the KV entry without any GitHub fan-out
-export const CURRENT_STRATEGIES_STALE_TTL_MS = 3_600_000;  // 60 min — return stale plus background refresh before blocking on GitHub
-export const CURRENT_STRATEGIES_KV_BUMP_MS = 900_000;      // 15 min — ceiling for ts-only rewrites when the content did not change
+export const CURRENT_STRATEGIES_KV_FRESH_MS = 5_400_000;   // 90 min — a cold isolate serves the KV entry without any GitHub fan-out
+export const CURRENT_STRATEGIES_STALE_TTL_MS = 7_200_000;  // 120 min — return stale plus background refresh before blocking on GitHub
+export const CURRENT_STRATEGIES_KV_BUMP_MS = 3_600_000;    // 60 min — ceiling for ts-only rewrites when the content did not change
 export const GITHUB_API_TIMEOUT_MS = 8000;
 export const GITHUB_LOGIN_REQUEST_TIMEOUT_MS = 20000;
 export const STRATEGY_HEALTH_SNAPSHOT_KEY = "strategy_health_snapshot";
@@ -2537,6 +2537,30 @@ export async function syncStrategyProfilesResponse(request, env) {
   );
 }
 
+function stripAuditCompareFields(value, keys) {
+  if (!value || typeof value !== "object") return value;
+  const clone = structuredClone(value);
+  for (const key of keys) delete clone[key];
+  return clone;
+}
+
+function strategyHealthAuditSignature(snapshot) {
+  const clone = stripAuditCompareFields(snapshot, ["generated_at", "computed_at"]);
+  if (Array.isArray(clone?.strategies)) {
+    clone.strategies = clone.strategies.map((item) => {
+      if (!item || typeof item !== "object" || !item.freshness || typeof item.freshness !== "object") return item;
+      const freshness = { ...item.freshness };
+      delete freshness.age_seconds;
+      return { ...item, freshness };
+    });
+  }
+  return JSON.stringify(clone);
+}
+
+function executionEvidenceAuditSignature(snapshot) {
+  return JSON.stringify(stripAuditCompareFields(snapshot, ["generated_at", "computed_at"]));
+}
+
 export async function syncStrategyHealthResponse(request, env) {
   requireDedicatedStrategyHealthSyncToken(request, env);
   if (!hasConfigStore(env)) {
@@ -2557,18 +2581,31 @@ export async function syncStrategyHealthResponse(request, env) {
     return json({ ok: false, error: error.message || "invalid strategy health payload" }, 400);
   }
 
-  await writeConfigJson(env, STRATEGY_HEALTH_SNAPSHOT_KEY, snapshot);
+  let materialChanged = true;
   try {
-    await appendAuditLog(env, {
-      ts: new Date().toISOString(),
-      login: "strategy-health-sync",
-      action: "sync_strategy_health",
-      schema_version: snapshot.schema_version,
-      strategy_count: snapshot.summary.strategy_count,
-      data_status: snapshot.data_status,
-    });
+    const stored = await readConfigJson(env, STRATEGY_HEALTH_SNAPSHOT_KEY);
+    if (stored) {
+      const normalizedPrev = normalizeStrategyHealthSnapshot(stored, STRATEGY_HEALTH_SNAPSHOT_KEY);
+      materialChanged = strategyHealthAuditSignature(normalizedPrev) !== strategyHealthAuditSignature(snapshot);
+    }
   } catch {
-    // Snapshot delivery remains successful; audit data must never expose the payload.
+    materialChanged = true;
+  }
+
+  await writeConfigJson(env, STRATEGY_HEALTH_SNAPSHOT_KEY, snapshot);
+  if (materialChanged) {
+    try {
+      await appendAuditLog(env, {
+        ts: new Date().toISOString(),
+        login: "strategy-health-sync",
+        action: "sync_strategy_health",
+        schema_version: snapshot.schema_version,
+        strategy_count: snapshot.summary.strategy_count,
+        data_status: snapshot.data_status,
+      });
+    } catch {
+      // Snapshot delivery remains successful; audit data must never expose the payload.
+    }
   }
   return json({
     ok: true,
@@ -3942,20 +3979,48 @@ export async function syncExecutionEvidenceSourceResponse(request, env) {
     return json({ ok: false, error: error.message || "invalid execution evidence payload" }, 400);
   }
 
-  await writeConfigJson(env, executionEvidenceSourceKey(source.source_id), source);
+  const sourceKey = executionEvidenceSourceKey(source.source_id);
+  let materialChanged = true;
   try {
-    await appendAuditLog(env, {
-      ts: new Date().toISOString(),
-      login: "execution-evidence-source-sync",
-      action: "sync_execution_evidence_source",
-      source_id: source.source_id,
-      schema_version: source.schema_version,
-      deployment_count: source.deployments.length,
-      data_status: source.data_status,
-      ...(receiptId === null ? {} : { receipt_id: receiptId }),
-    });
+    const stored = await readConfigJson(env, sourceKey);
+    if (stored) {
+      const normalizedPrev = normalizeExecutionEvidenceSourceSnapshot(stored, sourceKey);
+      materialChanged = executionEvidenceAuditSignature(normalizedPrev) !== executionEvidenceAuditSignature(source);
+    }
   } catch {
-    // The source snapshot is accepted independently of optional audit retention.
+    materialChanged = true;
+  }
+
+  await writeConfigJson(env, sourceKey, source);
+
+  let shouldLogAudit = materialChanged;
+  if (!shouldLogAudit && receiptId !== null) {
+    try {
+      const existingAudit = await loadAuditLog(env);
+      const latestForSource = existingAudit.find(
+        (entry) => entry.action === "sync_execution_evidence_source" && entry.source_id === source.source_id,
+      );
+      shouldLogAudit = typeof latestForSource?.receipt_id !== "string" || !latestForSource.receipt_id;
+    } catch {
+      shouldLogAudit = true;
+    }
+  }
+
+  if (shouldLogAudit) {
+    try {
+      await appendAuditLog(env, {
+        ts: new Date().toISOString(),
+        login: "execution-evidence-source-sync",
+        action: "sync_execution_evidence_source",
+        source_id: source.source_id,
+        schema_version: source.schema_version,
+        deployment_count: source.deployments.length,
+        data_status: source.data_status,
+        ...(receiptId === null ? {} : { receipt_id: receiptId }),
+      });
+    } catch {
+      // The source snapshot is accepted independently of optional audit retention.
+    }
   }
   return json({
     ok: true,
