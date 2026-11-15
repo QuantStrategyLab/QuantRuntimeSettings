@@ -48,6 +48,9 @@ export class SurfaceError extends Error {}
 // --- Parsing and canonical form ------------------------------------------------
 
 const parsed = new Map();
+// Binding resolution: each parsed file keeps its own checker, so identifiers
+// resolve to their declarations by scope, not by spelling.
+const checkers = new WeakMap();
 
 /** Parse `text` as JavaScript; any syntactic diagnostic is an error. */
 export function parseStrict(ts, file, text) {
@@ -68,9 +71,17 @@ export function parseStrict(ts, file, text) {
     const { line } = sf.getLineAndCharacterOfPosition(first.start ?? 0);
     throw new SurfaceError(`${file}: parse_error: ${ts.flattenDiagnosticMessageText(first.messageText, " ")} (line ${line + 1})`);
   }
-  if (parsed.size > 400) parsed.clear();
+  checkers.set(sf, program.getTypeChecker());
+  if (parsed.size > 4000) parsed.clear();
   parsed.set(key, sf);
   return sf;
+}
+
+/** Symbol an identifier refers to; for a shorthand property, the value it reads. */
+function symbolOf(ts, sf, id) {
+  const checker = checkers.get(sf);
+  if (ts.isShorthandPropertyAssignment(id.parent) && id.parent.name === id) return checker.getShorthandAssignmentValueSymbol(id.parent);
+  return checker.getSymbolAtLocation(id);
 }
 
 const unwrap = (ts, node) => { while (node && ts.isParenthesizedExpression(node)) node = node.expression; return node; };
@@ -124,6 +135,12 @@ export function canonicalStatements(ts, text) {
   return sf.statements[0].body.statements.map(statement => canonical(ts, statement));
 }
 
+/** Canonical form of a catch clause written as source text (reviewed handlers). */
+function canonicalCatch(ts, text) {
+  const sf = parseStrict(ts, "catch.js", `try {} ${text}`);
+  return canonical(ts, sf.statements[0].catchClause);
+}
+
 const collapse = text => text.replace(/\s+/g, " ").trim();
 const sourceOf = (sf, node) => collapse(sf.text.slice(node.getStart(sf), node.end));
 const lineOf = (sf, node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
@@ -175,8 +192,113 @@ export const REVIEWED = {
     ['const rest = url.pathname.slice("/api/decisions/".length);', 1],
     ['return await operationResponse(request, env, url.pathname.slice("/api/operations/".length));', 1],
   ],
+  // Other statements of the console API route branch that the forwarded
+  // dependencies close over; their bindings are part of the reviewed forward.
+  workerBranch: [
+    ["let todaySession, todayOptions, todayRegistered;", 1],
+    ["const readTodaySession = () => todaySession ??= readSession(request, env);", 1],
+    ["const readTodayOptions = () => todayOptions ??= loadAccountOptionsConfig(env);", 1],
+    ["const readTodayRegistered = () => todayRegistered ??= readTodayOptions().then(config => runtimeDailyRegisteredBindings(env, config.options));", 1],
+  ],
+  // Whole-receiver forwards inside Worker route branches: the complete call
+  // (target, arguments and the dependency closures it passes), with its
+  // multiplicity. Each target is the module binding the call resolves to; a
+  // local declaration of the same name is not the reviewed target.
+  workerForwards: [
+    ...["readSession", "startLogin", "finishLogin", "sessionPayload", "marketBenchmarkResponse", "syncMarketBenchmarkResponse",
+      "reviseMarketBenchmarkResponse", "runtimeCatalogResponse", "runtimeInstancesResponse", "adminConfigResponse", "saveAdminConfig",
+      "riskProfileBindingsResponse", "saveRiskProfileBindings", "accountSettingsResponse", "saveAccountSettings",
+      "approveAccountSettingsProfileApplication", "claimAccountSettingsProfileApplicationFromGitHub", "syncAccountDefaultResponse",
+      "syncStrategyProfilesResponse", "syncStrategyHealthResponse", "strategyHealthResponse", "syncControlPlaneResponse",
+      "syncControlPlaneSourceResponse", "controlPlaneResponse", "syncAdaptiveSelectionSourceResponse", "adaptiveSelectionResponse",
+      "syncM0ResearchLedgerResponse", "m0ResearchLedgerResponse", "ownerDecisionQueueResponse", "recordOwnerDecisionResponse",
+      "syncReconciliationRecoverySourceResponse", "reconciliationRecoveryResponse", "recordReconciliationRecoveryConfirmationResponse",
+      "syncBinancePrivateScopeResponse", "binancePrivateScopeResponse", "binanceAccountFactsReadinessResponse",
+      "syncBinanceAccountFactsResponse", "binanceAccountFactsResponse", "acceptHkStopResult", "syncExecutionEvidenceSourceResponse",
+      "executionEvidenceResponse", "syncRuntimeDailyResponse", "syncAccountPeriodReturnResponse", "syncAccountExternalFlowResponse",
+      "syncAccountExecutionsResponse", "syncAccountFactsResponse", "accountFactsResponse", "runtimeCycleHealthAdmissionResponse",
+      "runtimeCycleHealthSourceResponse", "syncRuntimeTargetLifecycleSourceResponse", "runtimeTargetLifecycleResponse",
+      "syncResearchTaskSourceResponse", "researchTaskResponse", "syncResearchPromotionTicketResponse",
+      "fetchResearchPromotionTicketResponse", "researchPromotionTicketsResponse", "recordResearchPromotionDecisionResponse",
+      "ux1DraftGet", "ux1DraftPost", "ux1PreviewPost", "ux1IntentPost", "ux1JobClaimPost", "ux1JobResultPost", "dispatchSwitch",
+      "dispatchRuntimeStop", "dispatchBinanceResume"].map(target => [`${target}(request, env)`, 1]),
+    ...["credentialMaintenanceResponse", "runtimeReadbackResponse", "auditEventsResponse", "reconciliationRecoveryControllerReadResponse",
+      "binanceDetailArchiveResponse", "binanceDigestSnapshotResponse", "binanceWalletHistoryResponse", "runtimeDailyResponse",
+      "accountFactsHistoryResponse", "accountDiagnosisResponse", "accountDiagnosisInternalResponse", "researchPromotionApplicationResponse",
+      "researchPromotionApplicationInternalResponse", "readRuntimeStop"].map(target => [`${target}(request, env, url)`, 1]),
+    ...["deskRibbonResponse", "deskOverviewResponse", "deskAccountsResponse", "deskPerformanceResponse", "deskSwitchStrategiesResponse"]
+      .map(target => [`${target}(request, env, deskN1Deps())`, 1]),
+    ["requireSameOrigin(request, { requireOrigin: true })", 1],
+    ["overviewFxResponse(request)", 1],
+    ["logout(request)", 1],
+    ["configPayload(request, env, ctx)", 1],
+    ["syncAccountFactsResponse(request, env, { historical: true })", 1],
+    ['decisionActionResponse(request, env, rest.slice(0, -"/actions".length))', 1],
+    ["decisionReviewResponse(request, env, rest)", 1],
+    ["deskCredentialsResponse(request, env, { auth: deskAuth, command: runtimeInstanceCommand })", 1],
+    ["deskSwitchTargetsResponse(request, env, { auth: deskAuth, options: loadAccountOptionsConfig })", 1],
+    ["deskReadbackResponse(request, env, { auth: deskAuth, command: runtimeInstanceCommand, options: loadAccountOptionsConfig })", 1],
+    ["performanceBenchmarkResponse(request, env, { command: runtimeInstanceCommand })", 1],
+    ["credentialRotationResponse(request, env, { session: readSession, command: runtimeInstanceCommand })", 1],
+    [`performanceResponse(request, env, {
+      json, readSession, accountOptions: loadAccountOptionsConfig, facts: accountFactsResponse,
+      executions: readBoundAccountExecutions,
+      history: (req, e) => accountFactsHistoryResponse(req, e, new URL(req.url)),
+      binanceCurrent: binanceAccountFactsResponse,
+      wallet: (req, e) => binanceWalletHistoryResponse(req, e, new URL(req.url)), benchmarks: marketBenchmarkResponse,
+    })`, 1],
+    [`consoleApiResponse(request, env, {
+      json, readSession: today ? readTodaySession : readSession, command: runtimeInstanceCommand,
+      accountOptions: today ? readTodayOptions : loadAccountOptionsConfig,
+      settings: accountSettingsResponse, saveDraft: saveCombinedAccountDraft,
+      owner: ownerDecisionQueueResponse, promotion: researchPromotionTicketsResponse,
+      recovery: reconciliationRecoveryResponse, credential: (req, e) => credentialMaintenanceResponse(req, e, new URL("/api/credential-maintenance", req.url)),
+      audit: loadAuditLog,
+      profiles: loadStrategyProfilesConfig, health: strategyHealthResponse,
+      currentStrategies: (options, e) => readCurrentStrategies(options, e, ctx),
+      dailyBindings: async e => runtimeDailyReadModelEnabled(e) ? runtimeDailyPublicBindings(e, (await (today ? readTodayOptions() : loadAccountOptionsConfig(e))).options, today ? readTodayRegistered : undefined) : [],
+      daily: (req, e) => runtimeDailyResponse(req, e, new URL(req.url), today ? { readSession: readTodaySession, readOptions: readTodayOptions, readRegistered: readTodayRegistered } : undefined),
+      notificationReceipts: e => readNotificationLog({ repository: e.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY, token: e.RUNTIME_SETTINGS_DISPATCH_TOKEN }),
+      runControls: consoleRunControls,
+    })`, 1],
+  ],
+  // Statements whose computed member access is reviewed (a non-literal key).
+  workerComputed: [
+    ["bytes[index] = binary.charCodeAt(index);", 1],
+  ],
   workerPreamble: "const url = new URL(request.url);",
   workerFallthrough: 'return json({ ok: false, error: "not_found" }, 404);',
+  // The whole catch clause of the Worker dispatch try statement.
+  workerCatch: `catch (error) {
+      const directoryError = /^(kv_directory_|kv_list_daily_limit_exceeded)/.test(error.message || "");
+      return json({ ok: false, error: error.message || "unexpected error" }, error.status || (directoryError ? 503 : 500),
+        directoryError ? { "Retry-After": String(error.retry_after || 300) } : {});
+    }`,
+  // The whole catch clause of RuntimeInstances.fetch, and the alarm body.
+  doCatch: `catch (error) {
+      return json({ ok: false, error: error instanceof HttpError || error instanceof CycleHealthError || error instanceof CredentialMaintenanceError || error instanceof RotationError ? error.message : "runtime_instance_transaction_failed" }, error instanceof HttpError || error instanceof CycleHealthError || error instanceof CredentialMaintenanceError || error instanceof RotationError ? error.status : 409);
+    }`,
+  doAlarm: ["await this.deskReadbacks.alarm();"],
+  // Whole-command forwards inside gated RuntimeInstances.fetch branches.
+  doForwards: [
+    ["this.deskReadbacks.command(command)", 1],
+    ["credentialMaintenanceCommand(this.sql, command)", 1],
+    ["this.accountDiagnosisCommand(command)", 1],
+    ["this.consoleReadCommand(command)", 1],
+    ["this.humanDecisionCommand(command)", 1],
+    ["this.applicationCommand(command)", 1],
+    ["this.cycleHealthProvisionCommand(command)", 1],
+    ["this.cycleHealthCommand(command)", 1],
+    ["this.accountSettingsCommand(command)", 1],
+    ["this.accountFactsCommand(command)", 1],
+    ["this.marketBenchmarkCommand(command)", 1],
+    ["this.runtimeControlCommand(command)", 1],
+    ["this.hkStopCommand(command)", 1],
+  ],
+  doComputed: [
+    ["const config = update.options[instance.platform]?.find((option) => option.key === instance.key);", 1],
+    ["if (instance.config[field] !== undefined) defaults[field] = instance.config[field];", 1],
+  ],
   doFetch: [
     ['if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);', 1],
     ["let command;", 1],
@@ -223,6 +345,9 @@ export const REVIEWED = {
     ["const found = ux1SlotPayload(row);", 1],
     ['throw new HttpError("unsupported_ux1_action", 400);', 1],
   ],
+  ux1Forwards: [
+    ["ux1MutateJob(this.sql, command)", 1],
+  ],
   durableRotation: [
     ["let factors = [];", 1],
     // The one forward of the rotation command, to the local dispatcher.
@@ -233,9 +358,23 @@ export const REVIEWED = {
     ["throw new RotationError();", 1],
   ],
   // The completion audit copies the command with the operation's actor; the
-  // audit helper records fields, it does not dispatch.
+  // audit helper records fields, it does not dispatch. The statements that
+  // declare the values it records are reviewed with it.
   rotationUses: [
     ["audit(sql, { ...c, actor: op.actor, event_id: op.current_request_id }, `credential_rotation_${action}`, state, reason);", 1],
+    ["const action = op.current_action;", 1],
+    ["const expected = DONE[action];", 1],
+    ["let state = c.proxy_state === expected ? expected : c.proxy_state === 'failed' ? 'failed' : UNKNOWN[action];", 1],
+    ["let reason = state === UNKNOWN[action] ? 'proxy_unconfirmed' : state === 'failed' ? 'provider_failed' : null;", 1],
+  ],
+  // Denial audits record the command; the audit helper does not dispatch.
+  rotationForwards: [
+    ["audit(sql, c, 'credential_rotation_denied', 'denied', c.reason)", 1],
+    ["audit(sql, c, 'credential_rotation_denied', 'denied', 'step_up_rate_limited')", 1],
+    ["audit(sql, c, 'credential_rotation_denied', 'denied', 'step_up_invalid')", 1],
+  ],
+  rotationComputed: [
+    ["Object.assign(op, { state: PENDING[c.write_action], updated_at: at, reason_code: null, current_action: c.write_action, current_request_id: c.request_id });", 1],
   ],
   directoryCommand: [
     ["const work = this.queue.then(() => this.run(command));", 1],
@@ -258,18 +397,21 @@ export const REVIEWED = {
 
 /**
  * Extract the classified surface. `sources` maps repository-relative paths to
- * text (at least every console module D imports). Returns
+ * text; with `options.modules` (more path-to-text entries) it must hold every
+ * module the Worker bundle reaches. Returns
  * { routes: Map<canonical condition, { condition, text }>, internal: Set, errors }.
  */
 export function extractSurface(ts, sources, options = {}) {
   const reviewed = { ...REVIEWED, ...(options.reviewed || {}) };
+  const modules = options.modules ? new Map([...options.modules, ...sources]) : sources;
   const errors = [];
   const internal = new Set();
   const routes = new Map();
   const files = new Map();
+  const families = [];
   const file = path => {
     if (files.has(path)) return files.get(path);
-    const text = sources.get(path);
+    const text = modules.get(path);
     if (text === undefined) throw new SurfaceError(`${path}: entry_missing: file not found`);
     const sf = parseStrict(ts, path, text);
     files.set(path, sf);
@@ -278,7 +420,9 @@ export function extractSurface(ts, sources, options = {}) {
   const guard = (label, fn) => { try { return fn(); } catch (error) { if (!(error instanceof SurfaceError)) throw error; errors.push(`${label}: ${error.message}`); return null; } };
   const templates = (label, list) => {
     const map = new Map();
-    for (const [text, count] of list) for (const key of canonicalStatements(ts, text)) map.set(key, { text, count: (map.get(key)?.count || 0) + count, seen: 0 });
+    for (const [text, count, kind] of list) {
+      for (const key of kind === "expression" ? [canonicalExpression(ts, text)] : canonicalStatements(ts, text)) map.set(key, { text, count: (map.get(key)?.count || 0) + count, seen: 0 });
+    }
     return { label, map };
   };
   const finishTemplates = (set, report) => {
@@ -287,8 +431,9 @@ export function extractSurface(ts, sources, options = {}) {
     }
   };
 
-  guard("worker.js", () => extractWorker(ts, file(WORKER), reviewed, { routes, internal, errors }));
-  guard("durable_object.js", () => extractDurable(ts, file, sources, reviewed, { internal, errors, templates, finishTemplates }));
+  guard("worker.js", () => extractWorker(ts, file(WORKER), reviewed, { routes, internal, errors, templates, finishTemplates }));
+  guard("durable_object.js", () => extractDurable(ts, file, reviewed, { internal, errors, templates, finishTemplates, families }));
+  guard("module graph", () => auditModules(ts, file, modules, families, errors));
   if (!routes.size) errors.push("worker.js fetch: empty_extraction: no route branch extracted");
   if (![...internal].some(id => id.startsWith("action:"))) errors.push("durable_object.js: empty_extraction: no internal action extracted");
   return { routes, internal, errors };
@@ -303,9 +448,40 @@ function isNamePosition(ts, id) {
     || ts.isSetAccessorDeclaration(p) || ts.isEnumMember(p)) && p.name === id) return true;
   if (ts.isBindingElement(p) && p.propertyName === id) return true;
   if ((ts.isLabeledStatement(p) || ts.isBreakStatement(p) || ts.isContinueStatement(p)) && p.label === id) return true;
-  if (ts.isImportSpecifier(p) || ts.isExportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p)) return true;
+  if (ts.isImportSpecifier(p) || ts.isExportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p) || ts.isNamespaceExport(p)) return true;
+  if (ts.isMetaProperty(p)) return true;
   return false;
 }
+const isReference = (ts, id) => !isNamePosition(ts, id) && !isDeclarationName(ts, id);
+
+/** `node` (through parentheses) is written: assigned, updated or a destructuring target. */
+function isWriteTarget(ts, node) {
+  let n = outer(ts, node);
+  for (;;) {
+    const p = n.parent;
+    if (!p) return false;
+    if (ts.isBinaryExpression(p) && p.left === n && isAssignmentOperator(ts, p.operatorToken.kind)) return true;
+    if ((ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(p.operator)) return true;
+    if ((ts.isForInStatement(p) || ts.isForOfStatement(p)) && p.initializer === n) return true;
+    if (ts.isDeleteExpression(p)) return true;
+    if (ts.isArrayLiteralExpression(p) || ts.isSpreadElement(p) || ts.isSpreadAssignment(p) || ts.isParenthesizedExpression(p)) { n = p; continue; }
+    if ((ts.isShorthandPropertyAssignment(p) && p.name === n) || (ts.isPropertyAssignment(p) && p.initializer === n)) { n = p.parent; continue; }
+    if (ts.isObjectLiteralExpression(p)) { n = p; continue; }
+    return false;
+  }
+}
+
+// Dynamic evaluation and prototype reach. Inside the dispatch set a global
+// is admitted only from this closed list, `Object` only through these
+// members, and no property may name a prototype or constructor link.
+const GLOBALS = new Set(["Array", "BigInt", "Boolean", "Date", "Error", "Headers", "Infinity", "JSON", "Map", "Math", "NaN", "Number", "Object",
+  "Promise", "RangeError", "Request", "Response", "Set", "String", "TextDecoder", "TextEncoder", "TypeError", "URL", "URLSearchParams",
+  "Uint8Array", "atob", "btoa", "crypto", "decodeURIComponent", "encodeURIComponent", "isFinite", "isNaN", "parseFloat", "parseInt",
+  "structuredClone", "undefined"]);
+const EVALUATION_GLOBALS = new Set(["eval", "Function", "globalThis", "self", "window", "global", "Reflect", "Proxy", "setTimeout", "setInterval", "WebAssembly"]);
+const OBJECT_MEMBERS = new Set(["assign", "entries", "freeze", "fromEntries", "hasOwn", "keys", "values"]);
+const PROTOTYPE_LINKS = new Set(["constructor", "prototype", "__proto__", "getPrototypeOf", "setPrototypeOf", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__"]);
+const literalKey = (ts, node) => { const n = unwrap(ts, node); return n && (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isNumericLiteral(n)) ? n.text : null; };
 function isDeclarationName(ts, id) {
   const p = id.parent;
   return (ts.isVariableDeclaration(p) || ts.isParameter(p) || ts.isBindingElement(p) || ts.isFunctionDeclaration(p)
@@ -392,38 +568,45 @@ function stripOptional(ts, access) {
 }
 
 /**
- * Examine every reference to the receivers inside `body`. `policy`:
+ * Examine every reference to the receivers inside `body`. A reference is an
+ * identifier that resolves to a receiver's declaration, whatever its spelling.
+ * `policy`:
  *   keys: { receiver: Set(dispatch keys) }
- *   declarations: Set of the receivers' own declaration identifiers
+ *   payload: { receiver: Set(other admitted property names) | "any" }
+ *   declarations: the receivers' own declaration identifiers
  *   gated: nodes whose subtrees may forward a receiver (gated branch bodies)
+ *   forwards: reviewed forward calls ({ label, map } from `templates`)
  *   covered: nodes inside an exact reviewed template
  *   consumed: dispatch-key access nodes already admitted by the caller
  *   onForm(form, access): record a recognised dispatch form
  *   onKeyRead(access, receiver, key) -> true when the caller admits it
- * Errors are pushed to `report`.
+ * Errors are pushed to `report`. Returns the admitted forward calls.
  */
 function scanReceivers(ts, sf, body, policy, report) {
   const names = new Set(Object.keys(policy.keys));
+  const receivers = new Map([...policy.declarations].map(declaration => [symbolOf(ts, sf, declaration), declaration.text]));
   const inAny = (set, node) => [...set].some(region => contains(region, node));
   const fail = (code, node, detail) => report(`${code}: ${detail} (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`);
+  const forwarded = new Set();
   const visit = node => {
     if (ts.isWithStatement(node)) fail("dynamic_evaluation", node, "with statement");
     if (ts.isDebuggerStatement(node)) fail("unsupported_syntax", node, "debugger statement");
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) fail("dynamic_evaluation", node, "dynamic import");
     if (ts.isIdentifier(node) && ["eval", "arguments", "Function"].includes(node.text) && !isNamePosition(ts, node)) fail("dynamic_evaluation", node, `${node.text} reference`);
-    if (ts.isIdentifier(node) && names.has(node.text)) {
+    if (ts.isIdentifier(node)) {
       if (isDeclarationName(ts, node)) {
-        if (!policy.declarations.has(node)) fail("shadowing", node, `declaration shadows receiver ${node.text}`);
-      } else if (ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node) {
-        if (!inAny(policy.covered, node)) fail("alias", node, `shorthand property passes receiver ${node.text}`);
-      } else if (!isNamePosition(ts, node)) {
-        reference(node);
+        if (names.has(node.text) && !policy.declarations.has(node)) fail("shadowing", node, `declaration shadows receiver ${node.text}`);
+      } else if (!isNamePosition(ts, node) && receivers.has(symbolOf(ts, sf, node))) {
+        if (ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node) {
+          if (!inAny(policy.covered, node)) fail("alias", node, `shorthand property passes receiver ${receivers.get(symbolOf(ts, sf, node))}`);
+        } else {
+          reference(node, receivers.get(symbolOf(ts, sf, node)));
+        }
       }
     }
     ts.forEachChild(node, visit);
   };
-  const reference = id => {
-    const receiver = id.text;
+  const reference = (id, receiver) => {
     const top = outer(ts, id);
     const parent = top.parent;
     const covered = inAny(policy.covered, id);
@@ -442,8 +625,15 @@ function scanReceivers(ts, sf, body, policy, report) {
         return;
       }
       const key = access.name.text;
+      // A method called on the receiver may return the receiver itself
+      // (`valueOf`) or a copy (`clone`): an untracked alias.
+      if (use && (((ts.isCallExpression(use) || ts.isNewExpression(use)) && use.expression === accessTop) || (ts.isTaggedTemplateExpression(use) && use.tag === accessTop))) {
+        if (!covered) fail("receiver_call", access, `method call ${receiver}.${key}() on a receiver is admitted only in a reviewed template`);
+        return;
+      }
       if (!policy.keys[receiver].has(key)) {
-        if (policy.payloadKey && !policy.payloadKey(receiver, key, access)) fail("dispatch_form", access, `${receiver}.${key} read is not admitted`);
+        const payload = policy.payload?.[receiver];
+        if (!covered && payload !== "any" && !payload?.has(key)) fail("dispatch_form", access, `${receiver}.${key} read is not admitted`);
         return;
       }
       if (policy.consumed.has(access)) return;
@@ -462,6 +652,13 @@ function scanReceivers(ts, sf, body, policy, report) {
       if (ts.isFunctionExpression(callee) || ts.isArrowFunction(callee)) fail("forwarding", parent, `receiver ${receiver} passed to an immediately invoked function`);
       else if (!root || ["Reflect", "Object", "Proxy", "JSON", "structuredClone"].includes(root)) fail("reflection", parent, `receiver ${receiver} passed to ${root || "a computed callee"}`);
       else if (!inAny(policy.gated, parent)) fail("forwarding", parent, `receiver ${receiver} forwarded outside a gated branch`);
+      else {
+        // A gated branch is not authorization by itself: the whole call must be
+        // a reviewed forward, counted once per call.
+        const entry = policy.forwards?.map.get(canonical(ts, parent));
+        if (!entry) fail("forwarding", parent, `receiver ${receiver} forwarded to an unreviewed call ${excerpt(sf, parent).slice(0, 80)}`);
+        else if (!forwarded.has(parent)) { forwarded.add(parent); entry.seen += 1; }
+      }
       return;
     }
     if (ts.isVariableDeclaration(parent) && parent.initializer === top) {
@@ -476,6 +673,78 @@ function scanReceivers(ts, sf, body, policy, report) {
     fail("unsupported_reference", parent, `receiver ${receiver} used as ${ts.SyntaxKind[parent.kind]}`);
   };
   visit(body);
+  return forwarded;
+}
+
+/**
+ * Executable admission of one dispatch function `fn`, receivers aside:
+ * globals come from a closed list, no property names a prototype or
+ * constructor link, a computed access with a non-literal key occurs only in
+ * a reviewed statement (`computed`) or an exact template, and parameters are
+ * not reassigned. Reviewed templates and forwards (`pinned`) must mean what
+ * was reviewed: no non-arrow function between them and `fn` (which would
+ * rebind `this`), and every identifier they use resolves outside `fn`, to a
+ * parameter, or to a declaration inside a reviewed template.
+ */
+function auditExecutable(ts, sf, fn, policy, report) {
+  const fail = (code, node, detail) => report(`${code}: ${detail} (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`);
+  const inAny = (nodes, node) => [...nodes].some(region => contains(region, node));
+  const computed = new Set();
+  if (policy.computed) {
+    const visit = node => {
+      const entry = ts.isStatement(node) ? policy.computed.map.get(canonical(ts, node)) : null;
+      if (entry) { entry.seen += 1; computed.add(node); }
+      ts.forEachChild(node, visit);
+    };
+    visit(fn.body);
+  }
+  const params = new Set(fn.parameters.map(p => p.name).filter(name => ts.isIdentifier(name)).map(name => symbolOf(ts, sf, name)));
+  const receivers = new Set([...(policy.receivers || [])].map(declaration => symbolOf(ts, sf, declaration)));
+  const visit = node => {
+    if (ts.isIdentifier(node) && isReference(ts, node)) {
+      // Built-ins such as `globalThis` and `undefined` resolve to symbols
+      // without a declaration: they are globals too.
+      const declared = symbolOf(ts, sf, node);
+      const symbol = declared?.declarations?.length ? declared : null;
+      if (!symbol && !GLOBALS.has(node.text) && !["eval", "arguments", "Function"].includes(node.text)) {
+        fail(EVALUATION_GLOBALS.has(node.text) ? "dynamic_evaluation" : "global_reference", node, `global ${node.text} is not admitted in the dispatch set`);
+      }
+      if (!symbol && node.text === "Object") {
+        const top = outer(ts, node);
+        if (!ts.isPropertyAccessExpression(top.parent) || top.parent.expression !== top || !OBJECT_MEMBERS.has(top.parent.name.text)) fail("dynamic_evaluation", node, "Object is admitted only through its reviewed members");
+      }
+      if (symbol && params.has(symbol) && !receivers.has(symbol) && isWriteTarget(ts, node)) fail("reassignment", node, `parameter ${node.text} is reassigned`);
+    }
+    if (ts.isPropertyAccessExpression(node) && PROTOTYPE_LINKS.has(node.name.text)) fail("dynamic_evaluation", node, `.${node.name.text} access`);
+    if (ts.isElementAccessExpression(node)) {
+      const key = literalKey(ts, node.argumentExpression);
+      if (key !== null && PROTOTYPE_LINKS.has(key)) fail("dynamic_evaluation", node, `[${JSON.stringify(key)}] access`);
+      else if (key === null && !inAny(policy.covered, node) && !inAny(computed, node)) fail("computed_access", node, "computed access with a non-literal key outside a reviewed statement");
+    }
+    if (ts.isMetaProperty(node) && node.keywordToken === ts.SyntaxKind.ImportKeyword) fail("dynamic_evaluation", node, "import.meta");
+    ts.forEachChild(node, visit);
+  };
+  visit(fn.body);
+  if (policy.computed) policy.finishTemplates(policy.computed, report);
+  for (const node of policy.pinned || []) {
+    for (let up = node.parent; up && up !== fn; up = up.parent) {
+      if (ts.isFunctionLike(up) && !ts.isArrowFunction(up)) { fail("binding", node, "reviewed template inside a nested function"); break; }
+    }
+    const check = id => {
+      if (ts.isIdentifier(id) && isReference(ts, id)) {
+        const symbol = symbolOf(ts, sf, id);
+        const declarations = symbol?.declarations || [];
+        if (declarations.length > 1) fail("binding", id, `${id.text} has ${declarations.length} declarations`);
+        const [declaration] = declarations;
+        if (declaration && contains(fn, declaration) && !contains(node, declaration) && !params.has(symbol) && !receivers.has(symbol)
+          && !inAny(policy.covered, declaration)) {
+          fail("binding", id, `${id.text} in a reviewed template resolves to an unreviewed local declaration (line ${lineOf(sf, declaration)})`);
+        }
+      }
+      ts.forEachChild(id, check);
+    };
+    check(node);
+  }
 }
 function calleeRoot(ts, callee) {
   let n = unwrap(ts, callee);
@@ -505,7 +774,7 @@ const isTerminal = (ts, statement) => ts.isReturnStatement(statement) || ts.isTh
 // --- Worker ----------------------------------------------------------------------
 
 function extractWorker(ts, sf, reviewed, out) {
-  const { routes, internal, errors } = out;
+  const { routes, internal, errors, templates, finishTemplates } = out;
   const report = message => errors.push(`worker.js ${message}`);
   const defaults = [];
   for (const statement of sf.statements) {
@@ -530,6 +799,13 @@ function extractWorker(ts, sf, reviewed, out) {
     if (members.has(member.name.text)) report(`default export: entry_duplicate: ${member.name.text}`);
     members.set(member.name.text, member);
   }
+  // The exported object has no name; `this` in its methods is its only
+  // reference inside the module, and would let a method replace an entry.
+  const self = node => {
+    if (node.kind === ts.SyntaxKind.ThisKeyword) report(`default export: entry_replaced: this is not admitted in the default export (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`);
+    if (!ts.isFunctionLike(node) || ts.isArrowFunction(node)) ts.forEachChild(node, self);
+  };
+  for (const member of members.values()) ts.forEachChild(member, self);
   for (const name of members.keys()) if (name !== "fetch") internal.add(`worker:${name}`);
   const fetch = members.get("fetch");
   if (!fetch) { report("default export: entry_missing: no fetch entry"); return; }
@@ -551,6 +827,9 @@ function extractWorker(ts, sf, reviewed, out) {
   if (!tryStatement) throw new SurfaceError("fetch: entry_form: no dispatch try statement");
   if (tryStatement.finallyBlock) fetchReport("statement: finally block is not admitted");
   if (!tryStatement.catchClause) fetchReport("statement: catch clause missing");
+  else if (canonical(ts, tryStatement.catchClause) !== canonicalCatch(ts, reviewed.workerCatch)) {
+    fetchReport(`statement: catch clause is not the reviewed error response: ${excerpt(sf, tryStatement.catchClause)}`);
+  } else covered.add(tryStatement.catchClause);
   const fallthrough = canonicalStatements(ts, reviewed.workerFallthrough)[0];
   let finished = false;
   for (const statement of tryStatement.tryBlock.statements) {
@@ -579,24 +858,32 @@ function extractWorker(ts, sf, reviewed, out) {
   }
   if (!finished) fetchReport("statement: no final not-found fallthrough");
 
-  const nested = new Map(reviewed.workerNestedPathname.map(([template, count]) => [canonicalStatements(ts, template)[0], { template, count, seen: 0 }]));
-  scanReceivers(ts, sf, fetch.body, {
+  // Reviewed statements inside route branches: the nested `url.pathname`
+  // uses and the console API branch's dependency closures.
+  const nested = templates("worker.js fetch nested_pathname", reviewed.workerNestedPathname);
+  const branch = templates("worker.js fetch branch", reviewed.workerBranch);
+  const pin = node => {
+    const key = ts.isStatement(node) ? canonical(ts, node) : null;
+    const entry = key && (nested.map.get(key) || branch.map.get(key));
+    if (entry) { entry.seen += 1; covered.add(node); return; }
+    ts.forEachChild(node, pin);
+  };
+  for (const region of gated) pin(region);
+  finishTemplates(nested, message => fetchReport(message.replace(/^worker\.js fetch nested_pathname: template_multiplicity: reviewed (\d+)x, found (\d+)x: /, "nested_pathname: reviewed nested url.pathname use occurs $2x, reviewed $1x: ")));
+  finishTemplates(branch, fetchReport);
+  const forwards = templates("worker.js fetch forwards", reviewed.workerForwards.map(([text, count]) => [text, count, "expression"]));
+  const forwarded = scanReceivers(ts, sf, fetch.body, {
     keys: { request: new Set(["url"]), url: new Set(["pathname"]) },
+    payload: { request: new Set(["method"]), url: new Set(["search"]) },
     declarations: new Set([fetch.parameters[0].name, body[0]?.declarationList?.declarations?.[0]?.name].filter(Boolean)),
-    gated, covered, consumed, recognise: false,
-    payloadKey: () => true,
-    onKeyRead: (access, receiver) => {
-      if (receiver !== "url") return false;
-      const statement = enclosingNestedStatement(ts, access);
-      const entry = statement && [...gated].some(region => contains(region, access)) ? nested.get(canonical(ts, statement)) : null;
-      if (!entry) return false;
-      entry.seen += 1;
-      return true;
-    },
+    gated, covered, consumed, forwards, recognise: false,
   }, message => fetchReport(message.replace(/^dispatch_form: url\.pathname read outside a recognised dispatch form/, "nested_pathname: unreviewed url.pathname use")));
-  for (const entry of nested.values()) {
-    if (entry.seen !== entry.count) fetchReport(`nested_pathname: reviewed nested url.pathname use occurs ${entry.seen}x, reviewed ${entry.count}x: ${entry.template}`);
-  }
+  finishTemplates(forwards, fetchReport);
+  auditExecutable(ts, sf, fetch, {
+    covered, receivers: [fetch.parameters[0].name, body[0]?.declarationList?.declarations?.[0]?.name].filter(Boolean),
+    computed: templates("worker.js fetch computed", reviewed.workerComputed), finishTemplates,
+    pinned: [...covered, ...forwarded],
+  }, fetchReport);
   // `pathname` is only ever read from the url receiver.
   const visit = node => {
     if (ts.isPropertyAccessExpression(node) && node.name.text === "pathname" && !(ts.isIdentifier(unwrap(ts, node.expression)) && unwrap(ts, node.expression).text === "url")) {
@@ -608,19 +895,6 @@ function extractWorker(ts, sf, reviewed, out) {
     ts.forEachChild(node, visit);
   };
   visit(fetch.body);
-  if (tryStatement.catchClause) {
-    const refs = [];
-    const find = node => { if (ts.isIdentifier(node) && ["request", "url"].includes(node.text) && !isNamePosition(ts, node)) refs.push(node); ts.forEachChild(node, find); };
-    find(tryStatement.catchClause.block);
-    for (const ref of refs) fetchReport(`statement: catch clause references receiver ${ref.text} (line ${lineOf(sf, ref)})`);
-  }
-}
-
-// Statement holding a nested read, for matching reviewed nested templates.
-function enclosingNestedStatement(ts, node) {
-  let n = node;
-  while (n.parent && !(ts.isVariableStatement(n) || ts.isReturnStatement(n) || ts.isExpressionStatement(n) || ts.isThrowStatement(n) || ts.isIfStatement(n))) n = n.parent;
-  return ts.isStatement(n) ? n : null;
 }
 
 /**
@@ -675,31 +949,53 @@ function routeLeaves(ts, input) {
 
 // --- RuntimeInstances and delegates -------------------------------------------------
 
-function classMethods(ts, sf, className, label) {
+function classMethods(ts, sf, className, label, audit = {}) {
   const classes = sf.statements.filter(s => ts.isClassDeclaration(s) && s.name?.text === className);
   if (classes.length !== 1) throw new SurfaceError(`${label}: entry_missing: expected one class ${className}, found ${classes.length}`);
   const [cls] = classes;
   if (!cls.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) throw new SurfaceError(`${label}: export_form: class ${className} is not a named export`);
+  if (cls.heritageClauses?.length) throw new SurfaceError(`${label}: export_form: class ${className} extends another class`);
   const methods = new Map();
   const problems = [];
   for (const member of cls.members) {
     const name = member.name && (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name) || ts.isPrivateIdentifier(member.name)) ? member.name.text : null;
     if (member.name && ts.isComputedPropertyName(member.name)) { problems.push(`${label}: export_form: computed class member: ${excerpt(sf, member)}`); continue; }
+    // A static member or block runs with the class as `this`.
+    if (ts.isClassStaticBlockDeclaration(member) || member.modifiers?.some(m => m.kind === ts.SyntaxKind.StaticKeyword)) {
+      problems.push(`${label}: entry_replaced: static member of ${className} is not admitted: ${excerpt(sf, member)}`);
+      continue;
+    }
     if (!name) continue;
     if (!methods.has(name)) methods.set(name, []);
     methods.get(name).push(member);
   }
-  // Entry replacement: no prototype or static reassignment of the class.
+  // Entry replacement through the instance: `this` is admitted only as the
+  // object of a dotted property access that neither writes an entry nor
+  // names a prototype link; instance fields holding another entry object are
+  // used only through their reviewed method calls.
+  const entries = new Set(["constructor", ...(audit.entries || [])]);
+  const fields = audit.fields || {};
+  const fail = (node, detail) => problems.push(`${label}: entry_replaced: ${detail} (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`);
   const visit = node => {
-    if (ts.isBinaryExpression(node) && isAssignmentOperator(ts, node.operatorToken.kind)) {
-      const root = calleeRoot(ts, node.left);
-      if (root === className) problems.push(`${label}: entry_replaced: assignment to ${className} members: ${excerpt(sf, node)}`);
+    if (node.kind === ts.SyntaxKind.ThisKeyword) {
+      const top = outer(ts, node);
+      const access = top.parent;
+      if (ts.isElementAccessExpression(access) && access.expression === top) fail(node, `computed access on this in ${className}`);
+      else if (!ts.isPropertyAccessExpression(access) || access.expression !== top) fail(node, `this used as a value in ${className}`);
+      else {
+        const name = access.name.text;
+        if (PROTOTYPE_LINKS.has(name)) fail(node, `this.${name} in ${className}`);
+        else if (entries.has(name) && isWriteTarget(ts, access)) fail(node, `write to entry this.${name} in ${className}`);
+        else if (Object.hasOwn(fields, name) && !isWriteTarget(ts, access)) {
+          const use = outer(ts, access).parent;
+          const call = use && ts.isPropertyAccessExpression(use) && use.expression === outer(ts, access) ? outer(ts, use).parent : null;
+          if (!call || !ts.isCallExpression(call) || unwrap(ts, call.expression) !== use || !fields[name].includes(use.name.text)) fail(node, `this.${name} used other than through ${fields[name].map(m => `.${m}()`).join(", ")}`);
+        }
+      }
     }
-    if (ts.isCallExpression(node) && (node.arguments || []).some(arg => ts.isIdentifier(unwrap(ts, arg)) && unwrap(ts, arg).text === className)
-      && ["Object", "Reflect"].includes(calleeRoot(ts, node.expression))) problems.push(`${label}: entry_replaced: reflective use of ${className}: ${excerpt(sf, node)}`);
-    ts.forEachChild(node, visit);
+    if (!ts.isFunctionLike(node) || ts.isArrowFunction(node) || node.parent === cls) ts.forEachChild(node, visit);
   };
-  visit(sf);
+  ts.forEachChild(cls, visit);
   const method = (name, params) => {
     const found = methods.get(name) || [];
     if (found.length !== 1) throw new SurfaceError(`${label}: ${found.length ? "entry_duplicate" : "entry_missing"}: ${className}.${name} (${found.length}x)`);
@@ -714,16 +1010,23 @@ function classMethods(ts, sf, className, label) {
 
 function topFunction(ts, sf, name, params, label) {
   const found = sf.statements.filter(s => ts.isFunctionDeclaration(s) && s.name?.text === name);
+  if (found.length !== 1) throw new SurfaceError(`${label}: ${found.length ? "entry_duplicate" : "entry_missing"}: function ${name} (${found.length}x)`);
+  const [fn] = found;
+  // Every reference to the binding is a call (`auditModules` checks the
+  // other modules): an assignment in any form or an alias replaces it.
+  const binding = symbolOf(ts, sf, fn.name);
   const others = [];
   const visit = node => {
-    if (ts.isBinaryExpression(node) && isAssignmentOperator(ts, node.operatorToken.kind) && ts.isIdentifier(unwrap(ts, node.left)) && unwrap(ts, node.left).text === name) others.push(node);
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) others.push(node);
+    if (ts.isIdentifier(node) && node !== fn.name && !isNamePosition(ts, node)) {
+      if (isDeclarationName(ts, node) ? node.text === name : symbolOf(ts, sf, node) === binding) {
+        const top = outer(ts, node);
+        if (isDeclarationName(ts, node) || !ts.isCallExpression(top.parent) || top.parent.expression !== top) others.push(node);
+      }
+    }
     ts.forEachChild(node, visit);
   };
   visit(sf);
-  if (found.length !== 1) throw new SurfaceError(`${label}: ${found.length ? "entry_duplicate" : "entry_missing"}: function ${name} (${found.length}x)`);
-  if (others.length) throw new SurfaceError(`${label}: entry_replaced: ${name} is reassigned or redeclared: ${excerpt(sf, others[0])}`);
-  const [fn] = found;
+  if (others.length) throw new SurfaceError(`${label}: entry_replaced: ${name} is reassigned, redeclared or aliased: ${excerpt(sf, enclosingStatement(ts, others[0]))}`);
   const names = fn.parameters.map(p => (ts.isIdentifier(p.name) && !p.dotDotDotToken ? p.name.text : null));
   if (names.join(",") !== params.join(",")) throw new SurfaceError(`${label}: entry_form: expected ${name}(${params.join(", ")})`);
   return fn;
@@ -757,6 +1060,8 @@ function resolveExport(ts, file, path, name, depth = 0) {
     if (ts.isVariableStatement(statement) && statement.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) {
       for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name) && declaration.name.text === name) found.push(() => ({ path, sf, declaration }));
     }
+    if ((ts.isClassDeclaration(statement) || ts.isFunctionDeclaration(statement)) && statement.name?.text === name
+      && statement.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) && !statement.modifiers.some(m => m.kind === ts.SyntaxKind.DefaultKeyword)) found.push(() => ({ path, sf, declaration: statement }));
     if (ts.isExportDeclaration(statement)) {
       if (!statement.exportClause) { star = true; continue; }
       if (!ts.isNamedExports(statement.exportClause)) continue;
@@ -787,8 +1092,11 @@ function resolveLocal(ts, file, path, name, depth) {
   return { path, sf, declaration: locals[0] };
 }
 
-/** Literal members of family `name` as imported by `fromPath`, with mutation checks. */
-function familyMembers(ts, file, sources, fromPath, name) {
+/**
+ * Literal members of family `name` as imported by `fromPath`. Every use of the
+ * family binding is checked by `auditModules` across the bundle.
+ */
+function familyMembers(ts, file, fromPath, name, families) {
   const imported = importOf(ts, file(fromPath), name);
   if (!imported?.imported) throw new SurfaceError(`family_unknown: unknown action family ${name} (not a named import)`);
   const { path, declaration } = resolveExport(ts, file, resolvePath(fromPath, imported.module), imported.imported);
@@ -800,53 +1108,29 @@ function familyMembers(ts, file, sources, fromPath, name) {
   }
   const members = unwrap(ts, init.arguments[0]).elements.map(element => literalValue(ts, element));
   if (new Set(members).size !== members.length) throw new SurfaceError(`family_dynamic: ${name} lists a member twice`);
-  // Mutation anywhere in the console: only `.has(...)`, import/export names and
-  // the definition itself may refer to the family.
-  for (const [other, text] of sources) {
-    if (!other.startsWith(`${CONSOLE}/`) || !/\.m?js$/.test(other) || !text.includes(name)) continue;
-    const problem = familyUse(ts, file(other), other, name, declaration);
-    if (problem) throw new SurfaceError(problem);
-  }
+  families.push({ path, name: declaration.name.text, label: name });
   return members;
 }
 
-// Per parsed file and family: the first non-read use, or "" (files are cached).
-const familyUses = new WeakMap();
-function familyUse(ts, sf, path, name, declaration) {
-  if (!familyUses.has(sf)) familyUses.set(sf, new Map());
-  const cache = familyUses.get(sf);
-  if (cache.has(name)) return cache.get(name);
-  let problem = "";
-  const visit = node => {
-    if (problem) return;
-    if ((ts.isImportSpecifier(node) || ts.isExportSpecifier(node)) && node.propertyName && node.propertyName.text === name && node.name.text !== name) {
-      problem = `family_mutation: ${name} is renamed in ${path} (line ${lineOf(sf, node)}); renamed family bindings are not admitted`;
-      return;
-    }
-    if (ts.isIdentifier(node) && node.text === name && !isNamePosition(ts, node) && node !== declaration.name) {
-      const top = outer(ts, node);
-      const use = top.parent;
-      const call = use && ts.isPropertyAccessExpression(use) && use.expression === top ? outer(ts, use).parent : null;
-      const readOnly = call && ts.isCallExpression(call) && unwrap(ts, call.expression) === use && use.name.text === "has";
-      if (!readOnly) { problem = `family_mutation: ${name} used other than .has() in ${path} (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`; return; }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sf);
-  cache.set(name, problem);
-  return problem;
-}
-
-function extractDurable(ts, file, sources, reviewed, ctx) {
+function extractDurable(ts, file, reviewed, ctx) {
   const { internal, errors, templates, finishTemplates } = ctx;
   const sf = file(DURABLE);
   const label = "durable_object.js";
-  const { method, members, problems } = classMethods(ts, sf, "RuntimeInstances", label);
+  const { method, members, problems } = classMethods(ts, sf, "RuntimeInstances", label, { entries: ["fetch", "alarm", "ux1ResearchCommand"], fields: { directory: ["command"] } });
   errors.push(...problems);
   for (const handler of ["webSocketMessage", "webSocketClose", "webSocketError"]) {
     if (members.has(handler)) errors.push(`${label}: entry_unsupported: RuntimeInstances.${handler} is not a classified entry`);
   }
-  if (members.has("alarm")) { method("alarm", []); internal.add("action:lifecycle:alarm"); }
+  // The runtime binds the class the Worker module exports under this name.
+  const bound = resolveExport(ts, file, WORKER, "RuntimeInstances");
+  if (bound.path !== DURABLE || !ts.isClassDeclaration(bound.declaration)) errors.push(`${label}: entry_replaced: worker.js does not export the RuntimeInstances class of ${DURABLE}`);
+  if (members.has("alarm")) {
+    const alarm = method("alarm", []);
+    if (JSON.stringify(alarm.body.statements.map(s => canonical(ts, s))) !== JSON.stringify(reviewed.doAlarm.flatMap(text => canonicalStatements(ts, text)))) {
+      errors.push(`${label}: statement: RuntimeInstances.alarm is not the reviewed alarm body: ${excerpt(sf, alarm)}`);
+    }
+    internal.add("action:lifecycle:alarm");
+  }
   const fetch = method("fetch", ["request"]);
   const report = message => errors.push(`RuntimeInstances.fetch: ${message}`);
   const add = (id, family) => {
@@ -866,6 +1150,8 @@ function extractDurable(ts, file, sources, reviewed, ctx) {
   }
   const level = templates("RuntimeInstances.fetch", reviewed.doFetch);
   const tryBody = body[0].tryBlock.statements;
+  if (canonical(ts, body[0].catchClause) !== canonicalCatch(ts, reviewed.doCatch)) report(`statement: catch clause is not the reviewed error response: ${excerpt(sf, body[0].catchClause)}`);
+  else covered.add(body[0].catchClause);
   let finished = false;
   for (const [index, statement] of tryBody.entries()) {
     if (finished) { report(`statement: statement after the final fallthrough: ${excerpt(sf, statement)}`); continue; }
@@ -918,7 +1204,7 @@ function extractDurable(ts, file, sources, reviewed, ctx) {
     }
     if (gate.kind === "neq") { report(`statement: inequality dispatch at RuntimeInstances.fetch level is not admitted: ${excerpt(sf, statement.expression)}`); continue; }
     if (gate.kind === "family") {
-      const members = (() => { try { return familyMembers(ts, file, sources, DURABLE, gate.family); } catch (error) { if (error instanceof SurfaceError) { report(error.message); return null; } throw error; } })();
+      const members = (() => { try { return familyMembers(ts, file, DURABLE, gate.family, ctx.families); } catch (error) { if (error instanceof SurfaceError) { report(error.message); return null; } throw error; } })();
       for (const action of members || []) add(`action:${action}`, gate.family);
     } else if (gate.kind === "list") {
       for (const action of gate.values) add(`action:${action}`, "literal list");
@@ -928,10 +1214,13 @@ function extractDurable(ts, file, sources, reviewed, ctx) {
   if (!finished) report("statement: no final transaction fallthrough");
   finishTemplates(level, message => errors.push(message));
 
-  scanReceivers(ts, sf, fetch.body, {
+  const receivers = declarationsOf(ts, fetch, tryBody, ["request", "command"]);
+  const forwards = templates("RuntimeInstances.fetch forwards", reviewed.doForwards.map(([text, count]) => [text, count, "expression"]));
+  const forwarded = scanReceivers(ts, sf, fetch.body, {
     keys: { request: new Set(["method", "url"]), command: new Set(["action"]) },
-    declarations: new Set(declarationsOf(ts, fetch, tryBody, ["request", "command"])),
-    gated, covered, consumed, recognise: true,
+    payload: { request: new Set(), command: "any" },
+    declarations: new Set(receivers),
+    gated, covered, consumed, forwards, recognise: true,
     onForm: (form, access, receiver, key, isCovered) => {
       if (receiver === "request") {
         if (key === "method" && form.kind === "eq") methods.push(form.values[0]);
@@ -944,12 +1233,11 @@ function extractDurable(ts, file, sources, reviewed, ctx) {
       else report(`dispatch_form: nested prefix dispatch is not admitted (line ${lineOf(sf, access)}): ${excerpt(sf, enclosingStatement(ts, access))}`);
     },
   }, report);
-  if (body[0].catchClause) {
-    const refs = [];
-    const find = node => { if (ts.isIdentifier(node) && ["request", "command"].includes(node.text) && !isNamePosition(ts, node)) refs.push(node); ts.forEachChild(node, find); };
-    find(body[0].catchClause.block);
-    for (const ref of refs) report(`statement: catch clause references receiver ${ref.text} (line ${lineOf(sf, ref)})`);
-  }
+  finishTemplates(forwards, report);
+  auditExecutable(ts, sf, fetch, {
+    covered, receivers, computed: templates("RuntimeInstances.fetch computed", reviewed.doComputed), finishTemplates,
+    pinned: [...covered, ...forwarded],
+  }, report);
   for (const value of methods) internal.add(`action:instance_state:${value}`);
 
   for (const prefix of delegates) {
@@ -1097,14 +1385,22 @@ function delegateScan(ts, sf, fn, receiver, set, ctx, label, levelStatements, ex
     visit(fn.body);
     finishTemplates(uses, message => errors.push(message));
   }
-  scanReceivers(ts, sf, fn.body, {
+  const declarations = fn.parameters.filter(p => ts.isIdentifier(p.name) && p.name.text === receiver).map(p => p.name);
+  const forwards = ctx.templates(`${label} forwards`, (extra.forwards || []).map(([text, count]) => [text, count, "expression"]));
+  const forwarded = scanReceivers(ts, sf, fn.body, {
     keys: { [receiver]: new Set(["action"]) },
-    declarations: new Set(fn.parameters.filter(p => ts.isIdentifier(p.name) && p.name.text === receiver).map(p => p.name)),
-    gated, covered, consumed: new Set(), recognise: true,
+    payload: { [receiver]: "any" },
+    declarations: new Set(declarations),
+    gated, covered, consumed: new Set(), forwards, recognise: true,
     onForm: (form, access) => {
       if (form.kind === "eq" || form.kind === "neq" || (form.kind === "list" && extra.lists)) actions.push(...form.values);
       else report(`dispatch_form: ${form.kind} dispatch is not admitted (line ${lineOf(sf, access)}): ${excerpt(sf, enclosingStatement(ts, access))}`);
     },
+  }, report);
+  finishTemplates(forwards, message => errors.push(message));
+  auditExecutable(ts, sf, fn, {
+    covered, receivers: declarations, computed: ctx.templates(`${label} computed`, extra.computed || []), finishTemplates,
+    pinned: [...covered, ...forwarded],
   }, report);
   return actions;
 }
@@ -1122,7 +1418,7 @@ function rotationActions(ts, file, reviewed, ctx) {
   for (const fn of [outerFn, inner]) if (!fn.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) ctx.errors.push(`secretRotation.js: export_form: ${fn.name.text} is not exported`);
   return [
     ...delegateScan(ts, sf, outerFn, "command", ctx.templates("durableRotationCommand", reviewed.durableRotation), ctx, "durableRotationCommand", outerFn.body.statements),
-    ...delegateScan(ts, sf, inner, "c", ctx.templates("rotationCommand", reviewed.rotation), ctx, "rotationCommand", inner.body.statements, { uses: reviewed.rotationUses }),
+    ...delegateScan(ts, sf, inner, "c", ctx.templates("rotationCommand", reviewed.rotation), ctx, "rotationCommand", inner.body.statements, { uses: reviewed.rotationUses, forwards: reviewed.rotationForwards, computed: reviewed.rotationComputed }),
   ];
 }
 
@@ -1131,7 +1427,7 @@ function ux1Actions(ts, sf, method, reviewed, ctx) {
   const statements = fn.body.statements;
   const callback = statements.length === 1 ? transactionCallback(ts, statements[0], null) : null;
   if (!callback) { ctx.errors.push("ux1ResearchCommand: statement: body must be return this.storage.transactionSync(() => { ... })"); return []; }
-  return delegateScan(ts, sf, fn, "command", ctx.templates("ux1ResearchCommand", reviewed.ux1), ctx, "ux1ResearchCommand", callback.body.statements, { lists: true });
+  return delegateScan(ts, sf, fn, "command", ctx.templates("ux1ResearchCommand", reviewed.ux1), ctx, "ux1ResearchCommand", callback.body.statements, { lists: true, forwards: reviewed.ux1Forwards });
 }
 
 function directoryActions(ts, file, reviewed, ctx) {
@@ -1154,7 +1450,7 @@ function directoryActions(ts, file, reviewed, ctx) {
     && unwrap(ts, assignments[0].right).expression.text === "KvDirectory" && ts.isConstructorDeclaration(assignments[0].parent.parent.parent);
   if (!constructed) { ctx.errors.push("directory delegate: delegate: this.directory is not exactly one new KvDirectory(...) in the constructor"); return []; }
   const sf = file(DIRECTORY);
-  const { method, problems } = classMethods(ts, sf, "KvDirectory", "kv_directory.js");
+  const { method, problems } = classMethods(ts, sf, "KvDirectory", "kv_directory.js", { entries: ["command", "run"] });
   ctx.errors.push(...problems);
   const command = method("command", ["command"]);
   const run = method("run", ["command"]);
@@ -1162,4 +1458,254 @@ function directoryActions(ts, file, reviewed, ctx) {
     ...delegateScan(ts, sf, command, "command", ctx.templates("KvDirectory.command", reviewed.directoryCommand), ctx, "KvDirectory.command", command.body.statements),
     ...delegateScan(ts, sf, run, "command", ctx.templates("KvDirectory.run", reviewed.directoryRun), ctx, "KvDirectory.run", run.body.statements),
   ];
+}
+
+// --- Module graph ------------------------------------------------------------------
+
+/**
+ * Bindings of the dispatch set across every module the Worker bundle reaches
+ * (static imports, re-exports and literal dynamic imports from worker.js).
+ * Action families, entry classes and entry functions are followed by import
+ * identity (named, default and namespace imports, namespace destructuring,
+ * re-exports and `export *`), not by spelling, and every reference must be an
+ * admitted use: a family only as `F.has(x)`; `rotationCommand` and
+ * `durableRotationCommand` only as calls; `KvDirectory` only as `new`, bound to
+ * a const used only through method calls or (in the Durable Object) to
+ * `this.directory`; `RuntimeInstances` and the Worker default export not at
+ * all. Renamed bindings are not admitted. No reached module may reach a
+ * built-in prototype through which a family could change membership without
+ * a reference (`Set.prototype`, `.constructor.prototype`, prototype getters).
+ */
+function auditModules(ts, file, modules, families, errors) {
+  const report = message => errors.push(`module graph: ${message}`);
+  const tracked = new Map();
+  const item = (path, name) => tracked.get(`${path}#${name}`);
+  const track = (path, name, entry) => { if (item(path, name)) return false; tracked.set(`${path}#${name}`, entry); return true; };
+  for (const family of families) track(family.path, family.name, { kind: "family", label: family.label, path: family.path, name: family.name });
+  track(DURABLE, "RuntimeInstances", { kind: "none", label: "RuntimeInstances", path: DURABLE, name: "RuntimeInstances" });
+  track(DIRECTORY, "KvDirectory", { kind: "instance", label: "KvDirectory", path: DIRECTORY, name: "KvDirectory" });
+  for (const name of ["rotationCommand", "durableRotationCommand"]) track(ROTATION, name, { kind: "call", label: name, path: ROTATION, name });
+  track(WORKER, "default", { kind: "none", label: "the Worker default export", path: WORKER, name: "default" });
+
+  const reached = [];
+  const queue = [WORKER];
+  const seen = new Set(queue);
+  while (queue.length) {
+    const path = queue.shift();
+    const summary = moduleSummary(ts, file(path));
+    reached.push([path, summary]);
+    for (const { specifier, node } of summary.requests) {
+      if (specifier === null) { report(`dynamic_evaluation: ${path} imports a computed specifier (line ${lineOf(summary.sf, node)}): ${excerpt(summary.sf, enclosingStatement(ts, node))}`); continue; }
+      if (!specifier.startsWith(".")) continue;
+      const target = resolvePath(path, specifier);
+      if (!modules.has(target)) { report(`module_unresolved: ${path} imports ${specifier}, which is not a console module`); continue; }
+      if (!seen.has(target)) { seen.add(target); queue.push(target); }
+    }
+  }
+
+  const where = (sf, path, node) => `in ${path} (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`;
+  const flag = (entry, sf, path, node, detail) => report(`${entry.kind === "family" ? "family_mutation" : "entry_replaced"}: ${entry.label} ${detail} ${where(sf, path, node)}`);
+  const renamed = (entry, sf, path, node) => report(entry.kind === "family"
+    ? `family_mutation: ${entry.label} is renamed in ${path} (line ${lineOf(sf, node)}); renamed family bindings are not admitted`
+    : `entry_replaced: ${entry.label} is renamed ${where(sf, path, node)}`);
+  const DESCRIBE = {
+    family: "used other than .has()", call: "used other than as a call", none: "is referenced",
+    instance: "used other than as new KvDirectory(...) bound to a method-only const or this.directory",
+  };
+  const allowed = (entry, sf, path, ref) => {
+    const kind = useKind(ts, sf, ref);
+    if (entry.kind === "family") return kind === "method:has";
+    if (entry.kind === "call") return kind === "call";
+    if (entry.kind === "instance") return kind === "new:bound" || (kind === "new:this.directory" && path === DURABLE);
+    return false;
+  };
+
+  // Re-exports to a fixed point: the same binding under the same name.
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [path, summary] of reached) {
+      for (const exported of summary.exports) {
+        let source;
+        if (exported.module !== null) {
+          if (!exported.module.startsWith(".")) continue;
+          const from = resolvePath(path, exported.module);
+          if (exported.local === "*") {
+            for (const entry of [...tracked.values()]) if (entry.path === from && entry.name !== "default") changed = track(path, entry.name, entry) || changed;
+            continue;
+          }
+          if (exported.local === "**") {
+            const inner = [...tracked.keys()].filter(key => key.startsWith(`${from}#`));
+            if (inner.length) report(`entry_replaced: export * as ${exported.name} re-exports dispatch bindings of ${from} as a namespace ${where(summary.sf, path, exported.node)}`);
+            continue;
+          }
+          source = [from, exported.local];
+        } else {
+          const imported = summary.imports.find(entry => entry.local.text === exported.local);
+          if (imported?.imported === "*" || (imported && !imported.module.startsWith("."))) continue;
+          source = imported ? [resolvePath(path, imported.module), imported.imported] : [path, exported.local];
+        }
+        const entry = item(...source);
+        if (!entry) continue;
+        if (exported.name !== source[1]) { renamed(entry, summary.sf, path, exported.node); continue; }
+        changed = track(path, exported.name, entry) || changed;
+      }
+    }
+  }
+
+  for (const [path, summary] of reached) {
+    const { sf } = summary;
+    const check = (entry, symbol) => {
+      for (const ref of summary.refs.get(symbol) || []) if (!allowed(entry, sf, path, ref)) flag(entry, sf, path, ref, DESCRIBE[entry.kind]);
+    };
+    for (const entry of tracked.values()) {
+      if (entry.path !== path || entry.name === "default") continue;
+      const declared = localDeclarationName(ts, sf, entry.name);
+      if (declared) check(entry, symbolOf(ts, sf, declared));
+    }
+    for (const imported of summary.imports) {
+      if (!imported.module.startsWith(".")) continue;
+      const from = resolvePath(path, imported.module);
+      const symbol = symbolOf(ts, sf, imported.local);
+      if (imported.imported !== "*") {
+        const entry = item(from, imported.imported);
+        if (!entry) continue;
+        if (imported.local.text !== imported.imported && imported.imported !== "default") renamed(entry, sf, path, imported.node);
+        else check(entry, symbol);
+        continue;
+      }
+      const inner = [...tracked].filter(([key]) => key.startsWith(`${from}#`)).map(([, entry]) => entry);
+      if (!inner.length) continue;
+      // A namespace import: each member read is a reference to that export.
+      for (const ref of summary.refs.get(symbol) || []) {
+        const top = outer(ts, ref);
+        const parent = top.parent;
+        if (ts.isPropertyAccessExpression(parent) && parent.expression === top) {
+          const entry = item(from, parent.name.text);
+          if (entry && !allowed(entry, sf, path, parent)) flag(entry, sf, path, parent, DESCRIBE[entry.kind]);
+          continue;
+        }
+        if (ts.isVariableDeclaration(parent) && parent.initializer === top && ts.isObjectBindingPattern(parent.name)) {
+          for (const element of parent.name.elements) {
+            const name = element.propertyName || element.name;
+            const key = ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : null;
+            if (element.dotDotDotToken || key === null || !ts.isIdentifier(element.name)) {
+              report(`entry_replaced: namespace ${imported.local.text} of ${from} is destructured with a rest or computed element ${where(sf, path, element)}`);
+              continue;
+            }
+            const entry = item(from, key);
+            if (!entry) continue;
+            if (element.name.text !== key) renamed(entry, sf, path, element);
+            else check(entry, symbolOf(ts, sf, element.name));
+          }
+          continue;
+        }
+        report(`${inner.some(entry => entry.kind === "family") ? "family_mutation" : "entry_replaced"}: namespace ${imported.local.text} of ${from}, which exports ${inner.map(entry => entry.label).join(", ")}, is used other than through its members ${where(sf, path, ref)}`);
+      }
+    }
+    for (const { node, detail } of summary.reach) report(`family_mutation: prototype reach (${detail}) ${where(sf, path, node)}`);
+  }
+}
+
+/** How a reference to a tracked binding is used. */
+function useKind(ts, sf, ref) {
+  const top = outer(ts, ref);
+  const parent = top.parent;
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === top) {
+    const call = outer(ts, parent).parent;
+    return call && ts.isCallExpression(call) && call.expression === outer(ts, parent) ? `method:${parent.name.text}` : "member";
+  }
+  if (ts.isCallExpression(parent) && parent.expression === top) return "call";
+  if (ts.isNewExpression(parent) && parent.expression === top) {
+    const created = outer(ts, parent);
+    const holder = created.parent;
+    if (ts.isVariableDeclaration(holder) && holder.initializer === created && ts.isIdentifier(holder.name) && (holder.parent.flags & ts.NodeFlags.Const)) {
+      const symbol = symbolOf(ts, sf, holder.name);
+      const uses = [];
+      const visit = node => {
+        if (ts.isIdentifier(node) && node !== holder.name && isReference(ts, node) && symbolOf(ts, sf, node) === symbol) uses.push(node);
+        ts.forEachChild(node, visit);
+      };
+      visit(sf);
+      return uses.every(use => useKind(ts, sf, use).startsWith("method:")) ? "new:bound" : "new:escaped";
+    }
+    if (ts.isBinaryExpression(holder) && holder.right === created && holder.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const left = unwrap(ts, holder.left);
+      if (ts.isPropertyAccessExpression(left) && left.name.text === "directory" && unwrap(ts, left.expression).kind === ts.SyntaxKind.ThisKeyword) return "new:this.directory";
+    }
+    return "new:other";
+  }
+  return "other";
+}
+
+function localDeclarationName(ts, sf, name) {
+  for (const statement of sf.statements) {
+    if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return declaration.name;
+    if ((ts.isClassDeclaration(statement) || ts.isFunctionDeclaration(statement)) && statement.name?.text === name) return statement.name;
+  }
+  return null;
+}
+
+// Per parsed file: its module requests, imports, exports, references by
+// symbol, and prototype reach (files are cached, so is this).
+const summaries = new WeakMap();
+const PROTOTYPE_REACH = new Set(["getPrototypeOf", "setPrototypeOf", "__proto__"]);
+function moduleSummary(ts, sf) {
+  if (summaries.has(sf)) return summaries.get(sf);
+  const summary = { sf, requests: [], imports: [], exports: [], refs: new Map(), reach: [] };
+  for (const statement of sf.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      const module = statement.moduleSpecifier.text;
+      summary.requests.push({ specifier: module, node: statement });
+      const clause = statement.importClause;
+      if (clause?.name) summary.imports.push({ module, imported: "default", local: clause.name, node: statement });
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) summary.imports.push({ module, imported: "*", local: bindings.name, node: statement });
+      if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) summary.imports.push({ module, imported: (element.propertyName || element.name).text, local: element.name, node: element });
+    }
+    if (ts.isExportDeclaration(statement)) {
+      const module = statement.moduleSpecifier ? statement.moduleSpecifier.text : null;
+      if (module !== null) summary.requests.push({ specifier: module, node: statement });
+      if (!statement.exportClause) summary.exports.push({ name: null, module, local: "*", node: statement });
+      else if (ts.isNamespaceExport(statement.exportClause)) summary.exports.push({ name: statement.exportClause.name.text, module, local: "**", node: statement });
+      else for (const element of statement.exportClause.elements) summary.exports.push({ name: element.name.text, module, local: (element.propertyName || element.name).text, node: element });
+    }
+  }
+  const visit = node => {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const [argument] = node.arguments;
+      summary.requests.push({ specifier: argument && isStringLiteral(ts, argument) ? literalValue(ts, argument) : null, node });
+    }
+    if (ts.isIdentifier(node) && isReference(ts, node)) {
+      const symbol = symbolOf(ts, sf, node);
+      if (symbol) { if (!summary.refs.has(symbol)) summary.refs.set(symbol, []); summary.refs.get(symbol).push(node); }
+      if (node.text === "Set" && !symbol?.declarations?.length) {
+        const top = outer(ts, node);
+        const parent = top.parent;
+        if (!(ts.isNewExpression(parent) && parent.expression === top) && !(ts.isBinaryExpression(parent) && parent.right === top && parent.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword)) {
+          summary.reach.push({ node, detail: "Set used other than as new Set() or instanceof Set" });
+        }
+      }
+    }
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const name = ts.isPropertyAccessExpression(node) ? node.name.text : literalKey(ts, node.argumentExpression);
+      const object = unwrap(ts, node.expression);
+      const objectName = ts.isPropertyAccessExpression(object) ? object.name.text : ts.isElementAccessExpression(object) ? literalKey(ts, object.argumentExpression) : null;
+      if (PROTOTYPE_REACH.has(name)) summary.reach.push({ node, detail: name });
+      if (name === "prototype" && objectName === "constructor") summary.reach.push({ node, detail: "constructor.prototype" });
+      if (name === "prototype" && isWriteTarget(ts, node)) summary.reach.push({ node, detail: "prototype replaced" });
+      if (objectName === "prototype" && isWriteTarget(ts, node)) summary.reach.push({ node, detail: "prototype member written" });
+    }
+    if (ts.isCallExpression(node) && node.arguments.length) {
+      const callee = unwrap(ts, node.expression);
+      const target = unwrap(ts, node.arguments[0]);
+      const targetName = ts.isPropertyAccessExpression(target) ? target.name.text : ts.isElementAccessExpression(target) ? literalKey(ts, target.argumentExpression) : null;
+      if (ts.isPropertyAccessExpression(callee) && ["defineProperty", "defineProperties", "assign", "set", "deleteProperty"].includes(callee.name.text) && targetName === "prototype") {
+        summary.reach.push({ node, detail: `${callee.name.text} on a prototype` });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  summaries.set(sf, summary);
+  return summary;
 }
