@@ -88,6 +88,7 @@ class Configuration:
     binance_snapshot_endpoint: str = ''
     binance_snapshot_token: str = field(default='', repr=False)
     telegram_ibkr_accounts: dict = field(default_factory=dict, repr=False)
+    deadline_alert_enabled: bool = False
 
     def __post_init__(self):
         adapter.validate_expected(self.expected)
@@ -117,7 +118,6 @@ class Configuration:
             except (TypeError, ValueError):
                 raise ValueError('digest_candidate_sources_invalid') from None
         identities, objects = set(), set()
-        snapshot_bindings = 0
         for row in self.expected:
             if not SLOT.fullmatch(row.get('candidate_slot', '')):
                 raise ValueError('digest_candidate_slot_required')
@@ -127,15 +127,13 @@ class Configuration:
                 raise ValueError('digest_duplicate_target_binding')
             identities.add(identity)
             objects.add(object_key)
-            if 'snapshot_only' in row:
-                if row['platform_id'] != 'binance' or row['snapshot_only'] is not True:
-                    raise ValueError('digest_snapshot_binding_invalid')
-                snapshot_bindings += 1
-            if 'receipt_candidate' in row and (
-                    row.get('snapshot_only') is not True or row['receipt_candidate'] is not True):
+            if 'snapshot_only' in row and row['snapshot_only'] is not True:
+                raise ValueError('digest_snapshot_binding_invalid')
+            if 'receipt_candidate' in row and row['receipt_candidate'] is not True:
                 raise ValueError('digest_receipt_binding_invalid')
-        if snapshot_bindings > 1:
-            raise ValueError('digest_snapshot_binding_invalid')
+            if 'expected_runs' in row and (
+                    type(row['expected_runs']) is not int or row['expected_runs'] <= 0):
+                raise ValueError('digest_expected_targets_invalid')
         date.fromisoformat(self.cutover_date)
         if not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', self.recipient_scope):
             raise ValueError('digest_recipient_scope_invalid')
@@ -153,6 +151,9 @@ class Configuration:
         flag = os.environ.get('DIGEST_DELIVERY_ENABLED', 'false')
         if flag not in {'true', 'false'}:
             raise ValueError('digest_delivery_flag_invalid')
+        deadline_flag = os.environ.get('DIGEST_DEADLINE_ALERT_ENABLED', 'true')
+        if deadline_flag not in {'true', 'false'}:
+            raise ValueError('digest_deadline_alert_flag_invalid')
         try:
             candidate_uris = json.loads(os.environ.get('DIGEST_CANDIDATES_BY_PLATFORM_JSON', '{}'))
         except ValueError:
@@ -165,7 +166,8 @@ class Configuration:
                    os.environ.get('DIGEST_BINANCE_SNAPSHOT_ENDPOINT', ''),
                    os.environ.get('DIGEST_BINANCE_SNAPSHOT_TOKEN', ''),
                    _ibkr_telegram_accounts(expected, os.environ.get('DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON'),
-                                           os.environ.get('QSL_GLOBAL_TELEGRAM_CHAT_ID')))
+                                           os.environ.get('QSL_GLOBAL_TELEGRAM_CHAT_ID')),
+                   deadline_alert_enabled=(deadline_flag == 'true'))
 
 
 def utc_now():
@@ -238,7 +240,8 @@ def _binance_snapshot(configuration, binding, day, timeout):
         raise ValueError('digest_snapshot_window_invalid')
     if not isinstance(data['holdings'], list):
         raise ValueError('digest_snapshot_invalid')
-    holdings = []
+    raw_holdings = []
+    present_symbols = set()
     for item in data['holdings']:
         symbol, quantity = item['asset'], item['quantity']
         if not valid_crypto_symbol(symbol) or not isinstance(quantity, str):
@@ -247,9 +250,20 @@ def _binance_snapshot(configuration, binding, day, timeout):
         if not math.isfinite(amount) or amount < 0:
             raise ValueError('digest_snapshot_invalid')
         if amount:
-            holdings.append({'symbol': symbol, 'quantity': amount, 'asset_type': 'crypto'})
+            raw_holdings.append({'symbol': symbol, 'quantity': amount, 'asset_type': 'crypto'})
+            present_symbols.add(symbol)
+    holdings = [
+        item for item in raw_holdings
+        if not (len(item['symbol']) > 2 and item['symbol'].startswith('LD')
+                and item['symbol'] != 'LDO' and item['symbol'][2:] in present_symbols)
+    ]
     snapshot = {**{name: binding[name] for name in IDENTITY}, 'business_day': day, 'actually_ran': False,
-                'account_daily_facts': {'snapshots': [{'as_of': data['as_of'], 'holdings': holdings}]}}
+                'account_daily_facts': {'snapshots': [{
+                    'as_of': data['as_of'],
+                    'holdings': holdings,
+                    'holdings_scope': 'spot_and_flexible_earn',
+                    'holdings_complete': True,
+                }]}}
     wallet = None
     valuation = data.get('wallet_valuation')
     if (isinstance(valuation, dict) and set(valuation) == {'amount', 'currency', 'as_of'}
@@ -323,7 +337,15 @@ def _sources(configuration, store, day, end, *, now, monotonic, evidence=None):
                         stale_observations.extend(stale)
                         rows.extend(fresh)
                     elif fresh:
-                        outcome = 'present' if any(item['actually_ran'] for item in fresh) else 'not_run'
+                        if any(item['actually_ran'] for item in fresh):
+                            outcome = 'present'
+                        elif all(item.get('reason_code') == 'market_closed' for item in fresh):
+                            outcome = 'market_closed'
+                        elif all(item.get('scheduled_idle') is True or item.get('reason_code') == 'not_due'
+                                 for item in fresh):
+                            outcome = 'scheduled_idle'
+                        else:
+                            outcome = 'not_run'
                         rows.extend(fresh)
                     else:
                         outcome = 'missing'
@@ -380,6 +402,23 @@ def _ibkr_settled_cash(raw, binding, day):
     return _SettledCashObservation(binding['opaque_account_uid'], raw['amount'], statement_day)
 
 
+def _digest_eligible_platforms(config, expected):
+    """Filter control-plane platforms eligible for digest display from config metadata."""
+    configured = config.get('platforms', {}) if isinstance(config, dict) else {}
+    bound = {row.get('platform_id') for row in expected}
+    eligible = {}
+    for pid in dict.fromkeys((*adapter.PLATFORMS, *configured)):
+        if pid == 'qrs':
+            continue
+        meta = configured.get(pid) if isinstance(configured, dict) else None
+        deployment = meta.get('deployment', {}) if isinstance(meta, dict) else {}
+        if pid not in bound and isinstance(deployment, dict):
+            if deployment.get('runtime_model') == 'not_configured' or deployment.get('live_configured') is False:
+                continue
+        eligible[pid] = meta if isinstance(meta, dict) else {}
+    return eligible
+
+
 def _report(configuration, rows, outcomes, day, platform_config, *, stale_observations=(),
             include_telegram_account_ids=False):
     config = deepcopy(platform_config or aggregator.load_platform_config())
@@ -396,7 +435,8 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
             business_day=day, locale=configuration.locale, candidates_path=path,
             include_github=False, config=config, candidate_failures=failures, render_text=False,
         )
-    covered = sum(value in {'present', 'not_run', 'snapshot_only'} for value in outcomes)
+    covered = sum(value in {'present', 'not_run', 'scheduled_idle', 'market_closed', 'snapshot_only'}
+                  for value in outcomes)
     coverage = 'complete' if covered == len(outcomes) else 'partial' if covered else 'unavailable'
     facts = collect_account_facts([*rows, *(row for row in stale_observations if isinstance(row, dict))],
                                   configuration.expected, day)
@@ -412,7 +452,7 @@ def _report(configuration, rows, outcomes, day, platform_config, *, stale_observ
     if coverage == 'complete' and ((payload.notification_summary or {}).get('counts_unknown')
                                    or any(binding.get('receipt_candidate') for binding in configuration.expected)):
         coverage = 'partial'
-    platforms = dict.fromkeys((*adapter.PLATFORMS, *config.get('platforms', {})))
+    platforms = _digest_eligible_platforms(config, configuration.expected)
     text = render_account_daily(payload, configuration.expected, outcomes, facts=facts, known_platforms=platforms,
                                 telegram_ibkr_accounts=(configuration.telegram_ibkr_accounts
                                                         if include_telegram_account_ids else None))
@@ -436,6 +476,44 @@ def execute(headers, configuration, store, send, *, preview=False, now=utc_now,
                         monotonic=monotonic, platform_config=platform_config)
 
 
+def _maybe_send_deadline_alert(report_date, day, schedule_record, configuration, store, send, *, now=utc_now):
+    """Send at most one short operator alert when 07:30 SGT deadline check sees no confirmed receipt."""
+    zh = configuration.locale == 'zh'
+    text = (
+        f'⚠️ 昨日账户日报未按时确认｜{day}\n07:30 UTC+8 截止检查未发现有效发送回执，请检查日报任务状态。'
+        if zh else
+        f'⚠️ Daily account report unconfirmed | {day}\nNo valid delivery receipt was found at the 07:30 UTC+8 deadline check.'
+    )
+    key = f'{configuration.recipient_scope}/deadline-alerts/{report_date.isoformat()}.json'
+    record = {
+        'schema_version': 'qsl.daily_digest_deadline_alert.v1',
+        'report_date': report_date.isoformat(),
+        'business_day': day,
+        'recipient_scope': configuration.recipient_scope,
+        'delivery': 'sending',
+        'attempt_id': str(uuid4()),
+        **schedule_record,
+        'message_sha256': hashlib.sha256(text.encode()).hexdigest(),
+    }
+    try:
+        created, generation = store.reserve(key, record)
+    except StoreUnavailable:
+        return
+    if not created:
+        return
+    try:
+        message_id = send(text)
+        if type(message_id) is not int:
+            raise ValueError('digest_ack_invalid')
+        record.update(delivery='accepted', accepted_at=now().isoformat(), message_id=message_id)
+    except Exception:  # noqa: BLE001 -- Retain reservation so an uncertain send never retries automatically.
+        record.update(delivery='unknown')
+    try:
+        store.finish(key, generation, record)
+    except StoreUnavailable:
+        return
+
+
 def execute_slot(report_date, day, check, schedule_record, configuration, store, send, *,
                  preview=False, now=utc_now, monotonic=clock.monotonic, platform_config=None):
     """Run the unchanged business logic after the calling platform validates its trigger."""
@@ -452,11 +530,15 @@ def execute_slot(report_date, day, check, schedule_record, configuration, store,
         try:
             record = store.delivery(f'{configuration.recipient_scope}/{report_date.isoformat()}.json')
         except StoreUnavailable:
+            if getattr(configuration, 'deadline_alert_enabled', False) is True:
+                _maybe_send_deadline_alert(report_date, day, schedule_record, configuration, store, send, now=now)
             return 200, {**safe, 'delivery': 'receipt_unverified', 'phase': 'deadline_check'}
         matches = isinstance(record, dict) and all(record.get(key) == value for key, value in (
             ('report_date', report_date.isoformat()), ('business_day', day),
             ('recipient_scope', configuration.recipient_scope)))
         confirmed = matches and record.get('delivery') == 'accepted' and record.get('late') is False
+        if not confirmed and getattr(configuration, 'deadline_alert_enabled', False) is True:
+            _maybe_send_deadline_alert(report_date, day, schedule_record, configuration, store, send, now=now)
         return 200, {**safe, 'delivery': 'confirmed' if confirmed else 'receipt_unverified', 'phase': 'deadline_check'}
     stop = datetime.combine(report_date, time(7, 20), SGT)
     deadline_at = datetime.combine(report_date, time(7, 30), SGT)
