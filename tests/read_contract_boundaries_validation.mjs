@@ -102,11 +102,16 @@ function tokenizeJs(source, from = 0, to = source.length) {
     }
     throw new Error(`unterminated string at offset ${start}`);
   };
-  const skipTemplate = start => {
+  // `subs`, when given, collects [start, end) of each `${ ... }` substitution's code.
+  const skipTemplate = (start, subs) => {
     for (let at = start + 1; at < to; at += 1) {
       if (source[at] === "\\") at += 1;
       else if (source[at] === "`") return at + 1;
-      else if (source[at] === "$" && source[at + 1] === "{") at = substitutionEnd(at + 1) - 1;
+      else if (source[at] === "$" && source[at + 1] === "{") {
+        const end = substitutionEnd(at + 1);
+        subs?.push([at + 2, end - 1]);
+        at = end - 1;
+      }
     }
     throw new Error(`unterminated template at offset ${start}`);
   };
@@ -140,8 +145,9 @@ function tokenizeJs(source, from = 0, to = source.length) {
       continue;
     }
     if (ch === "`") {
-      const end = skipTemplate(index);
-      tokens.push({ type: "template", value: source.slice(index, end), start: index, end });
+      const subs = [];
+      const end = skipTemplate(index, subs);
+      tokens.push({ type: "template", value: source.slice(index, end), start: index, end, subs });
       index = end;
       continue;
     }
@@ -334,14 +340,57 @@ function extractWorkerEntries(worker) {
 }
 
 /**
- * Every reference to an action field in a dispatch body must sit inside a
- * recognised dispatch form or a reviewed non-dispatch snippet. A new form
- * (`switch (command.action)`, destructuring, computed access, a different
- * receiver) is therefore an error rather than an uncounted action.
+ * Canonical code of a dispatch body, rebuilt from its tokens (review F2).
+ * Comments and whitespace disappear, so `command./* x *\/action` reads as
+ * `command.action`; tokens are joined without spaces except between two words.
+ * Strings and plain templates keep their value only when it is a bare
+ * identifier (`"probe_read"`, `"action"`), otherwise they become `"…"`, and
+ * regular expressions become `/…/`, so text inside them is never discovered as
+ * code. Template substitutions are code and are rendered as such. Dispatch
+ * patterns match this text; `line(offset)` gives the source line for errors.
  */
-function unrecognisedActionReads(body, receiver, recognised, reviewed = new Map()) {
+function dispatchCode(source, block) {
+  let text = "";
+  const offsets = [];
+  const append = (piece, sourceOffset) => {
+    if (/[\w$]$/.test(text) && /^[\w$]/.test(piece)) text += " ";
+    offsets.push([text.length, sourceOffset]);
+    text += piece;
+  };
+  const render = (from, to) => {
+    for (const token of tokenizeJs(source, from, to)) {
+      if (token.type === "string") append(/^\w+$/.test(token.value) ? `"${token.value}"` : '"…"', token.start);
+      else if (token.type === "regex") append("/…/", token.start);
+      else if (token.type === "template" && !token.subs.length) append(/^`\w+`$/.test(token.value) ? `"${token.value.slice(1, -1)}"` : '"…"', token.start);
+      else if (token.type === "template") {
+        append("`…", token.start);
+        for (const [subFrom, subTo] of token.subs) { append("${", subFrom - 2); render(subFrom, subTo); append("}…", subTo); }
+        append("`", token.end - 1);
+      } else append(token.value, token.start);
+    }
+  };
+  render(block.start, block.end);
+  const line = offset => {
+    let sourceOffset = block.start;
+    for (const [at, from] of offsets) { if (at > offset) break; sourceOffset = from; }
+    return lineAt(source, sourceOffset);
+  };
+  return { text, line };
+}
+
+/**
+ * Every read of an action field in a dispatch body must sit inside a
+ * recognised dispatch form or a reviewed non-dispatch snippet. Reads are
+ * member access `.action` / `?.action`, any `"action"` key (computed access,
+ * `Reflect.get`, destructuring by string), destructuring by name, `switch`,
+ * and any computed access on a dispatch receiver (`command[key]`). A new form
+ * is therefore an error rather than an uncounted action. `recognised` and
+ * `reviewed` are written against the canonical code of `dispatchCode`.
+ */
+function unrecognisedActionReads(code, label, recognised, reviewed = new Map(), receivers = ["command"]) {
   const errors = [];
   const covered = [];
+  const body = code.text;
   for (const pattern of recognised) for (const match of body.matchAll(pattern)) covered.push([match.index, match.index + match[0].length]);
   for (const [snippet, count] of reviewed) {
     let found = 0;
@@ -349,15 +398,17 @@ function unrecognisedActionReads(body, receiver, recognised, reviewed = new Map(
     if (found !== count) errors.push(`reviewed non-dispatch action read occurs ${found}x, reviewed ${count}x: ${snippet}`);
   }
   const reads = [
-    ...body.matchAll(/\.\s*action\b/g),
-    ...body.matchAll(/\[\s*["'`]action["'`]\s*\]/g),
-    ...body.matchAll(/\{[^{}]*\baction\b[^{}]*\}\s*=(?![=>])/g),
-    ...body.matchAll(/\bswitch\s*\(/g),
+    ...body.matchAll(/\.action\b/g),
+    ...body.matchAll(/"action"/g),
+    ...body.matchAll(/\{[^{}]*\baction\b[^{}]*\}=(?![=>])/g),
+    ...body.matchAll(/(?<![\w$"])switch\(/g),
   ];
   for (const match of reads) {
     const start = match.index;
-    if (!covered.some(([from, to]) => start >= from && start < to)) errors.push(`${receiver}: action dispatch form not extractable: ${lineAt(body, start)}`);
+    if (!covered.some(([from, to]) => start >= from && start < to)) errors.push(`${label}: action dispatch form not extractable: ${code.line(start)}`);
   }
+  const computed = new RegExp(String.raw`(?<![\w$.])(?:${receivers.join("|")})(?:\?\.)?\[`, "g");
+  for (const match of body.matchAll(computed)) errors.push(`${label}: computed access on a dispatch receiver is not extractable: ${code.line(match.index)}`);
   return errors;
 }
 
@@ -377,18 +428,24 @@ function extractSurface(sources, actionSets, options = {}) {
   for (const name of entryResult.entries) if (name !== "fetch") internal.add(`worker:${name}`);
 
   const durable = sources.get(`${CONSOLE}/application/runtime_instances/durable_object.js`);
-  const doFetch = guard("durable_object.js", () => blockAfter(durable, "async fetch(request) {")?.text, null);
+  // Dispatch bodies are matched as canonical token code (see dispatchCode).
+  const codeOf = (file, source, signature) => guard(file, () => {
+    const block = source && blockAfter(source, signature);
+    return block ? dispatchCode(source, block) : null;
+  }, null);
+  const doFetch = codeOf("durable_object.js", durable, "async fetch(request) {");
   if (!doFetch) errors.push("durable_object_fetch_not_found");
-  const body = doFetch || "";
+  const fetchCode = doFetch || { text: "", line: () => "" };
+  const body = fetchCode.text;
   const ACTION = String.raw`command\??\.action`;
-  const LITERAL_LIST = new RegExp(String.raw`\[((?:\s*"[a-z0-9_]+",?)+)\s*\]\.includes\(${ACTION}\)`, "g");
+  const LITERAL_LIST = new RegExp(String.raw`\[((?:"[a-z0-9_]+",?)+)\]\.includes\(${ACTION}\)`, "g");
   const FAMILY = new RegExp(String.raw`\b([A-Z0-9_]+_DO_ACTIONS)\.has\(${ACTION}\)`, "g");
-  const PREFIX = new RegExp(String.raw`typeof ${ACTION} === "string" && ${ACTION}\.startsWith\("([a-z0-9_]+)"\)`, "g");
-  const COMPARE = new RegExp(String.raw`(?<!typeof )${ACTION} (?:===|!==) "([a-z0-9_]+)"`, "g");
-  errors.push(...unrecognisedActionReads(body, "RuntimeInstances.fetch", [LITERAL_LIST, FAMILY, PREFIX, COMPARE], new Map([
+  const PREFIX = new RegExp(String.raw`typeof ${ACTION}==="string"&&${ACTION}\.startsWith\("([a-z0-9_]+)"\)`, "g");
+  const COMPARE = new RegExp(String.raw`(?<!typeof )${ACTION}(?:===|!==)"([a-z0-9_]+)"`, "g");
+  errors.push(...unrecognisedActionReads(fetchCode, "RuntimeInstances.fetch", [LITERAL_LIST, FAMILY, PREFIX, COMPARE], new Map([
     // Audit history records the action; it does not dispatch on it.
-    ["action: command.action, before, after", 1],
-  ])));
+    ["action:command.action,before,after", 1],
+  ]), ["command", "request"]));
   const literalMembers = new Set();
   for (const [, list] of body.matchAll(LITERAL_LIST)) {
     for (const [, action] of list.matchAll(/"([a-z0-9_]+)"/g)) literalMembers.add(action);
@@ -404,21 +461,23 @@ function extractSurface(sources, actionSets, options = {}) {
   }
   const prefixFamilies = {
     rotation_: () => {
-      const rotation = blockAfter(sources.get(`${CONSOLE}/secretRotation.js`), "export function rotationCommand(sql, c, factors = []) {")?.text;
-      if (!rotation) { errors.push("secretRotation.js: rotationCommand not found"); return []; }
-      const compare = /\bc\.action === '(rotation_[a-z_]+)'/g;
-      errors.push(...unrecognisedActionReads(rotation, "rotationCommand", [compare], new Map([
+      const code = codeOf("secretRotation.js", sources.get(`${CONSOLE}/secretRotation.js`), "export function rotationCommand(sql, c, factors = []) {");
+      if (!code) { errors.push("secretRotation.js: rotationCommand not found"); return []; }
+      const rotation = code.text;
+      const compare = /(?<![\w$.])c\.action==="(rotation_[a-z_]+)"/g;
+      errors.push(...unrecognisedActionReads(code, "rotationCommand", [compare], new Map([
         // The stored request's write action, compared for replay; not dispatch.
-        ["prior.action !== c.write_action", 1],
-      ])));
+        ["prior.action!==c.write_action", 1],
+      ]), ["c"]));
       return [...rotation.matchAll(compare)].map(m => m[1]);
     },
     ux1_: () => {
-      const ux1 = blockAfter(durable, "ux1ResearchCommand(command) {")?.text;
-      if (!ux1) { errors.push("durable_object.js: ux1ResearchCommand not found"); return []; }
+      const code = codeOf("durable_object.js", durable, "ux1ResearchCommand(command) {");
+      if (!code) { errors.push("durable_object.js: ux1ResearchCommand not found"); return []; }
+      const ux1 = code.text;
       const list = new RegExp(LITERAL_LIST.source, "g");
-      const compare = /command\??\.action === "(ux1_[a-z_]+)"/g;
-      errors.push(...unrecognisedActionReads(ux1, "ux1ResearchCommand", [list, compare]));
+      const compare = /command\??\.action==="(ux1_[a-z_]+)"/g;
+      errors.push(...unrecognisedActionReads(code, "ux1ResearchCommand", [list, compare]));
       return [
         ...[...ux1.matchAll(list)].flatMap(([, members]) => [...members.matchAll(/"([a-z0-9_]+)"/g)].map(m => m[1])),
         ...[...ux1.matchAll(compare)].map(m => m[1]),
@@ -436,13 +495,16 @@ function extractSurface(sources, actionSets, options = {}) {
     // Comparisons on actions already dispatched by a family (e.g. a status code) are not new actions.
     if (!internal.has(`action:${action}`)) internal.add(`action:instance_state:${action}`);
   }
-  // Method and path dispatch of RuntimeInstances.fetch itself: exactly these reviewed forms.
+  // Method and path dispatch of RuntimeInstances.fetch itself: exactly these
+  // reviewed forms. Every `method` / `pathname` name counts as a read, whether
+  // a member, a string key (`request["method"]`) or a destructured binding;
+  // computed access on `request` is rejected above.
   const methodForms = new Map([
-    ['request.method === "GET") return json(this.response(this.read()))', 1],
-    ['request.method !== "POST"', 2],
+    ['request.method==="GET")return json(this.response(this.read()))', 1],
+    ['request.method!=="POST"', 2],
   ]);
-  const pathForms = new Map([["new URL(request.url).pathname === DIRECTORY_PATH", 1]]);
-  for (const [label, pattern, forms] of [["request.method", /\brequest\.method\b/g, methodForms], ["pathname", /\bpathname\b/g, pathForms]]) {
+  const pathForms = new Map([["new URL(request.url).pathname===DIRECTORY_PATH", 1]]);
+  for (const [label, pattern, forms] of [["request.method", /\bmethod\b/g, methodForms], ["pathname", /\bpathname\b/g, pathForms]]) {
     const reads = [...body.matchAll(pattern)].length;
     const reviewed = [...forms].reduce((sum, [form, count]) => {
       const found = body.split(form).length - 1;
@@ -451,13 +513,13 @@ function extractSurface(sources, actionSets, options = {}) {
     }, 0);
     if (reads !== reviewed) errors.push(`RuntimeInstances.fetch: ${reads} ${label} reads, ${reviewed} reviewed; a new dispatch form is not extractable`);
   }
-  if (body.includes('request.method === "GET") return json(this.response(this.read()))')) internal.add("action:instance_state:GET");
-  if (body.includes("pathname === DIRECTORY_PATH")) {
-    const run = guard("kv_directory.js", () => blockAfter(sources.get(`${CONSOLE}/kv_directory.js`), "async run(command) {")?.text, null);
+  if (body.includes('request.method==="GET")return json(this.response(this.read()))')) internal.add("action:instance_state:GET");
+  if (body.includes("pathname===DIRECTORY_PATH")) {
+    const run = codeOf("kv_directory.js", sources.get(`${CONSOLE}/kv_directory.js`), "async run(command) {");
     if (!run) errors.push("kv_directory.js: KvDirectory.run not found");
-    const compare = /command\.action (?:===|!==) "([a-z_]+)"/g;
-    errors.push(...unrecognisedActionReads(run || "", "KvDirectory.run", [compare]));
-    for (const [, action] of (run || "").matchAll(compare)) internal.add(`action:directory:${action}`);
+    const compare = /command\.action(?:===|!==)"([a-z_]+)"/g;
+    if (run) errors.push(...unrecognisedActionReads(run, "KvDirectory.run", [compare]));
+    for (const [, action] of (run?.text || "").matchAll(compare)) internal.add(`action:directory:${action}`);
   }
   if (guard("durable_object.js", () => blockAfter(durable, "async alarm() {"), null)) internal.add("action:lifecycle:alarm");
   return { routes: routeResult.routes, internal, errors };
@@ -941,6 +1003,31 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   assert.deepEqual([...reindentedSurface.internal].sort(), [...surface.internal].sort(), "probe (e) indentation does not change the internal operations");
   const newAction = extracted(edit("application/runtime_instances/durable_object.js", "if (HK_STOP_DO_ACTIONS.has(command?.action)) {", 'if (command.action === "probe_read") return json({});\n      if (HK_STOP_DO_ACTIONS.has(command?.action)) {'));
   expectError(run({ surface: newAction }), /^unclassified internal operation action:instance_state:probe_read/, "probe (e) DO comparison");
+
+  // Internal dispatch is read from tokens too (review F2, fix round 2): a
+  // comment inside a member read keeps its meaning, computed method access is
+  // rejected, and comment or string text is not an operation.
+  const HK_BRANCH = "if (HK_STOP_DO_ACTIONS.has(command?.action)) {";
+  const GET_BRANCH = 'if (request.method === "GET") return json(this.response(this.read()));';
+  const DO_FILE = "application/runtime_instances/durable_object.js";
+  const commented = extracted(edit(DO_FILE, HK_BRANCH, `if (command./* dispatch */action === "probe_read") return json({ probe: true });\n      ${HK_BRANCH}`));
+  assert.deepEqual(commented.errors, [], "probe (e) comment-separated DO action extracts");
+  assert.equal(commented.internal.size, surface.internal.size + 1, "probe (e) comment-separated DO action is counted");
+  expectError(run({ surface: commented }), /^unclassified internal operation action:instance_state:probe_read$/, "probe (e) comment-separated DO action");
+  const computedMethod = extracted(edit(DO_FILE, GET_BRANCH, `if (request["method"] === "PUT") return json({ probe: true });\n      ${GET_BRANCH}`));
+  expectError(computedMethod.errors, /^RuntimeInstances\.fetch: computed access on a dispatch receiver is not extractable: if \(request\["method"\]/, "probe (e) computed DO method receiver");
+  expectError(computedMethod.errors, /^RuntimeInstances\.fetch: 4 request\.method reads, 3 reviewed/, "probe (e) computed DO method count");
+  const computedKey = extracted(edit(DO_FILE, GET_BRANCH, `if (request[probeKey] === "PUT") return json({ probe: true });\n      ${GET_BRANCH}`));
+  expectError(computedKey.errors, /^RuntimeInstances\.fetch: computed access on a dispatch receiver is not extractable: if \(request\[probeKey\]/, "probe (e) computed DO key");
+  for (const [label, text] of [
+    ["comment-only DO action", '// if (command.action === "probe_comment_only") return json({});'],
+    ["DO action inside a string", 'const probeNote = "if (command.action === \\"probe_string_only\\") request[\\"method\\"]";'],
+  ]) {
+    const inert = extracted(edit(DO_FILE, HK_BRANCH, `${text}\n      ${HK_BRANCH}`));
+    assert.deepEqual(inert.errors, [], `probe (e) ${label} is not an extraction error`);
+    assert.deepEqual([...inert.internal].sort(), [...surface.internal].sort(), `probe (e) ${label} adds no operation`);
+    assert.deepEqual(run({ surface: inert }), [], `probe (e) ${label} passes validation`);
+  }
   const newEntry = extracted(edit("worker.js", "export default {", "export default {\n  async queue(batch, env) {},"));
   expectError(run({ surface: newEntry }), /^unclassified internal operation worker:queue/, "probe (e) worker entry");
 
