@@ -1,6 +1,6 @@
 # Phase 2 YARDSTICK — Vehicle and Execution Cost Model
 
-**Status date:** 2026-11-15
+**Status date:** 2026-11-16
 **Phase:** 2 (`YARDSTICK`, batch `Y1`) — documents only. Defining the cost model authorizes no code edits, data reads, deployments, paper orders, or live orders.
 **Model owner:** `coordinator` (`Q1-1`, `Q1-2`, `Q2-1`, `Q4-2`, `Q5-3`)
 **Sign-off status:** Baseline cost structure for `Y2`/`Y3`. Un-sourced numerical parameters are recorded explicitly as Open Items (`OI-COST-1` through `OI-COST-5`) and are not guessed.
@@ -48,6 +48,7 @@ This document defines every vehicle, financing, collateral, execution, and FX co
 ### 3.1 Canonical Synthetic Daily Return Formula
 
 - **Underlying index requirement:** Both synthetic and benchmark series must consume **total-return** (dividend-, split-, and distribution-reinvested) underlying series (`NDX` total return for `TQQQ`; underlying semiconductor sector total return for `SOXL`), matching [../market-benchmark-revision-policy.md](../market-benchmark-revision-policy.md) and [../qsl-long-horizon-risk-observation-v2.zh-CN.md](../qsl-long-horizon-risk-observation-v2.zh-CN.md). Split-adjusted price return is prohibited.
+- **Pre-total-return data gap (`Path C` amendment, `2026-11-16`):** Native total-return index series remain mandatory wherever they exist (`XNDX` from `1999-03-04`; `XSOX` from `2009-12-22`), and bare split-adjusted price return remains prohibited across all dates. For the two historical regimes where the Batch `Y2` data-source survey found that native total-return series never existed — Nasdaq-100 prior to `1999-03-04` (`1985-01-31` through `1999-03-03`) and the semiconductor index prior to `2009-12-22` (`1993-12-01` through `2009-12-21`) — `r_{idx,i,t}` follows the dated `Path C` amendment in [definitions-contract.md](definitions-contract.md) §7.1: split-adjusted price index plus a named, sourced dividend series stated in the `Y2` dataset document, labelled as modelled everywhere it appears and never presented as native total-return data (with §3.2's `≤ 0.5 pp/yr` tolerance applying to the post-inception overlap with real `TQQQ`/`SOXL`, and spliced-segment uncertainty quantified separately in the `Y2` validation report).
 - **Daily synthetic ETF total return:**
   `r_{syn,i,t} = max(-1.0,  3 × r_{idx,i,t} - (2 × r_{f,t} + c_{spread,i,t} + TER_i) × Δτ_t)`
   where:
