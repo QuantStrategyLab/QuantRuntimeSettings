@@ -22,9 +22,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 try:
-    from config_overlay import load_platform_config
+    from config_overlay import load_platform_config, normalized_overlay_environ
 except ImportError:  # pragma: no cover - package import fallback
-    from .config_overlay import load_platform_config
+    from .config_overlay import load_platform_config, normalized_overlay_environ
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "platform-config.json"
@@ -1366,7 +1366,12 @@ def run_sync_script() -> None:
     """Regenerate the platform catalog. Private strategy eligibility stays in that generator."""
     build_platform_config_script = ROOT / "python" / "scripts" / "build_platform_config.py"
     if build_platform_config_script.exists():
-        subprocess.run([sys.executable, str(build_platform_config_script)], cwd=ROOT, check=True)
+        subprocess.run(
+            [sys.executable, str(build_platform_config_script)],
+            cwd=ROOT,
+            env=normalized_overlay_environ(),
+            check=True,
+        )
         print("  Ran build_platform_config.py")
 
 

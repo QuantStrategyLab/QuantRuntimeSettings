@@ -614,7 +614,12 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
                 value = scheduler.get(field)
                 if not isinstance(value, str) or len(value.split()) not in {2, 5}:
                     errors.append(f"runtime_target.scheduler.{field} must have 2 time fields or 5 cron fields")
-            validate_live_ibkr_us_scheduler(runtime_target, scheduler, errors)
+            validate_live_ibkr_us_scheduler(
+                runtime_target,
+                scheduler,
+                errors,
+                plugin_mounts=target.get("plugin_mounts"),
+            )
 
     configured_market_fields = []
     for field in MARKET_FIELDS:
@@ -825,6 +830,8 @@ def validate_live_ibkr_us_scheduler(
     runtime_target: dict[str, Any],
     scheduler: dict[str, Any],
     errors: list[str],
+    *,
+    plugin_mounts: Any = None,
 ) -> None:
     if (
         runtime_target.get("platform_id") != "ibkr"
@@ -833,21 +840,46 @@ def validate_live_ibkr_us_scheduler(
     ):
         return
 
+    config = load_platform_config()
+    strategies = config.get("strategies", {})
+    domains = config.get("domains", {})
+    profile = str(runtime_target.get("strategy_profile") or "").strip()
+    normalized_profile = profile.lower().replace("-", "_")
+    canonical_profile = strategy_aliases().get(normalized_profile, normalized_profile)
+    strategy = strategies.get(canonical_profile) if isinstance(strategies, dict) else None
+    if not isinstance(strategy, dict) and isinstance(strategies, dict) and canonical_profile != profile:
+        strategy = strategies.get(profile)
+    domain = (
+        domains.get(strategy.get("domain"))
+        if isinstance(strategy, dict) and isinstance(domains, dict)
+        else None
+    )
+
     market = str(runtime_target.get("market") or "").strip().upper()
-    if not market:
-        config = load_platform_config()
-        strategies = config.get("strategies", {})
-        domains = config.get("domains", {})
-        profile = str(runtime_target.get("strategy_profile") or "").strip()
-        strategy = strategies.get(profile) if isinstance(strategies, dict) else None
-        domain = (
-            domains.get(strategy.get("domain"))
-            if isinstance(strategy, dict) and isinstance(domains, dict)
-            else None
-        )
-        market = str(domain.get("market") or "").strip().upper() if isinstance(domain, dict) else ""
+    if not market and isinstance(domain, dict):
+        market = str(domain.get("market") or "").strip().upper()
     if market != "US":
         return
+
+    scheduler_profile = None
+    if isinstance(strategy, dict):
+        scheduler_profile = strategy.get("scheduler_profile")
+        plugin_overrides = strategy.get("scheduler_profile_by_plugin")
+        if isinstance(plugin_overrides, dict) and isinstance(plugin_mounts, list):
+            for mount in plugin_mounts:
+                if (
+                    isinstance(mount, dict)
+                    and mount.get("strategy") in {canonical_profile, profile}
+                    and mount.get("enabled") is True
+                ):
+                    plugin = str(mount.get("plugin") or "").strip()
+                    if plugin in plugin_overrides:
+                        scheduler_profile = plugin_overrides[plugin]
+    if not scheduler_profile and isinstance(domain, dict):
+        scheduler_profile = domain.get("scheduler_profile")
+
+    allow_23x5 = str(scheduler_profile or "").strip().startswith("us_23x5_")
+    allowed_weekdays = {"1-5", "0-5", "0,1-5"} if allow_23x5 else {"1-5"}
 
     for field in ("main_time", "probe_time", "precheck_time"):
         value = scheduler.get(field)
@@ -856,12 +888,18 @@ def validate_live_ibkr_us_scheduler(
         cron = value.split()
         if len(cron) == 2:
             continue
-        if len(cron) == 5 and cron[2] == "*" and cron[4] == "1-5":
+        if len(cron) == 5 and cron[2] == "*" and cron[4] in allowed_weekdays:
             continue
-        errors.append(
-            f"runtime_target.scheduler.{field} must be a two-field time or Mon-Fri cron "
-            "for live IBKR US targets"
-        )
+        if allow_23x5:
+            errors.append(
+                f"runtime_target.scheduler.{field} must be a two-field time or Sun-Fri 23x5 cron "
+                "for live IBKR US 23x5 targets"
+            )
+        else:
+            errors.append(
+                f"runtime_target.scheduler.{field} must be a two-field time or Mon-Fri cron "
+                "for live IBKR US targets"
+            )
 
 
 def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], errors: list[str]) -> None:

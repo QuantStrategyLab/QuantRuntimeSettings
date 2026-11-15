@@ -25,6 +25,8 @@ Set these non-secret repository variables before running the affected workflows.
 | `DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT` | Candidate store reader identity | Optional | `DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT` |
 | `DIGEST_CANDIDATES_GCS_URI` | Candidate store prefix | Store preflight; optional otherwise | empty |
 | `QSL_PROMOTION_ROOT_PROJECTS_JSON` | JSON object mapping platform IDs to their existing trust-root project IDs | Strategy switch and signature verification | none |
+| `QSL_CONFIG_OVERLAY_PATH` | Path to a non-secret JSON overlay merged onto `platform-config.json` | Optional | none |
+| `QSL_CONFIG_OVERLAY_JSON` | Inline non-secret JSON overlay merged onto `platform-config.json` | Optional | none |
 
 
 ### US equity session configuration
@@ -37,7 +39,7 @@ Set these non-secret repository variables before running the affected workflows.
 | `maintenance_pause` | Start and end of the daily maintenance pause | `["20:00", "21:00"]` |
 | `sessions` | Each session's `start`, `end`, and boolean `enabled` flag | `overnight` 21:00–04:00, `pre` 04:00–09:30, `regular` 09:30–16:00, `post` 16:00–20:00 |
 
-Only `regular.enabled` defaults to `true`; all extended sessions default to `false`. An end time earlier than its start crosses midnight. These keys prepare configuration for US equity 23x5; this change does not connect platform consumers or change existing trading or scheduling behavior. `scheduling.profiles` remains unchanged.
+Only `regular.enabled` defaults to `true`; all extended sessions default to `false`. An end time earlier than its start crosses midnight. These keys prepare configuration for US equity 23x5; this change does not connect platform consumers or change existing trading or scheduling behavior. `scheduling.profiles` remains unchanged. Optional overlays (`QSL_CONFIG_OVERLAY_PATH` or `QSL_CONFIG_OVERLAY_JSON`) may assign `us_23x5_*` scheduler profiles using Sun–Fri cron fields (`0-5`, `0,1-5`, or `1-5`) for live IBKR US targets while checked-in defaults remain Mon–Fri (`1-5`).
 
 ## QSL architecture role
 

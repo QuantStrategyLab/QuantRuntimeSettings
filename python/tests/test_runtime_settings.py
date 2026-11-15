@@ -1891,11 +1891,12 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         for profile, scheduler in config["scheduling"]["profiles"].items():
             if not profile.startswith("us_"):
                 continue
+            allowed_weekdays = {"1-5", "0-5", "0,1-5"} if profile.startswith("us_23x5_") else {"1-5"}
             for field in ("main_time", "probe_time", "precheck_time"):
                 cron = scheduler[field].split()
                 self.assertEqual(len(cron), 5, (profile, field))
                 self.assertEqual(cron[2], "*", (profile, field))
-                self.assertEqual(cron[4], "1-5", (profile, field))
+                self.assertIn(cron[4], allowed_weekdays, (profile, field))
 
     def test_build_switch_target_uses_fork_repository_overrides(self):
         parser = build_runtime_switch.build_parser()

@@ -41,6 +41,15 @@ def validate_no_secret_keys(node: Any, *, path: str = "<overlay>") -> None:
             validate_no_secret_keys(item, path=f"{path}[{idx}]")
 
 
+def normalized_overlay_environ(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Return an environment copy with QSL_CONFIG_OVERLAY_PATH resolved to an absolute path."""
+    source = dict(os.environ if env is None else env)
+    raw_path = (source.get("QSL_CONFIG_OVERLAY_PATH") or "").strip()
+    if raw_path:
+        source["QSL_CONFIG_OVERLAY_PATH"] = str(Path(raw_path).expanduser().resolve())
+    return source
+
+
 def load_overlay_payload(env: Mapping[str, str] | None = None) -> dict[str, Any] | None:
     """Load an optional non-secret overlay object from environment configuration."""
     source = os.environ if env is None else env
@@ -55,7 +64,7 @@ def load_overlay_payload(env: Mapping[str, str] | None = None) -> dict[str, Any]
         return None
 
     if raw_path:
-        overlay_path = Path(raw_path)
+        overlay_path = Path(raw_path).expanduser()
         if not overlay_path.is_file():
             raise ValueError(f"QSL_CONFIG_OVERLAY_PATH does not exist: {raw_path}")
         payload = json.loads(overlay_path.read_text(encoding="utf-8"))

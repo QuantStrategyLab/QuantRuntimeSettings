@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -166,6 +167,65 @@ class ConfigOverlayTests(unittest.TestCase):
             self.assertEqual(
                 loaded_settings["platforms"]["ibkr"]["default_account"]["target_name"],
                 "acct_example_01",
+            )
+
+    def test_relative_overlay_path_survives_build_subprocess_cwd(self):
+        with tempfile.TemporaryDirectory() as outside_tmp:
+            outside_dir = Path(outside_tmp)
+            overlay_file = outside_dir / "overlay.json"
+            overlay_file.write_text('{"scheduling": {"profiles": {}}}', encoding="utf-8")
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(outside_dir)
+                child_env = config_overlay.normalized_overlay_environ(
+                    {**os.environ, "QSL_CONFIG_OVERLAY_PATH": "overlay.json"}
+                )
+            finally:
+                os.chdir(original_cwd)
+
+            resolved_path = Path(child_env["QSL_CONFIG_OVERLAY_PATH"])
+            self.assertTrue(resolved_path.is_absolute())
+            self.assertEqual(resolved_path, overlay_file.resolve())
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "python" / "scripts" / "build_platform_config.py"), "--check"],
+                cwd=ROOT,
+                env=child_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_us_23x5_overlay_allows_live_ibkr_target_validation(self):
+        base = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
+        overlay = json.loads(
+            (ROOT / "examples" / "platform-config.overlay.example.json").read_text(encoding="utf-8")
+        )
+        strategy_key = "tqqq_growth_income"
+        base_strategy = dict(base["strategies"][strategy_key])
+        base_strategy["scheduler_profile"] = "us_23x5_overnight"
+        overlay["strategies"] = {strategy_key: base_strategy}
+
+        with patch.dict(os.environ, {"QSL_CONFIG_OVERLAY_JSON": json.dumps(overlay)}, clear=False):
+            os.environ.pop("QSL_CONFIG_OVERLAY_PATH", None)
+            args = build_runtime_switch.build_parser().parse_args(
+                [
+                    "--platform",
+                    "ibkr",
+                    "--target-name",
+                    "live",
+                    "--strategy-profile",
+                    strategy_key,
+                ]
+            )
+            target = build_runtime_switch.build_switch_target(args)
+            self.assertEqual(target["runtime_target"]["scheduler"]["main_time"], "15 21 * * 0-5")
+            self.assertEqual(runtime_settings.validate_target(target), [])
+
+            target["runtime_target"]["scheduler"]["main_time"] = "15 21 * * *"
+            self.assertIn(
+                "runtime_target.scheduler.main_time must be a two-field time or Sun-Fri 23x5 cron for live IBKR US 23x5 targets",
+                runtime_settings.validate_target(target),
             )
 
 
