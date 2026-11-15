@@ -68,8 +68,8 @@ assert.equal(puts, 1, "observed_at-only change must not write");
 assert.ok(storedCache().data.binance.default.execution_evidence.observed_at,
   "the stored entry keeps the stamp it was written with");
 
-// 4) Stored entry aged past the 15-minute keep-alive ceiling: one rewrite.
-nowOffset += 900_000;
+// 4) Stored entry aged past the 60-minute keep-alive ceiling: one rewrite.
+nowOffset += 3_600_000;
 await requestConfig();
 assert.equal(puts, 2, "aged cache entry must take one keep-alive bump");
 
@@ -165,8 +165,8 @@ assert.equal(isDegradedCurrentStrategies({}), false,
 
 // The freshness windows must leave slack for a missed cron tick: an entry that is
 // only kept alive at the bump ceiling still has to land inside the KV fresh window.
-assert.ok(bump + 300_000 <= __test.currentStrategiesKvFreshMs,
-  "bump ceiling plus one 5-minute tick must stay inside the KV fresh window");
+assert.ok(bump + 1_200_000 <= __test.currentStrategiesKvFreshMs,
+  "bump ceiling plus one 20-minute tick must stay inside the KV fresh window");
 
 // The cached payload is echoed back through /api/config, so re-stamping a stored
 // timestamp on every read would make each read a distinct value — and a reader that
@@ -179,7 +179,7 @@ assert.equal(puts, 2, "reading /api/config must not add a write");
 // A damaged entry has to be a miss on the *read* path too, not a 500: let the
 // isolate memo age past its stale ceiling so the KV branch is the one that sees it.
 store.set("current_strategies_cache", "{not json");
-nowOffset += 3_700_000;
+nowOffset += 7_300_000;
 const putsBeforeRepair = puts;
 await requestConfig();
 assert.equal(puts, putsBeforeRepair + 1, "a damaged cache entry must be repaired by exactly one write");

@@ -64,9 +64,9 @@ CONTROL_PLANE_STALE_TTL_SECONDS = "129600"
 # STRATEGY_SWITCH_FIRSTRADE_REPO = "your-org/FirstradePlatform"
 
 # Cron trigger: refresh KV cache so /api/config never blocks on GitHub API.
-# Runs every 5 minutes. Remove this block if you don't need cache warming.
+# Runs every 20 minutes. Remove this block if you don't need cache warming.
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/20 * * * *"]
 
 # Bind this namespace to enable editable /admin login and account management.
 # Without it, /admin is read-only and the Worker falls back to secrets.
