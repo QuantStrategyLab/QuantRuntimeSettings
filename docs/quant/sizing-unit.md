@@ -1,7 +1,7 @@
 # Phase 0 REBASE — Pilot Sizing Unit and Tier Starting Values
 
-**Status date:** 2026-11-15  
-**Phase:** 0 (`REBASE`) — documents only. Specifying the sizing unit and starting tier constants authorizes no code edits, data reads, deployments, paper orders, or live orders.  
+**Status date:** 2026-11-15
+**Phase:** 0 (`REBASE`) — documents only. Specifying the sizing unit and starting tier constants authorizes no code edits, data reads, deployments, paper orders, or live orders.
 **Related documents:** [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md)
 
 ## Authorization state

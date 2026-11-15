@@ -1,7 +1,7 @@
 # Phase 0 REBASE — Item Register (v1)
 
-**Status date:** 2026-11-15  
-**Phase:** 0 (`REBASE`) — documents only. This register authorizes no code edits, data reads, deployments, paper orders, or live orders.  
+**Status date:** 2026-11-15
+**Phase:** 0 (`REBASE`) — documents only. This register authorizes no code edits, data reads, deployments, paper orders, or live orders.
 **Related documents:** [decisions-rebase.md](decisions-rebase.md) | [sizing-unit.md](sizing-unit.md)
 
 ## Authorization state

@@ -1,7 +1,7 @@
 # Phase 0 REBASE — Decision Record (2026-11-15)
 
-**Status date:** 2026-11-15  
-**Phase:** 0 (`REBASE`) — documents only. This record authorizes no code edits, data reads, deployments, paper orders, or live orders.  
+**Status date:** 2026-11-15
+**Phase:** 0 (`REBASE`) — documents only. This record authorizes no code edits, data reads, deployments, paper orders, or live orders.
 **Related documents:** [rebase-register.md](rebase-register.md) | [sizing-unit.md](sizing-unit.md)
 
 ## Authorization state
