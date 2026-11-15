@@ -330,9 +330,9 @@ wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-
 ```json
 {
   "key": "ibkr-primary",
-  "label": "ibkr-primary",
+  "label": "U00000001",
   "target_name": "ibkr-primary",
-  "account_selector": "DEMO_IBKR_PRIMARY",
+  "account_selector": "U00000001",
   "deployment_selector": "demo-ibkr-tqqq",
   "account_scope": "demo-ibkr-tqqq",
   "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
@@ -342,6 +342,14 @@ wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-
 ```
 
 Worker 会校验 dispatch 参数必须匹配这里的某个账号项，也会校验所选策略的 `domain` 是否在该账号的 `supported_domains` 内。只放路由信息，不放 broker 密码、token、API key。
+
+上例中的 `U00000001` 是合成占位值，不是真实账户。三个字段含义不同：
+
+- `key` 是内部技术账户键。选择项、API `account_alias`、设置、绑定和历史都以它为键；它不是显示名称，改名属于身份迁移，不是外观修改。
+- `account_selector` 是券商账户。IBKR 填原生账户号（实盘为 `U` 加数字，模拟盘为 `DU` 加数字）。登录后的控制台和 Desk 页面以这个经过校验的账户号作为 IBKR 账户名称和 Desk `account_ref`；缺失或无效时显示“账户号不可用”，不做推测。
+- `strategy_profile` 是策略，通过 GitHub 变量设置，并作为单独字段显示。为兼容起见，`tqqq` 这类策略族名称可以保留在 `key` 和 `target_name` 中，但不会替代 IBKR 账户名称。
+
+schema 仍要求 `label` 字段。对 IBKR 而言它不作为账户身份或名称；示例中把它设为同一个合成账户号，只是为了避免误导性的昵称。
 
 `/api/strategy-profiles` 会返回公开的 live-enabled 策略目录，用于生成策略下拉框。读取优先级是 KV `strategy_profiles`、`STRATEGY_SWITCH_STRATEGY_PROFILES_JSON`、`strategy-profiles.example.json`。
 

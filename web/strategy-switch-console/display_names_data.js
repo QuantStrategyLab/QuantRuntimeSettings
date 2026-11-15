@@ -16,14 +16,6 @@ export const DISPLAY_NAMES = {
     "sg": {
       "en": "SG",
       "zh": "新加坡"
-    },
-    "soxl": {
-      "en": "SOXL",
-      "zh": "SOXL"
-    },
-    "tqqq": {
-      "en": "TQQQ",
-      "zh": "TQQQ"
     }
   },
   "accounts": {

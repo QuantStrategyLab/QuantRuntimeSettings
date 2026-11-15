@@ -9,6 +9,7 @@ from daily_digest_notify import DigestRunEntry, _display_strategy, account_block
 from unified_daily_digest import render
 from daily_digest_notify import DailyDigestInput
 from build_display_names import outputs
+from display_names import display_name
 
 
 class DisplayNamesTests(unittest.TestCase):
@@ -33,3 +34,10 @@ class DisplayNamesTests(unittest.TestCase):
     def test_checked_in_snapshots_match_authority(self):
         for path, expected in outputs().items():
             self.assertEqual(path.read_text(), expected, str(path))
+
+    def test_strategy_families_are_not_account_aliases(self):
+        for key in ("soxl", "tqqq"):
+            for locale in ("en", "zh"):
+                self.assertEqual(display_name("account_aliases", key, locale, fallback="missing"), "missing")
+        self.assertEqual(display_name("account_aliases", "paper", "zh"), "模拟")
+        self.assertEqual(display_name("account_aliases", "sg", "en"), "SG")

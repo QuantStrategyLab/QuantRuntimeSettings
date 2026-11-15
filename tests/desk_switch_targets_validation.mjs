@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   switchTargetsFromConfig, deskSwitchTargetsResponse,
 } from "../web/strategy-switch-console/application/desk/switch_targets.js";
+import { IBKR_ACCOUNT_ID_UNAVAILABLE } from "../web/strategy-switch-console/application/desk/accounts.js";
 import { DeskError } from "../web/strategy-switch-console/application/desk/http.js";
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
@@ -25,25 +26,27 @@ const config = {
         supported_domains: ["us_equity"], default_execution_mode: "paper",
         default_strategy_profile: "tqqq_growth_income", account_selector: "DU1234567" },
       { key: "ibkr-no-selector", label: "IBKR Unbound", target_name: "soxl", supported_domains: [] },
+      { key: "tqqq", label: "tqqq", target_name: "live", supported_domains: [], account_selector: "U00000001" },
+      { key: "soxl", label: "soxl", target_name: "invalid", supported_domains: [], account_selector: "EXAMPLE1234" },
     ],
     schwab: [
       { key: "schwab-core", label: "Schwab Core", target_name: "core",
         supported_domains: ["us_equity", "hk_equity"], default_execution_mode: "not_a_mode",
-        account_selector: "1234" },
+        account_selector: "U00000009" },
     ],
   },
 };
 
 const targets = switchTargetsFromConfig(config);
-assert.equal(targets.length, 3);
+assert.equal(targets.length, 5);
 conforms({ ok: true, schema_version: "qsl.desk.switch_targets.v1", generated_at: new Date().toISOString(), targets });
 
-const [ibkr, unbound, schwab] = targets;
+const [ibkr, unbound, live, invalid, schwab] = targets;
 assert.equal(ibkr.target_id, "ibkr/tqqq");
 assert.equal(ibkr.platform, "ibkr");
 assert.equal(ibkr.platform_label, "IBKR");
 assert.equal(ibkr.account_suffix, "4567");
-assert.match(ibkr.account_ref, /••••4567/);
+assert.equal(ibkr.account_ref, "DU1234567", "a validated IBKR paper selector is the full account reference");
 assert.deepEqual(ibkr.domains, ["us_equity"]);
 assert.deepEqual(ibkr.execution_modes, ["paper"]);
 assert.deepEqual(ibkr.switchable, { allowed: false, reason_code: "switch_not_connected" });
@@ -54,7 +57,27 @@ assert.deepEqual(ibkr.stop, { supported: false, resume_supported: false });
 assert.deepEqual(ibkr.mode, { status: "unknown", reason: "never_read" });
 assert.deepEqual(ibkr.current_strategy, { status: "unknown", reason: "never_read" });
 assert.ok(!JSON.stringify(targets).includes("tqqq_growth_income"), "no invented strategy label");
-assert.ok(!JSON.stringify(targets).includes("DU1234567"), "no unmasked account selector");
+// Authenticated IBKR surfaces name the account by its validated native ID;
+// target IDs and suffix fields are unchanged.
+assert.deepEqual(targets.map(row => row.target_id), ["ibkr/tqqq", "ibkr/soxl", "ibkr/live", "ibkr/invalid", "schwab/core"]);
+assert.deepEqual([live.account_ref, live.account_suffix], ["U00000001", "0001"]);
+assert.equal(IBKR_ACCOUNT_ID_UNAVAILABLE, "账户号不可用 / Account ID unavailable", "the unavailable reference is bilingual");
+assert.deepEqual([invalid.account_ref, invalid.account_suffix], [IBKR_ACCOUNT_ID_UNAVAILABLE, "1234"],
+  "an invalid IBKR selector is unavailable, never a suffix-derived name; the suffix field is unchanged");
+assert.deepEqual([schwab.account_ref, schwab.account_suffix], ["Schwab ••••0009", "0009"], "other platforms keep the mask");
+assert.deepEqual([unbound.account_ref, unbound.account_suffix], [IBKR_ACCOUNT_ID_UNAVAILABLE, ""],
+  "a missing selector is not replaced by a key, strategy name or mask");
+// Every missing or invalid IBKR selector form is unavailable; target IDs and
+// suffix fields keep their existing values.
+for (const [selector, suffix] of [[undefined, ""], ["", ""], ["   ", ""], ["tqqq", "tqqq"], ["soxl", "soxl"],
+  ["u00000001", "0001"], ["du0000002", "0002"], ["U00000001,U00000002", ""], ["U00000001 U00000002", ""],
+  ["U", ""], ["DU", ""], ["U0000 0001", ""], ["UU00000001", "0001"], ["EXAMPLE_IBKR_TQQQ", ""], [12345678, ""]]) {
+  const [row] = switchTargetsFromConfig({ options: { ibkr: [{ key: "tqqq", label: "TQQQ", target_name: "tqqq", supported_domains: [], account_selector: selector }] } });
+  assert.deepEqual([row.target_id, row.account_ref, row.account_suffix], ["ibkr/tqqq", IBKR_ACCOUNT_ID_UNAVAILABLE, suffix], `unavailable for ${JSON.stringify(selector)}`);
+  assert.ok(!row.account_ref.includes("••••"), "no masked account name for IBKR");
+}
+assert.ok(!JSON.stringify(targets).includes("U00000009"), "no unmasked non-IBKR selector");
+for (const row of targets) assert.ok(!/tqqq|soxl/.test(row.account_ref), "account references are never strategy-derived");
 assert.ok(!JSON.stringify(targets).includes("revision"), "no configuration bookkeeping in the payload");
 
 // Missing or invalid configuration details stay blank/unknown, never guessed.
@@ -88,6 +111,6 @@ const [status, payload] = await body(okDeps);
 assert.equal(status, 200);
 conforms(payload);
 assert.equal(payload.schema_version, "qsl.desk.switch_targets.v1");
-assert.equal(payload.targets.length, 3);
+assert.equal(payload.targets.length, 5);
 
 console.log("desk_switch_targets_validation: PASS");

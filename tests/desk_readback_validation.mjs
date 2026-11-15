@@ -74,6 +74,21 @@ for (const invalid of [[], [""], [" "], ["<PROJECT_ID>0001", ""], ["<PROJECT_ID>
   }
 }
 assert.deepEqual(selectorFailures, [], "selector regression failures");
+// IBKR targets display a validated native ID in full; full-value comparison and unknown rules are unchanged.
+const ibkrTarget = { ...target, id: "ibkr/demo", platform: "ibkr" };
+const ibkrSelector = (saved, platform, extra = {}) => build({ target: ibkrTarget, observed: { ...observed, config: { ...config, account_selector: saved }, ...extra },
+  platform: { account_selector: platform } }).fields.find(row => row.key === "account_selector");
+const shown = field => [field.saved.status === "known" ? field.saved.value : field.saved.reason, field.platform.status === "known" ? field.platform.value : field.platform.reason, field.state];
+assert.deepEqual(shown(ibkrSelector("U00000001", ["U00000001"])), ["U00000001", "U00000001", "match"]);
+assert.deepEqual(shown(ibkrSelector("U00000001", "U00000002")), ["U00000001", "U00000002", "drift"]);
+assert.deepEqual(shown(ibkrSelector("DU0000003, U00000001", [" U00000001 ", "DU0000003"])), ["DU0000003, U00000001", "DU0000003, U00000001", "match"], "DU paper IDs are native");
+assert.deepEqual(shown(ibkrSelector("U00000001", "EXAMPLE0001")), ["U00000001", "•••0001", "drift"], "an invalid IBKR selector keeps the mask");
+assert.deepEqual(shown(ibkrSelector("u00000001", "U00000001")), ["•••0001", "U00000001", "match"], "comparison is unchanged; only valid raw IDs display in full");
+assert.deepEqual(shown(ibkrSelector([], "U00000001")), ["never_read", "U00000001", "unknown"]);
+assert.deepEqual(shown(ibkrSelector("U00000001", "U00000001", { draft: { status: "identity_conflict", overrides: {} } })), ["identity_unverified", "U00000001", "unknown"]);
+assert.equal(build({ target: ibkrTarget, observed: { ...observed, config: { ...config, account_selector: "U00000001" } } }).identity.account_suffix, "0001", "suffix fields are unchanged");
+assert.deepEqual(shown(build({ observed: { ...observed, config: { ...config, account_selector: "U00000001" } }, platform: { account_selector: "U00000001" } })
+  .fields.find(row => row.key === "account_selector")), ["•••0001", "•••0001", "match"], "other platforms keep the mask");
 const nativeNow = Date.now;
 Date.now = () => now;
 try {

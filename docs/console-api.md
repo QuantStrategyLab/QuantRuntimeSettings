@@ -38,6 +38,14 @@ enable switching.
 | GET `/api/performance/trades` | `scope`, `range`, optional `platform` | `TradeStatsResponse` / `trades` |
 
 `account` and `scope` are configured account aliases, never broker account numbers.
+
+Compatibility note (2026-11-14): `account_alias` remains the internal technical
+account key in every request and response; it is not renamed or re-semanticised.
+Authenticated console surfaces display an IBKR account by the validated
+`account_selector` of the matched account option, its native broker ID, or by a
+localized "Account ID unavailable" text when that selector is missing or invalid.
+The strategy stays a separate field. Clients must not derive request identity
+from displayed names.
 The runtime readback route uses the explicit `platform:account-alias` pair and
 does not accept `all`. It returns only saved deployment observations for the
 uniquely bound runtime target. `server_time` is the response clock;

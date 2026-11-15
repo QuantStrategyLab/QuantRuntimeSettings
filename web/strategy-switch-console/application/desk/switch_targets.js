@@ -7,34 +7,16 @@
 // `default_strategy_profile` as a current value would be a guess.
 //
 // Everything that is known here is configuration: the platform, the target id,
-// the declared domains, the declared default execution mode and a masked
-// account suffix. Switching is not connected in this console build, so every
-// row carries `switchable: { allowed: false, reason_code: switch_not_connected }`.
+// the declared domains, the declared default execution mode and the account
+// reference (the validated IBKR ID, otherwise a masked suffix). Switching is
+// not connected in this console build, so every row carries
+// `switchable: { allowed: false, reason_code: switch_not_connected }`.
 import { DeskError, deskResponse, deskErrorResponse } from "./http.js";
 import { unknown } from "./read.js";
 import { readbackTargets } from "./readback.js";
-
-const PLATFORM_LABELS = {
-  ibkr: "IBKR",
-  schwab: "Schwab",
-  longbridge: "LongBridge",
-  binance: "Binance",
-  firstrade: "Firstrade",
-};
+import { accountRef, platformLabel } from "./accounts.js";
 
 const MODES = new Set(["dry_run", "paper", "live"]);
-
-function platformLabel(platform) {
-  return PLATFORM_LABELS[platform] || platform.charAt(0).toUpperCase() + platform.slice(1);
-}
-
-/** Only a configured account selector yields a suffix; a config key is not an
-    account number, and an absent selector is not evidence of an account. */
-function maskedAccount(option, label) {
-  const raw = typeof option.account_selector === "string" ? option.account_selector.trim() : "";
-  const suffix = /^[A-Za-z0-9]{4,}$/.test(raw) ? raw.slice(-4) : "";
-  return { account_ref: `${label} ••••${suffix}`, account_suffix: suffix };
-}
 
 export function switchTargetsFromConfig(config) {
   if (!config || typeof config !== "object" || Array.isArray(config)
@@ -49,7 +31,7 @@ export function switchTargetsFromConfig(config) {
       target_id: item.id,
       platform: item.platform,
       platform_label: label,
-      ...maskedAccount(option, label),
+      ...accountRef(item.platform, option, label),
       // No runtime read has landed for these two; absence is not a value.
       mode: unknown("never_read"),
       current_strategy: unknown("never_read"),

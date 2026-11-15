@@ -14,6 +14,7 @@ import type {
 import { expiryState, isRiskTier } from "../api/cockpit";
 import { formatDateTime } from "../lib/format";
 import { useLanguage, useT, hasTranslation } from "../i18n";
+import { useDisplayNames } from "../lib/useDisplayNames";
 import { Badge, Skeleton } from "./primitives";
 import "./cockpit.css";
 
@@ -891,6 +892,7 @@ export function DecisionCard({
   onSelect: () => void;
 }) {
   const t = useT();
+  const names = useDisplayNames();
   const title = t(decision.title_key, {}, "decisions.unknown_title");
   const blocked = blockedReasons.length > 0;
   return (
@@ -909,7 +911,7 @@ export function DecisionCard({
         {decision.account_alias && (
           <div className="cockpit-kv-pair">
             <dt>{t("cockpit.decision.target")}</dt>
-            <dd>{decision.account_alias}{decision.platform ? ` · ${decision.platform}` : ""}</dd>
+            <dd>{names.account(decision.account_alias, decision.platform)}{decision.platform ? ` · ${decision.platform}` : ""}</dd>
           </div>
         )}
         {decision.release_id && (

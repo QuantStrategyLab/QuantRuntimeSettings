@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
-import ts from "../web/strategy-switch-console/frontend/node_modules/typescript/lib/typescript.js";
-import React from "../web/strategy-switch-console/frontend/node_modules/react/index.js";
-import { renderToStaticMarkup } from "../web/strategy-switch-console/frontend/node_modules/react-dom/server.node.js";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { build } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
 import { zh as pageZh, en as pageEn } from "../web/strategy-switch-console/frontend/src/i18n/pages/decisions.ts";
 import { zhCN } from "../web/strategy-switch-console/frontend/src/i18n/zh-CN.ts";
 import { en as coreEn } from "../web/strategy-switch-console/frontend/src/i18n/en.ts";
@@ -135,15 +137,32 @@ for (const payload of [decided, undecided, coexist]) {
 assert.equal((await inboxFor(failed)).status, "read_failed");
 
 // Render the actual production component in both languages, without a browser.
+// It is bundled with its real imports and rendered inside the real i18n and
+// account-directory providers, so the shared account-name resolver is exercised.
 const componentUrl = new URL("../web/strategy-switch-console/frontend/src/pages/decisions/ReconciliationMaterials.tsx", import.meta.url);
-let component = ts.transpileModule(readFileSync(componentUrl, "utf8"), {
-  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext },
-}).outputText;
-for (const [specifier, url] of Object.entries({
-  "react/jsx-runtime": "../web/strategy-switch-console/frontend/node_modules/react/jsx-runtime.js",
-  "../../../../display_names.js": "../web/strategy-switch-console/display_names.js",
-})) component = component.replaceAll(`from "${specifier}"`, `from "${new URL(url, import.meta.url).href}"`);
-const { ReconciliationMaterials } = await import(`data:text/javascript;base64,${Buffer.from(component).toString("base64")}`);
+const frontendRoot = new URL("../web/strategy-switch-console/frontend/", import.meta.url).pathname;
+async function bundleComponent(env = {}) {
+  const bundleDir = await mkdtemp(join(tmpdir(), "reconciliation-materials-"));
+  try {
+    const bundleFile = join(bundleDir, "materials.cjs");
+    await build({ stdin: { resolveDir: frontendRoot, contents: `
+      import { createElement as h } from "react";
+      import { renderToStaticMarkup } from "react-dom/server";
+      import { I18nProvider } from "./src/i18n";
+      import { AccountDirectoryContext } from "./src/app/context";
+      import { ReconciliationMaterials } from "./src/pages/decisions/ReconciliationMaterials";
+      export { displayName } from "../display_names.js";
+      export function render(props, config = null) {
+        return renderToStaticMarkup(h(I18nProvider, { language: props.language },
+          h(AccountDirectoryContext.Provider, { value: config }, h(ReconciliationMaterials, props))));
+      }` }, bundle: true, platform: "node", format: "cjs", outfile: bundleFile, jsx: "automatic",
+      loader: { ".css": "empty" }, define: { "import.meta.env": JSON.stringify(env) }, logLevel: "silent" });
+    return createRequire(import.meta.url)(bundleFile);
+  } finally {
+    await rm(bundleDir, { recursive: true, force: true });
+  }
+}
+const { render: renderComponent } = await bundleComponent();
 const renderedInboxes = new Map(await Promise.all([decided, failed, coexist].map(async payload => [payload, await inboxFor(payload)])));
 for (const result of renderedInboxes.values()) result.items[0].account_alias = recovery.target_name;
 const pageText = readFileSync(new URL("../web/strategy-switch-console/frontend/src/pages/decisions/DecisionsPage.tsx", import.meta.url), "utf8");
@@ -151,10 +170,10 @@ assert.ok(pageText.includes("<ReconciliationMaterials"), "the production inbox p
 for (const match of readFileSync(componentUrl, "utf8").matchAll(/"(reconciliation\.[a-z_]+)"/g)) {
   assert.ok(pageZh[match[1]] && pageEn[match[1]], `bilingual copy required: ${match[1]}`);
 }
+const translator = language => (key, values = {}) => ({ ...(language === "zh" ? zhCN : coreEn), ...(language === "zh" ? pageZh : pageEn) }[key] || key).replace(/\{(\w+)\}/g, (match, name) => values[name] ?? match);
 function render(payload, language, error = null) {
   const data = payload ? renderedInboxes.get(payload) : null;
-  const t = (key, values = {}) => ({ ...(language === "zh" ? zhCN : coreEn), ...(language === "zh" ? pageZh : pageEn) }[key] || key).replace(/\{(\w+)\}/g, (match, name) => values[name] ?? match);
-  return renderToStaticMarkup(React.createElement(ReconciliationMaterials, { data: error ? null : data, language, t }));
+  return renderComponent({ data: error ? null : data, language, t: translator(language) });
 }
 for (const language of ["zh", "en"]) {
   const html = render(decided, language);
@@ -178,6 +197,43 @@ for (const language of ["zh", "en"]) {
   assert.ok(render(failed, language).includes(failed.recoveries[0].presentation.decision_status_label[language]));
   assert.ok(render(null, language).includes((language === "zh" ? pageZh : pageEn)["reconciliation.not_connected"]));
   assert.ok(!render(decided, language, "read_failed").includes("Historical recovery approval material"));
+}
+
+// IBKR material rows name the account only by the validated broker ID from the
+// shared resolver: never the key, label, target name or a display mapping.
+const overrideBuild = await bundleComponent({ VITE_QSL_DISPLAY_NAMES_JSON: JSON.stringify({ accounts: {
+  ibkr: { "strategy-key": { en: "TQQQ", zh: "TQQQ" } },
+  "synthetic-platform": { "strategy-key": { en: "Override name", zh: "覆盖名称" } },
+} }) });
+assert.equal(overrideBuild.displayName("accounts", "strategy-key", "en", "", "ibkr"), "TQQQ", "the build override is active in this bundle");
+const ibkrInbox = structuredClone(renderedInboxes.get(decided));
+Object.assign(ibkrInbox.items[0], { platform: "ibkr", account_alias: "strategy-key" });
+const otherInbox = structuredClone(renderedInboxes.get(decided));
+Object.assign(otherInbox.items[0], { platform: "synthetic-platform", account_alias: "strategy-key" });
+const ibkrConfig = selector => ({ accountOptions: { ibkr: [{ key: "strategy-key", label: "WRONG-LABEL", target_name: "different-target", account_selector: selector }] } });
+const leaked = ["strategy-key", "WRONG-LABEL", "different-target", "TQQQ"];
+for (const language of ["zh", "en"]) {
+  const props = { data: ibkrInbox, language, t: translator(language) };
+  const unavailable = language === "zh" ? "账户号不可用" : "Account ID unavailable";
+  const cases = [
+    ["valid", ibkrConfig("U00000001"), "U00000001"],
+    ["valid paper", ibkrConfig("DU0000002"), "DU0000002"],
+    ["missing option", null, unavailable],
+    ["missing selector", ibkrConfig(undefined), unavailable],
+    ...["", "tqqq", "u00000001", "U00000001,U00000002", "EXAMPLE_IBKR_TQQQ"].map(selector => [`invalid ${JSON.stringify(selector)}`, ibkrConfig(selector), unavailable]),
+  ];
+  for (const [build, renderer] of [["default", renderComponent], ["override", overrideBuild.render]]) {
+    for (const [name, config, expected] of cases) {
+      const html = renderer(props, config);
+      assert.ok(html.includes(expected), `${language} ${build} ${name}: ${expected}`);
+      for (const value of leaked) assert.ok(!html.includes(value), `${language} ${build} ${name}: no ${value}`);
+      assert.ok(html.includes(displayName("strategies", recovery.strategy_profile, language, "fallback")), "strategy stays a separate field");
+    }
+  }
+  // Other platforms keep the display map, including a build override.
+  const other = { data: otherInbox, language, t: translator(language) };
+  assert.ok(overrideBuild.render(other, ibkrConfig("U00000001")).includes(language === "zh" ? "覆盖名称" : "Override name"));
+  assert.ok(!renderComponent(other, null).includes("strategy-key"));
 }
 assert.equal(historicalSource.recoveries[0].last_observed_at, observed, "inputs remain unchanged");
 console.log("reconciliation_material_presentation_validation: PASS (synthetic only; network=0; KV=0)");

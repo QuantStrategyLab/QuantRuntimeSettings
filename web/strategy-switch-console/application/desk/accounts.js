@@ -10,7 +10,7 @@
 import { accountFactsReadModelEnabled, buildAccountFactsReadModel } from "../../account_facts.js";
 import { credentialItems } from "./credentials.js";
 import { DeskError } from "./http.js";
-import { readbackTargets } from "./readback.js";
+import { ibkrAccountId, readbackTargets } from "./readback.js";
 import {
   coverage, freshness, known, n1Response, n1Route, notSupported, readOnce, timeBasis, unknown, utcInstant,
 } from "./n1.js";
@@ -27,6 +27,20 @@ export function maskedAccount(option, label) {
   const raw = typeof option?.account_selector === "string" ? option.account_selector.trim() : "";
   const suffix = /^[A-Za-z0-9]{4,}$/.test(raw) ? raw.slice(-4) : "";
   return { account_ref: `${label} ••••${suffix}`, account_suffix: suffix };
+}
+
+/** Bilingual (zh-CN first) account reference for an IBKR target without a validated broker ID. */
+export const IBKR_ACCOUNT_ID_UNAVAILABLE = "账户号不可用 / Account ID unavailable";
+
+/**
+ * Authenticated account reference. IBKR is named only by its full validated ID;
+ * a missing or invalid selector is shown as unavailable, never as a suffix-derived
+ * name. Other platforms keep the masked form. account_suffix is unchanged.
+ */
+export function accountRef(platform, option, label) {
+  const masked = maskedAccount(option, label);
+  if (platform !== "ibkr") return masked;
+  return { ...masked, account_ref: ibkrAccountId(platform, option?.account_selector) ?? IBKR_ACCOUNT_ID_UNAVAILABLE };
 }
 
 /** Stored facts row for one configured target, or null when no bound snapshot exists. */
@@ -73,7 +87,7 @@ export function accountsProjection({ config, facts, credential, now }) {
     return {
       platform,
       label,
-      targets: own.map(target => ({ target_id: target.id, account_ref: maskedAccount(target.config, label).account_ref })),
+      targets: own.map(target => ({ target_id: target.id, account_ref: accountRef(platform, target.config, label).account_ref })),
       connectivity: notSupported(),
       connectivity_detail: null,
       heartbeat: notSupported(),

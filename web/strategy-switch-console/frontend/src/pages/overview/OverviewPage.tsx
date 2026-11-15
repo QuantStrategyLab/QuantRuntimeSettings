@@ -34,6 +34,7 @@ import { AuditTimeline, FreshnessBadge } from "../../components/cockpit";
 import { useNavigate, useScope } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
 import { useScopeLabel } from "../../lib/useScopeLabel";
+import { useDisplayNames } from "../../lib/useDisplayNames";
 import {
   AsOfStamp,
   Badge,
@@ -485,6 +486,7 @@ function queueOrder(a: InboxItem, b: InboxItem): number {
 
 function QueueRow({ item, onOpen }: { item: InboxItem; onOpen: () => void }) {
   const t = useT();
+  const names = useDisplayNames();
   const language = useLanguage();
   const title = t(item.title_key);
   const expires = item.expires_at ? formatDateTime(item.expires_at, language) : null;
@@ -495,7 +497,9 @@ function QueueRow({ item, onOpen }: { item: InboxItem; onOpen: () => void }) {
           <span className="overview-queue-title">{title === item.title_key ? item.short_id : title}</span>
           <span className="overview-queue-meta">
             <Badge tone={item.category === "reconciliation_recovery" ? "warn" : "accent"}>{t(`category.${item.category}`)}</Badge>
-            <span>{item.account_alias || t("decisions.account_unbound")}</span>
+            <span>{item.account_alias
+              ? `${item.platform ? `${names.platform(item.platform)} · ` : ""}${names.account(item.account_alias, item.platform)}`
+              : t("decisions.account_unbound")}</span>
             <span>{t("decisions.ref", { id: item.short_id })}</span>
             {expires && <span>{t("overview.expires_plain", { value: expires.zone ? `${expires.text} (${expires.zone})` : expires.text })}</span>}
           </span>

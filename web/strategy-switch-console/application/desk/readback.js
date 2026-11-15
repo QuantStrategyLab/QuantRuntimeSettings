@@ -13,6 +13,21 @@ const admissionPrefix = "desk:readbacks:admission:";
 // GitHub login is stable across sessions and case-insensitive.
 const admissionKey = actor => admissionPrefix + actor.toLowerCase();
 const prefix = "desk:readbacks:record:";
+// Complete native IBKR account ID, as account facts validate it: U (live) or DU (paper) plus digits.
+const IBKR_ACCOUNT_ID_RE = /^(?:U|DU)[0-9]+$/;
+
+/** The validated IBKR account ID shown on authenticated surfaces, or null. Presentation only. */
+export function ibkrAccountId(platform, selector) {
+  const raw = typeof selector === "string" ? selector.trim() : "";
+  return platform === "ibkr" && IBKR_ACCOUNT_ID_RE.test(raw) ? raw : null;
+}
+
+/** IBKR selectors display in full only when the raw value is a valid ID; anything else keeps the suffix mask. */
+function selectorDisplay(platform, raw, normalized) {
+  const valid = new Set((Array.isArray(raw) ? raw : String(raw ?? "").split(/[,\s]+/))
+    .map(item => ibkrAccountId(platform, item)).filter(Boolean));
+  return normalized.map(selector => valid.has(selector.toUpperCase()) ? selector.toUpperCase() : `•••${selector.slice(-4)}`).join(", ");
+}
 
 export function normalizeReadbackValue(key, value, cleanRatio, splitSelectorValues) {
   if (key === "account_selector") {
@@ -44,11 +59,11 @@ export function buildReadback({ target, observed, platform = {}, platformReason 
     const left = normalizeReadbackValue(key, saved[key], cleanRatio, splitSelectorValues);
     const right = normalizeReadbackValue(key, platform[key], cleanRatio, splitSelectorValues);
     const savedUnknown = !observed ? "source_unavailable" : draft?.status === "identity_conflict" ? "identity_unverified" : "never_read";
-    const wrap = (value, reason) => value === null ? unknown(reason) : known(key === "account_selector" ? value.map(selector => `•••${selector.slice(-4)}`).join(", ") : value, time);
-    // Compare complete selector identities before exposing only masked suffixes.
+    const wrap = (value, raw, reason) => value === null ? unknown(reason) : known(key === "account_selector" ? selectorDisplay(target.platform, raw, value) : value, time);
+    // Compare complete selector identities before choosing what to display.
     const equal = key === "account_selector" ? JSON.stringify(left) === JSON.stringify(right) : left === right;
     const a = draft?.status === "identity_conflict" || !observed ? null : left;
-    return { key, label: key, saved: wrap(a, savedUnknown), platform: wrap(right, platformReason),
+    return { key, label: key, saved: wrap(a, saved[key], savedUnknown), platform: wrap(right, platform[key], platformReason),
       state: a === null || right === null ? "unknown" : equal ? "match" : "drift" };
   });
   const summary = { match: 0, drift: 0, unknown: 0 };

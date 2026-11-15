@@ -105,7 +105,10 @@ try {
     assert.doesNotMatch(coverage, /state\.|reason\./);
     globalThis.__mobileState = { phase: 'ready', data: { status: 'unavailable', unavailable_reason: 'external_cashflow_required', per_currency: [], points: [], benchmark_availability: [], per_account: [{ platform: 'ibkr', account_alias: 'fictional-native', status: 'partial', return_kind: 'twr', points: [{ date: '2026-10-26', value: 0 }] }] } };
     const returns = ui.returns(language);
-    assert.ok(returns.includes('fictional-native'));
+    // Without directory config the IBKR account has no validated broker ID: it is
+    // shown as unavailable, never by its raw alias.
+    assert.ok(returns.includes(language === 'zh' ? '账户号不可用' : 'Account ID unavailable'));
+    assert.ok(!returns.includes('fictional-native'));
     assert.ok(returns.includes(language === 'zh' ? '不代表全部账户的组合收益' : 'not returns for the full portfolio'));
     globalThis.__mobileState = { phase: 'ready', data: { status: 'no_data', unavailable_reason: 'snapshot_history_missing', cells: [], as_of: null } };
     const calendar = ui.calendar(language);

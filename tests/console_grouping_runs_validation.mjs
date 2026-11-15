@@ -69,7 +69,7 @@ try {
   });
   const ui = createRequire(import.meta.url)(outfile);
   const config = { platformMeta: { ibkr: { label:"IBKR" }, binance: { label:"Binance" }, schwab: { label:"Schwab" } },
-    accountOptions: { ibkr: [{ key:"synthetic-z", label:"Alpha" }, { key:"synthetic-a", label:"Zulu" }], binance:[{ key:"live", label:"live" }], schwab:[{ key:"live", label:"live" }] } };
+    accountOptions: { ibkr: [{ key:"synthetic-z", label:"Alpha", account_selector:"U00000001" }, { key:"synthetic-a", label:"Zulu", account_selector:"U00000002" }], binance:[{ key:"live", label:"live" }], schwab:[{ key:"live", label:"live" }] } };
   const rows = [
     { ...success, account_alias:"synthetic-a", platform:"ibkr", as_of:"2026-10-16T17:00:00Z", fresh:true },
     { ...success, account_alias:"live", platform:"schwab", as_of:null },
@@ -82,7 +82,10 @@ try {
     const html = ui.freshness(language, { ...summary, accounts:rows }, config);
     assert.ok(html.indexOf("<h3>Binance</h3>") < html.indexOf("<h3>IBKR</h3>"));
     assert.ok(html.indexOf("<h3>IBKR</h3>") < html.indexOf("<h3>Schwab</h3>"));
-    assert.ok(html.indexOf(">Alpha<") < html.indexOf(">Zulu<"), "sort within platform by shared display names, not raw alias");
+    // IBKR rows are named by their validated broker IDs, so the misleading labels
+    // and the reversed alias order must not decide the order.
+    assert.ok(html.includes(">U00000001<") && html.includes(">U00000002<"), "IBKR rows show their broker IDs");
+    assert.ok(html.indexOf(">U00000001<") < html.indexOf(">U00000002<"), "sort within platform by shared display names, not raw alias");
     assert.doesNotMatch(html, /synthetic-z|synthetic-a/);
     assert.equal((html.match(/data-status="stale"/g) || []).length, 1, "one stale account keeps its own visible status without marking every row stale");
     assert.match(html, /数据偏旧|>Stale</, "the stale account is visibly marked in its row");
@@ -130,7 +133,7 @@ try {
     const holdings = ui.holdings(language, partialHoldings, config);
     assert.ok(holdings.includes('data-coverage-count="3"'));
     assert.ok(holdings.includes('data-state="partial"'));
-    assert.ok(holdings.includes("Alpha") && holdings.includes("SYNTH") && holdings.includes("6.00"));
+    assert.ok(holdings.includes("U00000001") && holdings.includes("SYNTH") && holdings.includes("6.00"));
     assert.doesNotMatch(holdings, /synthetic-z|Binance:|Schwab:/, "the actual row keeps its display name without an ordinary coverage roster");
   }
 } finally { delete globalThis.__groupingState; await rm(directory, { recursive:true, force:true }); }
