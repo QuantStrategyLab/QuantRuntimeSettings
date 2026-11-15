@@ -29,10 +29,18 @@ export function maskedAccount(option, label) {
   return { account_ref: `${label} ••••${suffix}`, account_suffix: suffix };
 }
 
-/** Authenticated account reference: the full validated IBKR ID, otherwise the masked form. */
+/** Bilingual (zh-CN first) account reference for an IBKR target without a validated broker ID. */
+export const IBKR_ACCOUNT_ID_UNAVAILABLE = "账户号不可用 / Account ID unavailable";
+
+/**
+ * Authenticated account reference. IBKR is named only by its full validated ID;
+ * a missing or invalid selector is shown as unavailable, never as a suffix-derived
+ * name. Other platforms keep the masked form. account_suffix is unchanged.
+ */
 export function accountRef(platform, option, label) {
   const masked = maskedAccount(option, label);
-  return { ...masked, account_ref: ibkrAccountId(platform, option?.account_selector) ?? masked.account_ref };
+  if (platform !== "ibkr") return masked;
+  return { ...masked, account_ref: ibkrAccountId(platform, option?.account_selector) ?? IBKR_ACCOUNT_ID_UNAVAILABLE };
 }
 
 /** Stored facts row for one configured target, or null when no bound snapshot exists. */

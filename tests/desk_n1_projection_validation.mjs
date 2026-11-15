@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import { coverage, freshness, known, partial, unknown, utcInstant } from "../web/strategy-switch-console/application/desk/n1.js";
-import { deskAccountsResponse } from "../web/strategy-switch-console/application/desk/accounts.js";
+import { IBKR_ACCOUNT_ID_UNAVAILABLE, deskAccountsResponse } from "../web/strategy-switch-console/application/desk/accounts.js";
 import { bookSparkline, deskOverviewResponse, lastRun, overviewTotals, runsToday } from "../web/strategy-switch-console/application/desk/overview.js";
 import {
   deskPerformanceResponse, performanceProjection, performanceQuery, performanceWindow, decimal,
@@ -342,7 +342,9 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   assert.equal(off.brokers.value[0].data_freshness.data_status, "unavailable", "a disabled facts model is not fresh");
 
   // Authenticated IBKR account refs are the validated native ID (U live, DU
-  // paper); target IDs stay platform/target_name and other selectors stay masked.
+  // paper), or an explicit bilingual unavailable text when the selector is
+  // missing or invalid; target IDs stay platform/target_name and other
+  // selectors stay masked.
   const ibkrOptions = {
     ibkr: [
       { key: "tqqq", label: "tqqq", target_name: "tqqq", account_selector: "U00000001" },
@@ -362,9 +364,10 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
     "firstrade/target9": "Firstrade ••••0009",
     "ibkr/tqqq": "U00000001",
     "ibkr/soxl": "DU0000002",
-    "ibkr/invalid": "IBKR ••••0003",
-    "ibkr/unbound": "IBKR ••••",
-  }, "IBKR refs are native IDs; target IDs and other platforms are unchanged");
+    "ibkr/invalid": "账户号不可用 / Account ID unavailable",
+    "ibkr/unbound": "账户号不可用 / Account ID unavailable",
+  }, "IBKR refs are native IDs or explicitly unavailable; target IDs and other platforms are unchanged");
+  assert.equal(IBKR_ACCOUNT_ID_UNAVAILABLE, refs["ibkr/unbound"]);
   assert.equal(JSON.stringify(ibkrOptions), optionsBefore, "the configured options are not rewritten");
 }
 

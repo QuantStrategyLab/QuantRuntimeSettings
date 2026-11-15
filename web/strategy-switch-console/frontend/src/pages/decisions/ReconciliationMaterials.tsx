@@ -1,6 +1,7 @@
 import { displayName } from "../../../../display_names.js";
 import type { InboxResponse } from "../../api/contracts";
 import type { Translate } from "../../i18n";
+import { useDisplayNames } from "../../lib/useDisplayNames";
 
 export function ReconciliationMaterials({ data, language, t, itemId }: {
   data?: InboxResponse | null;
@@ -8,6 +9,7 @@ export function ReconciliationMaterials({ data, language, t, itemId }: {
   t: Translate;
   itemId?: string | null;
 }) {
+  const names = useDisplayNames();
   const source = data?.sources.find(row => row.source === "recovery");
   const observation = source?.current_reconciliation_observation;
   const rows = (data?.items || []).filter(row =>
@@ -33,7 +35,11 @@ export function ReconciliationMaterials({ data, language, t, itemId }: {
     {rows.map(item => {
       const material = item.presentation;
       const strategy = displayName("strategies", material?.strategy_profile || "", language, t("reconciliation.unnamed_strategy"));
-      const account = displayName("accounts", item.account_alias || "", language, t("common.account"), item.platform || "");
+      // An IBKR account is named only by its validated broker ID, through the shared
+      // resolver; display mappings never name it. Other platforms keep the display map.
+      const account = item.platform?.toLowerCase() === "ibkr"
+        ? names.account(item.account_alias, item.platform)
+        : displayName("accounts", item.account_alias || "", language, t("common.account"), item.platform || "");
       return <article key={item.id} className="reconciliation-material">
         <h3>{material?.label[language] || t("reconciliation.materials")}</h3>
         {/* A selected detail already carries the one traceable ref in its header, so the
