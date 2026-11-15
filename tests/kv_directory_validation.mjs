@@ -280,14 +280,16 @@ assert.equal(cachePuts, 1, "100 concurrent cold refreshes write once instead of 
 cacheDirectory = new KvDirectory(cacheStorage, cacheKv);
 await cacheDirectory.command({ action: "cache", payload: cachePayload("restart"), ts: 1_800_000_300_000 });
 assert.equal(cachePuts, 1, "cache write dedup survives object restart");
-await cacheDirectory.command({ action: "cache", payload: cachePayload("bump"), ts: 1_800_000_900_000 });
-assert.equal(cachePuts, 2, "the existing 15-minute keep-alive ceiling is preserved");
-await cacheDirectory.command({ action: "cache", payload: { changed: true }, ts: 1_800_000_900_001 });
+await cacheDirectory.command({ action: "cache", payload: cachePayload("within-hour"), ts: 1_800_000_900_000 });
+assert.equal(cachePuts, 1, "15-minute repeat stays deduplicated under 60-minute ceiling");
+await cacheDirectory.command({ action: "cache", payload: cachePayload("bump"), ts: 1_800_003_600_000 });
+assert.equal(cachePuts, 2, "the 60-minute keep-alive ceiling triggers one bump");
+await cacheDirectory.command({ action: "cache", payload: { changed: true }, ts: 1_800_003_600_001 });
 assert.equal(cachePuts, 3, "real content changes still write immediately");
 cacheKv.put = async () => { throw Error("synthetic_store_unavailable"); };
-await assert.rejects(cacheDirectory.command({ action: "cache", payload: { changed: false }, ts: 1_800_000_900_002 }), /synthetic_store_unavailable/);
+await assert.rejects(cacheDirectory.command({ action: "cache", payload: { changed: false }, ts: 1_800_003_600_002 }), /synthetic_store_unavailable/);
 cacheKv.put = async (k, v) => { cachePuts++; cacheValues.set(k, v); };
-await cacheDirectory.command({ action: "cache", payload: { changed: false }, ts: 1_800_000_900_003 });
+await cacheDirectory.command({ action: "cache", payload: { changed: false }, ts: 1_800_003_600_003 });
 assert.equal(cachePuts, 4, "a failed write does not advance the successful-write signature");
 console.log("kv_operation_budget: PASS (288 ticks: 1 List/1 mirror put; 100 cold refreshes: 1 cache put)");
 

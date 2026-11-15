@@ -2088,6 +2088,35 @@ assert.match(healthReadPayload.strategies[0].decision.reason, /API key missing/)
 assert.match(healthReadPayload.strategies[0].source_revision, /^https:\/\//);
 assert.deepEqual(healthReadPayload.errors, ["safe_notice"]);
 
+const auditBeforeRepeatHealth = healthStore.get("audit_log");
+const repeatHealthTimestamp = new Date(Date.now() + 1000).toISOString();
+const repeatHealthSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-health", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${healthSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...healthPayload,
+      generated_at: repeatHealthTimestamp,
+      computed_at: repeatHealthTimestamp,
+      strategies: [{
+        ...healthPayload.strategies[0],
+        freshness: { status: "fresh", age_seconds: 95 },
+      }],
+    }),
+  }),
+  healthEnv,
+);
+assert.equal(repeatHealthSync.status, 200);
+assert.equal(
+  healthStore.get("audit_log"),
+  auditBeforeRepeatHealth,
+  "materially unchanged strategy health sync must not rewrite audit_log",
+);
+assert.equal(
+  JSON.parse(healthStore.get("strategy_health_snapshot")).strategies[0].freshness.age_seconds,
+  95,
+);
+
 healthPayload.generated_at = new Date().toISOString();
 healthPayload.computed_at = "2020-01-01T00:00:00.000Z";
 await worker.fetch(
@@ -3280,6 +3309,37 @@ const failedExecutionEvidenceWrite = await sendExecutionEvidenceWithReceipt(
 );
 assert.equal(failedExecutionEvidenceWrite.ok, false);
 assert.equal(Object.hasOwn(await failedExecutionEvidenceWrite.json(), "receipt_id"), false);
+
+const auditBeforeRepeatExecutionEvidence = controlStore.get("audit_log");
+const repeatReceiptId = "00000000-0000-4000-8000-000000000002";
+const repeatEvidenceTimestamp = new Date(Date.parse(controlNow) + 60_000).toISOString();
+const repeatedExecutionEvidenceSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-execution-evidence-source", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${executionEvidenceSyncValue}`,
+      "Content-Type": "application/json",
+      "X-QSL-Execution-Evidence-Receipt": repeatReceiptId,
+    },
+    body: JSON.stringify({
+      ...executionEvidenceSourcePayload,
+      generated_at: repeatEvidenceTimestamp,
+      computed_at: repeatEvidenceTimestamp,
+    }),
+  }),
+  executionEvidenceEnv,
+);
+assert.equal(repeatedExecutionEvidenceSync.status, 200);
+assert.equal((await repeatedExecutionEvidenceSync.json()).receipt_id, repeatReceiptId);
+assert.equal(
+  controlStore.get("audit_log"),
+  auditBeforeRepeatExecutionEvidence,
+  "repeated materially unchanged execution evidence sync must not rewrite audit_log",
+);
+assert.equal(
+  JSON.parse(controlStore.get("execution_evidence_source:alpaca.tqqq_shadow_audit")).generated_at,
+  repeatEvidenceTimestamp,
+);
 
 const executionEvidenceRead = await worker.fetch(
   new Request("https://switch.example/api/execution-evidence", { headers: executionEvidenceCookieHeaders }),
