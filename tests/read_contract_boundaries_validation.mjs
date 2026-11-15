@@ -4,9 +4,11 @@
 // 1. Every public route branch in `worker.js` `fetch` and every internal action
 //    dispatched by the RuntimeInstances Durable Object is classified in
 //    `web/strategy-switch-console/application/read_contracts.js`, and every
-//    registry entry still exists in code. Extraction is token-based and accepts
-//    only the reviewed dispatch shapes; any other shape is an error, so a new
-//    route or action cannot pass uncounted.
+//    registry entry still exists in code. The surface is read from a strict
+//    TypeScript AST by `tests/helpers/read_contract_surface.mjs`: a source that
+//    does not parse, or that uses a dispatch form the helper does not admit,
+//    fails before it is compared with the registry, so a new route or action
+//    cannot pass uncounted.
 // 2. The finite exception register `tests/fixtures/read-contract-exceptions.json`
 //    agrees with the registry, has not expired (deadlines are inclusive UTC
 //    dates), points at helpers that still exist, and lists the exact call sites
@@ -17,19 +19,23 @@
 //    (dependency injection, callbacks) behind B1, B3 and I2 are anchored and
 //    must stay attributed.
 // 4. The read-only trap adapter catches each write class, and each check above
-//    fails on an injected violation.
+//    fails on an injected violation. Source probes edit in-memory copies; the
+//    executable probes write a scratch sibling module, import it and remove it.
 //
 // `node tests/read_contract_boundaries_validation.mjs --print-seed` prints the
 // operation lists and call-site counts computed from the current code, for use
-// when reviewing a register change.
+// when reviewing a register change. The suite needs the console frontend
+// dependencies (`npm ci` in `web/strategy-switch-console/frontend`) for the
+// pinned TypeScript parser.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { classifySql, createReadOnlyKv, createReadOnlyStorage, ReadOnlyViolation } from "./helpers/read_only_storage.mjs";
+import { astBlock, canonicalExpression, CONSOLE, extractSurface, loadTypeScript, SurfaceError } from "./helpers/read_contract_surface.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const CONSOLE = "web/strategy-switch-console";
 const REGISTER_PATH = "tests/fixtures/read-contract-exceptions.json";
 const ADOPTED_ON = "2026-11-14";
 const MAX_WINDOW_DAYS = 60;
@@ -38,7 +44,11 @@ const SCOPES = new Set(["static", "session", "command", "undeclared"]);
 const SKIP_DIRS = new Set(["node_modules", "dist", "build", "coverage", ".wrangler"]);
 // The registry names excepted helpers itself; it is not a call site.
 const SKIP_FILES = new Set(["v2_asset_map.js", "read_contracts.js"]);
+// Probe-only: a JSON list of { file, from, to } edits applied to the in-memory
+// sources before the baseline check, so a child run proves the full-suite exit.
+const PROBE_ENV = "READ_CONTRACT_PROBE_EDITS";
 
+const ts = loadTypeScript(ROOT);
 const importConsole = path => import(pathToFileURL(join(ROOT, CONSOLE, path)).href);
 const registry = await importConsole("application/read_contracts.js");
 const register = JSON.parse(readFileSync(join(ROOT, REGISTER_PATH), "utf8"));
@@ -51,7 +61,7 @@ function loadSources() {
       const rel = `${dir}/${name}`;
       if (statSync(join(ROOT, rel)).isDirectory()) {
         if (!SKIP_DIRS.has(name)) walk(rel);
-      } else if (/\.(?:m?js|tsx?)$/.test(name) && !SKIP_FILES.has(name)) {
+      } else if (/\.(?:m?js|tsx?)$/.test(name) && !SKIP_FILES.has(name) && !name.startsWith(".read-contract-probe-")) {
         sources.set(rel, readFileSync(join(ROOT, rel), "utf8"));
       }
     }
@@ -60,470 +70,21 @@ function loadSources() {
   return sources;
 }
 
-async function loadActionSets() {
-  const modules = [
-    await importConsole("application/worker/runtime_support.js"),
-    await importConsole("application/account_diagnosis/constants.js"),
-  ];
-  const sets = {};
-  for (const module of modules) {
-    for (const [name, value] of Object.entries(module)) if (name.endsWith("_DO_ACTIONS") && value instanceof Set) sets[name] = value;
+const applyEdits = (sources, edits) => new Map([...sources].map(([name, text]) => {
+  for (const { file, from, to } of edits) {
+    if (name !== `${CONSOLE}/${file}`) continue;
+    if (!text.includes(from)) throw new Error(`probe anchor absent from ${file}: ${from}`);
+    text = text.replace(from, to);
   }
-  return sets;
-}
+  return [name, text];
+}));
 
-// --- Source structure -------------------------------------------------------
-//
-// Extraction works on tokens, not on indentation or line shape. The tokenizer
-// knows strings, template literals, regular expressions and comments, so
-// brackets inside them do not count. The dispatch grammar below is closed:
-// any form it does not recognise is an extraction error, never a silent skip.
+/** Body text of the declaration whose header is `signature` (AST location). */
+const blockAfter = (file, source, signature) => astBlock(ts, file, source, signature);
 
-const REGEX_AFTER_WORD = new Set(["return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await"]);
-const PAIRS = { "(": ")", "[": "]", "{": "}" };
+/** Canonical key of a registry `match`, or null when it does not parse. */
+const routeKey = match => { try { return canonicalExpression(ts, match); } catch (error) { if (error instanceof SurfaceError) return null; throw error; } };
 
-/** Tokens with source offsets. Throws on unterminated or unbalanced text. */
-function tokenizeJs(source, from = 0, to = source.length) {
-  const tokens = [];
-  const stack = [];
-  let index = from;
-  const regexAllowed = () => {
-    const last = tokens.at(-1);
-    if (!last) return true;
-    if (last.type === "word") return REGEX_AFTER_WORD.has(last.value);
-    if (last.type !== "punct") return false;
-    return ![")", "]", "}"].includes(last.value);
-  };
-  const skipQuoted = (start, quote) => {
-    for (let at = start + 1; at < to; at += 1) {
-      if (source[at] === "\\") at += 1;
-      else if (source[at] === quote) return at + 1;
-      else if (source[at] === "\n") break;
-    }
-    throw new Error(`unterminated string at offset ${start}`);
-  };
-  // `subs`, when given, collects [start, end) of each `${ ... }` substitution's code.
-  const skipTemplate = (start, subs) => {
-    for (let at = start + 1; at < to; at += 1) {
-      if (source[at] === "\\") at += 1;
-      else if (source[at] === "`") return at + 1;
-      else if (source[at] === "$" && source[at + 1] === "{") {
-        const end = substitutionEnd(at + 1);
-        subs?.push([at + 2, end - 1]);
-        at = end - 1;
-      }
-    }
-    throw new Error(`unterminated template at offset ${start}`);
-  };
-  // End (exclusive) of a `${ ... }` substitution starting at its `{`.
-  const substitutionEnd = open => {
-    let depth = 0;
-    for (let at = open; at < to;) {
-      const ch = source[at];
-      if (ch === "'" || ch === '"') { at = skipQuoted(at, ch); continue; }
-      if (ch === "`") { at = skipTemplate(at); continue; }
-      if (ch === "{") depth += 1;
-      else if (ch === "}" && --depth === 0) return at + 1;
-      at += 1;
-    }
-    throw new Error(`unterminated substitution at offset ${open}`);
-  };
-  while (index < to) {
-    const ch = source[index];
-    if (/\s/.test(ch)) { index += 1; continue; }
-    if (ch === "/" && source[index + 1] === "/") { const end = source.indexOf("\n", index); index = end < 0 || end > to ? to : end; continue; }
-    if (ch === "/" && source[index + 1] === "*") {
-      const end = source.indexOf("*/", index + 2);
-      if (end < 0 || end >= to) throw new Error(`unterminated comment at offset ${index}`);
-      index = end + 2;
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      const end = skipQuoted(index, ch);
-      tokens.push({ type: "string", value: source.slice(index + 1, end - 1), start: index, end });
-      index = end;
-      continue;
-    }
-    if (ch === "`") {
-      const subs = [];
-      const end = skipTemplate(index, subs);
-      tokens.push({ type: "template", value: source.slice(index, end), start: index, end, subs });
-      index = end;
-      continue;
-    }
-    if (ch === "/" && regexAllowed()) {
-      let at = index + 1;
-      let inClass = false;
-      for (; at < to; at += 1) {
-        if (source[at] === "\\") at += 1;
-        else if (source[at] === "[") inClass = true;
-        else if (source[at] === "]") inClass = false;
-        else if (source[at] === "/" && !inClass) break;
-        else if (source[at] === "\n") throw new Error(`unterminated regex at offset ${index}`);
-      }
-      at += 1;
-      while (/[a-z]/.test(source[at] || "")) at += 1;
-      tokens.push({ type: "regex", value: source.slice(index, at), start: index, end: at });
-      index = at;
-      continue;
-    }
-    const word = /^[A-Za-z_$][\w$]*/.exec(source.slice(index, Math.min(to, index + 200)))?.[0];
-    if (word) { tokens.push({ type: "word", value: word, start: index, end: index + word.length }); index += word.length; continue; }
-    const number = /^\d[\w.]*/.exec(source.slice(index, Math.min(to, index + 64)))?.[0];
-    if (number) { tokens.push({ type: "number", value: number, start: index, end: index + number.length }); index += number.length; continue; }
-    if (PAIRS[ch]) stack.push(PAIRS[ch]);
-    else if ([")", "]", "}"].includes(ch) && stack.pop() !== ch) throw new Error(`unbalanced ${ch} at offset ${index}`);
-    tokens.push({ type: "punct", value: ch, start: index, end: index + 1 });
-    index += 1;
-  }
-  if (stack.length) throw new Error(`unclosed ${stack.at(-1)} before offset ${to}`);
-  return tokens;
-}
-
-/** Index of the token closing the bracket token at `open`. */
-function closeIndex(tokens, open) {
-  let depth = 0;
-  for (let index = open; index < tokens.length; index += 1) {
-    if (PAIRS[tokens[index].value] && tokens[index].type === "punct") depth += 1;
-    else if (tokens[index].type === "punct" && [")", "]", "}"].includes(tokens[index].value) && --depth === 0) return index;
-  }
-  throw new Error("unbalanced brackets");
-}
-
-// Whole-file tokens, keyed by source text; probes edit copies, so keys differ.
-const fileTokens = new Map();
-
-/**
- * Body of the one function, method or object literal whose header is
- * `signature` (ending in `{`). Returns { text, start, end } with offsets into
- * `source`, or null when the signature is absent. A repeated signature is an
- * error: the extractor would not know which one dispatches.
- */
-function blockAfter(source, signature) {
-  const first = source.indexOf(signature);
-  if (first < 0) return null;
-  if (source.indexOf(signature, first + 1) >= 0) throw new Error(`signature occurs more than once: ${signature}`);
-  const open = first + signature.length - 1;
-  if (!fileTokens.has(source)) fileTokens.set(source, tokenizeJs(source));
-  const tokens = fileTokens.get(source);
-  const at = tokens.findIndex(token => token.start === open);
-  if (at < 0 || tokens[at].value !== "{") throw new Error(`signature does not open a block: ${signature}`);
-  const close = closeIndex(tokens, at);
-  return { text: source.slice(open + 1, tokens[close].start), start: open + 1, end: tokens[close].start };
-}
-
-const collapse = text => text.replace(/\s+/g, " ").trim();
-const lineAt = (text, offset) => text.slice(text.lastIndexOf("\n", offset - 1) + 1, (text.indexOf("\n", offset) + 1 || text.length + 1) - 1).trim();
-
-// `url.pathname` uses inside a route branch body, other than the condition.
-// These are reviewed: they read the path to serve the already-classified
-// branch, they do not dispatch a new route. Any other nested use fails, so a
-// route hidden inside another branch cannot pass uncounted.
-const REVIEWED_NESTED_PATHNAME = new Map([
-  ["const asset = V2_ASSETS[url.pathname];", 1],
-  ["const hashedBundle = /^\\/v2\\/assets\\/index-[A-Za-z0-9_-]{8,}\\.(?:js|css)$/.test(url.pathname);", 1],
-  ['const today = url.pathname === "/api/runtime/today";', 1],
-  ['const rest = url.pathname.slice("/api/decisions/".length);', 1],
-  ['return await operationResponse(request, env, url.pathname.slice("/api/operations/".length));', 1],
-]);
-
-/**
- * Route branches of the Worker `fetch`. The accepted shape is exactly:
- *
- *   async fetch(request, env, ctx) {
- *     const url = new URL(request.url);
- *     try { <if-branch>* return <not found>; } catch (error) { ... }
- *   }
- *
- * where each if-branch is `if (<condition reading url.pathname>) <statement>`
- * with no `else`. Every other statement shape at dispatch level, any
- * `pathname` that is not `url.pathname`, and any unreviewed nested use fails.
- */
-function extractRoutes(worker, nestedReviewed = REVIEWED_NESTED_PATHNAME) {
-  const errors = [];
-  const routes = new Map();
-  const fetch = blockAfter(worker, "async fetch(request, env, ctx) {");
-  if (!fetch) return { routes, errors: ["worker_fetch_not_found"] };
-  const tokens = tokenizeJs(worker, fetch.start, fetch.end);
-  const text = index => tokens[index]?.value;
-  const expect = (index, values, what) => {
-    const got = values.map((_, offset) => text(index + offset));
-    if (got.join(" ") !== values.join(" ")) throw new Error(`worker fetch: expected ${what} (${values.join(" ")}), got ${got.join(" ")}`);
-    return index + values.length;
-  };
-  let at = expect(0, ["const", "url", "=", "new", "URL", "(", "request", ".", "url", ")", ";"], "URL construction");
-  at = expect(at, ["try", "{"], "try block");
-  const tryClose = closeIndex(tokens, at - 1);
-  const catchAt = expect(tryClose + 1, ["catch", "(", "error", ")", "{"], "catch block");
-  if (closeIndex(tokens, catchAt - 1) !== tokens.length - 1) errors.push("worker fetch: statements after the try/catch are not extractable");
-  for (const token of tokens.slice(tryClose)) {
-    if (/pathname/.test(token.value)) errors.push("worker fetch: pathname read outside the dispatch try block");
-  }
-
-  // `pathname` is only ever read as `url.pathname`.
-  for (let index = 0; index < tokens.length; index += 1) {
-    if (tokens[index].type !== "word" && /pathname/.test(tokens[index].value)) errors.push(`worker fetch: pathname in a ${tokens[index].type} is not extractable: ${lineAt(worker, tokens[index].start)}`);
-    if (tokens[index].type === "word" && tokens[index].value === "pathname"
-      && !(text(index - 1) === "." && text(index - 2) === "url" && text(index - 3) !== ".")) {
-      errors.push(`worker fetch: pathname read other than as url.pathname: ${lineAt(worker, tokens[index].start)}`);
-    }
-  }
-
-  const nested = new Map();
-  let finished = false;
-  while (at < tryClose) {
-    if (finished) { errors.push(`worker fetch: statement after the final fallthrough: ${lineAt(worker, tokens[at].start)}`); break; }
-    if (text(at) === "return") {
-      while (at < tryClose && text(at) !== ";") at = PAIRS[text(at)] && tokens[at].type === "punct" ? closeIndex(tokens, at) + 1 : at + 1;
-      at += 1;
-      finished = true;
-      continue;
-    }
-    if (text(at) !== "if" || text(at + 1) !== "(") {
-      errors.push(`worker fetch: route dispatch must be a top-level if-branch; not extractable: ${lineAt(worker, tokens[at].start)}`);
-      break;
-    }
-    const conditionClose = closeIndex(tokens, at + 1);
-    const condition = collapse(worker.slice(tokens[at + 1].end, tokens[conditionClose].start));
-    let next = conditionClose + 1;
-    if (["if", "for", "while", "do", "switch", "try", "with"].includes(text(next))) {
-      errors.push(`worker fetch: nested dispatch statement in branch is not extractable: ${condition}`);
-    }
-    if (text(next) === "{") next = closeIndex(tokens, next) + 1;
-    else {
-      while (next < tryClose && text(next) !== ";") next = PAIRS[text(next)] && tokens[next].type === "punct" ? closeIndex(tokens, next) + 1 : next + 1;
-      next += 1;
-    }
-    if (text(next) === "else") errors.push(`worker fetch: else-branch dispatch is not extractable: ${condition}`);
-    if (!condition.includes("url.pathname")) errors.push(`worker fetch: top-level branch does not test url.pathname: ${condition}`);
-    if (routes.has(condition)) errors.push(`duplicate route condition in worker.js: ${condition}`);
-    routes.set(condition, worker.slice(tokens[at].start, tokens[next - 1].end));
-    for (let index = conditionClose + 1; index < next; index += 1) {
-      if (tokens[index].value !== "pathname") continue;
-      const line = lineAt(worker, tokens[index].start);
-      nested.set(line, (nested.get(line) || 0) + 1);
-    }
-    at = next;
-  }
-  if (!finished) errors.push("worker fetch: no final not-found fallthrough");
-  for (const [line, count] of nested) {
-    if (nestedReviewed.get(line) !== count) errors.push(`worker fetch: unreviewed url.pathname use inside a route branch (${count}x): ${line}`);
-  }
-  for (const [line, count] of nestedReviewed) {
-    if (!nested.has(line)) errors.push(`worker fetch: reviewed nested url.pathname use no longer present (${count}x): ${line}`);
-  }
-  return { routes, errors };
-}
-
-/** Non-fetch entry points of the Worker's default export, read structurally. */
-function extractWorkerEntries(worker) {
-  const block = blockAfter(worker, "export default {");
-  if (!block) return { entries: [], errors: ["worker_default_export_not_found"] };
-  const tokens = tokenizeJs(worker, block.start, block.end);
-  const entries = [];
-  const errors = [];
-  let at = 0;
-  while (at < tokens.length) {
-    if (tokens[at].value === "async") at += 1;
-    const name = tokens[at];
-    if (name?.type !== "word" || !["(", ":"].includes(tokens[at + 1]?.value)) {
-      errors.push(`worker default export: member form not extractable: ${lineAt(worker, (name || tokens.at(-1)).start)}`);
-      break;
-    }
-    entries.push(name.value);
-    at += 1;
-    // Skip the member's value up to the next top-level comma.
-    while (at < tokens.length && tokens[at].value !== ",") at = PAIRS[tokens[at].value] && tokens[at].type === "punct" ? closeIndex(tokens, at) + 1 : at + 1;
-    at += 1;
-  }
-  return { entries, errors };
-}
-
-/**
- * Canonical code of a dispatch body, rebuilt from its tokens (review F2).
- * Comments and whitespace disappear, so `command./* x *\/action` reads as
- * `command.action`; tokens are joined without spaces except between two words.
- * Strings and plain templates keep their value only when it is a bare
- * identifier (`"probe_read"`, `"action"`), otherwise they become `"…"`, and
- * regular expressions become `/…/`, so text inside them is never discovered as
- * code. Template substitutions are code and are rendered as such. Dispatch
- * patterns match this text; `line(offset)` gives the source line for errors.
- */
-function dispatchCode(source, block) {
-  let text = "";
-  const offsets = [];
-  const append = (piece, sourceOffset) => {
-    if (/[\w$]$/.test(text) && /^[\w$]/.test(piece)) text += " ";
-    offsets.push([text.length, sourceOffset]);
-    text += piece;
-  };
-  const render = (from, to) => {
-    for (const token of tokenizeJs(source, from, to)) {
-      if (token.type === "string") append(/^\w+$/.test(token.value) ? `"${token.value}"` : '"…"', token.start);
-      else if (token.type === "regex") append("/…/", token.start);
-      else if (token.type === "template" && !token.subs.length) append(/^`\w+`$/.test(token.value) ? `"${token.value.slice(1, -1)}"` : '"…"', token.start);
-      else if (token.type === "template") {
-        append("`…", token.start);
-        for (const [subFrom, subTo] of token.subs) { append("${", subFrom - 2); render(subFrom, subTo); append("}…", subTo); }
-        append("`", token.end - 1);
-      } else append(token.value, token.start);
-    }
-  };
-  render(block.start, block.end);
-  const line = offset => {
-    let sourceOffset = block.start;
-    for (const [at, from] of offsets) { if (at > offset) break; sourceOffset = from; }
-    return lineAt(source, sourceOffset);
-  };
-  return { text, line };
-}
-
-/**
- * Every read of an action field in a dispatch body must sit inside a
- * recognised dispatch form or a reviewed non-dispatch snippet. Reads are
- * member access `.action` / `?.action`, any `"action"` key (computed access,
- * `Reflect.get`, destructuring by string), destructuring by name, `switch`,
- * and any computed access on a dispatch receiver (`command[key]`). A new form
- * is therefore an error rather than an uncounted action. `recognised` and
- * `reviewed` are written against the canonical code of `dispatchCode`.
- */
-function unrecognisedActionReads(code, label, recognised, reviewed = new Map(), receivers = ["command"]) {
-  const errors = [];
-  const covered = [];
-  const body = code.text;
-  for (const pattern of recognised) for (const match of body.matchAll(pattern)) covered.push([match.index, match.index + match[0].length]);
-  for (const [snippet, count] of reviewed) {
-    let found = 0;
-    for (let at = body.indexOf(snippet); at >= 0; at = body.indexOf(snippet, at + 1)) { covered.push([at, at + snippet.length]); found += 1; }
-    if (found !== count) errors.push(`reviewed non-dispatch action read occurs ${found}x, reviewed ${count}x: ${snippet}`);
-  }
-  const reads = [
-    ...body.matchAll(/\.action\b/g),
-    ...body.matchAll(/"action"/g),
-    ...body.matchAll(/\{[^{}]*\baction\b[^{}]*\}=(?![=>])/g),
-    ...body.matchAll(/(?<![\w$"])switch\(/g),
-  ];
-  for (const match of reads) {
-    const start = match.index;
-    if (!covered.some(([from, to]) => start >= from && start < to)) errors.push(`${label}: action dispatch form not extractable: ${code.line(start)}`);
-  }
-  const computed = new RegExp(String.raw`(?<![\w$.])(?:${receivers.join("|")})(?:\?\.)?\[`, "g");
-  for (const match of body.matchAll(computed)) errors.push(`${label}: computed access on a dispatch receiver is not extractable: ${code.line(match.index)}`);
-  return errors;
-}
-
-/** Extract the classified surface from code. */
-function extractSurface(sources, actionSets, options = {}) {
-  const errors = [];
-  const internal = new Set();
-  const guard = (label, fn, fallback) => {
-    try { return fn(); } catch (error) { errors.push(`${label}: ${error.message}`); return fallback; }
-  };
-  const worker = sources.get(`${CONSOLE}/worker.js`);
-  const routeResult = guard("worker.js", () => extractRoutes(worker, options.nestedReviewed), { routes: new Map(), errors: [] });
-  errors.push(...routeResult.errors);
-  const entryResult = guard("worker.js", () => extractWorkerEntries(worker), { entries: [], errors: [] });
-  errors.push(...entryResult.errors);
-  if (!entryResult.entries.includes("fetch")) errors.push("worker default export has no fetch entry");
-  for (const name of entryResult.entries) if (name !== "fetch") internal.add(`worker:${name}`);
-
-  const durable = sources.get(`${CONSOLE}/application/runtime_instances/durable_object.js`);
-  // Dispatch bodies are matched as canonical token code (see dispatchCode).
-  const codeOf = (file, source, signature) => guard(file, () => {
-    const block = source && blockAfter(source, signature);
-    return block ? dispatchCode(source, block) : null;
-  }, null);
-  const doFetch = codeOf("durable_object.js", durable, "async fetch(request) {");
-  if (!doFetch) errors.push("durable_object_fetch_not_found");
-  const fetchCode = doFetch || { text: "", line: () => "" };
-  const body = fetchCode.text;
-  const ACTION = String.raw`command\??\.action`;
-  const LITERAL_LIST = new RegExp(String.raw`\[((?:"[a-z0-9_]+",?)+)\]\.includes\(${ACTION}\)`, "g");
-  const FAMILY = new RegExp(String.raw`\b([A-Z0-9_]+_DO_ACTIONS)\.has\(${ACTION}\)`, "g");
-  const PREFIX = new RegExp(String.raw`typeof ${ACTION}==="string"&&${ACTION}\.startsWith\("([a-z0-9_]+)"\)`, "g");
-  const COMPARE = new RegExp(String.raw`(?<!typeof )${ACTION}(?:===|!==)"([a-z0-9_]+)"`, "g");
-  errors.push(...unrecognisedActionReads(fetchCode, "RuntimeInstances.fetch", [LITERAL_LIST, FAMILY, PREFIX, COMPARE], new Map([
-    // Audit history records the action; it does not dispatch on it.
-    ["action:command.action,before,after", 1],
-  ]), ["command", "request"]));
-  const literalMembers = new Set();
-  for (const [, list] of body.matchAll(LITERAL_LIST)) {
-    for (const [, action] of list.matchAll(/"([a-z0-9_]+)"/g)) literalMembers.add(action);
-  }
-  const add = (id, family) => {
-    if (internal.has(id)) errors.push(`action dispatched by two families: ${id} (${family})`);
-    internal.add(id);
-  };
-  for (const action of literalMembers) add(`action:${action}`, "literal list");
-  for (const [, name] of body.matchAll(FAMILY)) {
-    if (!actionSets[name]) { errors.push(`unknown action family ${name} in RuntimeInstances.fetch`); continue; }
-    for (const action of actionSets[name]) add(`action:${action}`, name);
-  }
-  const prefixFamilies = {
-    rotation_: () => {
-      const code = codeOf("secretRotation.js", sources.get(`${CONSOLE}/secretRotation.js`), "export function rotationCommand(sql, c, factors = []) {");
-      if (!code) { errors.push("secretRotation.js: rotationCommand not found"); return []; }
-      const rotation = code.text;
-      const compare = /(?<![\w$.])c\.action==="(rotation_[a-z_]+)"/g;
-      errors.push(...unrecognisedActionReads(code, "rotationCommand", [compare], new Map([
-        // The stored request's write action, compared for replay; not dispatch.
-        ["prior.action!==c.write_action", 1],
-      ]), ["c"]));
-      return [...rotation.matchAll(compare)].map(m => m[1]);
-    },
-    ux1_: () => {
-      const code = codeOf("durable_object.js", durable, "ux1ResearchCommand(command) {");
-      if (!code) { errors.push("durable_object.js: ux1ResearchCommand not found"); return []; }
-      const ux1 = code.text;
-      const list = new RegExp(LITERAL_LIST.source, "g");
-      const compare = /command\??\.action==="(ux1_[a-z_]+)"/g;
-      errors.push(...unrecognisedActionReads(code, "ux1ResearchCommand", [list, compare]));
-      return [
-        ...[...ux1.matchAll(list)].flatMap(([, members]) => [...members.matchAll(/"([a-z0-9_]+)"/g)].map(m => m[1])),
-        ...[...ux1.matchAll(compare)].map(m => m[1]),
-      ];
-    },
-  };
-  for (const [, prefix] of body.matchAll(PREFIX)) {
-    if (!prefixFamilies[prefix]) { errors.push(`unknown action prefix ${prefix} in RuntimeInstances.fetch`); continue; }
-    for (const action of new Set(prefixFamilies[prefix]())) {
-      if (!action.startsWith(prefix)) errors.push(`prefix family ${prefix} dispatches ${action}`);
-      add(`action:${action}`, prefix);
-    }
-  }
-  for (const [, action] of body.matchAll(COMPARE)) {
-    // Comparisons on actions already dispatched by a family (e.g. a status code) are not new actions.
-    if (!internal.has(`action:${action}`)) internal.add(`action:instance_state:${action}`);
-  }
-  // Method and path dispatch of RuntimeInstances.fetch itself: exactly these
-  // reviewed forms. Every `method` / `pathname` name counts as a read, whether
-  // a member, a string key (`request["method"]`) or a destructured binding;
-  // computed access on `request` is rejected above.
-  const methodForms = new Map([
-    ['request.method==="GET")return json(this.response(this.read()))', 1],
-    ['request.method!=="POST"', 2],
-  ]);
-  const pathForms = new Map([["new URL(request.url).pathname===DIRECTORY_PATH", 1]]);
-  for (const [label, pattern, forms] of [["request.method", /\bmethod\b/g, methodForms], ["pathname", /\bpathname\b/g, pathForms]]) {
-    const reads = [...body.matchAll(pattern)].length;
-    const reviewed = [...forms].reduce((sum, [form, count]) => {
-      const found = body.split(form).length - 1;
-      if (found !== count) errors.push(`RuntimeInstances.fetch: ${label} form occurs ${found}x, reviewed ${count}x: ${form}`);
-      return sum + count;
-    }, 0);
-    if (reads !== reviewed) errors.push(`RuntimeInstances.fetch: ${reads} ${label} reads, ${reviewed} reviewed; a new dispatch form is not extractable`);
-  }
-  if (body.includes('request.method==="GET")return json(this.response(this.read()))')) internal.add("action:instance_state:GET");
-  if (body.includes("pathname===DIRECTORY_PATH")) {
-    const run = codeOf("kv_directory.js", sources.get(`${CONSOLE}/kv_directory.js`), "async run(command) {");
-    if (!run) errors.push("kv_directory.js: KvDirectory.run not found");
-    const compare = /command\.action(?:===|!==)"([a-z_]+)"/g;
-    if (run) errors.push(...unrecognisedActionReads(run, "KvDirectory.run", [compare]));
-    for (const [, action] of (run?.text || "").matchAll(compare)) internal.add(`action:directory:${action}`);
-  }
-  if (guard("durable_object.js", () => blockAfter(durable, "async alarm() {"), null)) internal.add("action:lifecycle:alarm");
-  return { routes: routeResult.routes, internal, errors };
-}
 
 function definitionPattern(symbol) {
   const name = symbol.replace(/[$]/g, "\\$");
@@ -542,16 +103,25 @@ function countSites(sources, helper) {
   return cache.get(key);
 }
 
+// Per helper and file text; probes change one file, so the rest are reused.
+const fileSiteCounts = new Map();
+
 function computeSites(sources, helper) {
   const counts = {};
+  const key = JSON.stringify([helper.symbol, helper.literal]);
+  if (!fileSiteCounts.has(key)) fileSiteCounts.set(key, new Map());
+  const byText = fileSiteCounts.get(key);
   for (const [file, text] of sources) {
-    let count;
-    if (helper.symbol) {
-      const name = helper.symbol.replace(/[$]/g, "\\$");
-      count = (text.match(new RegExp(`(?<![\\w$])${name}\\s*\\(`, "g")) || []).length
-        - (text.match(definitionPattern(helper.symbol)) || []).filter(def => def.includes("(")).length;
-    } else {
-      count = text.split(helper.literal).length - 1;
+    let count = byText.get(text);
+    if (count === undefined) {
+      if (helper.symbol) {
+        const name = helper.symbol.replace(/[$]/g, "\\$");
+        count = (text.match(new RegExp(`(?<![\\w$])${name}\\s*\\(`, "g")) || []).length
+          - (text.match(definitionPattern(helper.symbol)) || []).filter(def => def.includes("(")).length;
+      } else {
+        count = text.split(helper.literal).length - 1;
+      }
+      byText.set(text, count);
     }
     if (count > 0) counts[file] = count;
   }
@@ -588,11 +158,15 @@ function validate({ routes: registryRoutes, internal: registryInternal, register
   const seenMatches = new Set();
   for (const route of registryRoutes) {
     const where = `route ${route.id}`;
-    if (seenMatches.has(route.match)) errors.push(`${where}: duplicate registry match`);
-    seenMatches.add(route.match);
-    const branch = surface.routes.get(route.match);
+    // Registry conditions compare as ASTs: literal values and operators
+    // count, trivia and redundant parentheses do not.
+    const key = routeKey(route.match);
+    if (!key) errors.push(`${where}: registry match does not parse as one expression: ${route.match}`);
+    if (seenMatches.has(key)) errors.push(`${where}: duplicate registry match`);
+    seenMatches.add(key);
+    const branch = surface.routes.get(key);
     if (!branch) errors.push(`${where}: stale entry, no worker.js route branch has condition ${route.match}`);
-    else if (!new RegExp(`\\b${route.handler}\\b`).test(branch)) errors.push(`${where}: handler ${route.handler} not found in its branch`);
+    else if (!new RegExp(`\\b${route.handler}\\b`).test(branch.text)) errors.push(`${where}: handler ${route.handler} not found in its branch`);
     if (!Object.keys(route.effects || {}).length) errors.push(`${where}: no methods classified`);
     for (const [method, effect] of Object.entries(route.effects || {})) {
       if (!METHODS.has(method)) errors.push(`${where}: invalid method ${method}`);
@@ -603,8 +177,8 @@ function validate({ routes: registryRoutes, internal: registryInternal, register
     }
     checkScope(where, route.scope);
   }
-  for (const condition of surface.routes.keys()) {
-    if (!seenMatches.has(condition)) errors.push(`unclassified route branch in worker.js: ${condition}`);
+  for (const [key, branch] of surface.routes) {
+    if (!seenMatches.has(key)) errors.push(`unclassified route branch in worker.js: ${branch.condition}`);
   }
   for (const [id, entry] of Object.entries(registryInternal)) {
     if (!surface.internal.has(id)) errors.push(`stale internal operation ${id}: not dispatched by current code`);
@@ -664,9 +238,10 @@ function validate({ routes: registryRoutes, internal: registryInternal, register
   return { errors, operations };
 }
 
-const sources = loadSources();
-const actionSets = await loadActionSets();
-const surface = extractSurface(sources, actionSets);
+const probeEdits = process.env[PROBE_ENV] ? JSON.parse(process.env[PROBE_ENV]) : [];
+const sources = applyEdits(loadSources(), probeEdits);
+const extracted = src => extractSurface(ts, src);
+const surface = extracted(sources);
 const today = new Date().toISOString().slice(0, 10);
 const baseline = { routes: registry.PUBLIC_ROUTES, internal: registry.INTERNAL_OPERATIONS, register, surface, sources, today };
 
@@ -688,6 +263,11 @@ const result = validate(baseline);
 assert.deepEqual(result.errors, [], `read-contract baseline:\n${result.errors.join("\n")}`);
 assert.equal(registerText.endsWith("\n"), true, "register ends with a newline");
 assert.deepEqual(registry.classifiedOperations(), result.operations, "registry helper and suite agree on operation ids");
+// Exact sets, not counts: extracted route conditions and internal operations
+// equal the registry entries one for one.
+assert.deepEqual([...surface.routes.keys()].sort(), registry.PUBLIC_ROUTES.map(route => routeKey(route.match)).sort(), "route branches equal the registry as a set");
+assert.equal(surface.routes.size, registry.PUBLIC_ROUTES.length, "one route branch per registry route");
+assert.deepEqual([...surface.internal].sort(), Object.keys(registry.INTERNAL_OPERATIONS).sort(), "internal operations equal the registry as a set");
 
 // 3. Live debt still reproduces under the trap. When an assertion here fails
 // because the write is gone, close that exception instead of editing the probe.
@@ -783,8 +363,8 @@ function checkIndirectEdges({ edges = INDIRECT_EDGES, sources: src, surface: sur
     for (const anchor of edge.anchors) {
       let text;
       try {
-        if (anchor.route) text = surf.routes.get(routes.find(route => route.id === anchor.route)?.match);
-        else text = anchor.block ? blockAfter(src.get(anchor.file) || "", anchor.block)?.text : src.get(anchor.file);
+        if (anchor.route) text = surf.routes.get(routeKey(routes.find(route => route.id === anchor.route)?.match ?? ""))?.text;
+        else text = anchor.block ? blockAfter(anchor.file, src.get(anchor.file) || "", anchor.block)?.text : src.get(anchor.file);
       } catch (error) { text = null; errors.push(`edge ${edge.exception}: ${error.message}`); }
       if (!text?.includes(anchor.text)) errors.push(`edge ${edge.exception} ${edge.operations.join(",")}: anchor gone from ${anchor.route ? `route ${anchor.route}` : `${anchor.file}${anchor.block ? ` (${anchor.block})` : ""}`}: ${anchor.text.replace(/\s+/g, " ")}; if the edge is gone, narrow the exception`);
     }
@@ -917,12 +497,12 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
 
   // (a) A new route branch or internal action without a classification.
   const routesPlus = new Map(surface.routes);
-  routesPlus.set('url.pathname === "/api/probe-unclassified" && request.method === "GET"', "probe");
+  const probeCondition = 'url.pathname === "/api/probe-unclassified" && request.method === "GET"';
+  routesPlus.set(routeKey(probeCondition), { condition: probeCondition, text: "probe" });
   expectError(run({ surface: { ...surface, routes: routesPlus } }), /^unclassified route branch/, "probe (a) route");
   expectError(run({ surface: { ...surface, internal: new Set([...surface.internal, "action:probe_read"]) } }), /^unclassified internal operation action:probe_read/, "probe (a) action");
-  const extraFamily = extractSurface(new Map([...sources].map(([file, text]) => [file, file.endsWith("durable_object.js")
-    ? text.replace("if (HK_STOP_DO_ACTIONS.has(command?.action)) {", "if (PROBE_DO_ACTIONS.has(command?.action)) {}\n      if (HK_STOP_DO_ACTIONS.has(command?.action)) {") : text])), actionSets);
-  expectError(extraFamily.errors, /^unknown action family PROBE_DO_ACTIONS/, "probe (a) family");
+  const extraFamily = extracted(applyEdits(sources, [{ file: "application/runtime_instances/durable_object.js", from: "if (HK_STOP_DO_ACTIONS.has(command?.action)) {", to: "if (PROBE_DO_ACTIONS.has(command?.action)) {}\n      if (HK_STOP_DO_ACTIONS.has(command?.action)) {" }]));
+  expectError(extraFamily.errors, /family_unknown: unknown action family PROBE_DO_ACTIONS/, "probe (a) family");
 
   // (b) A new excepted operation or a new caller without a register change.
   const internalPlus = { ...registry.INTERNAL_OPERATIONS, "action:hk_stop_read": { effect: ["B5", "B0"], scope: "undeclared" } };
@@ -951,85 +531,246 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   const staleRoutes = [...registry.PUBLIC_ROUTES, { id: "/api/probe-removed", match: 'url.pathname === "/api/probe-removed"', handler: "probe", effects: { GET: "observation" }, scope: "static" }];
   expectError(run({ routes: staleRoutes }), /stale entry, no worker.js route branch/, "probe (d) route");
 
-  // (e) Extraction is structural and fails closed (review F2). Each probe edits
-  // a copy of the real source; none is written to disk.
-  const edit = (file, from, to) => {
-    const path = `${CONSOLE}/${file}`;
-    assert.ok(sources.get(path).includes(from), `probe anchor present in ${file}: ${from}`);
-    return new Map([...sources].map(([name, text]) => [name, name === path ? text.replace(from, to) : text]));
-  };
-  const extracted = src => extractSurface(src, actionSets);
+  // (e) Extraction is a strict AST admission check (review F2; matrix of the
+  // F2 design). Each probe edits an in-memory copy of the real source with the
+  // registry and register unchanged. "Discover": extraction admits the source,
+  // finds the added operation and validation fails for its missing
+  // classification. "Reject": extraction fails with the specific unsupported
+  // form. In both cases validation, which decides this suite's exit, is not
+  // clean. "Pass": identical sets and clean validation.
+  const DO_FILE = "application/runtime_instances/durable_object.js";
+  const HK_BRANCH = "if (HK_STOP_DO_ACTIONS.has(command?.action)) {";
+  const HK_BODY = "return json(this.storage.transactionSync(() => this.hkStopCommand(command)));";
+  const GET_BRANCH = 'if (request.method === "GET") return json(this.response(this.read()));';
   const ROOT_BRANCH = '      if (url.pathname === "/") {';
   const PROBE_ROUTE = 'if (url.pathname === "/api/probe-unclassified" && request.method === "GET") return new Response("probe");';
-  for (const indent of ["", "  ", "    ", "      ", "\t", "        "]) {
-    const probed = extracted(edit("worker.js", ROOT_BRANCH, `${indent}${PROBE_ROUTE}\n${ROOT_BRANCH}`));
-    assert.equal(probed.routes.size, surface.routes.size + 1, `probe (e) route at indent ${JSON.stringify(indent)} is counted`);
-    expectError(run({ surface: probed }), /^unclassified route branch in worker\.js: url\.pathname === "\/api\/probe-unclassified"/, `probe (e) indent ${JSON.stringify(indent)}`);
-  }
-  const sameLine = extracted(edit("worker.js", ROOT_BRANCH, `      ${PROBE_ROUTE} ${ROOT_BRANCH.trim()}`));
-  expectError(run({ surface: sameLine }), /^unclassified route branch.*probe-unclassified/, "probe (e) same line");
-  const braces = extracted(edit("worker.js", ROOT_BRANCH, `      if (url.pathname === "/api/probe-braces") { const s = "}{"; const r = /[}{]/; return new Response(\`\${s}}\`); }\n${ROOT_BRANCH}`));
-  expectError(run({ surface: braces }), /^unclassified route branch.*probe-braces/, "probe (e) brackets inside strings, regex and templates");
-  const failClosed = {
-    "nested route inside a branch": [/unreviewed url\.pathname use inside a route branch/, edit("worker.js", 'if (url.pathname.startsWith("/api/performance/")) {', 'if (url.pathname.startsWith("/api/performance/")) {\n        if (url.pathname === "/api/performance/probe") return new Response("probe");')],
-    "else-branch dispatch": [/else-branch dispatch is not extractable/, edit("worker.js", ROOT_BRANCH, `      if (url.pathname === "/api/probe-a") return new Response("a");\n      else if (url.pathname === "/api/probe-b") return new Response("b");\n${ROOT_BRANCH}`)],
-    "switch dispatch": [/route dispatch must be a top-level if-branch; not extractable: switch/, edit("worker.js", ROOT_BRANCH, `      switch (url.pathname) { case "/api/probe": return new Response("probe"); }\n${ROOT_BRANCH}`)],
-    "logical dispatch": [/top-level branch does not test url\.pathname/, edit("worker.js", ROOT_BRANCH, `      if (request.method === "GET") return probeAll(url.pathname);\n${ROOT_BRANCH}`)],
-    "expression statement": [/route dispatch must be a top-level if-branch; not extractable: url\.pathname/, edit("worker.js", ROOT_BRANCH, `      url.pathname === "/api/probe" && probe();\n${ROOT_BRANCH}`)],
-    "path alias": [/route dispatch must be a top-level if-branch; not extractable: const path/, edit("worker.js", ROOT_BRANCH, `      const path = url.pathname;\n${ROOT_BRANCH}`)],
-    "destructured pathname": [/pathname read other than as url\.pathname/, edit("worker.js", "    const url = new URL(request.url);\n    try {", "    const url = new URL(request.url);\n    try {\n      const { pathname } = url;")],
-    "dispatch before try": [/expected try block/, edit("worker.js", "    const url = new URL(request.url);\n    try {", '    const url = new URL(request.url);\n    if (url.pathname === "/api/probe") return new Response("probe");\n    try {')],
-    "nested if consequent": [/nested dispatch statement in branch/, edit("worker.js", ROOT_BRANCH, `      if (url.pathname.startsWith("/api/probe")) if (request.method === "GET") return new Response("probe");\n${ROOT_BRANCH}`)],
-    "statement after fallthrough": [/statement after the final fallthrough/, edit("worker.js", '      return json({ ok: false, error: "not_found" }, 404);\n    } catch', '      return json({ ok: false, error: "not_found" }, 404);\n      if (url.pathname === "/api/probe") return new Response("probe");\n    } catch')],
-    "unbalanced source": [/unclosed \}/, edit("worker.js", ROOT_BRANCH, `      if (url.pathname === "/api/probe") { return new Response("probe");\n${ROOT_BRANCH}`)],
-    "non-method export member": [/member form not extractable: \.\.\.probeHandlers/, edit("worker.js", "export default {", "export default {\n  ...probeHandlers,")],
-    "DO switch on action": [/^RuntimeInstances\.fetch: action dispatch form not extractable: switch/, edit("application/runtime_instances/durable_object.js", "if (HK_STOP_DO_ACTIONS.has(command?.action)) {", 'switch (command.action) { case "probe_read": return json({}); }\n      if (HK_STOP_DO_ACTIONS.has(command?.action)) {')],
-    "DO destructured action": [/^RuntimeInstances\.fetch: action dispatch form not extractable: const \{ action \}/, edit("application/runtime_instances/durable_object.js", "if (HK_STOP_DO_ACTIONS.has(command?.action)) {", 'const { action } = command;\n      if (action === "probe_read") return json({});\n      if (HK_STOP_DO_ACTIONS.has(command?.action)) {')],
-    "DO computed action": [/^RuntimeInstances\.fetch: action dispatch form not extractable: .*command\[\"action\"\]/, edit("application/runtime_instances/durable_object.js", "if (HK_STOP_DO_ACTIONS.has(command?.action)) {", 'if (command["action"] === "probe_read") return json({});\n      if (HK_STOP_DO_ACTIONS.has(command?.action)) {')],
-    "DO other receiver": [/^RuntimeInstances\.fetch: action dispatch form not extractable: .*request\.body\?\.action/, edit("application/runtime_instances/durable_object.js", "if (HK_STOP_DO_ACTIONS.has(command?.action)) {", 'if (request.body?.action === "probe_read") return json({});\n      if (HK_STOP_DO_ACTIONS.has(command?.action)) {')],
-    "DO new method form": [/request\.method reads, 3 reviewed/, edit("application/runtime_instances/durable_object.js", 'if (request.method === "GET") return json(this.response(this.read()));', 'if (request.method === "PUT") return json({});\n      if (request.method === "GET") return json(this.response(this.read()));')],
-    "DO new path form": [/pathname reads, 1 reviewed/, edit("application/runtime_instances/durable_object.js", 'if (request.method === "GET") return json(this.response(this.read()));', 'if (new URL(request.url).pathname === "/probe") return json({});\n      if (request.method === "GET") return json(this.response(this.read()));')],
-    "ux1 switch on action": [/^ux1ResearchCommand: action dispatch form not extractable/, edit("application/runtime_instances/durable_object.js", "      const login = String(command?.login || \"\");", "      switch (command.action) { case \"ux1_probe\": return {}; }\n      const login = String(command?.login || \"\");")],
-    "rotation alternate form": [/^rotationCommand: action dispatch form not extractable/, edit("secretRotation.js", "  if (c.action === 'rotation_denied')", "  if (['rotation_probe'].includes(c.action)) return {};\n  if (c.action === 'rotation_denied')")],
-    "directory alternate form": [/^KvDirectory\.run: action dispatch form not extractable/, edit("kv_directory.js", '    if (command.action === "cache") {', '    if (["probe"].includes(command.action)) return {};\n    if (command.action === "cache") {')],
+  const edit = (file, from, to) => applyEdits(sources, [{ file, from, to }]);
+  const beforeHk = text => edit(DO_FILE, HK_BRANCH, `${text}\n      ${HK_BRANCH}`);
+  const inHk = text => edit(DO_FILE, HK_BODY, `${text}\n        ${HK_BODY}`);
+  const beforeGet = text => edit(DO_FILE, GET_BRANCH, `${text}\n      ${GET_BRANCH}`);
+  const beforeRoot = text => edit("worker.js", ROOT_BRANCH, `      ${text}\n${ROOT_BRANCH}`);
+  const outcomes = [];
+  const validated = probedSources => {
+    const probed = extracted(probedSources);
+    return { probed, errors: run({ surface: probed, sources: probedSources }) };
   };
-  for (const [label, [pattern, probedSources]] of Object.entries(failClosed)) {
-    expectError(extracted(probedSources).errors, pattern, `probe (e) ${label}`);
-  }
-  const reindented = new Map([...sources].map(([name, text]) => [name, /worker\.js$|durable_object\.js$/.test(name) ? text.replace(/^( +)/gm, "$1$1") : text]));
-  const reindentedSurface = extracted(reindented);
-  assert.deepEqual(reindentedSurface.errors, [], "probe (e) doubled indentation extracts cleanly");
-  assert.deepEqual([...reindentedSurface.routes.keys()], [...surface.routes.keys()], "probe (e) indentation does not change the route branches");
-  assert.deepEqual([...reindentedSurface.internal].sort(), [...surface.internal].sort(), "probe (e) indentation does not change the internal operations");
-  const newAction = extracted(edit("application/runtime_instances/durable_object.js", "if (HK_STOP_DO_ACTIONS.has(command?.action)) {", 'if (command.action === "probe_read") return json({});\n      if (HK_STOP_DO_ACTIONS.has(command?.action)) {'));
-  expectError(run({ surface: newAction }), /^unclassified internal operation action:instance_state:probe_read/, "probe (e) DO comparison");
+  const discover = (label, probedSources, pattern) => {
+    const { probed, errors } = validated(probedSources);
+    assert.deepEqual(probed.errors, [], `discover ${label}: admitted without an extraction error`);
+    expectError(errors, pattern, `discover ${label}`);
+    outcomes.push(["discover", label, errors.find(error => pattern.test(error))]);
+  };
+  const reject = (label, probedSources, pattern) => {
+    const { probed, errors } = validated(probedSources);
+    expectError(probed.errors, pattern, `reject ${label}`);
+    assert.notDeepEqual(errors, [], `reject ${label}: validation fails`);
+    outcomes.push(["reject", label, probed.errors.find(error => pattern.test(error))]);
+  };
+  // Either outcome is acceptable; a silent pass is not.
+  const discoverOrReject = (label, probedSources, discoverPattern, rejectPattern) => {
+    const { probed, errors } = validated(probedSources);
+    const found = probed.errors.find(error => rejectPattern.test(error)) || errors.find(error => discoverPattern.test(error));
+    assert.ok(found, `${label}: expected ${discoverPattern} or ${rejectPattern}, got ${JSON.stringify(errors)}`);
+    outcomes.push([probed.errors.length ? "reject" : "discover", label, found]);
+  };
+  const pass = (label, probedSources) => {
+    const { probed, errors } = validated(probedSources);
+    assert.deepEqual(probed.errors, [], `pass ${label}: no extraction error`);
+    assert.deepEqual([...probed.routes.keys()], [...surface.routes.keys()], `pass ${label}: identical route branches`);
+    assert.deepEqual([...probed.internal].sort(), [...surface.internal].sort(), `pass ${label}: identical internal operations`);
+    assert.deepEqual(errors, [], `pass ${label}: validation passes`);
+    outcomes.push(["pass", label, ""]);
+  };
+  const UNCLASSIFIED_ROUTE = /^unclassified route branch in worker\.js: url\.pathname === "\/api\/probe-unclassified"/;
+  const UNCLASSIFIED_READ = /^unclassified internal operation action:instance_state:probe_read$/;
+  const COMPUTED = /computed_access: computed access on receiver/;
 
-  // Internal dispatch is read from tokens too (review F2, fix round 2): a
-  // comment inside a member read keeps its meaning, computed method access is
-  // rejected, and comment or string text is not an operation.
-  const HK_BRANCH = "if (HK_STOP_DO_ACTIONS.has(command?.action)) {";
-  const GET_BRANCH = 'if (request.method === "GET") return json(this.response(this.read()));';
-  const DO_FILE = "application/runtime_instances/durable_object.js";
-  const commented = extracted(edit(DO_FILE, HK_BRANCH, `if (command./* dispatch */action === "probe_read") return json({ probe: true });\n      ${HK_BRANCH}`));
-  assert.deepEqual(commented.errors, [], "probe (e) comment-separated DO action extracts");
-  assert.equal(commented.internal.size, surface.internal.size + 1, "probe (e) comment-separated DO action is counted");
-  expectError(run({ surface: commented }), /^unclassified internal operation action:instance_state:probe_read$/, "probe (e) comment-separated DO action");
-  const computedMethod = extracted(edit(DO_FILE, GET_BRANCH, `if (request["method"] === "PUT") return json({ probe: true });\n      ${GET_BRANCH}`));
-  expectError(computedMethod.errors, /^RuntimeInstances\.fetch: computed access on a dispatch receiver is not extractable: if \(request\["method"\]/, "probe (e) computed DO method receiver");
-  expectError(computedMethod.errors, /^RuntimeInstances\.fetch: 4 request\.method reads, 3 reviewed/, "probe (e) computed DO method count");
-  const computedKey = extracted(edit(DO_FILE, GET_BRANCH, `if (request[probeKey] === "PUT") return json({ probe: true });\n      ${GET_BRANCH}`));
-  expectError(computedKey.errors, /^RuntimeInstances\.fetch: computed access on a dispatch receiver is not extractable: if \(request\[probeKey\]/, "probe (e) computed DO key");
-  for (const [label, text] of [
-    ["comment-only DO action", '// if (command.action === "probe_comment_only") return json({});'],
-    ["DO action inside a string", 'const probeNote = "if (command.action === \\"probe_string_only\\") request[\\"method\\"]";'],
-  ]) {
-    const inert = extracted(edit(DO_FILE, HK_BRANCH, `${text}\n      ${HK_BRANCH}`));
-    assert.deepEqual(inert.errors, [], `probe (e) ${label} is not an extraction error`);
-    assert.deepEqual([...inert.internal].sort(), [...surface.internal].sort(), `probe (e) ${label} adds no operation`);
-    assert.deepEqual(run({ surface: inert }), [], `probe (e) ${label} passes validation`);
+  // New Worker route: any indentation, tabs, the same line.
+  for (const indent of ["", " ", "    ", "      ", "          ", "\t", "\t\t"]) {
+    discover(`Worker route indented ${JSON.stringify(indent)}`, edit("worker.js", ROOT_BRANCH, `${indent}${PROBE_ROUTE}\n${ROOT_BRANCH}`), UNCLASSIFIED_ROUTE);
   }
-  const newEntry = extracted(edit("worker.js", "export default {", "export default {\n  async queue(batch, env) {},"));
-  expectError(run({ surface: newEntry }), /^unclassified internal operation worker:queue/, "probe (e) worker entry");
+  discover("Worker route on the same line as another", edit("worker.js", ROOT_BRANCH, `      ${PROBE_ROUTE} ${ROOT_BRANCH.trim()}`), UNCLASSIFIED_ROUTE);
+  discover("Worker route with brackets in strings, regex and templates", beforeRoot('if (url.pathname === "/api/probe-braces") { const s = "}{"; const r = /[}{]/; return new Response(`${s}}`); }'), /^unclassified route branch.*probe-braces/);
+
+  // Spelling of an action comparison (FIX2 probes 1, 4-7).
+  discover("comment inside the action member", beforeHk('if (command./* dispatch */action === "probe_read") return json({ probe: true });'), UNCLASSIFIED_READ);
+  discover("parenthesized action member", beforeHk('if ((command.action) === "probe_read") return json({ probe: true });'), UNCLASSIFIED_READ);
+  discover("repeated parentheses around the receiver", beforeHk('if (((command)).action === "probe_read") return json({ probe: true });'), UNCLASSIFIED_READ);
+  discover("single-quoted action value", beforeHk("if (command.action === 'probe_read') return json({ probe: true });"), UNCLASSIFIED_READ);
+  discover("plain-template action value", beforeHk("if (command.action === `probe_read`) return json({ probe: true });"), UNCLASSIFIED_READ);
+  discover("reversed comparison", beforeHk('if ("probe_read" === command?.action) return json({ probe: true });'), UNCLASSIFIED_READ);
+  discoverOrReject("comparison inside a template interpolation", beforeHk('if (`${command.action === "probe_read"}` === "true") return json({ probe: true });'),
+    UNCLASSIFIED_READ, /statement: dispatch-level statement not admitted/);
+  discover("comparison inside a template interpolation in a gated body", inHk('if (`${command.action === "probe_read"}` === "true") return json({ probe: true });'), UNCLASSIFIED_READ);
+
+  // Computed access on a receiver, whatever its key (FIX2 probes 2, 10, 11).
+  reject("request[\"method\"]", beforeGet('if (request["method"] === "PUT") return json({ probe: true });'), COMPUTED);
+  reject("request[probeKey]", beforeGet('if (request[probeKey] === "PUT") return json({ probe: true });'), COMPUTED);
+  reject("(command)[\"act\" + \"ion\"]", beforeHk('if ((command)["act" + "ion"] === "probe_read") return json({ probe: true });'), COMPUTED);
+  reject("(request)[\"me\" + \"thod\"]", beforeGet('if ((request)["me" + "thod"] === "PUT") return json({ probe: true });'), COMPUTED);
+  for (const access of ['((command))["action"]', 'command?.["action"]', 'command["\\u0061ction"]', "command[`action`]", 'command[`act${"ion"}`]', 'command["action"]']) {
+    reject(`computed command access ${access}`, beforeHk(`if (${access} === "probe_read") return json({ probe: true });`), COMPUTED);
+  }
+  for (const access of ['request?.["method"]', "(request)[`method`]", "((request))['met' + 'hod']"]) {
+    reject(`computed request access ${access}`, beforeGet(`if (${access} === "PUT") return json({ probe: true });`), COMPUTED);
+  }
+  reject("computed command access in a gated body", inHk('if (command["action"] === "probe_read") return json({ probe: true });'), COMPUTED);
+  reject("computed url access in a Worker route", beforeRoot('if (url["pathname"] === "/api/probe") return new Response("probe");'), COMPUTED);
+  reject("optional computed url access in a route body", edit("worker.js", 'if (url.pathname === "/api/session") return', 'if (url.pathname === "/api/session") if (url?.["pathname"]) return'), COMPUTED);
+  reject("computed request access in a Worker route", beforeRoot('if (url.pathname === "/api/probe" && (request)["method"] === "GET") return new Response("probe");'), COMPUTED);
+  reject("computed access in rotationCommand", edit("secretRotation.js", "  if (c.action === 'rotation_denied')", "  if (c['action'] === 'rotation_probe') return { probe: true };\n  if (c.action === 'rotation_denied')"), COMPUTED);
+  reject("computed access in KvDirectory.run", edit("kv_directory.js", '    if (command.action === "cache") {', '    if (command[`action`] === "probe") return { probe: true };\n    if (command.action === "cache") {'), COMPUTED);
+
+  // Aliases, destructuring, reflection, forwarding.
+  reject("alias of command", beforeHk('const probeCommand = command;'), /alias: receiver command bound to another name/);
+  reject("alias of command in a gated body", inHk('const probeAlias = command; if (probeAlias.action === "probe_read") return json({});'), /alias: receiver command bound to another name/);
+  reject("destructured action", beforeHk('const { action } = command;\n      if (action === "probe_read") return json({});'), /destructuring: receiver command bound to another name/);
+  reject("destructuring assignment", inHk('let probeAction; ({ action: probeAction } = command);'), /destructuring: receiver command assigned elsewhere/);
+  reject("Reflect.get on command", beforeHk('if (Reflect.get(command, "action") === "probe_read") return json({});'), /reflection: receiver command passed to Reflect/);
+  reject("Object.entries on request", inHk('if (Object.entries(request).length) return json({});'), /reflection: receiver request passed to Object/);
+  reject("helper forwarding outside a gate", beforeHk('if (probeDispatch(command)) return json({});'), /forwarding: receiver command forwarded outside a gated branch/);
+  reject("IIFE forwarding", inHk('if (((c) => c.action === "probe_read")(command)) return json({});'), /forwarding: receiver command passed to an immediately invoked function/);
+  reject("spread copy of command", beforeHk('if (probeDispatch({ ...command })) return json({});'), /alias: receiver command spread/);
+  reject("shorthand property forwarding", beforeHk('if (probeDispatch({ command })) return json({});'), /alias: shorthand property passes receiver command/);
+  reject("reassignment of command", beforeHk('command = { action: "probe_read" };'), /reassignment: receiver command is reassigned/);
+  reject("write to command.action", inHk('command.action = "probe_read";'), /mutation: write to command\.action/);
+  reject("shadowed receiver", inHk("for (const request of []) json(request);"), /shadowing: declaration shadows receiver request/);
+  reject("dynamic evaluation", inHk('if (eval("command.action") === "probe_read") return json({});'), /dynamic_evaluation: eval reference/);
+  reject("Worker path alias", beforeRoot("const path = url.pathname;"), /statement: route dispatch must be a top-level if-branch; not admitted: const path/);
+  reject("Worker destructured pathname", edit("worker.js", "    const url = new URL(request.url);\n    try {", "    const url = new URL(request.url);\n    try {\n      const { pathname } = url;"), /destructuring: receiver url bound to another name/);
+  reject("Worker request alias in a route body", edit("worker.js", 'if (url.pathname === "/api/session") return', 'if (url.pathname === "/api/session") { const probeRequest = request; }\n      if (url.pathname === "/api/session") return'), /alias: receiver request bound to another name/);
+  reject("rotationCommand destructured action", edit("secretRotation.js", "  if (c.action === 'rotation_denied')", "  const { action: probeAction } = c;\n  if (c.action === 'rotation_denied')"), /destructuring: receiver c bound to another name/);
+  reject("KvDirectory.run helper forwarding", edit("kv_directory.js", '    if (command.action === "cache") {', '    if (probeDispatch(command)) return { probe: true };\n    if (command.action === "cache") {'), /forwarding: receiver command forwarded outside a gated branch/);
+
+  // Nested, switch and conditional dispatch; preamble, catch and fallthrough
+  // injection (the round-one committed probes are replayed here).
+  reject("Worker nested route inside a branch", edit("worker.js", 'if (url.pathname.startsWith("/api/performance/")) {', 'if (url.pathname.startsWith("/api/performance/")) {\n        if (url.pathname === "/api/performance/probe") return new Response("probe");'), /nested_pathname: unreviewed url\.pathname use/);
+  reject("Worker else-branch dispatch", beforeRoot('if (url.pathname === "/api/probe-a") return new Response("a");\n      else if (url.pathname === "/api/probe-b") return new Response("b");'), /else_dispatch: else-branch dispatch is not admitted/);
+  reject("Worker switch dispatch", beforeRoot('switch (url.pathname) { case "/api/probe": return new Response("probe"); }'), /statement: route dispatch must be a top-level if-branch; not admitted: switch/);
+  reject("Worker logical dispatch", beforeRoot('if (request.method === "GET") return probeAll(url.pathname);'), /route_condition: top-level branch does not test url\.pathname/);
+  reject("Worker unadmitted condition form", beforeRoot('if (url.pathname.endsWith("/probe")) return new Response("probe");'), /route_condition: condition form not admitted/);
+  reject("Worker expression statement", beforeRoot('url.pathname === "/api/probe" && probe();'), /statement: route dispatch must be a top-level if-branch; not admitted: url\.pathname/);
+  reject("Worker nested if consequent", beforeRoot('if (url.pathname.startsWith("/api/probe")) if (request.method === "GET") return new Response("probe");'), /statement: nested dispatch statement in branch/);
+  reject("Worker dispatch before try", edit("worker.js", "    const url = new URL(request.url);\n    try {", '    const url = new URL(request.url);\n    if (url.pathname === "/api/probe") return new Response("probe");\n    try {'), /statement: fetch must be/);
+  reject("Worker statement after fallthrough", edit("worker.js", '      return json({ ok: false, error: "not_found" }, 404);\n    } catch', '      return json({ ok: false, error: "not_found" }, 404);\n      if (url.pathname === "/api/probe") return new Response("probe");\n    } catch'), /statement: statement after the final fallthrough/);
+  reject("Worker catch injection", edit("worker.js", "    } catch (error) {\n      const directoryError", '    } catch (error) {\n      if (url.pathname === "/api/probe") return new Response("probe");\n      const directoryError'), /statement: catch clause references receiver url/);
+  reject("DO switch on action", beforeHk('switch (command.action) { case "probe_read": return json({}); }'), /dispatch_form: command\.action read outside a recognised dispatch form/);
+  discover("DO conditional dispatch in a gated body", inHk('if (command.kind) return command.action === "probe_read" ? json({ probe: true }) : json({});'), UNCLASSIFIED_READ);
+  discover("DO else-if added to the transaction chain", edit(DO_FILE, '          } else if (command.action === "sync_defaults") {', '          } else if (command.action === "probe_write") {\n            changed = false;\n          } else if (command.action === "sync_defaults") {'), /^unclassified internal operation action:instance_state:probe_write$/);
+  reject("DO nested family dispatch", inHk('if (HK_STOP_DO_ACTIONS.has(command.action)) return json({});'), /dispatch_form: nested family dispatch is not admitted/);
+  reject("DO preamble injection", edit(DO_FILE, "      if (new URL(request.url).pathname === DIRECTORY_PATH) {", '      if (request.headers.get("x-probe")) return json({ probe: true });\n      if (new URL(request.url).pathname === DIRECTORY_PATH) {'), /statement: dispatch-level statement not admitted: if \(request\.headers/);
+  reject("DO other receiver field", beforeHk('if (request.body?.action === "probe_read") return json({});'), /statement: dispatch-level statement not admitted: if \(request\.body\?\.action/);
+  reject("DO payload-field dispatch at the transaction level", edit(DO_FILE, "        const ts = new Date().toISOString();", '        if (command.mode === "probe") return this.response(state);\n        const ts = new Date().toISOString();'), /RuntimeInstances transaction: statement: dispatch-level statement not admitted/);
+  reject("DO catch injection", edit(DO_FILE, "    } catch (error) {\n      return json({ ok: false, error: error instanceof HttpError", '    } catch (error) {\n      if (request.method === "PUT") return json({ probe: true });\n      return json({ ok: false, error: error instanceof HttpError'), /statement: catch clause references receiver request/);
+  reject("DO statement after the fallthrough", edit(DO_FILE, "        return this.response(state);\n      }));\n", '        return this.response(state);\n      }));\n      if (command.action === "probe_read") return json({});\n'), /statement: statement after the final fallthrough/);
+  reject("DO new path form", beforeGet('if (new URL(request.url).pathname === "/probe") return json({});'), /statement: dispatch-level statement not admitted/);
+  reject("ux1 switch on action", edit(DO_FILE, '      const login = String(command?.login || "");', '      switch (command.action) { case "ux1_probe": return { probe: true }; }\n      const login = String(command?.login || "");'), /^ux1ResearchCommand: dispatch_form/);
+  discover("ux1 new action", edit(DO_FILE, '      if (command.action === "ux1_read") return found;', '      if (command.action === "ux1_probe") return found;\n      if (command.action === "ux1_read") return found;'), /^unclassified internal operation action:ux1_probe$/);
+  reject("ux1 action outside its prefix", edit(DO_FILE, '      if (command.action === "ux1_read") return found;', '      if (command.action === "probe_read") return found;\n      if (command.action === "ux1_read") return found;'), /prefix_mismatch: prefix family ux1_ dispatches probe_read/);
+  reject("rotation alternate form", edit("secretRotation.js", "  if (c.action === 'rotation_denied')", "  if (['rotation_probe'].includes(c.action)) return { probe: true };\n  if (c.action === 'rotation_denied')"), /^rotationCommand: dispatch_form: list dispatch is not admitted/);
+  discover("rotation new action", edit("secretRotation.js", "  if (c.action === 'rotation_denied')", "  if (c.action === 'rotation_probe') return { probe: true };\n  if (c.action === 'rotation_denied')"), /^unclassified internal operation action:rotation_probe$/);
+  reject("rotation delegate statement", edit("secretRotation.js", "  let factors = [];", "  let factors = [];\n  if (command.mode) return { probe: true };"), /^durableRotationCommand: statement: dispatch-level statement not admitted/);
+  reject("directory alternate form", edit("kv_directory.js", '    if (command.action === "cache") {', '    if (["probe"].includes(command.action)) return { probe: true };\n    if (command.action === "cache") {'), /^KvDirectory\.run: dispatch_form: list dispatch is not admitted/);
+  discover("directory new action", edit("kv_directory.js", '    if (command.action === "cache") {', '    if (command.action === "probe") return { probe: true };\n    if (command.action === "cache") {'), /^unclassified internal operation action:directory:probe$/);
+  reject("directory preamble statement", edit("kv_directory.js", '    if (command.action === "cache") {', '    await this.storage.get("probe");\n    if (command.action === "cache") {'), /^KvDirectory\.run: statement: dispatch-level statement not admitted/);
+
+  // Families, prefixes and entries.
+  const HK_FAMILY = 'export const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);';
+  discover("family addition", edit("application/hk_stop/constants.js", HK_FAMILY, HK_FAMILY.replace('"hk_stop_accept_result"', '"hk_stop_accept_result", "hk_stop_probe"')), /^unclassified internal operation action:hk_stop_probe$/);
+  discover("family deletion", edit("application/hk_stop/constants.js", HK_FAMILY, HK_FAMILY.replace('"hk_stop_read", ', "")), /^stale internal operation action:hk_stop_read/);
+  reject("dynamic family membership", edit("application/hk_stop/constants.js", HK_FAMILY, HK_FAMILY.replace("new Set([", "new Set([...PROBE_ACTIONS, ")), /family_dynamic: HK_STOP_DO_ACTIONS/);
+  reject("non-literal family", edit("application/hk_stop/constants.js", HK_FAMILY, "export const HK_STOP_DO_ACTIONS = probeFamily();"), /family_dynamic: HK_STOP_DO_ACTIONS/);
+  reject("family mutation", edit("application/hk_stop/constants.js", HK_FAMILY, `${HK_FAMILY}\nHK_STOP_DO_ACTIONS.add("hk_stop_probe");`), /family_mutation: HK_STOP_DO_ACTIONS used other than \.has\(\)/);
+  reject("family mutation in another module", edit("application/worker/runtime_support.js", "export const ACCOUNT_FACTS_DO_ACTIONS = new Set([", 'export const PROBE_MUTATION = () => HK_STOP_DO_ACTIONS.delete("hk_stop_read");\nexport const ACCOUNT_FACTS_DO_ACTIONS = new Set(['), /family_mutation: HK_STOP_DO_ACTIONS used other than \.has\(\)/);
+  reject("unknown family", beforeHk("if (PROBE_DO_ACTIONS.has(command?.action)) {}"), /family_unknown: unknown action family PROBE_DO_ACTIONS/);
+  reject("unknown prefix", beforeHk('if (typeof command?.action === "string" && command.action.startsWith("probe_")) return json({});'), /prefix_unknown: unknown action prefix probe_/);
+  reject("unknown path delegate", beforeGet("if (new URL(request.url).pathname === PROBE_PATH) return json({});"), /prefix_unknown: unknown path delegate PROBE_PATH/);
+  reject("altered prefix delegate", edit(DO_FILE, "return json(this.ux1ResearchCommand(command));", "return json(this.probeCommand(command));"), /delegate: ux1_ branch is not the reviewed delegate/);
+  discover("new DO method", beforeGet('if (request.method === "PUT") return json({ probe: true });'), /^unclassified internal operation action:instance_state:PUT$/);
+  discover("new Worker entry", edit("worker.js", "export default {", "export default {\n  async queue(batch, env) {},"), /^unclassified internal operation worker:queue$/);
+  reject("new Durable Object entry", edit(DO_FILE, "  async alarm() { await this.deskReadbacks.alarm(); }", "  async alarm() { await this.deskReadbacks.alarm(); }\n  async webSocketMessage(socket, message) {}"), /entry_unsupported: RuntimeInstances\.webSocketMessage/);
+
+  // Malformed source, duplicate or replaced entries.
+  reject("unbalanced Worker source", beforeRoot('if (url.pathname === "/api/probe") { return new Response("probe");'), /parse_error/);
+  reject("unbalanced Durable Object source", beforeHk('if (command.action === "probe_read") {'), /parse_error/);
+  reject("TypeScript-only syntax", beforeHk('const probe: string = "x";'), /parse_error/);
+  reject("duplicate Worker entry", edit("worker.js", "export default {", 'export default {\n  async fetch(request, env, ctx) { return new Response("probe"); },'), /entry_duplicate: fetch/);
+  reject("non-method Worker export member", edit("worker.js", "export default {", "export default {\n  ...probeHandlers,"), /export_form: member form not admitted: \.\.\.probeHandlers/);
+  reject("duplicate Durable Object entry", edit(DO_FILE, "  async alarm() { await this.deskReadbacks.alarm(); }", "  async alarm() { await this.deskReadbacks.alarm(); }\n  async alarm() {}"), /entry_duplicate: RuntimeInstances\.alarm/);
+  reject("replaced Durable Object entry", edit(DO_FILE, "  async alarm() { await this.deskReadbacks.alarm(); }", '  async alarm() { await this.deskReadbacks.alarm(); }\n  static { RuntimeInstances.prototype.fetch = async () => new Response("probe"); }'), /entry_replaced: assignment to RuntimeInstances members/);
+  reject("duplicate route condition", beforeRoot('if (url.pathname === "/") return new Response("probe");'), /entry_duplicate: duplicate route condition/);
+  reject("reassigned rotation dispatcher", edit("secretRotation.js", "export async function durableRotationCommand(", "rotationCommand = () => ({ probe: true });\nexport async function durableRotationCommand("), /entry_replaced: rotationCommand is reassigned/);
+
+  // Inert text and formatting (FIX2 probes 3, 8, 9): identical sets.
+  pass("comment-only action", beforeHk('// if (command.action === "probe_comment_only") return json({});'));
+  pass("action text in a string", beforeHk('const probeNote = "if (command.action === \\"probe_string_only\\") request[\\"method\\"]";'));
+  pass("action text in a plain template", beforeHk('const probeTemplate = `if (command.action === "probe_template") request["method"]`;'));
+  pass("action text in a regex", beforeHk('const probeRegex = /command\\.action === "probe_regex"|request\\[method\\]/;'));
+  pass("action text in a gated body", inHk('const probeNote = "command.action === \'probe_gated\'"; const probeRegex = /url\\.pathname/;'));
+  pass("route text in a Worker comment", edit("worker.js", 'if (url.pathname === "/api/session") return', '// if (url.pathname === "/api/probe-comment") return probe();\n      if (url.pathname === "/api/session") return'));
+  pass("comments and parentheses around a family gate", edit(DO_FILE, HK_BRANCH, "if ((/* family */ HK_STOP_DO_ACTIONS.has( (command?.action) /* gate */ ))) {"));
+  pass("reformatted route condition", edit("worker.js", 'if (url.pathname === "/api/session") return', "if ((url.pathname\n        === '/api/session')) return"));
+  pass("quote style in rotationCommand", edit("secretRotation.js", "  if (c.action === 'rotation_denied')", '  if (c.action === "rotation_denied")'));
+  pass("doubled indentation", new Map([...sources].map(([name, text]) => [name, /(?:worker|durable_object|kv_directory|secretRotation)\.js$/.test(name) ? text.replace(/^( +)/gm, "$1$1") : text])));
+  expectError(run({ routes: [...registry.PUBLIC_ROUTES, { ...registry.PUBLIC_ROUTES[0], id: "/probe-duplicate", match: "(url.pathname === '/')" }] }), /route \/probe-duplicate: duplicate registry match/, "probe (e) duplicate registry entry");
+  outcomes.push(["reject", "duplicate registry entry", "duplicate registry match"]);
+  expectError(run({ routes: [...registry.PUBLIC_ROUTES, { id: "/probe-unparsed", match: "url.pathname ===", handler: "probe", effects: { GET: "observation" }, scope: "static" }] }), /registry match does not parse/, "probe (e) unparsable registry match");
+
+  // The executable injections are live: each runs through the real handler,
+  // loaded from a scratch sibling module that is removed afterwards.
+  let scratchCount = 0;
+  const scratch = async (file, probedSources, use) => {
+    const original = join(ROOT, CONSOLE, file);
+    const path = join(dirname(original), `.read-contract-probe-${process.pid}-${scratchCount += 1}-${basename(file)}`);
+    writeFileSync(path, probedSources.get(`${CONSOLE}/${file}`));
+    try { return await use(await import(pathToFileURL(path).href)); } finally { rmSync(path, { force: true }); }
+  };
+  const fakeSql = { exec: () => ({ toArray: () => [], one: () => null }) };
+  const doResponse = (probedSources, request) => scratch(DO_FILE, probedSources, async ({ RuntimeInstances }) => {
+    const response = await Object.create(RuntimeInstances.prototype).fetch(request);
+    return [response.status, await response.json()];
+  });
+  const post = body => new Request("https://runtime-instances.invalid/", { method: "POST", body: JSON.stringify(body) });
+  const put = () => new Request("https://runtime-instances.invalid/", { method: "PUT" });
+  const probe = [200, { probe: true }];
+  const worker = await scratch("worker.js", edit("worker.js", ROOT_BRANCH, `    ${PROBE_ROUTE}\n${ROOT_BRANCH}`),
+    async module => (await module.default.fetch(new Request("https://console.invalid/api/probe-unclassified"), {}, {})).text());
+  assert.equal(worker, "probe", "executable: new Worker route");
+  for (const [label, text] of [
+    ["comment inside the action member", 'if (command./* dispatch */action === "probe_read") return json({ probe: true });'],
+    ["parenthesized action member", 'if ((command.action) === "probe_read") return json({ probe: true });'],
+    ["single-quoted action value", "if (command.action === 'probe_read') return json({ probe: true });"],
+    ["plain-template action value", "if (command.action === `probe_read`) return json({ probe: true });"],
+    ["comparison inside a template interpolation", 'if (`${command.action === "probe_read"}` === "true") return json({ probe: true });'],
+    ["(command)[\"act\" + \"ion\"]", 'if ((command)["act" + "ion"] === "probe_read") return json({ probe: true });'],
+  ]) assert.deepEqual(await doResponse(beforeHk(text), post({ action: "probe_read" })), probe, `executable: ${label}`);
+  for (const [label, text] of [
+    ["request[\"method\"]", 'if (request["method"] === "PUT") return json({ probe: true });'],
+    ["(request)[\"me\" + \"thod\"]", 'if ((request)["me" + "thod"] === "PUT") return json({ probe: true });'],
+    ["new DO method", 'if (request.method === "PUT") return json({ probe: true });'],
+  ]) assert.deepEqual(await doResponse(beforeGet(text), put()), probe, `executable: ${label} (PUT before the GET and non-POST checks)`);
+  assert.deepEqual(await scratch("secretRotation.js", edit("secretRotation.js", "  if (c.action === 'rotation_denied')", "  if (['rotation_probe'].includes(c.action)) return { probe: true };\n  if (c.action === 'rotation_denied')"),
+    module => module.rotationCommand(fakeSql, { action: "rotation_probe" })), { probe: true }, "executable: rotation alternate form");
+  assert.deepEqual(await scratch("kv_directory.js", edit("kv_directory.js", '    if (command.action === "cache") {', '    if (["probe"].includes(command.action)) return { probe: true };\n    if (command.action === "cache") {'),
+    module => new module.KvDirectory({}, {}).run({ action: "probe" })), { probe: true }, "executable: directory alternate form");
+  assert.deepEqual(await scratch(DO_FILE, edit(DO_FILE, '      const login = String(command?.login || "");', '      switch (command.action) { case "ux1_probe": return { probe: true }; }\n      const login = String(command?.login || "");'),
+    ({ RuntimeInstances }) => Object.assign(Object.create(RuntimeInstances.prototype), { storage: { transactionSync: fn => fn() }, sql: fakeSql }).ux1ResearchCommand({ action: "ux1_probe" })), { probe: true }, "executable: ux1 switch");
+
+  // The suite's own exit: a child run over in-memory edits exits nonzero for a
+  // discovered and a rejected injection, and zero for an inert control.
+  if (!process.env[PROBE_ENV]) {
+    for (const [label, edits, status] of [
+      ["discover", [{ file: DO_FILE, from: HK_BRANCH, to: `if (command./* dispatch */action === "probe_read") return json({ probe: true });\n      ${HK_BRANCH}` }], 1],
+      ["reject", [{ file: DO_FILE, from: GET_BRANCH, to: `if ((request)["me" + "thod"] === "PUT") return json({ probe: true });\n      ${GET_BRANCH}` }], 1],
+      ["pass", [{ file: DO_FILE, from: HK_BRANCH, to: `// if (command.action === "probe_comment_only") return json({});\n      ${HK_BRANCH}` }], 0],
+    ]) {
+      const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], { env: { ...process.env, [PROBE_ENV]: JSON.stringify(edits) }, encoding: "utf8" });
+      assert.equal(child.status === 0 ? 0 : 1, status, `full-suite exit for the ${label} child: ${child.status}\n${child.stderr.slice(0, 2000)}`);
+      outcomes.push([`suite exit ${child.status}`, `child run (${label})`, ""]);
+    }
+  }
+  if (process.argv.includes("--print-probes")) for (const [outcome, label, detail] of outcomes) console.log(`${outcome}\t${label}\t${detail}`);
+  console.log(`read contract probe matrix: ${outcomes.filter(([o]) => o === "discover").length} discover, ${outcomes.filter(([o]) => o === "reject").length} reject, ${outcomes.filter(([o]) => o === "pass").length} pass`);
 
   // (f) Indirect exception edges stay attributed and anchored (review F3).
   const edges = overrides => checkIndirectEdges({ sources, surface, register, operations: result.operations, ...overrides });

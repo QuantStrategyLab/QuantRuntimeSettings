@@ -1,0 +1,1165 @@
+// Classified dispatch surface of the console Worker and the RuntimeInstances
+// Durable Object, read from a strict TypeScript AST (ADR 0002, review F2).
+//
+// The dispatch set D is: the Worker default export entries and its `fetch`;
+// RuntimeInstances `fetch`, `alarm` and the transaction callback at the end of
+// `fetch`; the `rotation_` delegate chain (`durableRotationCommand`,
+// `rotationCommand`); `ux1ResearchCommand`; `KvDirectory.command` and
+// `KvDirectory.run`; and the action families those bodies test.
+//
+// Admission is closed. A source fails before comparison with the registry when:
+//
+// - a file in D does not parse cleanly (any parse diagnostic), or an entry is
+//   missing, duplicated, replaced or declared in an unhandled form;
+// - a dispatch-level statement is neither a recognised dispatch branch nor an
+//   exact reviewed AST template (templates have no holes: the whole statement
+//   is compared, ignoring trivia and redundant parentheses). In the Durable
+//   Object levels, a `const` bound to a single literal is also admitted: it
+//   runs nothing;
+// - any reference to a request, URL or command receiver is not one of the
+//   admitted forms: direct or optional property access, truthiness, or
+//   forwarding inside a gated branch. Computed access is rejected whatever its
+//   key; aliases, destructuring, spread, reflection, IIFEs, reassignment,
+//   mutation, shadowing and dynamic evaluation are rejected;
+// - a dispatch key (`action`, `method`, `url`, `pathname`) is read outside a
+//   recognised dispatch form or a reviewed template;
+// - an action family does not resolve, through the import and export graph, to
+//   one `const NAME = new Set([...string literals])`, or is mutated anywhere.
+//
+// There is no fallback tokenizer: unsupported syntax is an error, never an empty
+// extraction.
+import { createRequire } from "node:module";
+import { dirname, join, normalize } from "node:path";
+
+export const CONSOLE = "web/strategy-switch-console";
+const WORKER = `${CONSOLE}/worker.js`;
+const DURABLE = `${CONSOLE}/application/runtime_instances/durable_object.js`;
+const ROTATION = `${CONSOLE}/secretRotation.js`;
+const DIRECTORY = `${CONSOLE}/kv_directory.js`;
+
+/** The pinned frontend TypeScript (5.9.2), as in the existing AST tests. */
+export function loadTypeScript(root) {
+  const require = createRequire(join(root, CONSOLE, "frontend/package.json"));
+  return require("typescript");
+}
+
+export class SurfaceError extends Error {}
+
+// --- Parsing and canonical form ------------------------------------------------
+
+const parsed = new Map();
+
+/** Parse `text` as JavaScript; any syntactic diagnostic is an error. */
+export function parseStrict(ts, file, text) {
+  const key = `${file}\u0000${text}`;
+  if (parsed.has(key)) return parsed.get(key);
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const host = {
+    getSourceFile: name => (name === file ? sf : undefined),
+    getDefaultLibFileName: () => "lib.d.ts",
+    writeFile: () => {}, getCurrentDirectory: () => "/", getCanonicalFileName: name => name,
+    useCaseSensitiveFileNames: () => true, getNewLine: () => "\n", fileExists: name => name === file,
+    readFile: () => undefined, directoryExists: () => true, getDirectories: () => [],
+  };
+  const program = ts.createProgram({ rootNames: [file], options: { allowJs: true, noLib: true, noResolve: true, noEmit: true, types: [] }, host });
+  const diagnostics = program.getSyntacticDiagnostics(sf);
+  if (diagnostics.length) {
+    const first = diagnostics[0];
+    const { line } = sf.getLineAndCharacterOfPosition(first.start ?? 0);
+    throw new SurfaceError(`${file}: parse_error: ${ts.flattenDiagnosticMessageText(first.messageText, " ")} (line ${line + 1})`);
+  }
+  if (parsed.size > 400) parsed.clear();
+  parsed.set(key, sf);
+  return sf;
+}
+
+const unwrap = (ts, node) => { while (node && ts.isParenthesizedExpression(node)) node = node.expression; return node; };
+
+/**
+ * Canonical form of a node: an S-expression over node kinds and literal values.
+ * Comments, whitespace, quote style and redundant parentheses disappear;
+ * operators, literal values and structure remain.
+ */
+const canonicalCache = new WeakMap();
+export function canonical(ts, node) {
+  const K = ts.SyntaxKind;
+  const walk = input => {
+    const n = unwrap(ts, input);
+    if (canonicalCache.has(n)) return canonicalCache.get(n);
+    const value = form(n);
+    canonicalCache.set(n, value);
+    return value;
+  };
+  const form = n => {
+    switch (n.kind) {
+      case K.Identifier: case K.PrivateIdentifier: return n.text;
+      case K.StringLiteral: case K.NoSubstitutionTemplateLiteral: return JSON.stringify(n.text);
+      case K.NumericLiteral: case K.BigIntLiteral: return `#${n.text}`;
+      case K.RegularExpressionLiteral: return `re${JSON.stringify(n.text)}`;
+      case K.TemplateHead: case K.TemplateMiddle: case K.TemplateTail: return `t${JSON.stringify(n.text)}`;
+      default: break;
+    }
+    const parts = [String(n.kind)];
+    if (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) parts.push(`op${n.operator}`);
+    if (ts.isVariableDeclarationList(n)) parts.push(`f${n.flags & 7}`);
+    if (ts.isMetaProperty(n)) parts.push(`kw${n.keywordToken}`);
+    if (ts.isHeritageClause(n)) parts.push(`kw${n.token}`);
+    ts.forEachChild(n, child => { parts.push(walk(child)); }, list => { parts.push(`[${list.map(walk).join(" ")}]`); });
+    return `(${parts.join(" ")})`;
+  };
+  return walk(node);
+}
+
+/** Canonical form of an expression written as source text (registry `match`). */
+export function canonicalExpression(ts, text) {
+  const sf = parseStrict(ts, "expression.js", `(${text}\n);`);
+  const [statement] = sf.statements;
+  if (sf.statements.length !== 1 || !ts.isExpressionStatement(statement)) throw new SurfaceError(`not one expression: ${text}`);
+  return canonical(ts, statement.expression);
+}
+
+/** Canonical forms of statements written as source text (reviewed templates). */
+export function canonicalStatements(ts, text) {
+  const sf = parseStrict(ts, "template.js", `async function template() {\n${text}\n}`);
+  return sf.statements[0].body.statements.map(statement => canonical(ts, statement));
+}
+
+const collapse = text => text.replace(/\s+/g, " ").trim();
+const sourceOf = (sf, node) => collapse(sf.text.slice(node.getStart(sf), node.end));
+const lineOf = (sf, node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+const excerpt = (sf, node) => { const text = sourceOf(sf, node); return text.length > 160 ? `${text.slice(0, 157)}...` : text; };
+
+/**
+ * Body of the one function, method, constructor or class whose header (source
+ * from the declaration start through its opening brace, whitespace collapsed)
+ * is `signature`. Returns { text, start, end }, or null when absent; a
+ * repeated header is an error.
+ */
+export function astBlock(ts, file, source, signature) {
+  const sf = parseStrict(ts, file, source);
+  const wanted = collapse(signature);
+  const found = [];
+  const visit = node => {
+    let open = null;
+    let close = null;
+    if ((ts.isFunctionLike(node) && node.body && ts.isBlock(node.body))) { open = node.body.getStart(sf); close = node.body.end - 1; }
+    else if (ts.isClassLike(node)) {
+      const children = node.getChildren(sf);
+      const brace = children.find(child => child.kind === ts.SyntaxKind.OpenBraceToken);
+      const end = children.find(child => child.kind === ts.SyntaxKind.CloseBraceToken);
+      if (brace && end) { open = brace.getStart(sf); close = end.getStart(sf); }
+    }
+    if (open !== null && collapse(source.slice(node.getStart(sf), open + 1)) === wanted) found.push({ open, close });
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  if (!found.length) return null;
+  if (found.length > 1) throw new SurfaceError(`signature occurs more than once: ${signature}`);
+  const [{ open, close }] = found;
+  return { text: source.slice(open + 1, close), start: open + 1, end: close };
+}
+
+// --- Reviewed data ---------------------------------------------------------------
+//
+// Exact AST templates: each entry is compared as a whole statement, with its
+// multiplicity. A template that no longer occurs is an error, so stale review
+// data cannot linger.
+
+export const REVIEWED = {
+  // `url.pathname` reads inside a Worker route branch body. They serve the
+  // already-classified branch; they do not dispatch a new route.
+  workerNestedPathname: [
+    ["const asset = V2_ASSETS[url.pathname];", 1],
+    ["const hashedBundle = /^\\/v2\\/assets\\/index-[A-Za-z0-9_-]{8,}\\.(?:js|css)$/.test(url.pathname);", 1],
+    ['const today = url.pathname === "/api/runtime/today";', 1],
+    ['const rest = url.pathname.slice("/api/decisions/".length);', 1],
+    ['return await operationResponse(request, env, url.pathname.slice("/api/operations/".length));', 1],
+  ],
+  workerPreamble: "const url = new URL(request.url);",
+  workerFallthrough: 'return json({ ok: false, error: "not_found" }, 404);',
+  doFetch: [
+    ['if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);', 1],
+    ["let command;", 1],
+    ['try { command = await request.json(); } catch { throw new HttpError("invalid_runtime_instance_request", 400); }', 1],
+  ],
+  // Delegate branches: the exact statement a gate may run, per gate.
+  doDirectoryBranch: [
+    'if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);',
+    "const result = await this.directory.command(await request.json());",
+    "return json(result, result.ok ? 200 : 503);",
+  ],
+  doPrefixBranch: {
+    rotation_: "return json(await durableRotationCommand(this.storage, this.sql, this.rotationEnv, command));",
+    ux1_: "return json(this.ux1ResearchCommand(command));",
+  },
+  doTransaction: [
+    ["const state = this.read();", 1],
+    ['if (!command || typeof command.actor !== "string" || !command.actor) throw new HttpError("runtime_instance_actor_required", 400);', 1],
+    ['if (!Number.isSafeInteger(command.expected_revision) || command.expected_revision < 0) throw new HttpError("runtime_instance_revision_required", 400);', 1],
+    ['if (command.expected_revision !== state.revision) throw new HttpError("runtime_instance_revision_conflict", 409);', 1],
+    ["const ts = new Date().toISOString();", 1],
+    ["let changed = true;", 1],
+    ["let before = null;", 1],
+    ["let after = null;", 1],
+    ['if (!state.initialized) throw new HttpError("runtime_instances_not_initialized", 409);', 1],
+    ["const item = state.instances.find((candidate) => candidate.platform === command.platform && candidate.key === command.key);", 1],
+    ['throw new HttpError("unsupported_runtime_instance_action", 400);', 1],
+    // The history row records the action; it does not dispatch on it.
+    [`if (changed) {
+      state.revision += 1;
+      this.sql.exec("INSERT INTO instance_state (id, revision, payload) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, payload = excluded.payload", state.revision, JSON.stringify(state.instances));
+      try {
+        this.sql.exec("INSERT INTO instance_history (revision, entry) VALUES (?, ?)", state.revision, JSON.stringify({ revision: state.revision, ts, login: command.actor, action: command.action, before, after }));
+      } catch (error) {
+        throw new HttpError(error?.message || "runtime_instance_transaction_failed", 409);
+      }
+    }`, 1],
+    ["return this.response(state);", 1],
+  ],
+  ux1: [
+    ['const login = String(command?.login || "");', 1],
+    ['if (!/^[a-z0-9-]{1,39}$/.test(login)) throw new HttpError("ux1_login_invalid", 400);', 1],
+    ["const row = ux1SelectSlot(this.sql, login);", 1],
+    ["const found = ux1SlotPayload(row);", 1],
+    ['throw new HttpError("unsupported_ux1_action", 400);', 1],
+  ],
+  durableRotation: [
+    ["let factors = [];", 1],
+    // The one forward of the rotation command, to the local dispatcher.
+    ["return storage.transactionSync(() => rotationCommand(sql, command, factors));", 1],
+  ],
+  rotation: [
+    ["let op = c.operation_id ? load(sql, c.operation_id) : latest(sql);", 1],
+    ["throw new RotationError();", 1],
+  ],
+  // The completion audit copies the command with the operation's actor; the
+  // audit helper records fields, it does not dispatch.
+  rotationUses: [
+    ["audit(sql, { ...c, actor: op.actor, event_id: op.current_request_id }, `credential_rotation_${action}`, state, reason);", 1],
+  ],
+  directoryCommand: [
+    ["const work = this.queue.then(() => this.run(command));", 1],
+    ["this.queue = work.catch(() => {});", 1],
+    ["return work;", 1],
+  ],
+  directoryRun: [
+    ["const stored = await this.storage.get(STATE_KEY) || await sharedManifest(this.store);", 1],
+    ["const state = stored || { keys: [], complete: false, cursor: null, retry_at: 0, failures: 0, };", 1],
+    ['if (command.action !== "read" || !indexedKey(command.prefix)) throw Error("kv_directory_invalid_request");', 1],
+    ["if (!state.complete) return this.unavailable(state);", 1],
+    ["const keys = state.keys.filter(key => key.startsWith(command.prefix)).sort();", 1],
+    ["const limit = bounded(command.limit, 100, 1, 100000);", 1],
+    ['if (keys.length > limit) return { ok: false, error: "kv_directory_truncated", retry_after: 300 };', 1],
+    ["return { ok: true, keys: keys.map(name => ({ name })), list_complete: true };", 1],
+  ],
+};
+
+// --- Extraction ------------------------------------------------------------------
+
+/**
+ * Extract the classified surface. `sources` maps repository-relative paths to
+ * text (at least every console module D imports). Returns
+ * { routes: Map<canonical condition, { condition, text }>, internal: Set, errors }.
+ */
+export function extractSurface(ts, sources, options = {}) {
+  const reviewed = { ...REVIEWED, ...(options.reviewed || {}) };
+  const errors = [];
+  const internal = new Set();
+  const routes = new Map();
+  const files = new Map();
+  const file = path => {
+    if (files.has(path)) return files.get(path);
+    const text = sources.get(path);
+    if (text === undefined) throw new SurfaceError(`${path}: entry_missing: file not found`);
+    const sf = parseStrict(ts, path, text);
+    files.set(path, sf);
+    return sf;
+  };
+  const guard = (label, fn) => { try { return fn(); } catch (error) { if (!(error instanceof SurfaceError)) throw error; errors.push(`${label}: ${error.message}`); return null; } };
+  const templates = (label, list) => {
+    const map = new Map();
+    for (const [text, count] of list) for (const key of canonicalStatements(ts, text)) map.set(key, { text, count: (map.get(key)?.count || 0) + count, seen: 0 });
+    return { label, map };
+  };
+  const finishTemplates = (set, report) => {
+    for (const entry of set.map.values()) {
+      if (entry.seen !== entry.count) report(`${set.label}: template_multiplicity: reviewed ${entry.count}x, found ${entry.seen}x: ${collapse(entry.text)}`);
+    }
+  };
+
+  guard("worker.js", () => extractWorker(ts, file(WORKER), reviewed, { routes, internal, errors }));
+  guard("durable_object.js", () => extractDurable(ts, file, sources, reviewed, { internal, errors, templates, finishTemplates }));
+  if (!routes.size) errors.push("worker.js fetch: empty_extraction: no route branch extracted");
+  if (![...internal].some(id => id.startsWith("action:"))) errors.push("durable_object.js: empty_extraction: no internal action extracted");
+  return { routes, internal, errors };
+}
+
+// Identifier positions that are names, not references.
+function isNamePosition(ts, id) {
+  const p = id.parent;
+  if (!p) return true;
+  if ((ts.isPropertyAccessExpression(p) || ts.isQualifiedName(p)) && p.name === id) return true;
+  if ((ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isGetAccessorDeclaration(p)
+    || ts.isSetAccessorDeclaration(p) || ts.isEnumMember(p)) && p.name === id) return true;
+  if (ts.isBindingElement(p) && p.propertyName === id) return true;
+  if ((ts.isLabeledStatement(p) || ts.isBreakStatement(p) || ts.isContinueStatement(p)) && p.label === id) return true;
+  if (ts.isImportSpecifier(p) || ts.isExportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p)) return true;
+  return false;
+}
+function isDeclarationName(ts, id) {
+  const p = id.parent;
+  return (ts.isVariableDeclaration(p) || ts.isParameter(p) || ts.isBindingElement(p) || ts.isFunctionDeclaration(p)
+    || ts.isFunctionExpression(p) || ts.isClassDeclaration(p) || ts.isClassExpression(p)) && p.name === id;
+}
+
+/** Walk up through parentheses. */
+function outer(ts, node) {
+  while (node.parent && ts.isParenthesizedExpression(node.parent)) node = node.parent;
+  return node;
+}
+const isStringLiteral = (ts, node) => { const n = unwrap(ts, node); return !!n && (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)); };
+const literalValue = (ts, node) => unwrap(ts, node).text;
+const isEquality = (ts, node) => ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(node.operatorToken.kind);
+const isAssignmentOperator = (ts, kind) => kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+const contains = (ancestor, node) => node.pos >= ancestor.pos && node.end <= ancestor.end;
+
+/**
+ * Recognise the dispatch form around a dispatch-key read `access` (a property
+ * access `receiver.key`, already through parentheses). Returns
+ * { kind, values?, family?, prefix?, node } or null.
+ */
+function dispatchForm(ts, access) {
+  const top = outer(ts, access);
+  const parent = top.parent;
+  if (parent && isEquality(ts, parent)) {
+    const other = parent.left === top ? parent.right : parent.left;
+    if (isStringLiteral(ts, other)) return { kind: parent.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ? "eq" : "neq", values: [literalValue(ts, other)], node: parent };
+    return null;
+  }
+  if (parent && ts.isCallExpression(parent) && parent.arguments.length === 1 && parent.arguments[0] === top) {
+    const callee = unwrap(ts, parent.expression);
+    if (ts.isPropertyAccessExpression(callee) && !callee.questionDotToken && !parent.questionDotToken) {
+      const object = unwrap(ts, callee.expression);
+      if (callee.name.text === "includes" && ts.isArrayLiteralExpression(object) && object.elements.length
+        && object.elements.every(element => isStringLiteral(ts, element))) {
+        return { kind: "list", values: object.elements.map(element => literalValue(ts, element)), node: parent };
+      }
+      if (callee.name.text === "has" && ts.isIdentifier(object)) return { kind: "family", family: object.text, node: parent };
+    }
+    return null;
+  }
+  // typeof R.key === "string" && R.key.startsWith("prefix")
+  if (parent && ts.isTypeOfExpression(parent)) {
+    const compare = outer(ts, parent).parent;
+    if (!compare || !isEquality(ts, compare) || compare.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken) return null;
+    const other = compare.left === outer(ts, parent) ? compare.right : compare.left;
+    if (!isStringLiteral(ts, other) || literalValue(ts, other) !== "string") return null;
+    const and = outer(ts, compare).parent;
+    if (!and || !ts.isBinaryExpression(and) || and.operatorToken.kind !== ts.SyntaxKind.AmpersandAmpersandToken || unwrap(ts, and.left) !== compare) return null;
+    const prefix = prefixCall(ts, unwrap(ts, and.right));
+    if (!prefix || stripOptional(ts, prefix.access) !== stripOptional(ts, access)) return null;
+    return { kind: "prefix", prefix: prefix.value, node: and, partner: prefix.access };
+  }
+  if (parent && ts.isPropertyAccessExpression(parent) && parent.name.text === "startsWith") {
+    const and = findPrefixAnd(ts, parent);
+    if (and) return { kind: "prefix-partner", node: and };
+  }
+  return null;
+}
+function prefixCall(ts, call) {
+  if (!ts.isCallExpression(call) || call.arguments.length !== 1 || !isStringLiteral(ts, call.arguments[0])) return null;
+  const callee = unwrap(ts, call.expression);
+  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "startsWith" || callee.questionDotToken || call.questionDotToken) return null;
+  return { access: unwrap(ts, callee.expression), value: literalValue(ts, call.arguments[0]) };
+}
+function findPrefixAnd(ts, startsWith) {
+  const call = outer(ts, startsWith).parent;
+  if (!call || !ts.isCallExpression(call) || unwrap(ts, call.expression) !== startsWith) return null;
+  const and = outer(ts, call).parent;
+  if (!and || !ts.isBinaryExpression(and) || and.operatorToken.kind !== ts.SyntaxKind.AmpersandAmpersandToken || unwrap(ts, and.right) !== call) return null;
+  const left = unwrap(ts, and.left);
+  if (!isEquality(ts, left)) return null;
+  const typeOf = [left.left, left.right].map(side => unwrap(ts, side)).find(side => ts.isTypeOfExpression(side));
+  if (!typeOf) return null;
+  return stripOptional(ts, unwrap(ts, typeOf.expression)) === stripOptional(ts, unwrap(ts, startsWith.expression)) ? and : null;
+}
+/** `receiver.key` and `receiver?.key` name the same read. */
+function stripOptional(ts, access) {
+  const n = unwrap(ts, access);
+  if (!ts.isPropertyAccessExpression(n)) return null;
+  const object = unwrap(ts, n.expression);
+  return ts.isIdentifier(object) ? `${object.text}.${n.name.text}` : null;
+}
+
+/**
+ * Examine every reference to the receivers inside `body`. `policy`:
+ *   keys: { receiver: Set(dispatch keys) }
+ *   declarations: Set of the receivers' own declaration identifiers
+ *   gated: nodes whose subtrees may forward a receiver (gated branch bodies)
+ *   covered: nodes inside an exact reviewed template
+ *   consumed: dispatch-key access nodes already admitted by the caller
+ *   onForm(form, access): record a recognised dispatch form
+ *   onKeyRead(access, receiver, key) -> true when the caller admits it
+ * Errors are pushed to `report`.
+ */
+function scanReceivers(ts, sf, body, policy, report) {
+  const names = new Set(Object.keys(policy.keys));
+  const inAny = (set, node) => [...set].some(region => contains(region, node));
+  const fail = (code, node, detail) => report(`${code}: ${detail} (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`);
+  const visit = node => {
+    if (ts.isWithStatement(node)) fail("dynamic_evaluation", node, "with statement");
+    if (ts.isDebuggerStatement(node)) fail("unsupported_syntax", node, "debugger statement");
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) fail("dynamic_evaluation", node, "dynamic import");
+    if (ts.isIdentifier(node) && ["eval", "arguments", "Function"].includes(node.text) && !isNamePosition(ts, node)) fail("dynamic_evaluation", node, `${node.text} reference`);
+    if (ts.isIdentifier(node) && names.has(node.text)) {
+      if (isDeclarationName(ts, node)) {
+        if (!policy.declarations.has(node)) fail("shadowing", node, `declaration shadows receiver ${node.text}`);
+      } else if (ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node) {
+        if (!inAny(policy.covered, node)) fail("alias", node, `shorthand property passes receiver ${node.text}`);
+      } else if (!isNamePosition(ts, node)) {
+        reference(node);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  const reference = id => {
+    const receiver = id.text;
+    const top = outer(ts, id);
+    const parent = top.parent;
+    const covered = inAny(policy.covered, id);
+    if (ts.isElementAccessExpression(parent) && parent.expression === top) {
+      fail("computed_access", parent, `computed access on receiver ${receiver}`);
+      return;
+    }
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === top) {
+      const access = parent;
+      const accessTop = outer(ts, access);
+      const use = accessTop.parent;
+      if (use && ((ts.isBinaryExpression(use) && use.left === accessTop && isAssignmentOperator(ts, use.operatorToken.kind))
+        || ((ts.isPrefixUnaryExpression(use) || ts.isPostfixUnaryExpression(use)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(use.operator))
+        || ts.isDeleteExpression(use))) {
+        if (!covered) fail("mutation", access, `write to ${receiver}.${access.name.text}`);
+        return;
+      }
+      const key = access.name.text;
+      if (!policy.keys[receiver].has(key)) {
+        if (policy.payloadKey && !policy.payloadKey(receiver, key, access)) fail("dispatch_form", access, `${receiver}.${key} read is not admitted`);
+        return;
+      }
+      if (policy.consumed.has(access)) return;
+      if (policy.onKeyRead && policy.onKeyRead(access, receiver, key)) return;
+      const form = policy.recognise ? dispatchForm(ts, access) : null;
+      if (form) { policy.onForm(form, access, receiver, key, covered); return; }
+      if (!covered) fail("dispatch_form", access, `${receiver}.${key} read outside a recognised dispatch form`);
+      return;
+    }
+    if (covered) return;
+    if (ts.isBinaryExpression(parent) && parent.left === top && isAssignmentOperator(ts, parent.operatorToken.kind)) { fail("reassignment", parent, `receiver ${receiver} is reassigned`); return; }
+    if (ts.isPrefixUnaryExpression(parent) && parent.operator === ts.SyntaxKind.ExclamationToken) return;
+    if ((ts.isCallExpression(parent) || ts.isNewExpression(parent)) && (parent.arguments || []).includes(top)) {
+      const callee = unwrap(ts, parent.expression);
+      const root = calleeRoot(ts, callee);
+      if (ts.isFunctionExpression(callee) || ts.isArrowFunction(callee)) fail("forwarding", parent, `receiver ${receiver} passed to an immediately invoked function`);
+      else if (!root || ["Reflect", "Object", "Proxy", "JSON", "structuredClone"].includes(root)) fail("reflection", parent, `receiver ${receiver} passed to ${root || "a computed callee"}`);
+      else if (!inAny(policy.gated, parent)) fail("forwarding", parent, `receiver ${receiver} forwarded outside a gated branch`);
+      return;
+    }
+    if (ts.isVariableDeclaration(parent) && parent.initializer === top) {
+      fail(ts.isIdentifier(parent.name) ? "alias" : "destructuring", parent, `receiver ${receiver} bound to another name`);
+      return;
+    }
+    if (ts.isBinaryExpression(parent) && parent.right === top && isAssignmentOperator(ts, parent.operatorToken.kind)) {
+      fail(ts.isIdentifier(unwrap(ts, parent.left)) || ts.isPropertyAccessExpression(unwrap(ts, parent.left)) ? "alias" : "destructuring", parent, `receiver ${receiver} assigned elsewhere`);
+      return;
+    }
+    if (ts.isSpreadElement(parent) || ts.isSpreadAssignment(parent)) { fail("alias", parent, `receiver ${receiver} spread outside a reviewed use`); return; }
+    fail("unsupported_reference", parent, `receiver ${receiver} used as ${ts.SyntaxKind[parent.kind]}`);
+  };
+  visit(body);
+}
+function calleeRoot(ts, callee) {
+  let n = unwrap(ts, callee);
+  while (ts.isPropertyAccessExpression(n)) n = unwrap(ts, n.expression);
+  if (ts.isIdentifier(n)) return n.text;
+  if (n.kind === ts.SyntaxKind.ThisKeyword) return "this";
+  return null;
+}
+function enclosingStatement(ts, node) {
+  let n = node;
+  while (n.parent && !ts.isStatement(n) && !ts.isSourceFile(n.parent)) n = n.parent;
+  if (ts.isIfStatement(n) && contains(n.expression, node)) return n.expression;
+  return n;
+}
+const statementsOf = (ts, node) => (ts.isBlock(node) ? [...node.statements] : [node]);
+/** `const name = <string, template without substitutions, regex or number>;` runs nothing. */
+function isInertLiteral(ts, statement) {
+  if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const) || statement.modifiers?.length) return false;
+  return statement.declarationList.declarations.every(declaration => {
+    const init = declaration.initializer && unwrap(ts, declaration.initializer);
+    return ts.isIdentifier(declaration.name) && init && (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)
+      || ts.isRegularExpressionLiteral(init) || ts.isNumericLiteral(init));
+  });
+}
+const isTerminal = (ts, statement) => ts.isReturnStatement(statement) || ts.isThrowStatement(statement);
+
+// --- Worker ----------------------------------------------------------------------
+
+function extractWorker(ts, sf, reviewed, out) {
+  const { routes, internal, errors } = out;
+  const report = message => errors.push(`worker.js ${message}`);
+  const defaults = [];
+  for (const statement of sf.statements) {
+    if (ts.isExportAssignment(statement)) defaults.push(statement);
+    if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)
+      && statement.exportClause.elements.some(element => element.name.text === "default")) report(`export: export_form: default re-export is not admitted: ${excerpt(sf, statement)}`);
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
+      if (statement.modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword)) defaults.push(statement);
+    }
+  }
+  if (defaults.length !== 1) throw new SurfaceError(`entry_missing: expected exactly one default export, found ${defaults.length}`);
+  const [exported] = defaults;
+  if (!ts.isExportAssignment(exported) || exported.isExportEquals || !ts.isObjectLiteralExpression(unwrap(ts, exported.expression))) {
+    throw new SurfaceError(`export_form: default export is not an object literal: ${excerpt(sf, exported)}`);
+  }
+  const members = new Map();
+  for (const member of unwrap(ts, exported.expression).properties) {
+    if (!ts.isMethodDeclaration(member) || !ts.isIdentifier(member.name) || member.asteriskToken) {
+      report(`default export: export_form: member form not admitted: ${excerpt(sf, member)}`);
+      continue;
+    }
+    if (members.has(member.name.text)) report(`default export: entry_duplicate: ${member.name.text}`);
+    members.set(member.name.text, member);
+  }
+  for (const name of members.keys()) if (name !== "fetch") internal.add(`worker:${name}`);
+  const fetch = members.get("fetch");
+  if (!fetch) { report("default export: entry_missing: no fetch entry"); return; }
+  const params = fetch.parameters.map(p => (ts.isIdentifier(p.name) && !p.initializer && !p.dotDotDotToken ? p.name.text : null));
+  if (params.join(",") !== "request,env,ctx") throw new SurfaceError(`fetch: entry_form: expected fetch(request, env, ctx), got ${excerpt(sf, fetch).slice(0, 60)}`);
+
+  const fetchReport = message => errors.push(`worker.js fetch: ${message}`);
+  const body = fetch.body.statements;
+  const covered = new Set();
+  const gated = new Set();
+  const consumed = new Set();
+  const preamble = canonicalStatements(ts, reviewed.workerPreamble)[0];
+  const misplaced = body.find((statement, index) => (index === 0 ? canonical(ts, statement) !== preamble : index > 1 || !ts.isTryStatement(statement)));
+  if (body.length !== 2 || misplaced) {
+    fetchReport(`statement: fetch must be "${reviewed.workerPreamble}" then one try statement; dispatch-level statement not admitted: ${excerpt(sf, misplaced || fetch)}`);
+  }
+  if (body[0] && canonical(ts, body[0]) === preamble) covered.add(body[0]);
+  const tryStatement = body.find(statement => ts.isTryStatement(statement));
+  if (!tryStatement) throw new SurfaceError("fetch: entry_form: no dispatch try statement");
+  if (tryStatement.finallyBlock) fetchReport("statement: finally block is not admitted");
+  if (!tryStatement.catchClause) fetchReport("statement: catch clause missing");
+  const fallthrough = canonicalStatements(ts, reviewed.workerFallthrough)[0];
+  let finished = false;
+  for (const statement of tryStatement.tryBlock.statements) {
+    if (finished) { fetchReport(`statement: statement after the final fallthrough: ${excerpt(sf, statement)}`); continue; }
+    if (ts.isReturnStatement(statement)) {
+      if (canonical(ts, statement) !== fallthrough) fetchReport(`statement: final fallthrough is not the reviewed not-found response: ${excerpt(sf, statement)}`);
+      covered.add(statement);
+      finished = true;
+      continue;
+    }
+    if (!ts.isIfStatement(statement)) { fetchReport(`statement: route dispatch must be a top-level if-branch; not admitted: ${excerpt(sf, statement)}`); continue; }
+    const condition = statement.expression;
+    const text = sourceOf(sf, condition);
+    if (statement.elseStatement) fetchReport(`else_dispatch: else-branch dispatch is not admitted: ${text}`);
+    const leaves = routeLeaves(ts, condition);
+    if (!leaves) { fetchReport(`route_condition: condition form not admitted: ${text}`); continue; }
+    if (!leaves.some(leaf => leaf.kind === "pathname")) { fetchReport(`route_condition: top-level branch does not test url.pathname: ${text}`); continue; }
+    for (const leaf of leaves) consumed.add(leaf.access);
+    const then = statement.thenStatement;
+    if (ts.isIfStatement(then) || ts.isIterationStatement(then, false) || ts.isSwitchStatement(then) || ts.isTryStatement(then)
+      || ts.isWithStatement(then) || ts.isLabeledStatement(then)) fetchReport(`statement: nested dispatch statement in branch is not admitted: ${text}`);
+    const key = canonical(ts, condition);
+    if (routes.has(key)) fetchReport(`entry_duplicate: duplicate route condition: ${text}`);
+    routes.set(key, { condition: text, text: sf.text.slice(statement.getStart(sf), statement.end) });
+    gated.add(then);
+  }
+  if (!finished) fetchReport("statement: no final not-found fallthrough");
+
+  const nested = new Map(reviewed.workerNestedPathname.map(([template, count]) => [canonicalStatements(ts, template)[0], { template, count, seen: 0 }]));
+  scanReceivers(ts, sf, fetch.body, {
+    keys: { request: new Set(["url"]), url: new Set(["pathname"]) },
+    declarations: new Set([fetch.parameters[0].name, body[0]?.declarationList?.declarations?.[0]?.name].filter(Boolean)),
+    gated, covered, consumed, recognise: false,
+    payloadKey: () => true,
+    onKeyRead: (access, receiver) => {
+      if (receiver !== "url") return false;
+      const statement = enclosingNestedStatement(ts, access);
+      const entry = statement && [...gated].some(region => contains(region, access)) ? nested.get(canonical(ts, statement)) : null;
+      if (!entry) return false;
+      entry.seen += 1;
+      return true;
+    },
+  }, message => fetchReport(message.replace(/^dispatch_form: url\.pathname read outside a recognised dispatch form/, "nested_pathname: unreviewed url.pathname use")));
+  for (const entry of nested.values()) {
+    if (entry.seen !== entry.count) fetchReport(`nested_pathname: reviewed nested url.pathname use occurs ${entry.seen}x, reviewed ${entry.count}x: ${entry.template}`);
+  }
+  // `pathname` is only ever read from the url receiver.
+  const visit = node => {
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "pathname" && !(ts.isIdentifier(unwrap(ts, node.expression)) && unwrap(ts, node.expression).text === "url")) {
+      fetchReport(`dispatch_form: pathname read other than as url.pathname (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`);
+    }
+    if (ts.isElementAccessExpression(node) && isStringLiteral(ts, node.argumentExpression) && literalValue(ts, node.argumentExpression) === "pathname") {
+      fetchReport(`computed_access: computed pathname access (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(fetch.body);
+  if (tryStatement.catchClause) {
+    const refs = [];
+    const find = node => { if (ts.isIdentifier(node) && ["request", "url"].includes(node.text) && !isNamePosition(ts, node)) refs.push(node); ts.forEachChild(node, find); };
+    find(tryStatement.catchClause.block);
+    for (const ref of refs) fetchReport(`statement: catch clause references receiver ${ref.text} (line ${lineOf(sf, ref)})`);
+  }
+}
+
+// Statement holding a nested read, for matching reviewed nested templates.
+function enclosingNestedStatement(ts, node) {
+  let n = node;
+  while (n.parent && !(ts.isVariableStatement(n) || ts.isReturnStatement(n) || ts.isExpressionStatement(n) || ts.isThrowStatement(n) || ts.isIfStatement(n))) n = n.parent;
+  return ts.isStatement(n) ? n : null;
+}
+
+/**
+ * Leaves of a route condition, or null when any part is not an admitted form.
+ * Admitted: `url.pathname === X`, `url.pathname.startsWith(X)`,
+ * `[...strings].includes(url.pathname)`, `/re/.test(url.pathname)`,
+ * `request.method === "M"`, `[...strings].includes(request.method)`, joined
+ * by `&&` and `||`. X is a string literal or an identifier.
+ */
+function routeLeaves(ts, input) {
+  const n = unwrap(ts, input);
+  if (ts.isBinaryExpression(n) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken].includes(n.operatorToken.kind)) {
+    const left = routeLeaves(ts, n.left);
+    const right = routeLeaves(ts, n.right);
+    return left && right ? [...left, ...right] : null;
+  }
+  const read = (node, receiver, key) => {
+    const access = unwrap(ts, node);
+    return ts.isPropertyAccessExpression(access) && !access.questionDotToken && access.name.text === key
+      && ts.isIdentifier(unwrap(ts, access.expression)) && unwrap(ts, access.expression).text === receiver ? access : null;
+  };
+  const value = node => isStringLiteral(ts, node) || ts.isIdentifier(unwrap(ts, node));
+  if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken) {
+    const path = read(n.left, "url", "pathname");
+    if (path && value(n.right)) return [{ kind: "pathname", access: path }];
+    const method = read(n.left, "request", "method");
+    if (method && isStringLiteral(ts, n.right)) return [{ kind: "method", access: method }];
+    return null;
+  }
+  if (ts.isCallExpression(n) && n.arguments.length === 1 && !n.questionDotToken) {
+    const callee = unwrap(ts, n.expression);
+    if (!ts.isPropertyAccessExpression(callee) || callee.questionDotToken) return null;
+    const object = unwrap(ts, callee.expression);
+    const name = callee.name.text;
+    if (name === "startsWith" && value(n.arguments[0])) {
+      const path = read(object, "url", "pathname");
+      return path ? [{ kind: "pathname", access: path }] : null;
+    }
+    if (name === "includes" && ts.isArrayLiteralExpression(object) && object.elements.length && object.elements.every(e => isStringLiteral(ts, e))) {
+      const path = read(n.arguments[0], "url", "pathname");
+      if (path) return [{ kind: "pathname", access: path }];
+      const method = read(n.arguments[0], "request", "method");
+      return method ? [{ kind: "method", access: method }] : null;
+    }
+    if (name === "test" && ts.isRegularExpressionLiteral(object)) {
+      const path = read(n.arguments[0], "url", "pathname");
+      return path ? [{ kind: "pathname", access: path }] : null;
+    }
+  }
+  return null;
+}
+
+// --- RuntimeInstances and delegates -------------------------------------------------
+
+function classMethods(ts, sf, className, label) {
+  const classes = sf.statements.filter(s => ts.isClassDeclaration(s) && s.name?.text === className);
+  if (classes.length !== 1) throw new SurfaceError(`${label}: entry_missing: expected one class ${className}, found ${classes.length}`);
+  const [cls] = classes;
+  if (!cls.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) throw new SurfaceError(`${label}: export_form: class ${className} is not a named export`);
+  const methods = new Map();
+  const problems = [];
+  for (const member of cls.members) {
+    const name = member.name && (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name) || ts.isPrivateIdentifier(member.name)) ? member.name.text : null;
+    if (member.name && ts.isComputedPropertyName(member.name)) { problems.push(`${label}: export_form: computed class member: ${excerpt(sf, member)}`); continue; }
+    if (!name) continue;
+    if (!methods.has(name)) methods.set(name, []);
+    methods.get(name).push(member);
+  }
+  // Entry replacement: no prototype or static reassignment of the class.
+  const visit = node => {
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(ts, node.operatorToken.kind)) {
+      const root = calleeRoot(ts, node.left);
+      if (root === className) problems.push(`${label}: entry_replaced: assignment to ${className} members: ${excerpt(sf, node)}`);
+    }
+    if (ts.isCallExpression(node) && (node.arguments || []).some(arg => ts.isIdentifier(unwrap(ts, arg)) && unwrap(ts, arg).text === className)
+      && ["Object", "Reflect"].includes(calleeRoot(ts, node.expression))) problems.push(`${label}: entry_replaced: reflective use of ${className}: ${excerpt(sf, node)}`);
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  const method = (name, params) => {
+    const found = methods.get(name) || [];
+    if (found.length !== 1) throw new SurfaceError(`${label}: ${found.length ? "entry_duplicate" : "entry_missing"}: ${className}.${name} (${found.length}x)`);
+    const [member] = found;
+    if (!ts.isMethodDeclaration(member) || member.asteriskToken || !member.body) throw new SurfaceError(`${label}: entry_form: ${className}.${name} is not a plain method`);
+    const names = member.parameters.map(p => (ts.isIdentifier(p.name) && !p.initializer && !p.dotDotDotToken ? p.name.text : null));
+    if (names.join(",") !== params.join(",")) throw new SurfaceError(`${label}: entry_form: expected ${className}.${name}(${params.join(", ")})`);
+    return member;
+  };
+  return { method, members: methods, problems };
+}
+
+function topFunction(ts, sf, name, params, label) {
+  const found = sf.statements.filter(s => ts.isFunctionDeclaration(s) && s.name?.text === name);
+  const others = [];
+  const visit = node => {
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(ts, node.operatorToken.kind) && ts.isIdentifier(unwrap(ts, node.left)) && unwrap(ts, node.left).text === name) others.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) others.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  if (found.length !== 1) throw new SurfaceError(`${label}: ${found.length ? "entry_duplicate" : "entry_missing"}: function ${name} (${found.length}x)`);
+  if (others.length) throw new SurfaceError(`${label}: entry_replaced: ${name} is reassigned or redeclared: ${excerpt(sf, others[0])}`);
+  const [fn] = found;
+  const names = fn.parameters.map(p => (ts.isIdentifier(p.name) && !p.dotDotDotToken ? p.name.text : null));
+  if (names.join(",") !== params.join(",")) throw new SurfaceError(`${label}: entry_form: expected ${name}(${params.join(", ")})`);
+  return fn;
+}
+
+/** Path of a relative import from `from`. */
+const resolvePath = (from, specifier) => normalize(join(dirname(from), specifier)).replace(/\\/g, "/");
+
+/** Imported binding `name` in `sf`: { module, imported } or null. Throws if ambiguous. */
+function importOf(ts, sf, name) {
+  const found = [];
+  for (const statement of sf.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) if (element.name.text === name) found.push({ module: statement.moduleSpecifier.text, imported: (element.propertyName || element.name).text });
+    }
+    if (statement.importClause?.name?.text === name || (bindings && ts.isNamespaceImport(bindings) && bindings.name.text === name)) found.push({ module: statement.moduleSpecifier.text, imported: null });
+  }
+  if (found.length > 1) throw new SurfaceError(`${sf.fileName}: entry_duplicate: ${name} imported ${found.length}x`);
+  return found[0] || null;
+}
+
+/** Resolve exported `name` of `path` to its declaration { path, sf, declaration }. */
+function resolveExport(ts, file, path, name, depth = 0) {
+  if (depth > 8) throw new SurfaceError(`family_unresolved: export chain for ${name} too deep`);
+  const sf = file(path);
+  const found = [];
+  let star = false;
+  for (const statement of sf.statements) {
+    if (ts.isVariableStatement(statement) && statement.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) {
+      for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name) && declaration.name.text === name) found.push(() => ({ path, sf, declaration }));
+    }
+    if (ts.isExportDeclaration(statement)) {
+      if (!statement.exportClause) { star = true; continue; }
+      if (!ts.isNamedExports(statement.exportClause)) continue;
+      for (const element of statement.exportClause.elements) {
+        if (element.name.text !== name) continue;
+        const local = (element.propertyName || element.name).text;
+        if (statement.moduleSpecifier) found.push(() => resolveExport(ts, file, resolvePath(path, statement.moduleSpecifier.text), local, depth + 1));
+        else found.push(() => resolveLocal(ts, file, path, local, depth + 1));
+      }
+    }
+  }
+  if (found.length !== 1) throw new SurfaceError(`family_unresolved: ${name} has ${found.length} exports in ${path}${star && !found.length ? " (export * is not followed)" : ""}`);
+  return found[0]();
+}
+function resolveLocal(ts, file, path, name, depth) {
+  const sf = file(path);
+  const imported = importOf(ts, sf, name);
+  const locals = [];
+  for (const statement of sf.statements) {
+    if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name) && declaration.name.text === name) locals.push(declaration);
+    if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name?.text === name) locals.push(statement);
+  }
+  if (locals.length + (imported ? 1 : 0) !== 1) throw new SurfaceError(`family_unresolved: ${name} has ${locals.length + (imported ? 1 : 0)} bindings in ${path}`);
+  if (imported) {
+    if (!imported.imported) throw new SurfaceError(`family_unresolved: ${name} is a default or namespace import in ${path}`);
+    return resolveExport(ts, file, resolvePath(path, imported.module), imported.imported, depth + 1);
+  }
+  return { path, sf, declaration: locals[0] };
+}
+
+/** Literal members of family `name` as imported by `fromPath`, with mutation checks. */
+function familyMembers(ts, file, sources, fromPath, name) {
+  const imported = importOf(ts, file(fromPath), name);
+  if (!imported?.imported) throw new SurfaceError(`family_unknown: unknown action family ${name} (not a named import)`);
+  const { path, declaration } = resolveExport(ts, file, resolvePath(fromPath, imported.module), imported.imported);
+  if (!ts.isVariableDeclaration(declaration) || !(declaration.parent.flags & ts.NodeFlags.Const)) throw new SurfaceError(`family_dynamic: ${name} is not a const declaration in ${path}`);
+  const init = unwrap(ts, declaration.initializer);
+  if (!init || !ts.isNewExpression(init) || !ts.isIdentifier(init.expression) || init.expression.text !== "Set" || init.arguments?.length !== 1
+    || !ts.isArrayLiteralExpression(unwrap(ts, init.arguments[0])) || !unwrap(ts, init.arguments[0]).elements.every(element => isStringLiteral(ts, element))) {
+    throw new SurfaceError(`family_dynamic: ${name} in ${path} is not new Set([...string literals])`);
+  }
+  const members = unwrap(ts, init.arguments[0]).elements.map(element => literalValue(ts, element));
+  if (new Set(members).size !== members.length) throw new SurfaceError(`family_dynamic: ${name} lists a member twice`);
+  // Mutation anywhere in the console: only `.has(...)`, import/export names and
+  // the definition itself may refer to the family.
+  for (const [other, text] of sources) {
+    if (!other.startsWith(`${CONSOLE}/`) || !/\.m?js$/.test(other) || !text.includes(name)) continue;
+    const problem = familyUse(ts, file(other), other, name, declaration);
+    if (problem) throw new SurfaceError(problem);
+  }
+  return members;
+}
+
+// Per parsed file and family: the first non-read use, or "" (files are cached).
+const familyUses = new WeakMap();
+function familyUse(ts, sf, path, name, declaration) {
+  if (!familyUses.has(sf)) familyUses.set(sf, new Map());
+  const cache = familyUses.get(sf);
+  if (cache.has(name)) return cache.get(name);
+  let problem = "";
+  const visit = node => {
+    if (problem) return;
+    if ((ts.isImportSpecifier(node) || ts.isExportSpecifier(node)) && node.propertyName && node.propertyName.text === name && node.name.text !== name) {
+      problem = `family_mutation: ${name} is renamed in ${path} (line ${lineOf(sf, node)}); renamed family bindings are not admitted`;
+      return;
+    }
+    if (ts.isIdentifier(node) && node.text === name && !isNamePosition(ts, node) && node !== declaration.name) {
+      const top = outer(ts, node);
+      const use = top.parent;
+      const call = use && ts.isPropertyAccessExpression(use) && use.expression === top ? outer(ts, use).parent : null;
+      const readOnly = call && ts.isCallExpression(call) && unwrap(ts, call.expression) === use && use.name.text === "has";
+      if (!readOnly) { problem = `family_mutation: ${name} used other than .has() in ${path} (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`; return; }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  cache.set(name, problem);
+  return problem;
+}
+
+function extractDurable(ts, file, sources, reviewed, ctx) {
+  const { internal, errors, templates, finishTemplates } = ctx;
+  const sf = file(DURABLE);
+  const label = "durable_object.js";
+  const { method, members, problems } = classMethods(ts, sf, "RuntimeInstances", label);
+  errors.push(...problems);
+  for (const handler of ["webSocketMessage", "webSocketClose", "webSocketError"]) {
+    if (members.has(handler)) errors.push(`${label}: entry_unsupported: RuntimeInstances.${handler} is not a classified entry`);
+  }
+  if (members.has("alarm")) { method("alarm", []); internal.add("action:lifecycle:alarm"); }
+  const fetch = method("fetch", ["request"]);
+  const report = message => errors.push(`RuntimeInstances.fetch: ${message}`);
+  const add = (id, family) => {
+    if (internal.has(id)) report(`family_overlap: action dispatched by two families: ${id} (${family})`);
+    internal.add(id);
+  };
+  const comparisons = [];
+  const methods = [];
+  const gated = new Set();
+  const covered = new Set();
+  const consumed = new Set();
+  const delegates = [];
+
+  const body = fetch.body.statements;
+  if (body.length !== 1 || !ts.isTryStatement(body[0]) || body[0].finallyBlock || !body[0].catchClause) {
+    throw new SurfaceError(`${label}: entry_form: RuntimeInstances.fetch must be one try/catch statement`);
+  }
+  const level = templates("RuntimeInstances.fetch", reviewed.doFetch);
+  const tryBody = body[0].tryBlock.statements;
+  let finished = false;
+  for (const [index, statement] of tryBody.entries()) {
+    if (finished) { report(`statement: statement after the final fallthrough: ${excerpt(sf, statement)}`); continue; }
+    const key = canonical(ts, statement);
+    const template = level.map.get(key);
+    if (template) { template.seen += 1; covered.add(statement); continue; }
+    if (isInertLiteral(ts, statement)) continue;
+    if (ts.isReturnStatement(statement)) {
+      finished = true;
+      const callback = transactionCallback(ts, statement, "json");
+      if (!callback) { report(`statement: final fallthrough is not json(this.storage.transactionSync(() => { ... })): ${excerpt(sf, statement)}`); continue; }
+      const nested = templates("RuntimeInstances transaction", reviewed.doTransaction);
+      auditLevel(ts, sf, callback.body.statements, nested, { covered, gated, report: message => errors.push(`RuntimeInstances transaction: ${message}`), allowElse: true, keys: ["command"] });
+      finishTemplates(nested, message => errors.push(message));
+      continue;
+    }
+    if (!ts.isIfStatement(statement)) { report(`statement: dispatch-level statement not admitted: ${excerpt(sf, statement)}`); continue; }
+    if (statement.elseStatement) report(`else_dispatch: else-branch dispatch is not admitted: ${excerpt(sf, statement.expression)}`);
+    const gate = gateOf(ts, statement.expression, ["command"]);
+    const path = pathGate(ts, statement.expression);
+    const methodBranch = methodGate(ts, statement.expression);
+    if (path) {
+      consumed.add(path.access);
+      if (path.target !== "DIRECTORY_PATH") { report(`prefix_unknown: unknown path delegate ${path.target}`); continue; }
+      const expected = reviewed.doDirectoryBranch.map(text => canonicalStatements(ts, text)[0]);
+      const actual = statementsOf(ts, statement.thenStatement).map(s => canonical(ts, s));
+      if (JSON.stringify(actual) !== JSON.stringify(expected)) report(`delegate: DIRECTORY_PATH branch is not the reviewed directory delegate: ${excerpt(sf, statement)}`);
+      covered.add(statement.thenStatement);
+      delegates.push("directory");
+      continue;
+    }
+    if (methodBranch) {
+      consumed.add(methodBranch.access);
+      methods.push(methodBranch.value);
+      gated.add(statement.thenStatement);
+      continue;
+    }
+    if (!gate) { report(`statement: dispatch-level statement not admitted: ${excerpt(sf, statement)}`); continue; }
+    // A single comparison is recorded by the receiver scan below, as for
+    // comparisons anywhere in the body; lists, families and prefixes here.
+    if (gate.kind !== "eq") for (const access of gate.accesses) consumed.add(access);
+    if (gate.kind === "prefix") {
+      const expected = reviewed.doPrefixBranch[gate.prefix];
+      if (!expected) { report(`prefix_unknown: unknown action prefix ${gate.prefix} in RuntimeInstances.fetch`); continue; }
+      const actual = statementsOf(ts, statement.thenStatement).map(s => canonical(ts, s));
+      if (JSON.stringify(actual) !== JSON.stringify(canonicalStatements(ts, expected))) { report(`delegate: ${gate.prefix} branch is not the reviewed delegate: ${excerpt(sf, statement)}`); continue; }
+      covered.add(statement.thenStatement);
+      delegates.push(gate.prefix);
+      continue;
+    }
+    if (gate.kind === "neq") { report(`statement: inequality dispatch at RuntimeInstances.fetch level is not admitted: ${excerpt(sf, statement.expression)}`); continue; }
+    if (gate.kind === "family") {
+      const members = (() => { try { return familyMembers(ts, file, sources, DURABLE, gate.family); } catch (error) { if (error instanceof SurfaceError) { report(error.message); return null; } throw error; } })();
+      for (const action of members || []) add(`action:${action}`, gate.family);
+    } else if (gate.kind === "list") {
+      for (const action of gate.values) add(`action:${action}`, "literal list");
+    }
+    gated.add(statement.thenStatement);
+  }
+  if (!finished) report("statement: no final transaction fallthrough");
+  finishTemplates(level, message => errors.push(message));
+
+  scanReceivers(ts, sf, fetch.body, {
+    keys: { request: new Set(["method", "url"]), command: new Set(["action"]) },
+    declarations: new Set(declarationsOf(ts, fetch, tryBody, ["request", "command"])),
+    gated, covered, consumed, recognise: true,
+    onForm: (form, access, receiver, key, isCovered) => {
+      if (receiver === "request") {
+        if (key === "method" && form.kind === "eq") methods.push(form.values[0]);
+        else if (!(key === "method" && form.kind === "neq" && isCovered)) report(`dispatch_form: request.${key} form not admitted (line ${lineOf(sf, access)}): ${excerpt(sf, enclosingStatement(ts, access))}`);
+        return;
+      }
+      if (form.kind === "eq" || form.kind === "neq") comparisons.push(form.values[0]);
+      else if (form.kind === "list") for (const value of form.values) comparisons.push(value);
+      else if (form.kind !== "prefix" && form.kind !== "prefix-partner") report(`dispatch_form: nested ${form.kind} dispatch is not admitted (line ${lineOf(sf, access)}): ${excerpt(sf, enclosingStatement(ts, access))}`);
+      else report(`dispatch_form: nested prefix dispatch is not admitted (line ${lineOf(sf, access)}): ${excerpt(sf, enclosingStatement(ts, access))}`);
+    },
+  }, report);
+  if (body[0].catchClause) {
+    const refs = [];
+    const find = node => { if (ts.isIdentifier(node) && ["request", "command"].includes(node.text) && !isNamePosition(ts, node)) refs.push(node); ts.forEachChild(node, find); };
+    find(body[0].catchClause.block);
+    for (const ref of refs) report(`statement: catch clause references receiver ${ref.text} (line ${lineOf(sf, ref)})`);
+  }
+  for (const value of methods) internal.add(`action:instance_state:${value}`);
+
+  for (const prefix of delegates) {
+    const actions = prefix === "rotation_" ? rotationActions(ts, file, reviewed, ctx) : prefix === "ux1_" ? ux1Actions(ts, sf, method, reviewed, ctx) : null;
+    if (prefix === "directory") { for (const action of directoryActions(ts, file, reviewed, ctx)) internal.add(`action:directory:${action}`); continue; }
+    if (!actions.length) errors.push(`${prefix} delegate: empty_extraction: no action extracted`);
+    for (const action of new Set(actions)) {
+      if (!action.startsWith(prefix)) errors.push(`${prefix} delegate: prefix_mismatch: prefix family ${prefix} dispatches ${action}`);
+      add(`action:${action}`, prefix);
+    }
+  }
+  // Comparisons on actions already dispatched by a family are not new actions.
+  for (const action of comparisons) if (!internal.has(`action:${action}`)) internal.add(`action:instance_state:${action}`);
+}
+
+/** The receivers' own declarations: parameters, and `let` bindings directly in `level`. */
+function declarationsOf(ts, fn, level, names) {
+  const found = fn.parameters.map(p => p.name).filter(name => ts.isIdentifier(name) && names.includes(name.text));
+  for (const statement of level) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && names.includes(declaration.name.text)) found.push(declaration.name);
+    }
+  }
+  return found;
+}
+
+/** `return <wrap>(this.storage.transactionSync(() => { ... }))` or without wrap. */
+function transactionCallback(ts, statement, wrap) {
+  if (!ts.isReturnStatement(statement) || !statement.expression) return null;
+  let call = unwrap(ts, statement.expression);
+  if (wrap) {
+    if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || call.expression.text !== wrap || call.arguments.length !== 1) return null;
+    call = unwrap(ts, call.arguments[0]);
+  }
+  if (!ts.isCallExpression(call) || call.arguments.length !== 1) return null;
+  const callee = unwrap(ts, call.expression);
+  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "transactionSync") return null;
+  const store = unwrap(ts, callee.expression);
+  if (!ts.isPropertyAccessExpression(store) || store.name.text !== "storage" || unwrap(ts, store.expression).kind !== ts.SyntaxKind.ThisKeyword) return null;
+  const callback = unwrap(ts, call.arguments[0]);
+  if (!ts.isArrowFunction(callback) || callback.parameters.length || !ts.isBlock(callback.body) || callback.modifiers?.length) return null;
+  return callback;
+}
+
+/** Gate of a dispatch-level condition on `receivers`' action, or null. */
+function gateOf(ts, condition, receivers) {
+  const n = unwrap(ts, condition);
+  const accessOf = node => {
+    const access = unwrap(ts, node);
+    return ts.isPropertyAccessExpression(access) && access.name.text === "action" && ts.isIdentifier(unwrap(ts, access.expression))
+      && receivers.includes(unwrap(ts, access.expression).text) ? access : null;
+  };
+  if (isEquality(ts, n)) {
+    const [access, other] = accessOf(n.left) ? [accessOf(n.left), n.right] : [accessOf(n.right), n.left];
+    if (access && isStringLiteral(ts, other)) return { kind: n.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ? "eq" : "neq", values: [literalValue(ts, other)], accesses: [access] };
+    return null;
+  }
+  if (ts.isCallExpression(n) && n.arguments.length === 1) {
+    const access = accessOf(n.arguments[0]);
+    const form = access ? dispatchForm(ts, access) : null;
+    if (form && (form.kind === "list" || form.kind === "family") && form.node === n) return { ...form, accesses: [access] };
+    return null;
+  }
+  if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+    const compare = unwrap(ts, n.left);
+    if (!isEquality(ts, compare)) return null;
+    const typeOf = [compare.left, compare.right].map(side => unwrap(ts, side)).find(side => ts.isTypeOfExpression(side));
+    const access = typeOf && accessOf(typeOf.expression);
+    const form = access ? dispatchForm(ts, access) : null;
+    if (form?.kind === "prefix" && form.node === n) return { kind: "prefix", prefix: form.prefix, accesses: [access, unwrap(ts, form.partner)] };
+  }
+  return null;
+}
+/** `new URL(request.url).pathname === IDENT` */
+function pathGate(ts, condition) {
+  const n = unwrap(ts, condition);
+  if (!ts.isBinaryExpression(n) || n.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken || !ts.isIdentifier(unwrap(ts, n.right))) return null;
+  const path = unwrap(ts, n.left);
+  if (!ts.isPropertyAccessExpression(path) || path.name.text !== "pathname" || path.questionDotToken) return null;
+  const made = unwrap(ts, path.expression);
+  if (!ts.isNewExpression(made) || !ts.isIdentifier(made.expression) || made.expression.text !== "URL" || made.arguments?.length !== 1) return null;
+  const access = unwrap(ts, made.arguments[0]);
+  if (!ts.isPropertyAccessExpression(access) || access.name.text !== "url" || !ts.isIdentifier(unwrap(ts, access.expression)) || unwrap(ts, access.expression).text !== "request") return null;
+  return { access, target: unwrap(ts, n.right).text };
+}
+/** `request.method === "M"` */
+function methodGate(ts, condition) {
+  const n = unwrap(ts, condition);
+  if (!ts.isBinaryExpression(n) || n.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken || !isStringLiteral(ts, n.right)) return null;
+  const access = unwrap(ts, n.left);
+  if (!ts.isPropertyAccessExpression(access) || access.name.text !== "method" || !ts.isIdentifier(unwrap(ts, access.expression)) || unwrap(ts, access.expression).text !== "request") return null;
+  return { access, value: literalValue(ts, n.right) };
+}
+
+/**
+ * Audit one dispatch level: every statement is a recognised action branch
+ * (gated), an exact reviewed template, or an error. With `allowElse`, the else
+ * part of a branch is audited as a nested level (it is not gated).
+ */
+function auditLevel(ts, sf, statements, set, options) {
+  let finished = false;
+  for (const statement of statements) {
+    if (finished) { options.report(`statement: statement after the final fallthrough: ${excerpt(sf, statement)}`); continue; }
+    const template = set.map.get(canonical(ts, statement));
+    if (template) {
+      template.seen += 1;
+      options.covered.add(statement);
+      if (isTerminal(ts, statement)) finished = true;
+      continue;
+    }
+    if (isInertLiteral(ts, statement)) continue;
+    if (ts.isIfStatement(statement)) {
+      const gate = gateOf(ts, statement.expression, options.keys);
+      if (gate && gate.kind !== "prefix" && gate.kind !== "family") {
+        if (gate.kind === "neq") auditLevel(ts, sf, statementsOf(ts, statement.thenStatement), set, options);
+        else options.gated.add(statement.thenStatement);
+        if (statement.elseStatement) {
+          if (options.allowElse) auditLevel(ts, sf, statementsOf(ts, statement.elseStatement), set, options);
+          else options.report(`else_dispatch: else-branch dispatch is not admitted: ${excerpt(sf, statement.expression)}`);
+        }
+        continue;
+      }
+    }
+    options.report(`statement: dispatch-level statement not admitted: ${excerpt(sf, statement)}`);
+  }
+}
+
+function delegateScan(ts, sf, fn, receiver, set, ctx, label, levelStatements, extra = {}) {
+  const { errors, finishTemplates } = ctx;
+  const report = message => errors.push(`${label}: ${message}`);
+  const gated = new Set();
+  const covered = new Set();
+  const actions = [];
+  auditLevel(ts, sf, levelStatements, set, { covered, gated, report, allowElse: false, keys: [receiver] });
+  finishTemplates(set, message => errors.push(message));
+  if (extra.uses) {
+    // Reviewed whole-receiver uses inside branch bodies, matched exactly.
+    const uses = ctx.templates(`${label} uses`, extra.uses);
+    const visit = node => {
+      const entry = ts.isStatement(node) ? uses.map.get(canonical(ts, node)) : null;
+      if (entry) { entry.seen += 1; covered.add(node); }
+      ts.forEachChild(node, visit);
+    };
+    visit(fn.body);
+    finishTemplates(uses, message => errors.push(message));
+  }
+  scanReceivers(ts, sf, fn.body, {
+    keys: { [receiver]: new Set(["action"]) },
+    declarations: new Set(fn.parameters.filter(p => ts.isIdentifier(p.name) && p.name.text === receiver).map(p => p.name)),
+    gated, covered, consumed: new Set(), recognise: true,
+    onForm: (form, access) => {
+      if (form.kind === "eq" || form.kind === "neq" || (form.kind === "list" && extra.lists)) actions.push(...form.values);
+      else report(`dispatch_form: ${form.kind} dispatch is not admitted (line ${lineOf(sf, access)}): ${excerpt(sf, enclosingStatement(ts, access))}`);
+    },
+  }, report);
+  return actions;
+}
+
+function rotationActions(ts, file, reviewed, ctx) {
+  const durable = file(DURABLE);
+  const imported = importOf(ts, durable, "durableRotationCommand");
+  if (!imported || resolvePath(DURABLE, imported.module) !== ROTATION || imported.imported !== "durableRotationCommand") {
+    ctx.errors.push("rotation_ delegate: delegate: durableRotationCommand is not imported from secretRotation.js");
+    return [];
+  }
+  const sf = file(ROTATION);
+  const outerFn = topFunction(ts, sf, "durableRotationCommand", ["storage", "sql", "env", "command"], "secretRotation.js");
+  const inner = topFunction(ts, sf, "rotationCommand", ["sql", "c", "factors"], "secretRotation.js");
+  for (const fn of [outerFn, inner]) if (!fn.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) ctx.errors.push(`secretRotation.js: export_form: ${fn.name.text} is not exported`);
+  return [
+    ...delegateScan(ts, sf, outerFn, "command", ctx.templates("durableRotationCommand", reviewed.durableRotation), ctx, "durableRotationCommand", outerFn.body.statements),
+    ...delegateScan(ts, sf, inner, "c", ctx.templates("rotationCommand", reviewed.rotation), ctx, "rotationCommand", inner.body.statements, { uses: reviewed.rotationUses }),
+  ];
+}
+
+function ux1Actions(ts, sf, method, reviewed, ctx) {
+  const fn = method("ux1ResearchCommand", ["command"]);
+  const statements = fn.body.statements;
+  const callback = statements.length === 1 ? transactionCallback(ts, statements[0], null) : null;
+  if (!callback) { ctx.errors.push("ux1ResearchCommand: statement: body must be return this.storage.transactionSync(() => { ... })"); return []; }
+  return delegateScan(ts, sf, fn, "command", ctx.templates("ux1ResearchCommand", reviewed.ux1), ctx, "ux1ResearchCommand", callback.body.statements, { lists: true });
+}
+
+function directoryActions(ts, file, reviewed, ctx) {
+  const durable = file(DURABLE);
+  const imported = importOf(ts, durable, "KvDirectory");
+  const path = importOf(ts, durable, "DIRECTORY_PATH");
+  if (!imported || resolvePath(DURABLE, imported.module) !== DIRECTORY || !path || resolvePath(DURABLE, path.module) !== DIRECTORY) {
+    ctx.errors.push("directory delegate: delegate: KvDirectory and DIRECTORY_PATH are not imported from kv_directory.js");
+    return [];
+  }
+  // The DO's directory is the one KvDirectory constructed in its constructor.
+  const assignments = [];
+  const visit = node => {
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(ts, node.operatorToken.kind) && ts.isPropertyAccessExpression(unwrap(ts, node.left))
+      && unwrap(ts, node.left).name.text === "directory" && unwrap(ts, unwrap(ts, node.left).expression).kind === ts.SyntaxKind.ThisKeyword) assignments.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(durable);
+  const constructed = assignments.length === 1 && ts.isNewExpression(unwrap(ts, assignments[0].right)) && ts.isIdentifier(unwrap(ts, assignments[0].right).expression)
+    && unwrap(ts, assignments[0].right).expression.text === "KvDirectory" && ts.isConstructorDeclaration(assignments[0].parent.parent.parent);
+  if (!constructed) { ctx.errors.push("directory delegate: delegate: this.directory is not exactly one new KvDirectory(...) in the constructor"); return []; }
+  const sf = file(DIRECTORY);
+  const { method, problems } = classMethods(ts, sf, "KvDirectory", "kv_directory.js");
+  ctx.errors.push(...problems);
+  const command = method("command", ["command"]);
+  const run = method("run", ["command"]);
+  return [
+    ...delegateScan(ts, sf, command, "command", ctx.templates("KvDirectory.command", reviewed.directoryCommand), ctx, "KvDirectory.command", command.body.statements),
+    ...delegateScan(ts, sf, run, "command", ctx.templates("KvDirectory.run", reviewed.directoryRun), ctx, "KvDirectory.run", run.body.statements),
+  ];
+}

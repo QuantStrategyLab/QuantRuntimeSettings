@@ -104,6 +104,47 @@ fails the suite from 2026-12-15 (UTC). B0, B1 and B5 are also
 reproduced under the read-only trap in `tests/helpers/read_only_storage.mjs`;
 when a write disappears the suite fails until the entry is closed.
 
+### Extraction contract
+
+The route and action surface is read from source by
+[`tests/helpers/read_contract_surface.mjs`](../../tests/helpers/read_contract_surface.mjs),
+which parses with the TypeScript version pinned by the console frontend. Run
+`npm ci` in `web/strategy-switch-console/frontend` before running the suite
+locally; CI installs it before the check. There is no fallback tokenizer.
+
+The dispatch set is the Worker default export entries and `fetch`; the
+RuntimeInstances `fetch`, `alarm` and the transaction callback at the end of
+`fetch`; the `rotation_` delegates (`durableRotationCommand`,
+`rotationCommand`); `ux1ResearchCommand`; `KvDirectory.command` and
+`KvDirectory.run`; and the action families these test. The suite passes only
+when every file in that set parses without a diagnostic, the dispatch code is
+admitted, and the extracted route conditions and internal operations equal the
+registry entries as sets. Registry conditions are compared as syntax trees, so
+whitespace, comments, quote style and redundant parentheses do not matter.
+
+Admission is closed:
+
+- Entries are located structurally. A missing, duplicated or replaced entry,
+  or an unsupported export form, fails.
+- Every dispatch-level statement is a recognised dispatch branch (an equality
+  or inequality with a string literal, a literal list, a family `.has`, a
+  reviewed prefix, or a Worker route condition on `url.pathname`) or an exact
+  reviewed statement template listed in the helper. Anything else fails.
+- Every reference to a request, URL or command receiver is examined. Direct
+  and optional property access, truthiness and forwarding inside a gated
+  branch are admitted. Computed access is rejected whatever its key, and so
+  are aliases, destructuring, spread, reflection, immediately invoked
+  functions, reassignment, mutation, shadowing and dynamic evaluation.
+- An action family must resolve through imports and re-exports to one
+  `const NAME = new Set([...string literals])` and be used only through
+  `.has()` anywhere in the console.
+
+This contract covers classification coverage of the dispatch set only. It does
+not show that every branch is reachable or that an observation is free of
+effects; the trap probes and exception register cover those. A legitimate new
+dispatch form requires a change to the helper, reviewed with the code that uses
+it.
+
 An exception is not evidence that a path is safe. All B reads are excluded from
 strict administrative inventory immediately. A missed deadline blocks the
 check until the change, or a documented bounded replan, is reviewed; it never
