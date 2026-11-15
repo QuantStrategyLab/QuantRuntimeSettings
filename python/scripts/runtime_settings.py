@@ -618,7 +618,7 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
                 runtime_target,
                 scheduler,
                 errors,
-                plugin_mounts=target.get("plugin_mounts"),
+                plugin_mounts=_effective_target_plugin_mounts(target, runtime_target),
             )
 
     configured_market_fields = []
@@ -824,6 +824,50 @@ def validate_live_continuity(runtime_target: dict[str, Any], errors: list[str]) 
 
 def is_live_continuity_target(runtime_target: dict[str, Any]) -> bool:
     return isinstance(runtime_target.get("live_continuity"), dict)
+
+
+def _effective_target_plugin_mounts(target: dict[str, Any], runtime_target: dict[str, Any]) -> Any:
+    """Resolve strategy plugin mounts from top-level target or matched service inventory entry."""
+    if isinstance(target.get("plugin_mounts"), list):
+        return target["plugin_mounts"]
+    platform = str(runtime_target.get("platform_id") or "").strip()
+    platform_cfg = SUPPORTED_PLATFORMS.get(platform)
+    if not isinstance(platform_cfg, dict):
+        return None
+    mounts_variable = f"{platform_cfg.get('plugin_mounts_prefix', '')}STRATEGY_PLUGIN_MOUNTS_JSON"
+    for scope_key in ("extra_variables", "repository_variables"):
+        variables = target.get(scope_key)
+        if not isinstance(variables, dict) or "CLOUD_RUN_SERVICE_TARGETS_JSON" not in variables:
+            continue
+        inventory = variables.get("CLOUD_RUN_SERVICE_TARGETS_JSON")
+        if isinstance(inventory, str):
+            try:
+                inventory = json.loads(inventory)
+            except json.JSONDecodeError:
+                continue
+        raw_entries = inventory.get("targets") if isinstance(inventory, dict) else inventory
+        if not isinstance(raw_entries, list) or any(not isinstance(item, dict) for item in raw_entries):
+            continue
+        try:
+            matched_index = select_service_target_entry_index(runtime_target, raw_entries)
+        except ValueError:
+            continue
+        if matched_index is None:
+            continue
+        entry = raw_entries[matched_index]
+        raw_mounts = entry.get(mounts_variable)
+        if raw_mounts is None and isinstance(entry.get("env"), dict):
+            raw_mounts = entry["env"].get(mounts_variable)
+        if isinstance(raw_mounts, str):
+            try:
+                raw_mounts = json.loads(raw_mounts)
+            except json.JSONDecodeError:
+                continue
+        if isinstance(raw_mounts, dict) and isinstance(raw_mounts.get("strategy_plugins"), list):
+            return raw_mounts["strategy_plugins"]
+        if isinstance(raw_mounts, list):
+            return raw_mounts
+    return None
 
 
 def validate_live_ibkr_us_scheduler(

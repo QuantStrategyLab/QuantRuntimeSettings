@@ -250,6 +250,76 @@ class ConfigOverlayTests(unittest.TestCase):
                 runtime_settings.validate_target(target),
             )
 
+    def test_workflows_wire_overlay_variables(self):
+        switch_workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
+        self.assertIn("QSL_CONFIG_OVERLAY_PATH: ${{ vars.QSL_CONFIG_OVERLAY_PATH }}", switch_workflow)
+        self.assertIn("QSL_CONFIG_OVERLAY_JSON: ${{ vars.QSL_CONFIG_OVERLAY_JSON }}", switch_workflow)
+
+        console_workflow = (ROOT / ".github/workflows/deploy-strategy-switch-console.yml").read_text(encoding="utf-8")
+        self.assertIn("vars.QSL_CONFIG_OVERLAY_PATH", console_workflow)
+        self.assertIn("vars.QSL_CONFIG_OVERLAY_JSON", console_workflow)
+        self.assertIn("!inputs.release_frontend_assets && vars.QSL_CONFIG_OVERLAY_PATH", console_workflow)
+
+    def test_us_23x5_plugin_override_with_service_inventory_repository_scope(self):
+        base = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
+        overlay = json.loads(
+            (ROOT / "examples" / "platform-config.overlay.example.json").read_text(encoding="utf-8")
+        )
+        strategy_key = "ibit_smart_dca"
+        base_strategy = json.loads(json.dumps(base["strategies"][strategy_key]))
+        base_strategy["scheduler_profile_by_plugin"] = {"ibit_zscore_exit": "us_23x5_overnight"}
+        overlay["strategies"] = {strategy_key: base_strategy}
+
+        mount_payload = {
+            "strategy_plugins": [
+                {
+                    "strategy": strategy_key,
+                    "plugin": "ibit_zscore_exit",
+                    "enabled": True,
+                    "expected_mode": "shadow",
+                    "signal_path": "gs://example/ibit-zscore-plugin.json",
+                }
+            ]
+        }
+
+        for shape in ("flat", "nested_env"):
+            with self.subTest(shape=shape), tempfile.TemporaryDirectory() as temp_dir:
+                tmp_path = Path(temp_dir)
+                mounts_path = tmp_path / "mounts.json"
+                mounts_path.write_text(json.dumps(mount_payload), encoding="utf-8")
+                targets_path = tmp_path / "service-targets.json"
+                entry = {"service": "interactive-brokers-live-service", "ACCOUNT_GROUP": "LIVE"}
+                if shape == "nested_env":
+                    entry["env"] = {"IBKR_DRY_RUN": "false"}
+                targets_path.write_text(json.dumps({"targets": [entry]}), encoding="utf-8")
+
+                with patch.dict(os.environ, {"QSL_CONFIG_OVERLAY_JSON": json.dumps(overlay)}, clear=False):
+                    os.environ.pop("QSL_CONFIG_OVERLAY_PATH", None)
+                    args = build_runtime_switch.build_parser().parse_args(
+                        [
+                            "--platform",
+                            "ibkr",
+                            "--target-name",
+                            "live",
+                            "--strategy-profile",
+                            strategy_key,
+                            "--execution-mode",
+                            "live",
+                            "--variable-scope",
+                            "repository",
+                            "--existing-service-targets-json-file",
+                            str(targets_path),
+                            "--plugin-mode",
+                            "current",
+                            "--current-plugin-mounts-json-file",
+                            str(mounts_path),
+                        ]
+                    )
+                    target = build_runtime_switch.build_switch_target(args)
+                    self.assertNotIn("plugin_mounts", target)
+                    self.assertEqual(target["runtime_target"]["scheduler"]["main_time"], "15 21 * * 0-5")
+                    self.assertEqual(runtime_settings.validate_target(target), [])
+
 
 if __name__ == "__main__":
     unittest.main()
