@@ -222,9 +222,13 @@ export function createReadOnlyKv(entries = {}) {
     namespace: {
       async get(key, options) { return decode(values.get(key), typeof options === "string" ? options : options?.type); },
       async getWithMetadata(key, options) { return { value: await this.get(key, options), metadata: null }; },
-      async list({ prefix = "", limit = 1000 } = {}) {
-        const keys = [...values.keys()].filter(key => key.startsWith(prefix)).sort().slice(0, limit).map(name => ({ name }));
-        return { keys, list_complete: true, cursor: "" };
+      // A truncated page reports `list_complete: false` and a cursor (the last
+      // key returned) that resumes after it, as Workers KV does.
+      async list({ prefix = "", limit = 1000, cursor = "" } = {}) {
+        const matching = [...values.keys()].filter(key => key.startsWith(prefix) && (!cursor || key > cursor)).sort();
+        const keys = matching.slice(0, limit).map(name => ({ name }));
+        if (matching.length <= limit) return { keys, list_complete: true, cursor: "" };
+        return { keys, list_complete: false, cursor: keys.at(-1)?.name ?? cursor };
       },
       put: async key => trap("kv_put", String(key)),
       delete: async key => trap("kv_delete", String(key)),

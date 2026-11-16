@@ -454,6 +454,15 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   await assert.rejects(() => kv.namespace.put("config:a", "{}"), error => error.kind === "kv_put");
   await assert.rejects(() => kv.namespace.delete("config:a"), error => error.kind === "kv_delete");
   assert.deepEqual(kv.violations.map(v => v.kind), ["kv_put", "kv_delete"]);
+  // A truncated listing is not complete and its cursor resumes after the page.
+  const paged = createReadOnlyKv({ "config:a": "1", "config:b": "2", "other:c": "3" });
+  const first = await paged.namespace.list({ prefix: "config:", limit: 1 });
+  assert.deepEqual(first.keys, [{ name: "config:a" }], "KV list: two matching keys, limit 1, first page");
+  assert.equal(first.list_complete, false, "KV list: a truncated page is not reported complete");
+  assert.ok(first.cursor, "KV list: a truncated page carries a continuation cursor");
+  const second = await paged.namespace.list({ prefix: "config:", limit: 1, cursor: first.cursor });
+  assert.deepEqual(second, { keys: [{ name: "config:b" }], list_complete: true, cursor: "" }, "KV list: the cursor resumes and the last page is complete");
+  assert.deepEqual(await paged.namespace.list({ prefix: "config:" }), { keys: [{ name: "config:a" }, { name: "config:b" }], list_complete: true, cursor: "" }, "KV list: an untruncated listing is unchanged");
   assert.equal(classifySql("select a from t"), null);
 
   // Comment markers and semicolons inside strings or quoted identifiers are
