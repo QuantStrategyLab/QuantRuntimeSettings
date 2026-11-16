@@ -39,7 +39,7 @@ expected = [{'platform_id':'ibkr', 'opaque_account_uid':'synthetic-account',
 configuration = app.Configuration(expected, 'projects/demo/locations/demo/jobs/digest',
                                   'synthetic', '2026-10-16')
 text, coverage = app._report(configuration, [], ['missing'], '2026-10-15', None)
-assert coverage == 'unavailable' and '未知' in text
+assert coverage == 'unavailable' and 'unknown' in text
 print('bundle_render_verified')
 '''
             result = subprocess.run([sys.executable, '-I', '-c', script, str(bundle / 'app/python/scripts')],

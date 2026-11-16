@@ -28,7 +28,7 @@ Binance 历史 GH secret 名 `TG_TOKEN` 应与 sentinel **同一 bot**；公开�
 |--------|--------|
 | `TELEGRAM_TOKEN_SECRET_NAME` | `quant-sentinel-telegram-bot-token` |
 | `STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME` | `quant-sentinel-telegram-bot-token` |
-| `NOTIFY_LANG` / `QSL_NOTIFY_LANG` | `zh` 或 `en`（代码默认 zh）。正式日报的实际语言由生产调用方的配置决定，见下文「语言解析」；`platform-config.json` 中的 `daily_digest.default_locale` / `locales` 不选择该语言 |
+| `NOTIFY_LANG` / `QSL_NOTIFY_LANG` | `zh` 或 `en`（代码默认 en）。正式日报的实际语言由 Azure 生产调用显式设置的 `QSL_NOTIFY_LANG` 决定，见下文「语言解析」；`platform-config.json` 中的 `daily_digest.default_locale` / `locales` 不选择该语言 |
 
 Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选）→ `GLOBAL_TELEGRAM_CHAT_ID` → `STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS`。公开配置只有 `telegram_chat_id_ref`，禁止字面量 chat id。
 
@@ -76,9 +76,9 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 | `zh` | 量化哨兵 · 收盘日报 | 量化哨兵 · 心跳 |
 | `en` | QuantSentinel · Daily digest | QuantSentinel · Heartbeat |
 
-语言解析：`QSL_NOTIFY_LANG` → `NOTIFY_LANG` → 默认 `zh`（此链适用于聚合器与预览路径）。
+语言解析：`QSL_NOTIFY_LANG` → `NOTIFY_LANG` → 默认 `en`（此链适用于聚合器与预览路径）。
 
-正式日报核心的实际语言是 `Configuration.locale`：调用方显式传入的值，或 `Configuration.from_environment()` 读取的 `QSL_NOTIFY_LANG`（缺省为 `zh`），或构造函数默认值 `zh`。核心不读取 `NOTIFY_LANG`，也不读取 `platform-config.json` 的 `daily_digest.default_locale` / `locales`；这两项不决定生产语言。线上 Azure 调用实际采用哪一种输入，本仓库没有记录，需读取该调用的有效配置确认。
+正式日报核心的实际语言是 `Configuration.locale`：调用方显式传入的值，或 `Configuration.from_environment()` 读取的 `QSL_NOTIFY_LANG`（缺省为 `en`），或构造函数默认值 `en`。核心不读取 `NOTIFY_LANG`，也不读取 `platform-config.json` 的 `daily_digest.default_locale` / `locales`；这两项不决定生产语言。生产语言来自 Azure 调用显式设置的 `QSL_NOTIFY_LANG`，代码默认值不决定生产语言；该调用的有效配置不记录在本仓库。
 
 消息结构（示意；金额仅在候选证据存在时出现；**不**再渲染「窗口」与「通道」行）：
 

@@ -4,10 +4,11 @@ The daily digest reads producer evidence and never infers execution counts
 from a signal such as `no_action`, workflow success, or a missing report.
 Production rendering in the shared digest core selects one normalized `zh` or
 `en` locale: `Configuration.locale`, set explicitly by the caller, read from
-`QSL_NOTIFY_LANG` by `Configuration.from_environment()`, or the default `zh`.
-`daily_digest.default_locale` and `locales` in `platform-config.json` do not
-select it. Which input the live invocation uses is not recorded in this
-repository.
+`QSL_NOTIFY_LANG` by `Configuration.from_environment()`, or the constructor
+default `en`. `daily_digest.default_locale` and `locales` in
+`platform-config.json` do not select it. The production locale comes from the
+explicit `QSL_NOTIFY_LANG` configuration of the Azure invocation, whose value
+is not recorded in this repository.
 The legacy preview layouts `v1` and `sections_v2` also support `zh-CN` (`zh`)
 and `en`; their bilingual compatibility text is separate from that production
 language selection.

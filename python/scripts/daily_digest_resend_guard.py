@@ -339,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     print(decision.log(day, os.environ.get("GITHUB_EVENT_NAME", "local")))
     if decision.decision in {"skip", "blocked"}:
         args.write_receipt.parent.mkdir(parents=True, exist_ok=True)
-        locale = os.environ.get("DIGEST_LOCALE") or os.environ.get("QSL_NOTIFY_LANG") or os.environ.get("NOTIFY_LANG", "zh")
+        locale = os.environ.get("DIGEST_LOCALE") or os.environ.get("QSL_NOTIFY_LANG") or os.environ.get("NOTIFY_LANG", "en")
         args.write_receipt.write_text(json.dumps(skip_receipt(day, locale, decision)) + "\n")
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
