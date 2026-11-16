@@ -1,19 +1,98 @@
 // Read-contract boundary validation (ADR 0002; `.github/engineering.md`,
 // "Observation and identity boundaries").
 //
+// Acceptance property. This suite is a bounded executable contract. It
+// replaces the earlier claim that static admission proves that no admitted
+// observation reaches a writer:
+//
+//   For the reviewed source snapshot and its versioned finite validation
+//   manifest, the bounded validator accepts if and only if the unmodified
+//   snapshot satisfies the retained static predicates S, every declared
+//   regression case produces its specified outcome, and every declared
+//   runtime case completes within budget B in the verified instrumented
+//   module graph G with its specified response and writer-entry outcome:
+//   each zero-writer observation trace in T records zero entries into W and
+//   zero storage-trap violations; each named debt or adversarial witness
+//   records its exact declared detection outcome; every entry into W during
+//   a zero-writer trace irreversibly fails that trace regardless of access
+//   path; missing instrumentation, an unaccounted module instance, an
+//   omitted case, unexpected residual work, or timeout is a validation
+//   failure.
+//
+// The property covers the finite manifest and its bounded executions. It
+// says nothing about other programs, inputs or schedules. The suite passes
+// when an adversarial child correctly fails: that child's forbidden writer
+// entry is a required negative-test outcome, never a successful
+// observation. The contract narrows the test evidence, not ADR 0002's
+// production requirements R1-R5. Neither it nor a passing run certifies
+// production read-only enforcement.
+//
+// Terms. S is sections 1-4 below: strict parsing, the supported route and
+// internal-operation extraction with exact-set registry equality, register
+// integrity, expiry and helper-site maps, the binding, class, host and
+// module rules, indirect-edge attribution, and the discover/reject/pass
+// matrix with its full-exit children, compared by case name with
+// `tests/fixtures/read-contract-probe-oracle.json`. W, B and T are in
+// `tests/fixtures/read-contract-runtime-manifest.json`: the fourteen
+// registered callables of B0-B7, reconciled with the exception register on
+// every run, the frozen time and task bounds, and the case corpus. G is
+// built by `tests/helpers/read_contract_instrument.mjs` and run by
+// `tests/helpers/read_contract_runtime.mjs` (section 5).
+//
+// Accepted limits:
+// - Traffic and state: only the listed requests, action values, headers and
+//   authentication fixtures, data and schema states, sequences and bounded
+//   schedules are tested. A writer reachable only outside them is not proved
+//   absent.
+// - Static semantics: S protects its enumerated AST forms, accounting rules
+//   and supported dispatch surface. Equality of those sets does not prove
+//   complete dynamic dispatch, function identity flow or the absence of
+//   runtime replacement elsewhere.
+// - Identity scope: W and provenance-preserving fixture copies are covered.
+//   Newly written or renamed unregistered implementations, arbitrary new
+//   code clones, direct persistence calls and other unregistered writers are
+//   outside the identity claim. The storage traps can still catch their
+//   effects in covered traces; that does not make the identity claim
+//   universal.
+// - Module and runtime scope: only verified instrumented module instances in
+//   G are covered. Arbitrary dependencies, extra realms or workers,
+//   runtime-generated code, native or cloud implementation behaviour and
+//   unmodelled host capabilities are not certified. Unexpected loads in a
+//   declared run fail. This limit does not permit missing an original W
+//   invocation in that run.
+// - Lifecycle and time: the ready-instance cases do not certify
+//   constructors, class fields, cold starts or every future callback. The
+//   construction and deferred cases cover only their stated phases and
+//   bounds. Unknown pending tracked work is a failure, not an accepted pass.
+// - Trusted test machinery: the parser, loader and transformer, monitor,
+//   manifest, process isolation and result channel are trusted. This is a
+//   regression harness, not a security sandbox against a program that
+//   deliberately alters the harness, runtime or monitor. Ordinary aliasing,
+//   receiver recovery, rehosting and caught errors are in scope and must not
+//   defeat it.
+// - Existing debt: only the current finite, unexpired registered exceptions
+//   and explicit debt witnesses remain grandfathered. No trading, write,
+//   deployment or production authorization is added, and no exception is
+//   broadened.
+// An original W entry during a declared zero-writer trace that does not
+// latch a failure is always a blocking defect. It is never an accepted
+// syntactic family.
+//
 // 1. Every public route branch in `worker.js` `fetch` and every internal action
-//    dispatched by the RuntimeInstances Durable Object is classified in
+//    dispatched by the RuntimeInstances Durable Object, in a dispatch form the
+//    surface helper supports, is classified in
 //    `web/strategy-switch-console/application/read_contracts.js`, and every
 //    registry entry still exists in code. The surface is read from a strict
-//    TypeScript AST by `tests/helpers/read_contract_surface.mjs`: a source that
-//    does not parse, or that uses a dispatch form the helper does not admit,
-//    fails before it is compared with the registry, so a new route or action
-//    cannot pass uncounted.
+//    TypeScript AST by `tests/helpers/read_contract_surface.mjs`. A source
+//    that does not parse, or that uses a dispatch form the helper does not
+//    admit, fails before it is compared with the registry. Set equality is
+//    about this extracted surface. It does not show that unexercised dynamic
+//    replacement is absent.
 // 2. The finite exception register `tests/fixtures/read-contract-exceptions.json`
 //    agrees with the registry, has not expired (deadlines are inclusive UTC
 //    dates), points at helpers that still exist, and lists the exact call sites
-//    of each excepted helper. A new caller therefore needs a register change in
-//    the same review.
+//    of each excepted helper under its counted spelling. A new counted caller
+//    therefore needs a register change in the same review.
 // 3. Debt that can be reproduced cheaply (B0, B1, B5) still reproduces under the
 //    read-only trap; when it stops, close the register entry. Indirect edges
 //    (dependency injection, callbacks) behind B1, B3 and I2 are anchored and
@@ -21,22 +100,32 @@
 // 4. The read-only trap adapter catches each write class, and each check above
 //    fails on an injected violation. Source probes edit in-memory copies; the
 //    executable probes write a scratch sibling module, import it and remove it.
+// 5. The bounded executable contract: every manifest case runs in a fresh
+//    process over the instrumented graph G, whatever S decides for its
+//    source, and must produce exactly its declared outcome.
 //
 // `node tests/read_contract_boundaries_validation.mjs --print-seed` prints the
 // operation lists and call-site counts computed from the current code, for use
-// when reviewing a register change. The suite needs the console frontend
+// when reviewing a register change. `--print-probes` also prints the per-case
+// matrix and runtime evidence. `--print-runtime` prints the observed runtime
+// outcomes in the manifest's shape, for reviewing a manifest change, and does
+// not accept anything. The suite needs the console frontend
 // dependencies (`npm ci` in `web/strategy-switch-console/frontend`) for the
 // pinned TypeScript parser.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, posix } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { classifySql, createReadOnlyKv, createReadOnlyStorage, ReadOnlyViolation } from "./helpers/read_only_storage.mjs";
 import { astBlock, canonicalExpression, CONSOLE, extractSurface, loadTypeScript, SurfaceError } from "./helpers/read_contract_surface.mjs";
+import { coverageControls, runRuntimeContract, witnessFixtures } from "./helpers/read_contract_runtime.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const REGISTER_PATH = "tests/fixtures/read-contract-exceptions.json";
+const ORACLE_PATH = "tests/fixtures/read-contract-probe-oracle.json";
+const RUNTIME_MANIFEST_PATH = "tests/fixtures/read-contract-runtime-manifest.json";
 const ADOPTED_ON = "2026-11-14";
 const MAX_WINDOW_DAYS = 60;
 const METHODS = new Set(["GET", "HEAD", "POST", "*"]);
@@ -134,8 +223,9 @@ function computeSites(sources, helper) {
 
 // Sites are counted by spelling: `helper(` for a symbol, the literal text for a
 // literal. The counts hold only while each helper is reached under that
-// spelling, so every other way of reaching one fails closed (review FIX9): an
-// alias, a renamed import, export or destructuring, a call form the spelling
+// spelling, so the other ways of reaching one listed here fail closed (review
+// FIX9); a form not listed is outside S, and only the runtime cases can
+// observe it: an alias, a renamed import, export or destructuring, a call form the spelling
 // misses, a computed name, a namespace or test hook read other than by member,
 // and a value literal bound to a name or built from parts. Same-name forms keep
 // the spelling and are admitted: imports, exports, destructuring, a declaration
@@ -420,7 +510,9 @@ function helperBindingErrors(sources, exceptions) {
 // module, a call on it in the class names a method declared there, and the
 // class is never referenced. Any other class, class expression or object
 // literal in a console module that declares a member under a registered
-// helper's name is not admitted, however it is constructed or reached; the
+// helper's name (an identifier, a string or a foldable computed key) is not
+// admitted, however it is constructed; a member name built at run time is
+// outside this rule (review FIX13) and is left to the runtime cases. The
 // shorthand members of the exported `__test` hook are references, checked
 // above. The skipped files are console modules too, so every module is read.
 const MEMBER_HOST = { file: `${CONSOLE}/application/runtime_instances/durable_object.js`, name: "RuntimeInstances" };
@@ -458,7 +550,7 @@ const isoDate = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test
 const sameMap = (a, b) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
 
 /** Validate registry and register against the extracted surface. */
-function validate({ routes: registryRoutes, internal: registryInternal, register: reg, surface, sources, today, root = ROOT }) {
+function validate({ routes: registryRoutes, internal: registryInternal, register: reg, surface, sources, today, root = ROOT, modules = tree }) {
   const errors = [...surface.errors];
   const exceptionIds = new Set((reg.exceptions || []).map(entry => entry.id));
   const operations = new Map();
@@ -557,7 +649,7 @@ function validate({ routes: registryRoutes, internal: registryInternal, register
   }
   errors.push(...helperBindingErrors(sources, reg.exceptions));
   // Every console module: the probed sources over the tree, skipped files included.
-  errors.push(...memberHostErrors(new Map([...tree, ...sources]), reg.exceptions));
+  errors.push(...memberHostErrors(new Map([...modules, ...sources]), reg.exceptions));
   for (const [id, op] of operations) {
     for (const effect of op.effects) if (exceptionIds.has(effect) && !seenIds.has(effect)) errors.push(`${id}: unknown exception ${effect}`);
   }
@@ -1083,7 +1175,7 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     /worker\.js fetch: forward_target: readBoundAccountExecutions in a reviewed forward resolves to an unadmitted binding, reviewed namespace:/);
 
   // Helper bindings (review FIX9): the site count sees only a helper's own
-  // spelling, so every other way of reaching one is rejected. Each probe below
+  // spelling, so each listed other way of reaching one is rejected. Each probe below
   // leaves the counted sites unchanged and passes the count alone.
   const RUNTIME_SUPPORT = "application/worker/runtime_support.js";
   const SESSION_HANDLER = "export async function sessionPayload(request, env) {\n";
@@ -1445,7 +1537,9 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   // child given a cause must fail for it; its edit keeps the probe anchors, so
   // a later probe cannot fail first.
   const READ_ROW = '    const row = this.sql.exec("SELECT revision, payload FROM instance_state WHERE id = 1").toArray()[0];\n';
-  if (!process.env[PROBE_ENV]) {
+  // `--print-runtime` is a review aid that accepts nothing; it skips these.
+  const fullExitChildren = !process.env[PROBE_ENV] && !process.argv.includes("--print-runtime");
+  if (fullExitChildren) {
     for (const [label, edits, status, cause] of [
       ["discover", [{ file: DO_FILE, from: HK_BRANCH, to: `if (command./* dispatch */action === "probe_read") return json({ probe: true });\n      ${HK_BRANCH}` }], 1],
       ["reject", [{ file: DO_FILE, from: GET_BRANCH, to: `if ((request)["me" + "thod"] === "PUT") return json({ probe: true });\n      ${GET_BRANCH}` }], 1],
@@ -1465,6 +1559,62 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   }
   if (process.argv.includes("--print-probes")) for (const [outcome, label, detail] of outcomes) console.log(`${outcome}\t${label}\t${detail}`);
   console.log(`read contract probe matrix: ${outcomes.filter(([o]) => o === "discover").length} discover, ${outcomes.filter(([o]) => o === "reject").length} reject, ${outcomes.filter(([o]) => o === "pass").length} pass`);
+  // S is the regression oracle by case name, not by totals: no earlier
+  // outcome may change, disappear or be joined by an unlisted case. A child
+  // run does not spawn the full-exit children itself.
+  const oracle = JSON.parse(readFileSync(join(ROOT, ORACLE_PATH), "utf8")).outcomes.filter(([outcome]) => fullExitChildren || !outcome.startsWith("suite exit"));
+  assert.deepEqual(outcomes.map(([outcome, label]) => [outcome, label]), oracle, "static matrix: per-case outcomes equal the frozen oracle");
+
+  // 5. The bounded executable contract. Every manifest case runs in a fresh
+  // process over the instrumented graph G with its fixture edits, whatever S
+  // decides for the edited source; S's outcome is recorded and compared too.
+  // The fix-11 and fix-13 witnesses are rebuilt from their reviews, the
+  // executable regressions above reuse their edits, and each copied B1 body
+  // is detected by its text and carries the clone marker.
+  {
+    const runtimeManifest = JSON.parse(readFileSync(join(ROOT, RUNTIME_MANIFEST_PATH), "utf8"));
+    const fixtures = {
+      pristine: {},
+      ...witnessFixtures(sources, CONSOLE),
+      ...Object.fromEntries(Object.entries({ ...OWN_RUNTIME_KEY_CASES, ...COMPUTED_IDENTITY_CASES, ...instanceValueEdits }).map(([label, edits]) => [label, { edits }])),
+      ...Object.fromEntries(Object.entries(MEMBER_HOST_CASES).map(([label, [edits, , files = {}]]) => [label, { edits, files }])),
+    };
+    // Per-text analysis caches keep only the unmodified snapshot between
+    // cases; each case's edited texts are evaluated once and dropped.
+    const pristineTexts = new Set([...tree].map(([file, text]) => `${file}\u0000${text}`));
+    const pristineValues = new Set(tree.values());
+    const pruneCaches = () => {
+      for (const cache of [parsedSources, memberNames]) for (const key of cache.keys()) if (!pristineTexts.has(key)) cache.delete(key);
+      for (const cache of [bindingFacts, memberHostFacts]) for (const key of cache.keys()) if (!pristineTexts.has(key.slice(key.indexOf("\u0000") + 1))) cache.delete(key);
+      for (const byText of fileSiteCounts.values()) for (const text of byText.keys()) if (!pristineValues.has(text)) byText.delete(text);
+    };
+    pruneCaches();
+    const staticOutcome = probedTree => {
+      const probedSources = callSiteSources(probedTree);
+      const probedSurface = extractSurface(ts, probedSources, { modules: probedTree });
+      const errors = [...validate({ ...baseline, surface: probedSurface, sources: probedSources, modules: probedTree }).errors,
+        ...checkIndirectEdges({ sources: probedSources, surface: probedSurface, register, operations: result.operations })];
+      pruneCaches();
+      return { outcome: errors.length ? "reject" : "admit" };
+    };
+    // W coverage fails closed: unsupported callable kinds and parameter
+    // forms, missing or ambiguous declarations and register drift.
+    const controls = coverageControls(ts, runtimeManifest, register, today);
+    assert.deepEqual(controls.filter(([, error]) => error).map(([, error]) => error), [], "W coverage controls");
+    const printRuntime = process.argv.includes("--print-runtime");
+    const runtime = runRuntimeContract({ ts, root: ROOT, consoleDir: CONSOLE, tree, register, manifest: runtimeManifest, fixtures, staticOutcome,
+      scratch: join(tmpdir(), `read-contract-graph-${process.pid}`), today, record: printRuntime });
+    if (printRuntime) {
+      // Review aid only: observations are printed, nothing is accepted.
+      console.log(JSON.stringify({ errors: runtime.errors, observed: runtime.observed }));
+      process.exit(2);
+    }
+    if (process.argv.includes("--print-probes")) for (const row of runtime.rows) console.log(`runtime\t${row.id}\t${JSON.stringify(row)}`);
+    assert.deepEqual(runtime.errors, [], `bounded executable contract:\n${runtime.errors.join("\n")}`);
+    const groups = {};
+    for (const item of runtimeManifest.cases) groups[item.group] = (groups[item.group] || 0) + 1;
+    console.log(`read contract runtime: ${runtime.rows.length} cases (${Object.entries(groups).map(([group, count]) => `${count} ${group}`).join(", ")}), ${runtimeManifest.entries.length} W entries, ${controls.length} coverage controls, manifest v${runtimeManifest.version}, ${Math.round(runtime.elapsed_ms / 1000)} s of ${runtimeManifest.bounds.suite_ms / 1000} s`);
+  }
 
   // (f) Indirect exception edges stay attributed and anchored (review F3).
   const edges = overrides => checkIndirectEdges({ sources, surface, register, operations: result.operations, ...overrides });

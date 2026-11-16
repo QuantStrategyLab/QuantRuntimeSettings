@@ -1,0 +1,3825 @@
+{
+ "$comment": "Versioned finite validation manifest of the bounded executable read contract (ADR 0002), read by tests/read_contract_boundaries_validation.mjs through tests/helpers/read_contract_runtime.mjs. W: the registered callable entries, reconciled with tests/fixtures/read-contract-exceptions.json on every run. B: frozen bounds. builtins: the only node: modules G admits. cases: T, each with its fixture, provenance, ordered phases and steps, synthetic initial state and exact expected outcome. Change only in a reviewed change that explains every difference.",
+ "version": 1,
+ "bounds": {
+  "case_ms": 15000,
+  "suite_ms": 600000,
+  "max_scheduled_tasks": 64,
+  "max_drain_turns": 64,
+  "max_timer_delay_ms": 0
+ },
+ "builtins": [],
+ "construction": {
+  "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+  "class": "RuntimeInstances"
+ },
+ "entries": [
+  {
+   "id": "B0.RuntimeInstances.constructor",
+   "effect": "B0",
+   "symbol": "RuntimeInstances",
+   "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+   "kind": "constructor",
+   "class": "RuntimeInstances"
+  },
+  {
+   "id": "B0.initializeExecutions",
+   "effect": "B0",
+   "symbol": "initializeExecutions",
+   "file": "web/strategy-switch-console/application/account_facts/executions.js",
+   "kind": "function"
+  },
+  {
+   "id": "B0.initializeExternalFlow",
+   "effect": "B0",
+   "symbol": "initializeExternalFlow",
+   "file": "web/strategy-switch-console/application/account_facts/external_flow.js",
+   "kind": "function"
+  },
+  {
+   "id": "B0.initializeCredentialMaintenance",
+   "effect": "B0",
+   "symbol": "initializeCredentialMaintenance",
+   "file": "web/strategy-switch-console/credentialMaintenance.js",
+   "kind": "function"
+  },
+  {
+   "id": "B0.initializeSecretRotation",
+   "effect": "B0",
+   "symbol": "initializeSecretRotation",
+   "file": "web/strategy-switch-console/secretRotation.js",
+   "kind": "function"
+  },
+  {
+   "id": "B1.ensureRiskProfileAuthority",
+   "effect": "B1",
+   "symbol": "ensureRiskProfileAuthority",
+   "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+   "kind": "method",
+   "class": "RuntimeInstances",
+   "name": "ensureRiskProfileAuthority"
+  },
+  {
+   "id": "B1.readRiskProfileAuthority",
+   "effect": "B1",
+   "symbol": "readRiskProfileAuthority",
+   "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+   "kind": "method",
+   "class": "RuntimeInstances",
+   "name": "readRiskProfileAuthority"
+  },
+  {
+   "id": "B2.migrateCycleHealthCheckpoint",
+   "effect": "B2",
+   "symbol": "migrateCycleHealthCheckpoint",
+   "file": "web/strategy-switch-console/application/runtime_instances/durable_object.js",
+   "kind": "method",
+   "class": "RuntimeInstances",
+   "name": "migrateCycleHealthCheckpoint"
+  },
+  {
+   "id": "B3.readPlatformRuntimeControl",
+   "effect": "B3",
+   "symbol": "readPlatformRuntimeControl",
+   "file": "web/strategy-switch-console/application/runtime_control/http.js",
+   "kind": "function"
+  },
+  {
+   "id": "B4.credentialRotationResponse",
+   "effect": "B4",
+   "symbol": "credentialRotationResponse",
+   "file": "web/strategy-switch-console/secretRotation.js",
+   "kind": "function"
+  },
+  {
+   "id": "B5.binanceDetailCommand",
+   "effect": "B5",
+   "symbol": "binanceDetailCommand",
+   "file": "web/strategy-switch-console/binance_detail_archive.js",
+   "kind": "function"
+  },
+  {
+   "id": "B6.DeskReadbackStore.constructor",
+   "effect": "B6",
+   "symbol": "DeskReadbackStore",
+   "file": "web/strategy-switch-console/application/desk/readback.js",
+   "kind": "constructor",
+   "class": "DeskReadbackStore"
+  },
+  {
+   "id": "B7.readCurrentStrategies",
+   "effect": "B7",
+   "symbol": "readCurrentStrategies",
+   "file": "web/strategy-switch-console/application/worker/runtime_support.js",
+   "kind": "function"
+  },
+  {
+   "id": "B7.writeCurrentStrategiesCache",
+   "effect": "B7",
+   "symbol": "writeCurrentStrategiesCache",
+   "file": "web/strategy-switch-console/application/worker/runtime_support.js",
+   "kind": "function"
+  }
+ ],
+ "cases": [
+  {
+   "id": "pristine-ready-get",
+   "group": "pristine-control",
+   "fixture": "pristine",
+   "provenance": "unmodified snapshot; preconstructed prototype instance (no constructor, no fields)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "detection": "none"
+   }
+  },
+  {
+   "id": "pristine-ready-get-patch",
+   "group": "pristine-control",
+   "fixture": "pristine",
+   "provenance": "unmodified snapshot; control for the setup-GET/PATCH sequence path",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      },
+      {
+       "request": {
+        "method": "PATCH"
+       }
+      }
+     ]
+    }
+   ],
+   "operation_contract": [
+    {
+     "step": 0,
+     "status": 200,
+     "ok": true
+    },
+    {
+     "step": 1,
+     "status": 405,
+     "ok": false,
+     "error": "method_not_allowed"
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     },
+     {
+      "status": 405,
+      "ok": false,
+      "error": "method_not_allowed"
+     }
+    ],
+    "detection": "none"
+   }
+  },
+  {
+   "id": "pristine-cold-construction-get",
+   "group": "pristine-control",
+   "fixture": "pristine",
+   "provenance": "unmodified snapshot; cold construction in an explicit B0/B6 setup trace, then the zero-writer GET on the constructed instance",
+   "phases": [
+    {
+     "name": "setup",
+     "mode": "debt",
+     "label": "cold construction setup trace",
+     "allow": [
+      "B0.RuntimeInstances.constructor",
+      "B0.initializeExecutions",
+      "B0.initializeExternalFlow",
+      "B0.initializeCredentialMaintenance",
+      "B0.initializeSecretRotation",
+      "B6.DeskReadbackStore.constructor"
+     ],
+     "debt": [
+      {
+       "exception": "B0",
+       "operation": "construction"
+      },
+      {
+       "exception": "B6",
+       "operation": "construction"
+      }
+     ],
+     "steps": [
+      {
+       "construct": true
+      }
+     ]
+    },
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "constructed-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned"
+     },
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "writers": [
+     {
+      "id": "B0.RuntimeInstances.constructor",
+      "phase": "setup"
+     },
+     {
+      "id": "B0.initializeExecutions",
+      "phase": "setup"
+     },
+     {
+      "id": "B0.initializeExternalFlow",
+      "phase": "setup"
+     },
+     {
+      "id": "B0.initializeCredentialMaintenance",
+      "phase": "setup"
+     },
+     {
+      "id": "B0.initializeSecretRotation",
+      "phase": "setup"
+     },
+     {
+      "id": "B6.DeskReadbackStore.constructor",
+      "phase": "setup"
+     }
+    ],
+    "storage": [
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_multiple_statements CREATE TRIGGER IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl ALTER TABLE credential_maintenance_metadata ADD",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE INDEX IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl ALTER TABLE account_diagnosis_tasks ADD",
+     "setup:sql_ddl ALTER TABLE account_diagnosis_tasks ADD",
+     "setup:sql_ddl CREATE INDEX IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl DROP INDEX IF EXISTS",
+     "setup:sql_ddl CREATE INDEX IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl ALTER TABLE ux1_research_slot ADD",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE INDEX IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE INDEX IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE INDEX IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE INDEX IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE INDEX IF NOT",
+     "setup:sql_ddl CREATE TABLE IF NOT",
+     "setup:sql_ddl CREATE INDEX IF NOT",
+     "setup:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "setup:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "setup:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "setup:sql_ddl ALTER TABLE hk_stop_request ADD"
+    ],
+    "detection": "none"
+   }
+  },
+  {
+   "id": "pristine-invoke-read",
+   "group": "pristine-control",
+   "fixture": "pristine",
+   "provenance": "unmodified snapshot; control for the scripted-invocation path (a non-W method)",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "pristine-read"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned"
+     }
+    ],
+    "detection": "none"
+   }
+  },
+  {
+   "id": "pristine-pinned-package-unused",
+   "group": "pristine-control",
+   "fixture": "pinned-package-unused",
+   "provenance": "unmodified console sources with a pinned synthetic package in G that nothing imports; control for the pinned-package path",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "detection": "none"
+   }
+  },
+  {
+   "id": "debt-b1-risk-profile-read",
+   "group": "debt",
+   "fixture": "pristine",
+   "provenance": "registered B1 debt: POST action risk_profile_read on a ready instance",
+   "phases": [
+    {
+     "name": "debt",
+     "mode": "debt",
+     "label": "B1 debt reproduction",
+     "allow": [
+      "B1.readRiskProfileAuthority",
+      "B1.ensureRiskProfileAuthority"
+     ],
+     "debt": [
+      {
+       "exception": "B1",
+       "operation": "action:risk_profile_read"
+      }
+     ],
+     "steps": [
+      {
+       "request": {
+        "method": "POST",
+        "body": {
+         "action": "risk_profile_read",
+         "actor": "synthetic",
+         "legacy": {
+          "state": "valid",
+          "bindings": []
+         }
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.readRiskProfileAuthority",
+      "phase": "debt"
+     },
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "debt"
+     }
+    ],
+    "storage": [
+     "debt:sql_dml INSERT INTO risk_profile_authority ("
+    ],
+    "detection": "none"
+   }
+  },
+  {
+   "id": "debt-b5-binance-detail-read",
+   "group": "debt",
+   "fixture": "pristine",
+   "provenance": "registered B5 debt: POST action binance_detail_read on a ready instance",
+   "phases": [
+    {
+     "name": "debt",
+     "mode": "debt",
+     "label": "B5 debt reproduction",
+     "allow": [
+      "B5.binanceDetailCommand"
+     ],
+     "debt": [
+      {
+       "exception": "B5",
+       "operation": "action:binance_detail_read"
+      }
+     ],
+     "steps": [
+      {
+       "request": {
+        "method": "POST",
+        "body": {
+         "action": "binance_detail_read",
+         "binding": {
+          "platform": "binance",
+          "account_key": "synthetic-binance",
+          "account_scope": "synthetic-scope",
+          "target_name": "synthetic-target",
+          "service_name": "",
+          "deployment_selector": "synthetic-deployment",
+          "account_selector": "synthetic-selector",
+          "target_id": "synthetic-target",
+          "account_scope_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "reader_revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "approved_application_revision": "cccccccccccccccccccccccccccccccccccccccc",
+          "source_binding": {
+           "kind": "binance_readonly_scope_revision",
+           "id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+         },
+         "date": "2030-01-02"
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "writers": [
+     {
+      "id": "B5.binanceDetailCommand",
+      "phase": "debt"
+     }
+    ],
+    "storage": [
+     "debt:sql_ddl CREATE TABLE IF NOT"
+    ],
+    "detection": "none"
+   }
+  },
+  {
+   "id": "fix13-computed-runtime-key",
+   "group": "fix-13-witness",
+   "fixture": "computed-runtime-key",
+   "provenance": "REPORT-FIX13 witness, rebuilt from the review; S admits it, the runtime case runs regardless; the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-prototype-aliased-assignment",
+   "group": "fix-13-witness",
+   "fixture": "prototype-aliased-assignment",
+   "provenance": "REPORT-FIX13 witness, rebuilt from the review; S admits it, the runtime case runs regardless; the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-define-property-aliased-runtime",
+   "group": "fix-13-witness",
+   "fixture": "define-property-aliased-runtime",
+   "provenance": "REPORT-FIX13 witness, rebuilt from the review; S admits it, the runtime case runs regardless; the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-test-hook-existing-valueof",
+   "group": "fix-13-witness",
+   "fixture": "test-hook-existing-valueof",
+   "provenance": "REPORT-FIX13 witness, rebuilt from the review; S admits it, the runtime case runs regardless",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-skipped-shorthand-v2_asset_map.js",
+   "group": "fix-13-witness",
+   "fixture": "skipped-shorthand-v2_asset_map.js",
+   "provenance": "REPORT-FIX13 witness, rebuilt from the review; S admits it, the runtime case runs regardless",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-skipped-shorthand-application-read_contracts.js",
+   "group": "fix-13-witness",
+   "fixture": "skipped-shorthand-application-read_contracts.js",
+   "provenance": "REPORT-FIX13 witness, rebuilt from the review; S admits it, the runtime case runs regardless",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-bare-package-base-existing-writer",
+   "group": "fix-13-witness",
+   "fixture": "bare-package-base-existing-writer",
+   "provenance": "REPORT-FIX13 witness, rebuilt from the review; S admits it, the runtime case runs regardless",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-control-computed-concatenation",
+   "group": "fix-13-control",
+   "fixture": "computed-concatenation",
+   "provenance": "REPORT-FIX13 control: S rejects it; the runtime case runs regardless; the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-control-prototype-direct-assignment",
+   "group": "fix-13-control",
+   "fixture": "prototype-direct-assignment",
+   "provenance": "REPORT-FIX13 control: S rejects it; the runtime case runs regardless; the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-control-define-property-literal",
+   "group": "fix-13-control",
+   "fixture": "define-property-literal",
+   "provenance": "REPORT-FIX13 control: S rejects it; the runtime case runs regardless; the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-control-non-test-shorthand",
+   "group": "fix-13-control",
+   "fixture": "non-test-shorthand",
+   "provenance": "REPORT-FIX13 control: S rejects it; the runtime case runs regardless",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix13-control-missing-relative-base",
+   "group": "fix-13-control",
+   "fixture": "missing-relative-base",
+   "provenance": "REPORT-FIX13 control: S rejects the unresolved relative base; in G the import fails explicitly as an unresolved module, which is not a writer detection",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [],
+    "graph": [
+     "unresolved"
+    ],
+    "detection": "graph_unresolved"
+   }
+  },
+  {
+   "id": "fix11-review-nested-instance-return",
+   "group": "fix-11-witness",
+   "fixture": "review-nested-instance-return",
+   "provenance": "REPORT-FIX11 disclosed witness, rebuilt from the review",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix11-review-nested-instance-return-anchor-preserved",
+   "group": "fix-11-witness",
+   "fixture": "review-nested-instance-return-anchor-preserved",
+   "provenance": "REPORT-FIX11 anchor-preserving witness, rebuilt from the review",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "fix11-review-nested-instance-entry-replacement",
+   "group": "fix-11-witness",
+   "fixture": "review-nested-instance-entry-replacement",
+   "provenance": "REPORT-FIX11 entry replacement: setup GET installs a new fetch, PATCH reaches it; no W entry, so the bounded operation assertion detects it",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance setup-GET and PATCH sequence",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      },
+      {
+       "request": {
+        "method": "PATCH"
+       }
+      }
+     ]
+    }
+   ],
+   "operation_contract": [
+    {
+     "step": 0,
+     "status": 200,
+     "ok": true
+    },
+    {
+     "step": 1,
+     "status": 405,
+     "ok": false,
+     "error": "method_not_allowed"
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     },
+     {
+      "status": 200,
+      "text": "synthetic-unregistered-operation"
+     }
+    ],
+    "detection": "operation_mismatch"
+   }
+  },
+  {
+   "id": "fix12-other-class-get-observation",
+   "group": "fix-12-witness",
+   "fixture": "other-class-get-observation",
+   "provenance": "REPORT-FIX12 B-F12-1: the B1 writer copied into another class; the copy carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-own-runtime-key-valueof-writer",
+   "group": "regression",
+   "fixture": "own-runtime-key-valueof-writer",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-own-runtime-key-module-constant-stored-instance",
+   "group": "regression",
+   "fixture": "own-runtime-key-module-constant-stored-instance",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-own-runtime-key-folded-logical-object",
+   "group": "regression",
+   "fixture": "own-runtime-key-folded-logical-object",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-own-runtime-key-object-property",
+   "group": "regression",
+   "fixture": "own-runtime-key-object-property",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-own-runtime-key-reassigned-let",
+   "group": "regression",
+   "fixture": "own-runtime-key-reassigned-let",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-own-runtime-key-joined-at-runtime",
+   "group": "regression",
+   "fixture": "own-runtime-key-joined-at-runtime",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-independent-super-element-runtime-key",
+   "group": "regression",
+   "fixture": "independent-super-element-runtime-key",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-independent-super-element-folded-key",
+   "group": "regression",
+   "fixture": "independent-super-element-folded-key",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-independent-super-element-constant-key",
+   "group": "regression",
+   "fixture": "independent-super-element-constant-key",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-independent-super-element-untracked-key",
+   "group": "regression",
+   "fixture": "independent-super-element-untracked-key",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-independent-this-element-runtime-key",
+   "group": "regression",
+   "fixture": "independent-this-element-runtime-key",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-independent-this-element-constant-key",
+   "group": "regression",
+   "fixture": "independent-this-element-constant-key",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-independent-this-nested-element-runtime-key",
+   "group": "regression",
+   "fixture": "independent-this-nested-element-runtime-key",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-independent-this-nested-element-constant-key",
+   "group": "regression",
+   "fixture": "independent-this-nested-element-constant-key",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-nested-function-return",
+   "group": "regression",
+   "fixture": "instance-value-nested-function-return",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-anchor-kept",
+   "group": "regression",
+   "fixture": "instance-value-anchor-kept",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.readRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-nested-arrow-return",
+   "group": "regression",
+   "fixture": "instance-value-nested-arrow-return",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-arrow-in-nested-function",
+   "group": "regression",
+   "fixture": "instance-value-arrow-in-nested-function",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-module-level-function",
+   "group": "regression",
+   "fixture": "instance-value-module-level-function",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-object-literal-method",
+   "group": "regression",
+   "fixture": "instance-value-object-literal-method",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-accessor-returned-function",
+   "group": "regression",
+   "fixture": "instance-value-accessor-returned-function",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-argument",
+   "group": "regression",
+   "fixture": "instance-value-argument",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-variable-assignment",
+   "group": "regression",
+   "fixture": "instance-value-variable-assignment",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-property-assignment",
+   "group": "regression",
+   "fixture": "instance-value-property-assignment",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-array-element",
+   "group": "regression",
+   "fixture": "instance-value-array-element",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-object-element",
+   "group": "regression",
+   "fixture": "instance-value-object-element",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-yield",
+   "group": "regression",
+   "fixture": "instance-value-yield",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-await",
+   "group": "regression",
+   "fixture": "instance-value-await",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "unhandled": [
+     "WriterEntryViolation"
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-tagged-template",
+   "group": "regression",
+   "fixture": "instance-value-tagged-template",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-builtin-reverse",
+   "group": "regression",
+   "fixture": "instance-value-builtin-reverse",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-builtin-valueof",
+   "group": "regression",
+   "fixture": "instance-value-builtin-valueof",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-accessor-builtin",
+   "group": "regression",
+   "fixture": "instance-value-accessor-builtin",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-instance-value-declared-method-overwritten",
+   "group": "regression",
+   "fixture": "instance-value-declared-method-overwritten",
+   "provenance": "existing executable regression of the static matrix (same edits)",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-other-class-direct-construction",
+   "group": "regression",
+   "fixture": "other-class-direct-construction",
+   "provenance": "existing executable regression (member host); the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-other-class-property-installed",
+   "group": "regression",
+   "fixture": "other-class-property-installed",
+   "provenance": "existing executable regression (member host); the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-other-class-builtin-field",
+   "group": "regression",
+   "fixture": "other-class-builtin-field",
+   "provenance": "existing executable regression (member host); the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-other-class-expression",
+   "group": "regression",
+   "fixture": "other-class-expression",
+   "provenance": "existing executable regression (member host); the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-other-class-inherited-writer",
+   "group": "regression",
+   "fixture": "other-class-inherited-writer",
+   "provenance": "existing executable regression (member host); the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-other-object-literal-writer",
+   "group": "regression",
+   "fixture": "other-object-literal-writer",
+   "provenance": "existing executable regression (member host); the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:durable_object.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "regression-other-class-imported-alias",
+   "group": "regression",
+   "fixture": "other-class-imported-alias",
+   "provenance": "existing executable regression (member host); the copied B1 body carries the clone marker",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "clones": 1,
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "site": "clone:probe_other.js",
+      "phase": "request"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "control-graph-unpinned-package",
+   "group": "graph-bounds-control",
+   "fixture": "graph-unpinned-package",
+   "provenance": "an unpinned bare package import fails in G as unpinned, not as a missing module",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [],
+    "graph": [
+     "unpinned_package"
+    ],
+    "detection": "graph_unresolved"
+   }
+  },
+  {
+   "id": "control-graph-builtin-rejected",
+   "group": "graph-bounds-control",
+   "fixture": "graph-builtin-rejected",
+   "provenance": "a builtin outside the declared set (node:fs) fails in G",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [],
+    "graph": [
+     "builtin_rejected"
+    ],
+    "detection": "graph_unresolved"
+   }
+  },
+  {
+   "id": "control-graph-alternate-url",
+   "group": "graph-bounds-control",
+   "fixture": "graph-alternate-url",
+   "provenance": "an alternate URL (query string) for a W module would create a second, unverified instance; G rejects it",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "reject",
+    "steps": [],
+    "graph": [
+     "noncanonical_url"
+    ],
+    "detection": "graph_unresolved"
+   }
+  },
+  {
+   "id": "control-bounds-task-budget",
+   "group": "graph-bounds-control",
+   "fixture": "bounds-task-budget",
+   "provenance": "a GET that reschedules a zero-delay timer forever exceeds the frozen task budget",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "failures": [
+     "budget:tasks"
+    ],
+    "detection": "bound_exceeded"
+   }
+  },
+  {
+   "id": "control-bounds-interval",
+   "group": "graph-bounds-control",
+   "fixture": "bounds-interval",
+   "provenance": "setInterval is an unsupported facility in G",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "failures": [
+     "unsupported:setInterval"
+    ],
+    "detection": "bound_exceeded"
+   }
+  },
+  {
+   "id": "control-bounds-delayed-timer",
+   "group": "graph-bounds-control",
+   "fixture": "bounds-delayed-timer",
+   "provenance": "a delayed timer exceeds the frozen timer delay",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 409,
+      "ok": false,
+      "error": "runtime_instance_transaction_failed"
+     }
+    ],
+    "failures": [
+     "unsupported:setTimeout:1000"
+    ],
+    "detection": "bound_exceeded"
+   }
+  },
+  {
+   "id": "control-bounds-unsettled-promise",
+   "group": "graph-bounds-control",
+   "fixture": "bounds-unsettled-promise",
+   "provenance": "tracked work that never settles is residual work within the case budget",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "failures": [
+     "residual:tracked_promise"
+    ],
+    "detection": "bound_exceeded"
+   }
+  },
+  {
+   "id": "control-bounds-hang",
+   "group": "graph-bounds-control",
+   "fixture": "bounds-hang",
+   "provenance": "a synchronous hang is killed at the case budget without a complete result",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [],
+    "failures": [
+     "incomplete:timeout"
+    ],
+    "detection": "incomplete"
+   }
+  },
+  {
+   "id": "positive-entry-B0.RuntimeInstances.constructor",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B0.RuntimeInstances.constructor with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B0.RuntimeInstances.constructor"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation",
+      "latched_before_return": [
+       "B0.RuntimeInstances.constructor"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B0.RuntimeInstances.constructor",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B0.initializeExecutions",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B0.initializeExecutions with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B0.initializeExecutions"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation",
+      "latched_before_return": [
+       "B0.initializeExecutions"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B0.initializeExecutions",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B0.initializeExternalFlow",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B0.initializeExternalFlow with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B0.initializeExternalFlow"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation",
+      "latched_before_return": [
+       "B0.initializeExternalFlow"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B0.initializeExternalFlow",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B0.initializeCredentialMaintenance",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B0.initializeCredentialMaintenance with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B0.initializeCredentialMaintenance"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation",
+      "latched_before_return": [
+       "B0.initializeCredentialMaintenance"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B0.initializeCredentialMaintenance",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B0.initializeSecretRotation",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B0.initializeSecretRotation with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B0.initializeSecretRotation"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation",
+      "latched_before_return": [
+       "B0.initializeSecretRotation"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B0.initializeSecretRotation",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B1.ensureRiskProfileAuthority",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B1.ensureRiskProfileAuthority with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B1.ensureRiskProfileAuthority"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation",
+      "latched_before_return": [
+       "B1.ensureRiskProfileAuthority"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B1.readRiskProfileAuthority",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B1.readRiskProfileAuthority with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B1.readRiskProfileAuthority"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation",
+      "latched_before_return": [
+       "B1.readRiskProfileAuthority"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.readRiskProfileAuthority",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B2.migrateCycleHealthCheckpoint",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B2.migrateCycleHealthCheckpoint with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B2.migrateCycleHealthCheckpoint"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation",
+      "latched_before_return": [
+       "B2.migrateCycleHealthCheckpoint"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B2.migrateCycleHealthCheckpoint",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B3.readPlatformRuntimeControl",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B3.readPlatformRuntimeControl with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B3.readPlatformRuntimeControl"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned",
+      "latched_before_return": [
+       "B3.readPlatformRuntimeControl"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B3.readPlatformRuntimeControl",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B4.credentialRotationResponse",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B4.credentialRotationResponse with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B4.credentialRotationResponse"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned",
+      "latched_before_return": [
+       "B4.credentialRotationResponse"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B4.credentialRotationResponse",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B5.binanceDetailCommand",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B5.binanceDetailCommand with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B5.binanceDetailCommand"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation",
+      "latched_before_return": [
+       "B5.binanceDetailCommand"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B5.binanceDetailCommand",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B6.DeskReadbackStore.constructor",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B6.DeskReadbackStore.constructor with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B6.DeskReadbackStore.constructor"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation",
+      "latched_before_return": [
+       "B6.DeskReadbackStore.constructor"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B6.DeskReadbackStore.constructor",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B7.readCurrentStrategies",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B7.readCurrentStrategies with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B7.readCurrentStrategies"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned",
+      "latched_before_return": [
+       "B7.readCurrentStrategies"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.readCurrentStrategies",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-entry-B7.writeCurrentStrategiesCache",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "isolated invocation of B7.writeCurrentStrategiesCache with sentinel receiver and arguments; the latch precedes every parameter and body operation",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "isolated invocation phase",
+     "steps": [
+      {
+       "invoke": "B7.writeCurrentStrategiesCache"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned",
+      "latched_before_return": [
+       "B7.writeCurrentStrategiesCache"
+      ],
+      "touched": []
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-b1-alias",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "original B1.ensureRiskProfileAuthority through a copied function value",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "b1-alias"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-b1-recovered-receiver",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "original B1.ensureRiskProfileAuthority through a receiver recovered through valueOf and a runtime-built key",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "b1-recovered-receiver"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-b1-caught-sentinel",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "original B1.ensureRiskProfileAuthority through a call whose error the caller catches",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "b1-caught-sentinel"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned",
+      "swallowed": "WriterEntryViolation"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-b1-noop-input",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "original B1.ensureRiskProfileAuthority through an input on which the writer would be a no-op (shown by a preceding debt-mode call that writes nothing)",
+   "phases": [
+    {
+     "name": "noop",
+     "mode": "debt",
+     "label": "no-op proof: the body runs and writes nothing",
+     "allow": [
+      "B1.ensureRiskProfileAuthority"
+     ],
+     "debt": [
+      {
+       "exception": "B1",
+       "operation": "action:risk_profile_read"
+      }
+     ],
+     "steps": [
+      {
+       "script": "b1-noop-input"
+      }
+     ]
+    },
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "b1-noop-input"
+      }
+     ]
+    }
+   ],
+   "initial_state": {
+    "sql": [
+     {
+      "match": "FROM risk_profile_authority",
+      "rows": [
+       {
+        "revision": 0,
+        "imported": 1,
+        "bindings_json": "[]"
+       }
+      ]
+     }
+    ]
+   },
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned"
+     },
+     {
+      "outcome": "threw",
+      "error": "WriterEntryViolation"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "noop"
+     },
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-b1-deferred-callback",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "original B1.ensureRiskProfileAuthority through a tracked deferred callback after the step returns",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "b1-deferred-callback"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "scheduled"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B1.ensureRiskProfileAuthority",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-b7-alias",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "original B7.writeCurrentStrategiesCache through a copied function value",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "b7-alias"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-b7-recovered-receiver",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "original B7.writeCurrentStrategiesCache through a receiver recovered through valueOf and a runtime-built key",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "b7-recovered-receiver"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-b7-caught-sentinel",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "original B7.writeCurrentStrategiesCache through a call whose error the caller catches",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "b7-caught-sentinel"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned",
+      "swallowed": "WriterEntryViolation"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-b7-noop-input",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "original B7.writeCurrentStrategiesCache through an input on which the writer would be a no-op (shown by a preceding debt-mode call that writes nothing)",
+   "phases": [
+    {
+     "name": "noop",
+     "mode": "debt",
+     "label": "no-op proof: the body runs and writes nothing",
+     "allow": [
+      "B7.writeCurrentStrategiesCache"
+     ],
+     "debt": [
+      {
+       "exception": "B7",
+       "operation": "route:/api/config#*"
+      }
+     ],
+     "steps": [
+      {
+       "script": "b7-noop-input"
+      }
+     ]
+    },
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "b7-noop-input"
+      }
+     ]
+    }
+   ],
+   "initial_state": {
+    "kv": {
+     "current_strategies_cache": "{\"ts\":1,\"data\":{\"synthetic\":true}}"
+    },
+    "b7_payload": {
+     "synthetic": true
+    },
+    "b7_ts": 2
+   },
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned"
+     },
+     {
+      "outcome": "returned"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "noop"
+     },
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  },
+  {
+   "id": "positive-b7-deferred-callback",
+   "group": "positive-control",
+   "fixture": "pristine",
+   "provenance": "original B7.writeCurrentStrategiesCache through a tracked deferred callback after the step returns",
+   "phases": [
+    {
+     "name": "invoke",
+     "mode": "zero-writer",
+     "label": "scripted invocation phase",
+     "steps": [
+      {
+       "script": "b7-deferred-callback"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "scheduled"
+     }
+    ],
+    "writers": [
+     {
+      "id": "B7.writeCurrentStrategiesCache",
+      "phase": "invoke"
+     }
+    ],
+    "detection": "writer_latch"
+   }
+  }
+ ]
+}
