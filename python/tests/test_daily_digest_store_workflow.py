@@ -213,7 +213,7 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
     def digest_receipt(self, env, layout="sections_v2"):
         with mock.patch.dict(os.environ, env, clear=True):
             payload, text, collected = aggregator.build_digest_payload(
-                business_day="2026-10-12", include_github=False, layout=layout,
+                business_day="2026-10-12", include_github=False, layout=layout, locale="zh",
             )
         return aggregator.build_receipt(payload, collected, message_chars=len(text)), text
 
@@ -265,14 +265,15 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
                 "DIGEST_CANDIDATES_STORE_REASON": "private-target-secret",
             }, clear=True):
                 payload, text, collected = aggregator.build_digest_payload(
-                    business_day="2026-10-12", include_github=False)
+                    business_day="2026-10-12", include_github=False, locale="zh")
                 receipt = aggregator.build_receipt(payload, collected, message_chars=len(text))
                 self.assertTrue(receipt["source_coverage"]["has_source_failures"])
                 self.assertNotIn("private-target", json.dumps(receipt))
 
     def test_disabled_store_preserves_default_unknown_and_legacy_idle(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            payload, text, collected = aggregator.build_digest_payload(business_day="2026-10-12", include_github=False)
+            payload, text, collected = aggregator.build_digest_payload(
+                business_day="2026-10-12", include_github=False, locale="zh")
         self.assertFalse(collected.coverage.has_source_failures)
         self.assertEqual(payload.evidence_status, "evidence_unknown")
         self.assertIn("证据未知", text)

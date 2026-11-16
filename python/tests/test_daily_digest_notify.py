@@ -25,7 +25,9 @@ class DailyDigestNotifyTests(unittest.TestCase):
     def test_locale_normalization(self):
         self.assertEqual(daily_digest_notify.normalize_locale("zh-CN"), "zh")
         self.assertEqual(daily_digest_notify.normalize_locale("en-US"), "en")
-        self.assertEqual(daily_digest_notify.normalize_locale(None), "zh")
+        self.assertEqual(daily_digest_notify.normalize_locale(None), "en")
+        self.assertEqual(daily_digest_notify.normalize_locale(""), "en")
+        self.assertEqual(daily_digest_notify.normalize_locale("zh"), "zh")
 
     def test_empty_runs_without_coverage_is_evidence_unknown(self):
         text = daily_digest_notify.render_daily_digest(

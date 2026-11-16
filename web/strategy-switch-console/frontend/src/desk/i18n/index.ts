@@ -19,8 +19,8 @@ export function deskTranslator(language: Language): DeskTranslate {
 }
 
 /**
- * The desk is zh-CN first. A stored choice wins; otherwise the browser language if it is
- * zh or en; otherwise zh (the console-wide default of en does not apply to the desk).
+ * A stored choice wins; otherwise the browser language if it is zh or en; otherwise en
+ * (the same default as the rest of the console).
  */
 export function resolveDeskLanguage(stored: string | null, browserLanguages: readonly string[]): Language {
   if (stored === "zh" || stored === "zh-CN") return "zh";
@@ -29,7 +29,7 @@ export function resolveDeskLanguage(stored: string | null, browserLanguages: rea
     if (/^zh(?:-|$)/i.test(language)) return "zh";
     if (/^en(?:-|$)/i.test(language)) return "en";
   }
-  return "zh";
+  return "en";
 }
 
 /**

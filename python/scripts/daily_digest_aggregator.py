@@ -160,7 +160,7 @@ def resolve_locale(raw: str | None = None) -> digest.DigestLocale:
         raw
         or os.environ.get("QSL_NOTIFY_LANG")
         or os.environ.get("NOTIFY_LANG")
-        or "zh"
+        or "en"
     )
 
 

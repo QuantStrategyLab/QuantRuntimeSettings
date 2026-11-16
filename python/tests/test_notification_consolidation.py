@@ -37,6 +37,7 @@ def candidate(run="run-a", kind="routine_cycle", **updates):
 
 
 def build(rows, expected=None, **kwargs):
+    kwargs.setdefault("locale", "zh")  # zh assertions; English is the unconfigured default
     with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, ON, clear=True):
         path = Path(directory) / "candidates.json"
         path.write_text(json.dumps({"runs": rows}))

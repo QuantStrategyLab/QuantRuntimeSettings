@@ -72,9 +72,9 @@ assert.equal(serverNowIso(null, client), "2026-11-02T14:30:07Z");
 assert.equal(secondsBetween("2026-11-02T14:26:00Z", "2026-11-02T14:32:07Z"), 367);
 assert.equal(secondsBetween("2026-11-02T14:26:00Z", null), null);
 
-// Language: zh-CN first for the desk.
-assert.equal(resolveDeskLanguage(null, []), "zh");
-assert.equal(resolveDeskLanguage(null, ["fr-FR", "de"]), "zh");
+// Language: a stored choice wins; the unconfigured default is en.
+assert.equal(resolveDeskLanguage(null, []), "en");
+assert.equal(resolveDeskLanguage(null, ["fr-FR", "de"]), "en");
 assert.equal(resolveDeskLanguage(null, ["en-US"]), "en");
 assert.equal(resolveDeskLanguage("en", ["zh-CN"]), "en");
 assert.equal(resolveDeskLanguage("zh-CN", ["en-US"]), "zh");

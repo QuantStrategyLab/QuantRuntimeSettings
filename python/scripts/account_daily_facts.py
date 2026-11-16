@@ -118,7 +118,11 @@ def _snapshot(raw, end):
         if symbol is None or asset is None or quantity is None:
             complete = False
             continue
-        projected.append({'symbol': symbol, 'quantity': quantity, 'asset_type': asset})
+        position = {'symbol': symbol, 'quantity': quantity, 'asset_type': asset}
+        origin = _text(item.get('origin'))
+        if origin is not None:
+            position['origin'] = origin
+        projected.append(position)
     if equity is None and not projected and not complete and not no_stocks and not no_spot_earn:
         return None
     projected.sort(key=lambda item: (item['symbol'], item['asset_type'], item['quantity']))

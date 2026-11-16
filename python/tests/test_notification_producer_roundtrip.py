@@ -85,7 +85,7 @@ class ProducerRoundtripTests(unittest.TestCase):
             runs, summary = receiver.aggregate(current, [EXPECTED])
             with patch.object(aggregator, "load_platform_config", return_value=config([EXPECTED])):
                 payload, text, collected = aggregator.build_digest_payload(
-                    business_day=DAY, candidates_path=output, include_github=False)
+                    business_day=DAY, candidates_path=output, include_github=False, locale="zh")
                 receipt = aggregator.build_receipt(payload, collected, message_chars=len(text))
         return runs, summary, text, receipt
 
