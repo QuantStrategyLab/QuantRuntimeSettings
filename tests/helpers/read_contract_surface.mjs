@@ -32,7 +32,11 @@
 //   one `const NAME = new Set([...string literals])`, or an action family or
 //   entry binding is used other than in its admitted form in any module the
 //   Worker reaches (`options.modules` supplies the whole console tree), or a
-//   module exporting one is dynamically imported or re-exported as a namespace.
+//   module exporting one is dynamically imported or re-exported as a namespace;
+// - in any module the Worker reaches, `this` or `super` stands other than as
+//   the object of a dotted access, `super(...)` or a literal-key destructuring
+//   source (the instance as a value), or, in an entry class, a call
+//   `this.name()` names no declared method or a declared method is written.
 //
 // There is no fallback tokenizer: unsupported syntax is an error, never an empty
 // extraction.
@@ -1130,9 +1134,40 @@ function classMethods(ts, sf, className, label, audit = {}) {
   // object of a dotted property access that neither writes an entry nor
   // names a prototype link; instance fields holding another entry object are
   // used only through their reviewed method calls.
+  //
+  // Instance as a value (review FIX12): the instance reaches a value position
+  // only through `this` itself, or through a call on it whose callee returns
+  // its receiver. The first is the positional rule here and, for every reached
+  // module, in `auditModules`. For the second, a call or tag `this.name` must
+  // name a method declared in the class body, whose body this rule audits, and
+  // no declared method is written: an own property holding a function the
+  // source does not show (`[].reverse`, `{}.valueOf`, a nested function
+  // returning `this`) is never invoked with the instance as its receiver. The
+  // rules apply at every depth of the class body, nested non-arrow functions
+  // included, since an installed function runs with the instance as `this`.
+  // A reviewed injected callable (`audit.injected`: name -> default) is
+  // invoked too: its constructor parameter defaults to that built-in, it is
+  // stored once by `this.name = name;` in the constructor, and the module graph
+  // admits no construction that passes it.
   const entries = new Set(["constructor", ...(audit.entries || [])]);
   const fields = audit.fields || {};
+  const declared = new Set([...methods].filter(([, found]) => found.every(member => ts.isMethodDeclaration(member) && member.body)).map(([name]) => name));
   const fail = (node, detail) => problems.push(`${label}: entry_replaced: ${detail} (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`);
+  const injected = new Set();
+  const [constructor] = cls.members.filter(member => ts.isConstructorDeclaration(member));
+  for (const [name, fallback] of Object.entries(audit.injected || {})) {
+    const parameter = constructor?.parameters.find(p => ts.isIdentifier(p.name) && p.name.text === name);
+    const stores = [];
+    const collect = node => {
+      if (ts.isPropertyAccessExpression(node) && node.name.text === name && unwrap(ts, node.expression).kind === ts.SyntaxKind.ThisKeyword && isWriteTarget(ts, node)) stores.push(node);
+      ts.forEachChild(node, collect);
+    };
+    collect(cls);
+    const statement = stores.length === 1 ? enclosingStatement(ts, stores[0]) : null;
+    if (parameter?.initializer && canonical(ts, parameter.initializer) === canonicalExpression(ts, fallback) && statement?.parent?.parent === constructor
+      && canonical(ts, statement) === canonicalStatements(ts, `this.${name} = ${name};`)[0]) injected.add(name);
+    else problems.push(`${label}: entry_replaced: injected callable this.${name} of ${className} is not the reviewed constructor parameter defaulting to ${fallback}, stored once`);
+  }
   const visit = node => {
     if (node.kind === ts.SyntaxKind.ThisKeyword) {
       const top = outer(ts, node);
@@ -1141,8 +1176,12 @@ function classMethods(ts, sf, className, label, audit = {}) {
       else if (!ts.isPropertyAccessExpression(access) || access.expression !== top) fail(node, `this used as a value in ${className}`);
       else {
         const name = access.name.text;
+        const use = outer(ts, access).parent;
+        const invoked = use && ((ts.isCallExpression(use) && use.expression === outer(ts, access)) || (ts.isTaggedTemplateExpression(use) && use.tag === outer(ts, access)));
         if (PROTOTYPE_LINKS.has(name)) fail(node, `this.${name} in ${className}`);
         else if (entries.has(name) && isWriteTarget(ts, access)) fail(node, `write to entry this.${name} in ${className}`);
+        else if (declared.has(name) && isWriteTarget(ts, access)) fail(node, `write to declared method this.${name} in ${className}`);
+        else if (invoked && !declared.has(name) && !injected.has(name)) fail(node, `this.${name} is invoked but is not a method declared in ${className}`);
         else if (Object.hasOwn(fields, name) && !isWriteTarget(ts, access)) {
           const use = outer(ts, access).parent;
           const call = use && ts.isPropertyAccessExpression(use) && use.expression === outer(ts, access) ? outer(ts, use).parent : null;
@@ -1150,7 +1189,7 @@ function classMethods(ts, sf, className, label, audit = {}) {
         }
       }
     }
-    if (!ts.isFunctionLike(node) || ts.isArrowFunction(node) || node.parent === cls) ts.forEachChild(node, visit);
+    ts.forEachChild(node, visit);
   };
   ts.forEachChild(cls, visit);
   const method = (name, params) => {
@@ -1609,7 +1648,7 @@ function directoryActions(ts, file, reviewed, ctx) {
     && unwrap(ts, assignments[0].right).expression.text === "KvDirectory" && ts.isConstructorDeclaration(assignments[0].parent.parent.parent);
   if (!constructed) { ctx.errors.push("directory delegate: delegate: this.directory is not exactly one new KvDirectory(...) in the constructor"); return []; }
   const sf = file(DIRECTORY);
-  const { method, problems } = classMethods(ts, sf, "KvDirectory", "kv_directory.js", { entries: ["command", "run"] });
+  const { method, problems } = classMethods(ts, sf, "KvDirectory", "kv_directory.js", { entries: ["command", "run"], injected: { now: "Date.now" } });
   ctx.errors.push(...problems);
   const command = method("command", ["command"]);
   const run = method("run", ["command"]);
@@ -1646,7 +1685,8 @@ function auditModules(ts, file, modules, families, errors) {
   const track = (path, name, entry) => { if (item(path, name)) return false; tracked.set(`${path}#${name}`, entry); return true; };
   for (const family of families) track(family.path, family.name, { kind: "family", label: family.label, path: family.path, name: family.name });
   track(DURABLE, "RuntimeInstances", { kind: "none", label: "RuntimeInstances", path: DURABLE, name: "RuntimeInstances" });
-  track(DIRECTORY, "KvDirectory", { kind: "instance", label: "KvDirectory", path: DIRECTORY, name: "KvDirectory" });
+  // At most three arguments: the fourth, `now`, keeps its reviewed default.
+  track(DIRECTORY, "KvDirectory", { kind: "instance", label: "KvDirectory", path: DIRECTORY, name: "KvDirectory", arguments: 3 });
   for (const name of ["rotationCommand", "durableRotationCommand"]) track(ROTATION, name, { kind: "call", label: name, path: ROTATION, name });
   track(WORKER, "default", { kind: "none", label: "the Worker default export", path: WORKER, name: "default" });
 
@@ -1673,13 +1713,17 @@ function auditModules(ts, file, modules, families, errors) {
     : `entry_replaced: ${entry.label} is renamed ${where(sf, path, node)}`);
   const DESCRIBE = {
     family: "used other than .has()", call: "used other than as a call", none: "is referenced",
-    instance: "used other than as new KvDirectory(...) bound to a method-only const or this.directory",
+    instance: "used other than as new KvDirectory(...) with at most three arguments, bound to a method-only const or this.directory",
   };
   const allowed = (entry, sf, path, ref) => {
     const kind = useKind(ts, sf, ref);
     if (entry.kind === "family") return kind === "method:has";
     if (entry.kind === "call") return kind === "call";
-    if (entry.kind === "instance") return kind === "new:bound" || (kind === "new:this.directory" && path === DURABLE);
+    if (entry.kind === "instance") {
+      const created = outer(ts, ref).parent;
+      if ((created.arguments?.length || 0) > entry.arguments || created.arguments?.some(argument => ts.isSpreadElement(argument))) return false;
+      return kind === "new:bound" || (kind === "new:this.directory" && path === DURABLE);
+    }
     return false;
   };
 
@@ -1791,7 +1835,34 @@ function auditModules(ts, file, modules, families, errors) {
       }
     }
     for (const { node, detail } of summary.reach) report(`family_mutation: prototype reach (${detail}) ${where(sf, path, node)}`);
+    for (const { node, detail } of summary.values) report(`instance_value: ${detail} ${where(sf, path, node)}`);
   }
+}
+
+/**
+ * Where `this` or `super` may stand in a reached module (review FIX12): as the
+ * object of a dotted property access other than `.valueOf`, `super(...)` in a
+ * constructor, or the initializer of an object destructuring whose keys are
+ * literal names other than `valueOf`, without a rest element. Anywhere else,
+ * a return value, an argument, an assignment source, a collection element,
+ * `yield`, `await`, a template, a comparison or a computed access, the
+ * instance is a value whose members a key built at run time can select, so it
+ * is not admitted at any depth, in a nested function or at module level.
+ * Returns a description of the position, or null when it is admitted.
+ */
+function instanceValuePosition(ts, node) {
+  const self = node.kind === ts.SyntaxKind.ThisKeyword ? "this" : "super";
+  const top = outer(ts, node);
+  const parent = top.parent;
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === top) return parent.name.text === "valueOf" ? `${self}.valueOf returns the instance as a value` : null;
+  if (ts.isElementAccessExpression(parent) && parent.expression === top) return `computed access on ${self}`;
+  if (self === "super" && ts.isCallExpression(parent) && parent.expression === top) return null;
+  if (self === "this" && ts.isVariableDeclaration(parent) && parent.initializer === top && ts.isObjectBindingPattern(parent.name)
+    && parent.name.elements.every(element => {
+      const key = element.propertyName || element.name;
+      return !element.dotDotDotToken && (ts.isIdentifier(key) || ts.isStringLiteral(key)) && key.text !== "valueOf";
+    })) return null;
+  return `${self} is used as a value (${ts.SyntaxKind[parent.kind]})`;
 }
 
 /** How a reference to a tracked binding is used. */
@@ -1839,7 +1910,7 @@ const summaries = new WeakMap();
 const PROTOTYPE_REACH = new Set(["getPrototypeOf", "setPrototypeOf", "__proto__"]);
 function moduleSummary(ts, sf) {
   if (summaries.has(sf)) return summaries.get(sf);
-  const summary = { sf, requests: [], imports: [], exports: [], refs: new Map(), reach: [] };
+  const summary = { sf, requests: [], imports: [], exports: [], refs: new Map(), reach: [], values: [] };
   for (const statement of sf.statements) {
     if (ts.isImportDeclaration(statement)) {
       const module = statement.moduleSpecifier.text;
@@ -1859,6 +1930,10 @@ function moduleSummary(ts, sf) {
     }
   }
   const visit = node => {
+    if (node.kind === ts.SyntaxKind.ThisKeyword || node.kind === ts.SyntaxKind.SuperKeyword) {
+      const detail = instanceValuePosition(ts, node);
+      if (detail) summary.values.push({ node, detail });
+    }
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const [argument] = node.arguments;
       summary.requests.push({ specifier: argument && isStringLiteral(ts, argument) ? literalValue(ts, argument) : null, node, dynamic: true });

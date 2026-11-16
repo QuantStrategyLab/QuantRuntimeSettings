@@ -1155,6 +1155,57 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     const base = label.includes("-super-") ? "super" : "this";
     rejectBinding(label, applyEdits(sources, edits), new RegExp(`^helper binding: instance_identity: computed access on ${base} can select valueOf, .*durable_object\\.js`));
   }
+  // The instance as a value (review FIX12): a function installed on the
+  // instance runs with the instance as `this`, so `return this` in a nested
+  // function, a module-level function or a built-in that returns its receiver
+  // hands the instance out, and a key joined at run time selects the writer.
+  // `this` may stand only as a dotted receiver (or a literal-key
+  // destructuring source) in every reached module, at any depth; a call
+  // `this.name()` in the class names a method declared there, and no declared
+  // method is overwritten. The anchor-kept case reaches the writer through
+  // the registered readRiskProfileAuthority anchor call, left in place. Each
+  // case also runs below and reaches the writer; all but the nested arrow,
+  // which the class visitor already rejected, were admitted before.
+  const CLASS_START = "export class RuntimeInstances {\n";
+  const RESPONSE_BODY = "  response(state) {\n    return {";
+  const responseEdit = text => ({ file: DO_FILE, from: RESPONSE_BODY, to: RESPONSE_BODY.replace("  response(state) {\n", `  response(state) {\n    ${text}\n`) });
+  const memberEdit = text => ({ file: DO_FILE, from: CLASS_START, to: `${CLASS_START}  ${text}\n` });
+  const moduleEdit = text => ({ file: DO_FILE, from: DO_END, to: `${DO_END}${text}\n` });
+  const installed = (setup, use = `this.probeSelf()${RUNTIME_WRITER_KEY}(${LEGACY});`) => readEdit(setup ? `${setup}\n    ${use}` : use);
+  const AS_VALUE = /^durable_object\.js: entry_replaced: this used as a value in RuntimeInstances/;
+  const UNDECLARED = /^durable_object\.js: entry_replaced: this\.probeSelf is invoked but is not a method declared in RuntimeInstances/;
+  const IN_MODULE = /^module graph: instance_value: this is used as a value .*durable_object\.js/;
+  const INSTANCE_VALUE_CASES = {
+    "instance-value-nested-function-return": [[installed("this.probeSelf = function () { return this; };")], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-anchor-kept": [[responseEdit(`this.probeSelf = function () { return this; };\n    this.probeSelf()[["readRisk", "ProfileAuthority"].join("")](${LEGACY});`)], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-nested-arrow-return": [[installed("const probeSelf = () => this;", `probeSelf()${RUNTIME_WRITER_KEY}(${LEGACY});`)], [AS_VALUE, IN_MODULE]],
+    "instance-value-arrow-in-nested-function": [[installed("this.probeSelf = function () { return (() => this)(); };")], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-module-level-function": [[moduleEdit("function probeSelfOf() { return this; }"), installed("this.probeSelf = probeSelfOf;")], [IN_MODULE, UNDECLARED]],
+    "instance-value-object-literal-method": [[installed("const probeHolder = { probeSelf() { return this; } };\n    this.probeSelf = probeHolder.probeSelf;")], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-accessor-returned-function": [[memberEdit("get probeSelf() { return function () { return this; }; }"), installed("")], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-argument": [[moduleEdit("const probeIdentity = value => value;"), installed("this.probeSelf = function () { return probeIdentity(this); };")], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-variable-assignment": [[installed("this.probeSelf = function () { const probeHeld = this; return probeHeld; };")], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-property-assignment": [[installed("this.probeSelf = function () { this.probeHeld = this; };", `this.probeSelf();\n    this.probeHeld${RUNTIME_WRITER_KEY}(${LEGACY});`)], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-array-element": [[installed("this.probeSelf = function () { return [this]; };", `this.probeSelf()[0]${RUNTIME_WRITER_KEY}(${LEGACY});`)], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-object-element": [[installed("this.probeSelf = function () { return { probeHeld: this }; };", `this.probeSelf().probeHeld${RUNTIME_WRITER_KEY}(${LEGACY});`)], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-yield": [[installed("this.probeSelf = function* () { yield this; };", `this.probeSelf().next().value${RUNTIME_WRITER_KEY}(${LEGACY});`)], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-await": [[installed("this.probeSelf = async function () { return await this; };", `this.probeSelf().then(probeHeld => probeHeld${RUNTIME_WRITER_KEY}(${LEGACY}));`)], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-tagged-template": [[moduleEdit("const probeTag = (strings, value) => value;"), installed("this.probeSelf = function () { return probeTag`${this}`; };")], [AS_VALUE, IN_MODULE, UNDECLARED]],
+    "instance-value-builtin-reverse": [[installed("this.probeSelf = [].reverse;")], [UNDECLARED]],
+    "instance-value-builtin-valueof": [[installed("this.probeSelf = {}.valueOf;")], [UNDECLARED]],
+    "instance-value-accessor-builtin": [[memberEdit("get probeSelf() { return [].reverse; }"), installed("")], [UNDECLARED]],
+    "instance-value-declared-method-overwritten": [[installed("this.storedRiskBindings = [].reverse;", `this.storedRiskBindings()${RUNTIME_WRITER_KEY}(${LEGACY});`)],
+      [/^durable_object\.js: entry_replaced: write to declared method this\.storedRiskBindings in RuntimeInstances/]],
+  };
+  for (const [label, [edits, patterns]] of Object.entries(INSTANCE_VALUE_CASES)) {
+    const { probed, errors } = validated(applyEdits(sources, edits));
+    assert.equal(errors.some(error => /call sites changed/.test(error)), false, `reject ${label}: the counted sites are unchanged`);
+    for (const pattern of patterns) expectError(probed.errors, pattern, `reject ${label}`);
+    outcomes.push(["reject", label, probed.errors.find(error => patterns[0].test(error))]);
+  }
+  // The one injected callable the class rule admits keeps its default.
+  reject("KvDirectory constructed with an injected now", edit(DO_FILE, "new KvDirectory(ctx.storage, env?.STRATEGY_SWITCH_CONFIG, env);", "new KvDirectory(ctx.storage, env?.STRATEGY_SWITCH_CONFIG, env, [].reverse);"),
+    /module graph: entry_replaced: KvDirectory used other than as new KvDirectory\(\.\.\.\) with at most three arguments/);
   pass("member helper name compared in place and by a constant", inRead('const probeNote = "ensureRiskProfileAuthority";\n    if (probeNote === "ensureRiskProfileAuthority") {}'));
 
   // Catch bodies (review F2.4): the whole clause is the reviewed template.
@@ -1283,11 +1334,14 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     const statements = [];
     const self = Object.assign(Object.create(RuntimeInstances.prototype), { sql: { exec: statement => { statements.push(statement); return { toArray: () => [], one: () => null }; } } });
     const response = await self.fetch(new Request("https://runtime-instances.invalid/"));
+    // A write chained on a promise the handler started lands after it returns.
+    await new Promise(resolve => setImmediate(resolve));
     return [response.status, statements.filter(statement => /^\s*INSERT\b/i.test(statement))];
   });
   assert.equal(result.operations.get("action:instance_state:GET").effects.includes("B1"), false, "executable: action:instance_state:GET does not carry B1");
   assert.deepEqual(await getInserts(sources), [200, []], "executable: the unmutated GET writes nothing");
-  for (const [label, edits] of Object.entries({ ...OWN_RUNTIME_KEY_CASES, ...COMPUTED_IDENTITY_CASES })) {
+  const instanceValueEdits = Object.fromEntries(Object.entries(INSTANCE_VALUE_CASES).map(([label, [edits]]) => [label, edits]));
+  for (const [label, edits] of Object.entries({ ...OWN_RUNTIME_KEY_CASES, ...COMPUTED_IDENTITY_CASES, ...instanceValueEdits })) {
     const [status, inserts] = await getInserts(applyEdits(sources, edits));
     assert.equal(status, 200, `executable: ${label} responds`);
     assert.deepEqual(inserts.map(statement => statement.split("(")[0].trim()), ["INSERT INTO risk_profile_authority"], `executable: ${label} reaches the B1 writer`);
@@ -1306,6 +1360,8 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
       ["own-runtime-key-valueof-writer", OWN_RUNTIME_KEY_CASES["own-runtime-key-valueof-writer"], 1],
       ["independent-super-element-runtime-key", [{ file: DO_FILE, from: READ_ROW, to: `${READ_ROW}    const probeParts = ["ensureRisk", "ProfileAuthority"];\n    super["valueOf"]()[probeParts.join("")](${LEGACY});\n` }], 1,
         /read-contract baseline:\n(?:.*\n)*helper binding: instance_identity: computed access on super can select valueOf/],
+      ["instance-value-nested-function-return", INSTANCE_VALUE_CASES["instance-value-nested-function-return"][0], 1,
+        /read-contract baseline:\n(?:.*\n)*durable_object\.js: entry_replaced: this used as a value in RuntimeInstances/],
       ["pass", [{ file: DO_FILE, from: HK_BRANCH, to: `// if (command.action === "probe_comment_only") return json({});\n      ${HK_BRANCH}` }], 0],
     ]) {
       const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], { env: { ...process.env, [PROBE_ENV]: JSON.stringify(edits) }, encoding: "utf8" });
