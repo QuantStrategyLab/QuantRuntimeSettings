@@ -412,7 +412,47 @@ function helperBindingErrors(sources, exceptions) {
   return errors;
 }
 
-const addDays = (date, days) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+// Member hosts (review FIX13). A key built at run time can select any member
+// of an object it indexes, so a registered helper declared as a member is
+// reachable from every object that holds it and is a value. Its one admitted
+// host is the RuntimeInstances class, whose instance the surface keeps from
+// being a value: `this` stands only as a dotted receiver in every reached
+// module, a call on it in the class names a method declared there, and the
+// class is never referenced. Any other class, class expression or object
+// literal in a console module that declares a member under a registered
+// helper's name is not admitted, however it is constructed or reached; the
+// shorthand members of the exported `__test` hook are references, checked
+// above. The skipped files are console modules too, so every module is read.
+const MEMBER_HOST = { file: `${CONSOLE}/application/runtime_instances/durable_object.js`, name: "RuntimeInstances" };
+const memberHostFacts = new Map();
+function fileMemberHostErrors(file, text, symbols, symbolsKey) {
+  const key = `${symbolsKey}\u0000${file}\u0000${text}`;
+  if (memberHostFacts.has(key)) return memberHostFacts.get(key);
+  const sf = parseSource(file, text);
+  const errors = [];
+  const visit = node => {
+    if ((ts.isClassElement(node) || ts.isObjectLiteralElementLike(node)) && !ts.isShorthandPropertyAssignment(node) && node.name) {
+      const name = ts.isComputedPropertyName(node.name) ? foldString(node.name.expression) : ts.isIdentifier(node.name) || ts.isStringLiteral(node.name) ? node.name.text : null;
+      const owner = node.parent;
+      const admitted = ts.isClassDeclaration(owner) && ts.isSourceFile(owner.parent) && owner.name?.text === MEMBER_HOST.name && file === MEMBER_HOST.file;
+      if (symbols.has(name) && !admitted) {
+        const host = ts.isObjectLiteralExpression(owner) ? "an object literal" : owner.name ? `class ${owner.name.text}` : "an anonymous class";
+        errors.push(`helper binding: member_host: ${name} is declared as a member of ${host}; a registered helper is a member only of the ${MEMBER_HOST.name} class at ${file}:${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  memberHostFacts.set(key, errors);
+  return errors;
+}
+function memberHostErrors(modules, exceptions) {
+  const { symbols } = helperShapes(exceptions);
+  const symbolsKey = JSON.stringify([...symbols]);
+  return [...modules].flatMap(([file, text]) => fileMemberHostErrors(file, text, symbols, symbolsKey));
+}
+
+const addDays =(date, days) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
 const isoDate = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
   && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
 const sameMap = (a, b) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
@@ -516,6 +556,8 @@ function validate({ routes: registryRoutes, internal: registryInternal, register
     }
   }
   errors.push(...helperBindingErrors(sources, reg.exceptions));
+  // Every console module: the probed sources over the tree, skipped files included.
+  errors.push(...memberHostErrors(new Map([...tree, ...sources]), reg.exceptions));
   for (const [id, op] of operations) {
     for (const effect of op.effects) if (exceptionIds.has(effect) && !seenIds.has(effect)) errors.push(`${id}: unknown exception ${effect}`);
   }
@@ -1203,6 +1245,46 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     for (const pattern of patterns) expectError(probed.errors, pattern, `reject ${label}`);
     outcomes.push(["reject", label, probed.errors.find(error => patterns[0].test(error))]);
   }
+  // Member hosts (review FIX13): the B1 writer declared in a class other than
+  // RuntimeInstances, constructed by an observation handler and invoked by a
+  // key joined at run time. The class rules above bind only RuntimeInstances,
+  // so before this rule each case was admitted with the extracted sets and
+  // every registered site count unchanged; the hosting rule is the only one
+  // that fails, and each case in the Durable Object file runs below and
+  // reaches the writer.
+  const DO_TEXT = sources.get(`${CONSOLE}/${DO_FILE}`);
+  const WRITER = DO_TEXT.slice(DO_TEXT.indexOf("  ensureRiskProfileAuthority(legacy) {"), DO_TEXT.indexOf("\n\n  storedRiskBindings(") + 1);
+  assert.match(WRITER, /^ {2}ensureRiskProfileAuthority\(legacy\) \{\n[^]*INSERT INTO risk_profile_authority[^]*\n {2}\}\n$/, "the B1 writer copied into member-host probes");
+  const OTHER_CLASS = `class ProbeOther {\n  constructor(sql) { this.sql = sql; }\n${WRITER}}`;
+  const PROBE_OTHER_FILE = "application/runtime_instances/probe_other.js";
+  const MEMBER_HOST_CASES = {
+    "other-class-get-observation": [[moduleEdit(`class ProbeOther {\n  constructor(sql) { this.sql = sql; this.probeSelf = [].reverse; }\n${WRITER}  read(legacy) { return this.probeSelf()${RUNTIME_WRITER_KEY}(legacy); }\n}`),
+      readEdit(`new ProbeOther(this.sql).read(${LEGACY});`)], "class ProbeOther"],
+    "other-class-direct-construction": [[moduleEdit(OTHER_CLASS), readEdit(`new ProbeOther(this.sql)${RUNTIME_WRITER_KEY}(${LEGACY});`)], "class ProbeOther"],
+    "other-class-property-installed": [[moduleEdit(OTHER_CLASS), readEdit(`this.probeOther = new ProbeOther(this.sql);\n    this.probeOther${RUNTIME_WRITER_KEY}(${LEGACY});`)], "class ProbeOther"],
+    "other-class-builtin-field": [[moduleEdit(`class ProbeOther {\n  probeSelf = [].reverse;\n  constructor(sql) { this.sql = sql; }\n${WRITER}  read(legacy) { return this.probeSelf()${RUNTIME_WRITER_KEY}(legacy); }\n}`),
+      readEdit(`new ProbeOther(this.sql).read(${LEGACY});`)], "class ProbeOther"],
+    "other-class-expression": [[moduleEdit(`const ProbeOther = class {\n  constructor(sql) { this.sql = sql; }\n${WRITER}};`), readEdit(`new ProbeOther(this.sql)${RUNTIME_WRITER_KEY}(${LEGACY});`)], "an anonymous class"],
+    "other-class-inherited-writer": [[moduleEdit(`class ProbeBase {\n${WRITER}}\nclass ProbeOther extends ProbeBase {\n  constructor(sql) { super(); this.sql = sql; }\n}`),
+      readEdit(`new ProbeOther(this.sql)${RUNTIME_WRITER_KEY}(${LEGACY});`)], "class ProbeBase"],
+    "other-object-literal-writer": [[readEdit(`const probeHost = {\n  sql: this.sql,\n${WRITER}};\n    probeHost${RUNTIME_WRITER_KEY}(${LEGACY});`)], "an object literal"],
+    "other-class-imported-alias": [[{ file: DO_FILE, from: 'import { HttpError } from "../http_error.js";\n', to: 'import { HttpError } from "../http_error.js";\nimport { ProbeOther as ProbeAlias } from "./probe_other.js";\n' },
+      readEdit(`new ProbeAlias(this.sql)${RUNTIME_WRITER_KEY}(${LEGACY});`)], "class ProbeOther", { [PROBE_OTHER_FILE]: `export ${OTHER_CLASS}\n` }],
+  };
+  const memberHostSources = ([edits, , files = {}]) => withFiles(applyEdits(sources, edits), files);
+  const registeredHelpers = register.exceptions.flatMap(entry => entry.helpers || []);
+  for (const [label, entry] of Object.entries(MEMBER_HOST_CASES)) {
+    const probedSources = memberHostSources(entry);
+    const { probed, errors } = validated(probedSources);
+    for (const helper of registeredHelpers) assert.ok(sameMap(countSites(probedSources, helper), helper.sites), `reject ${label}: the registered sites of ${helper.symbol || helper.literal} are unchanged`);
+    assert.deepEqual(probed.errors, [], `reject ${label}: the surface admits the source`);
+    assert.deepEqual([...probed.routes.keys()], [...surface.routes.keys()], `reject ${label}: identical route branches`);
+    assert.deepEqual([...probed.internal].sort(), [...surface.internal].sort(), `reject ${label}: identical internal operations`);
+    const pattern = new RegExp(`^helper binding: member_host: ensureRiskProfileAuthority is declared as a member of ${entry[1]}; `);
+    expectError(errors, pattern, `reject ${label}`);
+    assert.deepEqual(errors.filter(error => !/^helper binding: member_host: /.test(error)), [], `reject ${label}: only the hosting rule fails`);
+    outcomes.push(["reject", label, errors.find(error => pattern.test(error))]);
+  }
   // The one injected callable the class rule admits keeps its default.
   reject("KvDirectory constructed with an injected now", edit(DO_FILE, "new KvDirectory(ctx.storage, env?.STRATEGY_SWITCH_CONFIG, env);", "new KvDirectory(ctx.storage, env?.STRATEGY_SWITCH_CONFIG, env, [].reverse);"),
     /module graph: entry_replaced: KvDirectory used other than as new KvDirectory\(\.\.\.\) with at most three arguments/);
@@ -1345,6 +1427,17 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     const [status, inserts] = await getInserts(applyEdits(sources, edits));
     assert.equal(status, 200, `executable: ${label} responds`);
     assert.deepEqual(inserts.map(statement => statement.split("(")[0].trim()), ["INSERT INTO risk_profile_authority"], `executable: ${label} reaches the B1 writer`);
+  }
+  // The imported module is written as a scratch sibling too, and removed.
+  for (const [label, [edits, , files = {}]] of Object.entries(MEMBER_HOST_CASES)) {
+    const written = Object.entries(files).map(([file, text]) => [file, join(ROOT, CONSOLE, dirname(file), `.read-contract-probe-${process.pid}-${basename(file)}`), text]);
+    const probedSources = applyEdits(sources, [...edits, ...written.map(([file, path]) => ({ file: DO_FILE, from: `"./${basename(file)}"`, to: `"./${basename(path)}"` }))]);
+    for (const [, path, text] of written) writeFileSync(path, text);
+    try {
+      const [status, inserts] = await getInserts(probedSources);
+      assert.equal(status, 200, `executable: ${label} responds`);
+      assert.deepEqual(inserts.map(statement => statement.split("(")[0].trim()), ["INSERT INTO risk_profile_authority"], `executable: ${label} reaches the B1 writer`);
+    } finally { for (const [, path] of written) rmSync(path, { force: true }); }
   }
 
   // The suite's own exit: a child run over in-memory edits exits nonzero for a
