@@ -83,7 +83,7 @@ class Configuration:
     recipient_scope: str
     cutover_date: str
     enabled: bool = False
-    locale: str = 'zh'
+    locale: str = 'en'
     candidate_uris: dict = field(default_factory=dict)
     binance_snapshot_endpoint: str = ''
     binance_snapshot_token: str = field(default='', repr=False)
@@ -162,7 +162,7 @@ class Configuration:
         return cls(expected,
                    os.environ['DIGEST_SCHEDULER_JOB_NAME'], os.environ['DIGEST_RECIPIENT_SCOPE'],
                    os.environ['DIGEST_CUTOVER_REPORT_DATE'], flag == 'true',
-                   os.environ.get('QSL_NOTIFY_LANG', 'zh'), candidate_uris,
+                   os.environ.get('QSL_NOTIFY_LANG', 'en'), candidate_uris,
                    os.environ.get('DIGEST_BINANCE_SNAPSHOT_ENDPOINT', ''),
                    os.environ.get('DIGEST_BINANCE_SNAPSHOT_TOKEN', ''),
                    _ibkr_telegram_accounts(expected, os.environ.get('DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON'),

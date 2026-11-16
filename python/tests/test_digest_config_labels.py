@@ -38,7 +38,7 @@ class ConfigLabelTests(unittest.TestCase):
         self.assertNotIn(account['account_id'], repr(configured))
         self.assertNotIn(account['account_id'], json.dumps(configured.expected))
         text, _ = app._report(configured, [], ['missing'], '2026-10-15', None)
-        self.assertIn('IBKR · 账户', text)
+        self.assertIn('IBKR · Account', text)
         self.assertNotIn(account['account_id'], text)
         for provenance, displays_account in (('azure_logic_sliding_window', True),
                                              ('azure_functions_timer', False), ('cloud_scheduler', False)):

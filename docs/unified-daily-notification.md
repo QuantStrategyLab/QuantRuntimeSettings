@@ -48,7 +48,8 @@ count. These observations never increment order, fill or run totals.
 Chinese and English templates share the same facts and routing. Production
 accepts `zh`/`en` and regional variants such as `zh-CN`, `ZH_hans` and `en-US`,
 normalizing them before rendering; unsupported or malformed locales fail
-configuration validation. The default is Chinese. Locale does not change the
+configuration validation. The code default is English; the production locale is set by the
+explicit `QSL_NOTIFY_LANG` of the Azure invocation. Locale does not change the
 recipient/date delivery reservation or permit a second daily send.
 
 ## Unified operator display
@@ -455,11 +456,11 @@ send and check schedules keep their existing package path and runtime identity.
 
 Repository evidence points to this Azure package as the active production
 sender, sharing the digest core with the Cloud Run entry point above. The
-operator verified live activation on 2026-11-16; the live resource
-configuration is not recorded in this repository, so the language
-inputs of the live invocation: the effective locale is `Configuration.locale`,
-set explicitly by the caller, read from `QSL_NOTIFY_LANG` by
-`Configuration.from_environment()`, or the constructor default `zh`. Which one
-the Azure invocation uses is not recorded here.
+operator verified live activation on 2026-11-16. The effective locale is
+`Configuration.locale`, set explicitly by the caller, read from
+`QSL_NOTIFY_LANG` by `Configuration.from_environment()`, or the constructor
+default `en`. The production locale comes from the explicit `QSL_NOTIFY_LANG`
+of the Azure invocation, not from the code default; the live resource
+configuration is not recorded in this repository.
 
 [Organization package release contract](https://github.com/QuantStrategyLab/.github/blob/main/docs/deployment-workflows.md#azure-blob-packages)
