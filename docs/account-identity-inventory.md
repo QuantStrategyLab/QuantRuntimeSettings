@@ -84,8 +84,9 @@ never echo stored values, statements, cookies or provider text.
   row-value comparison and a one-row lookahead, never `OFFSET`. No predicate
   restricts rows to configured keys, valid JSON, current sources, dates or
   states. Rows whose primary key contains `NULL` cannot be paged; they are
-  counted as `null_key_rows`, and the assembler withholds completeness for that
-  table.
+  counted as `null_key_rows` and excluded from the first page and every
+  continuation page alike, and the assembler withholds completeness for that
+  table. Their values are not exported.
 - The `instance_state` singleton array is paged by nested entries, tied to the
   SHA-256 of the unchanged stored value.
 - DO-KV pages use `storage.list({ limit, startAfter })` with no prefix, strict
@@ -129,7 +130,9 @@ keys, platform, instance kind and status, selectors, broker account
 identifiers, target and service names, source bindings, revisions, request,
 ticket, application and operation identifiers, phases and timestamps. It
 reports JSON validity, byte sizes and embedded array sizes separately from row
-counts.
+counts. A stored account-setting declaration keeps its `environment` and
+`account_type` values: each is reported as absent, `null`, an accepted value,
+or invalid with only its JSON type. Other declaration keys are listed by name.
 
 It does not copy amounts, balances, positions, free-text summaries, actor
 logins, claim tokens, credential factors, rotation responses or secret-like
@@ -177,13 +180,34 @@ node web/strategy-switch-console/inspect_account_identity_inventory.mjs <private
 ```
 
 The assembler makes no network request. It checks page chains and terminal
-receipts, duplicate keys, page totals against schema and finalize counts, and
-the two KV passes against each other. It derives a mapping keyed by every
-`(platform, legacy_key)` with dated identity episodes, conflicts, cross-platform
-collisions and an unattributed ledger for platform-less rows. Pending,
-nonterminal and unknown operations are listed; only explicit terminal statuses
-count as terminal. The summary contains aggregate counts only. The exit status
-is `1` when the result is `incomplete`.
+receipts, duplicate keys, and page totals against schema and finalize counts.
+KV groups 16–22 are complete only with two complete passes whose listings and
+value fingerprints are equal, and only if every reviewed value in them was
+read. A single pass, differing passes, or a reviewed value in
+`missing_after_list`, `read_failed`, `value_too_large` or `non_text` state makes
+the affected groups and the overall result `incomplete`, with reasons. A value
+that was read but is invalid JSON remains a qualified observation.
+
+The assembler derives a mapping keyed by every `(platform, legacy_key)` with
+dated identity episodes, conflicts, cross-platform collisions and an
+unattributed ledger. Account references inside every projected JSON column
+(including operation payloads such as `hk_stop_request.identity_json` and
+promotion readbacks), DO-KV payloads, KV values and environment bindings are
+included, each with its locator. A platform is taken only from the same JSON
+object or an enclosing one; a reference without one stays in the unattributed
+ledger. Stored settings identities are compared with the current instance, and
+a declared environment that differs from the current broker environment is a
+conflict. Stored values are kept, never replaced.
+
+The pending ledger covers profile applications, diagnosis tasks, promotion
+applications, stop requests, UX1 jobs, credential rotation operations and
+maintenance deliveries, undecided decision material, Desk readbacks,
+admissions and idempotency entries, promotion tickets, and KV decision and
+recovery records. Only a family's explicit terminal labels are terminal. Known
+open labels are `nonterminal`; missing, unreadable, `unknown` or unrecognized
+labels are `unknown` and stay listed. The ledger is an observation; the
+assembler never settles or acts on an operation. The summary contains aggregate
+counts only. The exit status is `1` when the result is `incomplete`.
 
 ## Validation
 

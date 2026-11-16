@@ -42,7 +42,7 @@ const TABLES = Object.freeze([
   c("account_setting_draft", 2, ["platform", "account_key"], ["platform", "account_key", "revision", "identity_json", "overrides_json", "updated_at"],
     { copy: ["revision", "updated_at"], json: ["identity_json"], keys: ["overrides_json"] }),
   c("account_setting_declaration", 2, ["platform", "account_key"], ["platform", "account_key", "revision", "identity_json", "declaration_json"],
-    { copy: ["revision"], json: ["identity_json"], keys: ["declaration_json"] }),
+    { copy: ["revision"], json: ["identity_json"], declaration: "declaration_json" }),
   c("account_setting_profile_application", 3, ["request_key"], ["request_key", "platform", "account_key", "identity_json", "instance_revision",
     "draft_revision", "old_profile", "new_profile", "approved_by", "approved_at", "status", "workflow_run_id", "workflow_run_attempt", "claimed_at"],
   { copy: ["platform", "account_key", "instance_revision", "draft_revision", "old_profile", "new_profile", "approved_at", "status",
@@ -138,7 +138,9 @@ const STATEMENTS = new Map(TABLES.map(spec => [spec.name, Object.freeze({
   count: `SELECT COUNT(*) AS n FROM ${quoted(spec.name)}`,
   nullKeys: `SELECT COUNT(*) AS n FROM ${quoted(spec.name)} WHERE NOT (${notNull(spec)})`,
   first: `SELECT * FROM ${quoted(spec.name)} WHERE ${notNull(spec)} ORDER BY ${order(spec)} LIMIT ?`,
-  after: `SELECT * FROM ${quoted(spec.name)} WHERE (${order(spec)}) > (${spec.pk.map(() => "?").join(", ")}) ORDER BY ${order(spec)} LIMIT ?`,
+  // Same non-null condition as the first page: NULL-key rows are counted and
+  // withheld on every page, never surfaced by a later continuation.
+  after: `SELECT * FROM ${quoted(spec.name)} WHERE ${notNull(spec)} AND (${order(spec)}) > (${spec.pk.map(() => "?").join(", ")}) ORDER BY ${order(spec)} LIMIT ?`,
   exact: `SELECT * FROM ${quoted(spec.name)} WHERE ${spec.pk.map(column => `${quoted(column)} COLLATE BINARY = ?`).join(" AND ")}`,
 })]));
 const ALLOWED = new Set([SCHEMA_SQL, CHANGES_SQL, TABLE_INFO_SQL, ...[...STATEMENTS.values()].flatMap(Object.values)]);
@@ -251,6 +253,26 @@ function objectKeys(text) {
     : { state: "unexpected_shape", bytes: parsed.bytes };
 }
 
+// The two values saveAccountSettingDeclaration() accepts. Each field reports
+// absent, null, an accepted value, or an invalid value by type only.
+const DECLARATION_VALUES = Object.freeze({ environment: ["live", "paper"], account_type: ["cash", "margin"] });
+function declarationField(object, field) {
+  if (!Object.hasOwn(object, field)) return { present: false };
+  const item = object[field];
+  if (item === null) return { present: true, value: null, valid: true };
+  return DECLARATION_VALUES[field].includes(item) ? { present: true, value: item, valid: true }
+    : { present: true, valid: false, value_type: Array.isArray(item) ? "array" : typeof item };
+}
+function declarationProjection(text) {
+  const parsed = parseJson(text);
+  if (parsed.state !== "valid") return parsed;
+  const value = parsed.value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { state: "unexpected_shape", bytes: parsed.bytes };
+  return { state: "valid", bytes: parsed.bytes, environment: declarationField(value, "environment"),
+    account_type: declarationField(value, "account_type"),
+    unexpected_keys: Object.keys(value).filter(name => !Object.hasOwn(DECLARATION_VALUES, name)).sort() };
+}
+
 const CONFIG_IDENTITY = ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name",
   "runtime_status_target_id", "github_environment", "variable_scope", "broker_environment", "default_execution_mode", "default_strategy_profile"];
 function instanceIdentity(item) {
@@ -281,6 +303,7 @@ function projectRow(spec, row, { nested = null, nestedSize = 0 } = {}) {
     else if (spec.opaque.includes(name)) columns[name] = opaque(value);
     else if (spec.redact.includes(name)) columns[name] = { present: value !== null && value !== undefined && value !== "" };
     else if (spec.keys?.includes(name)) columns[name] = objectKeys(value);
+    else if (spec.declaration === name) columns[name] = declarationProjection(value);
     else if (spec.history === name) {
       const parsed = parseJson(value);
       columns[name] = parsed.state !== "valid" ? parsed : !parsed.value || typeof parsed.value !== "object" ? { state: "unexpected_shape" } : {
@@ -307,7 +330,9 @@ function projectRow(spec, row, { nested = null, nestedSize = 0 } = {}) {
       }
     } else unexpected.push(name);
   }
-  for (const name of [...spec.copy, ...spec.json, ...spec.opaque, ...spec.redact]) if (!(name in row)) columns[name] = { column_absent: true };
+  for (const name of [...spec.copy, ...spec.json, ...spec.opaque, ...spec.redact, ...(spec.declaration ? [spec.declaration] : [])]) {
+    if (!(name in row)) columns[name] = { column_absent: true };
+  }
   out.columns = columns;
   if (unexpected.length) out.unexpected_columns = unexpected.sort();
   const logical = logicalAccount(row.account_key);

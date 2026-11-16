@@ -70,6 +70,10 @@ function populatedPlan() {
     { platform: "ibkr", key: "draft-1", kind: "draft", enabled: false, config: { key: "draft-1" } },
     { platform: "ibkr", key: "mismatch", kind: "existing", config: { key: "different-key" } },
     { platform: "ibkr", key: "retiring", kind: "existing", retirement_status: "requested", config: { key: "retiring" } });
+  instances[3].config.broker_environment = "live";
+  // The stored settings identity as accountSettingsIdentity() writes it.
+  const storedIdentity = (index, overrides = {}) => JSON.stringify({ platform: "ibkr", key: `acct-${pad(index, 3)}`, target_name: `target-${index}`,
+    broker_environment: index === 3 ? "live" : null, account_selector: `sel-${index}`, deployment_selector: "", account_scope: "", service_name: "", ...overrides });
   const history = range(120).map(index => {
     const key = index === 11 ? "alias" : `acct-${pad(index % 126, 3)}`;
     return { revision: index + 1, entry: JSON.stringify({ revision: index + 1, ts: day(index), action: "update", login: ACTOR_CANARY,
@@ -89,7 +93,14 @@ function populatedPlan() {
       { platform: "ibkr", account_key: "acct-000", revision: 2, identity_json: JSON.stringify({ key: "acct-000", account_selector: "sel-0" }), overrides_json: "{\"risk\":1}", updated_at: day(1) },
       { platform: "ibkr", account_key: "orphan-key", revision: 1, identity_json: "{bad", overrides_json: "{}", updated_at: day(2) },
       { platform: "schwab", account_key: "shared", revision: 1, identity_json: "{}", overrides_json: "[]", updated_at: day(3) }]),
-    rows("account_setting_declaration", [{ platform: "ibkr", account_key: "acct-001", revision: 1, identity_json: "{}", declaration_json: "{}" }]),
+    // Stored declarations: accepted values, explicit null plus an invalid value,
+    // a conflicting environment, absent fields and corrupt JSON.
+    rows("account_setting_declaration", [
+      { platform: "ibkr", account_key: "acct-001", revision: 1, identity_json: storedIdentity(1), declaration_json: JSON.stringify({ environment: "paper", account_type: "margin" }) },
+      { platform: "ibkr", account_key: "acct-002", revision: 2, identity_json: storedIdentity(2, { account_selector: "sel-retired" }), declaration_json: JSON.stringify({ environment: null, account_type: "futures" }) },
+      { platform: "ibkr", account_key: "acct-003", revision: 1, identity_json: storedIdentity(3), declaration_json: JSON.stringify({ environment: "paper", account_type: null }) },
+      { platform: "ibkr", account_key: "acct-005", revision: 1, identity_json: storedIdentity(5), declaration_json: "{}" },
+      { platform: "ibkr", account_key: "acct-006", revision: 1, identity_json: storedIdentity(6), declaration_json: "{bad" }]),
     rows("account_setting_profile_application", range(150).map(index => ({ request_key: `req-${pad(index)}`, platform: index % 2 ? "schwab" : "ibkr",
       account_key: index % 7 ? `acct-${pad(index % 126, 3)}` : "orphan-key", identity_json: "{}", instance_revision: index, draft_revision: 1,
       old_profile: "a", new_profile: "b", approved_by: ACTOR_CANARY, approved_at: day(index), status: statuses[index % 5], workflow_run_id: null,
@@ -118,7 +129,10 @@ function populatedPlan() {
       status: ["queued", "running", "unknown", "completed", "weird"][index], summary: CANARY, checks_json: "[]", native_json: null, auto_source: "manual" }))),
     rows("research_promotion_applications", range(120).map(index => ({ application_id: `app-${pad(index)}`, ticket_id: `ticket-${index % 40}`,
       status: index % 3 ? "rejected" : "claimed", claim_token: CANARY, platform_id: "ibkr", account_key: `acct-${pad(index % 126, 3)}`,
-      expected_revision: index, readback_json: null, workflow_run_id: null, workflow_run_attempt: null }))),
+      expected_revision: index, workflow_run_id: null, workflow_run_attempt: null,
+      // Accounts retained only inside operation payloads: one attributed, one platform-less.
+      readback_json: index === 0 ? JSON.stringify({ platform_id: "schwab", account_key: "payload-only", target_name: "target-payload" })
+        : index === 1 ? JSON.stringify({ result: { account_key: "payload-unattributed" } }) : null }))),
     rows("human_decision_material", range(50).map(index => ({ kind: "owner", subject_id: `subject-${pad(index)}`, summary_json: "{}", eligible: 1, expires_at_ms: 1 }))),
     rows("human_decision_record", range(150).map(index => ({ request_key: `decision-${pad(index)}`, kind: "owner", subject_id: `subject-${index % 50}`,
       actor: ACTOR_CANARY, target_json: JSON.stringify({ selected_account: "acct-001" }), payload_json: JSON.stringify({ session: CANARY }) }))),
@@ -128,7 +142,10 @@ function populatedPlan() {
       target_id: `target-${index}`, identity_json: JSON.stringify({ platform: "longbridge", account_key: "lb-1" }), source_revision: index, phase,
       dispatch_result: null, workflow_run_id: null, workflow_run_attempt: null, source_identity_sha256: null, runtime_identity_sha256: null,
       result_json: null, stopped_at: null }))),
-    rows("ux1_research_slot", [{ login: ACTOR_CANARY, revision: 1, draft_json: "{}", fingerprint: "f", preview_json: null, intent_json: null, job_json: null }]),
+    // UX1 job states: none, known open, terminal, missing, unknown, newly introduced, corrupt.
+    rows("ux1_research_slot", [null, { status: "running" }, { status: "queued" }, { status: "succeeded" }, {}, { status: "unknown" }, { status: "rehydrating" }, "{bad"]
+      .map((job, index) => ({ login: `${ACTOR_CANARY}-${index}`, revision: 1, draft_json: "{}", fingerprint: "f", preview_json: null, intent_json: null,
+        job_json: job === null ? null : typeof job === "string" ? job : JSON.stringify({ request_id: `ux1-${index}`, ...job }) }))),
     rows("runtime_cycle_health_attempt", range(60).map(index => ({ history_id: index + 1, attempt_key: `attempt-${index}`, cycle_id: `cycle-${index}` }))),
     rows("credential_maintenance_metadata", [{ id: "ibkr_flex", revision: 1, expires_at: day(500), last_rotated_at: null }]),
     rows("credential_rotation_operations", [{ operation_id: "op-1", record: JSON.stringify({ state: "pending", token: CANARY }) }]),
@@ -141,7 +158,11 @@ function populatedPlan() {
   ];
   const kv = {};
   for (const index of range(1200)) kv[`desk:readbacks:record:bulk-${pad(index)}`] = { expires: index % 2 ? 1 : 4_102_444_800_000, owner: ACTOR_CANARY,
-    payload: { state: index % 3 ? "complete" : "running", net_liquidation: AMOUNT_CANARY, target_id: `target-${index % 126}` }, results: [] };
+    payload: { state: index % 3 ? "done" : "running", net_liquidation: AMOUNT_CANARY, target_id: `target-${index % 126}` }, results: [] };
+  // Desk readback states beyond running: unknown, missing, newly introduced, terminal.
+  for (const [name, payload] of [["unknown", { state: "unknown" }], ["missing", {}], ["new", { state: "queued_v2" }], ["done", { state: "done" }], ["partial", { state: "partial" }]]) {
+    kv[`desk:readbacks:record:probe-${name}`] = { expires: 4_102_444_800_000, owner: ACTOR_CANARY, payload, results: [] };
+  }
   kv[`desk:readbacks:admission:${ACTOR_CANARY}`] = { active: "bulk-0001", nextAllowed: 1, expires: 1 };
   kv[`desk:idempotency:${hex("k")}`] = { state: "pending", request_id: "idem-1", fingerprint: CANARY };
   kv["mystery:key"] = { secret: CANARY };
@@ -260,6 +281,9 @@ const KV_VALUES = {
   risk_profile_bindings: "{}",
   [`account_facts_primary_backup:${hex("b")}`]: "{}",
   "research_promotion_ticket:t-1": JSON.stringify({ ticket_id: "t-1", status: "open" }),
+  "research_promotion_ticket:t-2": JSON.stringify({ ticket_id: "t-2", state: "awaiting_human" }),
+  "research_promotion_ticket:t-3": JSON.stringify({ ticket_id: "t-3", state: "human_accepted" }),
+  "reconciliation_recovery_confirmation:r-1": JSON.stringify({ recovery_id: "r-1" }),
   "owner_decision_current:bad": "{bad",
   auth_config: JSON.stringify({ admin: CANARY }),
   legacy_mystery_key: CANARY,
@@ -383,6 +407,26 @@ const noLeak = (outputs, label) => {
   await h.close();
 }
 
+// ---------------------------------------------------- A2b: NULL primary-key rows are withheld on every page
+{
+  const nullable = { sql: [
+    { statement: "CREATE TABLE account_setting_draft (platform TEXT, account_key TEXT, revision INTEGER, identity_json TEXT, overrides_json TEXT, updated_at TEXT, PRIMARY KEY (platform, account_key))", rows: [[]] },
+    rows("account_setting_draft", [["a", "first"], ["b", "middle"], ["z", null], [null, "lead"]].map(([platform, accountKey]) => ({ platform, account_key: accountKey, revision: 1, identity_json: "{}", overrides_json: "{}", updated_at: day(1) }))),
+  ], kv: {}, alarm: null, initialize: false };
+  const h = await harness({ runtime: nullable, directory: { sql: [], kv: {}, alarm: null, initialize: false } });
+  const { schema, responses } = await collect(h.get, "runtime", { pageSize: 1 });
+  assert.deepEqual([schema.tables.account_setting_draft.row_count, schema.tables.account_setting_draft.null_key_rows], [4, 2]);
+  const pages = responses.filter(item => item.request.table === "account_setting_draft");
+  assert.deepEqual(pages.flatMap(item => item.body.rows.map(row => row.pk)), [["a", "first"], ["b", "middle"]], "continuation never surfaces a NULL-key row");
+  assert.ok(pages.every(item => item.body.null_key_rows === 2));
+  const table = assemble({ format: EXPORT_FORMAT, responses }).private.objects[0];
+  assert.equal(table.tables.account_setting_draft.rows.length, 2);
+  assert.ok(table.reasons.includes("account_setting_draft:null_primary_key_rows") && !table.reasons.includes("account_setting_draft:row_count_mismatch"),
+    "withheld rows are counted once and explicitly incomplete");
+  await h.unchanged();
+  await h.close();
+}
+
 // ---------------------------------------------------- A3: populated, beyond legacy caps, full assembly
 const plan = populatedPlan();
 const counts = seededCounts(plan);
@@ -455,7 +499,60 @@ assert.ok(counts.instance_history > 50 && counts.account_setting_profile_applica
   assert.equal(pending.hk_stop_request, 5, "only explicit terminal phases are terminal; stopped stays open");
   assert.equal(pending.account_diagnosis_tasks, 4);
   assert.equal(pending.desk_idempotency, 1);
-  assert.equal(pending.desk_readback_record, 400);
+  assert.equal(pending.desk_readback_record, 403, "running, unknown, missing and new Desk states stay pending; done and partial are terminal");
+
+  // B4: every operation family, with unknown kept as unknown.
+  const ledger = family => result.pending.filter(item => item.family === family);
+  const statuses = family => ledger(family).map(item => `${item.status}/${item.classification}`).sort();
+  assert.deepEqual(statuses("ux1_research_slot"), ["missing/unknown", "queued/nonterminal", "rehydrating/unknown", "running/nonterminal",
+    "unknown/unknown", "unreadable:invalid_json/unknown"], "UX1 jobs: a slot without a job holds no operation; succeeded is terminal");
+  assert.ok(ledger("ux1_research_slot").every(item => item.pk.length === 1 && "actor_key_sha256" in item.pk[0]), "UX1 ledger locates by digest");
+  const desk = Object.fromEntries(ledger("desk_readback_record").filter(item => item.key.includes(":probe-")).map(item => [item.key.split(":probe-")[1], `${item.status}/${item.classification}`]));
+  assert.deepEqual(desk, { unknown: "unknown/unknown", missing: "missing/unknown", new: "queued_v2/unknown" }, "Desk unknown/missing/new states preserved");
+  assert.equal(ledger("desk_readback_record").filter(item => item.status === "running").length, 400);
+  assert.deepEqual(statuses("research_promotion_ticket:"), ["awaiting_human/nonterminal", "open/unknown"], "KV tickets: human_accepted is terminal");
+  assert.deepEqual(statuses("reconciliation_recovery_confirmation:"), ["missing/unknown"], "KV material without a status is unknown");
+  assert.deepEqual(statuses("owner_decision_current:"), ["unreadable:invalid_json/unknown"], "corrupt KV decision stays in the ledger");
+  assert.deepEqual(statuses("credential_rotation_operations"), ["pending/unknown"], "unrecognized rotation state is unknown, not terminal");
+  assert.deepEqual(statuses("desk_readback_admission"), ["active/nonterminal"]);
+  assert.equal(ledger("human_decision_material").length, 50, "material without a matching decision record stays undecided");
+  assert.equal(summary.pending.ux1_research_slot, 6);
+  assert.equal(summary.pending_classification.unknown, result.pending.filter(item => item.classification === "unknown").length);
+
+  // B2: identities retained only in operation payloads.
+  const stop = entry("longbridge", "lb-1");
+  assert.ok(stop && stop.states.includes("orphan"), "stop-request-only account is mapped");
+  assert.ok(stop.episodes.every(episode => episode.locator.table === "hk_stop_request" && episode.locator.column === "identity_json"));
+  assert.equal(stop.episodes.length, 6, "every stop request kept as an episode");
+  const payloadOnly = entry("schwab", "payload-only");
+  assert.ok(payloadOnly, "promotion readback-only account is mapped");
+  assert.deepEqual(payloadOnly.episodes.map(episode => [episode.locator.table, episode.locator.column, episode.locator.path, episode.identity.qualifiers.target_name]),
+    [["research_promotion_applications", "readback_json", "account_key", "target-payload"]]);
+  const loose = result.mapping.unattributed.filter(item => item.legacy_key === "payload-unattributed");
+  assert.deepEqual(loose.map(item => [item.locator.table, item.locator.column, item.locator.path]), [["research_promotion_applications", "readback_json", "result.account_key"]],
+    "platform-less payload reference is unattributed, not guessed");
+  assert.ok(!result.mapping.entries.some(item => item.legacy_key === "payload-unattributed"));
+  assert.ok(result.mapping.unattributed.some(item => item.legacy_key === "acct-001" && item.locator.table === "human_decision_record"), "decision target references kept");
+
+  // B3: stored declaration values and stored-versus-current identity.
+  const declarations = Object.fromEntries(tables.account_setting_declaration.rows.map(row => [row.pk[1], row.columns.declaration_json]));
+  assert.deepEqual(declarations["acct-001"], { state: "valid", bytes: 47, environment: { present: true, value: "paper", valid: true },
+    account_type: { present: true, value: "margin", valid: true }, unexpected_keys: [] });
+  assert.deepEqual([declarations["acct-002"].environment, declarations["acct-002"].account_type],
+    [{ present: true, value: null, valid: true }, { present: true, valid: false, value_type: "string" }], "null and invalid values distinguished");
+  assert.ok(!JSON.stringify(declarations["acct-002"]).includes("futures"), "invalid value reported by type only");
+  assert.deepEqual([declarations["acct-005"].environment, declarations["acct-005"].account_type], [{ present: false }, { present: false }]);
+  assert.equal(declarations["acct-006"].state, "invalid_json");
+  const declarationEpisode = legacyKey => entry("ibkr", legacyKey).episodes.find(episode => episode.locator.table === "account_setting_declaration");
+  assert.deepEqual(declarationEpisode("acct-001").identity.declaration.environment, { present: true, value: "paper", valid: true }, "declaration carried into the mapping");
+  assert.equal(declarationEpisode("acct-001").identity.stored_identity_matches_current, true);
+  assert.equal(declarationEpisode("acct-002").identity.stored_identity_matches_current, false);
+  const storedConflict = result.mapping.conflicts.find(item => item.legacy_key === "acct-002" && item.kind === "stored_identity_differs_from_current");
+  assert.deepEqual(storedConflict.records.filter(record => record.locator.table === "account_setting_declaration").map(record => record.fields), [["account_selector"]]);
+  assert.ok(!result.mapping.conflicts.some(item => item.legacy_key === "acct-001" && item.kind === "stored_identity_differs_from_current"
+    && item.records.some(record => record.locator.table === "account_setting_declaration")), "matching stored identity is not a conflict");
+  assert.deepEqual(result.mapping.conflicts.filter(item => item.kind === "declared_environment_differs_from_current").map(item => [item.legacy_key, item.records[0].declared, item.records[0].current_broker_environment]),
+    [["acct-003", "paper", "live"]]);
   const summaryText = JSON.stringify(summary);
   for (const needle of ["acct-", "orphan-key", "sel-", "target-", "shared"]) assert.ok(!summaryText.includes(needle), `sanitized summary omits ${needle}`);
   noLeak(h.outputs, "populated scan");
@@ -470,6 +567,37 @@ assert.ok(counts.instance_history > 50 && counts.account_setting_profile_applica
   assert.ok(partial.reasons.includes("runtime:account_facts_daily:terminal_missing"));
   const duplicated = assemble({ format: EXPORT_FORMAT, responses: responses.filter(item => item.request.section !== "finalize" || item.request.object !== "directory") }).private;
   assert.equal(duplicated.objects[1].complete, false, "no finalize receipt, no completeness");
+
+  // B1: KV completeness needs two equal complete passes and successful reads
+  // of every reviewed value. Each probe changes only KV coverage or observations.
+  const kvScans = [...new Set(responses.filter(item => item.request.section === "kv").map(item => item.body.scan_id))];
+  assert.equal(kvScans.length, 2);
+  const kvGroups = result => Object.fromEntries([16, 17, 18, 19, 20, 21, 22].map(group => [group, result.groups[group]]));
+  const editKv = (scanIds, edit) => responses.map(item => item.request.section === "kv" && scanIds.includes(item.body.scan_id)
+    ? { ...item, body: { ...item.body, keys: item.body.keys.map(key => edit(structuredClone(key))) } } : item);
+  const single = assemble({ format: EXPORT_FORMAT, responses: responses.filter(item => item.request.section !== "kv" || item.body.scan_id !== kvScans[0]) });
+  assert.equal(single.private.status, "incomplete", "one KV pass is not complete");
+  assert.ok(Object.values(kvGroups(single.private)).every(state => state === "incomplete"));
+  assert.ok(single.private.reasons.includes("kv:repeat_pass_missing") && single.private.group_reasons[17].includes("kv:repeat_pass_missing"));
+  assert.equal(single.summary.kv.stable, false);
+  const differ = assemble({ format: EXPORT_FORMAT, responses: editKv([kvScans[1]], key => (key.name === "audit_log" ? { ...key, value_sha256: "0".repeat(64) } : key)) }).private;
+  assert.deepEqual([differ.status, differ.kv.repeated_pass_equal, differ.reasons.includes("kv:passes_differ")], ["incomplete", false, true], "differing passes are not complete");
+  assert.ok(Object.values(kvGroups(differ)).every(state => state === "incomplete"));
+  for (const state of ["missing_after_list", "read_failed", "value_too_large", "non_text"]) {
+    const unread = assemble({ format: EXPORT_FORMAT, responses: editKv(kvScans, key => (key.name === "account_options"
+      ? { name: key.name, family: key.family, expiration: null, metadata_present: false, state } : key)) }).private;
+    assert.equal(unread.kv.repeated_pass_equal, true, `${state}: passes still equal`);
+    assert.equal(unread.status, "incomplete", `${state}: unread account_options is not a successful identity read`);
+    assert.equal(unread.groups[16], "incomplete");
+    assert.deepEqual(unread.group_reasons[16], [`kv:account_options:${state}`]);
+    assert.ok([17, 18, 19, 20, 21, 22].every(group => unread.groups[group] === "complete"), `${state}: only the affected group`);
+    assert.ok(unread.reasons.includes(`kv:account_options:${state}`));
+  }
+  const ticketUnread = assemble({ format: EXPORT_FORMAT, responses: editKv(kvScans, key => (key.name === "research_promotion_ticket:t-2"
+    ? { name: key.name, family: key.family, state: "read_failed" } : key)) }).private;
+  assert.deepEqual([ticketUnread.status, ticketUnread.groups[21], ticketUnread.groups[16]], ["incomplete", "incomplete", "complete"]);
+  assert.equal(result.kv.keys.find(key => key.name === "owner_decision_current:bad").state, "invalid_json");
+  assert.equal(result.groups[21], "complete", "a corrupt record read successfully remains a qualified observation");
   await h.close();
 }
 
