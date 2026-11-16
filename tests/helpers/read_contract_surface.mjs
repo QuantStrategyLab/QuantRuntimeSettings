@@ -16,15 +16,19 @@
 //   is compared, ignoring trivia and redundant parentheses). In the Durable
 //   Object levels, a `const` bound to a single literal is also admitted: it
 //   runs nothing;
-// - any reference to a request, URL or command receiver is not one of the
-//   admitted forms: direct or optional property access, truthiness, or
-//   forwarding inside a gated branch. Computed access is rejected whatever its
-//   key; aliases, destructuring, spread, reflection, IIFEs, reassignment,
-//   mutation, shadowing and dynamic evaluation are rejected;
+// - a catch clause is not the whole reviewed clause;
+// - any reference to a request, URL or command receiver (resolved through
+//   bindings) is not one of the admitted forms: direct or optional property
+//   access, truthiness, or a reviewed forward call inside a gated branch.
+//   Method calls on a receiver and computed access whatever its key are
+//   rejected; so are aliases, destructuring, spread, reflection, IIFEs,
+//   reassignment, mutation, shadowing and dynamic evaluation;
 // - a dispatch key (`action`, `method`, `url`, `pathname`) is read outside a
 //   recognised dispatch form or a reviewed template;
 // - an action family does not resolve, through the import and export graph, to
-//   one `const NAME = new Set([...string literals])`, or is mutated anywhere.
+//   one `const NAME = new Set([...string literals])`, or an action family or
+//   entry binding is used other than in its admitted form in any module the
+//   Worker reaches (`options.modules` supplies the whole console tree).
 //
 // There is no fallback tokenizer: unsupported syntax is an error, never an empty
 // extraction.
@@ -1477,7 +1481,9 @@ function directoryActions(ts, file, reviewed, ctx) {
  * a reference (`Set.prototype`, `.constructor.prototype`, prototype getters).
  */
 function auditModules(ts, file, modules, families, errors) {
-  const report = message => errors.push(`module graph: ${message}`);
+  // The re-export fixed point visits a statement more than once; report once.
+  const reported = new Set();
+  const report = message => { if (!reported.has(message)) { reported.add(message); errors.push(`module graph: ${message}`); } };
   const tracked = new Map();
   const item = (path, name) => tracked.get(`${path}#${name}`);
   const track = (path, name, entry) => { if (item(path, name)) return false; tracked.set(`${path}#${name}`, entry); return true; };
@@ -1557,7 +1563,7 @@ function auditModules(ts, file, modules, families, errors) {
     const check = (entry, symbol) => {
       for (const ref of summary.refs.get(symbol) || []) if (!allowed(entry, sf, path, ref)) flag(entry, sf, path, ref, DESCRIBE[entry.kind]);
     };
-    for (const entry of tracked.values()) {
+    for (const entry of new Set(tracked.values())) {
       if (entry.path !== path || entry.name === "default") continue;
       const declared = localDeclarationName(ts, sf, entry.name);
       if (declared) check(entry, symbolOf(ts, sf, declared));

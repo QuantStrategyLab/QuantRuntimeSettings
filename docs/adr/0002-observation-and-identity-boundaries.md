@@ -125,19 +125,31 @@ whitespace, comments, quote style and redundant parentheses do not matter.
 Admission is closed:
 
 - Entries are located structurally. A missing, duplicated or replaced entry,
-  or an unsupported export form, fails.
-- Every dispatch-level statement is a recognised dispatch branch (an equality
-  or inequality with a string literal, a literal list, a family `.has`, a
-  reviewed prefix, or a Worker route condition on `url.pathname`) or an exact
-  reviewed statement template listed in the helper. Anything else fails.
-- Every reference to a request, URL or command receiver is examined. Direct
-  and optional property access, truthiness and forwarding inside a gated
-  branch are admitted. Computed access is rejected whatever its key, and so
-  are aliases, destructuring, spread, reflection, immediately invoked
-  functions, reassignment, mutation, shadowing and dynamic evaluation.
+  or an unsupported export form, fails. Replacement is found by binding, not
+  spelling: the entry classes, the Worker default export and the delegate
+  functions may be referenced only in their admitted use (`new KvDirectory`,
+  a call), so a computed or reflective write through any alias fails.
+- Every dispatch-level statement, including every statement of a catch
+  clause, is a recognised dispatch branch (an equality or inequality with a
+  string literal, a literal list, a family `.has`, a reviewed prefix, or a
+  Worker route condition on `url.pathname`) or an exact reviewed statement
+  template listed in the helper. Catch clauses are compared whole. Anything
+  else fails.
+- Every reference to a request, URL or command receiver is resolved through
+  bindings, parameters included, and examined. Direct and optional property
+  access and truthiness are admitted. Passing a whole receiver to a call is
+  admitted only as one of the reviewed forward calls listed in the helper,
+  matched as a whole call with its multiplicity inside a gated branch; a
+  gated branch alone authorizes nothing. Method calls on a receiver, computed
+  access whatever its key, aliases, destructuring, spread, reflection,
+  immediately invoked functions, reassignment, mutation, shadowing and
+  dynamic evaluation in any spelling are rejected.
 - An action family must resolve through imports and re-exports to one
   `const NAME = new Set([...string literals])` and be used only through
-  `.has()` anywhere in the console.
+  `.has()` in every module the Worker bundle reaches. Uses are followed by
+  import identity (named, namespace and re-exported bindings, escaped
+  identifiers), and the module set is every console source file, generated
+  ones included.
 
 This contract covers classification coverage of the dispatch set only. It does
 not show that every branch is reachable or that an observation is free of

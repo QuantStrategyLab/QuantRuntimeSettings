@@ -54,21 +54,25 @@ const registry = await importConsole("application/read_contracts.js");
 const register = JSON.parse(readFileSync(join(ROOT, REGISTER_PATH), "utf8"));
 const registerText = readFileSync(join(ROOT, REGISTER_PATH), "utf8");
 
-function loadSources() {
-  const sources = new Map();
+/** Every console module in the source tree; the extraction's module set. */
+function loadTree() {
+  const tree = new Map();
   const walk = dir => {
     for (const name of readdirSync(join(ROOT, dir))) {
       const rel = `${dir}/${name}`;
       if (statSync(join(ROOT, rel)).isDirectory()) {
         if (!SKIP_DIRS.has(name)) walk(rel);
-      } else if (/\.(?:m?js|tsx?)$/.test(name) && !SKIP_FILES.has(name) && !name.startsWith(".read-contract-probe-")) {
-        sources.set(rel, readFileSync(join(ROOT, rel), "utf8"));
+      } else if (/\.(?:m?js|tsx?)$/.test(name) && !name.startsWith(".read-contract-probe-")) {
+        tree.set(rel, readFileSync(join(ROOT, rel), "utf8"));
       }
     }
   };
   walk(CONSOLE);
-  return sources;
+  return tree;
 }
+
+/** The tree without SKIP_FILES: the files searched for helper call sites. */
+const callSiteSources = tree => new Map([...tree].filter(([rel]) => !SKIP_FILES.has(basename(rel))));
 
 const applyEdits = (sources, edits) => new Map([...sources].map(([name, text]) => {
   for (const { file, from, to } of edits) {
@@ -239,8 +243,10 @@ function validate({ routes: registryRoutes, internal: registryInternal, register
 }
 
 const probeEdits = process.env[PROBE_ENV] ? JSON.parse(process.env[PROBE_ENV]) : [];
-const sources = applyEdits(loadSources(), probeEdits);
-const extracted = src => extractSurface(ts, src);
+const tree = applyEdits(loadTree(), probeEdits);
+const sources = callSiteSources(tree);
+// The module graph is checked against the whole tree; `src` overlays it.
+const extracted = src => extractSurface(ts, src, { modules: tree });
 const surface = extracted(sources);
 const today = new Date().toISOString().slice(0, 10);
 const baseline = { routes: registry.PUBLIC_ROUTES, internal: registry.INTERNAL_OPERATIONS, register, surface, sources, today };
@@ -642,6 +648,58 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   reject("rotationCommand destructured action", edit("secretRotation.js", "  if (c.action === 'rotation_denied')", "  const { action: probeAction } = c;\n  if (c.action === 'rotation_denied')"), /destructuring: receiver c bound to another name/);
   reject("KvDirectory.run helper forwarding", edit("kv_directory.js", '    if (command.action === "cache") {', '    if (probeDispatch(command)) return { probe: true };\n    if (command.action === "cache") {'), /forwarding: receiver command forwarded outside a gated branch/);
 
+  // Fourth-round counterexamples (review F2.1): a gated branch is not
+  // authorization to forward a receiver, call a method on it or evaluate code.
+  const PERF_BRANCH = 'if (url.pathname.startsWith("/api/performance/")) {';
+  const inPerf = text => edit("worker.js", PERF_BRANCH, `${PERF_BRANCH}\n        ${text}`);
+  const PROBE_FORWARD = 'function probeForward(r) {\n          return r.url.endsWith("/api/performance/probe-unclassified");\n        }';
+  reject("helper forwarding with a renamed parameter", inPerf(`${PROBE_FORWARD}\n        if (probeForward(request)) return new Response("probe-forward");`),
+    /forwarding: receiver request forwarded to an unreviewed call probeForward\(request\)/);
+  reject("helper forwarding inside a template interpolation", inPerf(`${PROBE_FORWARD}\n        if (\`\${probeForward(request)}\` === "true") return new Response("probe-forward");`),
+    /forwarding: receiver request forwarded to an unreviewed call probeForward\(request\)/);
+  reject("arrow helper forwarding", inPerf('const probeArrow = (x) => x.url.includes("probe");\n        if (probeArrow(request)) return new Response("probe");'),
+    /forwarding: receiver request forwarded to an unreviewed call probeArrow\(request\)/);
+  reject("receiver-producing call valueOf", inPerf('const r = request.valueOf();\n        if (new URL(r.url)["path" + "name"] === "/api/performance/probe-unclassified") return new Response("probe-valueof");'),
+    /receiver_call: method call request\.valueOf\(\) on a receiver is admitted only in a reviewed template/);
+  reject("computed globalThis evaluation", inPerf('if (globalThis["ev" + "al"]("true")) return new Response("probe-eval");'),
+    /dynamic_evaluation: global globalThis is not admitted in the dispatch set/);
+
+  // Entry replacement (review F2.2): any reference to an entry class or the
+  // Worker default export outside its admitted use, whatever the spelling.
+  const DO_END = '      throw new HttpError("unsupported_ux1_action", 400);\n    });\n  }\n}\n';
+  const afterDo = text => edit(DO_FILE, DO_END, `${DO_END}${text}\n`);
+  const PROBE_WRAPPER = 'async function(r) {\n  if (r.method === "PUT" && new URL(r.url).pathname === "/probe-unclassified") return new Response("probe-replacement");\n  return originalProbeFetch.call(this, r);\n}';
+  reject("computed prototype replacement of RuntimeInstances.fetch", afterDo(`const originalProbeFetch = RuntimeInstances.prototype.fetch;\nRuntimeInstances.prototype["fe" + "tch"] = ${PROBE_WRAPPER};`),
+    /module graph: entry_replaced: RuntimeInstances is referenced in .*RuntimeInstances\.prototype\["fe" \+ "tch"\]/);
+  reject("defineProperty replacement of RuntimeInstances.fetch", afterDo(`const originalProbeFetch = RuntimeInstances.prototype.fetch;\nObject.defineProperty(RuntimeInstances.prototype, "fetch", { value: ${PROBE_WRAPPER} });`),
+    /module graph: entry_replaced: RuntimeInstances is referenced in .*Object\.defineProperty\(RuntimeInstances\.prototype/);
+  reject("computed replacement of KvDirectory.run", edit("kv_directory.js", "export const DIRECTORY_PATH", 'KvDirectory.prototype["r" + "un"] = async () => ({ probe: true });\nexport const DIRECTORY_PATH'),
+    /module graph: entry_replaced: KvDirectory used other than as new KvDirectory/);
+  const defaultProbe = new Map(edit("worker.js", "export default {", 'import "./application/probe_default.js";\nexport default {'));
+  defaultProbe.set(`${CONSOLE}/application/probe_default.js`, 'import worker from "../worker.js";\nworker["fe" + "tch"] = async () => new Response("probe");\n');
+  reject("computed replacement of the Worker fetch from another module", defaultProbe, /module graph: entry_replaced: the Worker default export is referenced in .*probe_default\.js/);
+
+  // Family mutation by import identity (review F2.3): namespace members and
+  // escaped identifiers resolve to the family binding.
+  const HK_MARKED = `${HK_BRANCH}\n        if (command.probe_marker) return json({ probe: true });`;
+  reject("family mutation through a namespace import", applyEdits(sources, [
+    { file: DO_FILE, from: DO_END, to: `${DO_END}import * as probeConstants from "../hk_stop/constants.js";\nprobeConstants.HK_STOP_DO_ACTIONS.add("probe_namespace");\n` },
+    { file: DO_FILE, from: HK_BRANCH, to: HK_MARKED }]), /module graph: family_mutation: HK_STOP_DO_ACTIONS used other than \.has\(\) in .*probeConstants\.HK_STOP_DO_ACTIONS\.add/);
+  const escapedProbe = applyEdits(sources, [
+    { file: DO_FILE, from: DO_END, to: `${DO_END}import "../hk_stop/probe_mutation.js";\n` },
+    { file: DO_FILE, from: HK_BRANCH, to: HK_MARKED }]);
+  escapedProbe.set(`${CONSOLE}/application/hk_stop/probe_mutation.js`, 'import { HK\\u005fSTOP_DO_ACTIONS } from "./constants.js";\nHK\\u005fSTOP_DO_ACTIONS.add("probe_escape");\n');
+  reject("family mutation through an escaped identifier", escapedProbe, /module graph: family_mutation: HK_STOP_DO_ACTIONS used other than \.has\(\) in .*probe_mutation\.js/);
+  const namespaceReexport = new Map(edit(DO_FILE, DO_END, `${DO_END}import { probeNs } from "../hk_stop/probe_ns.js";\nprobeNs.HK_STOP_DO_ACTIONS.add("probe_ns");\n`));
+  namespaceReexport.set(`${CONSOLE}/application/hk_stop/probe_ns.js`, 'export * as probeNs from "./constants.js";\n');
+  reject("family mutation through a namespace re-export", namespaceReexport, /module graph: entry_replaced: export \* as probeNs re-exports dispatch bindings/);
+
+  // Catch bodies (review F2.4): the whole clause is the reviewed template.
+  reject("error-derived dispatch in the DO catch", edit(DO_FILE, "    } catch (error) {\n      return json({ ok: false, error: error instanceof HttpError", '    } catch (error) {\n      if (error.message === "method_not_allowed") return new Response("probe-catch");\n      return json({ ok: false, error: error instanceof HttpError'),
+    /RuntimeInstances\.fetch: statement: catch clause is not the reviewed error response: catch \(error\) \{ if \(error\.message/);
+  reject("error-derived dispatch in the Worker catch", edit("worker.js", "    } catch (error) {\n      const directoryError", '    } catch (error) {\n      if (error.message === "method_not_allowed") return new Response("probe-catch");\n      const directoryError'),
+    /worker\.js fetch: statement: catch clause is not the reviewed error response: catch \(error\) \{ if \(error\.message/);
+
   // Nested, switch and conditional dispatch; preamble, catch and fallthrough
   // injection (the round-one committed probes are replayed here).
   reject("Worker nested route inside a branch", edit("worker.js", 'if (url.pathname.startsWith("/api/performance/")) {', 'if (url.pathname.startsWith("/api/performance/")) {\n        if (url.pathname === "/api/performance/probe") return new Response("probe");'), /nested_pathname: unreviewed url\.pathname use/);
@@ -653,7 +711,7 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   reject("Worker nested if consequent", beforeRoot('if (url.pathname.startsWith("/api/probe")) if (request.method === "GET") return new Response("probe");'), /statement: nested dispatch statement in branch/);
   reject("Worker dispatch before try", edit("worker.js", "    const url = new URL(request.url);\n    try {", '    const url = new URL(request.url);\n    if (url.pathname === "/api/probe") return new Response("probe");\n    try {'), /statement: fetch must be/);
   reject("Worker statement after fallthrough", edit("worker.js", '      return json({ ok: false, error: "not_found" }, 404);\n    } catch', '      return json({ ok: false, error: "not_found" }, 404);\n      if (url.pathname === "/api/probe") return new Response("probe");\n    } catch'), /statement: statement after the final fallthrough/);
-  reject("Worker catch injection", edit("worker.js", "    } catch (error) {\n      const directoryError", '    } catch (error) {\n      if (url.pathname === "/api/probe") return new Response("probe");\n      const directoryError'), /statement: catch clause references receiver url/);
+  reject("Worker catch injection", edit("worker.js", "    } catch (error) {\n      const directoryError", '    } catch (error) {\n      if (url.pathname === "/api/probe") return new Response("probe");\n      const directoryError'), /statement: catch clause is not the reviewed error response: catch \(error\) \{ if \(url\.pathname/);
   reject("DO switch on action", beforeHk('switch (command.action) { case "probe_read": return json({}); }'), /dispatch_form: command\.action read outside a recognised dispatch form/);
   discover("DO conditional dispatch in a gated body", inHk('if (command.kind) return command.action === "probe_read" ? json({ probe: true }) : json({});'), UNCLASSIFIED_READ);
   discover("DO else-if added to the transaction chain", edit(DO_FILE, '          } else if (command.action === "sync_defaults") {', '          } else if (command.action === "probe_write") {\n            changed = false;\n          } else if (command.action === "sync_defaults") {'), /^unclassified internal operation action:instance_state:probe_write$/);
@@ -661,7 +719,7 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   reject("DO preamble injection", edit(DO_FILE, "      if (new URL(request.url).pathname === DIRECTORY_PATH) {", '      if (request.headers.get("x-probe")) return json({ probe: true });\n      if (new URL(request.url).pathname === DIRECTORY_PATH) {'), /statement: dispatch-level statement not admitted: if \(request\.headers/);
   reject("DO other receiver field", beforeHk('if (request.body?.action === "probe_read") return json({});'), /statement: dispatch-level statement not admitted: if \(request\.body\?\.action/);
   reject("DO payload-field dispatch at the transaction level", edit(DO_FILE, "        const ts = new Date().toISOString();", '        if (command.mode === "probe") return this.response(state);\n        const ts = new Date().toISOString();'), /RuntimeInstances transaction: statement: dispatch-level statement not admitted/);
-  reject("DO catch injection", edit(DO_FILE, "    } catch (error) {\n      return json({ ok: false, error: error instanceof HttpError", '    } catch (error) {\n      if (request.method === "PUT") return json({ probe: true });\n      return json({ ok: false, error: error instanceof HttpError'), /statement: catch clause references receiver request/);
+  reject("DO catch injection", edit(DO_FILE, "    } catch (error) {\n      return json({ ok: false, error: error instanceof HttpError", '    } catch (error) {\n      if (request.method === "PUT") return json({ probe: true });\n      return json({ ok: false, error: error instanceof HttpError'), /statement: catch clause is not the reviewed error response: catch \(error\) \{ if \(request\.method/);
   reject("DO statement after the fallthrough", edit(DO_FILE, "        return this.response(state);\n      }));\n", '        return this.response(state);\n      }));\n      if (command.action === "probe_read") return json({});\n'), /statement: statement after the final fallthrough/);
   reject("DO new path form", beforeGet('if (new URL(request.url).pathname === "/probe") return json({});'), /statement: dispatch-level statement not admitted/);
   reject("ux1 switch on action", edit(DO_FILE, '      const login = String(command?.login || "");', '      switch (command.action) { case "ux1_probe": return { probe: true }; }\n      const login = String(command?.login || "");'), /^ux1ResearchCommand: dispatch_form/);
@@ -697,7 +755,7 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   reject("duplicate Worker entry", edit("worker.js", "export default {", 'export default {\n  async fetch(request, env, ctx) { return new Response("probe"); },'), /entry_duplicate: fetch/);
   reject("non-method Worker export member", edit("worker.js", "export default {", "export default {\n  ...probeHandlers,"), /export_form: member form not admitted: \.\.\.probeHandlers/);
   reject("duplicate Durable Object entry", edit(DO_FILE, "  async alarm() { await this.deskReadbacks.alarm(); }", "  async alarm() { await this.deskReadbacks.alarm(); }\n  async alarm() {}"), /entry_duplicate: RuntimeInstances\.alarm/);
-  reject("replaced Durable Object entry", edit(DO_FILE, "  async alarm() { await this.deskReadbacks.alarm(); }", '  async alarm() { await this.deskReadbacks.alarm(); }\n  static { RuntimeInstances.prototype.fetch = async () => new Response("probe"); }'), /entry_replaced: assignment to RuntimeInstances members/);
+  reject("replaced Durable Object entry", edit(DO_FILE, "  async alarm() { await this.deskReadbacks.alarm(); }", '  async alarm() { await this.deskReadbacks.alarm(); }\n  static { RuntimeInstances.prototype.fetch = async () => new Response("probe"); }'), /entry_replaced: static member of RuntimeInstances is not admitted/);
   reject("duplicate route condition", beforeRoot('if (url.pathname === "/") return new Response("probe");'), /entry_duplicate: duplicate route condition/);
   reject("reassigned rotation dispatcher", edit("secretRotation.js", "export async function durableRotationCommand(", "rotationCommand = () => ({ probe: true });\nexport async function durableRotationCommand("), /entry_replaced: rotationCommand is reassigned/);
 
