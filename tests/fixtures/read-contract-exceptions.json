@@ -401,20 +401,6 @@
           "sites": {
             "web/strategy-switch-console/account_options_schema.js": 1
           }
-        },
-        {
-          "file": "web/strategy-switch-console/frontend/src/pages/overview/OverviewPage.tsx",
-          "literal": "{item.account_alias || t(\"decisions.account_unbound\")}",
-          "sites": {
-            "web/strategy-switch-console/frontend/src/pages/overview/OverviewPage.tsx": 1
-          }
-        },
-        {
-          "file": "web/strategy-switch-console/frontend/src/components/cockpit.tsx",
-          "literal": "<dd>{decision.account_alias}",
-          "sites": {
-            "web/strategy-switch-console/frontend/src/components/cockpit.tsx": 1
-          }
         }
       ],
       "work_item": "impl-d1 bounded presentation correction (adoption step 2); canonical identity later (R3)",

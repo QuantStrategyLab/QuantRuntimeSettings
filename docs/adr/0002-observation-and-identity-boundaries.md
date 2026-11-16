@@ -34,8 +34,7 @@ maintenance and scheduled jobs write legitimately. The baseline separates
 whether invoking an observation can change application state, and whether the
 resulting view states its identity and coverage honestly.
 
-The five rules, stated normatively with their test obligations in
-[Observation and identity boundaries](../../.github/engineering.md#observation-and-identity-boundaries):
+The five rules, stated normatively with their test obligations:
 
 - **R1** Observations receive read capabilities, end to end, including
   construction, error branches, cold or old schemas and deferred work.
