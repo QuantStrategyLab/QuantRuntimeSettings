@@ -2856,6 +2856,135 @@
    }
   },
   {
+   "id": "control-bounds-unsettled-timer-callback",
+   "group": "graph-bounds-control",
+   "fixture": "bounds-unsettled-timer-callback",
+   "provenance": "a zero-delay timer callback whose returned promise never settles is residual work within the case budget",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "failures": [
+     "residual:tracked_promise"
+    ],
+    "detection": "bound_exceeded"
+   }
+  },
+  {
+   "id": "control-bounds-unsettled-immediate-callback",
+   "group": "graph-bounds-control",
+   "fixture": "bounds-unsettled-immediate-callback",
+   "provenance": "an immediate callback whose returned promise never settles is residual work within the case budget",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "failures": [
+     "residual:tracked_promise"
+    ],
+    "detection": "bound_exceeded"
+   }
+  },
+  {
+   "id": "control-bounds-unsettled-microtask-callback",
+   "group": "graph-bounds-control",
+   "fixture": "bounds-unsettled-microtask-callback",
+   "provenance": "a microtask callback whose returned promise never settles is residual work within the case budget",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "failures": [
+     "residual:tracked_promise"
+    ],
+    "detection": "bound_exceeded"
+   }
+  },
+  {
+   "id": "control-bounds-settled-scheduled-callbacks",
+   "group": "graph-bounds-control",
+   "fixture": "bounds-settled-scheduled-callbacks",
+   "provenance": "timer, immediate and microtask callbacks whose returned promises settle on a later turn drain cleanly with zero writer entries",
+   "phases": [
+    {
+     "name": "request",
+     "mode": "zero-writer",
+     "label": "ready-instance request phase",
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "status": 200,
+      "ok": true
+     }
+    ],
+    "detection": "none"
+   }
+  },
+  {
    "id": "control-bounds-hang",
    "group": "graph-bounds-control",
    "fixture": "bounds-hang",

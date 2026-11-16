@@ -304,6 +304,12 @@ export function witnessFixtures(sources, consoleDir) {
     "bounds-interval": { edits: [readEdit("setInterval(() => {}, 0);")] },
     "bounds-delayed-timer": { edits: [readEdit("setTimeout(() => {}, 1000);")] },
     "bounds-unsettled-promise": { edits: [readEdit("this.pending = new Promise(() => {});")] },
+    // Scheduled callbacks whose returned promise never settles (review R1-ASYNC),
+    // and the control whose callbacks' promises settle on a later turn.
+    "bounds-unsettled-timer-callback": { edits: [readEdit("setTimeout(() => new Promise(() => {}), 0);")] },
+    "bounds-unsettled-immediate-callback": { edits: [readEdit("setImmediate(() => new Promise(() => {}));")] },
+    "bounds-unsettled-microtask-callback": { edits: [readEdit("queueMicrotask(() => new Promise(() => {}));")] },
+    "bounds-settled-scheduled-callbacks": { edits: [readEdit("setTimeout(() => new Promise(resolve => setImmediate(resolve)), 0); setImmediate(async () => {}); queueMicrotask(() => Promise.resolve());")] },
     "bounds-hang": { edits: [readEdit("for (;;) {}")] },
     "review-nested-instance-return": { edits: [readEdit(disclosed)] },
     "review-nested-instance-return-anchor-preserved": { edits: [{ file: DO, from: `${anchor}\n`, to: `${anchor}\n    ${disclosed}\n` }] },

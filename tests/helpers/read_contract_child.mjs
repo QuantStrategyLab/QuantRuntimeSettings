@@ -6,8 +6,9 @@
 // monitor, installs module hooks that admit only G's files (verified by
 // digest, one canonical URL each), the declared builtins and the case's
 // pinned synthetic packages, and replaces the asynchronous host facilities:
-// zero-delay timers and waitUntil work are tracked against the frozen task
-// budget, intervals, delayed timers and network access are rejected and
+// zero-delay timers, immediates, microtasks and waitUntil work, including
+// the promise a scheduled callback returns, are tracked against the frozen
+// task budget, intervals, delayed timers and network access are rejected and
 // recorded. Every observation is appended synchronously to the result file;
 // the parent judges the case from that file, and a run without its final
 // `complete` record is a failure.
@@ -73,7 +74,7 @@ registerHooks({
 });
 
 // --- B: asynchronous facilities -------------------------------------------
-const real = { setTimeout, clearTimeout, setImmediate, clearImmediate };
+const real = { setTimeout, clearTimeout, setImmediate, clearImmediate, queueMicrotask };
 const { bounds } = spec;
 const pending = new Map();
 const tracked = [];
@@ -81,9 +82,13 @@ let scheduled = 0;
 const residual = [];
 const unsupported = facility => { emit({ t: "unsupported", facility, phase: current.name }); throw new Error(`read_contract_unsupported:${facility}`); };
 const callbackErrors = [];
+/** Track a returned thenable until it settles: an unsettled one is residual work at the drain bound. */
+const settle = value => { if (value && typeof value.then === "function") tracked.push(Promise.resolve(value).catch(error => { emit({ t: "async_error", name: error?.name, phase: current.name }); })); };
+// A scheduled callback leaves `pending` only as its returned value enters
+// `tracked`, in the same synchronous turn, so drain never sees it finished.
 const runTracked = (token, fn, args) => {
   pending.delete(token);
-  try { fn(...args); } catch (error) { callbackErrors.push(error?.name || "Error"); emit({ t: "callback_error", name: error?.name, phase: current.name }); }
+  try { settle(fn(...args)); } catch (error) { callbackErrors.push(error?.name || "Error"); emit({ t: "callback_error", name: error?.name, phase: current.name }); }
 };
 const schedule = (kind, starter, fn, args) => {
   if (typeof fn !== "function") unsupported(`${kind}:non-function`);
@@ -98,6 +103,7 @@ globalThis.setTimeout = (fn, delay = 0, ...args) => {
   return schedule("setTimeout", run => real.setTimeout(run, 0), fn, args);
 };
 globalThis.setImmediate = (fn, ...args) => schedule("setImmediate", run => real.setImmediate(run), fn, args);
+globalThis.queueMicrotask = fn => { schedule("queueMicrotask", run => real.queueMicrotask(run), fn, []); };
 globalThis.clearTimeout = token => { if (pending.has(token)) { real.clearTimeout(pending.get(token)); pending.delete(token); } };
 globalThis.clearImmediate = token => { if (pending.has(token)) { real.clearImmediate(pending.get(token)); pending.delete(token); } };
 globalThis.setInterval = () => unsupported("setInterval");
@@ -189,7 +195,6 @@ function sentinel(label, touched) {
   }])));
 }
 
-const settle = value => { if (value && typeof value.then === "function") tracked.push(Promise.resolve(value).catch(error => { emit({ t: "async_error", name: error?.name, phase: current.name }); })); };
 const outcome = fn => {
   try { const value = fn(); settle(value); return { outcome: "returned" }; } catch (error) { return { outcome: "threw", error: error?.name }; }
 };
