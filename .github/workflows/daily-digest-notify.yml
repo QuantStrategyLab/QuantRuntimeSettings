@@ -1,7 +1,9 @@
 name: Daily Digest Preview
 
 # Explicit manual previews only. Production reports and delivery reservations
-# are owned by Cloud Run; this workflow has no scheduled or forced sends.
+# are not produced here; repository evidence points to an Azure scheduled sender
+# sharing the digest core with Cloud Run (live activation is not verified).
+# This workflow has no scheduled or forced sends.
 # Private preview bodies remain on the runner, never in public artifacts.
 
 on:

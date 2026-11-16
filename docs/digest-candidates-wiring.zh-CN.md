@@ -1,6 +1,6 @@
 # 中央日报 DIGEST_CANDIDATES 接线（无密钥）
 
-当前正式入口是 Cloud Scheduler → Cloud Run，见[统一日报运行合同](unified-daily-notification.md)。它直接读取批准绑定的 GCS 对象并显式传入 SDK 读取结果；不依赖 Actions 状态变量。本页的 Environment、列表/复制、历史状态及 workflow 说明仅用于手动只读预览和旧证据解释，不能重新启用旧发送器。
+仓库证据指向 Azure 定时发送器（与 Cloud Run 入口共用日报核心）为当前生产路径，线上启用状态未经验证；Cloud Scheduler → Cloud Run 是较早的文档设计，仍是受支持的入口，见[统一日报运行合同](unified-daily-notification.md)。日报核心直接读取批准绑定的 GCS 对象并显式传入 SDK 读取结果；不依赖 Actions 状态变量。本页的 Environment、列表/复制、历史状态及 workflow 说明仅用于手动只读预览和旧证据解释，不能重新启用旧发送器。
 
 本文说明如何把**某一平台**的日报候选证据接到 `QuantRuntimeSettings` 中央日报，不写密钥、不写真实账户号、不写资产金额。
 
@@ -124,7 +124,7 @@ python3 python/scripts/send_daily_digest_telegram.py \
 
 - 生产者（Schwab `digest-candidates-daily.yml`、IBKR `execution-report-heartbeat.yml` 定时）每天生成候选，只有设置了仓库变量 `DIGEST_CANDIDATES_GCS_URI` 才会上传到 `<uri>/<platform_id>/<business_day>/<target>.json`；没设就是 dry-run，文件只留在 runner 临时目录。
 - 中央日报设置了同名 Environment 变量才去读取：先用 `DIGEST_CANDIDATES_READER_*` 的 WIF 认证，再把 `<uri>/*/<business_day>/*.json` 和旧 secret（如果还有）用 `merge_digest_candidates.py` 合并（日志只打印条数）。过期行仍由 B0 规则丢弃。
-- 存储位置：复用现有的共享 bucket，前缀为 `gs://<shared-bucket>/digest-candidates/`（不新建 bucket，不做 Cloud Scheduler 准点触发，继续用 GitHub Actions cron）。
+- 存储位置：复用现有的共享 bucket，前缀为 `gs://<shared-bucket>/digest-candidates/`（不新建 bucket，不做 Cloud Scheduler 准点触发，继续用 GitHub Actions cron）。这是 2026-10 的历史接线描述；该 Actions 日报 cron 已退役，GitHub 日报 workflow 现仅手动预览。
 - 2026-10-11 加权限前的只读探测（各仓库的 `Digest Store Permission Check`）：Schwab 和 IBKR 的部署 SA 对该 bucket 只能 get/list，**不能 create**；QRS 读取 SA `<digest-reader-service-account>` **不能 get/list**；匿名 list 返回 401。这是历史探测，不代表加权限后的状态。
 - 2026-10-11 owner 已加好 3 条带前缀条件的 IAM，生产者仓库已配置 `DIGEST_CANDIDATES_GCS_URI=gs://<shared-bucket>/digest-candidates`。2026-10-14 的[只读预检 38522813397](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38522813397)已通过现有身份的认证、列表、复制和严格合并；公开回执保留未知成交与不完整覆盖，`dry_run=true`、`delivered=false`。
 - 2026-10-14 06:42:23 UTC，QRS 的 `runtime-strategy-switch` Environment 已按既有授权配置同名 URI 变量，精确读回与上述存储位置一致。旧 `DIGEST_CANDIDATES_JSON` 仍保留，原 cron、v1 定时版式和通知路由未改变；本次只读预检选择 sections_v2 不等于生产版式切换。
@@ -153,7 +153,7 @@ python3 python/scripts/send_daily_digest_telegram.py \
 
 ### 生产接线
 
-新增正式候选绑定及生产配置变更遵循具体用户授权，使用独立 Cloud Run 的受保护配置、最小权限及只读预览验收。Actions 中的候选 JSON/文件只用于手动预览；关闭 dry-run 也不会恢复旧生产发送路径。
+新增正式候选绑定及生产配置变更遵循具体用户授权，使用正式发送入口（Cloud Run 或 Azure 包）的受保护配置、最小权限及只读预览验收。Actions 中的候选 JSON/文件只用于手动预览；关闭 dry-run 也不会恢复旧生产发送路径。
 
 ## Dry-run 验收
 

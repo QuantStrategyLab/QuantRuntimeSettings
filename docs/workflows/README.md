@@ -6,7 +6,9 @@ here first.
 
 ## Daily digest preview
 
-Production delivery has moved to the authenticated Cloud Run entry point; see
+Production delivery has moved off GitHub Actions. Repository evidence points to
+an Azure scheduled sender sharing the digest core with the authenticated Cloud
+Run entry point; live activation is not verified. See
 [Unified daily notification](../unified-daily-notification.md). The old workflow
 installation template and both Actions schedules are retired. Do not reinstall
 them or use an Actions sender as a production fallback.

@@ -2,7 +2,12 @@
 
 The daily digest reads producer evidence and never infers execution counts
 from a signal such as `no_action`, workflow success, or a missing report.
-Production Cloud Run rendering selects one normalized `zh` or `en` locale.
+Production rendering in the shared digest core selects one normalized `zh` or
+`en` locale: `Configuration.locale`, set explicitly by the caller, read from
+`QSL_NOTIFY_LANG` by `Configuration.from_environment()`, or the default `zh`.
+`daily_digest.default_locale` and `locales` in `platform-config.json` do not
+select it. Which input the live invocation uses is not recorded in this
+repository.
 The legacy preview layouts `v1` and `sections_v2` also support `zh-CN` (`zh`)
 and `en`; their bilingual compatibility text is separate from that production
 language selection.
@@ -125,8 +130,11 @@ targets expected for that digest; periodic strategies retain their run-day polic
 
 ## Production delivery and duplicate protection
 
-The production delivery contract assigns Cloud Run as the sole daily-report
-sender. Its Scheduler contract specifies 07:00 and 07:30 Asia/Singapore. For
+The delivery contract below was written for the Cloud Run entry point, which
+shares the digest core with the central Azure scheduled sender noted above.
+Repository evidence points to the Azure sender as the current production path;
+live activation is not verified from this repository. The documented Cloud
+Scheduler contract specifies 07:00 and 07:30 Asia/Singapore. For
 valid, same-day slots at or after cutover, when delivery is enabled, the 07:00
 slot may send after a successful reservation. The 07:30 slot only checks the
 persisted receipt for on-time acceptance; it does not read candidate data,
@@ -161,14 +169,14 @@ Its optional independent maintenance read check also does not send a message.
 A preview does not reserve or deliver a production report. The former scheduled
 Actions sender and `force_resend` workflow input are retired; do not use an old
 retry command, re-enable the Actions sender, or treat a preview as a replacement
-for the Cloud Run report.
+for the production report.
 
 The legacy CLI/history guard and its public Actions receipt artifacts remain
 available for historical interpretation. Their GitHub history checks and old
 force-resend settings describe the retired Actions-era path; they are not the
 production GCS reservation and do not authorize a second sender. An old receipt
 or a successful workflow alone does not establish the current report's delivery.
-Inspect the Cloud Run delivery state and operational status when acceptance is
+Inspect the production delivery state and operational status when acceptance is
 missing or uncertain; the 07:30 check does not retry or backfill delivery.
 
 Legacy CLI/preview date resolution can use the New York calendar date when

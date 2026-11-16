@@ -72,7 +72,7 @@ its run state is unknown. A missing inventory says coverage is unknown. This
 display does not bind a new source, collect another platform, or make unknown
 orders/fills zero. Existing totals cover bound targets only.
 
-The scheduled Cloud Run account report uses a compact account layout instead
+The scheduled account report (rendered by the shared digest core) uses a compact account layout instead
 of the five sections. “Yesterday” is the existing completed reporting window:
 06:00 Singapore time on the reported business day through 06:00 the next day,
 with the end excluded for execution events. The report groups bound strategies
@@ -191,6 +191,15 @@ authentic broker outcomes and real notification delivery remain unproven.
 
 ## Cloud Run delivery
 
+> **Status: older design, partly superseded.** This section and the cutover
+> steps below record the Cloud Run and Cloud Scheduler design. Repository
+> evidence now points to an Azure scheduled sender that shares the same digest
+> core (`cloud_run_daily_digest.py`), with its package published as described in
+> [Shared Azure package release](#shared-azure-package-release). Live activation
+> is not verified from this repository. Cloud Run remains a supported entry
+> point; read the Cloud Scheduler and Cloud Run statements here as that design,
+> not as proof that Cloud Run owns production delivery today.
+
 The standalone notification image uses `python/Dockerfile.digest`. Cloud Scheduler
 calls its authenticated `POST /daily-digest` endpoint at `0,30 7 * * *`, timezone
 `Asia/Singapore`, with an OIDC service identity. Set minimum instances to zero,
@@ -256,7 +265,7 @@ Required protected configuration:
 | `DIGEST_DELIVERY_ENABLED` | Default `false`; previews do not enable delivery |
 | `TELEGRAM_TOKEN` | Existing Bot secret reference |
 | `QSL_GLOBAL_TELEGRAM_CHAT_ID` | Existing approved recipient |
-| `QSL_NOTIFY_LANG` | `zh` or `en`, including normalized regional variants |
+| `QSL_NOTIFY_LANG` | `zh` or `en`, including normalized regional variants. Read only by `Configuration.from_environment()`; if absent the result is `zh`. `daily_digest.default_locale` and `locales` in `platform-config.json` do not select the language |
 | `QSL_DISPLAY_NAMES_JSON` | Protected runtime account identity mapping for v3 headers; see [account identity sources](display-names.md#private-account-identities-in-the-v3-daily-digest) |
 
 ### Separate candidate buckets
@@ -315,6 +324,11 @@ execution separately, using the existing operations alert channel.
 
 ### Cutover and retirement
 
+This is the Cloud Run cutover plan. It is retained as design history and is
+superseded where it conflicts with the Azure package contract below: it does not
+establish that Cloud Run is the active sender. The retirement of the Actions
+sender and schedules still holds.
+
 1. Deploy the immutable notification image with delivery disabled and no active
    Scheduler. Validate startup, authenticated preview, target bindings, IAM and
    the original recipient. The notification identity may read only approved
@@ -367,7 +381,8 @@ sessions provide an `actually_ran=false` candidate without a no-trade heartbeat.
 
 ## Candidate readiness before 07:00
 
-The central Cloud Scheduler read remains at 07:00 Asia/Shanghai, after the
+The central scheduled read (Cloud Scheduler in the Cloud Run design; the Azure
+send and check schedules per repository evidence) remains at 07:00 Asia/Shanghai, after the
 completed business window ends at 06:00. Its 07:30 deadline check reads the
 stored delivery receipt; it does not recollect late candidates or prove receiver
 receipt. Do not postpone the central read or widen the business window to hide
@@ -436,5 +451,13 @@ container and release it. The shared workflow verifies the backup,
 updates the live package conditionally, and reads it back. Use `rollback`
 with the same digest pair when the candidate is still live. The Azure
 send and check schedules keep their existing package path and runtime identity.
+
+Repository evidence points to this Azure package as the active production
+sender, sharing the digest core with the Cloud Run entry point above. Live
+activation is not verified from this repository, and neither are the language
+inputs of the live invocation: the effective locale is `Configuration.locale`,
+set explicitly by the caller, read from `QSL_NOTIFY_LANG` by
+`Configuration.from_environment()`, or the constructor default `zh`. Which one
+the Azure invocation uses is not recorded here.
 
 [Organization package release contract](https://github.com/QuantStrategyLab/.github/blob/main/docs/deployment-workflows.md#azure-blob-packages)

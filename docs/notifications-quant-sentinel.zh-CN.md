@@ -28,7 +28,7 @@ Binance 历史 GH secret 名 `TG_TOKEN` 应与 sentinel **同一 bot**；公开�
 |--------|--------|
 | `TELEGRAM_TOKEN_SECRET_NAME` | `quant-sentinel-telegram-bot-token` |
 | `STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME` | `quant-sentinel-telegram-bot-token` |
-| `NOTIFY_LANG` / `QSL_NOTIFY_LANG` | `zh` 或 `en`（默认 zh） |
+| `NOTIFY_LANG` / `QSL_NOTIFY_LANG` | `zh` 或 `en`（代码默认 zh）。正式日报的实际语言由生产调用方的配置决定，见下文「语言解析」；`platform-config.json` 中的 `daily_digest.default_locale` / `locales` 不选择该语言 |
 
 Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选）→ `GLOBAL_TELEGRAM_CHAT_ID` → `STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS`。公开配置只有 `telegram_chat_id_ref`，禁止字面量 chat id。
 
@@ -36,7 +36,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 
 | 变量 | 说明 |
 |------|------|
-| `TELEGRAM_TOKEN` | bot token（正式 Cloud Run 由 secret ref 注入；Actions 日报预览不注入 Bot 凭据） |
+| `TELEGRAM_TOKEN` | bot token（正式发送入口由 secret ref 注入；Actions 日报预览不注入 Bot 凭据） |
 | `QSL_GLOBAL_TELEGRAM_CHAT_ID` | 首选跨平台路由变量 |
 | `GLOBAL_TELEGRAM_CHAT_ID` | 兼容回退 |
 | `QSL_NOTIFY_LANG` / `NOTIFY_LANG` | 日报与预览文案语言 |
@@ -64,7 +64,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 ### 正式日报调度
 
 - 时区：`Asia/Singapore`
-- Cloud Scheduler 每日 07:00 调用独立 Cloud Run 发送；07:30 仅检查持久化回执。旧 Actions cron 已退役，统计窗口仍于 06:00 截止。
+- 每日 07:00 发送；07:30 仅检查持久化回执。仓库证据指向 Azure 定时发送器（与 Cloud Run 入口共用日报核心），Cloud Scheduler → Cloud Run 是较早的文档设计，仍是受支持的入口；线上启用状态未经验证。旧 Actions cron 已退役，统计窗口仍于 06:00 截止。
 - 加密按同一窗口并入；若当日 UTC 有周期则出现在列表中
 
 ### 文案与 i18n
@@ -76,7 +76,9 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 | `zh` | 量化哨兵 · 收盘日报 | 量化哨兵 · 心跳 |
 | `en` | QuantSentinel · Daily digest | QuantSentinel · Heartbeat |
 
-语言解析：`QSL_NOTIFY_LANG` → `NOTIFY_LANG` → 默认 `zh`。
+语言解析：`QSL_NOTIFY_LANG` → `NOTIFY_LANG` → 默认 `zh`（此链适用于聚合器与预览路径）。
+
+正式日报核心的实际语言是 `Configuration.locale`：调用方显式传入的值，或 `Configuration.from_environment()` 读取的 `QSL_NOTIFY_LANG`（缺省为 `zh`），或构造函数默认值 `zh`。核心不读取 `NOTIFY_LANG`，也不读取 `platform-config.json` 的 `daily_digest.default_locale` / `locales`；这两项不决定生产语言。线上 Azure 调用实际采用哪一种输入，本仓库没有记录，需读取该调用的有效配置确认。
 
 消息结构（示意；金额仅在候选证据存在时出现；**不**再渲染「窗口」与「通道」行）：
 
@@ -169,12 +171,12 @@ Receipt totals follow the same evidence boundary: absent evidence, stale candida
 
 ### Aggregator（本仓已落地）
 
-- 正式日报由独立 Cloud Run 入口发送，见 [统一日报运行合同](unified-daily-notification.md)。`.github/workflows/daily-digest-notify.yml` 仅保留手动只读预览，旧安装文稿及定时发送已退役。
-- 正式入口：`python/scripts/cloud_run_daily_digest.py`，复用 `daily_digest_aggregator.py`；`send_daily_digest_telegram.py` 仅供旧格式兼容及只读预览。
+- 正式日报的发送运行合同见 [统一日报运行合同](unified-daily-notification.md)。仓库证据指向 Azure 定时发送器（共用日报核心，包由 `release-digest-package.yml` 发布），Cloud Run 独立入口是较早的设计且仍受支持；线上启用状态未经验证。`.github/workflows/daily-digest-notify.yml` 仅保留手动只读预览，旧安装文稿及定时发送已退役。
+- 日报核心：`python/scripts/cloud_run_daily_digest.py`（Cloud Run 与 Azure 共用），复用 `daily_digest_aggregator.py`；`send_daily_digest_telegram.py` 仅供旧格式兼容及只读预览。
 - 调度：每日 **07:00 Asia/Singapore** 发送，07:30 只读回执检查，业务窗口截止仍为 06:00。
 - 证据：正式入口通过官方 GCS SDK 读取批准绑定的候选对象，不列举 bucket、不查询 GitHub。旧 JSON/文件合并及 workflow 存在性读取仅供手动预览兼容（见 [候选接线](./digest-candidates-wiring.zh-CN.md)）。接线、自然周期和真实送达分别验收。
 - 聚合键：`platform_id + strategy + opaque_account_uid|unknown + target_id|unknown`；同策略多账户不得混拼
-- 发送：Cloud Run 通过 `TELEGRAM_TOKEN` 的原 Secret 引用及批准的 `QSL_GLOBAL_TELEGRAM_CHAT_ID`；按接收范围和报告日期使用 GCS 防重账本。
+- 发送：正式入口通过 `TELEGRAM_TOKEN` 的原 Secret 引用及批准的 `QSL_GLOBAL_TELEGRAM_CHAT_ID`；按接收范围和报告日期使用 GCS 防重账本（Cloud Run 设计合同）。
 - 预览：`workflow_dispatch` 仅 `dry_run=true` 可运行；Cloud Run `/preview` 仅回传安全状态，不预留或发送。
 - 接线基线模板：[private-target-wiring-baseline.zh-CN.md](./private-target-wiring-baseline.zh-CN.md)
 - Binance：历史 `TG_TOKEN` 仍独立；对齐步骤见 `platform-config.json` → `daily_digest.aggregator.binance_alignment_note_*`（公开仓只记名称）
@@ -227,7 +229,7 @@ dry-run receipt 同样写入 `token_source_kind` / `chat_source_kind` / `warning
 
 ### 重复发送风险待证（公开代码证据，未改它仓）
 
-中央收盘日报由本仓独立 Cloud Run `cloud_run_daily_digest.py` 发送。以下平台路径仍可能对**同一业务事件**另发 Telegram（是否与日报重复 = 待证，取决于 Environment 是否仍启用、文案是否同源）：
+中央收盘日报由本仓 `cloud_run_daily_digest.py` 日报核心发送（仓库证据指向 Azure 定时发送器，线上启用状态未经验证；Cloud Run 为受支持的入口）。以下平台路径仍可能对**同一业务事件**另发 Telegram（是否与日报重复 = 待证，取决于 Environment 是否仍启用、文案是否同源）：
 
 | 仓 | 公开文件 | 路径角色 | 风险标注 |
 |----|----------|----------|----------|
@@ -235,7 +237,7 @@ dry-run receipt 同样写入 `token_source_kind` / `chat_source_kind` / `warning
 | LongBridgePlatform | `scripts/execution_report_heartbeat.py` | 执行报告心跳 | 重复发送风险待证 |
 | LongBridgePlatform | `scripts/cloud_run_runtime_guard.py` | Cloud Run 守卫告警 | 重复发送风险待证（异常类，可能与日报正交） |
 | LongBridgePlatform | `scripts/send_paper_notification_canary.py` | PAPER 预览 / canary | 预览路径；生产 schedule 勿与正式日报并行误触 |
-| QuantRuntimeSettings | `python/scripts/cloud_run_daily_digest.py` | 中央跨平台日报 | 唯一正式发送入口；Actions 仅手动预览 |
+| QuantRuntimeSettings | `python/scripts/cloud_run_daily_digest.py` | 中央跨平台日报（核心） | 唯一正式发送核心；Actions 仅手动预览 |
 
 说明：LongBridge 若干脚本 chat 解析以 `GLOBAL_TELEGRAM_CHAT_ID` 为主、未统一优先 `QSL_GLOBAL_TELEGRAM_CHAT_ID`（公开代码）；与本仓优先级不一致本身会放大「同 bot 不同注入源」排障成本。其它券商仓未在本机克隆核到的发送点标为**未知**，不编造清单。
 
