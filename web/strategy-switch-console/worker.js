@@ -183,7 +183,8 @@ import {
   runtimeInstanceCommand,
 } from "./application/runtime_instances/command.js";
 import { readSession, makeSession } from "./application/auth/session.js";
-import { INVENTORY_ROUTE, accountIdentityInventoryResponse } from "./application/account_identity_inventory/http.js";
+import { INVENTORY_ROUTE } from "./application/account_identity_inventory/constants.js";
+import { accountIdentityInventoryResponse } from "./application/account_identity_inventory/http.js";
 import { startLogin, finishLogin } from "./application/auth/login.js";
 import {
   ux1DraftGet,

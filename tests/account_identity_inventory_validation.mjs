@@ -23,8 +23,8 @@ globalThis.fetch = (input) => violate(`fetch:${typeof input === "string" ? input
 const workerModule = await import(new URL("worker.js", CONSOLE));
 const worker = workerModule.default;
 const { RuntimeInstances } = workerModule;
-const reader = await import(new URL("application/account_identity_inventory/reader.js", CONSOLE));
-const { INVENTORY_TABLES, INVENTORY_DO_PATH } = reader;
+const { INVENTORY_TABLES, INVENTORY_DO_PATH } = await import(new URL("application/account_identity_inventory/constants.js", CONSOLE));
+const { strategiesCacheAccounts } = await import(new URL("application/account_identity_inventory/helpers.js", CONSOLE));
 const { assemble, EXPORT_FORMAT } = await import(new URL("inspect_account_identity_inventory.mjs", CONSOLE));
 const { makeSession, hmac } = await import(new URL("application/auth/session.js", CONSOLE));
 const { base64UrlEncodeJson } = await import(new URL("application/auth/cookies.js", CONSOLE));
@@ -596,11 +596,12 @@ async function inventoryOf({ doKv = {}, kvValues = {} }) {
   assert.deepEqual(loose.mapping.unattributed.map(item => [item.legacy_key, item.locator.path]), [["no-platform", ["data", "", "no-platform"]]]);
   assert.ok(!loose.mapping.entries.some(item => item.legacy_key === "bindings-key-only"), "B2 rule: other families' object keys stay non-identities");
   // A projection cut at its bound is an unread identity for group 20.
-  const bounded = reader.strategiesCacheAccounts({ data: { ibkr: { a: {}, b: {} } } }, 1);
+  const bounded = strategiesCacheAccounts({ data: { ibkr: { a: {}, b: {} } } }, 1);
   assert.deepEqual([bounded.accounts.length, bounded.truncated], [1, true]);
   const big = JSON.stringify({ ts: 1, data: { ibkr: Object.fromEntries(range(4001).map(index => [`k-${index}`, {}])) } });
   const cut = (await inventoryOf({ kvValues: { current_strategies_cache: big } })).private;
   assert.deepEqual([cut.status, cut.groups[20], cut.group_reasons[20]], ["incomplete", "incomplete", ["kv:current_strategies_cache:cache_accounts_truncated"]]);
+  assert.equal(cut.kv.keys.find(key => key.name === "current_strategies_cache").identity.truncated, false, "the specialized bound alone: the generic projection is complete");
   // A hierarchy that is not the writer's shape is unread, not empty; an empty
   // account key is a stored slot and lands in the unattributed ledger.
   for (const data of [[], { ibkr: "flat" }]) {
@@ -610,6 +611,302 @@ async function inventoryOf({ doKv = {}, kvValues = {} }) {
   const blank = (await inventoryOf({ kvValues: { current_strategies_cache: JSON.stringify({ ts: 1, data: { ibkr: { "": {} } } }) } })).private;
   assert.deepEqual(blank.mapping.unattributed.map(item => [item.legacy_key, item.locator.path]), [["", ["data", "ibkr", ""]]]);
   assert.equal(blank.groups[20], "complete");
+}
+
+// ---------------------------------------------------- A2e: r6 matrix over real collection and assemble()
+// Every fixture is collected through the real route (both objects
+// finalized, two equal KV passes, env collected) and assembled unmodified;
+// `isolate` leaves assembly to a separate process.
+async function inventoryFull({ sql = [], kvValues = {}, isolate = false } = {}) {
+  const h = await harness({ runtime: { sql, kv: {}, alarm: null, initialize: sql.length > 0 }, directory: { sql: [], kv: {}, alarm: null, initialize: false },
+    kv: fakeKv(kvValues), extraEnv: { ACCOUNT_IDENTITY_INVENTORY_KV_ENABLED: "true", ACCOUNT_IDENTITY_INVENTORY_ENV_ENABLED: "true" } });
+  const responses = [];
+  await collect(h.get, "runtime", { responses });
+  await collect(h.get, "directory", { responses });
+  await collectKv(h.get, responses);
+  await collectKv(h.get, responses);
+  const envPage = await h.get(`${ROUTE}?section=env`);
+  responses.push({ request: { section: "env" }, status: envPage.status, body: envPage.body });
+  assert.equal(envPage.status, 200, "env section collected");
+  const exported = { format: EXPORT_FORMAT, responses };
+  const assembled = isolate ? {} : assemble(structuredClone(exported));
+  assert.deepEqual(violations, [], "no trap fired");
+  await h.unchanged();
+  await h.close();
+  return { exported, responses, ...assembled };
+}
+const exportedKv = (responses, name) => {
+  const items = responses.filter(item => item.request.section === "kv").flatMap(item => item.body.keys).filter(item => item.name === name);
+  assert.equal(items.length, 2, `${name}: listed once in each KV pass`);
+  return items.at(-1);
+};
+const ENUMERATED = "retained_state_enumerated_external_evidence_required";
+// An unrelated reviewed family in group 20, read completely in every fixture.
+const UNRELATED = { risk_profile_bindings: JSON.stringify({ rows: [{ platform: "ibkr", account_key: "unrelated-account" }] }) };
+
+// N1: a generic identity projection cut at its field bound is a failed read.
+{
+  const options = (count, last = null) => JSON.stringify({ ibkr: [...range(count).map(index => ({ key: `opt-${pad(index)}`, account_selector: `sel-${index}` })), ...(last ? [last] : [])] });
+  const cases = {
+    "N1-fields-4000": { value: options(2000), inputs: 4000, retained: 2000, truncated: false },
+    "N1-fields-4001": { value: options(2000, { key: "opt-last" }), inputs: 4001, retained: 2001, truncated: true },
+    "N1-fields-4002-r5": { value: options(2001), inputs: 4002, retained: 2001, truncated: true },
+  };
+  for (const [label, item] of Object.entries(cases)) {
+    const stored = JSON.parse(item.value);
+    assert.deepEqual([stored.ibkr.length, stored.ibkr.reduce((total, option) => total + Object.keys(option).length, 0)], [item.retained, item.inputs], `${label}: fixture input counts`);
+    const { responses, private: result, summary } = await inventoryFull({ kvValues: { account_options: item.value, ...UNRELATED } });
+    const projected = exportedKv(responses, "account_options");
+    assert.deepEqual([projected.state, Object.keys(projected.identity.fields).length, projected.identity.truncated], ["exported", 4000, item.truncated], `${label}: projected fields`);
+    const configured = result.mapping.entries.filter(entry => entry.episodes.some(episode => episode.state === "configured_option"));
+    assert.equal(configured.length, 2000, `${label}: mapped option accounts`);
+    assert.equal(result.mapping.entries.length, 2001, `${label}: option accounts plus the unrelated account`);
+    assert.equal(result.kv.repeated_pass_equal, true, `${label}: two equal passes`);
+    assert.equal(result.groups[20], "complete", `${label} (N1-unaffected-group): unrelated group 20 stays complete`);
+    if (!item.truncated) {
+      assert.deepEqual([result.kv.failed_reads, result.groups[16], result.status, summary.status], [[], "complete", ENUMERATED, ENUMERATED], `${label}: complete`);
+      continue;
+    }
+    assert.deepEqual(result.kv.failed_reads, [{ name: "account_options", family: "account_options", state: "identity_projection_truncated",
+      causes: ["identity_projection_truncated"], group: "16" }], `${label}: exactly one failed KV key`);
+    assert.deepEqual([result.groups[16], result.group_reasons[16], result.status], ["incomplete", ["kv:account_options:identity_projection_truncated"], "incomplete"], `${label}: group 16 and overall incomplete`);
+    assert.deepEqual([summary.status, summary.kv.failed_reads, summary.kv.repeated_pass_equal, summary.groups[16]], ["incomplete", 1, true, "incomplete"], `${label}: summary`);
+    assert.ok(result.reasons.includes("kv:account_options:identity_projection_truncated"));
+  }
+}
+// N1: an explicit reference at the depth bound and one level beyond it.
+{
+  const nested = depth => {
+    let node = { platform: "ibkr", account_key: "deep-account" };
+    for (let level = depth; level >= 1; level--) node = { [`l${level}`]: node };
+    return node;
+  };
+  for (const [label, depth, fields, truncated] of [["N1-depth-8", 8, 2, false], ["N1-depth-9", 9, 0, true]]) {
+    const { responses, private: result, summary } = await inventoryFull({ kvValues: { account_facts_bindings: JSON.stringify(nested(depth)), ...UNRELATED } });
+    const projected = exportedKv(responses, "account_facts_bindings");
+    assert.deepEqual([Object.keys(projected.identity.fields).length, projected.identity.truncated], [fields, truncated], `${label}: projected fields`);
+    const deep = result.mapping.entries.filter(entry => entry.legacy_key === "deep-account");
+    assert.equal(result.groups[20], "complete", `${label}: unrelated group 20 stays complete`);
+    if (!truncated) {
+      assert.deepEqual(deep.map(entry => [entry.platform, entry.episodes.length]), [["ibkr", 1]], `${label}: one mapping`);
+      assert.deepEqual([result.kv.failed_reads, result.groups[17], result.status], [[], "complete", ENUMERATED], `${label}: complete`);
+      continue;
+    }
+    assert.deepEqual(deep, [], `${label}: the omitted identity is not invented`);
+    assert.deepEqual(result.kv.failed_reads, [{ name: "account_facts_bindings", family: "account_facts_bindings", state: "identity_projection_truncated",
+      causes: ["identity_projection_truncated"], group: "17" }], `${label}: the located failed read`);
+    assert.deepEqual([result.groups[17], result.status, summary.kv.failed_reads, result.groups[16]], ["incomplete", "incomplete", 1, "complete"], `${label}: group 17 and overall incomplete`);
+  }
+}
+// N1: generic and specialized-cache truncation are independent causes.
+{
+  const cache = (accounts, entry) => JSON.stringify({ ts: 1, data: { ibkr: Object.fromEntries(range(accounts).map(index => [`cache-${pad(index)}`, entry])) } });
+  const combinations = {
+    neither: { value: cache(2, { account_selector: "s" }), generic: false, specialized: false, mapped: 2, causes: [] },
+    generic: { value: cache(2001, { account_selector: "s", target_name: "t" }), generic: true, specialized: false, mapped: 2001, causes: ["identity_projection_truncated"] },
+    cache: { value: cache(4001, {}), generic: false, specialized: true, mapped: 4000, causes: ["cache_accounts_truncated"] },
+    both: { value: cache(4001, { account_selector: "s" }), generic: true, specialized: true, mapped: 4000, causes: ["identity_projection_truncated", "cache_accounts_truncated"] },
+  };
+  for (const [label, item] of Object.entries(combinations)) {
+    const { responses, private: result, summary } = await inventoryFull({ kvValues: { current_strategies_cache: item.value, account_facts_bindings: "{}" } });
+    const projected = exportedKv(responses, "current_strategies_cache");
+    assert.deepEqual([projected.identity.truncated, projected.cache_accounts.truncated, projected.cache_accounts.accounts.length], [item.generic, item.specialized, item.mapped],
+      `N1-cache-independent-flags ${label}: real projections`);
+    assert.equal(result.mapping.entries.filter(entry => entry.legacy_key.startsWith("cache-")).length, item.mapped, `${label}: specialized mapped observations remain`);
+    assert.deepEqual([result.groups[17], result.kv.repeated_pass_equal], ["complete", true], `${label}: unrelated group and equal passes`);
+    if (!item.causes.length) {
+      assert.deepEqual([result.kv.failed_reads, result.groups[20], result.status], [[], "complete", ENUMERATED], `${label}: complete`);
+      continue;
+    }
+    assert.deepEqual(result.kv.failed_reads.map(read => [read.name, read.state, read.causes]), [["current_strategies_cache", item.causes[0], item.causes]], `${label}: one failed read, every cause`);
+    assert.deepEqual([result.groups[20], result.group_reasons[20], result.status, summary.kv.failed_reads],
+      ["incomplete", item.causes.map(cause => `kv:current_strategies_cache:${cause}`), "incomplete", 1], `${label}: incomplete for its causes`);
+  }
+}
+
+// N3: every ancestor step shortens the path; an unparseable ancestry stops
+// the walk and qualifies the reference. The isolated runs come first, so a
+// walk that does not terminate fails by the child bound, not by a hang here.
+{
+  const { spawn } = await import("node:child_process");
+  const { writeFile } = await import("node:fs/promises");
+  const CHILD = `import { readFileSync } from "node:fs";
+const { assemble } = await import(process.argv[1]);
+const exported = JSON.parse(readFileSync(process.argv[2], "utf8"));
+process.stdout.write("READY\\n");
+const started = performance.now();
+const { private: result } = assemble(exported);
+process.stdout.write(JSON.stringify({ elapsed_ms: performance.now() - started, mapping: result.mapping }) + "\\n");`;
+  const assembler = new URL("inspect_account_identity_inventory.mjs", CONSOLE).href;
+  // 1000 ms from the ready marker to the result, 15000 ms for the whole
+  // child. The parent kills and fails on a timeout, crash or missing result.
+  const isolated = file => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", CHILD, assembler, file], { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "", err = "", ready = false, done = false, settled = false, bound = null;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(whole); clearTimeout(bound);
+      if (child.exitCode === null) child.kill("SIGKILL");
+      if (error) reject(error); else resolve(value);
+    };
+    const whole = setTimeout(() => finish(new Error("isolated assemble: child exceeded 15000 ms")), 15_000);
+    child.stdout.on("data", chunk => {
+      out += chunk;
+      if (!ready && out.startsWith("READY\n")) { ready = true; bound = setTimeout(() => finish(new Error("isolated assemble: no result 1000 ms after the ready marker")), 1_000); }
+      if (ready && !done && out.split("\n").length > 2) { done = true; clearTimeout(bound); }
+    });
+    child.stderr.on("data", chunk => { err += chunk; });
+    child.on("error", error => finish(error));
+    child.on("exit", (code, signal) => {
+      const [marker, line] = out.split("\n");
+      if (code !== 0 || signal || marker !== "READY" || !done || !line) return finish(new Error(`isolated assemble failed: ${code} ${signal} ${err.slice(0, 500)}`));
+      const result = JSON.parse(line);
+      if (!(result.elapsed_ms < 1_000)) return finish(new Error(`isolated assemble took ${result.elapsed_ms} ms`));
+      finish(null, result);
+    });
+  });
+  const scratch = await mkdtemp(join(tmpdir(), "qrt-inventory-n3-"));
+  const located = (mapping, legacyKey) => [...mapping.entries.filter(entry => entry.legacy_key === legacyKey).flatMap(entry => entry.episodes.map(episode => ({ platform: entry.platform, locator: episode.locator }))),
+    ...mapping.unattributed.filter(row => row.legacy_key === legacyKey).map(row => ({ platform: null, locator: row.locator, candidate_platforms: row.candidate_platforms }))];
+  const runs = [];
+  const run = async (label, value, expected) => {
+    const { exported } = await inventoryFull({ kvValues: { risk_profile_bindings: JSON.stringify(value) }, isolate: true });
+    const file = join(scratch, `${runs.length}.json`);
+    await writeFile(file, JSON.stringify(exported));
+    const { mapping, elapsed_ms } = await isolated(file);
+    await rm(file, { force: true });
+    assert.deepEqual(located(mapping, "synthetic-account"), [expected], `${label}: exactly one located reference, none dropped`);
+    runs.push({ label, elapsed_ms });
+  };
+  const locator = (path, qualified) => ({ source: "kv", name: "risk_profile_bindings", path, ...(qualified ? { path_qualification: "unparseable_identity_path" } : {}) });
+  try {
+    for (const parent of [".", "[", "]", "a[", "a]"]) {
+      await run(`N3-punctuation-same-platform ${JSON.stringify(parent)}`, { [parent]: { platform: "ibkr", account_key: "synthetic-account" } },
+        { platform: "ibkr", locator: locator(`${parent}.account_key`, true) });
+      await run(`N3-punctuation-no-platform ${JSON.stringify(parent)}`, { [parent]: { account_key: "synthetic-account" } },
+        { platform: null, locator: locator(`${parent}.account_key`, true), candidate_platforms: [] });
+    }
+    assert.equal(locator("..account_key").path, "..account_key");
+    await run("N3-normal-object platform", { platform: "ibkr", nested: { deeper: { account_key: "synthetic-account" } } }, { platform: "ibkr", locator: locator("nested.deeper.account_key", false) });
+    await run("N3-normal-array platform", { platform: "ibkr", items: [{ note: "x" }, { account_key: "synthetic-account" }] }, { platform: "ibkr", locator: locator("items[1].account_key", false) });
+    await run("N3-normal-object no platform", { nested: { deeper: { account_key: "synthetic-account" } } }, { platform: null, locator: locator("nested.deeper.account_key", false), candidate_platforms: [] });
+    await run("N3-normal-array no platform", { items: [{ note: "x" }, { account_key: "synthetic-account" }] }, { platform: null, locator: locator("items[1].account_key", false), candidate_platforms: [] });
+  } finally { await rm(scratch, { recursive: true, force: true }); }
+  assert.equal(runs.length, 14, "N3-progress-and-bound: fourteen isolated executions");
+  if (process.env.QRT_INVENTORY_EVIDENCE) console.log(JSON.stringify({ n3_isolated: runs }));
+}
+
+const { ancestorPaths } = await import(new URL("inspect_account_identity_inventory.mjs", CONSOLE));
+{
+  const inspect = path => {
+    const { paths, parseable } = ancestorPaths(path);
+    [path, ...paths].slice(1).forEach((next, index) => assert.ok(next.length < [path, ...paths][index].length, `N3-progress-and-bound: ${JSON.stringify(path)} step ${index} shortens`));
+    assert.ok(paths.length <= path.length, `N3-progress-and-bound: ${JSON.stringify(path)} takes at most its length in steps`);
+    return { paths, parseable };
+  };
+  assert.deepEqual(inspect("a.b[0].c"), { paths: ["a.b[0]", "a.b", "a", ""], parseable: true });
+  for (const parent of [".", "[", "]", "a[", "a]", "x.a].y"]) assert.equal(inspect(parent).parseable, false, `${parent}: unparseable`);
+  assert.deepEqual(inspect("x.a].y").paths, ["x.a]"], "the walk stops before repeating the unparseable suffix");
+  // Every path over a small alphabet, up to five characters.
+  const alphabet = ["a", ".", "[", "]", "0"];
+  let frontier = [""], inspected = 0;
+  for (let length = 1; length <= 5; length++) {
+    frontier = frontier.flatMap(prefix => alphabet.map(char => prefix + char));
+    for (const path of frontier) { inspect(path); inspected++; }
+  }
+  assert.equal(inspected, 3905);
+}
+// N4: one normalized settings identity over every config-bearing episode.
+const { accountSettingsIdentity } = await import(new URL("application/account_settings/helpers.js", CONSOLE));
+{
+  const BASE = { target_name: "target-n4", account_selector: "sel-n4", deployment_selector: "dep-n4", account_scope: "scope-n4", service_name: "svc-n4", broker_environment: "paper" };
+  const instance = (key, config, platform = "ibkr") => ({ platform, key, kind: "existing", config: { key, ...config } });
+  const historyRow = (revision, before, after) => ({ revision, entry: JSON.stringify({ revision, ts: day(revision), action: "update", login: ACTOR_CANARY, before, after }) });
+  const scan = async ({ current = [], history = [] }) => inventoryFull({ sql: [
+    ...(current.length ? [rows("instance_state", [{ id: 1, revision: 1, payload: JSON.stringify(current) }])] : []),
+    ...(history.length ? [rows("instance_history", history)] : []),
+  ] });
+  const tuples = (result, legacyKey, platform = "ibkr") => result.mapping.entries.find(entry => entry.platform === platform && entry.legacy_key === legacyKey)
+    .episodes.filter(episode => episode.identity?.config).map(episode => episode.identity.settings_identity);
+  // I5: the summary counts the private conflicts and carries no tuple value.
+  const boundary = (label, result, summary) => {
+    assert.equal(summary.mapping.conflicts, result.mapping.conflicts.length, `N4-summary-and-boundary ${label}: summary conflicts`);
+    const text = JSON.stringify(summary);
+    for (const needle of ["n4-", "ibkr", "schwab", "paper", "live", "settings_identity"]) assert.ok(!text.includes(needle), `N4-summary-and-boundary ${label}: summary omits ${needle}`);
+  };
+  const changes = { broker_environment: "live", deployment_selector: "dep-n4-changed", account_scope: "scope-n4-changed", service_name: "svc-n4-changed",
+    account_selector: "sel-n4-changed", target_name: "target-n4-changed" };
+  for (const [field, changed] of Object.entries(changes)) {
+    const before = instance("acct-n4", BASE), after = instance("acct-n4", { ...BASE, [field]: changed });
+    const oracle = [accountSettingsIdentity(before), accountSettingsIdentity(after)];
+    assert.notDeepEqual(oracle[0], oracle[1], `${field}: oracle tuples differ`);
+    // I1: one history row, its two sides.
+    {
+      const { private: result, summary } = await scan({ history: [historyRow(1, before, after)] });
+      const entry = result.mapping.entries.find(item => item.legacy_key === "acct-n4");
+      assert.deepEqual(entry.episodes.map(episode => [episode.state, episode.locator.table, episode.locator.side]), [["historical", "instance_history", "before"], ["historical", "instance_history", "after"]],
+        `N4-history-each-field ${field}: two side-located episodes`);
+      assert.deepEqual(tuples(result, "acct-n4"), oracle, `N4-history-each-field ${field}: oracle tuples`);
+      assert.deepEqual(result.mapping.conflicts, [{ platform: "ibkr", legacy_key: "acct-n4", kind: "identity_episodes_differ", episodes: 2 }], `N4-history-each-field ${field}: one conflict`);
+      assert.equal(summary.mapping.conflicts, 1);
+      boundary(`history ${field}`, result, summary);
+    }
+    // I2: the current instance against a history episode.
+    {
+      const { private: result, summary } = await scan({ current: [before], history: [historyRow(1, null, after)] });
+      const entry = result.mapping.entries.find(item => item.legacy_key === "acct-n4");
+      assert.deepEqual(entry.episodes.map(episode => [episode.state, episode.locator.table, episode.locator.side ?? null]), [["current", "instance_state", null], ["historical", "instance_history", "after"]],
+        `N4-current-history-each-field ${field}: current and historical episodes`);
+      assert.deepEqual(entry.states, ["current", "historical"]);
+      assert.deepEqual(tuples(result, "acct-n4"), oracle, `N4-current-history-each-field ${field}: oracle tuples`);
+      assert.deepEqual(result.mapping.conflicts, [{ platform: "ibkr", legacy_key: "acct-n4", kind: "identity_episodes_differ", episodes: 2 }], `N4-current-history-each-field ${field}: one conflict`);
+      boundary(`current ${field}`, result, summary);
+    }
+  }
+  // I3: unchanged and normalization-equivalent tuples are one identity.
+  {
+    const same = instance("acct-n4", BASE);
+    const { private: unchanged, summary } = await scan({ current: [same], history: [historyRow(1, same, same)] });
+    assert.deepEqual(unchanged.mapping.conflicts, [], "N4-equivalence: unchanged tuples");
+    boundary("unchanged", unchanged, summary);
+    const loose = instance("acct-n4-null", { target_name: null, account_selector: 7, deployment_selector: ["dep"], account_scope: { scope: 1 }, broker_environment: "staging" });
+    const missing = instance("acct-n4-null", {});
+    const normalized = { platform: "ibkr", key: "acct-n4-null", target_name: "", broker_environment: null, account_selector: "", deployment_selector: "", account_scope: "", service_name: "" };
+    assert.deepEqual([accountSettingsIdentity(loose), accountSettingsIdentity(missing)], [normalized, normalized], "N4-equivalence: oracle normalization");
+    const { private: result, summary: nullSummary } = await scan({ history: [historyRow(1, loose, missing)] });
+    assert.deepEqual(tuples(result, "acct-n4-null"), [normalized, normalized], "N4-equivalence: the pinned normalized tuple");
+    assert.deepEqual(result.mapping.conflicts, [], "N4-equivalence: null-equivalent tuples");
+    boundary("normalized null", result, nullSummary);
+  }
+  // I4: the top-level key and platform form separate entries; config.key
+  // never replaces the top-level key.
+  {
+    const { private: rekeyed, summary } = await scan({ history: [historyRow(1, instance("acct-n4-old", BASE), instance("acct-n4-new", BASE))] });
+    assert.deepEqual(rekeyed.mapping.entries.map(entry => entry.legacy_key).sort(), ["acct-n4-new", "acct-n4-old"], "N4-key-and-platform: two entries for a key change");
+    assert.deepEqual(rekeyed.mapping.conflicts, [], "N4-key-and-platform: no episode conflict for a key change");
+    boundary("key change", rekeyed, summary);
+    const { private: moved, summary: movedSummary } = await scan({ history: [historyRow(1, instance("acct-n4", BASE), instance("acct-n4", BASE, "schwab"))] });
+    assert.deepEqual(moved.mapping.entries.map(entry => entry.platform).sort(), ["ibkr", "schwab"], "N4-key-and-platform: two entries for a platform change");
+    assert.deepEqual([moved.mapping.collisions, moved.mapping.conflicts], [[{ legacy_key: "acct-n4", platforms: ["ibkr", "schwab"] }], []], "N4-key-and-platform: one collision, no episode conflict");
+    boundary("platform change", moved, movedSummary);
+    const current = { ...instance("acct-n4", BASE), config: { ...BASE, key: "acct-n4-config" } };
+    const { private: mismatch, summary: mismatchSummary } = await scan({ current: [current], history: [historyRow(1, null, instance("acct-n4", BASE))] });
+    assert.deepEqual(tuples(mismatch, "acct-n4").map(tuple => tuple.key), ["acct-n4", "acct-n4"], "N4-key-and-platform: the top-level key, never config.key");
+    assert.deepEqual(mismatch.mapping.conflicts, [{ platform: "ibkr", legacy_key: "acct-n4", kind: "top_config_key_mismatch" }], "N4-key-and-platform: only top_config_key_mismatch");
+    assert.ok(!mismatch.mapping.entries.some(entry => entry.legacy_key === "acct-n4-config"));
+    boundary("config key mismatch", mismatch, mismatchSummary);
+  }
+  // I5: generic qualifiers stay outside the settings identity.
+  {
+    const { private: result, summary } = await inventoryFull({ kvValues: { risk_profile_bindings: JSON.stringify({ rows: [
+      { platform: "ibkr", account_key: "acct-n4q", target_name: "first" }, { platform: "ibkr", account_key: "acct-n4q", target_name: "second" }] }) } });
+    const entry = result.mapping.entries.find(item => item.legacy_key === "acct-n4q");
+    assert.deepEqual(entry.episodes.map(episode => [episode.locator.path, episode.identity.qualifiers.target_name]), [["rows[0].account_key", "first"], ["rows[1].account_key", "second"]],
+      "N4-summary-and-boundary: qualifier-only episodes stay located");
+    assert.deepEqual(result.mapping.conflicts, [], "N4-summary-and-boundary: no conflict kind mandated for generic qualifiers");
+    boundary("qualifiers", result, summary);
+  }
 }
 
 // ---------------------------------------------------- A3: populated, beyond legacy caps, full assembly

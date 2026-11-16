@@ -1,47 +1,266 @@
-// Owner/admin GET for the read-only account-identity inventory. It reads the
-// signed session, the two named RuntimeInstances objects through the internal
-// inventory path, and, when separately enabled, the KV namespace by direct
+// Account-identity inventory HTTP and storage orchestration. Two entries:
+// `inventoryResponse(request, cap)`, the internal path RuntimeInstances
+// serves before storage initialization, which only runs the fixed statements
+// through a capability that rejects every other statement and never creates,
+// upgrades, repairs, caches or checkpoints anything; and the owner/admin GET
+// `accountIdentityInventoryResponse(request, env, { readSession })`, which
+// reads the signed session, the two named RuntimeInstances objects through
+// that internal path and, when separately enabled, the KV namespace by direct
 // list/get and three fixed configuration bindings. It never calls ordinary
 // console, settings, readback, control, directory or credential handlers.
 import { responseHeaders } from "../http_response.js";
 import { base64UrlEncodeBytes } from "../auth/cookies.js";
 import {
-  INVENTORY_DO_PATH, INVENTORY_OBJECTS, INVENTORY_ORDERING, INVENTORY_PAGE_SIZE, INVENTORY_SCHEMA_VERSION, INVENTORY_TABLES,
-  identityProjection, strategiesCacheAccounts,
-} from "./reader.js";
+  ADMISSION_PREFIX, ALLOWED, CHANGES_SQL, CURSOR_CLOCK_SKEW_MS, CURSOR_CONTEXT, CURSOR_MAX_LENGTH, CURSOR_TTL_MS, COMMAND_FIELDS,
+  DO_ERRORS, HEX64, INVENTORY_DO_PATH, INVENTORY_OBJECTS, INVENTORY_ORDERING, INVENTORY_PAGE_SIZE, INVENTORY_SCHEMA_VERSION,
+  INVENTORY_TABLES, KV_IDENTITY_FIELDS, KV_PAGE_SIZE, KV_VALUE_MAX_BYTES, REQUEST_BYTE_LIMIT, RESPONSE_BYTE_BUDGET, ROW_BYTE_LIMIT,
+  SCHEMA_SQL, SECTIONS, STATEMENTS, TABLE_INFO_SQL, TABLE_SPECS, UNKNOWN_COUNT, UNKNOWN_IDENTIFIER, unknownCount,
+} from "./constants.js";
+import {
+  InventoryError, InventoryHttpError, assertStable, byteLength, compareBytes, decodeKey, encodeKey, fingerprints, fromBase64Url,
+  identityProjection, kvFamily, pageSize, parameters, projectDoKv, projectRow, requireScan, sealParameters, sha256Hex,
+  strategiesCacheAccounts,
+} from "./helpers.js";
 
-export const INVENTORY_ROUTE = "/api/admin/account-identity-inventory";
-const SECTIONS = new Set(["manifest", "schema", "sql", "do_kv", "finalize", "kv", "env"]);
-const PARAMETERS = new Set(["section", "object", "table", "page_size", "cursor", "scan"]);
-const CURSOR_TTL_MS = 6 * 3600_000;
-const KV_PAGE_SIZE = Object.freeze({ default: 50, max: 100 });
-const KV_VALUE_MAX_BYTES = 2_000_000;
-const CURSOR_CONTEXT = "qsl-account-identity-inventory-cursor-v1";
-const DO_ERRORS = new Set(["invalid_request", "unsupported_object", "unsupported_section", "unsupported_table", "count_only_table",
-  "invalid_scan", "invalid_cursor", "invalid_cursor_key", "invalid_page_size", "schema_changed", "changed_during_scan",
-  "primary_key_mismatch", "listing_progression_invalid", "statement_not_allowed", "binding_not_allowed", "method_not_allowed"]);
+// The only storage surface the inventory can reach: allowlisted reads, list
+// and getAlarm. No exec of caller text, put, delete, alarm or transaction.
+export function inventoryCapability(storage, nonce) {
+  const sql = storage.sql;
+  return Object.freeze({
+    nonce,
+    query(statement, ...bindings) {
+      if (!ALLOWED.has(statement) && !UNKNOWN_COUNT.test(statement)) throw new InventoryError("statement_not_allowed", 500);
+      if (!bindings.every(value => value === null || ["string", "number"].includes(typeof value) || value instanceof Uint8Array || value instanceof ArrayBuffer)) {
+        throw new InventoryError("binding_not_allowed", 500);
+      }
+      return [...sql.exec(statement, ...bindings)];
+    },
+    list: options => storage.list(options),
+    getAlarm: () => storage.getAlarm(),
+  });
+}
 
-// Reviewed identity-bearing KV families. Values outside this list are named
-// in the page but never fetched.
-const KV_KEYS = new Set(["account_options", "account_facts_bindings", "runtime_daily_bindings", "current_strategies_cache", "audit_log",
-  "risk_profile_bindings", "private_binance_scope_report", "private_binance_account_facts", "console_kv_directory:v1"]);
-const KV_PREFIXES = ["runtime_daily:", "account_facts_primary_backup:", "research_promotion_ticket:", "owner_decision_intent:",
-  "owner_decision_current:", "reconciliation_recovery_source:", "reconciliation_recovery_confirmation:", "reconciliation_recovery_current:",
-  "private_binance_account_facts:", "control_plane_source:", "adaptive_selection_source:", "execution_evidence_source:",
-  "runtime_target_lifecycle_source:", "research_task_source:"];
-const KV_EXCLUDED_KEYS = new Set(["auth_config", "strategy_profiles", "strategy_health_snapshot", "control_plane_snapshot",
-  "control_plane_source_retirements", "m0_research_ledger_current"]);
-const KV_EXCLUDED_PREFIXES = ["m0_research_ledger_archive:"];
+// One synchronous read of schema and the connection change counter. In this
+// runtime total_changes() advances on every committed row change (SQL and
+// DO-KV, including alarms) and stays fixed under reads. getCurrentBookmark()
+// is deliberately not called: the local runtime advances it on every call.
+function observeSync(cap) {
+  const schema = cap.query(SCHEMA_SQL).map(row => ({ type: row.type, name: row.name, tbl_name: row.tbl_name, sql: row.sql ?? null }));
+  const changes = Number(cap.query(CHANGES_SQL)[0]?.n);
+  return { schema, changes };
+}
 
-// Exactly these three bindings, read by literal name. No caller-selected name.
-const ENV_BINDINGS = Object.freeze([
-  ["STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON", env => env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON],
-  ["BINANCE_ACCOUNT_FACTS_BINDING_JSON", env => env.BINANCE_ACCOUNT_FACTS_BINDING_JSON],
-  ["BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON", env => env.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON],
-]);
+function tableInfo(cap, name) {
+  const columns = cap.query(TABLE_INFO_SQL, name).map(row => ({ name: row.name, type: row.type, pk: Number(row.pk) }));
+  return { columns, pk: columns.filter(column => column.pk > 0).sort((a, b) => a.pk - b.pk).map(column => column.name) };
+}
 
-class InventoryHttpError extends Error {
-  constructor(code, status = 400) { super(code); this.code = code; this.status = status; }
+function schemaManifest(cap, observed) {
+  const present = new Set(observed.schema.filter(row => row.type === "table").map(row => row.name));
+  const tables = {};
+  for (const spec of TABLE_SPECS) {
+    if (!present.has(spec.name)) { tables[spec.name] = { group: spec.group, present: false, lazy: spec.lazy || null }; continue; }
+    const info = tableInfo(cap, spec.name);
+    const actual = info.columns.map(column => column.name);
+    const statements = STATEMENTS.get(spec.name);
+    const pkMatches = info.pk.join("\u0000") === spec.pk.join("\u0000");
+    tables[spec.name] = {
+      group: spec.group, present: true, count_only: spec.countOnly || null,
+      columns: actual, missing_columns: spec.columns.filter(name => !actual.includes(name)),
+      unexpected_columns: actual.filter(name => !spec.columns.includes(name)),
+      primary_key: info.pk, primary_key_matches: pkMatches,
+      row_count: Number(cap.query(statements.count)[0].n),
+      null_key_rows: pkMatches ? Number(cap.query(statements.nullKeys)[0].n) : null,
+    };
+  }
+  const other = [];
+  for (const row of observed.schema) {
+    if (row.type === "table" && INVENTORY_TABLES[row.name]) continue;
+    const internal = row.name.startsWith("_cf_") ? "platform_internal" : row.name.startsWith("sqlite_") ? "sqlite_internal" : null;
+    const entry = { type: row.type, name: row.name, tbl_name: row.tbl_name, classification: internal || (row.type === "table" ? "unknown_table" : row.type) };
+    if (!internal && row.type === "table") {
+      entry.row_count = UNKNOWN_IDENTIFIER.test(row.name) ? Number(cap.query(unknownCount(row.name))[0].n) : null;
+      if (entry.row_count === null) entry.error = "unsupported_identifier";
+      entry.columns = tableInfo(cap, row.name).columns.map(column => column.name);
+    }
+    other.push(entry);
+  }
+  const known = Object.values(tables);
+  const unknownTables = other.filter(entry => entry.classification === "unknown_table");
+  const state = !known.some(table => table.present) && !unknownTables.length ? "schema_absent"
+    : known.every(table => table.present ? !table.missing_columns.length && table.primary_key_matches : table.lazy) ? "current" : "partial";
+  return {
+    schema_state: state, tables, other_schema_objects: other,
+    missing_tables: TABLE_SPECS.filter(spec => !tables[spec.name].present).map(spec => spec.name),
+    incompatible_tables: known.filter(table => table.present && (!table.primary_key_matches || table.missing_columns.length)).length,
+  };
+}
+
+async function sqlPage(cap, command) {
+  const spec = INVENTORY_TABLES[command.table];
+  if (!spec) throw new InventoryError("unsupported_table");
+  if (spec.countOnly) throw new InventoryError("count_only_table");
+  const scan = requireScan(command.scan);
+  const size = pageSize(command.page_size);
+  const after = command.after ?? null;
+  if (after !== null && (typeof after !== "object" || Array.isArray(after))) throw new InventoryError("invalid_cursor");
+  const last = after?.last === undefined || after?.last === null ? null : after.last;
+  if (last !== null && (!Array.isArray(last) || last.length !== spec.pk.length)) throw new InventoryError("invalid_cursor");
+  const nested = after?.nested ?? null;
+  if (nested !== null && (!spec.nested || !Array.isArray(nested.pk) || nested.pk.length !== spec.pk.length
+    || !Number.isSafeInteger(nested.offset) || nested.offset < 1 || !HEX64.test(nested.payload_sha256)
+    || JSON.stringify(nested.pk) !== JSON.stringify(last))) throw new InventoryError("invalid_cursor");
+  const alarm = await cap.getAlarm();
+  const observed = observeSync(cap);
+  const present = observed.schema.some(row => row.type === "table" && row.name === spec.name);
+  let rows = [], rowCount = 0, nullKeys = 0, info = null, nestedRow = null;
+  if (present) {
+    info = tableInfo(cap, spec.name);
+    if (info.pk.join("\u0000") === spec.pk.join("\u0000")) {
+      const statements = STATEMENTS.get(spec.name);
+      rowCount = Number(cap.query(statements.count)[0].n);
+      nullKeys = Number(cap.query(statements.nullKeys)[0].n);
+      if (nested) nestedRow = cap.query(statements.exact, ...nested.pk.map(decodeKey))[0] ?? null;
+      rows = last === null ? cap.query(statements.first, size + 1) : cap.query(statements.after, ...last.map(decodeKey), size + 1);
+    }
+  }
+  const alarmAfter = await cap.getAlarm();
+  const current = await fingerprints(cap.nonce, observed, alarm);
+  assertStable(scan, current);
+  if ((alarmAfter ?? null) !== (alarm ?? null) || Number(cap.query(CHANGES_SQL)[0]?.n) !== observed.changes) throw new InventoryError("changed_during_scan", 409);
+  if (!present) return { ok: true, table: spec.name, present: false, rows: [], row_count: 0, terminal: true, next: null };
+  if (info.pk.join("\u0000") !== spec.pk.join("\u0000")) throw new InventoryError("primary_key_mismatch", 409);
+  const base = { ok: true, table: spec.name, present: true, row_count: rowCount, null_key_rows: nullKeys };
+  if (nested) {
+    // Continue one row's nested entries, tied to the unchanged stored value.
+    if (!nestedRow) throw new InventoryError("changed_during_scan", 409);
+    if (await sha256Hex(String(nestedRow[spec.nested])) !== nested.payload_sha256) throw new InventoryError("changed_during_scan", 409);
+    const projected = projectRow(spec, nestedRow, { nested, nestedSize: size });
+    const entries = projected.columns[spec.nested];
+    const next = entries.entries_offset + entries.entries.length < entries.entry_count
+      ? { last: nested.pk, nested: { ...nested, offset: entries.entries_offset + entries.entries.length } }
+      : rows.length ? { last: nested.pk, nested: null } : null;
+    return { ...base, rows: [projected], nested_continuation: true, terminal: next === null, byte_limited: false, next };
+  }
+  const out = [];
+  let bytes = 0, next = null, byteLimited = false, lastPk = null;
+  const lookahead = rows.length > size;
+  for (const row of rows.slice(0, size)) {
+    // Cursors continue from the raw key; actor-keyed rows export only its digest.
+    const rawPk = spec.pk.map(column => encodeKey(row[column]));
+    const pk = spec.actorKey ? [{ actor_key_sha256: await sha256Hex(JSON.stringify(rawPk)) }] : rawPk;
+    let projected;
+    try { projected = { ...projectRow(spec, row, { nestedSize: size }), pk }; }
+    catch { projected = { pk, projection_error: "row_projection_failed" }; }
+    let text = JSON.stringify(projected);
+    if (byteLength(text) > ROW_BYTE_LIMIT) {
+      projected = { pk, projection_error: "row_projection_too_large" };
+      text = JSON.stringify(projected);
+    }
+    if (out.length && bytes + byteLength(text) > RESPONSE_BYTE_BUDGET) { byteLimited = true; break; }
+    bytes += byteLength(text);
+    out.push(projected);
+    lastPk = rawPk;
+    const entries = spec.nested ? projected.columns?.[spec.nested] : null;
+    if (entries?.entries && entries.entries.length < entries.entry_count) {
+      next = { last: rawPk, nested: { pk: rawPk, offset: entries.entries.length,
+        payload_sha256: await sha256Hex(String(row[spec.nested])) } };
+      break;
+    }
+  }
+  if (!next && (lookahead || byteLimited) && out.length) next = { last: lastPk, nested: null };
+  return { ...base, rows: out, terminal: next === null, byte_limited: byteLimited, next };
+}
+
+async function doKvPage(cap, command) {
+  const scan = requireScan(command.scan);
+  const size = pageSize(command.page_size);
+  const last = command.after?.last ?? null;
+  if (last !== null && (typeof last !== "string" || !last)) throw new InventoryError("invalid_cursor");
+  const alarm = await cap.getAlarm();
+  const observed = observeSync(cap);
+  const listing = await cap.list(last === null ? { limit: size + 1 } : { limit: size + 1, startAfter: last });
+  const alarmAfter = await cap.getAlarm();
+  const changesAfter = Number(cap.query(CHANGES_SQL)[0]?.n);
+  assertStable(scan, await fingerprints(cap.nonce, observed, alarm));
+  if ((alarmAfter ?? null) !== (alarm ?? null) || changesAfter !== observed.changes) throw new InventoryError("changed_during_scan", 409);
+  const now = Date.now();
+  const keys = [];
+  let previous = last;
+  for (const [key, value] of listing) {
+    if (typeof key !== "string" || (previous !== null && compareBytes(key, previous) <= 0)) throw new InventoryError("listing_progression_invalid", 502);
+    previous = key;
+    keys.push([key, value]);
+  }
+  const lookahead = keys.length > size;
+  const out = [];
+  let bytes = 0, byteLimited = false;
+  let lastKey = null;
+  for (const [key, value] of keys.slice(0, size)) {
+    // Admission keys embed a console login: export the key's digest only.
+    const shown = key.startsWith(ADMISSION_PREFIX) ? `${ADMISSION_PREFIX}sha256:${await sha256Hex(key)}` : key;
+    let projected;
+    try { projected = { key: shown, ...projectDoKv(key, value, now) }; }
+    catch { projected = { key: shown, projection_error: "value_projection_failed" }; }
+    const length = byteLength(JSON.stringify(projected));
+    if (out.length && bytes + length > RESPONSE_BYTE_BUDGET) { byteLimited = true; break; }
+    bytes += length;
+    out.push(projected);
+    lastKey = key;
+  }
+  const next = (lookahead || byteLimited) && out.length ? { last: lastKey } : null;
+  return { ok: true, entries: out, terminal: next === null, byte_limited: byteLimited, next, alarm: alarm ?? null };
+}
+
+async function schemaPage(cap) {
+  const alarm = await cap.getAlarm();
+  const observed = observeSync(cap);
+  const manifest = schemaManifest(cap, observed);
+  const alarmAfter = await cap.getAlarm();
+  if ((alarmAfter ?? null) !== (alarm ?? null) || Number(cap.query(CHANGES_SQL)[0]?.n) !== observed.changes) throw new InventoryError("changed_during_scan", 409);
+  const current = await fingerprints(cap.nonce, observed, alarm);
+  return { ok: true, ...manifest, alarm: alarm ?? null, stability_method: "connection_total_changes_v1",
+    bookmark: { read: false, reason: "bookmark_read_not_proven_read_only" },
+    scan: { scan_id: crypto.randomUUID(), schema: current.schema, stability: current.stability } };
+}
+
+async function finalizePage(cap, command) {
+  const scan = requireScan(command.scan);
+  const alarm = await cap.getAlarm();
+  const observed = observeSync(cap);
+  const manifest = schemaManifest(cap, observed);
+  const current = await fingerprints(cap.nonce, observed, alarm);
+  const stable = current.schema === scan.schema && current.stability === scan.stability;
+  return { ok: true, stable, reason: stable ? null : current.schema !== scan.schema ? "schema_changed" : "changed_during_scan",
+    schema_state: manifest.schema_state,
+    row_counts: Object.fromEntries(Object.entries(manifest.tables).map(([name, table]) => [name, table.present ? table.row_count : null])),
+    null_key_rows: Object.fromEntries(Object.entries(manifest.tables).map(([name, table]) => [name, table.present ? table.null_key_rows : null])),
+    alarm: alarm ?? null };
+}
+
+export async function inventoryResponse(request, cap) {
+  const respond = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store" } });
+  try {
+    if (request.method !== "POST") throw new InventoryError("method_not_allowed", 405);
+    const text = await request.text();
+    if (byteLength(text) > REQUEST_BYTE_LIMIT) throw new InventoryError("invalid_request");
+    let command;
+    try { command = JSON.parse(text); } catch { throw new InventoryError("invalid_request"); }
+    if (!command || typeof command !== "object" || Array.isArray(command) || Object.keys(command).some(key => !COMMAND_FIELDS.has(key))) {
+      throw new InventoryError("invalid_request");
+    }
+    if (!Object.hasOwn(INVENTORY_OBJECTS, command.object)) throw new InventoryError("unsupported_object");
+    const base = { schema_version: INVENTORY_SCHEMA_VERSION, object: command.object, section: command.section,
+      ordering: INVENTORY_ORDERING, observed_at: new Date().toISOString() };
+    if (command.section === "schema") return respond({ ...base, ...await schemaPage(cap) });
+    if (command.section === "sql") return respond({ ...base, ...await sqlPage(cap, command) });
+    if (command.section === "do_kv") return respond({ ...base, ...await doKvPage(cap, command) });
+    if (command.section === "finalize") return respond({ ...base, ...await finalizePage(cap, command) });
+    throw new InventoryError("unsupported_section");
+  } catch (error) {
+    // Fixed codes only: never echo stored values, statements or provider text.
+    return error instanceof InventoryError ? respond({ ok: false, error: error.code }, error.status) : respond({ ok: false, error: "inventory_read_failed" }, 500);
+  }
 }
 
 function respond(body, status = 200, extra = {}) {
@@ -49,6 +268,13 @@ function respond(body, status = 200, extra = {}) {
     "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex", ...extra,
   }) });
 }
+
+// Exactly these three bindings, read by literal name. No caller-selected name.
+const ENV_BINDINGS = Object.freeze([
+  ["STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON", env => env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON],
+  ["BINANCE_ACCOUNT_FACTS_BINDING_JSON", env => env.BINANCE_ACCOUNT_FACTS_BINDING_JSON],
+  ["BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON", env => env.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON],
+]);
 
 const encoder = new TextEncoder();
 // Cursors and scan tokens are AES-GCM sealed: tamper-evident and opaque, so
@@ -58,15 +284,13 @@ async function cursorKey(env) {
   const derived = await crypto.subtle.sign("HMAC", base, encoder.encode(CURSOR_CONTEXT));
   return crypto.subtle.importKey("raw", derived, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
-const sealParameters = iv => ({ name: "AES-GCM", iv, additionalData: encoder.encode(CURSOR_CONTEXT) });
 async function seal(env, payload) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const sealed = await crypto.subtle.encrypt(sealParameters(iv), await cursorKey(env), encoder.encode(JSON.stringify(payload)));
   return `${base64UrlEncodeBytes(iv)}.${base64UrlEncodeBytes(new Uint8Array(sealed))}`;
 }
-const fromBase64Url = text => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4)), char => char.charCodeAt(0));
 async function unseal(env, token, kind) {
-  if (typeof token !== "string" || token.length > 8192 || !/^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+$/.test(token)) throw new InventoryHttpError("invalid_cursor");
+  if (typeof token !== "string" || token.length > CURSOR_MAX_LENGTH || !/^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+$/.test(token)) throw new InventoryHttpError("invalid_cursor");
   const [iv, body] = token.split(".");
   let payload;
   try {
@@ -74,37 +298,10 @@ async function unseal(env, token, kind) {
     payload = JSON.parse(new TextDecoder().decode(opened));
   } catch { throw new InventoryHttpError("invalid_cursor"); }
   if (payload?.v !== 1 || payload.kind !== kind || payload.schema_version !== INVENTORY_SCHEMA_VERSION) throw new InventoryHttpError("invalid_cursor");
-  if (!Number.isFinite(payload.issued_at) || Date.now() - payload.issued_at > CURSOR_TTL_MS || payload.issued_at > Date.now() + 60_000) {
+  if (!Number.isFinite(payload.issued_at) || Date.now() - payload.issued_at > CURSOR_TTL_MS || payload.issued_at > Date.now() + CURSOR_CLOCK_SKEW_MS) {
     throw new InventoryHttpError("cursor_expired");
   }
   return payload;
-}
-
-function parameters(url) {
-  const values = {};
-  for (const [name, value] of url.searchParams) {
-    if (!PARAMETERS.has(name)) throw new InventoryHttpError("unsupported_parameter");
-    if (Object.hasOwn(values, name)) throw new InventoryHttpError("duplicate_parameter");
-    values[name] = value;
-  }
-  if (!SECTIONS.has(values.section)) throw new InventoryHttpError("unsupported_section");
-  const allowed = {
-    manifest: [], env: [], schema: ["object"], finalize: ["object", "scan"], kv: ["page_size", "cursor"],
-    sql: ["object", "table", "page_size", "cursor", "scan"], do_kv: ["object", "page_size", "cursor", "scan"],
-  }[values.section];
-  if (Object.keys(values).some(name => name !== "section" && !allowed.includes(name))) throw new InventoryHttpError("unsupported_parameter");
-  if (allowed.includes("object") && !Object.hasOwn(INVENTORY_OBJECTS, values.object)) throw new InventoryHttpError("unsupported_object");
-  if (values.section === "sql" && !Object.hasOwn(INVENTORY_TABLES, values.table)) throw new InventoryHttpError("unsupported_table");
-  if (values.page_size !== undefined) {
-    const max = values.section === "kv" ? KV_PAGE_SIZE.max : INVENTORY_PAGE_SIZE.max;
-    if (!/^[1-9][0-9]{0,3}$/.test(values.page_size) || Number(values.page_size) > max) throw new InventoryHttpError("invalid_page_size");
-    values.page_size = Number(values.page_size);
-  }
-  if (["sql", "do_kv"].includes(values.section) && (values.cursor === undefined) === (values.scan === undefined)) {
-    throw new InventoryHttpError("scan_or_cursor_required");
-  }
-  if (values.section === "finalize" && values.scan === undefined) throw new InventoryHttpError("scan_required");
-  return values;
 }
 
 async function objectCall(env, object, command) {
@@ -151,20 +348,6 @@ async function pageSection(env, values) {
   return { ...body, scan_id: scan.scan_id, page, cursor: next };
 }
 
-function kvFamily(name) {
-  if (KV_KEYS.has(name)) return { family: name, reviewed: true };
-  const prefix = KV_PREFIXES.find(value => name.startsWith(value));
-  if (prefix) return { family: prefix, reviewed: true };
-  if (KV_EXCLUDED_KEYS.has(name)) return { family: name, reviewed: false, state: "scope_excluded" };
-  const excluded = KV_EXCLUDED_PREFIXES.find(value => name.startsWith(value));
-  if (excluded) return { family: excluded, reviewed: false, state: "scope_excluded" };
-  return { family: "unknown", reviewed: false, state: "unknown_family" };
-}
-async function sha256Hex(text) {
-  const bytes = await crypto.subtle.digest("SHA-256", encoder.encode(text));
-  return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("");
-}
-
 async function kvSection(env, values) {
   if (env.ACCOUNT_IDENTITY_INVENTORY_KV_ENABLED !== "true") throw new InventoryHttpError("section_disabled", 404);
   const store = env.STRATEGY_SWITCH_CONFIG;
@@ -189,13 +372,13 @@ async function kvSection(env, values) {
     catch { keys.push({ ...item, state: "read_failed" }); continue; }
     if (text === null || text === undefined) { keys.push({ ...item, state: "missing_after_list" }); continue; }
     if (typeof text !== "string") { keys.push({ ...item, state: "non_text" }); continue; }
-    const bytes = encoder.encode(text).byteLength;
+    const bytes = byteLength(text);
     if (bytes > KV_VALUE_MAX_BYTES) { keys.push({ ...item, state: "value_too_large", bytes }); continue; }
     const value_sha256 = await sha256Hex(text);
     let value;
     try { value = JSON.parse(text); }
     catch { keys.push({ ...item, state: "invalid_json", bytes, value_sha256 }); continue; }
-    keys.push({ ...item, state: "exported", bytes, value_sha256, identity: identityProjection(value, 4000),
+    keys.push({ ...item, state: "exported", bytes, value_sha256, identity: identityProjection(value, KV_IDENTITY_FIELDS),
       ...(family.family === "current_strategies_cache" ? { cache_accounts: strategiesCacheAccounts(value) } : {}) });
   }
   const page = (cursor?.page ?? 0) + 1;
@@ -213,11 +396,11 @@ async function envSection(env) {
     const raw = read(env);
     if (raw === undefined || raw === null) { bindings.push({ name, state: "absent" }); continue; }
     if (typeof raw !== "string") { bindings.push({ name, state: "non_text" }); continue; }
-    if (!raw.trim()) { bindings.push({ name, state: "empty", bytes: encoder.encode(raw).byteLength }); continue; }
-    const base = { name, bytes: encoder.encode(raw).byteLength, value_sha256: await sha256Hex(raw) };
+    if (!raw.trim()) { bindings.push({ name, state: "empty", bytes: byteLength(raw) }); continue; }
+    const base = { name, bytes: byteLength(raw), value_sha256: await sha256Hex(raw) };
     let value;
     try { value = JSON.parse(raw); } catch { bindings.push({ ...base, state: "invalid_json" }); continue; }
-    bindings.push({ ...base, state: "present", identity: identityProjection(value, 4000) });
+    bindings.push({ ...base, state: "present", identity: identityProjection(value, KV_IDENTITY_FIELDS) });
   }
   const metadata = env.CF_VERSION_METADATA;
   const version = metadata && typeof metadata === "object"

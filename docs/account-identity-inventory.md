@@ -193,8 +193,12 @@ KV groups 16–22 are complete only with two complete passes whose listings and
 value fingerprints are equal, and only if every reviewed value in them was
 read. A single pass, differing passes, or a reviewed value in
 `missing_after_list`, `read_failed`, `value_too_large` or `non_text` state makes
-the affected groups and the overall result `incomplete`, with reasons. A value
-that was read but is invalid JSON remains a qualified observation.
+the affected groups and the overall result `incomplete`, with reasons. So does
+a value whose identity projection was cut at its 4000-field or depth-8 bound
+(`identity_projection_truncated`); its projected references are still mapped.
+Each failed key counts once, and its `causes` list every reason, a cache cause
+included. Equal fingerprints show only that a value was stable. A value that
+was read but is invalid JSON remains a qualified observation.
 
 The assembler derives a mapping keyed by every `(platform, legacy_key)` with
 dated identity episodes, conflicts, cross-platform collisions and an
@@ -203,9 +207,19 @@ unattributed ledger. Account references inside every projected JSON column
 promotion readbacks), DO-KV payloads, KV values and environment bindings are
 included, each with its locator. A platform is taken only from the same JSON
 object or an enclosing one; a reference without one stays in the unattributed
-ledger. Stored settings identities are compared with the current instance, and
-a declared environment that differs from the current broker environment is a
-conflict. Stored values are kept, never replaced.
+ledger. Each step to an enclosing object shortens the flattened path. A key
+holding `.`, `[` or `]` can leave a suffix no step removes: the walk stops
+there, only a platform in the same object is used, and the locator carries
+`path_qualification: "unparseable_identity_path"`. Flattened paths do not
+encode every JSON hierarchy uniquely. Instance episodes, current and
+historical, conflict (`identity_episodes_differ`) when their settings identity
+differs: platform, top-level key, target name, account selector, deployment
+selector, account scope, service name and broker environment, normalized as
+`accountSettingsIdentity()` does. A `config.key` that differs from the
+top-level key is the separate `top_config_key_mismatch`. Stored settings
+identities are compared with the current instance, and a declared environment
+that differs from the current broker environment is a conflict. Stored values
+are kept, never replaced.
 
 A bare object key is an account key only where a family's writer defines it as
 one: the stored `identity_json` documents and `current_strategies_cache`. The

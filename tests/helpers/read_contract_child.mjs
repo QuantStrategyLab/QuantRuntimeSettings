@@ -246,7 +246,7 @@ const SCRIPTS = {
   // was initialized.
   "inventory-sections": async () => {
     const self = await instanceFor();
-    const { INVENTORY_DO_PATH, INVENTORY_TABLES } = await consoleModule("application/account_identity_inventory/reader.js");
+    const { INVENTORY_DO_PATH, INVENTORY_TABLES } = await consoleModule("application/account_identity_inventory/constants.js");
     const call = async body => {
       const response = await self.fetch(new Request(`https://runtime-instances.invalid${INVENTORY_DO_PATH}`, { method: "POST", body: JSON.stringify({ object: "runtime", ...body }) }));
       return { section: body.section, ...await summarize(response.clone()), scan: (await response.json()).scan };

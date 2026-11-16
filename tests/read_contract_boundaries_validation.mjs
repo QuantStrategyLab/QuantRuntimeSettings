@@ -470,15 +470,16 @@ function fileBindingFacts(file, text, shapes, shapesKey) {
 
 // The one named-object call whose name is not a literal at the call (PR #1173):
 // the inventory route's `objectCall` addresses either named object through
-// the reader's frozen two-entry name map, and its stub is used only to fetch
-// the inventory path, which RuntimeInstances serves before storage
-// initialization. It is therefore not a B0 site. Admitted only as the whole
-// reviewed function in the inventory HTTP module, with both reader names
-// imported unrenamed and declared once at module level, and the reader's map
-// exactly as reviewed (checked against the reader in `helperBindingErrors`).
-// Any other non-literal `idFromName` argument is still rejected.
+// the frozen two-entry name map of the inventory constants module, and its
+// stub is used only to fetch the inventory path, which RuntimeInstances serves
+// before storage initialization. It is therefore not a B0 site. Admitted only
+// as the whole reviewed function in the inventory HTTP module, with both
+// constants imported unrenamed from that module and declared once at module
+// level, and the map exactly as reviewed (checked against the constants
+// module in `helperBindingErrors`; no other file's map is accepted). Any
+// other non-literal `idFromName` argument is still rejected.
 const INVENTORY_HTTP = `${CONSOLE}/application/account_identity_inventory/http.js`;
-const INVENTORY_READER = `${CONSOLE}/application/account_identity_inventory/reader.js`;
+const INVENTORY_CONSTANTS = `${CONSOLE}/application/account_identity_inventory/constants.js`;
 const INVENTORY_OBJECT_CALL = `async function objectCall(env, object, command) {
   const namespace = env.STRATEGY_SWITCH_RUNTIME_INSTANCES;
   if (!namespace?.idFromName || !namespace?.get) throw new InventoryHttpError("runtime_instances_not_bound", 503);
@@ -508,7 +509,7 @@ function isInventoryObjectCall(file, sf, call) {
     const element = statement?.importClause.namedBindings.elements.find(item => item.name.text === name);
     const declared = sf.statements.filter(item => (ts.isVariableStatement(item) && item.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === name))
       || ((ts.isFunctionDeclaration(item) || ts.isClassDeclaration(item)) && item.name?.text === name));
-    return imports.length === 1 && !element.propertyName && statement.moduleSpecifier.text === "./reader.js" && !declared.length;
+    return imports.length === 1 && !element.propertyName && statement.moduleSpecifier.text === "./constants.js" && !declared.length;
   });
 }
 
@@ -533,14 +534,14 @@ function helperBindingErrors(sources, exceptions) {
     }
   }
   const errors = [];
-  const reader = sources.has(INVENTORY_READER) ? parseSource(INVENTORY_READER, sources.get(INVENTORY_READER)) : null;
-  const objectMaps = (reader?.statements || []).filter(statement => ts.isVariableStatement(statement)
+  const constants = sources.has(INVENTORY_CONSTANTS) ? parseSource(INVENTORY_CONSTANTS, sources.get(INVENTORY_CONSTANTS)) : null;
+  const objectMaps = (constants?.statements || []).filter(statement => ts.isVariableStatement(statement)
     && statement.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === "INVENTORY_OBJECTS"));
   const reviewedMap = objectMaps.length === 1 && canonical(ts, objectMaps[0]) === canonicalTop(INVENTORY_OBJECTS_DECLARATION);
   for (const [file, fileFacts] of facts) {
     errors.push(...fileFacts.errors);
     for (const where of fileFacts.inventoryObjectCalls) {
-      if (!reviewedMap) errors.push(`helper binding: literal_argument: idFromName takes one string literal at ${where}: the inventory name map in ${INVENTORY_READER} is not the reviewed frozen two-entry map`);
+      if (!reviewedMap) errors.push(`helper binding: literal_argument: idFromName takes one string literal at ${where}: the inventory name map in ${INVENTORY_CONSTANTS} is not the reviewed frozen two-entry map`);
     }
     for (const load of fileFacts.loads) {
       const target = resolve(file, load.from);
@@ -801,7 +802,7 @@ assert.deepEqual(Object.fromEntries(surface.sections), Object.fromEntries(Object
 // instance, then the ordinary handlers.
 {
   const { RuntimeInstances } = await importConsole("application/runtime_instances/durable_object.js");
-  const { INVENTORY_DO_PATH, INVENTORY_OBJECTS, INVENTORY_TABLES } = await importConsole("application/account_identity_inventory/reader.js");
+  const { INVENTORY_DO_PATH, INVENTORY_OBJECTS, INVENTORY_TABLES } = await importConsole("application/account_identity_inventory/constants.js");
   const SECTIONS = Object.keys(registry.INTERNAL_OPERATIONS["action:account_identity_inventory"].sections);
   for (const object of Object.keys(INVENTORY_OBJECTS)) {
     const trap = createReadOnlyStorage({ sqlRows: query => (query === "SELECT total_changes() AS n" ? [{ n: 0 }] : []) });
@@ -1700,14 +1701,20 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   // Account-identity inventory admission (PR #1173): the Worker forward and
   // its binding, the DO preamble and its bindings, the alarm, the closed
   // section set and the one reviewed `sql` setter. Each near-neighbour fails
-  // for its own cause; whitespace-only reformatting passes.
+  // for its own cause; whitespace-only reformatting passes. The domain has
+  // three layers: the delegate, its page functions and `objectCall` are in
+  // the HTTP module, the object map and the inventory path in the constants
+  // module.
   {
-    const READER_FILE = "application/account_identity_inventory/reader.js";
+    const HTTP_FILE = "application/account_identity_inventory/http.js";
+    const CONSTANTS_FILE = "application/account_identity_inventory/constants.js";
+    const HELPERS_FILE = "application/account_identity_inventory/helpers.js";
     const DISPATCH = "if (new URL(request.url).pathname === INVENTORY_DO_PATH) return inventoryResponse(request, this.inventory);";
     const PREAMBLE = `${DISPATCH}\n    this.initializeStorage();\n    try {`;
-    const DO_IMPORT = 'import { INVENTORY_DO_PATH, inventoryCapability, inventoryResponse } from "../account_identity_inventory/reader.js";';
-    const DO_IMPORT_REST = 'import { INVENTORY_DO_PATH, inventoryCapability } from "../account_identity_inventory/reader.js";';
-    const WORKER_IMPORT = 'import { INVENTORY_ROUTE, accountIdentityInventoryResponse } from "./application/account_identity_inventory/http.js";';
+    const DO_CONSTANTS_IMPORT = 'import { INVENTORY_DO_PATH } from "../account_identity_inventory/constants.js";';
+    const DO_IMPORT = 'import { inventoryCapability, inventoryResponse } from "../account_identity_inventory/http.js";';
+    const DO_IMPORT_REST = 'import { inventoryCapability } from "../account_identity_inventory/http.js";';
+    const WORKER_IMPORT = 'import { accountIdentityInventoryResponse } from "./application/account_identity_inventory/http.js";';
     const WORKER_FORWARD = "return await accountIdentityInventoryResponse(request, env, { readSession });";
     const FALLTHROUGH = '    throw new InventoryError("unsupported_section");\n  } catch (error) {';
     const SETTER_BODY = 'Object.defineProperty(this, "sql", { value, writable: true, configurable: true, enumerable: true });';
@@ -1715,7 +1722,7 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     const PREAMBLE_FORM = /RuntimeInstances\.fetch: statement: preamble is not the reviewed inventory dispatch then storage initialization/;
     const ALARM_FORM = /statement: RuntimeInstances\.alarm is not the reviewed alarm body/;
     const SETTER_ESCAPE = /durable_object\.js: entry_replaced: this used as a value in RuntimeInstances \(line \d+\): (?:Object|Reflect)\.defineProperty/;
-    const beforeFallthrough = text => edit(READER_FILE, FALLTHROUGH, `    ${text}\n${FALLTHROUGH}`);
+    const beforeFallthrough = text => edit(HTTP_FILE, FALLTHROUGH, `    ${text}\n${FALLTHROUGH}`);
     const setter = text => edit(DO_FILE, SETTER_BODY, text);
 
     reject("inventory initialization before dispatch", edit(DO_FILE, PREAMBLE, `this.initializeStorage();\n    ${DISPATCH}\n    try {`), PREAMBLE_FORM);
@@ -1723,16 +1730,16 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     reject("DO preamble without initialization", edit(DO_FILE, PREAMBLE, `${DISPATCH}\n    try {`), PREAMBLE_FORM);
     reject("inventory dispatch with another capability", edit(DO_FILE, DISPATCH, DISPATCH.replace("this.inventory", "this.storage")), PREAMBLE_FORM);
     reject("inventory dispatch through a receiver alias", edit(DO_FILE, DISPATCH, `const probeSelf = this;\n    ${DISPATCH.replace("this.inventory", "probeSelf.inventory")}`), /entry_replaced: this used as a value in RuntimeInstances \(line \d+\): const probeSelf = this;/);
-    reject("replaced inventory delegate binding", edit(DO_FILE, DO_IMPORT, `${DO_IMPORT_REST}\nconst inventoryResponse = async () => new Response("{}");`), /forward_target: inventory preamble: inventoryResponse in a reviewed forward resolves to local, reviewed import:\.\.\/account_identity_inventory\/reader\.js/);
-    reject("inventory delegate imported from another module", edit(DO_FILE, DO_IMPORT, `${DO_IMPORT_REST}\nimport { inventoryResponse } from "../account_identity_inventory/http.js";`), /forward_target: inventory preamble: inventoryResponse in a reviewed forward resolves to import:\.\.\/account_identity_inventory\/http\.js/);
+    reject("replaced inventory delegate binding", edit(DO_FILE, DO_IMPORT, `${DO_IMPORT_REST}\nconst inventoryResponse = async () => new Response("{}");`), /forward_target: inventory preamble: inventoryResponse in a reviewed forward resolves to local, reviewed import:\.\.\/account_identity_inventory\/http\.js/);
+    reject("inventory delegate imported from another module", edit(DO_FILE, DO_IMPORT, `${DO_IMPORT_REST}\nimport { inventoryResponse } from "../account_identity_inventory/helpers.js";`), /forward_target: inventory preamble: inventoryResponse in a reviewed forward resolves to import:\.\.\/account_identity_inventory\/helpers\.js, reviewed import:\.\.\/account_identity_inventory\/http\.js/);
     reject("alarm initializing after the Desk alarm", edit(DO_FILE, DO_ALARM, "  async alarm() {\n    await this.deskReadbacks.alarm();\n    this.initializeStorage();\n  }"), ALARM_FORM);
     reject("alarm without initialization", edit(DO_FILE, DO_ALARM, "  async alarm() {\n    await this.deskReadbacks.alarm();\n  }"), ALARM_FORM);
     discover("extra inventory section gate", beforeFallthrough('if (command.section === "probe_section") return respond({ ...base, ...await schemaPage(cap) });'), /^unclassified section action:account_identity_inventory#probe_section$/);
     reject("inventory section gate with another body", beforeFallthrough('if (command.section === "probe_section") { schemaPage(cap); }'), /inventoryResponse: inventory_section: statement is neither reviewed nor a section gate/);
-    reject("computed inventory section read", edit(READER_FILE, 'if (command.section === "schema")', 'if (command["section"] === "schema")'), /inventoryResponse: inventory_section: statement is neither reviewed nor a section gate/);
-    reject("inventory without the unknown-section rejection", edit(READER_FILE, FALLTHROUGH, "  } catch (error) {"), /inventoryResponse: statement: final statement is not the reviewed unknown-section rejection/);
+    reject("computed inventory section read", edit(HTTP_FILE, 'if (command.section === "schema")', 'if (command["section"] === "schema")'), /inventoryResponse: inventory_section: statement is neither reviewed nor a section gate/);
+    reject("inventory without the unknown-section rejection", edit(HTTP_FILE, FALLTHROUGH, "  } catch (error) {"), /inventoryResponse: statement: final statement is not the reviewed unknown-section rejection/);
     reject("inventory route with another session reader", edit("worker.js", WORKER_FORWARD, "return await accountIdentityInventoryResponse(request, env, { readSession: probeSession });"), /forwarding: receiver request forwarded to an unreviewed call accountIdentityInventoryResponse\(request, env, \{ readSession: probeSession \}\)/);
-    reject("inventory route handler from another module", edit("worker.js", WORKER_IMPORT, 'import { INVENTORY_ROUTE } from "./application/account_identity_inventory/http.js";\nimport { inventoryResponse as accountIdentityInventoryResponse } from "./application/account_identity_inventory/reader.js";'), /forward_target: accountIdentityInventoryResponse in a reviewed forward resolves to an unadmitted binding/);
+    reject("inventory route handler from another module", edit("worker.js", WORKER_IMPORT, 'import { inventoryResponse as accountIdentityInventoryResponse } from "./application/account_identity_inventory/helpers.js";'), /forward_target: accountIdentityInventoryResponse in a reviewed forward resolves to an unadmitted binding/);
     reject("sql setter with an accessor descriptor", setter('Object.defineProperty(this, "sql", { get: () => value, configurable: true, enumerable: true });'), SETTER_ESCAPE);
     reject("sql setter defining fetch", setter(SETTER_BODY.replace('"sql"', '"fetch"')), SETTER_ESCAPE);
     reject("sql setter defining another value", setter(SETTER_BODY.replace("{ value,", "{ value: this.sqlStorage,")), SETTER_ESCAPE);
@@ -1743,6 +1750,149 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     reject("sql setter body in another class", edit("kv_directory.js", "export class KvDirectory {", `export class KvDirectory {\n  set sql(value) {\n    ${SETTER_BODY}\n  }`), /kv_directory\.js: entry_replaced: this used as a value in KvDirectory/);
     pass("reformatted sql setter", setter('Object.defineProperty(\n      this,\n      "sql",\n      { value, writable: true, configurable: true, enumerable: true },\n    );'));
     pass("reformatted inventory preamble", edit(DO_FILE, DISPATCH, DISPATCH.replace(") return", ")\n      return")));
+
+    // Relocation controls of the three-layer split (PR #1173 r6, V01-V14).
+    // Every edit must change a file present in the tree, so a stale anchor or
+    // a deleted owner can neither pass nor reject by accident; an adverse
+    // control names the exact owner, guard and line it must fail at.
+    const owned = (edits, files = {}) => {
+      const probed = withFiles(applyEdits(sources, edits), files);
+      for (const { file } of edits) {
+        assert.ok(sources.has(`${CONSOLE}/${file}`), `relocation control: ${file} is in the tree`);
+        assert.notEqual(probed.get(`${CONSOLE}/${file}`), sources.get(`${CONSOLE}/${file}`), `relocation control: the edit changes ${file}`);
+      }
+      return probed;
+    };
+    const lineIn = (probed, file, text) => {
+      const lines = probed.get(`${CONSOLE}/${file}`).split("\n");
+      const found = lines.map((line, index) => (line.includes(text) ? index + 1 : 0)).filter(Boolean);
+      assert.equal(found.length, 1, `relocation control: ${text} occurs once in ${file}`);
+      return found[0];
+    };
+    const escaped = text => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+    const OBJECT_CALL_SITE = "namespace.idFromName(INVENTORY_OBJECTS[object])";
+    // The objectCall exemption withheld at its own call site, at that line.
+    const objectCallRejected = (probed, file = HTTP_FILE, site = OBJECT_CALL_SITE) => new RegExp(`^helper binding: literal_argument: idFromName takes one string literal at ${escaped(`${CONSOLE}/${file}`)}:${lineIn(probed, file, site)}: namespace\\.idFromName$`);
+    const mapRejected = probed => new RegExp(`^helper binding: literal_argument: idFromName takes one string literal at ${escaped(`${CONSOLE}/${HTTP_FILE}`)}:${lineIn(probed, HTTP_FILE, OBJECT_CALL_SITE)}: the inventory name map in ${escaped(`${CONSOLE}/${CONSTANTS_FILE}`)} is not the reviewed frozen two-entry map$`);
+    // One outcome per control; every variant must fail for its own cause.
+    const relocated = (label, variants, { surface: inSurface = false } = {}) => {
+      const found = variants.map(([probed, pattern]) => {
+        const { probed: result, errors } = validated(probed);
+        assert.notDeepEqual(errors, [], `reject ${label}: validation fails`);
+        if (inSurface) {
+          expectError(result.errors, pattern, `reject ${label}`);
+          return result.errors.find(error => pattern.test(error));
+        }
+        assert.deepEqual(result.errors, [], `reject ${label}: extraction is unchanged`);
+        assert.equal(errors.some(error => /call sites changed/.test(error)), false, `reject ${label}: the counted sites are unchanged`);
+        expectError(errors, pattern, `reject ${label}`);
+        return errors.find(error => pattern.test(error));
+      });
+      outcomes.push(["reject", label, found.join(" | ")]);
+    };
+    const httpText = sources.get(`${CONSOLE}/${HTTP_FILE}`);
+    const declarationText = signature => {
+      const start = httpText.indexOf(signature);
+      assert.ok(start >= 0 && httpText.indexOf(signature, start + 1) < 0, `relocation control: ${signature} declared once`);
+      return httpText.slice(start, httpText.indexOf("\n}\n", start) + 2);
+    };
+    const OBJECT_CALL_TEXT = declarationText("async function objectCall(env, object, command) {");
+    const DELEGATE_TEXT = declarationText("export async function inventoryResponse(request, cap) {");
+    const CONSTANTS_NAMES = "DO_ERRORS, HEX64, INVENTORY_DO_PATH, INVENTORY_OBJECTS, INVENTORY_ORDERING,";
+    const CONSTANTS_END = '} from "./constants.js";\n';
+    const MAP = 'export const INVENTORY_OBJECTS = Object.freeze({ runtime: "runtime-instances", directory: "console-kv-directory-v1" });';
+    const constantsImport = (names, extra) => [
+      { file: HTTP_FILE, from: CONSTANTS_NAMES, to: names },
+      { file: HTTP_FILE, from: CONSTANTS_END, to: `${CONSTANTS_END}${extra}\n` },
+    ];
+
+    // V01: the canonical owners and the extracted section surface.
+    {
+      assert.ok(!sources.has(`${CONSOLE}/application/account_identity_inventory/reader.js`), "V01: no mixed reader module");
+      assert.deepEqual(surface.sections.get("action:account_identity_inventory"), ["schema", "sql", "do_kv", "finalize"], "V01: inventory sections in order");
+      const httpSf = parseSource(INVENTORY_HTTP, sources.get(INVENTORY_HTTP));
+      const top = name => httpSf.statements.filter(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
+      assert.equal(top("objectCall").filter(fn => canonical(ts, fn) === canonicalTop(INVENTORY_OBJECT_CALL)).length, 1, "V01: reviewed objectCall in the HTTP module");
+      for (const [name, params] of [["inventoryResponse", "request,cap"], ["schemaPage", "cap"], ["sqlPage", "cap,command"], ["doKvPage", "cap,command"], ["finalizePage", "cap,command"]]) {
+        assert.deepEqual(top(name).map(fn => fn.parameters.map(parameter => parameter.name.text).join()), [params], `V01: ${name} is one top-level function of the HTTP module`);
+      }
+      const constantsSf = parseSource(INVENTORY_CONSTANTS, sources.get(INVENTORY_CONSTANTS));
+      assert.deepEqual(constantsSf.statements.filter(statement => ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration => declaration.name.text === "INVENTORY_OBJECTS"))
+        .map(statement => canonical(ts, statement)), [canonicalTop(INVENTORY_OBJECTS_DECLARATION)], "V01: one reviewed object map in the constants module");
+      pass("inventory relocated exact bindings", sources);
+    }
+    // V02: trivia-only formatting of objectCall and the DO preamble imports.
+    pass("inventory relocated formatting", owned([
+      { file: HTTP_FILE, from: "response = await namespace.get(namespace.idFromName(INVENTORY_OBJECTS[object])).fetch(", to: "response = await namespace\n      /* reviewed object */ .get(namespace.idFromName(INVENTORY_OBJECTS[object]))\n      .fetch(" },
+      { file: DO_FILE, from: DO_CONSTANTS_IMPORT, to: 'import {\n  INVENTORY_DO_PATH,\n} from "../account_identity_inventory/constants.js";' },
+      { file: DO_FILE, from: DO_IMPORT, to: 'import {\n  inventoryCapability,\n  inventoryResponse,\n} from "../account_identity_inventory/http.js";' },
+    ]));
+    // V03-V05: the two objectCall constants, imported once, unrenamed, from
+    // the constants module, never declared in the HTTP module.
+    {
+      const probed = owned(constantsImport("DO_ERRORS, HEX64, INVENTORY_ORDERING,", 'import { INVENTORY_DO_PATH, INVENTORY_OBJECTS } from "./helpers.js";'));
+      relocated("inventory relocated wrong constants module", [[probed, objectCallRejected(probed)]]);
+    }
+    {
+      const objects = owned(constantsImport("DO_ERRORS, HEX64, INVENTORY_DO_PATH, INVENTORY_ORDERING,", 'import { INVENTORY_TABLES as INVENTORY_OBJECTS } from "./constants.js";'));
+      const path = owned(constantsImport("DO_ERRORS, HEX64, INVENTORY_OBJECTS, INVENTORY_ORDERING,", 'import { INVENTORY_ROUTE as INVENTORY_DO_PATH } from "./constants.js";'));
+      relocated("inventory relocated aliased constants import", [[objects, objectCallRejected(objects)], [path, objectCallRejected(path)]]);
+    }
+    {
+      const replaced = owned(constantsImport("DO_ERRORS, HEX64, INVENTORY_DO_PATH, INVENTORY_ORDERING,", MAP.replace("export ", "")));
+      const shadowed = owned([{ file: HTTP_FILE, from: CONSTANTS_END, to: `${CONSTANTS_END}const INVENTORY_DO_PATH = "/internal/account-identity-inventory";\n` }]);
+      relocated("inventory relocated local constants replacement", [[replaced, objectCallRejected(replaced)], [shadowed, objectCallRejected(shadowed)]]);
+    }
+    // V06-V08: the reviewed frozen two-entry map in the constants module.
+    for (const [label, map] of [
+      ["inventory relocated changed object map", MAP.replace("console-kv-directory-v1", "console-kv-directory-v2")],
+      ["inventory relocated expanded object map", MAP.replace('directory: "console-kv-directory-v1" }', 'directory: "console-kv-directory-v1", probe: "probe-object" }')],
+      ["inventory relocated unfrozen object map", MAP.replace("Object.freeze(", "(")],
+    ]) {
+      const probed = owned([{ file: CONSTANTS_FILE, from: MAP, to: map }]);
+      relocated(label, [[probed, mapRejected(probed)]]);
+    }
+    // V09: any other non-literal idFromName stays rejected, at its own line,
+    // while the admitted objectCall is unaffected.
+    {
+      const probed = owned([{ file: HTTP_FILE, from: "async function scanFor(env, values) {", to: "async function probeObjectCall(env, name) {\n  const namespace = env.STRATEGY_SWITCH_RUNTIME_INSTANCES;\n  return namespace.get(namespace.idFromName(name));\n}\n\nasync function scanFor(env, values) {" }]);
+      const pattern = objectCallRejected(probed, HTTP_FILE, "namespace.idFromName(name)");
+      relocated("inventory relocated extra dynamic object call", [[probed, pattern]]);
+      assert.ok(!validated(probed).errors.some(error => objectCallRejected(probed).test(error)), "V09: the reviewed objectCall stays admitted");
+    }
+    // V10-V12: the whole reviewed objectCall, by name, body, fetch path and file.
+    {
+      const probed = owned([{ file: HTTP_FILE, from: "  let response, body;\n", to: "  let response, body;\n  const probeName = INVENTORY_OBJECTS[object];\n" }]);
+      relocated("inventory relocated changed object call body", [[probed, objectCallRejected(probed)]]);
+    }
+    {
+      const renamed = owned([{ file: HTTP_FILE, from: "async function objectCall(env, object, command) {", to: "async function objectCallProbe(env, object, command) {" }]);
+      const moved = owned([{ file: HTTP_FILE, from: OBJECT_CALL_TEXT, to: "" }, { file: HELPERS_FILE, from: "export function kvFamily(name) {", to: `${OBJECT_CALL_TEXT}\nexport function kvFamily(name) {` }]);
+      relocated("inventory relocated renamed object call", [[renamed, objectCallRejected(renamed)], [moved, objectCallRejected(moved, HELPERS_FILE)]]);
+    }
+    {
+      const probed = owned([{ file: HTTP_FILE, from: "fetch(`https://runtime-instances${INVENTORY_DO_PATH}`, {", to: "fetch(`https://runtime-instances${INVENTORY_DO_PATH}/probe`, {" }]);
+      relocated("inventory relocated changed fetch path", [[probed, objectCallRejected(probed)]]);
+    }
+    // V13: the DO preamble's INVENTORY_DO_PATH is the constants module's.
+    {
+      const local = owned([{ file: DO_FILE, from: DO_CONSTANTS_IMPORT, to: 'const INVENTORY_DO_PATH = "/internal/account-identity-inventory";' }]);
+      const wrong = owned([{ file: DO_FILE, from: DO_CONSTANTS_IMPORT, to: 'import { INVENTORY_DO_PATH } from "../account_identity_inventory/helpers.js";' }]);
+      const target = /^RuntimeInstances\.fetch: forward_target: inventory preamble: INVENTORY_DO_PATH in a reviewed forward resolves to /;
+      relocated("inventory relocated wrong DO path binding", [
+        [local, new RegExp(`${target.source}local, reviewed import:\\.\\.\\/account_identity_inventory\\/constants\\.js`)],
+        [wrong, new RegExp(`${target.source}import:\\.\\.\\/account_identity_inventory\\/helpers\\.js, reviewed import:\\.\\.\\/account_identity_inventory\\/constants\\.js`)],
+      ], { surface: true });
+    }
+    // V14: the delegate is read from the HTTP module only.
+    {
+      const probed = owned([
+        { file: HTTP_FILE, from: "export async function inventoryResponse(request, cap) {", to: "export async function inventoryResponseRelocated(request, cap) {" },
+        { file: HELPERS_FILE, from: "export function kvFamily(name) {", to: `${DELEGATE_TEXT}\nexport function kvFamily(name) {` },
+      ]);
+      assert.ok(probed.get(`${CONSOLE}/${HELPERS_FILE}`).includes("export async function inventoryResponse(request, cap) {"), "V14: a same-named delegate exists elsewhere");
+      relocated("inventory relocated delegate owner absent", [[probed, /^RuntimeInstances\.fetch: inventoryResponse: entry_missing: function inventoryResponse \(0x\)$/]], { surface: true });
+    }
   }
 
   // The suite's own exit: a child run over in-memory edits exits nonzero for a

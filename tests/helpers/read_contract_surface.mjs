@@ -393,7 +393,8 @@ export const REVIEWED = {
     "this.initializeStorage();",
   ],
   doPreambleTargets: {
-    "import:../account_identity_inventory/reader.js": ["INVENTORY_DO_PATH", "inventoryResponse"],
+    "import:../account_identity_inventory/constants.js": ["INVENTORY_DO_PATH"],
+    "import:../account_identity_inventory/http.js": ["inventoryResponse"],
   },
   // `inventoryResponse(request, cap)`: its response helper, then one try
   // statement with this catch clause. The try block holds these statements,
@@ -1590,16 +1591,17 @@ function guardSurface(report, fn) {
 
 /**
  * Section set of the inventory delegate `inventoryResponse(request, cap)` in
- * the reader: the reviewed response helper, then one try statement with the
+ * the inventory HTTP module, its one location (no other file is searched):
+ * the reviewed response helper, then one try statement with the
  * reviewed catch clause, whose block holds the reviewed statements, one gate
  * per section and the reviewed rejection of an unknown section last. A gate
  * is exactly `if (command.section === "<name>") return respond({ ...base,
  * ...await <page>(cap) });` (or `(cap, command)`), where `<page>` is a
- * module-level function of the reader. Returns the section names in order.
+ * module-level function of that same module. Returns the section names in order.
  */
-const INVENTORY_READER = `${CONSOLE}/application/account_identity_inventory/reader.js`;
+const INVENTORY_HTTP = `${CONSOLE}/application/account_identity_inventory/http.js`;
 function inventorySections(ts, file, reviewed) {
-  const sf = file(INVENTORY_READER);
+  const sf = file(INVENTORY_HTTP);
   const label = "inventoryResponse";
   const fail = detail => { throw new SurfaceError(`${label}: ${detail}`); };
   const fn = topFunction(ts, sf, "inventoryResponse", ["request", "cap"], label);

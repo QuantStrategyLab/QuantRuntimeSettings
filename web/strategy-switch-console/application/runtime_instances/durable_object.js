@@ -27,7 +27,8 @@ import { accountFactsIdentityDates } from "../account_facts/read.js";
 import { runtimeInstanceConflict } from "./command.js";
 import { deskErrorResponse } from "../desk/http.js";
 import { binanceDetailCommand } from "../../binance_detail_archive.js";
-import { INVENTORY_DO_PATH, inventoryCapability, inventoryResponse } from "../account_identity_inventory/reader.js";
+import { INVENTORY_DO_PATH } from "../account_identity_inventory/constants.js";
+import { inventoryCapability, inventoryResponse } from "../account_identity_inventory/http.js";
 import {
   ACCOUNT_FACTS_FUTURE_SKEW_MS,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,

@@ -180,9 +180,16 @@ function assembleKv(responses) {
   // the writer's object hierarchy, holds identities that were not read.
   const cacheUnread = cache => !cache ? null : cache.truncated ? "cache_accounts_truncated"
     : cache.state === "unexpected_shape" || cache.unexpected_platforms ? "cache_accounts_unexpected_shape" : null;
-  const failedReads = keys.filter(item => (!KV_UNREVIEWED.has(item.state) && !KV_READ_OK.has(item.state)) || cacheUnread(item.cache_accounts))
-    .map(item => ({ name: item.name, family: item.family, state: KV_READ_OK.has(item.state) ? cacheUnread(item.cache_accounts) : item.state ?? "missing",
-      group: KV_GROUP_OF.get(item.family) ?? null }));
+  // Every cause a reviewed value's identities were not all read: its read
+  // state, its generic identity projection cut at the field or depth bound,
+  // and its cache hierarchy. A key is one failed read whatever its causes;
+  // `state` is the first cause and `causes` keeps them all. Equal passes do
+  // not clear a cause: their fingerprints only show the value was stable.
+  const unread = item => KV_UNREVIEWED.has(item.state) ? []
+    : !KV_READ_OK.has(item.state) ? [item.state ?? "missing"]
+    : [item.identity?.truncated ? "identity_projection_truncated" : null, cacheUnread(item.cache_accounts)].filter(Boolean);
+  const failedReads = keys.map(item => [item, unread(item)]).filter(([, causes]) => causes.length)
+    .map(([item, causes]) => ({ name: item.name, family: item.family, state: causes[0], causes, group: KV_GROUP_OF.get(item.family) ?? null }));
   return { passes: passes.length, complete_passes: complete.length, repeated_pass_equal: repeated, stable: !reasons.length,
     reasons, failed_reads: failedReads, keys };
 }
@@ -199,10 +206,20 @@ const QUALIFIER_FIELDS = ["account_selector", "target_name", "target_id", "deplo
 const STORED_IDENTITY_TABLES = ["account_setting_draft", "account_setting_declaration", "account_setting_profile_application"];
 const STORED_IDENTITY_FIELDS = ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name", "broker_environment"];
 const parentPath = path => (path.includes(".") ? path.slice(0, path.lastIndexOf(".")) : "");
-function ancestors(path) {
-  const out = [];
-  while (path) { path = path.replace(/(?:\.[^.[\]]+|\[\d+\]|^[^.[\]]+)$/, ""); out.push(path); }
-  return out;
+const LAST_SEGMENT = /(?:\.[^.[\]]+|\[\d+\]|^[^.[\]]+)$/;
+// The ancestors of a flattened path, nearest first. Each step removes one
+// trailing `.key`, `[index]` or leading key and must shorten the path, so
+// the walk takes at most `path.length` steps. A suffix no step can remove (a
+// key holding `.`, `[` or `]`) ends the walk unparseable instead of
+// repeating; flattened paths do not encode every JSON hierarchy uniquely.
+export function ancestorPaths(path) {
+  const paths = [];
+  while (path) {
+    const next = path.replace(LAST_SEGMENT, "");
+    if (next.length >= path.length) return { paths, parseable: false };
+    paths.push(path = next);
+  }
+  return { paths, parseable: true };
 }
 function identityReferences(fields, document) {
   const groups = new Map();
@@ -217,15 +234,28 @@ function identityReferences(fields, document) {
     for (const name of document ? DOCUMENT_FIELDS : ACCOUNT_FIELDS) {
       const legacyKey = group[name];
       if (typeof legacyKey !== "string" || !legacyKey) continue;
-      const platform = [parent, ...ancestors(parent)].map(platformAt).find(Boolean) ?? null;
+      // An unparseable ancestry keeps only a platform beside the reference;
+      // none is inferred through the remainder.
+      const ancestry = ancestorPaths(parent);
+      const platform = [parent, ...(ancestry.parseable ? ancestry.paths : [])].map(platformAt).find(Boolean) ?? null;
       const qualifiers = Object.fromEntries(QUALIFIER_FIELDS.filter(field => field in group).map(field => [field, group[field]]));
-      references.push({ legacy_key: legacyKey, platform, path: parent ? `${parent}.${name}` : name, qualifiers });
+      references.push({ legacy_key: legacyKey, platform, path: parent ? `${parent}.${name}` : name, qualifiers,
+        ...(ancestry.parseable ? {} : { path_qualification: "unparseable_identity_path" }) });
     }
   }
   return references;
 }
 const normalizedConfig = config => Object.fromEntries(STORED_IDENTITY_FIELDS.map(field => [field, field === "broker_environment"
   ? (["live", "paper"].includes(config?.[field]) ? config[field] : null) : typeof config?.[field] === "string" ? config[field] : ""]));
+// The settings identity of an instance episode as accountSettingsIdentity()
+// derives it: platform, the top-level key (never config.key) and the
+// normalized config fields, in one fixed order.
+const settingsIdentity = (platform, legacyKey, config) => {
+  const normalized = normalizedConfig(config);
+  return { platform, key: legacyKey, target_name: normalized.target_name, broker_environment: normalized.broker_environment,
+    account_selector: normalized.account_selector, deployment_selector: normalized.deployment_selector,
+    account_scope: normalized.account_scope, service_name: normalized.service_name };
+};
 
 function mappingFrom(objects, kv, env) {
   const mapping = new Map(), unattributed = [];
@@ -243,7 +273,8 @@ function mappingFrom(objects, kv, env) {
   };
   const addReferences = (projection, state, locator, document) => {
     for (const reference of identityReferences(projection?.fields, document)) {
-      add(reference.platform, reference.legacy_key, state, { ...locator, path: reference.path }, { qualifiers: reference.qualifiers });
+      const qualification = reference.path_qualification ? { path_qualification: reference.path_qualification } : {};
+      add(reference.platform, reference.legacy_key, state, { ...locator, path: reference.path, ...qualification }, { qualifiers: reference.qualifiers });
     }
   };
   for (const result of objects) {
@@ -331,7 +362,13 @@ function mappingFrom(objects, kv, env) {
   for (const item of mapping.values()) byKey.set(item.legacy_key, [...(byKey.get(item.legacy_key) || []), item.platform]);
   const conflicts = [];
   for (const item of mapping.values()) {
-    const identities = new Set(item.episodes.filter(episode => episode.identity?.config).map(episode => JSON.stringify([episode.identity.config.account_selector ?? null, episode.identity.config.target_name ?? null])));
+    // Every config-bearing episode, current or historical, compared by its
+    // complete settings identity. Generic qualifiers are not part of it.
+    const identities = new Set();
+    for (const episode of item.episodes.filter(episode => episode.identity?.config)) {
+      episode.identity.settings_identity = settingsIdentity(item.platform, item.legacy_key, episode.identity.config);
+      identities.add(JSON.stringify(episode.identity.settings_identity));
+    }
     if (identities.size > 1) conflicts.push({ platform: item.platform, legacy_key: item.legacy_key, kind: "identity_episodes_differ", episodes: identities.size });
     if (item.episodes.some(episode => episode.identity?.top_config_key_mismatch)) conflicts.push({ platform: item.platform, legacy_key: item.legacy_key, kind: "top_config_key_mismatch" });
     // Stored settings identity versus the current instance, as the settings
@@ -425,7 +462,7 @@ export function assemble(exported) {
   groups[15] = objects.every(result => result.do_kv) ? "complete" : "incomplete";
   for (const group of Object.keys(KV_GROUPS)) {
     if (!kv) { groups[group] = "provider_export_required"; continue; }
-    const local = [...kv.reasons, ...kv.failed_reads.filter(item => item.group === group).map(item => `kv:${item.family}:${item.state}`)];
+    const local = [...kv.reasons, ...kv.failed_reads.filter(item => item.group === group).flatMap(item => item.causes.map(cause => `kv:${item.family}:${cause}`))];
     groups[group] = local.length ? "incomplete" : "complete";
     if (local.length) groupReasons[group] = [...new Set(local)];
   }
@@ -434,7 +471,7 @@ export function assemble(exported) {
   const mapping = mappingFrom(objects, kv, env);
   const pending = pendingFrom(objects, kv);
   const enumerated = objects.every(result => result.complete) && Object.entries(groups).every(([group, state]) => state === "complete" || group === "23");
-  const kvReasons = kv ? [...kv.reasons, ...new Set(kv.failed_reads.map(item => `kv:${item.family}:${item.state}`))] : [];
+  const kvReasons = kv ? [...kv.reasons, ...new Set(kv.failed_reads.flatMap(item => item.causes.map(cause => `kv:${item.family}:${cause}`)))] : [];
   const result = { status: enumerated ? "retained_state_enumerated_external_evidence_required" : "incomplete", objects, kv, env, groups,
     group_reasons: groupReasons, mapping, pending, reasons: [...kvReasons, ...objects.flatMap(item => item.reasons.map(reason => `${item.object}:${reason}`))] };
   return { private: result, summary: summarize(result) };
