@@ -297,11 +297,17 @@ function fileBindingFacts(file, text, shapes, shapesKey) {
     }
     // The surface admits `this` only as a dotted receiver; the inherited
     // `valueOf` would hand the instance out as a value whose members a key
-    // built at run time can select, so it is not admitted either.
-    if (ts.isPropertyAccessExpression(node) && node.name.text === "valueOf") {
+    // built at run time can select, so it is not admitted either. A computed
+    // key on `this` or `super` can name `valueOf` by any expression, and the
+    // console uses none, so computed access on either is not admitted at all
+    // (review FIX10B).
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
       let object = node.expression;
       while (ts.isParenthesizedExpression(object)) object = object.expression;
-      if (object.kind === ts.SyntaxKind.ThisKeyword || object.kind === ts.SyntaxKind.SuperKeyword) fail("instance_identity", node, `${object.getText(sf)}.valueOf returns the instance as a value`);
+      if (object.kind === ts.SyntaxKind.ThisKeyword || object.kind === ts.SyntaxKind.SuperKeyword) {
+        if (ts.isElementAccessExpression(node)) fail("instance_identity", node, `computed access on ${object.getText(sf)} can select valueOf, which returns the instance as a value`);
+        else if (node.name.text === "valueOf") fail("instance_identity", node, `${object.getText(sf)}.valueOf returns the instance as a value`);
+      }
     }
     if (ts.isIdentifier(node) && shapes.calls.has(node.text) && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
       const access = node.parent;
@@ -1129,6 +1135,26 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     if (label !== "own-runtime-key-joined-at-runtime") expectError(validated(applyEdits(sources, edits)).errors, ownKey, `reject ${label}: the key is rejected too`);
   }
   rejectBinding("own-runtime-key-super-valueof", inRead("super.valueOf();"), /^helper binding: instance_identity: super\.valueOf/);
+  // The computed forms of the same access (review FIX10B): the writer's key is
+  // joined at run time, so only the identity access can be rejected. Each case
+  // also runs below and reaches the writer. The surface already rejects a
+  // computed key on `this` in the class body, but not inside a nested function
+  // that the instance calls as its own method.
+  const RUNTIME_WRITER_KEY = '[["ensureRisk", "ProfileAuthority"].join("")]';
+  const COMPUTED_IDENTITY_CASES = {
+    "independent-super-element-runtime-key": [readEdit(`const probeParts = ["ensureRisk", "ProfileAuthority"];\n    super["valueOf"]()[probeParts.join("")](${LEGACY});`)],
+    "independent-super-element-folded-key": [readEdit(`super["value" + \`Of\`]()${RUNTIME_WRITER_KEY}(${LEGACY});`)],
+    "independent-super-element-constant-key": [readEdit(`const probeAccessor = "valueOf";\n    super[probeAccessor]()${RUNTIME_WRITER_KEY}(${LEGACY});`)],
+    "independent-super-element-untracked-key": [readEdit(`super[["value", "Of"].join("")]()${RUNTIME_WRITER_KEY}(${LEGACY});`)],
+    "independent-this-element-runtime-key": [readEdit(`this["valueOf"]()${RUNTIME_WRITER_KEY}(${LEGACY});`)],
+    "independent-this-element-constant-key": [readEdit(`const probeAccessor = "valueOf";\n    (this)[probeAccessor]()${RUNTIME_WRITER_KEY}(${LEGACY});`)],
+    "independent-this-nested-element-runtime-key": [readEdit(`this.probeSelf = function () { return this["valueOf"](); };\n    this.probeSelf()${RUNTIME_WRITER_KEY}(${LEGACY});`)],
+    "independent-this-nested-element-constant-key": [readEdit(`const probeAccessor = "valueOf";\n    this.probeSelf = function () { return (this)[probeAccessor](); };\n    this.probeSelf()${RUNTIME_WRITER_KEY}(${LEGACY});`)],
+  };
+  for (const [label, edits] of Object.entries(COMPUTED_IDENTITY_CASES)) {
+    const base = label.includes("-super-") ? "super" : "this";
+    rejectBinding(label, applyEdits(sources, edits), new RegExp(`^helper binding: instance_identity: computed access on ${base} can select valueOf, .*durable_object\\.js`));
+  }
   pass("member helper name compared in place and by a constant", inRead('const probeNote = "ensureRiskProfileAuthority";\n    if (probeNote === "ensureRiskProfileAuthority") {}'));
 
   // Catch bodies (review F2.4): the whole clause is the reviewed template.
@@ -1261,24 +1287,30 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   });
   assert.equal(result.operations.get("action:instance_state:GET").effects.includes("B1"), false, "executable: action:instance_state:GET does not carry B1");
   assert.deepEqual(await getInserts(sources), [200, []], "executable: the unmutated GET writes nothing");
-  for (const [label, edits] of Object.entries(OWN_RUNTIME_KEY_CASES)) {
+  for (const [label, edits] of Object.entries({ ...OWN_RUNTIME_KEY_CASES, ...COMPUTED_IDENTITY_CASES })) {
     const [status, inserts] = await getInserts(applyEdits(sources, edits));
     assert.equal(status, 200, `executable: ${label} responds`);
     assert.deepEqual(inserts.map(statement => statement.split("(")[0].trim()), ["INSERT INTO risk_profile_authority"], `executable: ${label} reaches the B1 writer`);
   }
 
   // The suite's own exit: a child run over in-memory edits exits nonzero for a
-  // discovered and a rejected injection, and zero for an inert control.
+  // discovered and a rejected injection, and zero for an inert control. A
+  // child given a cause must fail for it; its edit keeps the probe anchors, so
+  // a later probe cannot fail first.
+  const READ_ROW = '    const row = this.sql.exec("SELECT revision, payload FROM instance_state WHERE id = 1").toArray()[0];\n';
   if (!process.env[PROBE_ENV]) {
-    for (const [label, edits, status] of [
+    for (const [label, edits, status, cause] of [
       ["discover", [{ file: DO_FILE, from: HK_BRANCH, to: `if (command./* dispatch */action === "probe_read") return json({ probe: true });\n      ${HK_BRANCH}` }], 1],
       ["reject", [{ file: DO_FILE, from: GET_BRANCH, to: `if ((request)["me" + "thod"] === "PUT") return json({ probe: true });\n      ${GET_BRANCH}` }], 1],
       ["helper alias", [{ file: RUNTIME_SUPPORT, from: SESSION_HANDLER, to: `${SESSION_HANDLER}  const persist = writeCurrentStrategiesCache;\n  await persist(env, { probe: true }, Date.now());\n` }], 1],
       ["own-runtime-key-valueof-writer", OWN_RUNTIME_KEY_CASES["own-runtime-key-valueof-writer"], 1],
+      ["independent-super-element-runtime-key", [{ file: DO_FILE, from: READ_ROW, to: `${READ_ROW}    const probeParts = ["ensureRisk", "ProfileAuthority"];\n    super["valueOf"]()[probeParts.join("")](${LEGACY});\n` }], 1,
+        /read-contract baseline:\n(?:.*\n)*helper binding: instance_identity: computed access on super can select valueOf/],
       ["pass", [{ file: DO_FILE, from: HK_BRANCH, to: `// if (command.action === "probe_comment_only") return json({});\n      ${HK_BRANCH}` }], 0],
     ]) {
       const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], { env: { ...process.env, [PROBE_ENV]: JSON.stringify(edits) }, encoding: "utf8" });
       assert.equal(child.status === 0 ? 0 : 1, status, `full-suite exit for the ${label} child: ${child.status}\n${child.stderr.slice(0, 2000)}`);
+      if (cause) assert.match(child.stderr, cause, `full-suite exit for the ${label} child fails for its cause`);
       outcomes.push([`suite exit ${child.status}`, `child run (${label})`, ""]);
     }
   }
