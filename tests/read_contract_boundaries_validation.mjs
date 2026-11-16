@@ -192,6 +192,21 @@ const isExportedTestHook = object => ts.isVariableDeclaration(object.parent) && 
   && (ts.getCombinedModifierFlags(object.parent) & ts.ModifierFlags.Export) !== 0;
 const specifierText = node => node && (ts.isIdentifier(node) || ts.isStringLiteral(node)) ? node.text : null;
 
+/** Names declared as class or object-literal members: a helper so named is reachable as a member. */
+const memberNames = new Map();
+function declaredMembers(file, text) {
+  const key = `${file}\u0000${text}`;
+  if (memberNames.has(key)) return memberNames.get(key);
+  const names = new Set();
+  const visit = node => {
+    if ((ts.isClassElement(node) || ts.isObjectLiteralElementLike(node)) && node.name && (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name))) names.add(node.name.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(parseSource(file, text));
+  memberNames.set(key, names);
+  return names;
+}
+
 /** Per-file binding facts: errors, export edges and namespace reads. */
 const bindingFacts = new Map();
 function fileBindingFacts(file, text, shapes, shapesKey) {
@@ -204,6 +219,13 @@ function fileBindingFacts(file, text, shapes, shapesKey) {
   const fail = (kind, node, detail) => facts.errors.push(`helper binding: ${kind}: ${detail} at ${at(node)}: ${snippet(node)}`);
   const identifiers = [];
   const renamedImports = [];
+  // Constants bound to a member helper's name, by binding name (review FIX9B).
+  const keyConstants = new Map();
+  const compared = node => {
+    let top = node;
+    while (ts.isParenthesizedExpression(top.parent)) top = top.parent;
+    return (ts.isBinaryExpression(top.parent) && COMPARISONS.has(top.parent.operatorToken.kind)) || (ts.isCaseClause(top.parent) && top.parent.expression === top);
+  };
   const symbolReference = node => {
     const name = node.text;
     const parent = node.parent;
@@ -247,6 +269,16 @@ function fileBindingFacts(file, text, shapes, shapesKey) {
       const selects = (ts.isElementAccessExpression(parent) && parent.argumentExpression === node) || ts.isComputedPropertyName(parent)
         || ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent) || (ts.isCallExpression(parent) && parent.arguments.includes(node));
       if (shapes.symbols.has(value) && selects) fail("computed_name", node, `string ${JSON.stringify(value)} selects helper ${value}`);
+      // A member helper is a method of objects whose identity no rule tracks
+      // (`this.valueOf()`, a stored copy, a prototype), so its name is tracked
+      // instead: in place it may only be compared, and a constant bound to it
+      // is checked at every reference below.
+      else if (shapes.members.has(value)) {
+        const declaration = ts.isVariableDeclaration(parent) && parent.initializer === node && ts.isIdentifier(parent.name) ? parent : null;
+        if (declaration) keyConstants.set(declaration.name.text, value);
+        if (declaration && (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Export)) fail("computed_name", node, `exported constant ${declaration.name.text} names member helper ${value}`);
+        else if (!declaration && !compared(node)) fail("computed_name", node, `string ${JSON.stringify(value)} names member helper ${value} outside a comparison or a checked constant`);
+      }
       if (evaluated) for (const symbol of shapes.symbols) if (value.includes(symbol)) fail("computed_name", node, `evaluated text names helper ${symbol}`);
       if (shapes.values.has(value)) {
         const spelling = shapes.values.get(value);
@@ -262,6 +294,14 @@ function fileBindingFacts(file, text, shapes, shapesKey) {
         if (!(ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) || !node.getText(sf).includes(spelling)) fail("literal_spelling", node, `value ${JSON.stringify(value)} is not spelled ${spelling}`);
         else if (!direct) fail("literal_alias", node, `value ${JSON.stringify(value)} is bound or returned instead of used in place`);
       }
+    }
+    // The surface admits `this` only as a dotted receiver; the inherited
+    // `valueOf` would hand the instance out as a value whose members a key
+    // built at run time can select, so it is not admitted either.
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "valueOf") {
+      let object = node.expression;
+      while (ts.isParenthesizedExpression(object)) object = object.expression;
+      if (object.kind === ts.SyntaxKind.ThisKeyword || object.kind === ts.SyntaxKind.SuperKeyword) fail("instance_identity", node, `${object.getText(sf)}.valueOf returns the instance as a value`);
     }
     if (ts.isIdentifier(node) && shapes.calls.has(node.text) && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
       const access = node.parent;
@@ -312,6 +352,16 @@ function fileBindingFacts(file, text, shapes, shapesKey) {
       if (!wrapper || !isCallee(node) || !/^\s*\(/.test(text.slice(node.end))) fail("renamed", node, `${alias.text}, the renamed import of ${name}, is reached other than by a direct call inside a same-named wrapper`);
     }
   }
+  // Every reference to such a constant, matched by name across the file, is a
+  // comparison operand; any other use can become a computed member key.
+  for (const node of identifiers) {
+    const helper = keyConstants.get(node.text);
+    if (helper === undefined || compared(node)) continue;
+    const parent = node.parent;
+    if (parent.propertyName === node && !ts.isExportSpecifier(parent)) continue;
+    if (parent.name === node && !ts.isShorthandPropertyAssignment(parent) && !ts.isExportSpecifier(parent)) continue;
+    fail("computed_name", node, `${node.text} holds the name of member helper ${helper} and is used other than in a comparison`);
+  }
   for (const node of identifiers) {
     if (memberRead(node)) continue;
     if (node.text === "__test") fail("namespace", node, "the __test hook is read other than by member or destructuring");
@@ -324,7 +374,8 @@ function fileBindingFacts(file, text, shapes, shapesKey) {
 /** Errors for every way of reaching a registered helper the site count cannot see. */
 function helperBindingErrors(sources, exceptions) {
   const shapes = helperShapes(exceptions);
-  const shapesKey = JSON.stringify([[...shapes.symbols], [...shapes.values], [...shapes.calls].map(([name, values]) => [name, [...values]])]);
+  shapes.members = new Set([...sources].flatMap(([file, text]) => [...declaredMembers(file, text)]).filter(name => shapes.symbols.has(name)));
+  const shapesKey = JSON.stringify([[...shapes.symbols], [...shapes.values], [...shapes.calls].map(([name, values]) => [name, [...values]]), [...shapes.members]]);
   const facts = new Map([...sources].map(([file, text]) => [file, fileBindingFacts(file, text, shapes, shapesKey)]));
   const resolve = (file, spec) => {
     if (!spec || !spec.startsWith(".")) return null;
@@ -1052,6 +1103,33 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   rejectBinding("Durable Object name passed through a variable", edit("application/runtime_instances/command.js", '    const stub = namespace.get(namespace.idFromName("runtime-instances"));', '    const probeName = "runtime-instances";\n    namespace.get(namespace.idFromName(probeName));\n    const stub = namespace.get(namespace.idFromName("runtime-instances"));'),
     /^helper binding: literal_argument: idFromName takes one string literal/);
   pass("helper name in an inert string", edit(RUNTIME_SUPPORT, SESSION_HANDLER, `const probeNote = "writeCurrentStrategiesCache";\n${SESSION_HANDLER}`));
+  // Member helpers by a constant key (review FIX9B): the B1 writer selected as
+  // a computed member of an object that is the instance under another name.
+  // Each case also runs below and reaches the writer.
+  const READ_BODY = '  read() {\n    const row = this.sql.exec("SELECT revision, payload FROM instance_state WHERE id = 1")';
+  const readEdit = text => ({ file: DO_FILE, from: READ_BODY, to: READ_BODY.replace("  read() {\n", `  read() {\n    ${text}\n`) });
+  const inRead = text => applyEdits(sources, [readEdit(text)]);
+  const LEGACY = '{ state: "valid", bindings: [] }';
+  const OWN_RUNTIME_KEY_CASES = {
+    "own-runtime-key-valueof-writer": [readEdit(`const probeKey = "ensureRiskProfileAuthority";\n    this.valueOf()[probeKey](${LEGACY});`)],
+    "own-runtime-key-module-constant-stored-instance": [
+      { file: DO_FILE, from: DO_END, to: `${DO_END}const PROBE_WRITER_KEY = "ensureRiskProfileAuthority";\n` },
+      readEdit(`const probeSelf = this.valueOf();\n    probeSelf[PROBE_WRITER_KEY](${LEGACY});`)],
+    "own-runtime-key-folded-logical-object": [readEdit(`const probeKey = "ensureRisk" + \`ProfileAuthority\`;\n    (this.valueOf() || null)[probeKey](${LEGACY});`)],
+    "own-runtime-key-object-property": [readEdit(`const probeKeys = { writer: "ensureRiskProfileAuthority" };\n    this.valueOf().valueOf()[probeKeys.writer](${LEGACY});`)],
+    "own-runtime-key-reassigned-let": [readEdit(`let probeKey = "read";\n    probeKey = "ensureRiskProfileAuthority";\n    [this.valueOf()][0][probeKey](${LEGACY});`)],
+    // No string names the helper; the instance handed out as a value is the
+    // reachable form.
+    "own-runtime-key-joined-at-runtime": [readEdit(`this.valueOf()[["ensureRisk", "ProfileAuthority"].join("")](${LEGACY});`)],
+  };
+  const ownKey = /^helper binding: computed_name: .*member helper ensureRiskProfileAuthority/;
+  const ownIdentity = /^helper binding: instance_identity: this\.valueOf returns the instance as a value .*durable_object\.js/;
+  for (const [label, edits] of Object.entries(OWN_RUNTIME_KEY_CASES)) {
+    rejectBinding(label, applyEdits(sources, edits), ownIdentity);
+    if (label !== "own-runtime-key-joined-at-runtime") expectError(validated(applyEdits(sources, edits)).errors, ownKey, `reject ${label}: the key is rejected too`);
+  }
+  rejectBinding("own-runtime-key-super-valueof", inRead("super.valueOf();"), /^helper binding: instance_identity: super\.valueOf/);
+  pass("member helper name compared in place and by a constant", inRead('const probeNote = "ensureRiskProfileAuthority";\n    if (probeNote === "ensureRiskProfileAuthority") {}'));
 
   // Catch bodies (review F2.4): the whole clause is the reviewed template.
   reject("error-derived dispatch in the DO catch", edit(DO_FILE, "    } catch (error) {\n      return json({ ok: false, error: error instanceof HttpError", '    } catch (error) {\n      if (error.message === "method_not_allowed") return new Response("probe-catch");\n      return json({ ok: false, error: error instanceof HttpError'),
@@ -1172,6 +1250,22 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     module => new module.KvDirectory({}, {}).run({ action: "probe" })), { probe: true }, "executable: directory alternate form");
   assert.deepEqual(await scratch(DO_FILE, edit(DO_FILE, '      const login = String(command?.login || "");', '      switch (command.action) { case "ux1_probe": return { probe: true }; }\n      const login = String(command?.login || "");'),
     ({ RuntimeInstances }) => Object.assign(Object.create(RuntimeInstances.prototype), { storage: { transactionSync: fn => fn() }, sql: fakeSql }).ux1ResearchCommand({ action: "ux1_probe" })), { probe: true }, "executable: ux1 switch");
+  // The constant-key cases are live writers: a GET through the real fetch,
+  // with a SQL recorder that accepts every statement, attempts the B1 import
+  // that action:instance_state:GET is not registered to carry.
+  const getInserts = probedSources => scratch(DO_FILE, probedSources, async ({ RuntimeInstances }) => {
+    const statements = [];
+    const self = Object.assign(Object.create(RuntimeInstances.prototype), { sql: { exec: statement => { statements.push(statement); return { toArray: () => [], one: () => null }; } } });
+    const response = await self.fetch(new Request("https://runtime-instances.invalid/"));
+    return [response.status, statements.filter(statement => /^\s*INSERT\b/i.test(statement))];
+  });
+  assert.equal(result.operations.get("action:instance_state:GET").effects.includes("B1"), false, "executable: action:instance_state:GET does not carry B1");
+  assert.deepEqual(await getInserts(sources), [200, []], "executable: the unmutated GET writes nothing");
+  for (const [label, edits] of Object.entries(OWN_RUNTIME_KEY_CASES)) {
+    const [status, inserts] = await getInserts(applyEdits(sources, edits));
+    assert.equal(status, 200, `executable: ${label} responds`);
+    assert.deepEqual(inserts.map(statement => statement.split("(")[0].trim()), ["INSERT INTO risk_profile_authority"], `executable: ${label} reaches the B1 writer`);
+  }
 
   // The suite's own exit: a child run over in-memory edits exits nonzero for a
   // discovered and a rejected injection, and zero for an inert control.
@@ -1180,6 +1274,7 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
       ["discover", [{ file: DO_FILE, from: HK_BRANCH, to: `if (command./* dispatch */action === "probe_read") return json({ probe: true });\n      ${HK_BRANCH}` }], 1],
       ["reject", [{ file: DO_FILE, from: GET_BRANCH, to: `if ((request)["me" + "thod"] === "PUT") return json({ probe: true });\n      ${GET_BRANCH}` }], 1],
       ["helper alias", [{ file: RUNTIME_SUPPORT, from: SESSION_HANDLER, to: `${SESSION_HANDLER}  const persist = writeCurrentStrategiesCache;\n  await persist(env, { probe: true }, Date.now());\n` }], 1],
+      ["own-runtime-key-valueof-writer", OWN_RUNTIME_KEY_CASES["own-runtime-key-valueof-writer"], 1],
       ["pass", [{ file: DO_FILE, from: HK_BRANCH, to: `// if (command.action === "probe_comment_only") return json({});\n      ${HK_BRANCH}` }], 0],
     ]) {
       const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], { env: { ...process.env, [PROBE_ENV]: JSON.stringify(edits) }, encoding: "utf8" });
