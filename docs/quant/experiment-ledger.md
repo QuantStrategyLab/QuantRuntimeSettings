@@ -31,7 +31,7 @@ Counting rules (this document's operational form of the contract definition):
 | `ID` | `L-nnn`, assigned in order, never reused |
 | Hypothesis / parameter set | What was tested, and the exact parameter set or its identifier |
 | Date | Date the trial started, with its source; `not recorded` where the sources give none |
-| Data version | The Y2 dataset version hash for any trial run on it; for historical trials, `pre-Y2` and the data the record names, if any |
+| Data version | The Y2 dataset version reference (`Y2-DATA-1`) for any trial run on it; for historical trials, `pre-Y2` and the data the record names, if any |
 | Pre-registered standard | The bar fixed before the run, with its source; `none recorded` where nothing was fixed in the sources |
 | Outcome | `ADOPT`, `REJECT`, `INSUFFICIENT`, `NOT_MET`, `REGISTERED`, `ABORTED`, as recorded; never reworded to a stronger claim |
 | Trials added / running count | The count this entry adds, and `K_trials` after it |
@@ -56,22 +56,9 @@ Running count after the seed: **`K_trials = 23`**, matching the contract's `K_tr
 
 ## 4. Data version
 
-Any trial run on the Y2 research dataset carries the dataset version hash. The version hash is the SHA-256 of the listing produced by `sha256sum` over the dataset files in byte order of file name (`LC_ALL=C sort`), one line per file, two spaces between digest and name:
+Any trial run on the Y2 research dataset carries the dataset-version reference `Y2-DATA-1`. Y2-DATA-1 resolves in the protected identity manifest to the immutable dataset version and its eight per-file digests; the byte-order listing and digest convention are preserved there. Every trial records that immutable version; changing any file creates a new version.
 
-```
-91f0c63b386cb2a732acf1f4b33d122b2000767596b729b131013ae12d7b0c1c  nasdaq_giw_implied_dividends.csv
-875c6cde908285b536d094181119caf0338e92f358e85798e236b5c5c33d65a5  ndx_index_daily.csv
-211fc1e0f99b6004fbd3f55f0c7a178ed40bee7d72c3a78969c16289a8d5debb  risk_free_rates_daily.csv
-4ef50831d033711958beff9ee7027d68c361f04e02642a9a19bd436753d7abef  semi_index_daily.csv
-f5e664a976c45df1166c7c401fbea807d754f1d5b26300d101ae163a38062cdd  soxl_daily.csv
-eba83ae40ffb7eea9468ec437e408774bce703bc362a74e32891fade94ccfd73  synthetic_3x_ndx_daily.csv
-e53d899276f1eac99493fd15ff419755395f1f29f13d5ca45dec3f1d8a3da139  synthetic_3x_semi_daily.csv
-d770897f3c7df8e0cdd056415e2aea10f83d438939ee77602ad3a295b083fd02  tqqq_daily.csv
-```
-
-**Y2 dataset version hash: `19e51a6627c40461fdd80f740798462425769af6ad3cfecad4937003e9320de6`.**
-
-The per-file digests match the registry in [dataset.md](dataset.md) §4 as of `2026-11-17`. The Y2 qualifications travel with the version hash: as-retrieved reconstruction (not point-in-time inputs); `SOXL` market-close proxy with the NAV criterion unverified; modelled `Path C` index segments and modelled synthetic `3×` series; in-sample calibrated `c_spread` constants. A change to any file is a new dataset version and a new hash; trials already recorded keep the hash they ran on.
+The per-file entry references are `Y2-DATA-1/F1` to `Y2-DATA-1/F8`, in byte order of file name; the file-to-reference mapping is the registry in [dataset.md](dataset.md) §4. The Y2 qualifications travel with the version reference: as-retrieved reconstruction (not point-in-time inputs); `SOXL` market-close proxy with the NAV criterion unverified; modelled `Path C` index segments and modelled synthetic `3×` series; in-sample calibrated `c_spread` constants. A change to any file is a new dataset version with a new reference; trials already recorded keep the reference they ran on.
 
 ## 5. Going-forward trials
 
@@ -101,7 +88,7 @@ Whether these overlap the `Y2` sample, whether they are independent of `L-001` t
 
 ## Sources
 
-- `PART-B.md` §2.3 (`B5`; items 13 and 16), §2.6 item 3 ("Count the trials"), and the `[I36:n]` lines it cites, in `~/workspace/quant-s2/fable-roadmap/` and `~/workspace/quant-s2/closeout/issue36-body-old.md`: line `44`–`54` (`SOXL` exploration, `UESP #587`, unique run), line `193` (do not rerun), line `200` (tally), line `237` (`b5-rebaseline-r2`). `PART-C.md` §3.3 (item 12 split, `B5` stays closed), §3.4 Phase 2 scope item 5, §4.5.
-- Supplementary repository metadata, read-only (`gh run view`, `gh pr view`) for the `SOXL` exploration: run `42524630684` in `UsEquitySnapshotPipelines`, conclusion `success`, created `2026-11-08T21:19:36Z`; `PR #587` merged `2026-11-08T21:18:56Z`. These dates are not in `PART-B.md` or `PART-C.md`; they are added here from the repository's own records and are marked as such.
+- `PART-B.md` §2.3 (`B5`; items 13 and 16), §2.6 item 3 ("Count the trials"), and the `[I36:n]` lines it cites, in `~/workspace/quant-s2/fable-roadmap/` and `~/workspace/quant-s2/closeout/issue36-body-old.md`: line `44`–`54` (`SOXL` exploration, `SRC-PR-1`, unique run), line `193` (do not rerun), line `200` (tally), line `237` (`b5-rebaseline-r2`). `PART-C.md` §3.3 (item 12 split, `B5` stays closed), §3.4 Phase 2 scope item 5, §4.5.
+- Supplementary repository metadata, read-only (`gh run view`, `gh pr view`) for the `SOXL` exploration: workflow run `SRC-RUN-1` (locator in the protected identity manifest), conclusion `success`, created `2026-11-08T21:19:36Z`; pull request `SRC-PR-1` merged `2026-11-08T21:18:56Z`. These dates are not in `PART-B.md` or `PART-C.md`; they are added here from the repository's own records and are marked as such.
 - [definitions-contract.md](definitions-contract.md) §5.1; [rebase-register.md](rebase-register.md) (historical tally and Table C).
-- [dataset.md](dataset.md) §4 (file digests; the data files stay under `~/workspace/quant-s2/yardstick/y2/`).
+- [dataset.md](dataset.md) §4 (protected per-file entry references; the data files stay under `~/workspace/quant-s2/yardstick/y2/`).

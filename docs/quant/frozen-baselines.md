@@ -17,7 +17,7 @@ Standing boundaries are unchanged:
 
 ## 1. What "frozen baseline" means here
 
-A frozen baseline is the strategy body that `PILOT` tests are paired against (`PART-C.md` §4.2 step 1: "output of the frozen baseline strategy body, with its internal trend and volatility rules"). Its version is fixed by four identifiers, all recorded below:
+A frozen baseline is the strategy body that `PILOT` tests are paired against (`PART-C.md` §4.2 step 1: "output of the frozen baseline strategy body, with its internal trend and volatility rules"). The exact strategy commit, defining-file identities, canonical default-configuration identities and declared layer composition are frozen in the protected identity manifest for baseline references B-TQQQ and B-SOXL; these public references are opaque labels, not hashes or truncated source identifiers. Changing a referenced object creates a new baseline version. The four identifiers are:
 
 1. the commit SHA of the strategy repository;
 2. the exact file paths that define the strategy body, each with its git blob SHA-1 and file SHA-256 at that commit;
@@ -32,13 +32,13 @@ A baseline is never a moving branch. Any later change to a listed file is a new 
 
 | Item | Value |
 | --- | --- |
-| Repository | `QuantStrategyLab/UsEquityStrategies` |
+| Repository | Protected strategy-source manifest |
 | Default branch | `main` |
 | Access | Read-only clone into scratch space under `~/workspace/quant-s2/yardstick/y3/ues/`; no write, no worktree inside the `QuantRuntimeSettings` worktree. A `git status --short` of the clone after all runs was empty. |
 | Retrieved | `2026-11-17` |
-| Commit pinned | `c06e0fd046963829d54a0d9a7c1e83dc01240108` (`chore(governance): centralize PR gate and anti-leak hygiene (#724)`, committed `2026-11-15T19:43:42+08:00`) |
-| Release tag at this commit | **None.** `pyproject.toml` declares version `0.7.60`; the highest semantic-version tag is `v0.7.52` (commit `2f033d713c32a63f217c6b166995ebcf1f2f466f`, `2026-06-04`), which is `720` commits behind the pinned commit. `git describe` resolves to `research-m1-r1-reserve-20261022-67-gc06e0fd`, a research tag, not a release. Neither the declared version nor any tag identifies this commit, so the **commit SHA is the version identity**. |
-| Python environment for replay | `Python 3.12.3`, `pandas 3.1.1`, `numpy 2.5.5`, `pytest 9.2.0`, `pandas_market_calendars 5.6.1`, `quant-platform-kit` at `52adab68d6109cf93941ae21a39914cfa37e00e3` (the pin in the repository's `pyproject.toml`), in a venv under `~/workspace/quant-s2/yardstick/y3/venv/`. The repository declares `pandas>=2.0`; `3.1.1` satisfies it but is not the version the repository's CI is stated to use (not verified). |
+| Commit pinned | `SRC-C1` (commit subject and commit time are recorded in the protected manifest) |
+| Release tag at this commit | **None.** `pyproject.toml` declares version `0.7.60`; the highest semantic-version tag is `SRC-T3` (commit `SRC-C2`, `2026-06-04`), which is `720` commits behind the pinned commit. `git describe` resolves to `SRC-D1`, a research tag, not a release. Neither the declared version nor any tag identifies this commit, so the **commit SHA is the version identity**. |
+| Python environment for replay | `Python 3.12.3`, `pandas 3.1.1`, `numpy 2.5.5`, `pytest 9.2.0`, `pandas_market_calendars 5.6.1`, `quant-platform-kit` at `SRC-C3` (the pin in the repository's `pyproject.toml`), in a venv under `~/workspace/quant-s2/yardstick/y3/venv/`. The repository declares `pandas>=2.0`; `3.1.1` satisfies it but is not the version the repository's CI is stated to use (not verified). |
 
 ### 2.2 Candidates found and the selection rule
 
@@ -50,11 +50,11 @@ Neither pilot strategy has a single obvious version in the repository. The candi
 | --- | --- | --- | --- |
 | `TQQQ` | `tqqq_growth_income` (`strategies/tqqq_growth_income.py`, with the pure decision core `strategies/tqqq_dual_drive_core.py`) | `runtime_enabled`; handbook role "TQQQ growth + income" | **Yes** |
 | `TQQQ` | `tqqq_growth_income_research_baseline_v1` (`research/tqqq_typed_baseline_result.py`): fixed `SMA200` rule, controls disabled, `0` transaction cost, typed Yahoo-snapshot input | Research reference | No. It contains no de-risking layers, so it cannot serve as the frozen body of `PART-B.md` §2.6 item 5. It is identified here as a possible **layer-free comparator** only. |
-| `TQQQ` | Tag `tqqq-p2-v2-qpk730-source-20260819` (commit `5f0c30cdcaf3ee0f3f1c050acbe172580ea40c81`, "add TQQQ P2 v2 adapter") | Research adapter | No. What this tag freezes was not established in this batch. |
+| `TQQQ` | Tag `SRC-T2` (commit `SRC-C4`) | Research adapter | No. What this tag freezes was not established in this batch. |
 | `TQQQ`+`SOXL` | `us_equity_combo_leveraged_shadow_352045`, `..._402040` | `shadow_candidate`; combined weights, not a per-strategy body | No |
 | `SOXL` | `soxl_soxx_trend_income` (`strategies/soxl_soxx_trend_income.py`) | `runtime_enabled`; handbook role "SOXL/SOXX semiconductor trend + income" | **Yes** |
-| `SOXL` | `soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve` ("V7", `v7_soxl_profile.py`, recorded config SHA-256 `843ab4e93e81985c2b3becc61a2f0b971508ccf25afa59acf402e75f574514d1`) | `runtime_enabled=false` research/shadow candidate; the repository states it is **not** the live `SOXL` and that the earlier real-data studies (`R6`–`R9`) used V7, "cannot be used as the live SOXL return series" (`docs/research/fractional-kelly-preregistration.zh-CN.md`) | No |
-| `SOXL` | `soxl_v7_strict_derisk_only_v1` (candidate commit `0f48d49c8b066b03a47b54c9a6a1d538241eb394`) | Pre-registered 20-session forward observation, collection not activated | No |
+| `SOXL` | `soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve` ("V7", `v7_soxl_profile.py`, recorded configuration identity `CFG-V7`) | `runtime_enabled=false` research/shadow candidate; the repository states it is **not** the live `SOXL` and that the earlier real-data studies (`R6`–`R9`) used V7, "cannot be used as the live SOXL return series" (`docs/research/fractional-kelly-preregistration.zh-CN.md`) | No |
+| `SOXL` | `soxl_v7_strict_derisk_only_v1` (candidate commit `SRC-C5`) | Pre-registered 20-session forward observation, collection not activated | No |
 | `SOXL` | `soxl_soxx_typed_baseline_result.py` | Offline typed baseline | No (same reason as the `TQQQ` typed baseline; not inspected beyond its header and tests) |
 
 **Ambiguities flagged (also in the summary of this batch):**
@@ -65,7 +65,7 @@ Neither pilot strategy has a single obvious version in the repository. The candi
 
 ### 2.3 Configuration identity
 
-The configuration identity is the SHA-256 of the canonical JSON of `STRATEGY_DEFAULT_CONFIG[<profile>]` in `catalog.py`: keys sorted, separators `,` and `:`, tuples as arrays, no NaN, one trailing line feed. This canonicalization is defined by this document; it is **not** the canonicalization behind the repository's recorded V7 hash. Four plausible serializations of the V7 config were tried and none reproduces the recorded V7 hash (`843ab4e9…`); V7 is not a selected baseline, so this was not pursued (see §6).
+The configuration identity is the SHA-256 of the canonical JSON of `STRATEGY_DEFAULT_CONFIG[<profile>]` in `catalog.py`: keys sorted, separators `,` and `:`, tuples as arrays, no NaN, one trailing line feed. This canonicalization is defined by this document; it is **not** the canonicalization behind the repository's recorded V7 hash. Four plausible serializations of the V7 config were tried and none reproduces the recorded V7 hash (`CFG-V7`); V7 is not a selected baseline, so this was not pursued (see §6).
 
 ## 3. Baseline B-TQQQ: `tqqq_growth_income`
 
@@ -73,20 +73,20 @@ The configuration identity is the SHA-256 of the canonical JSON of `STRATEGY_DEF
 
 | Item | Value |
 | --- | --- |
-| Repository commit | `c06e0fd046963829d54a0d9a7c1e83dc01240108` |
+| Repository commit | `SRC-C1` |
 | Profile | `tqqq_growth_income` (display "TQQQ Growth Income"; `module_path = us_equity_strategies.strategies.tqqq_growth_income`) |
-| Default configuration SHA-256 (`47` keys) | `ffaa26582d47897de577ce05117dc807026942fad1c3df11ac0ffa1caf695c88` |
+| Default configuration (`47` keys), protected identity reference | `CFG-TQQQ` |
 | Note | The catalog default has `dual_drive_macro_risk_governor_enabled = True`; the bundled manifest default (`manifests/__init__.py`) omits that key (`46` keys). The strategy function's own default for that parameter is also `True` (`strategies/tqqq_growth_income.py`), so the effective value is identical. Recorded as a catalog/manifest inconsistency, not corrected. |
 
-Defining files (all relative to the repository root; blob SHA-1 from `git rev-parse <commit>:<path>`, SHA-256 of the file bytes):
+Defining files (all relative to the repository root). Each protected identity reference resolves in the protected manifest to the git blob SHA-1 (from `git rev-parse <commit>:<path>`) and the SHA-256 of the file bytes at the pinned commit:
 
-| Path | Blob SHA-1 | SHA-256 |
-| --- | --- | --- |
-| `src/us_equity_strategies/strategies/tqqq_growth_income.py` | `93c4f8d8ad79dc0033337fe8a54e84b38639d32f` | `90e8ded53a2e4389f6060d88cfd232046d90e6775dda47379e8d06415b2cbf42` |
-| `src/us_equity_strategies/strategies/tqqq_dual_drive_core.py` | `834fa077027389f8313d0b7334419a3ba7e6be7f` | `1868f4298c1228b458b9b4b6904ff6bf3cf1dcacd46fcf4e469a6f968ee6f211` |
-| `src/us_equity_strategies/catalog.py` (default configuration, metadata, status) | `ba10ac74bcd0bfb324dd1cbccfc02a7db2745158` | `900e1ebc235bbe191bd7f411ec0899a2e4d578cc9d05cc5b76842144445e0f18` |
-| `src/us_equity_strategies/volatility_delever_retention.py` (retention policy `tqqq_step_softzero_0.25_0.50`) | `3dd96193ff926296dadb5229a115d301803148e1` | `148743f0bea5285ec98aca19072c528cb4435c5b52cbc5271b4347ce4fa30aef` |
-| `src/us_equity_strategies/income_layer_defaults.py` (income-sleeve defaults) | `5b471b06b91b517d5ab8938161accd1f19ac4781` | `19f31a77c85d9fd1861aad77854de5d19547ba79346908376a69a0da70e7d74a` |
+| Path | Protected identity reference |
+| --- | --- |
+| `src/us_equity_strategies/strategies/tqqq_growth_income.py` | `DF-01` |
+| `src/us_equity_strategies/strategies/tqqq_dual_drive_core.py` | `DF-02` |
+| `src/us_equity_strategies/catalog.py` (default configuration, metadata, status) | `DF-03` |
+| `src/us_equity_strategies/volatility_delever_retention.py` (retention policy `tqqq_step_softzero_0.25_0.50`) | `DF-04` |
+| `src/us_equity_strategies/income_layer_defaults.py` (income-sleeve defaults) | `DF-05` |
 
 ### 3.2 De-risking layers contained (declared stack for `PART-B.md` §2.6 item 5)
 
@@ -121,19 +121,19 @@ Instruments in the defaults: leveraged `TQQQ`, unlevered `QQQM`, parking `BOXX`,
 
 | Item | Value |
 | --- | --- |
-| Repository commit | `c06e0fd046963829d54a0d9a7c1e83dc01240108` |
+| Repository commit | `SRC-C1` |
 | Profile | `soxl_soxx_trend_income` (display "SOXL/SOXX Semiconductor Trend Income"; `module_path = us_equity_strategies.strategies.soxl_soxx_trend_income`) |
-| Default configuration SHA-256 (`50` keys; catalog and manifest defaults agree) | `e03a8ba3bedb81227a0a9c243424518fade62ee8669ca92f2d4260fcc9f9f7de` |
+| Default configuration (`50` keys; catalog and manifest defaults agree), protected identity reference | `CFG-SOXL` |
 
-Defining files:
+Defining files (protected identity references resolve as in §3.1):
 
-| Path | Blob SHA-1 | SHA-256 |
-| --- | --- | --- |
-| `src/us_equity_strategies/strategies/soxl_soxx_trend_income.py` | `331ff2f51f1f39351844d3cdd2b7a95790c33410` | `9675f56e9ea0d4be36751b52ec22951ddc29e2546e305a1e5b1aab5c6d60baf4` |
-| `src/us_equity_strategies/catalog.py` (default configuration, metadata, status) | `ba10ac74bcd0bfb324dd1cbccfc02a7db2745158` | `900e1ebc235bbe191bd7f411ec0899a2e4d578cc9d05cc5b76842144445e0f18` |
-| `src/us_equity_strategies/volatility_delever_retention.py` (retention policy `soxl_step_rebound_0.25_0.50`) | `3dd96193ff926296dadb5229a115d301803148e1` | `148743f0bea5285ec98aca19072c528cb4435c5b52cbc5271b4347ce4fa30aef` |
-| `src/us_equity_strategies/income_layer_defaults.py` | `5b471b06b91b517d5ab8938161accd1f19ac4781` | `19f31a77c85d9fd1861aad77854de5d19547ba79346908376a69a0da70e7d74a` |
-| `src/us_equity_strategies/backtest/soxl_trend_simulator.py` (the repository's core-only replay harness, used in §5) | `17cd16fd430f575cf89f6179ee973d9182e9171f` | `c82e1bae19981e6472c295fcc67393bf11262be16e5ae857d2f8c94d87588eaf` |
+| Path | Protected identity reference |
+| --- | --- |
+| `src/us_equity_strategies/strategies/soxl_soxx_trend_income.py` | `DF-06` |
+| `src/us_equity_strategies/catalog.py` (default configuration, metadata, status) | `DF-03` |
+| `src/us_equity_strategies/volatility_delever_retention.py` (retention policy `soxl_step_rebound_0.25_0.50`) | `DF-04` |
+| `src/us_equity_strategies/income_layer_defaults.py` | `DF-05` |
+| `src/us_equity_strategies/backtest/soxl_trend_simulator.py` (the repository's core-only replay harness, used in §5) | `DF-07` |
 
 ### 4.2 De-risking layers contained
 
@@ -165,26 +165,26 @@ All replay work ran from scripts kept outside the clone, in `~/workspace/quant-s
 
 ### 5.1 Research dataset used
 
-The research dataset is the Y2 dataset under `~/workspace/quant-s2/yardstick/y2/data/`. Its version identifier for this batch is the SHA-256 of the sorted per-file hash listing, `19e51a6627c40461fdd80f740798462425769af6ad3cfecad4937003e9320de6` (listing format and file hashes in [experiment-ledger.md](experiment-ledger.md) §4). The files read by the replays:
+The research dataset is the Y2 dataset under `~/workspace/quant-s2/yardstick/y2/data/`. Its version identifier for this batch is the dataset-version reference `Y2-DATA-1` (resolution in [experiment-ledger.md](experiment-ledger.md) §4; per-file references in [dataset.md](dataset.md) §4). The files read by the replays:
 
-| File | SHA-256 |
+| File | Protected identity reference |
 | --- | --- |
-| `soxl_daily.csv` | `f5e664a976c45df1166c7c401fbea807d754f1d5b26300d101ae163a38062cdd` |
-| `semi_index_daily.csv` | `4ef50831d033711958beff9ee7027d68c361f04e02642a9a19bd436753d7abef` |
-| `risk_free_rates_daily.csv` | `211fc1e0f99b6004fbd3f55f0c7a178ed40bee7d72c3a78969c16289a8d5debb` |
+| `soxl_daily.csv` | `Y2-DATA-1/F5` |
+| `semi_index_daily.csv` | `Y2-DATA-1/F4` |
+| `risk_free_rates_daily.csv` | `Y2-DATA-1/F3` |
 
-Y2 qualifications that apply to anything computed from it are carried unchanged: the `SOXL` series is a `market-close proxy; NAV criterion unverified`; the semiconductor index before `2009-12-22` is a modelled `Path C` segment; the dataset is an as-retrieved reconstruction, not point-in-time inputs. The Y2 dataset and validation records are published in this repository as [dataset.md](dataset.md) and [validation.md](validation.md) (copies of the reviewed workspace `DATASET.md`, SHA-256 `b2a615a1ca47116c91686b2130e55b87f6705852a2eb929eb64456cd4568c0c9`, and `VALIDATION.md`, SHA-256 `787b84d1d8519bc01c4b589196b888d423c4d098b1519a7644cf21e268aed882`, changing only link targets, a publication note, and one paraphrased sentence in `validation.md`); the data files and construction scripts stay outside Git.
+Y2 qualifications that apply to anything computed from it are carried unchanged: the `SOXL` series is a `market-close proxy; NAV criterion unverified`; the semiconductor index before `2009-12-22` is a modelled `Path C` segment; the dataset is an as-retrieved reconstruction, not point-in-time inputs. The Y2 dataset and validation records are published in this repository as [dataset.md](dataset.md) and [validation.md](validation.md) (copies of the reviewed workspace `DATASET.md`, protected identity reference `Y2-DOC-DATASET`, and `VALIDATION.md`, protected identity reference `Y2-DOC-VALIDATION`, changing only link targets, a publication note, and one paraphrased sentence in `validation.md`); the data files and construction scripts stay outside Git.
 
 The Y2 dataset holds no `QQQ`, `QQQM`, `SOXX`, `BOXX` or `TQQQ`/`SOXL` open prices. Any replay that needs them uses the proxies stated per replay.
 
 ### 5.2 Replays and results
 
-| ID | What was run | Inputs | Command (from the scratch directory `~/workspace/quant-s2/yardstick/y3`, `PYTHONDONTWRITEBYTECODE=1`) | Output (SHA-256) | Result |
+| ID | What was run | Inputs | Command (from the scratch directory `~/workspace/quant-s2/yardstick/y3`, `PYTHONDONTWRITEBYTECODE=1`) | Output (protected identity reference) | Result |
 | --- | --- | --- | --- | --- | --- |
-| `R1` | The repository tests that encode both baselines' decision logic and identity, at the pin: `test_tqqq_dual_drive_core`, `test_tqqq_preplugin_predicate`, `test_soxl_v7_fixed_profile`, `test_soxl_lifecycle_baseline`, `test_tqqq_typed_baseline_result`, `test_soxl_soxx_typed_baseline_result` | The clone at the pinned commit; synthetic inputs inside the tests | `PYTHONPATH=ues/src:ues ./venv/bin/python -m pytest -p no:cacheprovider -q <the six files>` | `evidence/pytest_baseline_tests.txt` (`8d75c2d5ac9769be4e50ab28c8a03def247f2b6ec7bb6be2868ddb591e4618fe`) | `38 passed`, `11 subtests passed`, `0` failed |
-| `R2` | Decision-level target replay: `decide_tqqq_dual_drive` on a risk-on input at `100000` equity with the catalog defaults; `_resolve_tier_allocations` for the three `SOXL` tiers with the catalog defaults | No market data (synthetic decision inputs) | `./venv/bin/python scripts/replay_decision_targets.py $PWD` (script SHA-256 `1a81f0de942ae65872badfdadc6cb128a044b1289a0210ca7f8ac0850923779a`) | `evidence/replay_decision_targets.json` (`6901fa5bccfc097e607104ff8202c5391eb0bf0120fb4aead273adb7b53cb9f6`) | **Reproduces `T-A`** (`TQQQ` `45,000`, unlevered `45,000`, `BOXX` `8,000`, reserve `2,000` of `100,000`) **and `S-A`** (`full` `0.70 / 0.20 / 0.10`; `mid` `0.65 / 0.20 / 0.15`; `defensive` `0 / 0.15 / 0.85`). |
-| `R3` | The repository's own core-only `SOXL` replay harness (`run_soxl_core_only_backtest`, `5` bps) over the Y2 data, run twice | Y2 files above, with proxies: `SOXL` = `soxl_daily.tr_mkt_index`; `SOXX` = `semi_index_daily.idx_tr_index`; `BOXX` = `cumprod(1 + tbill_3m_rate × dt_yr)` | `./venv/bin/python scripts/replay_soxl_core.py $PWD ~/workspace/quant-s2/yardstick/y2` (script SHA-256 `cca58937de1f488c69210533b550aa6ff39cd9797965b125d01918ab807311ff`) | `evidence/replay_soxl_core.json` (`f7df5d51d2074d4022fe58626145ade9c3fca80b427d2ee67e37115554f62384`) | Deterministic: both runs give the same daily-return hash (`7c3c86ea1f6945a64a46f713107f540528ad56f3824cac2a9dcf743e7e29f1d9`), `4,197` rows, `2010-03-11` to `2026-11-13`. **Does not reproduce `S-B`** (below). |
-| `R4` | Configuration identity digests | The clone | `./venv/bin/python scripts/baseline_identity.py $PWD` (script SHA-256 `95852fd2ccfa778a34f42450800e62cbc49e9ab332b9d3e4d9e3be261b87517e`) | `evidence/baseline_identity.json` (`7ecc3a96e765342adb4fc372d562de3b9cc4caf798e2a1d35675539391847e65`) | Digests as recorded in §3.1 and §4.1. The recorded V7 hash is not reproduced by four serializations (§6). |
+| `R1` | The repository tests that encode both baselines' decision logic and identity, at the pin: `test_tqqq_dual_drive_core`, `test_tqqq_preplugin_predicate`, `test_soxl_v7_fixed_profile`, `test_soxl_lifecycle_baseline`, `test_tqqq_typed_baseline_result`, `test_soxl_soxx_typed_baseline_result` | The clone at the pinned commit; synthetic inputs inside the tests | `PYTHONPATH=ues/src:ues ./venv/bin/python -m pytest -p no:cacheprovider -q <the six files>` | `evidence/pytest_baseline_tests.txt` (`Y3-EV-R1-OUT`) | `38 passed`, `11 subtests passed`, `0` failed |
+| `R2` | Decision-level target replay: `decide_tqqq_dual_drive` on a risk-on input at `100000` equity with the catalog defaults; `_resolve_tier_allocations` for the three `SOXL` tiers with the catalog defaults | No market data (synthetic decision inputs) | `./venv/bin/python scripts/replay_decision_targets.py $PWD` (script protected identity reference `Y3-EV-R2-SCRIPT`) | `evidence/replay_decision_targets.json` (`Y3-EV-R2-OUT`) | **Reproduces `T-A`** (`TQQQ` `45,000`, unlevered `45,000`, `BOXX` `8,000`, reserve `2,000` of `100,000`) **and `S-A`** (`full` `0.70 / 0.20 / 0.10`; `mid` `0.65 / 0.20 / 0.15`; `defensive` `0 / 0.15 / 0.85`). |
+| `R3` | The repository's own core-only `SOXL` replay harness (`run_soxl_core_only_backtest`, `5` bps) over the Y2 data, run twice | Y2 files above, with proxies: `SOXL` = `soxl_daily.tr_mkt_index`; `SOXX` = `semi_index_daily.idx_tr_index`; `BOXX` = `cumprod(1 + tbill_3m_rate × dt_yr)` | `./venv/bin/python scripts/replay_soxl_core.py $PWD ~/workspace/quant-s2/yardstick/y2` (script protected identity reference `Y3-EV-R3-SCRIPT`) | `evidence/replay_soxl_core.json` (`Y3-EV-R3-OUT`) | Deterministic: both runs give the same daily-return hash (protected identity reference `Y3-EV-R3-RETURNS`), `4,197` rows, `2010-03-11` to `2026-11-13`. **Does not reproduce `S-B`** (below). |
+| `R4` | Configuration identity references | The clone | `./venv/bin/python scripts/baseline_identity.py $PWD` (script protected identity reference `Y3-EV-R4-SCRIPT`) | `evidence/baseline_identity.json` (`Y3-EV-R4-OUT`) | Identity references as recorded in §3.1 and §4.1. The recorded V7 hash is not reproduced by four serializations (§6). |
 
 ### 5.3 Reproduction table
 
@@ -205,8 +205,8 @@ The Y2 dataset holds no `QQQ`, `QQQM`, `SOXX`, `BOXX` or `TQQQ`/`SOXL` open pric
 
 ## 6. Limits of this record
 
-- Defining-file lists cover the strategy body, its decision core, its defaults, and the retention and income-sleeve modules named by the defaults. Other modules the body imports (shared helpers, platform-kit contracts) are **not** hashed here; the platform-kit dependency is pinned by the repository at `52adab68d6109cf93941ae21a39914cfa37e00e3`.
-- The V7 recorded hash was not reproduced by the four serializations tried (sorted compact and sorted indent-`2`, each with and without a trailing line feed). V7 is outside the selected baselines; its identity is recorded only for the candidate table.
+- Defining-file lists cover the strategy body, its decision core, its defaults, and the retention and income-sleeve modules named by the defaults. Other modules the body imports (shared helpers, platform-kit contracts) are **not** hashed here; the platform-kit dependency is pinned by the repository at `SRC-C3`.
+- The recorded V7 identity (`CFG-V7`) was not reproduced by the four serializations tried (sorted compact and sorted indent-`2`, each with and without a trailing line feed). V7 is outside the selected baselines; its identity is recorded only for the candidate table.
 - The retention behaviour with no platform context, the interaction of the income sleeve with a pilot-sized sleeve, and the real deployed configuration were not exercised.
 - Nothing here ranks `TQQQ` against `SOXL` or either against any alternative.
 
@@ -215,4 +215,4 @@ The Y2 dataset holds no `QQQ`, `QQQM`, `SOXX`, `BOXX` or `TQQQ`/`SOXL` open pric
 - `PART-B.md` §2.6 item 5 and §2.3; `PART-C.md` §2.6 / Phase 2 scope item 4, §3.4, §4.2 step 1 (`~/workspace/quant-s2/fable-roadmap/`).
 - [definitions-contract.md](definitions-contract.md) (signed 2026-11-16) and [cost-model.md](cost-model.md).
 - [dataset.md](dataset.md), [validation.md](validation.md) and the data files under `~/workspace/quant-s2/yardstick/y2/` (data stay outside Git).
-- `QuantStrategyLab/UsEquityStrategies` at `c06e0fd046963829d54a0d9a7c1e83dc01240108`: `docs/us-equity-strategy-status.md`, `docs/us-equity-strategy-status.zh-CN.md`, `docs/research/fractional-kelly-preregistration.zh-CN.md`, `docs/research/soxl-derisk-only-202610-forward-preregistration.md`, and the files in §3.1 and §4.1.
+- Protected strategy-source manifest, entry `SRC-C1`: `docs/us-equity-strategy-status.md`, `docs/us-equity-strategy-status.zh-CN.md`, `docs/research/fractional-kelly-preregistration.zh-CN.md`, `docs/research/soxl-derisk-only-202610-forward-preregistration.md`, and the files in §3.1 and §4.1.

@@ -2,9 +2,10 @@
 
 **Status date:** 2026-11-17
 **Pre-registration date:** 2026-11-17 (no `PILOT` run, `PILOT` output or `PILOT` data pull exists at this date; the `PILOT` prerequisites `FUSE` batch 1 and `SHADOW` stage `N` have not run)
-**SHA-256 (self-excluding):** `5c64f434739962fb38cfca9ac0d4e1a94dfc4bc1b808dce9297df3484836371b`
-**Amendment (2026-11-17, before any `PILOT` run):** document links to the published Y2 records [dataset.md](dataset.md) and [validation.md](validation.md) added, and the baseline-reproduction caveat in the residuals reworded; no constant, threshold, window or `[P]` value changed. Earlier self-excluding hash of the first version: `c3c2885df3eb1a63464ed65007a960eb603ac2208293f5e9044e5ef6d2eeeed3`.
-**Amendment (2026-11-17, owner waiver, before any `PILOT` run):** records the owner's waiver of the replay-acceptance requirement for both selected baselines (PR #1188, comment `6930818496`); the performance targets stay unverified, and the waiver covers `Y3` documents acceptance only, with `PILOT` permission separate and not granted; no constant, threshold, window or `[P]` value changed. Earlier self-excluding hash, before this amendment: `bf40919539cf792919713e2e5518d4e1818dd4b0b74ee06f4b366d0b4055b4aa`.
+**SHA-256 (self-excluding):** `PREREG-R3` (opaque public revision reference, dated 2026-11-17; the digest, exact bytes and prior-version chain are held in the protected record)
+**Amendment (2026-11-17, before any `PILOT` run):** document links to the published Y2 records [dataset.md](dataset.md) and [validation.md](validation.md) added, and the baseline-reproduction caveat in the residuals reworded; no constant, threshold, window or `[P]` value changed. Earlier revision reference of the first version: `PREREG-R0`.
+**Amendment (2026-11-17, owner waiver, before any `PILOT` run):** records the owner's waiver of the replay-acceptance requirement for both selected baselines (PR #1188, comment `6930818496`); the performance targets stay unverified, and the waiver covers `Y3` documents acceptance only, with `PILOT` permission separate and not granted; no constant, threshold, window or `[P]` value changed. Earlier revision reference, before this amendment: `PREREG-R1`.
+**Amendment (2026-11-17, bot-thread conformance, before any `PILOT` run):** literal source, dataset and registration digests are replaced by opaque references that resolve in the protected identity manifest (§2 rewritten accordingly), and three pre-run blockers are recorded (the `P-D` confidence bound, simulated breaker re-arming, research execution costs; §§4, 5, 8, 9, 10); no constant, threshold, window, `[P]` value, trial count or planned slot changed, and no trial is started. Earlier revision reference, before this amendment: `PREREG-R2`.
 **Phase:** 2 (`YARDSTICK`, batch `Y3`) — documents only. Pre-registering a study authorizes no code edits, data reads, deployments, paper orders, live orders, or `PILOT` runs; `PILOT` has its own owner approval.
 **Registration owner:** `coordinator`
 **Related documents:** [frozen-baselines.md](frozen-baselines.md) | [experiment-ledger.md](experiment-ledger.md) | [definitions-contract.md](definitions-contract.md) | [cost-model.md](cost-model.md) | [dataset.md](dataset.md) | [validation.md](validation.md) | [sizing-unit.md](sizing-unit.md) | [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md)
@@ -25,19 +26,14 @@ This file fixes tests, bars and constants **before** any result exists. It state
 Every constant below carries one mark:
 
 - **`[S]`** — taken from a signed or decided source: the owner decisions (`OWNER-INPUT-C.md`), the signed [definitions-contract.md](definitions-contract.md), [sizing-unit.md](sizing-unit.md) (the `PART-C.md` §4.3 starting values), or `PART-B.md` §2.4 / `PART-C.md` §4.5.
-- **`[P]`** — a value this batch had to supply to make a specification complete, because the contract names it as a `Y3` prerequisite or because the source states a rule without its number. These are **executor-proposed** and are put to the coordinator for confirmation. If any `[P]` value is changed before the first `PILOT` run, the change is an amendment under §2 (new version, new hash); the original stays on record.
+- **`[P]`** — a value this batch had to supply to make a specification complete, because the contract names it as a `Y3` prerequisite or because the source states a rule without its number. These are **executor-proposed** and are put to the coordinator for confirmation. If any `[P]` value is changed before the first `PILOT` run, the change is an amendment under §2 (new version, new revision reference and protected digest); the original stays on record.
 
 ## 2. Registration, hash and amendment rules
 
-1. **Hash convention.** The SHA-256 in the header is computed over the exact bytes of this file with the 64-character value on the `**SHA-256 (self-excluding):**` line replaced by 64 ASCII zeros (the value it carries in the line above before it is filled in). The recorded date is the pre-registration date in the header.
-2. **Verification command** (run from the repository root; prints the recomputed digest, which must equal the header value):
-
-   ```
-   python3 -c "import hashlib,re,sys;t=open('docs/quant/pilot-preregistration.md','rb').read();print(hashlib.sha256(re.sub(rb'(\*\*SHA-256 \(self-excluding\):\*\* \`)[0-9a-f]{64}',rb'\g<1>'+b'0'*64,t,count=1)).hexdigest())"
-   ```
-
-3. **Ordering.** The hash and date precede every `PILOT` run. A `PILOT` run records this file's hash as an input; a run whose recorded hash differs from the registered one is invalid.
-4. **Amendments.** An amendment is a new version of this file with a new hash and date, and a change table at the end. Old versions are kept. An amendment made after the first `PILOT` run started cannot apply to that run.
+1. **Revision reference.** Each registration has a dated opaque public revision reference and an immutable protected copy.
+2. **Protected record.** The protected registration record contains its self-excluding SHA-256, the exact bytes and prior-version chain; the existing 64-zero digest convention is retained there.
+3. **Ordering.** Before any run, the executor verifies and records the protected registration digest. A missing or mismatched protected record invalidates the run.
+4. **Amendments.** An amendment is a new version of this file with a new revision reference and date, and a change table at the end (§11). Old versions are kept in protected storage, and each version's protected record holds its digest. An amendment made after the first `PILOT` run started cannot apply to that run.
 5. **Trials.** Every variant in §9 is entered in [experiment-ledger.md](experiment-ledger.md) before it runs; the trial count then rises per that ledger's rule. No search beyond the grid in §9 is permitted; no Bayesian optimization.
 6. **One calibration step.** The owner chooses tier constants once, from tables computed on the §9 grid. That choice is in-sample and labelled so; its out-of-sample test is the forward shadow record. A later change to any constant is a new policy version with a new clock.
 
@@ -55,7 +51,7 @@ Every constant below carries one mark:
 | Pilot instruments | `TQQQ`, `SOXL`, a bill vehicle; long only; no margin, shorts or options | `[S]` | Lines 7–8; `PART-C.md` §4.4 `O5` |
 | Decision and trade timing | Decide on the prior close; trade in the regular session only; no extended hours; next-session execution in all simulations | `[S]` | `PART-C.md` §5.1 item 4; [definitions-contract.md](definitions-contract.md) §4.1 |
 | Baselines | As frozen in [frozen-baselines.md](frozen-baselines.md) | `[S]` | Y3 deliverable 1 |
-| Dataset | Y2 dataset, version hash `19e51a6627c40461fdd80f740798462425769af6ad3cfecad4937003e9320de6` | `[S]` | [experiment-ledger.md](experiment-ledger.md) §4; [dataset.md](dataset.md) |
+| Dataset | Y2 dataset, version reference `Y2-DATA-1` (resolves in the protected identity manifest) | `[S]` | [experiment-ledger.md](experiment-ledger.md) §4; [dataset.md](dataset.md) |
 
 ### 3.2 Tier constants (starting values to be measured at `PILOT`)
 
@@ -98,7 +94,7 @@ The stack is the one signed in [definitions-contract.md](definitions-contract.md
 | 4 | Kelly ceiling `x_K^struct`, `x_K^cond` | **Computed and recorded in every decision, with a would-have-bound flag and the exposure that would have resulted. Sizes nothing.** The shrinkage rule is §7. |
 | 5 | Volatility scalar `v` | Applied **only if** adopted at the class `K` bar in `PILOT`; otherwise recorded. Two shapes tested (§9). Missing volatility data fails closed as in the contract (§4.1 step 5). |
 | 6–7 | Fund exposure and joint cap | As signed, including the combined-sleeve reading of `OQ-1` (effective joint cap `min(x_joint, x_ML(c))`) |
-| 8–9 | Translation, band, whole shares, fee check | Next-session execution, whole shares, cost model of [cost-model.md](cost-model.md). A reduction demanded by steps 2, 3 or 7, or by a breaker, is never delayed by the band. |
+| 8–9 | Translation, band, whole shares, fee check | Next-session execution, whole shares, cost model of [cost-model.md](cost-model.md). A reduction demanded by steps 2, 3 or 7, or by a breaker, is never delayed by the band. Cost-sensitive execution is blocked pending the research-cost amendment in §10. |
 | 10 | Control layer | Computed as "would have" states; armed nowhere |
 
 Daily-reset decay is an outcome of the return series and is never charged as a separate cost line ([cost-model.md](cost-model.md) §1).
@@ -109,7 +105,7 @@ Bars follow `PART-B.md` §2.4. Numeric values are `[S]` where `PART-C.md` §4.5 
 
 | Class | Item rows in `PILOT` | Adopt requires | Reject on | Marks |
 | --- | --- | --- | --- | --- |
-| **K** — risk-reducing scalar | `Q2-4` volatility scaling; `Q2-5` drawdown-scaling shape; `Q3-1(a)` credit question | (1) The stress-loss measures (maximum drawdown and worst `20`-session loss, [definitions-contract.md](definitions-contract.md) §2.5) are lower than the matched baseline in **every** stress scenario of §6 and in **at least two thirds** of walk-forward windows `[S]`; the reduction must be at least `10%` relative to the baseline's value in each scenario `[P]`. (2) Non-inferiority: class `K` growth cost `π_K` inside line 14 `[S]`; where `g_ann^{base} ≤ 0`, the raw difference `Δg_ann` is reported instead ([definitions-contract.md](definitions-contract.md) §5.2). (3) Latched trips inside line 15 and turnover inside line 6 `[S]`. Walk-forward windows: non-overlapping blocks of `252` sessions, the last block dropped if shorter `[P]`. | No stress-loss reduction; growth cost above the premium; trips above the budget | Mixed |
+| **K** — risk-reducing scalar | `Q2-4` volatility scaling; `Q2-5` drawdown-scaling shape; `Q3-1(a)` credit question | (1) The stress-loss measures (maximum drawdown and worst `20`-session loss, [definitions-contract.md](definitions-contract.md) §2.5) are lower than the matched baseline in **every** stress scenario of §6 and in **at least two thirds** of walk-forward windows `[S]`; the reduction must be at least `10%` relative to the baseline's value in each scenario `[P]`. (2) Non-inferiority: class `K` growth cost `π_K` inside line 14 `[S]`; where `g_ann^{base} ≤ 0`, the raw difference `Δg_ann` is reported instead ([definitions-contract.md](definitions-contract.md) §5.2). (3) Latched trips inside line 15 and turnover inside line 6 `[S]`. Trip-budget evaluation is blocked pending the §8 simulated re-arm amendment. Walk-forward windows: non-overlapping blocks of `252` sessions, the last block dropped if shorter `[P]`. | No stress-loss reduction; growth cost above the premium; trips above the budget | Mixed |
 | **C** — control | `Q5-1`, `Q5-3` (specified in `FUSE`, not decided here); `L0`, `J1` as limits | Independent of the strategy process; deterministic; passes the synthetic trip matrix; fails closed; read-back; human re-arm. No statistical bar. | Cannot be made independent, or trips falsely on flows or corporate actions in a way that cannot be cured | `[S]` |
 | **S** — sizing | `Q2-3` Kelly ceiling with shrinkage | `PILOT` **reports** how often the ceiling would bind and how far it moves when its inputs move by one standard error; month-to-month stability needs a forward record. Expected end state at this stage: insufficient. Research-only whatever the result. | It never binds, or its output is dominated by estimation noise | `[S]` |
 | **M** — measurement | `Q3-2` expected shortfall as the loss measure | One written definition (§6.3), reproduced by an independent reviewer from the dataset; labelled an estimate and tied to its scenario set | Not rejected on merit; ends as insufficient with named missing data | `[S]` |
@@ -126,7 +122,7 @@ The set defines `M(c)` and is the same for every item. All scenarios are run wit
 
 ### 6.1 Historical crisis paths on the synthetic `3×` history
 
-Each window is fixed by rule on the Y2 index total-return series (`idx_tr_index`): the peak is the maximum inside the peak-search range; the trough is the minimum between the peak and the trough-search end. The rule is `[S]` as to the four named crises and `[P]` as to the search ranges. The windows below were computed by that rule from the dataset of version hash `19e51a66…320de6` (descriptive output of the rule; it involves no strategy and is not a trial):
+Each window is fixed by rule on the Y2 index total-return series (`idx_tr_index`): the peak is the maximum inside the peak-search range; the trough is the minimum between the peak and the trough-search end. The rule is `[S]` as to the four named crises and `[P]` as to the search ranges. The windows below were computed by that rule from the dataset of version reference `Y2-DATA-1` (descriptive output of the rule; it involves no strategy and is not a trial):
 
 | ID | Crisis (`[S]`) | Peak-search range `[P]` | Trough-search end `[P]` | Nasdaq-100 peak → trough (sessions) | Semiconductor index peak → trough (sessions) |
 | --- | --- | --- | --- | --- | --- |
@@ -183,6 +179,8 @@ The contract names the prior, the shrinkage weight and the volatility-forecast e
 - **Comparison.** Each tier's total breaker rate is compared with line 15 (`1 / 2 / 3` a year). The result is reported as inside or outside, with the cells that drive it; no constant is changed by this comparison inside `PILOT` (§2 item 6).
 - **Policy states.** Rows are computed for the full policy and for the baseline alone, so that a trip caused by the stack can be told apart from one caused by the strategy body.
 
+**Execution prerequisite — unresolved simulated re-arming.** The §8 historical latch-transition tables and any class-K evaluation that uses them must not run until a dated, versioned pre-run amendment specifies initial latch state, simulated re-arm eligibility and timing, state carried across years and scenario/window boundaries, and the treatment of governed loss/high-water records. The rule must apply consistently to full-policy and baseline comparisons and be confirmed under §1. No re-arm events are inferred from history, and no daily or annual reset is assumed. Until then, trip-budget compliance and adoption dependent on it are unavailable. This research convention does not authorize automatic re-arming or change the signed human re-arm requirement.
+
 ## 9. Pre-registered trial slots (the grid; nothing beyond it)
 
 Each slot is entered in [experiment-ledger.md](experiment-ledger.md) as `REGISTERED` before it runs and counts from the moment it starts. Tier is part of the slot because the tier changes the constants the evaluation uses.
@@ -192,7 +190,7 @@ Each slot is entered in [experiment-ledger.md](experiment-ledger.md) as `REGISTE
 | `P-A` | `Q2-4` volatility scalar shape | linear `min(1, σ_target ÷ σ)`; squared `min(1, (σ_target ÷ σ)²)` | `3` | `6` |
 | `P-B` | `Q2-5` drawdown-scaling shape | proportional cushion rule; the existing step brake (levels to be bound from the envelope document and recorded, with its file hash, before the slot starts) | `3` | `6` |
 | `P-C` | `Q2-6` no-trade band width | `10%`, `20%`, `30%` of target weight | `3` | `9` |
-| `P-D` | `Q3-1(a)` diversification credit | one test: credit only if the upper bound of the semiconductor-index tail correlation with the Nasdaq-100 is below `0.7`; otherwise refused | — | `1` |
+| `P-D` | `Q3-1(a)` diversification credit | one test: credit only if the upper bound of the semiconductor-index tail correlation with the Nasdaq-100 is below `0.7`; otherwise refused. **Blocked pending the confidence-bound amendment in §10; no diversification credit is available from this unexecuted slot.** | — | `1` |
 | | **Total planned** | | | **`22`** |
 
 Not counted as trials, per [experiment-ledger.md](experiment-ledger.md) §6: the Kelly ceiling reports (`Q2-3`), the stress-window rule outputs, the measurement of `β_fall` and tail correlation as descriptive inputs, and determinism or reproduction checks. If every slot is started, `K_trials` goes from `23` to `45`.
@@ -201,13 +199,26 @@ Not counted as trials, per [experiment-ledger.md](experiment-ledger.md) §6: the
 
 - The `[P]` values (§1) are executor-proposed and await coordinator confirmation. Changing one is an amendment.
 - The step-brake levels for `P-B` and the envelope document's hash are not fixed here; they are to be bound and recorded before that slot starts.
+- P-D must not start until a dated, versioned pre-run amendment freezes the tail-correlation statistic and sample/tail-selection rule, confidence level and one-sided upper-bound estimator, and all applicable resampling settings (sampling unit, dependence/block treatment, repetitions and seed; explicitly state if resampling is not used). Record coordinator confirmation under §1 before the slot starts. Until then, diversification credit remains zero; the 0.7 threshold and single-slot count are unchanged.
+- The class-K net-growth comparisons, P-C no-trade-band cost comparisons, smallest-workable-bankroll calculation, and any stress or sizing trial dependent on execution costs must not start until a dated, versioned pre-run amendment binds a deterministic research execution-cost parameter set to the registration. It must specify minimum/per-share commissions, applicable fixed and regulatory fees, per-instrument half-spreads, impact coefficients and stress multipliers with units and applicability; use the same declared model for paired comparisons. Unsourced inputs remain unresolved, not zero. Historical 5 bps baseline replays and the context-only 5/10/15 bps grid are not PILOT assumptions. Coordinator confirmation under §1 and separate PILOT permission are both required. OI-COST-3 venue verification and the FUSE control collar remain at their existing gates.
 - The baselines' recorded performance targets were **not** reproduced in `Y3` ([frozen-baselines.md](frozen-baselines.md) §5.4). The acceptance statement that replay reproduces recorded targets is met for allocation targets only. On `2026-11-17` the owner waived the replay-acceptance requirement for both baselines: the `Y3` documents are accepted under that exception, the performance targets stay unverified, and `PILOT` permission remains separate and is not granted by this acceptance.
 - The Y2 dataset carries the qualifications recorded in [experiment-ledger.md](experiment-ledger.md) §4 and in [dataset.md](dataset.md) and [validation.md](validation.md); the in-sample calibration and failed holdout checks recorded there are not restated as passes. In particular, the `3×` series are models, the `SOXL` series is a market-close proxy with an unverified NAV criterion, and nothing here treats the synthetic history as real fund history.
 - `K_trials = 23` is a floor (see [experiment-ledger.md](experiment-ledger.md) §7); related trial records in the strategy repository are not counted.
 - Nothing in this file is a verdict on `TQQQ`, `SOXL` or any tier.
 
+## 11. Amendment record
+
+Revision references resolve to exact bytes and digests in the protected registration record (§2). Dates and order are public; no revision changes a constant, threshold, window or `[P]` value.
+
+| Revision | Date | Change |
+| --- | --- | --- |
+| `PREREG-R0` | 2026-11-17 | First registration. |
+| `PREREG-R1` | 2026-11-17 | Links to the published Y2 records added; baseline-reproduction caveat in the residuals reworded. |
+| `PREREG-R2` | 2026-11-17 | Owner waiver of the replay-acceptance requirement recorded (PR #1188, comment `6930818496`). |
+| `PREREG-R3` | 2026-11-17 | Literal digests replaced by opaque protected references (§2 rewritten); pre-run blockers recorded for the `P-D` confidence bound (§§9, 10), simulated breaker re-arming (§§5, 8) and research execution costs (§§4, 10). |
+
 ## Sources
 
 - `OWNER-INPUT-C.md` (decision of `2026-11-15`: `B_0`; boundary and `H`), `PART-C.md` §3.2, §4.2, §4.3, §4.4, §4.5, §5.1 item 4, and `PART-B.md` §2.4, §2.6 (`~/workspace/quant-s2/fable-roadmap/`).
 - [definitions-contract.md](definitions-contract.md) (signed `2026-11-16`) §1.3, §2.4–2.5, §3.3, §4, §5; [cost-model.md](cost-model.md); [sizing-unit.md](sizing-unit.md).
-- Y2 dataset under `~/workspace/quant-s2/yardstick/y2/data/` (version hash in [experiment-ledger.md](experiment-ledger.md) §4); stress windows computed by `scripts/stress_windows.py` in `~/workspace/quant-s2/yardstick/y3/` (script SHA-256 `2836446de07f181d91facbd63dbd2920c4715d9358772569f95e108a2821b114`, output SHA-256 `5905d83d9d093b98a8d46945064717300e5b79d9ed347972553e1d7a48e42238`).
+- Y2 dataset under `~/workspace/quant-s2/yardstick/y2/data/` (version reference in [experiment-ledger.md](experiment-ledger.md) §4); stress windows computed by `scripts/stress_windows.py` in `~/workspace/quant-s2/yardstick/y3/` (script protected identity reference `Y3-EV-STRESS-SCRIPT`, output `Y3-EV-STRESS-OUT`).

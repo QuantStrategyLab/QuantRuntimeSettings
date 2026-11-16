@@ -1,7 +1,7 @@
 # YARDSTICK Batch Y2 — As-Retrieved Research Dataset & Pre-Registered Tolerance
 
 - **Scope:** Phase 2 `YARDSTICK` Batch `Y2` as-retrieved research dataset reconstruction under `./data/` and deterministic construction scripts under `./scripts/`, governed by `SURVEY.md`, `prospectus-tqqq.md`, and the signed `QuantRuntimeSettings` contracts (`docs/quant/definitions-contract.md` including the 2026-11-16 §7.1 `Path C` amendment, and `docs/quant/cost-model.md`).
-- **Publication note (Y3 fix round, 2026-11-17):** Repository copy of the reviewed Y2 dataset record. Link targets that are not published here (`SURVEY.md`, `prospectus-tqqq.md`, `BRIEF-Y2-BUILD.md`, `scripts/`, `data/`, the review report) are workspace records kept outside Git; raw data and construction code are never committed. The workspace `SURVEY.md` has SHA-256 `0ef5abd74a2ae0552071dcb6a56b81b0cbc342703d1cf62f964095754c38faa0`, `prospectus-tqqq.md` `e66d80daef628917f8b27f57c6e64a0315ed1f307fa66985f66fc54e769c8f6c`, and `scripts/metadata/preregistration_receipt.json` `d3ba10fd8db9f20596a9b4da3068030e8371f1e2b79bde25e9dbd047738dcf59`. The workspace source `DATASET.md` has SHA-256 `b2a615a1ca47116c91686b2130e55b87f6705852a2eb929eb64456cd4568c0c9`; this copy changes only link targets and this note, and leaves §3 byte-identical.
+- **Publication note (Y3 fix round, 2026-11-17):** Repository copy of the reviewed Y2 dataset record. Link targets that are not published here (`SURVEY.md`, `prospectus-tqqq.md`, `BRIEF-Y2-BUILD.md`, `scripts/`, `data/`, the review report) are workspace records kept outside Git; raw data and construction code are never committed. The workspace `SURVEY.md` has protected identity reference `Y2-DOC-SURVEY`, `prospectus-tqqq.md` `Y2-DOC-PROSPECTUS`, and `scripts/metadata/preregistration_receipt.json` `Y2-DOC-RECEIPT`. The workspace source `DATASET.md` has protected identity reference `Y2-DOC-DATASET`; this copy changes only link targets and this note, and leaves §3 byte-identical. Exact digests and original receipt bytes are retained in the protected identity manifest; publication references do not change the underlying dataset or protocol.
 - **Retrieval & Cut-Off Dates:** All primary public feeds were retrieved on `2026-11-16` with sample end cut-off `2026-11-13` (last complete Friday `XNYS` regular-session close prior to retrieval).
 - **Non-Merit Instrument Notice:** This dataset and its modelled `3×` series are measurement and calibration instruments only. They contain zero strategy merit evaluations, zero parameter recommendations, and zero return claims.
 - **Model Labelling & Live Monitor Authority:**
@@ -22,9 +22,9 @@ A prior interrupted build run stopped after writing five partial/candidate CSVs 
 | File | Pre-Restart Status | Audit Outcome & Action Taken |
 | --- | --- | --- |
 | `./scripts/xnys_calendar.py` | Present (`4,445` bytes) | **Reused verified:** Generates exact `10,528` `XNYS` regular trading sessions (`1985-01-31`..`2026-11-13`), matching Nasdaq GIW `NDX`/`XNDX` 1-for-1 after stripping 1 holiday echo. |
-| `./data/ndx_index_daily.csv` | Present (`10,528` rows) | **Reused verified:** Recomputed SHA-256 (`875c6cde908285b536d094181119caf0338e92f358e85798e236b5c5c33d65a5`) matches cleanly; zero missing `XNYS` dates or corporate-action discontinuities. |
-| `./data/semi_index_daily.csv` | Present (`8,189` rows) | **Reused verified:** Recomputed SHA-256 (`4ef50831d033711958beff9ee7027d68c361f04e02642a9a19bd436753d7abef`) matches cleanly; corrupt pre-`1994-05-04` `479.49` prefix stripped; `200` early vendor stale/catch-up rows explicitly flagged. |
-| `./data/tqqq_daily.csv` | Present (`4,218` rows) | **Reused verified:** Recomputed SHA-256 (`d770897f3c7df8e0cdd056415e2aea10f83d438939ee77602ad3a295b083fd02`) matches cleanly; `384:1` splits and ProShares `43.23%`/`41.02%` checkpoints reconciled within `~0.0054` / `~0.0050 pp/yr` (inside the builder's `0.05 pp/yr` check). |
+| `./data/ndx_index_daily.csv` | Present (`10,528` rows) | **Reused verified:** Recomputed SHA-256 matches protected identity reference `Y2-DATA-1/F2` cleanly; zero missing `XNYS` dates or corporate-action discontinuities. |
+| `./data/semi_index_daily.csv` | Present (`8,189` rows) | **Reused verified:** Recomputed SHA-256 matches protected identity reference `Y2-DATA-1/F4` cleanly; corrupt pre-`1994-05-04` `479.49` prefix stripped; `200` early vendor stale/catch-up rows explicitly flagged. |
+| `./data/tqqq_daily.csv` | Present (`4,218` rows) | **Reused verified:** Recomputed SHA-256 matches protected identity reference `Y2-DATA-1/F8` cleanly; `384:1` splits and ProShares `43.23%`/`41.02%` checkpoints reconciled within `~0.0054` / `~0.0050 pp/yr` (inside the builder's `0.05 pp/yr` check). |
 | `./data/risk_free_rates_daily.csv` | Present (`10,528` rows) | **Failed audit & rebuilt:** `91` US bond-holiday rows contained `tbill_3m_rate = -99.990000` from raw Fed H.15 XML `OBS_VALUE="-9999"` (`OBS_STATUS="ND"`). Fixed `fetch_fed_h15_rates()` to skip `ND` observations and carry forward prior business-day rates (`92` bond-holiday carry-forwards logged). |
 | `./data/nasdaq_giw_implied_dividends.csv` | Present (`11,219` rows) | **Rebuilt cleanly:** Normalized exact floating-point zero on `SOX` launch row `2009-12-22` (`abs(d_t) < 1e-15` -> `0.0`). |
 | `./data/soxl_daily.csv` | Missing (interrupted before Step `7b`) | **Fixed & built:** Fixed `fetch_direxion_soxl_metadata()` JSON casing (`Distributions`, `MMDDYYYY` `ExDate` parsing, `Monthly/QuarterlyMarketPerformance` & `NavPerformance`) and built complete `4,197`-row series reconciled within `~0.0054 pp/yr` (inside the builder's `0.05 pp/yr` check) of Direxion `2026-09-30`/`2026-10-31` market checkpoints (`market-close proxy; NAV criterion unverified`). |
@@ -147,22 +147,24 @@ Pre-TR spliced regimes (`1985-01-31`..`1999-03-03` Nasdaq-100; `1994-05-04`..`20
 
 ## 4. File Integrity Registry (SHA-256)
 
-| File | Coverage | Rows | SHA-256 Digest | Status |
+| File | Coverage | Rows | Protected identity reference | Status |
 | --- | --- | ---: | --- | --- |
-| `./data/ndx_index_daily.csv` | `1985-01-31`..`2026-11-13` | `10,528` | `875c6cde908285b536d094181119caf0338e92f358e85798e236b5c5c33d65a5` | Verified |
-| `./data/semi_index_daily.csv` | `1994-05-04`..`2026-11-13` | `8,189` | `4ef50831d033711958beff9ee7027d68c361f04e02642a9a19bd436753d7abef` | Verified |
-| `./data/nasdaq_giw_implied_dividends.csv` | `1999-03-04`..`2026-11-13` | `11,219` | `91f0c63b386cb2a732acf1f4b33d122b2000767596b729b131013ae12d7b0c1c` | Verified |
-| `./data/risk_free_rates_daily.csv` | `1985-01-31`..`2026-11-13` | `10,528` | `211fc1e0f99b6004fbd3f55f0c7a178ed40bee7d72c3a78969c16289a8d5debb` | Verified |
-| `./data/tqqq_daily.csv` | `2010-02-09`..`2026-11-13` | `4,218` | `d770897f3c7df8e0cdd056415e2aea10f83d438939ee77602ad3a295b083fd02` | Verified |
-| `./data/soxl_daily.csv` | `2010-03-11`..`2026-11-13` | `4,197` | `f5e664a976c45df1166c7c401fbea807d754f1d5b26300d101ae163a38062cdd` | Verified (`market-close proxy; NAV criterion unverified`) |
-| `./data/synthetic_3x_ndx_daily.csv` | `1985-01-31`..`2026-11-13` | `10,528` | `eba83ae40ffb7eea9468ec437e408774bce703bc362a74e32891fade94ccfd73` | Verified (Modelled `3×`; in-sample calibrated fit `c_spread=1.5294%/yr`; `as-retrieved reconstruction; not point-in-time inputs`) |
-| `./data/synthetic_3x_semi_daily.csv` | `1994-05-04`..`2026-11-13` | `8,189` | `e53d899276f1eac99493fd15ff419755395f1f29f13d5ca45dec3f1d8a3da139` | Verified (Modelled `3×`; in-sample calibrated fit `c_spread=1.4564%/yr` on `SOXL` `market-close proxy; NAV criterion unverified`; `as-retrieved reconstruction; not point-in-time inputs`) |
+| `./data/ndx_index_daily.csv` | `1985-01-31`..`2026-11-13` | `10,528` | `Y2-DATA-1/F2` | Verified |
+| `./data/semi_index_daily.csv` | `1994-05-04`..`2026-11-13` | `8,189` | `Y2-DATA-1/F4` | Verified |
+| `./data/nasdaq_giw_implied_dividends.csv` | `1999-03-04`..`2026-11-13` | `11,219` | `Y2-DATA-1/F1` | Verified |
+| `./data/risk_free_rates_daily.csv` | `1985-01-31`..`2026-11-13` | `10,528` | `Y2-DATA-1/F3` | Verified |
+| `./data/tqqq_daily.csv` | `2010-02-09`..`2026-11-13` | `4,218` | `Y2-DATA-1/F8` | Verified |
+| `./data/soxl_daily.csv` | `2010-03-11`..`2026-11-13` | `4,197` | `Y2-DATA-1/F5` | Verified (`market-close proxy; NAV criterion unverified`) |
+| `./data/synthetic_3x_ndx_daily.csv` | `1985-01-31`..`2026-11-13` | `10,528` | `Y2-DATA-1/F6` | Verified (Modelled `3×`; in-sample calibrated fit `c_spread=1.5294%/yr`; `as-retrieved reconstruction; not point-in-time inputs`) |
+| `./data/synthetic_3x_semi_daily.csv` | `1994-05-04`..`2026-11-13` | `8,189` | `Y2-DATA-1/F7` | Verified (Modelled `3×`; in-sample calibrated fit `c_spread=1.4564%/yr` on `SOXL` `market-close proxy; NAV criterion unverified`; `as-retrieved reconstruction; not point-in-time inputs`) |
+
+Exact digests and original receipt bytes are retained in the protected identity manifest; publication references do not change the underlying dataset or protocol. The references are entries of the immutable dataset version `Y2-DATA-1`; a change to any file is a new version.
 
 ---
 
 ## 5. Review Disposition & Protocol Relabelling (2026-11-16)
 
-Section 3 above (`## 3. Pre-Registered Validation Tolerance & Comparison Protocol` through immediately before `## 4. File Integrity Registry`) is preserved byte-identical (`5,426` bytes, SHA-256 `1a698b96e84f11070e9ff42c3bbf3c9f0dac5c49729ec0c07022c106456469e8`) per `preregistration_receipt.json`. Following the `2026-11-16` independent review (`review-yardstick-y2-build/REPORT.md`), the following binding disposition and relabelling apply to this batch:
+Section 3 above (`## 3. Pre-Registered Validation Tolerance & Comparison Protocol` through immediately before `## 4. File Integrity Registry`) is preserved byte-identical (`5,426` bytes, protected identity reference `Y2-DOC-S3`) per `preregistration_receipt.json`. Following the `2026-11-16` independent review (`review-yardstick-y2-build/REPORT.md`), the following binding disposition and relabelling apply to this batch:
 
 - **Honest Headline (`2026-11-16`):** **“Dataset and model construction verified; full matched-overlap carry calibrated in sample. The zero-spread specification and both chronological holdout checks exceed the pre-registered 0.50 pp/yr tolerance. Independent accuracy within that tolerance is not established. Post-switch SOXL is an explicitly mismatched-index comparison.”**
 - **Relabelling of §3.3 Stage 2b (`B1`):** The deterministic fallback in §3.3 (`c_spread = 1.5294%/yr` for `TQQQ` NAV; `1.4564%/yr` for `SOXL` matched `SOX`) solves `R_ann,syn = R_ann,ETF` by bisection on the exact full matched overlap being evaluated. That output is an **in-sample calibrated fit** (`in-sample fitted equality`), **not** an independent validation. Fit tolerance on the fitting window is distinct from chronological holdout validation, which failed (`FAIL`) in both Stage 1 (`c_spread = 0`) and Stage 2a (`TQQQ` `2018–2026` `-1.405 pp/yr`; `SOXL` `2016–2021` `-0.945 pp/yr`).
