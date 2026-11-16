@@ -1,6 +1,6 @@
 {
  "$comment": "Versioned finite validation manifest of the bounded executable read contract (ADR 0002), read by tests/read_contract_boundaries_validation.mjs through tests/helpers/read_contract_runtime.mjs. W: the registered callable entries, reconciled with tests/fixtures/read-contract-exceptions.json on every run. B: frozen bounds. builtins: the only node: modules G admits. cases: T, each with its fixture, provenance, ordered phases and steps, synthetic initial state and exact expected outcome. Change only in a reviewed change that explains every difference.",
- "version": 1,
+ "version": 2,
  "bounds": {
   "case_ms": 15000,
   "suite_ms": 600000,
@@ -126,7 +126,7 @@
    "id": "pristine-ready-get",
    "group": "pristine-control",
    "fixture": "pristine",
-   "provenance": "unmodified snapshot; preconstructed prototype instance (no constructor, no fields)",
+   "provenance": "unmodified snapshot; preconstructed prototype instance (no constructor; storage marked initialized)",
    "phases": [
     {
      "name": "request",
@@ -209,18 +209,14 @@
    "id": "pristine-cold-construction-get",
    "group": "pristine-control",
    "fixture": "pristine",
-   "provenance": "unmodified snapshot; cold construction in an explicit B0/B6 setup trace, then the zero-writer GET on the constructed instance",
+   "provenance": "unmodified snapshot; cold construction in an explicit B0/B6 setup trace, the first ordinary GET as named B0 debt (lazy storage initialization), then the zero-writer GET on the initialized instance",
    "phases": [
     {
      "name": "setup",
      "mode": "debt",
-     "label": "cold construction setup trace",
+     "label": "cold construction setup trace (conservative B0 constructor marker; the constructor runs no SQL)",
      "allow": [
       "B0.RuntimeInstances.constructor",
-      "B0.initializeExecutions",
-      "B0.initializeExternalFlow",
-      "B0.initializeCredentialMaintenance",
-      "B0.initializeSecretRotation",
       "B6.DeskReadbackStore.constructor"
      ],
      "debt": [
@@ -240,9 +236,33 @@
      ]
     },
     {
+     "name": "cold-request",
+     "mode": "debt",
+     "label": "first ordinary request: B0 lazy storage initialization before dispatch",
+     "allow": [
+      "B0.initializeExecutions",
+      "B0.initializeExternalFlow",
+      "B0.initializeCredentialMaintenance",
+      "B0.initializeSecretRotation"
+     ],
+     "debt": [
+      {
+       "exception": "B0",
+       "operation": "action:instance_state:GET"
+      }
+     ],
+     "steps": [
+      {
+       "request": {
+        "method": "GET"
+       }
+      }
+     ]
+    },
+    {
      "name": "request",
      "mode": "zero-writer",
-     "label": "constructed-instance request phase",
+     "label": "initialized-instance request phase",
      "steps": [
       {
        "request": {
@@ -261,6 +281,10 @@
      {
       "status": 200,
       "ok": true
+     },
+     {
+      "status": 200,
+      "ok": true
      }
     ],
     "writers": [
@@ -269,79 +293,184 @@
       "phase": "setup"
      },
      {
-      "id": "B0.initializeExecutions",
+      "id": "B6.DeskReadbackStore.constructor",
       "phase": "setup"
+     },
+     {
+      "id": "B0.initializeExecutions",
+      "phase": "cold-request"
      },
      {
       "id": "B0.initializeExternalFlow",
-      "phase": "setup"
+      "phase": "cold-request"
      },
      {
       "id": "B0.initializeCredentialMaintenance",
-      "phase": "setup"
+      "phase": "cold-request"
      },
      {
       "id": "B0.initializeSecretRotation",
+      "phase": "cold-request"
+     }
+    ],
+    "storage": [
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_multiple_statements CREATE TRIGGER IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl ALTER TABLE credential_maintenance_metadata ADD",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl ALTER TABLE account_diagnosis_tasks ADD",
+     "cold-request:sql_ddl ALTER TABLE account_diagnosis_tasks ADD",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl DROP INDEX IF EXISTS",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl ALTER TABLE ux1_research_slot ADD",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD"
+    ],
+    "detection": "none"
+   }
+  },
+  {
+   "id": "pristine-cold-construction-inventory",
+   "group": "pristine-control",
+   "fixture": "pristine",
+   "provenance": "unmodified snapshot; cold construction in an explicit B0/B6 setup trace with the storage trap armed before it, then every inventory section and an unknown section on the cold instance: no writer entry, no storage write, no initialization",
+   "phases": [
+    {
+     "name": "setup",
+     "mode": "debt",
+     "label": "cold construction setup trace (conservative B0 constructor marker; the constructor runs no SQL)",
+     "allow": [
+      "B0.RuntimeInstances.constructor",
+      "B6.DeskReadbackStore.constructor"
+     ],
+     "debt": [
+      {
+       "exception": "B0",
+       "operation": "construction"
+      },
+      {
+       "exception": "B6",
+       "operation": "construction"
+      }
+     ],
+     "steps": [
+      {
+       "construct": true
+      }
+     ]
+    },
+    {
+     "name": "inventory",
+     "mode": "zero-writer",
+     "label": "cold-instance inventory phase",
+     "steps": [
+      {
+       "script": "inventory-sections"
+      }
+     ]
+    }
+   ],
+   "initial_state": {
+    "sql": [
+     {
+      "match": "SELECT total_changes() AS n",
+      "rows": [
+       {
+        "n": 0
+       }
+      ]
+     }
+    ]
+   },
+   "expected": {
+    "static": "admit",
+    "steps": [
+     {
+      "outcome": "returned"
+     },
+     {
+      "outcome": "returned",
+      "sections": [
+       {
+        "section": "schema",
+        "status": 200,
+        "ok": true
+       },
+       {
+        "section": "sql",
+        "status": 200,
+        "ok": true
+       },
+       {
+        "section": "do_kv",
+        "status": 200,
+        "ok": true
+       },
+       {
+        "section": "finalize",
+        "status": 200,
+        "ok": true
+       },
+       {
+        "section": "probe_section",
+        "status": 400,
+        "ok": false,
+        "error": "unsupported_section"
+       }
+      ],
+      "initialized": false
+     }
+    ],
+    "writers": [
+     {
+      "id": "B0.RuntimeInstances.constructor",
       "phase": "setup"
      },
      {
       "id": "B6.DeskReadbackStore.constructor",
       "phase": "setup"
      }
-    ],
-    "storage": [
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_multiple_statements CREATE TRIGGER IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl ALTER TABLE credential_maintenance_metadata ADD",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE INDEX IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl ALTER TABLE account_diagnosis_tasks ADD",
-     "setup:sql_ddl ALTER TABLE account_diagnosis_tasks ADD",
-     "setup:sql_ddl CREATE INDEX IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl DROP INDEX IF EXISTS",
-     "setup:sql_ddl CREATE INDEX IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl ALTER TABLE ux1_research_slot ADD",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE INDEX IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE INDEX IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE INDEX IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE INDEX IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE INDEX IF NOT",
-     "setup:sql_ddl CREATE TABLE IF NOT",
-     "setup:sql_ddl CREATE INDEX IF NOT",
-     "setup:sql_ddl ALTER TABLE hk_stop_request ADD",
-     "setup:sql_ddl ALTER TABLE hk_stop_request ADD",
-     "setup:sql_ddl ALTER TABLE hk_stop_request ADD",
-     "setup:sql_ddl ALTER TABLE hk_stop_request ADD"
     ],
     "detection": "none"
    }

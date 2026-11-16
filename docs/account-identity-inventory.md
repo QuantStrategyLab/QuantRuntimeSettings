@@ -66,6 +66,14 @@ never echo stored values, statements, cookies or provider text.
   including the Binance detail command. A fresh object therefore reports
   `schema_absent`; an old schema reports exact missing tables and columns. The
   reader never creates or upgrades anything.
+- **Read contract.** Under [ADR 0002](adr/0002-observation-and-identity-boundaries.md)
+  the GET route is the public observation `/api/admin/account-identity-inventory`
+  and the internal path is the operation `action:account_identity_inventory`,
+  whose `schema`, `sql`, `do_kv` and `finalize` sections are each classified
+  as observations under this document. Neither carries the B0 initialization
+  debt of ordinary requests. `tests/read_contract_boundaries_validation.mjs`
+  admits only the reviewed dispatch order and runs every section on a cold
+  object with a read-only trap armed before construction.
 - **Capability.** The reader receives only an allowlisted query function,
   `storage.list` and `storage.getAlarm`. The query function runs only
   statements generated from the table allowlist at module load, with bound

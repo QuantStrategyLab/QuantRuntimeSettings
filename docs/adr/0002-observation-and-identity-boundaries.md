@@ -7,10 +7,13 @@ Status: accepted (2026-11-14, adopted in part)
 An architecture assessment of the strategy-switch console found the same
 problems in several layers, not one isolated bug:
 
-- The `RuntimeInstances` Durable Object constructor creates tables and indexes,
-  attempts ALTERs and drops/recreates an index before `fetch` selects an
-  operation. Every read of either named object (`runtime-instances`,
-  `console-kv-directory-v1`) inherits those writes. `binance_detail_read`
+- The `RuntimeInstances` Durable Object creates tables and indexes, attempts
+  ALTERs and drops/recreates an index before `fetch` selects an operation.
+  This ran in the constructor; it now runs lazily in `initializeStorage()`,
+  once per instance, at the start of the ordinary `fetch` path and of `alarm`,
+  and construction runs no SQL. Every ordinary read of either named object
+  (`runtime-instances`, `console-kv-directory-v1`) still inherits those
+  writes; only the account-identity inventory path is dispatched before them. `binance_detail_read`
   creates its own table as well.
 - Six read families also repair, migrate, reconcile, refresh or collect: risk
   authority import, cycle-health checkpoint migration, runtime-stop receipt
@@ -81,7 +84,7 @@ recomputed.
 
 | Id | Debt | Expires |
 | --- | --- | --- |
-| B0 | Shared constructor DDL/ALTER on both named objects | 2027-01-13; N1 and other declared no-write paths by 2026-12-14 |
+| B0 | Shared lazy-initialization DDL/ALTER before ordinary dispatch on both named objects | 2027-01-13; N1 and other declared no-write paths by 2026-12-14 |
 | B1 | Risk-authority import in risk and settings reads | 2026-12-14 |
 | B2 | Cycle-health lazy checkpoint migration | 2026-12-14 |
 | B3 | Runtime-stop receipt reconciliation on GET | 2026-12-14 |
@@ -101,7 +104,11 @@ helper no longer exists, and once a deadline has passed. A deadline is an
 inclusive UTC date: an entry due 2026-12-14 is still valid on that date and
 fails the suite from 2026-12-15 (UTC). B0, B1 and B5 are also
 reproduced under the read-only trap in `tests/helpers/read_only_storage.mjs`;
-when a write disappears the suite fails until the entry is closed.
+when a write disappears the suite fails until the entry is closed. With the
+trap armed before construction, construction writes nothing and B0 reproduces
+on the first ordinary initialization, `fetch` and `alarm`. The runtime
+manifest keeps the `RuntimeInstances` constructor as a conservative monitored
+writer entry in explicit setup phases; it is not evidence of constructor DDL.
 
 ### Extraction contract
 
@@ -112,8 +119,11 @@ which parses with the TypeScript version pinned by the console frontend. Run
 locally; CI installs it before the check. There is no fallback tokenizer.
 
 The dispatch set is the Worker default export entries and `fetch`; the
-RuntimeInstances `fetch`, `alarm` and the transaction callback at the end of
-`fetch`; the `rotation_` delegates (`durableRotationCommand`,
+RuntimeInstances `fetch` (its reviewed preamble: the fixed account-identity
+inventory path, then storage initialization, then one try/catch), `alarm`
+(storage initialization, then the Desk readback alarm) and the transaction
+callback at the end of `fetch`; the inventory delegate `inventoryResponse`,
+whose closed section set is classified per section; the `rotation_` delegates (`durableRotationCommand`,
 `rotationCommand`); `ux1ResearchCommand`; `KvDirectory.command` and
 `KvDirectory.run`; and the action families these test. The suite passes only
 when every file in that set parses without a diagnostic, the dispatch code is
@@ -145,6 +155,10 @@ Admission is closed:
   a receiver, computed access whatever its key, aliases, destructuring,
   spread, reflection, immediately invoked functions, reassignment, mutation,
   shadowing and dynamic evaluation in any spelling are rejected.
+- The instance may not be used as a value. The one admitted position is the
+  exact reviewed RuntimeInstances `sql` setter, which defines `sql` as a plain
+  data property holding the setter's parameter through the unshadowed built-in
+  `Object.defineProperty`; another key, descriptor, member, class or alias fails.
 - An action family must resolve through imports and re-exports to one
   `const NAME = new Set([...string literals])` and be used only through
   `.has()` in every module the Worker bundle reaches. Uses are followed by
@@ -177,8 +191,9 @@ and explicit refresh adds a command round trip. These costs are measured under
 synthetic volumes before rollout expands.
 
 The work proceeds in order: this baseline; the bounded display correction and
-the independent inventory reader; ordinary reader separation starting from the
-constructor; explicit import, migration and reconciliation commands; protected
+the independent inventory reader, dispatched before storage initialization
+with a wire-only constructor; ordinary reader separation starting from that
+lazy initialization; explicit import, migration and reconciliation commands; protected
 inventory; canonical identity migration; then projection metadata in bounded
 batches.
 

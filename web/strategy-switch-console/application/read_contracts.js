@@ -29,10 +29,12 @@
 export const ROUTE_METHODS = Object.freeze(["GET", "HEAD", "POST", "*"]);
 
 const N1 = "contract:docs/desk-n1-read-projection-contract.md";
+const INVENTORY = "contract:docs/account-identity-inventory.md";
 
 // `match` is the route condition exactly as written in `worker.js`, with
 // whitespace collapsed. `handler` is the function or value the branch serves.
 export const PUBLIC_ROUTES = Object.freeze([
+  { id: "/api/admin/account-identity-inventory", match: "url.pathname === INVENTORY_ROUTE", handler: "accountIdentityInventoryResponse", effects: { GET: "observation" }, scope: INVENTORY },
   { id: "/", match: 'url.pathname === "/"', handler: "V2_PAGE_HTML", effects: { GET: "observation", HEAD: "observation" }, scope: "static" },
   { id: "/v2 redirect", match: '["/v2", "/v2/", "/v2/index.html"].includes(url.pathname)', handler: "Location", effects: { GET: "observation", HEAD: "observation" }, scope: "static" },
   { id: "/v2/", match: 'url.pathname === "/v2" || url.pathname.startsWith("/v2/")', handler: "V2_ASSETS", effects: { GET: "observation", HEAD: "observation" }, scope: "static" },
@@ -142,13 +144,22 @@ export const PUBLIC_ROUTES = Object.freeze([
 ]);
 
 // Internal actions of the RuntimeInstances Durable Object and other entry
-// points of the deployed Worker. Every observation on either named object
-// ("runtime-instances", "console-kv-directory-v1") runs after the shared
-// constructor, so it carries B0 until that constructor only wires dependencies.
+// points of the deployed Worker. The constructor only wires dependencies;
+// storage initialization runs lazily at the start of the ordinary `fetch`
+// path and of `alarm`. Every ordinary observation on either named object
+// ("runtime-instances", "console-kv-directory-v1") runs after that
+// initialization, so it carries B0. The account-identity inventory is
+// dispatched before it and does not.
 const read = (effect = "B0") => ({ effect, scope: "undeclared" });
 const write = () => ({ effect: "command", scope: "command" });
 
 export const INTERNAL_OPERATIONS = Object.freeze({
+  // RuntimeInstances.fetch: the fixed inventory path, dispatched before storage
+  // initialization. `sections` is the closed section set of its delegate.
+  "action:account_identity_inventory": {
+    effect: "observation", scope: INVENTORY,
+    sections: { schema: "observation", sql: "observation", do_kv: "observation", finalize: "observation" },
+  },
   // RuntimeInstances.fetch: GET and the instance-state transaction.
   "action:instance_state:GET": read(),
   "action:instance_state:initialize": write(),
