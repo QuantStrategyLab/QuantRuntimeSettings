@@ -2,8 +2,9 @@
 
 **Status date:** 2026-11-17
 **Pre-registration date:** 2026-11-17 (no `PILOT` run, `PILOT` output or `PILOT` data pull exists at this date; the `PILOT` prerequisites `FUSE` batch 1 and `SHADOW` stage `N` have not run)
-**SHA-256 (self-excluding):** `bf40919539cf792919713e2e5518d4e1818dd4b0b74ee06f4b366d0b4055b4aa`
+**SHA-256 (self-excluding):** `5c64f434739962fb38cfca9ac0d4e1a94dfc4bc1b808dce9297df3484836371b`
 **Amendment (2026-11-17, before any `PILOT` run):** document links to the published Y2 records [dataset.md](dataset.md) and [validation.md](validation.md) added, and the baseline-reproduction caveat in the residuals reworded; no constant, threshold, window or `[P]` value changed. Earlier self-excluding hash of the first version: `c3c2885df3eb1a63464ed65007a960eb603ac2208293f5e9044e5ef6d2eeeed3`.
+**Amendment (2026-11-17, owner waiver, before any `PILOT` run):** records the owner's waiver of the replay-acceptance requirement for both selected baselines (PR #1188, comment `6930818496`); the performance targets stay unverified, and the waiver covers `Y3` documents acceptance only, with `PILOT` permission separate and not granted; no constant, threshold, window or `[P]` value changed. Earlier self-excluding hash, before this amendment: `bf40919539cf792919713e2e5518d4e1818dd4b0b74ee06f4b366d0b4055b4aa`.
 **Phase:** 2 (`YARDSTICK`, batch `Y3`) — documents only. Pre-registering a study authorizes no code edits, data reads, deployments, paper orders, live orders, or `PILOT` runs; `PILOT` has its own owner approval.
 **Registration owner:** `coordinator`
 **Related documents:** [frozen-baselines.md](frozen-baselines.md) | [experiment-ledger.md](experiment-ledger.md) | [definitions-contract.md](definitions-contract.md) | [cost-model.md](cost-model.md) | [dataset.md](dataset.md) | [validation.md](validation.md) | [sizing-unit.md](sizing-unit.md) | [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md)
@@ -200,7 +201,7 @@ Not counted as trials, per [experiment-ledger.md](experiment-ledger.md) §6: the
 
 - The `[P]` values (§1) are executor-proposed and await coordinator confirmation. Changing one is an amendment.
 - The step-brake levels for `P-B` and the envelope document's hash are not fixed here; they are to be bound and recorded before that slot starts.
-- The baselines' recorded performance targets were **not** reproduced in `Y3` ([frozen-baselines.md](frozen-baselines.md) §5.4). The acceptance statement that replay reproduces recorded targets is met for allocation targets only. This permits writing the draft research specification only; it does not make `Y3` accepted or `PILOT` ready to run, and it is reported to the coordinator.
+- The baselines' recorded performance targets were **not** reproduced in `Y3` ([frozen-baselines.md](frozen-baselines.md) §5.4). The acceptance statement that replay reproduces recorded targets is met for allocation targets only. On `2026-11-17` the owner waived the replay-acceptance requirement for both baselines: the `Y3` documents are accepted under that exception, the performance targets stay unverified, and `PILOT` permission remains separate and is not granted by this acceptance.
 - The Y2 dataset carries the qualifications recorded in [experiment-ledger.md](experiment-ledger.md) §4 and in [dataset.md](dataset.md) and [validation.md](validation.md); the in-sample calibration and failed holdout checks recorded there are not restated as passes. In particular, the `3×` series are models, the `SOXL` series is a market-close proxy with an unverified NAV criterion, and nothing here treats the synthetic history as real fund history.
 - `K_trials = 23` is a floor (see [experiment-ledger.md](experiment-ledger.md) §7); related trial records in the strategy repository are not counted.
 - Nothing in this file is a verdict on `TQQQ`, `SOXL` or any tier.
