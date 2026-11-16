@@ -71,7 +71,7 @@ d770897f3c7df8e0cdd056415e2aea10f83d438939ee77602ad3a295b083fd02  tqqq_daily.csv
 
 **Y2 dataset version hash: `19e51a6627c40461fdd80f740798462425769af6ad3cfecad4937003e9320de6`.**
 
-The per-file digests match the registry in the Y2 `DATASET.md` (§4) as of `2026-11-17`. The Y2 qualifications travel with the version hash: as-retrieved reconstruction (not point-in-time inputs); `SOXL` market-close proxy with the NAV criterion unverified; modelled `Path C` index segments and modelled synthetic `3×` series; in-sample calibrated `c_spread` constants. A change to any file is a new dataset version and a new hash; trials already recorded keep the hash they ran on.
+The per-file digests match the registry in [dataset.md](dataset.md) §4 as of `2026-11-17`. The Y2 qualifications travel with the version hash: as-retrieved reconstruction (not point-in-time inputs); `SOXL` market-close proxy with the NAV criterion unverified; modelled `Path C` index segments and modelled synthetic `3×` series; in-sample calibrated `c_spread` constants. A change to any file is a new dataset version and a new hash; trials already recorded keep the hash they ran on.
 
 ## 5. Going-forward trials
 
@@ -104,4 +104,4 @@ Whether these overlap the `Y2` sample, whether they are independent of `L-001` t
 - `PART-B.md` §2.3 (`B5`; items 13 and 16), §2.6 item 3 ("Count the trials"), and the `[I36:n]` lines it cites, in `~/workspace/quant-s2/fable-roadmap/` and `~/workspace/quant-s2/closeout/issue36-body-old.md`: line `44`–`54` (`SOXL` exploration, `UESP #587`, unique run), line `193` (do not rerun), line `200` (tally), line `237` (`b5-rebaseline-r2`). `PART-C.md` §3.3 (item 12 split, `B5` stays closed), §3.4 Phase 2 scope item 5, §4.5.
 - Supplementary repository metadata, read-only (`gh run view`, `gh pr view`) for the `SOXL` exploration: run `42524630684` in `UsEquitySnapshotPipelines`, conclusion `success`, created `2026-11-08T21:19:36Z`; `PR #587` merged `2026-11-08T21:18:56Z`. These dates are not in `PART-B.md` or `PART-C.md`; they are added here from the repository's own records and are marked as such.
 - [definitions-contract.md](definitions-contract.md) §5.1; [rebase-register.md](rebase-register.md) (historical tally and Table C).
-- Y2 `DATASET.md` §4 under `~/workspace/quant-s2/yardstick/y2/` (file digests).
+- [dataset.md](dataset.md) §4 (file digests; the data files stay under `~/workspace/quant-s2/yardstick/y2/`).

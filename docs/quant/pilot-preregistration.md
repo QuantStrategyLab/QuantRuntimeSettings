@@ -2,10 +2,11 @@
 
 **Status date:** 2026-11-17
 **Pre-registration date:** 2026-11-17 (no `PILOT` run, `PILOT` output or `PILOT` data pull exists at this date; the `PILOT` prerequisites `FUSE` batch 1 and `SHADOW` stage `N` have not run)
-**SHA-256 (self-excluding):** `c3c2885df3eb1a63464ed65007a960eb603ac2208293f5e9044e5ef6d2eeeed3`
+**SHA-256 (self-excluding):** `bf40919539cf792919713e2e5518d4e1818dd4b0b74ee06f4b366d0b4055b4aa`
+**Amendment (2026-11-17, before any `PILOT` run):** document links to the published Y2 records [dataset.md](dataset.md) and [validation.md](validation.md) added, and the baseline-reproduction caveat in the residuals reworded; no constant, threshold, window or `[P]` value changed. Earlier self-excluding hash of the first version: `c3c2885df3eb1a63464ed65007a960eb603ac2208293f5e9044e5ef6d2eeeed3`.
 **Phase:** 2 (`YARDSTICK`, batch `Y3`) — documents only. Pre-registering a study authorizes no code edits, data reads, deployments, paper orders, live orders, or `PILOT` runs; `PILOT` has its own owner approval.
 **Registration owner:** `coordinator`
-**Related documents:** [frozen-baselines.md](frozen-baselines.md) | [experiment-ledger.md](experiment-ledger.md) | [definitions-contract.md](definitions-contract.md) | [cost-model.md](cost-model.md) | [sizing-unit.md](sizing-unit.md) | [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md)
+**Related documents:** [frozen-baselines.md](frozen-baselines.md) | [experiment-ledger.md](experiment-ledger.md) | [definitions-contract.md](definitions-contract.md) | [cost-model.md](cost-model.md) | [dataset.md](dataset.md) | [validation.md](validation.md) | [sizing-unit.md](sizing-unit.md) | [rebase-register.md](rebase-register.md) | [decisions-rebase.md](decisions-rebase.md)
 
 ## Authorization state
 
@@ -53,7 +54,7 @@ Every constant below carries one mark:
 | Pilot instruments | `TQQQ`, `SOXL`, a bill vehicle; long only; no margin, shorts or options | `[S]` | Lines 7–8; `PART-C.md` §4.4 `O5` |
 | Decision and trade timing | Decide on the prior close; trade in the regular session only; no extended hours; next-session execution in all simulations | `[S]` | `PART-C.md` §5.1 item 4; [definitions-contract.md](definitions-contract.md) §4.1 |
 | Baselines | As frozen in [frozen-baselines.md](frozen-baselines.md) | `[S]` | Y3 deliverable 1 |
-| Dataset | Y2 dataset, version hash `19e51a6627c40461fdd80f740798462425769af6ad3cfecad4937003e9320de6` | `[S]` | [experiment-ledger.md](experiment-ledger.md) §4 |
+| Dataset | Y2 dataset, version hash `19e51a6627c40461fdd80f740798462425769af6ad3cfecad4937003e9320de6` | `[S]` | [experiment-ledger.md](experiment-ledger.md) §4; [dataset.md](dataset.md) |
 
 ### 3.2 Tier constants (starting values to be measured at `PILOT`)
 
@@ -199,8 +200,8 @@ Not counted as trials, per [experiment-ledger.md](experiment-ledger.md) §6: the
 
 - The `[P]` values (§1) are executor-proposed and await coordinator confirmation. Changing one is an amendment.
 - The step-brake levels for `P-B` and the envelope document's hash are not fixed here; they are to be bound and recorded before that slot starts.
-- The baselines' recorded performance targets were **not** reproduced in `Y3` ([frozen-baselines.md](frozen-baselines.md) §5.4). The acceptance statement that replay reproduces recorded targets is met for allocation targets only. This does not block the pre-registration, and it is reported to the coordinator.
-- The Y2 dataset carries the qualifications recorded in [experiment-ledger.md](experiment-ledger.md) §4. In particular, the `3×` series are models, the `SOXL` series is a market-close proxy with an unverified NAV criterion, and nothing here treats the synthetic history as real fund history.
+- The baselines' recorded performance targets were **not** reproduced in `Y3` ([frozen-baselines.md](frozen-baselines.md) §5.4). The acceptance statement that replay reproduces recorded targets is met for allocation targets only. This permits writing the draft research specification only; it does not make `Y3` accepted or `PILOT` ready to run, and it is reported to the coordinator.
+- The Y2 dataset carries the qualifications recorded in [experiment-ledger.md](experiment-ledger.md) §4 and in [dataset.md](dataset.md) and [validation.md](validation.md); the in-sample calibration and failed holdout checks recorded there are not restated as passes. In particular, the `3×` series are models, the `SOXL` series is a market-close proxy with an unverified NAV criterion, and nothing here treats the synthetic history as real fund history.
 - `K_trials = 23` is a floor (see [experiment-ledger.md](experiment-ledger.md) §7); related trial records in the strategy repository are not counted.
 - Nothing in this file is a verdict on `TQQQ`, `SOXL` or any tier.
 
