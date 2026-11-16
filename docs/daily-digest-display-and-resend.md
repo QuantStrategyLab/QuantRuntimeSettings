@@ -133,7 +133,8 @@ targets expected for that digest; periodic strategies retain their run-day polic
 The delivery contract below was written for the Cloud Run entry point, which
 shares the digest core with the central Azure scheduled sender noted above.
 Repository evidence points to the Azure sender as the current production path;
-live activation is not verified from this repository. The documented Cloud
+the operator verified live activation on 2026-11-16, and the live resource
+configuration is not recorded in this repository. The documented Cloud
 Scheduler contract specifies 07:00 and 07:30 Asia/Singapore. For
 valid, same-day slots at or after cutover, when delivery is enabled, the 07:00
 slot may send after a successful reservation. The 07:30 slot only checks the

@@ -8,7 +8,8 @@ here first.
 
 Production delivery has moved off GitHub Actions. Repository evidence points to
 an Azure scheduled sender sharing the digest core with the authenticated Cloud
-Run entry point; live activation is not verified. See
+Run entry point; the operator verified live activation on 2026-11-16 and the live
+resource configuration is not recorded in this repository. See
 [Unified daily notification](../unified-daily-notification.md). The old workflow
 installation template and both Actions schedules are retired. Do not reinstall
 them or use an Actions sender as a production fallback.

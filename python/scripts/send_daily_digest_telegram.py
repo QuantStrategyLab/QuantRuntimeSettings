@@ -456,7 +456,8 @@ def main(argv: list[str] | None = None) -> int:
     dry_run = args.dry_run or str(os.environ.get("DIGEST_DRY_RUN") or "").lower() in {"1", "true", "yes"}
     if not dry_run and os.environ.get('DIGEST_DELIVERY_RUNTIME') == 'cloud_run':
         print('Daily digest delivery runs through the shared digest core scheduled sender '
-              '(repository evidence points to the Azure scheduled sender; Cloud Run is the older supported entry point).', file=sys.stderr)
+              '(repository evidence points to the Azure scheduled sender; Cloud Run is the older supported entry point; '
+              'the operator verified live activation on 2026-11-16, live resource configuration is not recorded in this repository).', file=sys.stderr)
         return 2
     day = aggregator.resolve_business_day(explicit=args.business_day)
     guard = resend_guard.evaluate(day, os.environ, dry_run=dry_run)

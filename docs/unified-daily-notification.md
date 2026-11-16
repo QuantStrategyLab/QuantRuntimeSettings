@@ -195,8 +195,9 @@ authentic broker outcomes and real notification delivery remain unproven.
 > steps below record the Cloud Run and Cloud Scheduler design. Repository
 > evidence now points to an Azure scheduled sender that shares the same digest
 > core (`cloud_run_daily_digest.py`), with its package published as described in
-> [Shared Azure package release](#shared-azure-package-release). Live activation
-> is not verified from this repository. Cloud Run remains a supported entry
+> [Shared Azure package release](#shared-azure-package-release). The operator
+> verified live activation on 2026-11-16; the live resource configuration is
+> not recorded in this repository. Cloud Run remains a supported entry
 > point; read the Cloud Scheduler and Cloud Run statements here as that design,
 > not as proof that Cloud Run owns production delivery today.
 
@@ -453,8 +454,9 @@ with the same digest pair when the candidate is still live. The Azure
 send and check schedules keep their existing package path and runtime identity.
 
 Repository evidence points to this Azure package as the active production
-sender, sharing the digest core with the Cloud Run entry point above. Live
-activation is not verified from this repository, and neither are the language
+sender, sharing the digest core with the Cloud Run entry point above. The
+operator verified live activation on 2026-11-16; the live resource
+configuration is not recorded in this repository, so the language
 inputs of the live invocation: the effective locale is `Configuration.locale`,
 set explicitly by the caller, read from `QSL_NOTIFY_LANG` by
 `Configuration.from_environment()`, or the constructor default `zh`. Which one

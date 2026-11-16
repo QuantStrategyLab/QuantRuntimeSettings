@@ -64,7 +64,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 ### 正式日报调度
 
 - 时区：`Asia/Singapore`
-- 每日 07:00 发送；07:30 仅检查持久化回执。仓库证据指向 Azure 定时发送器（与 Cloud Run 入口共用日报核心），Cloud Scheduler → Cloud Run 是较早的文档设计，仍是受支持的入口；线上启用状态未经验证。旧 Actions cron 已退役，统计窗口仍于 06:00 截止。
+- 每日 07:00 发送；07:30 仅检查持久化回执。仓库证据指向 Azure 定时发送器（与 Cloud Run 入口共用日报核心），Cloud Scheduler → Cloud Run 是较早的文档设计，仍是受支持的入口；运维人员已于 2026-11-16 验证线上启用，线上资源配置不记录在本仓库。旧 Actions cron 已退役，统计窗口仍于 06:00 截止。
 - 加密按同一窗口并入；若当日 UTC 有周期则出现在列表中
 
 ### 文案与 i18n
@@ -171,7 +171,7 @@ Receipt totals follow the same evidence boundary: absent evidence, stale candida
 
 ### Aggregator（本仓已落地）
 
-- 正式日报的发送运行合同见 [统一日报运行合同](unified-daily-notification.md)。仓库证据指向 Azure 定时发送器（共用日报核心，包由 `release-digest-package.yml` 发布），Cloud Run 独立入口是较早的设计且仍受支持；线上启用状态未经验证。`.github/workflows/daily-digest-notify.yml` 仅保留手动只读预览，旧安装文稿及定时发送已退役。
+- 正式日报的发送运行合同见 [统一日报运行合同](unified-daily-notification.md)。仓库证据指向 Azure 定时发送器（共用日报核心，包由 `release-digest-package.yml` 发布），Cloud Run 独立入口是较早的设计且仍受支持；运维人员已于 2026-11-16 验证线上启用，线上资源配置不记录在本仓库。`.github/workflows/daily-digest-notify.yml` 仅保留手动只读预览，旧安装文稿及定时发送已退役。
 - 日报核心：`python/scripts/cloud_run_daily_digest.py`（Cloud Run 与 Azure 共用），复用 `daily_digest_aggregator.py`；`send_daily_digest_telegram.py` 仅供旧格式兼容及只读预览。
 - 调度：每日 **07:00 Asia/Singapore** 发送，07:30 只读回执检查，业务窗口截止仍为 06:00。
 - 证据：正式入口通过官方 GCS SDK 读取批准绑定的候选对象，不列举 bucket、不查询 GitHub。旧 JSON/文件合并及 workflow 存在性读取仅供手动预览兼容（见 [候选接线](./digest-candidates-wiring.zh-CN.md)）。接线、自然周期和真实送达分别验收。
@@ -229,7 +229,7 @@ dry-run receipt 同样写入 `token_source_kind` / `chat_source_kind` / `warning
 
 ### 重复发送风险待证（公开代码证据，未改它仓）
 
-中央收盘日报由本仓 `cloud_run_daily_digest.py` 日报核心发送（仓库证据指向 Azure 定时发送器，线上启用状态未经验证；Cloud Run 为受支持的入口）。以下平台路径仍可能对**同一业务事件**另发 Telegram（是否与日报重复 = 待证，取决于 Environment 是否仍启用、文案是否同源）：
+中央收盘日报由本仓 `cloud_run_daily_digest.py` 日报核心发送（仓库证据指向 Azure 定时发送器，运维人员已于 2026-11-16 验证线上启用，线上资源配置不记录在本仓库；Cloud Run 为受支持的入口）。以下平台路径仍可能对**同一业务事件**另发 Telegram（是否与日报重复 = 待证，取决于 Environment 是否仍启用、文案是否同源）：
 
 | 仓 | 公开文件 | 路径角色 | 风险标注 |
 |----|----------|----------|----------|

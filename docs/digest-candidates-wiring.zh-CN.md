@@ -1,6 +1,6 @@
 # 中央日报 DIGEST_CANDIDATES 接线（无密钥）
 
-仓库证据指向 Azure 定时发送器（与 Cloud Run 入口共用日报核心）为当前生产路径，线上启用状态未经验证；Cloud Scheduler → Cloud Run 是较早的文档设计，仍是受支持的入口，见[统一日报运行合同](unified-daily-notification.md)。日报核心直接读取批准绑定的 GCS 对象并显式传入 SDK 读取结果；不依赖 Actions 状态变量。本页的 Environment、列表/复制、历史状态及 workflow 说明仅用于手动只读预览和旧证据解释，不能重新启用旧发送器。
+仓库证据指向 Azure 定时发送器（与 Cloud Run 入口共用日报核心）为当前生产路径，运维人员已于 2026-11-16 验证线上启用，线上资源配置不记录在本仓库；Cloud Scheduler → Cloud Run 是较早的文档设计，仍是受支持的入口，见[统一日报运行合同](unified-daily-notification.md)。日报核心直接读取批准绑定的 GCS 对象并显式传入 SDK 读取结果；不依赖 Actions 状态变量。本页的 Environment、列表/复制、历史状态及 workflow 说明仅用于手动只读预览和旧证据解释，不能重新启用旧发送器。
 
 本文说明如何把**某一平台**的日报候选证据接到 `QuantRuntimeSettings` 中央日报，不写密钥、不写真实账户号、不写资产金额。
 
