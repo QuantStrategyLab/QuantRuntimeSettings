@@ -717,6 +717,25 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     "probe_star.js": 'export * from "./constants.js";\n',
     "probe_outer.js": 'export * as probeNs from "./probe_star.js";\n',
   }), /module graph: entry_replaced: export \* as probeNs re-exports dispatch bindings of .*hk_stop\/probe_star\.js/);
+
+  // Sixth-round counterexamples (review FIX5): `export *` chains carry the
+  // binding to any depth, so the outer barrel exports the family too.
+  const TWO_STARS = { "probe_inner.js": 'export * from "./constants.js";\n', "probe_outer.js": 'export * from "./probe_inner.js";\n' };
+  const OUTER_DYNAMIC = /module graph: family_mutation: dynamic import of .*hk_stop\/probe_outer\.js, which exports HK_STOP_DO_ACTIONS, is not admitted/;
+  reject("family mutation through a dynamic import of two star barrels", familyProbe('const probeConstants = await import("../hk_stop/probe_outer.js"); probeConstants.HK_STOP_DO_ACTIONS.add("probe_dynamic");', TWO_STARS), OUTER_DYNAMIC);
+  reject("family mutation through an exported namespace of two star barrels", familyProbe('import { probeNs } from "../hk_stop/probe_barrel.js"; probeNs.HK_STOP_DO_ACTIONS.add("probe_dynamic");',
+    { ...TWO_STARS, "probe_barrel.js": 'import * as probeNs from "./probe_outer.js"; export { probeNs };\n' }),
+  /module graph: family_mutation: namespace probeNs of .*hk_stop\/probe_outer\.js, which exports HK_STOP_DO_ACTIONS, is re-exported as probeNs in .*probe_barrel\.js/);
+  reject("renamed family import through two star barrels", familyProbe('import { HK_STOP_DO_ACTIONS as probeFamily } from "../hk_stop/probe_outer.js"; probeFamily.add("probe_dynamic");', TWO_STARS),
+    /module graph: family_mutation: HK_STOP_DO_ACTIONS is renamed in .*durable_object\.js .*renamed family bindings are not admitted/);
+  reject("family mutation through a same-named import of two star barrels", familyProbe('import "../hk_stop/probe_mutation.js";',
+    { ...TWO_STARS, "probe_mutation.js": 'import { HK_STOP_DO_ACTIONS } from "./probe_outer.js";\nHK_STOP_DO_ACTIONS.add("probe_dynamic");\n' }),
+  /module graph: family_mutation: HK_STOP_DO_ACTIONS used other than \.has\(\) in .*probe_mutation\.js/);
+  reject("family mutation through a cyclic star chain", familyProbe('const probeConstants = await import("../hk_stop/probe_c.js"); probeConstants.HK_STOP_DO_ACTIONS.add("probe_dynamic");', {
+    "probe_a.js": 'export * from "./probe_b.js";\nexport * from "./constants.js";\n',
+    "probe_b.js": 'export * from "./probe_a.js";\n',
+    "probe_c.js": 'export * from "./probe_b.js";\n',
+  }), /module graph: family_mutation: dynamic import of .*hk_stop\/probe_c\.js, which exports HK_STOP_DO_ACTIONS, is not admitted/);
   const PERF_IMPORT = 'import { performanceResponse } from "./application/console_api/performance_routes.js";';
   reject("forward target replaced by a same-named local wrapper", edit("worker.js", PERF_IMPORT, 'import { performanceResponse as originalPerformanceResponse } from "./application/console_api/performance_routes.js";\nfunction performanceResponse(r,e,d) { if (r.url.endsWith("/api/performance/probe-unclassified")) return new Response("probe-target"); return originalPerformanceResponse(r,e,d); }'),
     /worker\.js fetch: forward_target: performanceResponse in a reviewed forward resolves to local, reviewed import:\.\/application\/console_api\/performance_routes\.js/);

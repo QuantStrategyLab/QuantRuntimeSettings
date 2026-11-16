@@ -1626,7 +1626,7 @@ function directoryActions(ts, file, reviewed, ctx) {
  * (static imports, re-exports and literal dynamic imports).
  * Action families, entry classes and entry functions are followed by import
  * identity (named, default and namespace imports, namespace destructuring,
- * re-exports and `export *`), not by spelling, and every reference must be an
+ * re-exports and chains of `export *`), not by spelling, and every reference must be an
  * admitted use: a family only as `F.has(x)`; `rotationCommand` and
  * `durableRotationCommand` only as calls; `KvDirectory` only as `new`, bound to
  * a const used only through method calls or (in the Durable Object) to
@@ -1693,7 +1693,12 @@ function auditModules(ts, file, modules, families, errors) {
           if (!exported.module.startsWith(".")) continue;
           const from = resolvePath(path, exported.module);
           if (exported.local === "*") {
-            for (const entry of [...tracked.values()]) if (entry.path === from && entry.name !== "default") changed = track(path, entry.name, entry) || changed;
+            // Whatever `from` exports, including what it re-exports through its
+            // own `export *`: the fixed point closes chains of star barrels.
+            for (const [key, entry] of [...tracked]) {
+              const name = key.slice(from.length + 1);
+              if (key.startsWith(`${from}#`) && name !== "default") changed = track(path, name, entry) || changed;
+            }
             continue;
           }
           if (exported.local === "**") {
