@@ -30,7 +30,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, posix } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { classifySql, createReadOnlyKv, createReadOnlyStorage, ReadOnlyViolation } from "./helpers/read_only_storage.mjs";
 import { astBlock, canonicalExpression, CONSOLE, extractSurface, loadTypeScript, SurfaceError } from "./helpers/read_contract_surface.mjs";
@@ -130,6 +130,229 @@ function computeSites(sources, helper) {
     if (count > 0) counts[file] = count;
   }
   return counts;
+}
+
+// Sites are counted by spelling: `helper(` for a symbol, the literal text for a
+// literal. The counts hold only while each helper is reached under that
+// spelling, so every other way of reaching one fails closed (review FIX9): an
+// alias, a renamed import, export or destructuring, a call form the spelling
+// misses, a computed name, a namespace or test hook read other than by member,
+// and a value literal bound to a name or built from parts. Same-name forms keep
+// the spelling and are admitted: imports, exports, destructuring, a declaration
+// and the shorthand member of the exported `__test` object.
+const parsedSources = new Map();
+function parseSource(file, text) {
+  const key = `${file}\u0000${text}`;
+  if (!parsedSources.has(key)) {
+    const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : file.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+    parsedSources.set(key, ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind));
+  }
+  return parsedSources.get(key);
+}
+
+/** The value of a string built only from literals, or null. */
+function foldString(node) {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (ts.isParenthesizedExpression(node)) return foldString(node.expression);
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const [left, right] = [foldString(node.left), foldString(node.right)];
+    return left === null || right === null ? null : left + right;
+  }
+  if (ts.isTemplateExpression(node)) {
+    let value = node.head.text;
+    for (const span of node.templateSpans) {
+      const part = foldString(span.expression);
+      if (part === null) return null;
+      value += part + span.literal.text;
+    }
+    return value;
+  }
+  return null;
+}
+
+/** Symbols, value literals (`token`, `'token'`) and call literals (`method("token")`). */
+function helperShapes(exceptions) {
+  const symbols = new Set(), values = new Map(), calls = new Map();
+  for (const helper of (exceptions || []).flatMap(entry => entry.helpers || [])) {
+    if (helper.symbol) { symbols.add(helper.symbol); continue; }
+    if (typeof helper.literal !== "string") continue;
+    const quoted = /^(['"])([^'"\\]*)\1$/.exec(helper.literal);
+    const call = /^([A-Za-z_$][\w$]*)\((['"])([^'"\\]*)\2\)$/.exec(helper.literal);
+    if (/^[\w$-]+$/.test(helper.literal)) values.set(helper.literal, helper.literal);
+    else if (quoted) values.set(quoted[2], helper.literal);
+    else if (call) (calls.get(call[1]) || calls.set(call[1], new Map()).get(call[1])).set(call[3], helper.literal);
+  }
+  return { symbols, values, calls };
+}
+
+const COMPARISONS = new Set([ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken]);
+const isCallee = node => (ts.isCallExpression(node.parent) || ts.isNewExpression(node.parent)) && node.parent.expression === node;
+const isExportedTestHook = object => ts.isVariableDeclaration(object.parent) && object.parent.initializer === object
+  && ts.isIdentifier(object.parent.name) && object.parent.name.text === "__test"
+  && (ts.getCombinedModifierFlags(object.parent) & ts.ModifierFlags.Export) !== 0;
+const specifierText = node => node && (ts.isIdentifier(node) || ts.isStringLiteral(node)) ? node.text : null;
+
+/** Per-file binding facts: errors, export edges and namespace reads. */
+const bindingFacts = new Map();
+function fileBindingFacts(file, text, shapes, shapesKey) {
+  const key = `${shapesKey}\u0000${file}\u0000${text}`;
+  if (bindingFacts.has(key)) return bindingFacts.get(key);
+  const sf = parseSource(file, text);
+  const facts = { errors: [], exports: new Set(), stars: [], namespaces: [], loads: [] };
+  const at = node => `${file}:${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`;
+  const snippet = node => (node.parent && !ts.isSourceFile(node.parent) ? node.parent : node).getText(sf).replace(/\s+/g, " ").slice(0, 120);
+  const fail = (kind, node, detail) => facts.errors.push(`helper binding: ${kind}: ${detail} at ${at(node)}: ${snippet(node)}`);
+  const identifiers = [];
+  const renamedImports = [];
+  const symbolReference = node => {
+    const name = node.text;
+    const parent = node.parent;
+    // A call or construction the site count sees: the helper's own spelling
+    // directly followed by `(`.
+    const callee = isCallee(node) ? node : ts.isPropertyAccessExpression(parent) && parent.name === node && isCallee(parent) ? parent : null;
+    if (callee) {
+      if (node.getText(sf) !== name) fail("uncounted_call", node, `${name} is called under an escaped spelling`);
+      else if (!/^\s*\(/.test(text.slice(node.end))) fail("uncounted_call", node, `${name} is invoked in a form the call-site count does not see`);
+      return;
+    }
+    if ((ts.isFunctionDeclaration(parent) || ts.isFunctionExpression(parent) || ts.isClassDeclaration(parent) || ts.isClassExpression(parent)
+      || ts.isMethodDeclaration(parent) || ts.isPropertyDeclaration(parent) || ts.isGetAccessorDeclaration(parent) || ts.isSetAccessorDeclaration(parent)
+      || ts.isParameter(parent) || ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent)) && parent.name === node) return;
+    if (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)) {
+      if (!parent.propertyName || specifierText(parent.propertyName) === parent.name.text) return;
+      // A renamed import is resolved, not rejected: its calls are checked
+      // below against a same-named wrapper whose own calls are counted.
+      if (ts.isImportSpecifier(parent) && parent.propertyName === node) renamedImports.push({ name, alias: parent.name });
+      else fail("renamed", node, `${name} is renamed in an ${ts.isImportSpecifier(parent) ? "import" : "export"}`);
+      return;
+    }
+    if (ts.isImportClause(parent) || ts.isNamespaceImport(parent)) return;
+    if (ts.isBindingElement(parent)) {
+      if (parent.propertyName === node && !(ts.isIdentifier(parent.name) && parent.name.text === name)) fail("renamed", node, `${name} is destructured under another name`);
+      return;
+    }
+    if (ts.isShorthandPropertyAssignment(parent) && ts.isObjectLiteralExpression(parent.parent) && isExportedTestHook(parent.parent)) return;
+    fail("alias", node, `${name} is referenced other than by a counted call; bind the helper only under its own name`);
+  };
+  const visit = node => {
+    if (ts.isIdentifier(node)) identifiers.push(node);
+    if (ts.isIdentifier(node) && shapes.symbols.has(node.text)) symbolReference(node);
+    const value = foldString(node);
+    if (value !== null && !(node.parent && foldString(node.parent) !== null)) {
+      // A string selects a binding as a computed key, a call argument
+      // (Reflect, a lookup helper) or a specifier name; eval text can call one.
+      const parent = node.parent;
+      const evaluated = ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && ["eval", "Function"].includes(parent.expression.text)
+        || ts.isNewExpression(parent) && ts.isIdentifier(parent.expression) && parent.expression.text === "Function";
+      const selects = (ts.isElementAccessExpression(parent) && parent.argumentExpression === node) || ts.isComputedPropertyName(parent)
+        || ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent) || (ts.isCallExpression(parent) && parent.arguments.includes(node));
+      if (shapes.symbols.has(value) && selects) fail("computed_name", node, `string ${JSON.stringify(value)} selects helper ${value}`);
+      if (evaluated) for (const symbol of shapes.symbols) if (value.includes(symbol)) fail("computed_name", node, `evaluated text names helper ${symbol}`);
+      if (shapes.values.has(value)) {
+        const spelling = shapes.values.get(value);
+        const parent = node.parent;
+        // In place: a member of an object passed straight to a call, a
+        // comparison operand, or an element of an inline list or Set.
+        const call = parent.parent?.parent;
+        const direct = (ts.isPropertyAssignment(parent) && parent.initializer === node && call && (ts.isCallExpression(call) || ts.isNewExpression(call)) && call.arguments?.includes(parent.parent))
+          || (ts.isBinaryExpression(parent) && COMPARISONS.has(parent.operatorToken.kind))
+          || (ts.isCaseClause(parent) && parent.expression === node)
+          || (ts.isArrayLiteralExpression(parent) && ((ts.isPropertyAccessExpression(parent.parent) && parent.parent.expression === parent && parent.parent.name.text === "includes" && isCallee(parent.parent))
+            || (ts.isNewExpression(parent.parent) && ts.isIdentifier(parent.parent.expression) && parent.parent.expression.text === "Set" && parent.parent.arguments?.[0] === parent)));
+        if (!(ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) || !node.getText(sf).includes(spelling)) fail("literal_spelling", node, `value ${JSON.stringify(value)} is not spelled ${spelling}`);
+        else if (!direct) fail("literal_alias", node, `value ${JSON.stringify(value)} is bound or returned instead of used in place`);
+      }
+    }
+    if (ts.isIdentifier(node) && shapes.calls.has(node.text) && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
+      const access = node.parent;
+      if (isCallee(access)) {
+        const [arg, ...rest] = access.parent.arguments;
+        const spelling = arg && ts.isStringLiteral(arg) ? shapes.calls.get(node.text).get(arg.text) : undefined;
+        if (!arg || rest.length || !ts.isStringLiteral(arg)) fail("literal_argument", node, `${node.text} takes one string literal`);
+        else if (spelling && !access.parent.getText(sf).includes(spelling)) fail("literal_spelling", node, `${node.text} is not spelled ${spelling}`);
+      } else if (!(ts.isPrefixUnaryExpression(access.parent) && access.parent.operator === ts.SyntaxKind.ExclamationToken)) {
+        fail("literal_alias", node, `${node.text} is referenced other than by a call or a presence test`);
+      }
+    }
+    if (ts.isExportDeclaration(node)) {
+      const from = node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) ? node.moduleSpecifier.text : null;
+      if (!node.exportClause && from) facts.stars.push({ from, node: null });
+      else if (node.exportClause && ts.isNamespaceExport(node.exportClause) && from) facts.loads.push({ from, kind: `export * as ${node.exportClause.name.text}`, where: at(node) });
+      else if (node.exportClause) for (const element of node.exportClause.elements) facts.exports.add(element.name.text);
+    }
+    if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name && (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export)) facts.exports.add(node.name.text);
+    if (ts.isVariableStatement(node) && (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export)) {
+      for (const declaration of node.declarationList.declarations) if (ts.isIdentifier(declaration.name)) facts.exports.add(declaration.name.text);
+    }
+    if (ts.isImportDeclaration(node) && node.importClause?.namedBindings && ts.isNamespaceImport(node.importClause.namedBindings)) {
+      facts.namespaces.push({ name: node.importClause.namedBindings.name.text, from: node.moduleSpecifier.text, reads: [] });
+    }
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const [arg] = node.arguments;
+      facts.loads.push({ from: arg && ts.isStringLiteral(arg) ? arg.text : null, kind: "dynamic import", where: at(node) });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  // A namespace or test hook is read by member or destructured; any other read
+  // (computed access, a copy, an argument) can reach a helper by a computed name.
+  const memberRead = node => (ts.isPropertyAccessExpression(node.parent) || ts.isPropertyAssignment(node.parent) && node.parent.name === node)
+    || (ts.isVariableDeclaration(node.parent) && node.parent.initializer === node && ts.isObjectBindingPattern(node.parent.name))
+    || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent) || ts.isNamespaceImport(node.parent)
+    || (ts.isVariableDeclaration(node.parent) && node.parent.name === node);
+  // Every reference to a renamed import is a direct call whose nearest
+  // function is a module-level declaration under the helper's own name, so
+  // each invocation passes through a counted call of that wrapper.
+  for (const { name, alias } of renamedImports) {
+    for (const node of identifiers) {
+      if (node === alias || node.text !== alias.text) continue;
+      if ((ts.isPropertyAccessExpression(node.parent) || ts.isPropertyAssignment(node.parent)) && node.parent.name === node) continue;
+      const scope = ts.findAncestor(node.parent, ts.isFunctionLike);
+      const wrapper = scope && ts.isFunctionDeclaration(scope) && scope.name?.text === name && ts.isSourceFile(scope.parent);
+      if (!wrapper || !isCallee(node) || !/^\s*\(/.test(text.slice(node.end))) fail("renamed", node, `${alias.text}, the renamed import of ${name}, is reached other than by a direct call inside a same-named wrapper`);
+    }
+  }
+  for (const node of identifiers) {
+    if (memberRead(node)) continue;
+    if (node.text === "__test") fail("namespace", node, "the __test hook is read other than by member or destructuring");
+    for (const namespace of facts.namespaces) if (namespace.name === node.text) namespace.reads.push(`${at(node)}: ${snippet(node)}`);
+  }
+  bindingFacts.set(key, facts);
+  return facts;
+}
+
+/** Errors for every way of reaching a registered helper the site count cannot see. */
+function helperBindingErrors(sources, exceptions) {
+  const shapes = helperShapes(exceptions);
+  const shapesKey = JSON.stringify([[...shapes.symbols], [...shapes.values], [...shapes.calls].map(([name, values]) => [name, [...values]])]);
+  const facts = new Map([...sources].map(([file, text]) => [file, fileBindingFacts(file, text, shapes, shapesKey)]));
+  const resolve = (file, spec) => {
+    if (!spec || !spec.startsWith(".")) return null;
+    const base = posix.normalize(posix.join(posix.dirname(file), spec));
+    return [base, `${base}.js`, `${base}.mjs`, `${base}.ts`, `${base}.tsx`, `${base}/index.js`].find(candidate => facts.has(candidate)) ?? null;
+  };
+  // Modules that export a helper symbol, directly or through `export *`.
+  const carriers = new Set();
+  for (const [file, fileFacts] of facts) if ([...fileFacts.exports].some(name => shapes.symbols.has(name))) carriers.add(file);
+  for (let grown = true; grown;) {
+    grown = false;
+    for (const [file, fileFacts] of facts) {
+      if (!carriers.has(file) && fileFacts.stars.some(star => carriers.has(resolve(file, star.from)))) { carriers.add(file); grown = true; }
+    }
+  }
+  const errors = [];
+  for (const [file, fileFacts] of facts) {
+    errors.push(...fileFacts.errors);
+    for (const load of fileFacts.loads) {
+      const target = resolve(file, load.from);
+      if (load.from === null || carriers.has(target)) errors.push(`helper binding: namespace: ${load.kind} of ${load.from ?? "a computed specifier"}, which may export a registered helper, is not admitted at ${load.where}`);
+    }
+    for (const namespace of fileFacts.namespaces) {
+      if (!carriers.has(resolve(file, namespace.from))) continue;
+      for (const read of namespace.reads) errors.push(`helper binding: namespace: ${namespace.name} exports a registered helper and is read other than by member or destructuring at ${read}`);
+    }
+  }
+  return errors;
 }
 
 const addDays = (date, days) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
@@ -235,6 +458,7 @@ function validate({ routes: registryRoutes, internal: registryInternal, register
       if (!sameMap(actual, helper.sites)) errors.push(`${label}: call sites changed; register ${JSON.stringify(helper.sites)}, code ${JSON.stringify(actual)}`);
     }
   }
+  errors.push(...helperBindingErrors(sources, reg.exceptions));
   for (const [id, op] of operations) {
     for (const effect of op.effects) if (exceptionIds.has(effect) && !seenIds.has(effect)) errors.push(`${id}: unknown exception ${effect}`);
   }
@@ -759,6 +983,76 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   reject("forward dependency redeclared at module level", edit("worker.js", "export default {", 'const readBoundAccountExecutions = async () => new Response("probe-target");\nexport default {'),
     /worker\.js fetch: forward_target: readBoundAccountExecutions in a reviewed forward resolves to an unadmitted binding, reviewed namespace:/);
 
+  // Helper bindings (review FIX9): the site count sees only a helper's own
+  // spelling, so every other way of reaching one is rejected. Each probe below
+  // leaves the counted sites unchanged and passes the count alone.
+  const RUNTIME_SUPPORT = "application/worker/runtime_support.js";
+  const SESSION_HANDLER = "export async function sessionPayload(request, env) {\n";
+  const CONTROL_WRAPPER = "  return readPlatformRuntimeControlImpl(env, platform, targetName, runtimeControlRuntimeDeps());\n}\n";
+  const WORKER_DEFAULT = "export default {";
+  const beforeWorkerDefault = text => edit("worker.js", WORKER_DEFAULT, `${text}\n${WORKER_DEFAULT}`);
+  const withFiles = (probedSources, files) => {
+    const probed = new Map(probedSources);
+    for (const [name, body] of Object.entries(files)) probed.set(`${CONSOLE}/${name}`, body);
+    return probed;
+  };
+  const rejectBinding = (label, probedSources, pattern) => {
+    const { errors } = validated(probedSources);
+    assert.equal(errors.some(error => /call sites changed/.test(error)), false, `reject ${label}: the counted sites are unchanged`);
+    expectError(errors, pattern, `reject ${label}`);
+    outcomes.push(["reject", label, errors.find(error => pattern.test(error))]);
+  };
+  const ALIAS_PERSIST = /^helper binding: alias: writeCurrentStrategiesCache is referenced other than by a counted call/;
+  rejectBinding("aliased helper in the /api/session handler", edit(RUNTIME_SUPPORT, SESSION_HANDLER, `${SESSION_HANDLER}  const persist = writeCurrentStrategiesCache;\n  await persist(env, { probe: true }, Date.now());\n`),
+    new RegExp(`${ALIAS_PERSIST.source}.*runtime_support\\.js:\\d+: persist = writeCurrentStrategiesCache`));
+  rejectBinding("module-level alias invoked from the same module", edit(RUNTIME_SUPPORT, SESSION_HANDLER, `const persistProbe = writeCurrentStrategiesCache;\nexport const probePersist = env => persistProbe(env, { probe: true }, 0);\n${SESSION_HANDLER}`),
+    new RegExp(`${ALIAS_PERSIST.source}.*persistProbe = writeCurrentStrategiesCache`));
+  rejectBinding("renamed import invoked under the imported name", edit("application/console_api/operations.js", "import ", 'import { writeCurrentStrategiesCache as persistProbe } from "../worker/runtime_support.js";\nexport const probePersist = env => persistProbe(env, { probe: true }, 0);\nimport '),
+    /^helper binding: renamed: persistProbe, the renamed import of writeCurrentStrategiesCache, is reached other than by a direct call inside a same-named wrapper .*operations\.js/);
+  rejectBinding("alias-of-alias chain", beforeWorkerDefault("const firstProbe = writeCurrentStrategiesCache;\nconst secondProbe = firstProbe;\nexport const probePersist = env => secondProbe(env, { probe: true }, 0);"),
+    new RegExp(`${ALIAS_PERSIST.source}.*worker\\.js:\\d+: firstProbe = writeCurrentStrategiesCache`));
+  rejectBinding("renamed destructuring of the namespace", beforeWorkerDefault("const { writeCurrentStrategiesCache: persistProbe } = api;\nexport const probePersist = env => persistProbe(env, { probe: true }, 0);"),
+    /^helper binding: renamed: writeCurrentStrategiesCache is destructured under another name/);
+  rejectBinding("helper passed as a dependency", beforeWorkerDefault("export const probeDeps = { persist: writeCurrentStrategiesCache };"), ALIAS_PERSIST);
+  rejectBinding("helper invoked through .call", beforeWorkerDefault("export const probePersist = env => writeCurrentStrategiesCache.call(null, env, { probe: true }, 0);"), ALIAS_PERSIST);
+  rejectBinding("optional call of the helper", beforeWorkerDefault("export const probePersist = env => writeCurrentStrategiesCache?.(env, { probe: true }, 0);"),
+    /^helper binding: uncounted_call: writeCurrentStrategiesCache is invoked in a form the call-site count does not see/);
+  rejectBinding("escaped spelling of the helper", beforeWorkerDefault("export const probePersist = env => \\u0077riteCurrentStrategiesCache(env, { probe: true }, 0);"),
+    /^helper binding: uncounted_call: writeCurrentStrategiesCache is called under an escaped spelling/);
+  rejectBinding("bound method helper", inHk("const probeEnsure = this.ensureRiskProfileAuthority;"), /^helper binding: alias: ensureRiskProfileAuthority is referenced other than by a counted call/);
+  // binance_detail_archive.js exports a helper and no action family, so the
+  // module-graph family checks do not see these.
+  const archiveReader = body => withFiles(sources, { "application/probe_archive_reader.js": `import * as probeArchive from "../binance_detail_archive.js";\n${body}\n` });
+  rejectBinding("computed namespace member", archiveReader('export const probeRead = sql => probeArchive["binanceDetail" + "Command"](sql, { action: "probe" });'),
+    /^helper binding: computed_name: string "binanceDetailCommand" selects helper binanceDetailCommand/);
+  rejectBinding("namespace read by a runtime key", archiveReader("export const probeMember = key => probeArchive[key];"),
+    /^helper binding: namespace: probeArchive exports a registered helper and is read other than by member or destructuring .*probe_archive_reader\.js/);
+  rejectBinding("dynamic import of the helper module", withFiles(sources, { "application/probe_archive_loader.js": 'export const probeLoad = () => import("../binance_detail_archive.js");\n' }),
+    /^helper binding: namespace: dynamic import of \.\.\/binance_detail_archive\.js, which may export a registered helper, is not admitted/);
+  rejectBinding("namespace of a star barrel read by a runtime key", withFiles(sources, {
+    "application/worker/probe_barrel.js": 'export * from "./runtime_support.js";\n',
+    "application/probe_barrel_reader.js": 'import * as probeNs from "./worker/probe_barrel.js";\nexport const probeMember = key => probeNs[key];\n',
+  }), /^helper binding: namespace: probeNs exports a registered helper and is read other than by member or destructuring .*probe_barrel_reader\.js/);
+  rejectBinding("__test hook read by a runtime key", withFiles(sources, { "application/probe_hook.js": 'import { __test } from "../worker.js";\nexport const probeMember = key => __test[key];\n' }),
+    /^helper binding: namespace: the __test hook is read other than by member or destructuring .*probe_hook\.js/);
+  rejectBinding("renamed import called outside its same-named wrapper", edit(RUNTIME_SUPPORT, CONTROL_WRAPPER, `${CONTROL_WRAPPER}export const probeControl = env => readPlatformRuntimeControlImpl(env, "ibkr", "synthetic-target", {});\n`),
+    /^helper binding: renamed: readPlatformRuntimeControlImpl, the renamed import of readPlatformRuntimeControl, is reached other than by a direct call inside a same-named wrapper/);
+  rejectBinding("renamed import escaping its wrapper in a closure", edit(RUNTIME_SUPPORT, CONTROL_WRAPPER, "  const probeLater = () => readPlatformRuntimeControlImpl(env, platform, targetName, runtimeControlRuntimeDeps());\n  return probeLater();\n}\n"),
+    /^helper binding: renamed: readPlatformRuntimeControlImpl, the renamed import of readPlatformRuntimeControl/);
+  // Value literals: a dispatch value is used in place, under the counted spelling.
+  const DIGEST_READ = 'action: "binance_detail_read", binding, date: day, business_day: true,';
+  rejectBinding("literal action bound to a name and reused", applyEdits(sources, [
+    { file: RUNTIME_SUPPORT, from: DIGEST_READ, to: DIGEST_READ.replace('"binance_detail_read"', "PROBE_ACTION") },
+    { file: RUNTIME_SUPPORT, from: SESSION_HANDLER, to: `const PROBE_ACTION = "binance_detail_read";\nexport const probeRead = (env, binding) => runtimeInstanceCommand(env, { action: PROBE_ACTION, binding });\n${SESSION_HANDLER}` }]),
+  /^helper binding: literal_alias: value "binance_detail_read" is bound or returned instead of used in place/);
+  rejectBinding("literal action in another quote style", edit("secretRotation.js", "export async function durableRotationCommand(", 'export const probeComplete = env => command(env, { action: "rotation_complete" });\nexport async function durableRotationCommand('),
+    /^helper binding: literal_spelling: value "rotation_complete" is not spelled 'rotation_complete'/);
+  rejectBinding("literal action built from parts", edit(RUNTIME_SUPPORT, SESSION_HANDLER, `export const probeRead = (env, binding) => runtimeInstanceCommand(env, { action: "binance_detail_" + "read", binding });\n${SESSION_HANDLER}`),
+    /^helper binding: literal_spelling: value "binance_detail_read" is not spelled binance_detail_read/);
+  rejectBinding("Durable Object name passed through a variable", edit("application/runtime_instances/command.js", '    const stub = namespace.get(namespace.idFromName("runtime-instances"));', '    const probeName = "runtime-instances";\n    namespace.get(namespace.idFromName(probeName));\n    const stub = namespace.get(namespace.idFromName("runtime-instances"));'),
+    /^helper binding: literal_argument: idFromName takes one string literal/);
+  pass("helper name in an inert string", edit(RUNTIME_SUPPORT, SESSION_HANDLER, `const probeNote = "writeCurrentStrategiesCache";\n${SESSION_HANDLER}`));
+
   // Catch bodies (review F2.4): the whole clause is the reviewed template.
   reject("error-derived dispatch in the DO catch", edit(DO_FILE, "    } catch (error) {\n      return json({ ok: false, error: error instanceof HttpError", '    } catch (error) {\n      if (error.message === "method_not_allowed") return new Response("probe-catch");\n      return json({ ok: false, error: error instanceof HttpError'),
     /RuntimeInstances\.fetch: statement: catch clause is not the reviewed error response: catch \(error\) \{ if \(error\.message/);
@@ -885,6 +1179,7 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     for (const [label, edits, status] of [
       ["discover", [{ file: DO_FILE, from: HK_BRANCH, to: `if (command./* dispatch */action === "probe_read") return json({ probe: true });\n      ${HK_BRANCH}` }], 1],
       ["reject", [{ file: DO_FILE, from: GET_BRANCH, to: `if ((request)["me" + "thod"] === "PUT") return json({ probe: true });\n      ${GET_BRANCH}` }], 1],
+      ["helper alias", [{ file: RUNTIME_SUPPORT, from: SESSION_HANDLER, to: `${SESSION_HANDLER}  const persist = writeCurrentStrategiesCache;\n  await persist(env, { probe: true }, Date.now());\n` }], 1],
       ["pass", [{ file: DO_FILE, from: HK_BRANCH, to: `// if (command.action === "probe_comment_only") return json({});\n      ${HK_BRANCH}` }], 0],
     ]) {
       const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], { env: { ...process.env, [PROBE_ENV]: JSON.stringify(edits) }, encoding: "utf8" });
