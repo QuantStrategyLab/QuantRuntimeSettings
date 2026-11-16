@@ -427,6 +427,59 @@ const noLeak = (outputs, label) => {
   await h.close();
 }
 
+// ---------------------------------------------------- A2c: per-family terminal labels and admission state presence
+// A label another family treats as terminal stays unknown in a family whose
+// writer never produces it. Only an explicitly idle admission is excluded.
+{
+  const probe = { sql: [
+    rows("account_diagnosis_tasks", ["queued", "succeeded", "applied", "unknown"].map((status, index) => ({ request_id: `diag-${index}`, platform: "ibkr",
+      account_key: "acct-000", status, checks_json: "[]", native_json: null }))),
+    rows("account_setting_profile_application", ["invalidated", "applied", "rejected", "succeeded"].map((status, index) => ({ request_key: `req-${index}`,
+      platform: "ibkr", account_key: "acct-000", identity_json: "{}", instance_revision: 1, draft_revision: 1, old_profile: "a", new_profile: "b",
+      approved_by: "a", approved_at: day(index), status, workflow_run_id: null, workflow_run_attempt: null, claimed_at: null }))),
+    rows("research_promotion_applications", ["applied_paused", "rejected", "succeeded", "applied"].map((status, index) => ({ application_id: `app-${index}`,
+      ticket_id: "t", status, platform_id: "ibkr", account_key: "acct-000", expected_revision: 1, workflow_run_id: null, workflow_run_attempt: null, readback_json: null }))),
+    rows("hk_stop_request", ["applied", "rejected", "protected", "completed", "succeeded"].map((phase, index) => ({ request_id: `stop-${index}`, target_id: `t-${index}`,
+      identity_json: "{}", source_revision: index, phase, dispatch_result: null, workflow_run_id: null, workflow_run_attempt: null,
+      source_identity_sha256: null, runtime_identity_sha256: null, result_json: null, stopped_at: null }))),
+  ], kv: {
+    "desk:readbacks:admission:idle": { active: null, nextAllowed: 1, expires: 4_102_444_800_000 },
+    "desk:readbacks:admission:busy": { active: "rb-1", nextAllowed: 1, expires: 4_102_444_800_000 },
+    "desk:readbacks:admission:nostate": { nextAllowed: 1, expires: 4_102_444_800_000 },
+  }, alarm: null };
+  const directory = { sql: [], kv: {
+    "desk:readbacks:admission:invalid": { active: 7, nextAllowed: 1, expires: 1 },
+    "desk:readbacks:admission:scalar": "busy",
+  }, alarm: null, initialize: false };
+  const kv = fakeKv({ "owner_decision_current:c-1": JSON.stringify({ status: "applied" }), "reconciliation_recovery_current:r-1": JSON.stringify({ state: "completed" }),
+    "research_promotion_ticket:t-1": JSON.stringify({ state: "succeeded" }) });
+  const h = await harness({ runtime: probe, directory, kv, extraEnv: { ACCOUNT_IDENTITY_INVENTORY_KV_ENABLED: "true" } });
+  const responses = [];
+  await collect(h.get, "runtime", { responses });
+  await collect(h.get, "directory", { responses });
+  await collectKv(h.get, responses);
+  const exported = responses.filter(item => item.request.section === "do_kv").flatMap(item => item.body.entries).filter(item => item.family === "desk_readback_admission");
+  assert.deepEqual(exported.map(item => item.active_state).sort(), ["active", "idle", "invalid:number", "missing", "unreadable"], "admission state presence survives projection");
+  const sqlRows = table => responses.filter(item => item.request.table === table).flatMap(item => item.body.rows).length;
+  assert.equal(sqlRows("account_diagnosis_tasks"), 4, "four diagnosis rows retained in the export");
+  const { private: result } = assemble({ format: EXPORT_FORMAT, responses });
+  const statuses = family => result.pending.filter(item => item.family === family).map(item => `${item.status}/${item.classification}`).sort();
+  assert.deepEqual(statuses("account_diagnosis_tasks"), ["applied/unknown", "queued/nonterminal", "unknown/unknown"],
+    "diagnosis: a label foreign to diagnosis stays unknown and listed even when another family treats it as terminal");
+  assert.deepEqual(statuses("account_setting_profile_application"), ["applied/unknown", "rejected/unknown", "succeeded/unknown"], "profile: only invalidated is terminal");
+  assert.deepEqual(statuses("research_promotion_applications"), ["applied/unknown", "succeeded/unknown"], "promotion: only applied_paused and rejected are terminal");
+  assert.deepEqual(statuses("hk_stop_request"), ["completed/unknown", "succeeded/unknown"], "stop: only applied, rejected and protected are terminal");
+  assert.deepEqual(statuses("owner_decision_current:"), ["applied/unknown"], "owner decision: no label proves completion");
+  assert.deepEqual(statuses("reconciliation_recovery_current:"), ["completed/unknown"], "recovery: no label proves completion");
+  assert.deepEqual(statuses("research_promotion_ticket:"), ["succeeded/unknown"], "ticket: a foreign terminal label stays unknown");
+  const admissions = object => result.pending.filter(item => item.family === "desk_readback_admission" && item.object === object).map(item => `${item.status}/${item.classification}`).sort();
+  assert.equal(exported.filter(item => responses.some(page => page.request.object === "runtime" && page.body.entries?.includes(item))).length, 3, "three runtime admissions retained");
+  assert.deepEqual(admissions("runtime"), ["active/nonterminal", "missing/unknown"], "missing admission state is unknown, not idle; explicit idle is excluded");
+  assert.deepEqual(admissions("directory"), ["invalid:number/unknown", "unreadable/unknown"], "invalid or non-object admission state stays unknown");
+  await h.unchanged();
+  await h.close();
+}
+
 // ---------------------------------------------------- A3: populated, beyond legacy caps, full assembly
 const plan = populatedPlan();
 const counts = seededCounts(plan);
@@ -495,9 +548,9 @@ assert.ok(counts.instance_history > 50 && counts.account_setting_profile_applica
   assert.ok(result.mapping.unattributed.some(item => item.legacy_key === "unattributed-key"), "platform-less rows are not guessed");
   assert.ok(entry("binance", "bn-main"), "Binance composite resolved to its legacy key");
   const pending = summary.pending;
-  assert.equal(pending.account_setting_profile_application, 90, "approved, claimed and unknown statuses stay pending");
-  assert.equal(pending.hk_stop_request, 5, "only explicit terminal phases are terminal; stopped stays open");
-  assert.equal(pending.account_diagnosis_tasks, 4);
+  assert.equal(pending.account_setting_profile_application, 150, "approved, claimed and labels the profile writer never produces stay pending");
+  assert.equal(pending.hk_stop_request, 6, "only the stop family's own terminal phases are terminal; stopped and completed stay pending");
+  assert.equal(pending.account_diagnosis_tasks, 5, "completed is not a diagnosis status and stays pending");
   assert.equal(pending.desk_idempotency, 1);
   assert.equal(pending.desk_readback_record, 403, "running, unknown, missing and new Desk states stay pending; done and partial are terminal");
 

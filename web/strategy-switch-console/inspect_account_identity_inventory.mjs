@@ -35,19 +35,24 @@ const KV_GROUP_OF = new Map(Object.entries(KV_GROUPS).flatMap(([group, families]
 const KV_READ_OK = new Set(["exported", "invalid_json"]);
 const KV_UNREVIEWED = new Set(["scope_excluded", "unknown_family"]);
 
-// Operation families and their terminal labels. Only an explicit terminal
-// label is terminal. A known open label is `nonterminal`; a missing,
-// unreadable, `unknown` or newly introduced label is `unknown`. Both stay in
-// the ledger. LongBridge `stopped` stays open in the current implementation.
-const TERMINAL = ["applied", "rejected", "failed", "completed", "complete", "succeeded", "canceled", "cancelled", "expired", "superseded"];
+// Operation families and their terminal labels. Each family has only the
+// terminal labels its own writer proves final; no label is shared across
+// families. A known open label is `nonterminal`; a missing, unreadable,
+// `unknown`, newly introduced or other family's label is `unknown`. Both stay
+// in the ledger. LongBridge `stopped` stays open in the current implementation.
 const family = (terminal, open = []) => ({ terminal: new Set(terminal), open: new Set(open) });
-const KV_DECISION = family(TERMINAL);
+// Owner-decision and recovery records carry no top-level state field, so no
+// label proves completion for them.
+const KV_DECISION = family([]);
 const PENDING_FAMILIES = {
-  account_setting_profile_application: family([...TERMINAL, "invalidated"], ["approved", "claimed"]),
-  account_diagnosis_tasks: family(TERMINAL, ["queued", "running"]),
+  // durable_object.js writes only `approved`, `claimed` and `invalidated`.
+  account_setting_profile_application: family(["invalidated"], ["approved", "claimed"]),
+  // account_diagnosis/constants.js ACCOUNT_DIAGNOSIS_STATUSES.
+  account_diagnosis_tasks: family(["succeeded", "failed"], ["queued", "running"]),
   // `uncertain` is an unconfirmed outcome and stays unknown.
-  research_promotion_applications: family([...TERMINAL, "applied_paused"], ["approved", "claimed"]),
-  hk_stop_request: family(TERMINAL, ["intent", "hold", "reserved", "accepted", "partial", "stopped"]),
+  research_promotion_applications: family(["applied_paused", "rejected"], ["approved", "claimed"]),
+  // Record `rejected` and resolve `applied`/`protected` leave every open query.
+  hk_stop_request: family(["applied", "rejected", "protected"], ["intent", "hold", "reserved", "accepted", "partial", "stopped"]),
   ux1_research_slot: family(["succeeded", "failed"], ["queued", "running"]),
   // secretRotation.js: `*_unknown` states stay unknown until reconciled.
   credential_rotation_operations: family(["finalized", "canceled", "failed"], ["staged"]),
@@ -368,8 +373,11 @@ function pendingFrom(objects, kv) {
       if (item.projection_error) pending.push({ family: "do_kv_unprojected", ...fields, status: `unreadable:${item.projection_error}`, classification: "unknown" });
       else if (item.family === "desk_readback_record") push(item.family, item.payload_state, { ...fields, expired: item.expired ?? null });
       else if (item.family === "desk_idempotency") push(item.family, item.state, fields);
-      else if (item.family === "desk_readback_admission" && item.active !== null) {
-        pending.push({ family: item.family, ...fields, status: typeof item.active === "string" ? "active" : "unreadable", classification: typeof item.active === "string" ? "nonterminal" : "unknown", expired: item.expired ?? null });
+      // Only an explicit idle admission holds no operation; a missing,
+      // invalid or unreadable state stays listed as unknown.
+      else if (item.family === "desk_readback_admission" && item.active_state !== "idle") {
+        const state = item.active_state ?? "missing";
+        pending.push({ family: item.family, ...fields, status: state, classification: state === "active" ? "nonterminal" : "unknown", expired: item.expired ?? null });
       }
     }
   }

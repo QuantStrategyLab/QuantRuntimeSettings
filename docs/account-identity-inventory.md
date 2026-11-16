@@ -203,9 +203,15 @@ The pending ledger covers profile applications, diagnosis tasks, promotion
 applications, stop requests, UX1 jobs, credential rotation operations and
 maintenance deliveries, undecided decision material, Desk readbacks,
 admissions and idempotency entries, promotion tickets, and KV decision and
-recovery records. Only a family's explicit terminal labels are terminal. Known
+recovery records. Each family has its own terminal labels, taken from its
+writer; no label is shared across families, so a label that is terminal for one
+family is `unknown` in a family whose writer never produces it. KV decision and
+recovery records have no state field and therefore no terminal label. Known
 open labels are `nonterminal`; missing, unreadable, `unknown` or unrecognized
-labels are `unknown` and stay listed. The ledger is an observation; the
+labels are `unknown` and stay listed. A Desk admission is excluded only when
+`active` is explicitly `null`, as an ordinary release writes it; the reader
+exports `active_state` so that an absent field, an invalid value or a
+non-object record stays listed as `unknown`. The ledger is an observation; the
 assembler never settles or acts on an operation. The summary contains aggregate
 counts only. The exit status is `1` when the result is `incomplete`.
 

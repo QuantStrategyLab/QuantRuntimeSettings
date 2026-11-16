@@ -515,7 +515,13 @@ function projectDoKv(key, value, now) {
       payload_identity: payload && typeof payload === "object" ? identityProjection(payload, 128) : null };
   }
   if (key.startsWith(ADMISSION_PREFIX)) {
-    return { family: "desk_readback_admission", ...expiry(value),
+    // `active_state` keeps what `active` alone cannot: an explicit idle
+    // (`active: null`, as release() writes) is distinct from an absent field,
+    // a non-object value or an invalid `active` value.
+    const record = value !== null && typeof value === "object" && !Array.isArray(value);
+    const activeState = !record ? "unreadable" : !Object.hasOwn(value, "active") ? "missing" : value.active === null ? "idle"
+      : typeof value.active === "string" && value.active ? "active" : `invalid:${typeof value.active}`;
+    return { family: "desk_readback_admission", ...expiry(value), active_state: activeState,
       active: scalar(value?.active ?? null), next_allowed: scalar(value?.nextAllowed ?? null) };
   }
   if (key.startsWith("desk:idempotency:")) {
