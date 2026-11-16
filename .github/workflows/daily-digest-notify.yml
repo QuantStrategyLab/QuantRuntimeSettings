@@ -1,7 +1,10 @@
 name: Daily Digest Preview
 
 # Explicit manual previews only. Production reports and delivery reservations
-# are owned by Cloud Run; this workflow has no scheduled or forced sends.
+# are not produced here; repository evidence points to an Azure scheduled sender
+# sharing the digest core with Cloud Run (the operator verified live activation
+# on 2026-11-16; live resource configuration is not recorded in this repository).
+# This workflow has no scheduled or forced sends.
 # Private preview bodies remain on the runner, never in public artifacts.
 
 on:
@@ -101,7 +104,7 @@ jobs:
           import os
           proceed = os.environ.get("DIGEST_EVENT_NAME") == "workflow_dispatch" and os.environ.get("DIGEST_INPUT_DRY_RUN") == "true"
           if not proceed:
-              print("::notice::Production daily digest delivery is owned by Cloud Run; only explicit previews run here.")
+              print("::notice::Production reports are not produced by this workflow; repository evidence points to an Azure scheduled sender sharing the digest core (operator verified live activation on 2026-11-16; live resource configuration is not recorded in this repository).")
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"proceed={str(proceed).lower()}\n")
           PY_SLOT
