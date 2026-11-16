@@ -163,6 +163,7 @@ jobs:
           node tests/console_candidate_readiness_validation.mjs
           node tests/console_acceptance_budget_validation.mjs
           node tests/kv_directory_validation.mjs
+          node tests/read_contract_boundaries_validation.mjs
           node tests/console_source_quota_validation.mjs
           node tests/console_current_strategies_kv_dedup_validation.mjs
           node tests/console_inbox_requests_validation.mjs

@@ -10,6 +10,8 @@ Precedence: explicit override, generated map, caller fallback, unchanged technic
 
 Resolved names are for display only. Never pass them to trading selection, account selection, target IDs, fingerprints, release/continuity bindings, Secret names, storage/object keys, claim keys or notification deduplication. Workflow/environment IDs and report profile IDs retain their operational meaning. CI and source merges do not establish production adoption. Trading runtime changes require their separate reviewed deployment; this naming work deploys no trading service.
 
+Baseline delta ([ADR 0002](adr/0002-observation-and-identity-boundaries.md), rule R3): the rule above stops display text flowing back into identity, but the console still lets technical keys flow into account titles. Account options default `label` and `target_name` to `key`, and the console resolver tries label, key, then target name. Under R3 this direction is registered debt (exceptions I1 and I2 in `tests/fixtures/read-contract-exceptions.json`), not a precedence to extend. Do not derive a new account title or name-based join from a technical key, strategy label or target name. The baseline changes no current label; the bounded IBKR display correction and the canonical account identity work replace it.
+
 ## Account config labels in the v3 daily digest
 
 Account titles come from the existing selected account config, in order:
