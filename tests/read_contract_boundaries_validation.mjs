@@ -694,6 +694,43 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
   namespaceReexport.set(`${CONSOLE}/application/hk_stop/probe_ns.js`, 'export * as probeNs from "./constants.js";\n');
   reject("family mutation through a namespace re-export", namespaceReexport, /module graph: entry_replaced: export \* as probeNs re-exports dispatch bindings/);
 
+  // Fifth-round counterexamples (review FIX4B): a dynamic import, an exported
+  // namespace import and a same-named forward target keep the spelling but
+  // lose the reviewed binding.
+  const familyProbe = (text, files = {}) => {
+    const probed = applyEdits(sources, [{ file: DO_FILE, from: DO_END, to: `${DO_END}${text}\n` }, { file: DO_FILE, from: HK_BRANCH, to: HK_MARKED }]);
+    for (const [name, body] of Object.entries(files)) probed.set(`${CONSOLE}/application/hk_stop/${name}`, body);
+    return probed;
+  };
+  const DYNAMIC = /module graph: family_mutation: dynamic import of .*hk_stop\/constants\.js, which exports HK_STOP_DO_ACTIONS, is not admitted/;
+  reject("family mutation through a dynamic import namespace", familyProbe('const probeConstants = await import("../hk_stop/constants.js"); probeConstants.HK_STOP_DO_ACTIONS.add("probe_dynamic");'), DYNAMIC);
+  reject("family mutation through a destructured dynamic import", familyProbe('const { HK_STOP_DO_ACTIONS: probeFamily } = await import("../hk_stop/constants.js"); probeFamily.add("probe_dynamic");'), DYNAMIC);
+  reject("family mutation through an exported namespace import", familyProbe('import { probeNs } from "../hk_stop/probe_barrel.js"; probeNs.HK_STOP_DO_ACTIONS.add("probe_dynamic");',
+    { "probe_barrel.js": 'import * as probeNs from "./constants.js"; export { probeNs };' }),
+  /module graph: family_mutation: namespace probeNs of .*hk_stop\/constants\.js, which exports HK_STOP_DO_ACTIONS, is re-exported as probeNs in .*probe_barrel\.js/);
+  reject("family mutation through an exported namespace import of a chained barrel", familyProbe('import { probeNs } from "../hk_stop/probe_outer.js"; probeNs.HK_STOP_DO_ACTIONS.add("probe_chain");', {
+    "probe_star.js": 'export * from "./constants.js";\n',
+    "probe_inner.js": 'import * as probeNs from "./probe_star.js";\nexport { probeNs as probeNs };\n',
+    "probe_outer.js": 'export { probeNs } from "./probe_inner.js";\n',
+  }), /module graph: family_mutation: namespace probeNs of .*hk_stop\/probe_star\.js, which exports HK_STOP_DO_ACTIONS, is re-exported as probeNs in .*probe_inner\.js/);
+  reject("family mutation through export * as of a chained barrel", familyProbe('import { probeNs } from "../hk_stop/probe_outer.js"; probeNs.HK_STOP_DO_ACTIONS.add("probe_chain");', {
+    "probe_star.js": 'export * from "./constants.js";\n',
+    "probe_outer.js": 'export * as probeNs from "./probe_star.js";\n',
+  }), /module graph: entry_replaced: export \* as probeNs re-exports dispatch bindings of .*hk_stop\/probe_star\.js/);
+  const PERF_IMPORT = 'import { performanceResponse } from "./application/console_api/performance_routes.js";';
+  reject("forward target replaced by a same-named local wrapper", edit("worker.js", PERF_IMPORT, 'import { performanceResponse as originalPerformanceResponse } from "./application/console_api/performance_routes.js";\nfunction performanceResponse(r,e,d) { if (r.url.endsWith("/api/performance/probe-unclassified")) return new Response("probe-target"); return originalPerformanceResponse(r,e,d); }'),
+    /worker\.js fetch: forward_target: performanceResponse in a reviewed forward resolves to local, reviewed import:\.\/application\/console_api\/performance_routes\.js/);
+  const otherTarget = new Map(edit("worker.js", PERF_IMPORT, 'import { performanceResponse } from "./application/console_api/probe_performance.js";'));
+  otherTarget.set(`${CONSOLE}/application/console_api/probe_performance.js`, 'export function performanceResponse() { return new Response("probe-target"); }\n');
+  reject("forward target imported from another module", otherTarget,
+    /worker\.js fetch: forward_target: performanceResponse in a reviewed forward resolves to import:\.\/application\/console_api\/probe_performance\.js, reviewed import:\.\/application\/console_api\/performance_routes\.js/);
+  reject("forward dependency replaced by a same-named local wrapper", applyEdits(sources, [
+    { file: "worker.js", from: "\n  readBoundAccountExecutions,\n", to: "\n" },
+    { file: "worker.js", from: "export default {", to: 'const readBoundAccountExecutions = async () => new Response("probe-target");\nexport default {' }]),
+  /worker\.js fetch: forward_target: readBoundAccountExecutions in a reviewed forward resolves to local, reviewed namespace:/);
+  reject("forward dependency redeclared at module level", edit("worker.js", "export default {", 'const readBoundAccountExecutions = async () => new Response("probe-target");\nexport default {'),
+    /worker\.js fetch: forward_target: readBoundAccountExecutions in a reviewed forward resolves to an unadmitted binding, reviewed namespace:/);
+
   // Catch bodies (review F2.4): the whole clause is the reviewed template.
   reject("error-derived dispatch in the DO catch", edit(DO_FILE, "    } catch (error) {\n      return json({ ok: false, error: error instanceof HttpError", '    } catch (error) {\n      if (error.message === "method_not_allowed") return new Response("probe-catch");\n      return json({ ok: false, error: error instanceof HttpError'),
     /RuntimeInstances\.fetch: statement: catch clause is not the reviewed error response: catch \(error\) \{ if \(error\.message/);

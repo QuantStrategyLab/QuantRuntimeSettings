@@ -19,7 +19,10 @@
 // - a catch clause is not the whole reviewed clause;
 // - any reference to a request, URL or command receiver (resolved through
 //   bindings) is not one of the admitted forms: direct or optional property
-//   access, truthiness, or a reviewed forward call inside a gated branch.
+//   access, truthiness, or a reviewed forward call inside a gated branch,
+//   whose module-level names resolve to their reviewed bindings (the same
+//   import, namespace element or local declaration, not a same-named
+//   replacement).
 //   Method calls on a receiver and computed access whatever its key are
 //   rejected; so are aliases, destructuring, spread, reflection, IIFEs,
 //   reassignment, mutation, shadowing and dynamic evaluation;
@@ -28,7 +31,8 @@
 // - an action family does not resolve, through the import and export graph, to
 //   one `const NAME = new Set([...string literals])`, or an action family or
 //   entry binding is used other than in its admitted form in any module the
-//   Worker reaches (`options.modules` supplies the whole console tree).
+//   Worker reaches (`options.modules` supplies the whole console tree), or a
+//   module exporting one is dynamically imported or re-exported as a namespace.
 //
 // There is no fallback tokenizer: unsupported syntax is an error, never an empty
 // extraction.
@@ -266,6 +270,57 @@ export const REVIEWED = {
       runControls: consoleRunControls,
     })`, 1],
   ],
+  // Binding identity of every module-level name a Worker forward references:
+  // the reviewed import, the reviewed element of the runtime_support.js
+  // namespace destructuring, or a local declaration. A same-named local
+  // replacement of a reviewed import is a different binding.
+  workerForwardTargets: {
+    "local": ["deskN1Deps"],
+    "namespace:./application/worker/runtime_support.js": [
+      "DEFAULT_REPOSITORY", "acceptHkStopResult", "accountDiagnosisInternalResponse", "accountDiagnosisResponse",
+      "accountFactsHistoryResponse", "accountFactsResponse", "accountSettingsResponse", "adaptiveSelectionResponse", "adminConfigResponse",
+      "approveAccountSettingsProfileApplication", "auditEventsResponse", "binanceAccountFactsReadinessResponse",
+      "binanceAccountFactsResponse", "binanceDetailArchiveResponse", "binanceDigestSnapshotResponse", "binancePrivateScopeResponse",
+      "binanceWalletHistoryResponse", "claimAccountSettingsProfileApplicationFromGitHub", "configPayload", "consoleRunControls",
+      "controlPlaneResponse", "credentialMaintenanceResponse", "decisionActionResponse", "decisionReviewResponse", "deskAuth",
+      "dispatchBinanceResume", "dispatchRuntimeStop", "dispatchSwitch", "executionEvidenceResponse",
+      "fetchResearchPromotionTicketResponse", "json", "loadAccountOptionsConfig", "loadAuditLog", "loadStrategyProfilesConfig", "logout",
+      "m0ResearchLedgerResponse", "marketBenchmarkResponse", "overviewFxResponse", "ownerDecisionQueueResponse",
+      "readBoundAccountExecutions", "readCurrentStrategies", "readRuntimeStop", "reconciliationRecoveryControllerReadResponse",
+      "reconciliationRecoveryResponse", "recordOwnerDecisionResponse", "recordReconciliationRecoveryConfirmationResponse",
+      "recordResearchPromotionDecisionResponse", "requireSameOrigin", "researchPromotionApplicationInternalResponse",
+      "researchPromotionApplicationResponse", "researchPromotionTicketsResponse", "researchTaskResponse", "reviseMarketBenchmarkResponse",
+      "riskProfileBindingsResponse", "runtimeCatalogResponse", "runtimeCycleHealthAdmissionResponse", "runtimeCycleHealthSourceResponse",
+      "runtimeDailyPublicBindings", "runtimeDailyReadModelEnabled", "runtimeDailyResponse", "runtimeInstancesResponse",
+      "runtimeReadbackResponse", "runtimeTargetLifecycleResponse", "saveAccountSettings", "saveAdminConfig", "saveCombinedAccountDraft",
+      "saveRiskProfileBindings", "sessionPayload", "strategyHealthResponse", "syncAccountDefaultResponse", "syncAccountExecutionsResponse",
+      "syncAccountExternalFlowResponse", "syncAccountFactsResponse", "syncAccountPeriodReturnResponse",
+      "syncAdaptiveSelectionSourceResponse", "syncBinanceAccountFactsResponse", "syncBinancePrivateScopeResponse",
+      "syncControlPlaneResponse", "syncControlPlaneSourceResponse", "syncExecutionEvidenceSourceResponse", "syncM0ResearchLedgerResponse",
+      "syncMarketBenchmarkResponse", "syncReconciliationRecoverySourceResponse", "syncResearchPromotionTicketResponse",
+      "syncResearchTaskSourceResponse", "syncRuntimeDailyResponse", "syncRuntimeTargetLifecycleSourceResponse",
+      "syncStrategyHealthResponse", "syncStrategyProfilesResponse",
+    ],
+    "import:./application/auth/login.js": ["finishLogin", "startLogin"],
+    "import:./application/auth/session.js": ["readSession"],
+    "import:./application/console_api/notification_receipts.js": ["readNotificationLog"],
+    "import:./application/console_api/performance_benchmarks.js": ["performanceBenchmarkResponse"],
+    "import:./application/console_api/performance_routes.js": ["performanceResponse"],
+    "import:./application/console_api/routes.js": ["consoleApiResponse"],
+    "import:./application/desk/accounts.js": ["deskAccountsResponse"],
+    "import:./application/desk/credentials.js": ["deskCredentialsResponse"],
+    "import:./application/desk/overview.js": ["deskOverviewResponse"],
+    "import:./application/desk/performance.js": ["deskPerformanceResponse"],
+    "import:./application/desk/readback.js": ["deskReadbackResponse"],
+    "import:./application/desk/ribbon.js": ["deskRibbonResponse"],
+    "import:./application/desk/switch_strategies.js": ["deskSwitchStrategiesResponse"],
+    "import:./application/desk/switch_targets.js": ["deskSwitchTargetsResponse"],
+    "import:./application/runtime_instances/command.js": ["runtimeInstanceCommand"],
+    "import:./application/ux1/research.js": [
+      "ux1DraftGet", "ux1DraftPost", "ux1IntentPost", "ux1JobClaimPost", "ux1JobResultPost", "ux1PreviewPost",
+    ],
+    "import:./secretRotation.js": ["credentialRotationResponse"],
+  },
   // Statements whose computed member access is reviewed (a non-literal key).
   workerComputed: [
     ["bytes[index] = binary.charCodeAt(index);", 1],
@@ -299,6 +354,9 @@ export const REVIEWED = {
     ["this.runtimeControlCommand(command)", 1],
     ["this.hkStopCommand(command)", 1],
   ],
+  doForwardTargets: {
+    "import:../../credentialMaintenance.js": ["credentialMaintenanceCommand"],
+  },
   doComputed: [
     ["const config = update.options[instance.platform]?.find((option) => option.key === instance.key);", 1],
     ["if (instance.config[field] !== undefined) defaults[field] = instance.config[field];", 1],
@@ -352,6 +410,9 @@ export const REVIEWED = {
   ux1Forwards: [
     ["ux1MutateJob(this.sql, command)", 1],
   ],
+  ux1ForwardTargets: {
+    "import:../ux1/research.js": ["ux1MutateJob"],
+  },
   durableRotation: [
     ["let factors = [];", 1],
     // The one forward of the rotation command, to the local dispatcher.
@@ -377,6 +438,9 @@ export const REVIEWED = {
     ["audit(sql, c, 'credential_rotation_denied', 'denied', 'step_up_rate_limited')", 1],
     ["audit(sql, c, 'credential_rotation_denied', 'denied', 'step_up_invalid')", 1],
   ],
+  rotationForwardTargets: {
+    "local": ["audit"],
+  },
   rotationComputed: [
     ["Object.assign(op, { state: PENDING[c.write_action], updated_at: at, reason_code: null, current_action: c.write_action, current_request_id: c.request_id });", 1],
   ],
@@ -750,6 +814,94 @@ function auditExecutable(ts, sf, fn, policy, report) {
     check(node);
   }
 }
+
+/**
+ * Binding identity of a module-level identifier `id`: `import:<specifier>`
+ * for an unrenamed named import, `namespace:<specifier>` for an unrenamed
+ * element, without a default, of a top-level `const { ... } = ns` where `ns`
+ * is a namespace import, and `local` for a top-level function or `const`
+ * declaration that is never written. Anything else (a renamed import, a second
+ * declaration, a default value, a reassigned function) is null. A redeclared
+ * top-level name counts by spelling: the binder gives the second declaration
+ * a detached symbol, so its references would still resolve to the first.
+ */
+function bindingIdentity(ts, sf, id) {
+  const symbol = symbolOf(ts, sf, id);
+  const declarations = symbol?.declarations || [];
+  if (declarations.length !== 1 || (topLevelNames(ts, sf).get(id.text) || 0) > 1) return null;
+  const [d] = declarations;
+  const topLevel = statement => statement?.parent === sf;
+  if (ts.isImportSpecifier(d)) {
+    const statement = d.parent.parent.parent;
+    return !d.propertyName && topLevel(statement) ? `import:${statement.moduleSpecifier.text}` : null;
+  }
+  if (ts.isBindingElement(d)) {
+    const declaration = d.parent.parent;
+    if (d.propertyName || d.dotDotDotToken || d.initializer || !ts.isObjectBindingPattern(d.parent) || !ts.isVariableDeclaration(declaration)
+      || !(declaration.parent.flags & ts.NodeFlags.Const) || !topLevel(declaration.parent.parent)) return null;
+    const init = unwrap(ts, declaration.initializer);
+    const [ns] = (init && ts.isIdentifier(init) && symbolOf(ts, sf, init)?.declarations) || [];
+    return ns && ts.isNamespaceImport(ns) && topLevel(ns.parent.parent) ? `namespace:${ns.parent.parent.moduleSpecifier.text}` : null;
+  }
+  const local = (ts.isFunctionDeclaration(d) && topLevel(d))
+    || (ts.isVariableDeclaration(d) && ts.isIdentifier(d.name) && (d.parent.flags & ts.NodeFlags.Const) && topLevel(d.parent.parent));
+  if (!local) return null;
+  return (moduleSummary(ts, sf).refs.get(symbol) || []).some(ref => isWriteTarget(ts, ref)) ? null : "local";
+}
+
+/** How often each name is declared at module level (imports included). */
+const topLevelCache = new WeakMap();
+function topLevelNames(ts, sf) {
+  if (topLevelCache.has(sf)) return topLevelCache.get(sf);
+  const counts = new Map();
+  const add = name => { if (name && ts.isIdentifier(name)) counts.set(name.text, (counts.get(name.text) || 0) + 1); };
+  const pattern = name => {
+    if (ts.isIdentifier(name)) add(name);
+    else for (const element of name.elements) if (!ts.isOmittedExpression(element)) pattern(element.name);
+  };
+  for (const statement of sf.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      const clause = statement.importClause;
+      add(clause?.name);
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) add(bindings.name);
+      if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) add(element.name);
+    }
+    if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) pattern(declaration.name);
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) add(statement.name);
+  }
+  topLevelCache.set(sf, counts);
+  return counts;
+}
+
+/**
+ * A reviewed forward calls what was reviewed: every identifier in a forward
+ * call that resolves outside `fn` must have the binding identity reviewed for
+ * its name (`spec`: { identity: [names] }). Renaming the reviewed import and
+ * declaring a same-named wrapper, or a second declaration, keeps the call's
+ * spelling but changes its identity. Declarations inside `fn` are audited by
+ * `auditExecutable`. A reviewed name that no forward uses is stale.
+ */
+function auditForwardTargets(ts, sf, fn, calls, spec, report) {
+  const fail = (node, detail) => report(`forward_target: ${detail} (line ${lineOf(sf, node)}): ${excerpt(sf, enclosingStatement(ts, node))}`);
+  const expected = new Map(Object.entries(spec || {}).flatMap(([identity, names]) => names.map(name => [name, identity])));
+  const used = new Set();
+  const visit = node => {
+    if (ts.isIdentifier(node) && isReference(ts, node)) {
+      const declarations = symbolOf(ts, sf, node)?.declarations || [];
+      if (declarations.length && !(declarations.length === 1 && contains(fn, declarations[0]))) {
+        const identity = bindingIdentity(ts, sf, node);
+        const reviewed = expected.get(node.text);
+        used.add(node.text);
+        if (!reviewed) fail(node, `${node.text} in a reviewed forward has no reviewed binding (resolves to ${identity || "an unadmitted binding"})`);
+        else if (identity !== reviewed) fail(node, `${node.text} in a reviewed forward resolves to ${identity || "an unadmitted binding"}, reviewed ${reviewed}`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  for (const call of calls) visit(call);
+  for (const name of expected.keys()) if (!used.has(name)) report(`forward_target: stale reviewed binding ${name} (${expected.get(name)}) is not used by a reviewed forward`);
+}
 function calleeRoot(ts, callee) {
   let n = unwrap(ts, callee);
   while (ts.isPropertyAccessExpression(n)) n = unwrap(ts, n.expression);
@@ -883,6 +1035,7 @@ function extractWorker(ts, sf, reviewed, out) {
     gated, covered, consumed, forwards, recognise: false,
   }, message => fetchReport(message.replace(/^dispatch_form: url\.pathname read outside a recognised dispatch form/, "nested_pathname: unreviewed url.pathname use")));
   finishTemplates(forwards, fetchReport);
+  auditForwardTargets(ts, sf, fetch, forwarded, reviewed.workerForwardTargets, fetchReport);
   auditExecutable(ts, sf, fetch, {
     covered, receivers: [fetch.parameters[0].name, body[0]?.declarationList?.declarations?.[0]?.name].filter(Boolean),
     computed: templates("worker.js fetch computed", reviewed.workerComputed), finishTemplates,
@@ -1238,6 +1391,7 @@ function extractDurable(ts, file, reviewed, ctx) {
     },
   }, report);
   finishTemplates(forwards, report);
+  auditForwardTargets(ts, sf, fetch, forwarded, reviewed.doForwardTargets, report);
   auditExecutable(ts, sf, fetch, {
     covered, receivers, computed: templates("RuntimeInstances.fetch computed", reviewed.doComputed), finishTemplates,
     pinned: [...covered, ...forwarded],
@@ -1402,6 +1556,7 @@ function delegateScan(ts, sf, fn, receiver, set, ctx, label, levelStatements, ex
     },
   }, report);
   finishTemplates(forwards, message => errors.push(message));
+  auditForwardTargets(ts, sf, fn, forwarded, extra.targets, report);
   auditExecutable(ts, sf, fn, {
     covered, receivers: declarations, computed: ctx.templates(`${label} computed`, extra.computed || []), finishTemplates,
     pinned: [...covered, ...forwarded],
@@ -1422,7 +1577,7 @@ function rotationActions(ts, file, reviewed, ctx) {
   for (const fn of [outerFn, inner]) if (!fn.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) ctx.errors.push(`secretRotation.js: export_form: ${fn.name.text} is not exported`);
   return [
     ...delegateScan(ts, sf, outerFn, "command", ctx.templates("durableRotationCommand", reviewed.durableRotation), ctx, "durableRotationCommand", outerFn.body.statements),
-    ...delegateScan(ts, sf, inner, "c", ctx.templates("rotationCommand", reviewed.rotation), ctx, "rotationCommand", inner.body.statements, { uses: reviewed.rotationUses, forwards: reviewed.rotationForwards, computed: reviewed.rotationComputed }),
+    ...delegateScan(ts, sf, inner, "c", ctx.templates("rotationCommand", reviewed.rotation), ctx, "rotationCommand", inner.body.statements, { uses: reviewed.rotationUses, forwards: reviewed.rotationForwards, targets: reviewed.rotationForwardTargets, computed: reviewed.rotationComputed }),
   ];
 }
 
@@ -1431,7 +1586,7 @@ function ux1Actions(ts, sf, method, reviewed, ctx) {
   const statements = fn.body.statements;
   const callback = statements.length === 1 ? transactionCallback(ts, statements[0], null) : null;
   if (!callback) { ctx.errors.push("ux1ResearchCommand: statement: body must be return this.storage.transactionSync(() => { ... })"); return []; }
-  return delegateScan(ts, sf, fn, "command", ctx.templates("ux1ResearchCommand", reviewed.ux1), ctx, "ux1ResearchCommand", callback.body.statements, { lists: true, forwards: reviewed.ux1Forwards });
+  return delegateScan(ts, sf, fn, "command", ctx.templates("ux1ResearchCommand", reviewed.ux1), ctx, "ux1ResearchCommand", callback.body.statements, { lists: true, forwards: reviewed.ux1Forwards, targets: reviewed.ux1ForwardTargets });
 }
 
 function directoryActions(ts, file, reviewed, ctx) {
@@ -1468,7 +1623,7 @@ function directoryActions(ts, file, reviewed, ctx) {
 
 /**
  * Bindings of the dispatch set across every module the Worker bundle reaches
- * (static imports, re-exports and literal dynamic imports from worker.js).
+ * (static imports, re-exports and literal dynamic imports).
  * Action families, entry classes and entry functions are followed by import
  * identity (named, default and namespace imports, namespace destructuring,
  * re-exports and `export *`), not by spelling, and every reference must be an
@@ -1476,7 +1631,9 @@ function directoryActions(ts, file, reviewed, ctx) {
  * `durableRotationCommand` only as calls; `KvDirectory` only as `new`, bound to
  * a const used only through method calls or (in the Durable Object) to
  * `this.directory`; `RuntimeInstances` and the Worker default export not at
- * all. Renamed bindings are not admitted. No reached module may reach a
+ * all. Renamed bindings are not admitted, nor is a namespace that holds a
+ * dispatch binding re-exported (`export * as ns`, or `export { ns }` of a
+ * namespace import) or dynamically imported. No reached module may reach a
  * built-in prototype through which a family could change membership without
  * a reference (`Set.prototype`, `.constructor.prototype`, prototype getters).
  */
@@ -1547,7 +1704,15 @@ function auditModules(ts, file, modules, families, errors) {
           source = [from, exported.local];
         } else {
           const imported = summary.imports.find(entry => entry.local.text === exported.local);
-          if (imported?.imported === "*" || (imported && !imported.module.startsWith("."))) continue;
+          if (imported && !imported.module.startsWith(".")) continue;
+          if (imported?.imported === "*") {
+            // `import * as ns; export { ns }` is `export * as ns`: the namespace
+            // would carry dispatch bindings under an untracked name.
+            const from = resolvePath(path, imported.module);
+            const inner = [...tracked].filter(([key]) => key.startsWith(`${from}#`)).map(([, entry]) => entry);
+            if (inner.length) report(`${inner.some(entry => entry.kind === "family") ? "family_mutation" : "entry_replaced"}: namespace ${imported.local.text} of ${from}, which exports ${[...new Set(inner.map(entry => entry.label))].join(", ")}, is re-exported as ${exported.name} ${where(summary.sf, path, exported.node)}`);
+            continue;
+          }
           source = imported ? [resolvePath(path, imported.module), imported.imported] : [path, exported.local];
         }
         const entry = item(...source);
@@ -1555,6 +1720,18 @@ function auditModules(ts, file, modules, families, errors) {
         if (exported.name !== source[1]) { renamed(entry, summary.sf, path, exported.node); continue; }
         changed = track(path, exported.name, entry) || changed;
       }
+    }
+  }
+
+  // A dynamic import yields the module namespace as an untracked value, which
+  // a destructuring or alias would rename: it is not admitted for a module that
+  // exports a dispatch binding.
+  for (const [path, summary] of reached) {
+    for (const { specifier, node, dynamic } of summary.requests) {
+      if (!dynamic || specifier === null || !specifier.startsWith(".")) continue;
+      const from = resolvePath(path, specifier);
+      const inner = [...tracked].filter(([key]) => key.startsWith(`${from}#`)).map(([, entry]) => entry);
+      if (inner.length) report(`${inner.some(entry => entry.kind === "family") ? "family_mutation" : "entry_replaced"}: dynamic import of ${from}, which exports ${[...new Set(inner.map(entry => entry.label))].join(", ")}, is not admitted ${where(summary.sf, path, node)}`);
     }
   }
 
@@ -1679,7 +1856,7 @@ function moduleSummary(ts, sf) {
   const visit = node => {
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const [argument] = node.arguments;
-      summary.requests.push({ specifier: argument && isStringLiteral(ts, argument) ? literalValue(ts, argument) : null, node });
+      summary.requests.push({ specifier: argument && isStringLiteral(ts, argument) ? literalValue(ts, argument) : null, node, dynamic: true });
     }
     if (ts.isIdentifier(node) && isReference(ts, node)) {
       const symbol = symbolOf(ts, sf, node);

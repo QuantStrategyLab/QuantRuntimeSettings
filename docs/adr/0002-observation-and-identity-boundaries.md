@@ -139,17 +139,20 @@ Admission is closed:
   bindings, parameters included, and examined. Direct and optional property
   access and truthiness are admitted. Passing a whole receiver to a call is
   admitted only as one of the reviewed forward calls listed in the helper,
-  matched as a whole call with its multiplicity inside a gated branch; a
-  gated branch alone authorizes nothing. Method calls on a receiver, computed
-  access whatever its key, aliases, destructuring, spread, reflection,
-  immediately invoked functions, reassignment, mutation, shadowing and
-  dynamic evaluation in any spelling are rejected.
+  matched as a whole call with its multiplicity inside a gated branch, and
+  every module-level name in it must resolve to its reviewed binding (the
+  same import, namespace element or local declaration); a same-named
+  replacement fails. A gated branch alone authorizes nothing. Method calls on
+  a receiver, computed access whatever its key, aliases, destructuring,
+  spread, reflection, immediately invoked functions, reassignment, mutation,
+  shadowing and dynamic evaluation in any spelling are rejected.
 - An action family must resolve through imports and re-exports to one
   `const NAME = new Set([...string literals])` and be used only through
   `.has()` in every module the Worker bundle reaches. Uses are followed by
   import identity (named, namespace and re-exported bindings, escaped
   identifiers), and the module set is every console source file, generated
-  ones included.
+  ones included. A module that exports a family or entry binding may not be
+  dynamically imported or re-exported as a namespace.
 
 This contract covers classification coverage of the dispatch set only. It does
 not show that every branch is reachable or that an observation is free of
