@@ -103,7 +103,7 @@ jobs:
           import os
           proceed = os.environ.get("DIGEST_EVENT_NAME") == "workflow_dispatch" and os.environ.get("DIGEST_INPUT_DRY_RUN") == "true"
           if not proceed:
-              print("::notice::Production daily digest delivery is owned by Cloud Run; only explicit previews run here.")
+              print("::notice::Production reports are not produced by this workflow; repository evidence points to an Azure scheduled sender sharing the digest core (live activation not verified).")
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"proceed={str(proceed).lower()}\n")
           PY_SLOT
