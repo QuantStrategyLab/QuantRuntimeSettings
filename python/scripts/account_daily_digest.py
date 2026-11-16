@@ -192,12 +192,19 @@ def _count_value(count, observed, zh):
     return '未知' if zh else 'unknown'
 
 
+# Notes and states are rendered from attributes carried by the input records.
+_POSITION_ORIGIN_NOTES = {'account_opening_gift': ('开户赠送', 'account-opening gift')}
+_PLAN_STATUS_TEXT = {'stopped': ('已停止', 'stopped'), 'enabled': ('已启用', 'enabled')}
+
+
 def _snapshot_label(stamp, window, zh):
-    if stamp < window.start:
-        prefix = '较早快照 ' if zh else 'Earlier snapshot '
-    else:
-        prefix = '快照 ' if zh else 'Snapshot '
-    return prefix + stamp.astimezone(SGT).strftime('%Y-%m-%d %H:%M UTC+8')
+    label = ('快照 ' if zh else 'Snapshot ') + stamp.astimezone(SGT).strftime('%Y-%m-%d %H:%M UTC+8')
+    if stamp >= window.start:
+        return label
+    hours = int((window.end - stamp).total_seconds() // 3600)
+    if zh:
+        return f'{label}（距截止 {hours} 小时，早于统计区间）'
+    return f"{label} ({hours} hour{'' if hours == 1 else 's'} before the cutoff, earlier than the reporting window)"
 
 
 def render_account_daily(payload, expected, outcomes, *, facts=None, known_platforms=(), max_units=3850,
@@ -212,6 +219,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
     locale = normalize_locale(payload.locale)
     zh = locale == 'zh'
     unknown = '未知' if zh else 'unknown'
+    not_obtained = '未取得' if zh else 'not obtained'
     window = sgt_business_window(datetime.combine(date.fromisoformat(payload.business_day), time(6), SGT))
     facts = facts or {}
     telegram_ibkr_accounts = telegram_ibkr_accounts or {}
@@ -251,7 +259,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
     summary_counts = {key: 0 for key in ('traded', 'pending', 'quiet', 'standby', 'snapshot', 'unconfirmed')}
     blocks = []
     outcome_text = {
-        'missing': ('报告缺失', 'Report missing'),
+        'missing': ('报告缺失（原因未明）', 'Report missing (cause unknown)'),
         'stale': ('报告过期', 'Report stale'),
         'not_run': ('未运行', 'Not run'),
         'scheduled_idle': ('当日无排班，待机', 'Not scheduled today; standing by'),
@@ -271,6 +279,9 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         for binding, _ in bindings:
             fallback = '未命名策略' if zh else 'Unnamed strategy'
             name = safe_display_text(display_name('strategies', binding.get('strategy_profile', ''), locale, fallback=fallback)) or fallback
+            status = _PLAN_STATUS_TEXT.get(binding.get('plan_status'))
+            if status:
+                name += f'（{status[0]}）' if zh else f' ({status[1]})'
             if name not in strategies:
                 strategies.append(name)
         snapshot_only = all(outcome == 'snapshot_only' for _, outcome in bindings)
@@ -391,6 +402,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         complete, holdings, equity = False, [], unknown
         no_stocks = False
         no_spot_earn = False
+        reported_assets = ''
         stamp_label, holding_stamp_label = '', ''
         if snapshots:
             snapshots.sort(key=lambda pair: pair[0], reverse=True)
@@ -417,13 +429,13 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 observed_equity, currency, observed_holdings, scope = next(iter(observations))
                 observed = _balance_money(observed_equity, currency, unknown)
                 if observed != unknown:
-                    stamp_label = (f'来源报告 {observed}，快照时间未知' if zh else
-                                   f'Source reported {observed}, snapshot time unknown')
+                    reported_assets = observed
+                    stamp_label = '快照时间未知' if zh else 'snapshot time unknown'
                 elif observed_holdings:
                     stamp_label = '持仓快照时间未知' if zh else 'Holding snapshot time unknown'
                 holdings = [{'symbol': h.symbol, 'quantity': h.quantity,
                              'asset_type': 'stock' if scope == 'stocks_only' else None} for h in observed_holdings]
-        asset_line = ('💰 总资产：' if zh else '💰 Total assets: ') + equity
+        asset_line = ('💰 总资产：' if zh else '💰 Total assets: ') + (equity if equity != unknown else reported_assets or not_obtained)
         if stamp_label:
             asset_line += ' · ' + stamp_label
         wallet = account_fact.get('wallet_valuation') if caps.get('supports_wallet_valuation') else None
@@ -437,33 +449,26 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         cash_lines = []
         if caps.get('supports_settled_cash') or account_fact.get('settled_cash'):
             cash = account_fact.get('settled_cash')
-            value = unknown
+            value = not_obtained
             if cash:
                 date_label = 'Flex 结单' if zh else 'Flex statement'
                 cash_currency = str(cash.get('currency') or 'USD')
                 formatted_cash = _format_money_amount(cash.get('amount'), unknown)
                 value = (
                     f"{cash_currency} {formatted_cash} · {date_label} {cash['statement_date']}"
-                    if formatted_cash != unknown else unknown
+                    if formatted_cash != unknown else not_obtained
                 )
-            cash_lines.append(('期末已结算现金：' if zh else 'Period-end settled cash: ') + value)
+            cash_lines.append(('已结算现金：' if zh else 'Settled cash: ') + value)
         holding_label = '📦 持仓：' if zh else '📦 Holdings: '
         if not holdings:
             if complete:
                 holding_label += '空仓' if zh else 'No holdings'
             elif no_stocks:
-                holding_label += '已核实无股票持仓；其他资产未知' if zh else 'No stock positions verified; other assets unknown'
+                holding_label += '无股票持仓' if zh else 'No stock positions'
             elif no_spot_earn:
-                holding_label += ('已核实现货与活期理财无持仓；其他钱包未知' if zh else
-                                  'No spot or flexible Earn holdings verified; other wallets unknown')
+                holding_label += '无现货与活期理财持仓' if zh else 'No spot or flexible Earn holdings'
             else:
-                holding_label += unknown
-        elif not complete:
-            holding_label += '仅列已核实持仓' if zh else 'Verified positions only'
-        if holding_stamp_label:
-            holding_label += (' · ' if not holdings or not complete else '') + holding_stamp_label
-        elif holdings and complete and not zh:
-            holding_label = '📦 Holdings:'
+                holding_label += not_obtained
         raw_holding_lines = []
         is_crypto_only = bool(holdings)
         for holding in holdings:
@@ -475,10 +480,12 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 asset = 'option'
             if str(asset or '').lower() != 'crypto':
                 is_crypto_only = False
-            raw_holding_lines.append(
-                f"{_symbol(symbol, unknown, asset_type=asset)} "
-                f"{_quantity(holding.get('quantity'), asset, zh, unknown)}"
-            )
+            line = (f"{_symbol(symbol, unknown, asset_type=asset)} "
+                    f"{_quantity(holding.get('quantity'), asset, zh, unknown)}")
+            note = _POSITION_ORIGIN_NOTES.get(holding.get('origin'))
+            if note:
+                line += f'（{note[0]}）' if zh else f' ({note[1]})'
+            raw_holding_lines.append(line)
         holding_lines = []
         if is_crypto_only and len(raw_holding_lines) > 6:
             for index in range(0, len(raw_holding_lines), 2):
@@ -486,6 +493,13 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 holding_lines.append((' · '.join(pair), len(pair)))
         else:
             holding_lines = [(line, 1) for line in raw_holding_lines]
+        if len(holding_lines) == 1:
+            holding_label += holding_lines.pop()[0]
+        elif holding_lines and holding_stamp_label:
+            holding_label = '📦 持仓' if zh else '📦 Holdings'
+        if holding_stamp_label:
+            holding_label += ' · ' + holding_stamp_label
+        holding_label = holding_label.rstrip()
         # Every binding must have a matching run, not merely an outcome marker.
         orders, fills = account_fact.get('orders') or [], account_fact.get('fills') or []
         filled_order_ids = {fill['order_id'] for fill in fills if fill.get('order_id')}
@@ -542,8 +556,12 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 if type(binding.get('expected_runs')) is int and binding.get('expected_runs') > 0
             ]
             expected_total = max([len(rows), *configured_runs])
-            state = (f'已核实 {quiet}/{expected_total} 轮无交易，全天交易未确认' if zh else
-                     f'{quiet} of {expected_total} runs verified without trades. Daily activity unconfirmed.')
+            unverified = expected_total - quiet
+            state = (f'已核实 {quiet}/{expected_total} 轮无交易' + (f'（未核实 {unverified} 轮）' if unverified > 0 else '')
+                     + '，全天交易未确认' if zh else
+                     f'{quiet} of {expected_total} runs verified without trades'
+                     + (f' ({unverified} not verified)' if unverified > 0 else '')
+                     + '. Daily activity unconfirmed.')
         elif blocked:
             state = '策略触发风控，全天交易未确认' if zh else 'Strategy runs blocked. Daily activity unconfirmed.'
         elif has_simulation and (unconfirmed_runs or not rows):

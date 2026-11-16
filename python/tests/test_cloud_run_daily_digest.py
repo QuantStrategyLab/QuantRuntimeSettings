@@ -128,7 +128,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertIn('币 1.5', text)
         self.assertIn('A' * 128 + ' 3', text)
         self.assertNotIn('提交订单 未知｜成交回报 未知', text)
-        self.assertIn('仅列已核实持仓', text)
+        self.assertNotIn('仅列已核实持仓', text)
         self.assertNotIn('策略未运行', text)
 
     def test_binance_empty_spot_and_earn_snapshot_preserves_scope_caveat(self):
@@ -141,8 +141,8 @@ class CloudRunDigestTests(unittest.TestCase):
             'holdings': [],
         }
         for locale, expected_text, forbidden in (
-            ('zh', '已核实现货与活期理财无持仓；其他钱包未知', '持仓：空仓'),
-            ('en', 'No spot or flexible Earn holdings verified; other wallets unknown', 'No holdings'),
+            ('zh', '无现货与活期理财持仓', '持仓：空仓'),
+            ('en', 'No spot or flexible Earn holdings', 'No holdings'),
         ):
             with self.subTest(locale=locale), patch.object(app.urllib.request, 'build_opener') as opener:
                 self.store, self.sent = MemoryStore(), []
@@ -199,8 +199,8 @@ class CloudRunDigestTests(unittest.TestCase):
         for change, expected in (({}, '钱包估值（券商返回范围）：USDT 25.50 · 快照 2026-10-15 23:59'),
                                  ({'amount': '1234.12345678901234567890123456789'},
                                   '钱包估值（券商返回范围）：USDT 1,234.12'),
-                                 ({'currency': 'USD'}, '总资产：未知'),
-                                 ({'as_of': '2026-10-15T16:00:01Z'}, '总资产：未知')):
+                                 ({'currency': 'USD'}, '总资产：未取得'),
+                                 ({'as_of': '2026-10-15T16:00:01Z'}, '总资产：未取得')):
             with self.subTest(change=change), patch.object(app.urllib.request, 'build_opener') as opener:
                 self.store, self.sent = MemoryStore(), []
                 opener.return_value.open.return_value = io.BytesIO(json.dumps({
@@ -353,8 +353,8 @@ class CloudRunDigestTests(unittest.TestCase):
             {**ROW, 'equity': 250, 'equity_currency': 'USD', 'as_of': NOW.isoformat()},
         ]}})
         self.run_request(configuration=self.enable())
-        self.assertIn('总资产：未知 · 来源报告 USD 250.00，快照时间未知', self.sent[0])
-        self.assertIn('持仓：未知', self.sent[0])
+        self.assertIn('总资产：USD 250.00 · 快照时间未知', self.sent[0])
+        self.assertIn('持仓：未取得', self.sent[0])
 
     def test_account_snapshot_keeps_independently_verified_fields(self):
         position = {'symbol': 'TQQQ', 'asset_type': 'etf', 'quantity': 3}
@@ -362,10 +362,10 @@ class CloudRunDigestTests(unittest.TestCase):
                     'equity_currency': 'USD', 'holdings_scope': 'account',
                     'holdings_complete': True, 'holdings': [position]}
         cases = (
-            ({'equity_currency': None}, ('总资产：未知', 'TQQQ 3股'), ('USD 250.00',)),
-            ({'holdings': None}, ('总资产：USD 250.00', '持仓：未知'), ('空仓',)),
+            ({'equity_currency': None}, ('总资产：未取得', 'TQQQ 3股'), ('USD 250.00',)),
+            ({'holdings': None}, ('总资产：USD 250.00', '持仓：未取得'), ('空仓',)),
             ({'holdings': [position, {'symbol': 'BOXX'}]},
-             ('总资产：USD 250.00', '仅列已核实持仓', 'TQQQ 3股'), ('空仓',)),
+             ('总资产：USD 250.00', '持仓：TQQQ 3股'), ('空仓',)),
         )
         for changes, included, excluded in cases:
             with self.subTest(changes=changes):
@@ -388,7 +388,7 @@ class CloudRunDigestTests(unittest.TestCase):
         key = f"ibkr/{ROW['business_day']}/{binding['candidate_slot']}.json"
         snapshot = {'as_of': '2026-10-16T05:10:00+08:00',
                     'holdings_scope': 'stocks_only', 'holdings': []}
-        for complete, label in ((True, '已核实无股票持仓；其他资产未知'), (False, '持仓：未知')):
+        for complete, label in ((True, '持仓：无股票持仓'), (False, '持仓：未取得')):
             with self.subTest(complete=complete):
                 row = {**ROW, 'platform_id': 'ibkr', 'account_daily_facts': {
                     'snapshots': [{**snapshot, 'holdings_complete': complete}],
@@ -430,7 +430,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertEqual(self.run_request(configuration=configuration, headers=headers)[1]['delivery'], 'confirmed')
         self.assertEqual(len(self.sent), 1)
         self.assertIn('总资产：USD 250.00', self.sent[0])
-        self.assertIn('期末已结算现金：USD 0.00 · Flex 结单 2026-10-14', self.sent[0])
+        self.assertIn('已结算现金：USD 0.00 · Flex 结单 2026-10-14', self.sent[0])
         self.assertIn('TQQQ 3股', self.sent[0])
         self.assertIn('成交回报 未知', self.sent[0])
         self.assertNotIn('成交回报 0笔', self.sent[0])
@@ -928,7 +928,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.assertNotIn('LDBTC', text)
         self.assertNotIn('LDBNB', text)
         self.assertIn('LDO 3.5', text)
-        self.assertIn(' · ', text.split('📦 持仓：', 1)[1])
+        self.assertIn(' · ', text.split('📦 持仓', 1)[1])
 
     def test_generalized_receipt_candidate_uses_expected_runs_denominator(self):
         from dataclasses import replace
@@ -943,7 +943,7 @@ class CloudRunDigestTests(unittest.TestCase):
         self.store, self.sent = MemoryStore({key: {'runs': [row]}}), []
         self.run_request(configuration=cfg, platform_config=config([binding]))
         text, = self.sent
-        self.assertIn('已核实 1/22 轮无交易，全天交易未确认', text)
+        self.assertIn('已核实 1/22 轮无交易（未核实 21 轮），全天交易未确认', text)
         self.assertNotIn('提交订单 未知｜成交回报 未知', text)
 
     def test_deadline_alert_enabled_sends_single_alert_when_receipt_missing(self):

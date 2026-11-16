@@ -94,10 +94,10 @@ for (const page of DESK_PAGES) {
 assert.match(deskTranslate("zh", "nav.overview"), /[一-鿿]/);
 assert.equal(deskTranslate("en", "nav.accounts"), "Accounts");
 assert.equal(deskTranslate("en", "stub.eyebrow", {}), en["stub.eyebrow"], "unknown placeholder stays visible");
-assert.equal(resolveDeskLanguage(null, ["fr-FR"]), "zh");
+assert.equal(resolveDeskLanguage(null, ["fr-FR"]), "en");
 assert.equal(resolveDeskLanguage(null, ["en-GB", "zh-CN"]), "en");
 assert.equal(resolveDeskLanguage("en", ["zh-CN"]), "en");
-assert.equal(resolveDeskLanguage("garbage", []), "zh");
+assert.equal(resolveDeskLanguage("garbage", []), "en");
 
 // 6. desk.css uses tokens only, and every --mrd-* it reads is defined for light and dark.
 const css = src("desk/styles/desk.css");

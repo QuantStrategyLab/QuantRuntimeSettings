@@ -158,8 +158,7 @@ class DailyCallerPresentationTests(unittest.TestCase):
         after = snapshot(equity=None, equity_currency=None)
         text, _ = self.report([with_facts(ROW, snapshots=[after, before])], ["present"])
         self.assertIn("总资产：USD 50,000.00 · 快照 2026-10-16 04:00", text)
-        self.assertIn("持仓：快照 2026-10-16 05:10", text)
-        self.assertIn("TQQQ 300股", text)
+        self.assertIn("持仓：TQQQ 300股 · 快照 2026-10-16 05:10", text)
 
     def test_no_trade_keeps_assets_and_explicit_empty_positions(self):
         item = with_facts(ROW, snapshots=[snapshot(holdings=[])])
@@ -224,10 +223,10 @@ class DailyCallerPresentationTests(unittest.TestCase):
                            snapshots=[snapshot(as_of="2026-10-14T05:10:00+08:00")])
         text, _ = self.report([], ["stale"], stale=[stale])
         self.assertIn("报告过期", text)
-        self.assertIn("较早快照 2026-10-14", text)
+        self.assertIn("快照 2026-10-14 05:10 UTC+8（距截止 48 小时，早于统计区间）", text)
         self.assertNotIn("777", text)
         text, _ = self.report([], ["missing"])
-        for part in ("报告缺失", "提交订单 未知", "成交回报 未知", "总资产：未知", "持仓：未知"):
+        for part in ("报告缺失（原因未明）", "提交订单 未知", "成交回报 未知", "总资产：未取得", "持仓：未取得"):
             self.assertIn(part, text)
         self.assertNotIn("空仓", text)
 
@@ -287,8 +286,8 @@ class DailyCallerPresentationTests(unittest.TestCase):
                 text, _ = self.report([first, other], ["present", "present"], locale="en",
                                       expected=[EXPECTED[0], second])
                 if change:
-                    self.assertIn("Total assets: unknown", text)
-                    self.assertIn("Holdings: unknown", text)
+                    self.assertIn("Total assets: not obtained", text)
+                    self.assertIn("Holdings: not obtained", text)
                 else:
                     for part in ("Total assets: USD 50,000.00", "BOXX 100 shares", "TQQQ 300 shares"):
                         self.assertEqual(text.count(part), 1)

@@ -330,8 +330,8 @@ def _localize_producer_token(
 
 
 def normalize_locale(raw: str | None) -> DigestLocale:
-    value = (raw or "zh").strip().lower()
-    return "en" if value.startswith("en") else "zh"
+    value = (raw or "en").strip().lower()
+    return "zh" if value.startswith("zh") else "en"
 
 
 def _t(locale: DigestLocale, key: str) -> str:
