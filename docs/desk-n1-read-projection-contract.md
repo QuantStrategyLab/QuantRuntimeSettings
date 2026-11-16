@@ -265,6 +265,14 @@ readbacks, credentials and alert-delivery routes intact.
   `account_facts_history_read` and `credential_maintenance_read` (existing POST
   RPC transport); the Worker wrapper rejects any other command. Tests inject
   fakes that throw on any write and assert zero such calls.
+- Baseline delta ([ADR 0002](adr/0002-observation-and-identity-boundaries.md)):
+  the boundary above is the Worker's command allowlist, not the full request
+  lifecycle. Each of the five routes reaches the `RuntimeInstances` Durable
+  Object, whose constructor still initializes schema before any command runs
+  (exception B0 in `tests/fixtures/read-contract-exceptions.json`). These routes
+  are therefore not yet no-write under rule R1; the interim deadline for them
+  is 2026-12-14. Their responses are unchanged, and this contract is the
+  declared scope/completeness contract the operation registry cites for them.
 
 ## 6. Frontend wiring
 
