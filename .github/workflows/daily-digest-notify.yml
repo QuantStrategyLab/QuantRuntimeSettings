@@ -28,7 +28,7 @@ on:
         type: string
         default: ""
       locale:
-        description: "zh or en (empty = QSL_NOTIFY_LANG / NOTIFY_LANG / zh)."
+        description: "zh or en (empty = QSL_NOTIFY_LANG / NOTIFY_LANG / en)."
         required: false
         type: string
         default: ""
@@ -71,8 +71,8 @@ jobs:
       DIGEST_RECIPIENT_SCOPE: ${{ vars.DIGEST_RECIPIENT_SCOPE || 'default' }}
       STRATEGY_SWITCH_CONSOLE_URL: ''
       STRATEGY_SWITCH_SYNC_TOKEN: ''
-      QSL_NOTIFY_LANG: ${{ vars.QSL_NOTIFY_LANG || vars.NOTIFY_LANG || 'zh' }}
-      NOTIFY_LANG: ${{ vars.NOTIFY_LANG || 'zh' }}
+      QSL_NOTIFY_LANG: ${{ vars.QSL_NOTIFY_LANG || vars.NOTIFY_LANG || 'en' }}
+      NOTIFY_LANG: ${{ vars.NOTIFY_LANG || 'en' }}
       # Cross-repo evidence (optional). Same token used elsewhere for remote reads.
       GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
       DIGEST_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}

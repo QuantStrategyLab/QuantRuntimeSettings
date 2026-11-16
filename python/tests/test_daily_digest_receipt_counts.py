@@ -53,7 +53,7 @@ class ReceiptCountEvidenceTests(unittest.TestCase):
                 }]}))
                 with mock.patch.dict("os.environ", {}, clear=True):
                     payload, text, collected = aggregator.build_digest_payload(
-                        business_day="2026-10-12", candidates_path=path, include_github=False, layout="v1",
+                        business_day="2026-10-12", candidates_path=path, include_github=False, layout="v1", locale="zh",
                     )
                 receipt = aggregator.build_receipt(payload, collected, message_chars=len(text))
                 self.assertIsNone(receipt["total_fills"])

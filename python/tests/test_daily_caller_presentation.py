@@ -320,6 +320,51 @@ class DailyCallerPresentationTests(unittest.TestCase):
         self.assertIn("张", text)
         self.assertIn("USD 50,000.00", text)
 
+    def test_budget_counts_inline_singleton_holdings_in_shown_and_omitted(self):
+        multi = [{"symbol": f"TEST{i}", "quantity": i + 1, "asset_type": "option"} for i in range(70)]
+        single = [{"symbol": "SOLO", "quantity": 7, "asset_type": "stock"}]
+        first = {**EXPECTED[0], "account_label": "Single"}
+        second = {**first, "account_label": "Multi", "opaque_account_uid": "multi-account", "target_id": "multi-target"}
+        total = len(single) + len(multi)
+        for max_units in (700, 900, 1100):
+            for order in ((first, second), (second, first)):
+                with self.subTest(max_units=max_units, singleton_first=order[0] is first):
+                    holdings = {first["opaque_account_uid"]: single, second["opaque_account_uid"]: multi}
+                    facts = {(b["platform_id"], b["opaque_account_uid"]): {"snapshots": [snapshot(holdings=holdings[b["opaque_account_uid"]])]}
+                             for b in order}
+                    text = render_account_daily(DailyDigestInput(DAY), list(order), ["not_run"] * 2,
+                                                facts=facts, max_units=max_units)
+                    self.assertLessEqual(len(text.encode("utf-16-le")) // 2, max_units)
+                    shown = sum(line.startswith("TEST") for line in text.splitlines())
+                    shown += sum("SOLO" in line for line in text.splitlines())
+                    if max_units < 1100:
+                        self.assertIn(f"持仓展示 {shown} 项、省略 {total - shown} 项", text)
+                        self.assertGreater(total, shown)
+                    else:
+                        self.assertEqual(shown, total)
+                        self.assertNotIn("项省略", text)
+
+    def test_budget_counts_inline_singleton_of_fully_omitted_account(self):
+        multi = [{"symbol": f"TEST{i}", "quantity": i + 1, "asset_type": "option"} for i in range(70)]
+        first = {**EXPECTED[0], "account_label": "Multi"}
+        second = {**first, "account_label": "Single", "opaque_account_uid": "single-account", "target_id": "single-target"}
+        facts = {
+            (first["platform_id"], first["opaque_account_uid"]): {"snapshots": [snapshot(holdings=multi)]},
+            (second["platform_id"], second["opaque_account_uid"]): {"snapshots": [snapshot(
+                holdings=[{"symbol": "SOLO", "quantity": 7, "asset_type": "stock"}])]},
+        }
+        account_omitted = False
+        for max_units in range(300, 520, 5):
+            with self.subTest(max_units=max_units):
+                text = render_account_daily(DailyDigestInput(DAY), [first, second], ["not_run"] * 2,
+                                            facts=facts, max_units=max_units)
+                lines = text.splitlines()
+                shown = sum(line.startswith("TEST") for line in lines) + sum("SOLO" in line for line in lines)
+                if "项省略" in text:
+                    self.assertIn(f"持仓展示 {shown} 项、省略 {71 - shown} 项", text)
+                    account_omitted = account_omitted or "Single" not in text
+        self.assertTrue(account_omitted, "no limit omitted the singleton account entirely")
+
     def test_cutoff_uses_same_report_title_and_reservation(self):
         self.now += app.timedelta(minutes=31)
         self.run_request(configuration=self.enable())

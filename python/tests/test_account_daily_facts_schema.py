@@ -35,6 +35,16 @@ class AccountDailyFactsSchemaTests(unittest.TestCase):
         candidate["runs"][0]["account_daily_facts"] = self.facts
         self.validator.validate(candidate)
 
+    def test_holding_origin_is_admitted_and_unknown_properties_still_fail(self):
+        gift = {"symbol": "ABC", "quantity": 1, "asset_type": "stock", "origin": "account_opening_gift"}
+        for holding, valid in ((gift, True), ({**gift, "origin": 7}, False), ({**gift, "unexpected": True}, False)):
+            with self.subTest(holding=holding):
+                facts = copy.deepcopy(self.facts)
+                facts["snapshots"][0]["holdings"] = [holding]
+                candidate = copy.deepcopy(self.legacy)
+                candidate["runs"][0]["account_daily_facts"] = facts
+                self.assertEqual(self.validator.is_valid(candidate), valid)
+
     def test_malformed_facts_are_rejected(self):
         for invalid in ({"fills": [{"id": "fill"}]}, {"orders": "not-an-array"},
                         {"snapshots": [{"as_of": 123}]}, {"unexpected": True}):

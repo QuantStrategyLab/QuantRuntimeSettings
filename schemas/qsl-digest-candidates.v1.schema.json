@@ -620,6 +620,11 @@
                         "asset_type": {
                           "type": "string",
                           "minLength": 1
+                        },
+                        "origin": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Optional position provenance tag (for example account_opening_gift). Additive and backward compatible: producers that omit it remain valid."
                         }
                       }
                     }

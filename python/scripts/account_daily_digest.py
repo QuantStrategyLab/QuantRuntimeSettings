@@ -493,8 +493,10 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
                 holding_lines.append((' · '.join(pair), len(pair)))
         else:
             holding_lines = [(line, 1) for line in raw_holding_lines]
+        inline_holdings = 0
         if len(holding_lines) == 1:
-            holding_label += holding_lines.pop()[0]
+            single_line, inline_holdings = holding_lines.pop()
+            holding_label += single_line
         elif holding_lines and holding_stamp_label:
             holding_label = '📦 持仓' if zh else '📦 Holdings'
         if holding_stamp_label:
@@ -621,7 +623,7 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         if show_counts:
             core_lines.append(('｜' if zh else ' | ').join(count_lines))
         core_lines.extend((asset_line, *cash_lines, holding_label))
-        blocks.append((header, core_lines, [(d, 1) for d in details], holding_lines))
+        blocks.append((header, core_lines, [(d, 1) for d in details], holding_lines, inline_holdings))
     lines = [('📊 昨日账户日报｜' if zh else '📊 Daily account report | ') + payload.business_day,
              '🕒 ' + _window_text(payload.business_day, locale)]
     if all_idle:
@@ -664,15 +666,17 @@ def render_account_daily(payload, expected, outcomes, *, facts=None, known_platf
         return (f'另有 {n} 项省略（持仓展示 {n} 项、省略 {n} 项）' if zh else
                 f'{n} items omitted (holdings: {n} shown, {n} omitted)')
     reserved, omitted, omitted_holdings = [], 0, 0
-    total_holding_items = sum(item_count for _, _, _, h_items in blocks for _, item_count in h_items)
-    upper_bound = sum(1 + len(core) + len(details) + sum(c for _, c in h_items) for _, core, details, h_items in blocks)
-    for header, core, details, holdings in blocks:
+    # Inline singleton holdings live in the core label, so count them separately.
+    total_holding_items = sum(inline + sum(c for _, c in h_items) for _, _, _, h_items, inline in blocks)
+    upper_bound = sum(1 + len(core) + len(details) + sum(c for _, c in h_items)
+                      for _, core, details, h_items, _ in blocks)
+    for header, core, details, holdings, inline in blocks:
         prior = [line for h, c, _, _ in reserved for line in ['', h, *c]]
         if _units('\n'.join(lines + prior + ['', header, *core, suffix(upper_bound)])) <= max_units:
             reserved.append((header, core, details, holdings))
         else:
             omitted += 1 + len(core) + len(details) + len(holdings)
-            omitted_holdings += sum(c for _, c in holdings)
+            omitted_holdings += inline + sum(c for _, c in holdings)
     for index, (header, core, details, holdings) in enumerate(reserved):
         head_count = 2 if len(core) >= 2 else len(core)
         lines.extend(('', header, *core[:head_count]))

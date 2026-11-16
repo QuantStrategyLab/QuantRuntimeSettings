@@ -29,6 +29,17 @@ digest = _load_module("daily_digest_notify")
 
 
 class DailyDigestAggregatorTests(unittest.TestCase):
+    def test_unconfigured_locale_defaults_to_en_and_configured_choice_wins(self):
+        for env, raw, expected in (
+            ({}, None, "en"),
+            ({"QSL_NOTIFY_LANG": "zh"}, None, "zh"),
+            ({"NOTIFY_LANG": "zh-CN"}, None, "zh"),
+            ({"QSL_NOTIFY_LANG": "en"}, None, "en"),
+            ({"QSL_NOTIFY_LANG": "en"}, "zh", "zh"),
+        ):
+            with self.subTest(env=env, raw=raw), mock.patch.dict("os.environ", env, clear=True):
+                self.assertEqual(aggregator.resolve_locale(raw), expected)
+
     def test_business_day_uses_new_york_calendar(self):
         stamp = datetime(2026, 10, 5, 22, 0, tzinfo=ZoneInfo("UTC"))
         self.assertEqual(

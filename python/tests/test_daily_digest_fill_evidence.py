@@ -130,7 +130,7 @@ class DailyDigestFillEvidenceTests(unittest.TestCase):
                     path.write_text(json.dumps({"runs": rows}))
                 with mock.patch.object(aggregator, "collect_from_github_workflows", return_value=github):
                     payload, text, _ = aggregator.build_digest_payload(
-                        business_day=DAY, candidates_path=path, include_github=True,
+                        business_day=DAY, candidates_path=path, include_github=True, locale="zh",
                     )
                 self.assertEqual(text.count("数据缺失："), 10 if kind == "stale" else 5)
                 self.assertIn("证据未覆盖", text)
