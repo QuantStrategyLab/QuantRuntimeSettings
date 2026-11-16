@@ -176,8 +176,13 @@ function assembleKv(responses) {
   const repeated = Boolean(first && second && fingerprint(first) === fingerprint(second));
   if (first && second && !repeated) reasons.push("kv:passes_differ");
   const keys = complete.at(-1)?.keys ?? [];
-  const failedReads = keys.filter(item => !KV_UNREVIEWED.has(item.state) && !KV_READ_OK.has(item.state))
-    .map(item => ({ name: item.name, family: item.family, state: item.state ?? "missing", group: KV_GROUP_OF.get(item.family) ?? null }));
+  // A cache whose account hierarchy was cut at the projection bound, or is not
+  // the writer's object hierarchy, holds identities that were not read.
+  const cacheUnread = cache => !cache ? null : cache.truncated ? "cache_accounts_truncated"
+    : cache.state === "unexpected_shape" || cache.unexpected_platforms ? "cache_accounts_unexpected_shape" : null;
+  const failedReads = keys.filter(item => (!KV_UNREVIEWED.has(item.state) && !KV_READ_OK.has(item.state)) || cacheUnread(item.cache_accounts))
+    .map(item => ({ name: item.name, family: item.family, state: KV_READ_OK.has(item.state) ? cacheUnread(item.cache_accounts) : item.state ?? "missing",
+      group: KV_GROUP_OF.get(item.family) ?? null }));
   return { passes: passes.length, complete_passes: complete.length, repeated_pass_equal: repeated, stable: !reasons.length,
     reasons, failed_reads: failedReads, keys };
 }
@@ -296,6 +301,19 @@ function mappingFrom(objects, kv, env) {
   for (const item of kv?.keys || []) {
     if (item.state === "exported") addReferences(item.identity, "kv_reference", { source: "kv", name: item.name }, false);
   }
+  // current_strategies_cache names accounts by `data[platform][accountKey]`
+  // only; the reader projects that hierarchy for this family alone. The path
+  // is an array because object keys may contain dots.
+  for (const item of kv?.keys || []) {
+    if (item.family !== "current_strategies_cache" || item.state !== "exported") continue;
+    for (const account of item.cache_accounts?.accounts || []) {
+      const locator = { source: "kv", name: item.name, path: ["data", account.platform, account.account_key] };
+      // An empty object key is still a stored account slot; add() would drop it.
+      if (!account.account_key) { unattributed.push({ legacy_key: account.account_key, locator }); continue; }
+      add(account.platform, account.account_key, "kv_reference", locator,
+        { qualifiers: account.qualifiers, cache_entry: account.entry_shape, evidence_status: account.evidence_status });
+    }
+  }
   for (const item of env?.bindings || []) {
     if (item.state === "present") addReferences(item.identity, "env_reference", { source: "env", name: item.name }, false);
   }
@@ -371,7 +389,11 @@ function pendingFrom(objects, kv) {
     for (const item of result.do_kv?.entries || []) {
       const fields = { object: result.object, key: item.key };
       if (item.projection_error) pending.push({ family: "do_kv_unprojected", ...fields, status: `unreadable:${item.projection_error}`, classification: "unknown" });
-      else if (item.family === "desk_readback_record") push(item.family, item.payload_state, { ...fields, expired: item.expired ?? null });
+      // A completed target snapshot is an observation, not a job: it is
+      // excluded before job-state classification, whatever its `overall`.
+      else if (item.family === "desk_readback_record") {
+        if (item.record_kind !== "snapshot") push(item.family, item.payload_state, { ...fields, expired: item.expired ?? null, record_kind: item.record_kind ?? null });
+      }
       else if (item.family === "desk_idempotency") push(item.family, item.state, fields);
       // Only an explicit idle admission holds no operation; a missing,
       // invalid or unreadable state stays listed as unknown.

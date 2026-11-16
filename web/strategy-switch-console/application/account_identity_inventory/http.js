@@ -7,7 +7,7 @@ import { responseHeaders } from "../http_response.js";
 import { base64UrlEncodeBytes } from "../auth/cookies.js";
 import {
   INVENTORY_DO_PATH, INVENTORY_OBJECTS, INVENTORY_ORDERING, INVENTORY_PAGE_SIZE, INVENTORY_SCHEMA_VERSION, INVENTORY_TABLES,
-  identityProjection,
+  identityProjection, strategiesCacheAccounts,
 } from "./reader.js";
 
 export const INVENTORY_ROUTE = "/api/admin/account-identity-inventory";
@@ -195,7 +195,8 @@ async function kvSection(env, values) {
     let value;
     try { value = JSON.parse(text); }
     catch { keys.push({ ...item, state: "invalid_json", bytes, value_sha256 }); continue; }
-    keys.push({ ...item, state: "exported", bytes, value_sha256, identity: identityProjection(value, 4000) });
+    keys.push({ ...item, state: "exported", bytes, value_sha256, identity: identityProjection(value, 4000),
+      ...(family.family === "current_strategies_cache" ? { cache_accounts: strategiesCacheAccounts(value) } : {}) });
   }
   const page = (cursor?.page ?? 0) + 1;
   const scanId = cursor?.scan_id ?? crypto.randomUUID();

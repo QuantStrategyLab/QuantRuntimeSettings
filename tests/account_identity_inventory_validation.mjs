@@ -480,6 +480,138 @@ const noLeak = (outputs, label) => {
   await h.close();
 }
 
+// ---------------------------------------------------- A2d: Desk snapshots and cache-key identities from the real writers
+// Records come from DeskReadbackStore and the current-strategies loaders and
+// writer, unmodified, over in-memory stores; then the real route and assemble().
+const { DeskReadbackStore, buildReadback } = await import(new URL("application/desk/readback.js", CONSOLE));
+const { loadStrategiesForPlatform, executionEvidenceFallback, writeCurrentStrategiesCache } = await import(new URL("application/worker/runtime_support.js", CONSOLE));
+function memoryStorage() {
+  const map = new Map();
+  let alarm = null;
+  const api = {
+    get: async name => structuredClone(map.get(name)),
+    put: async (name, item) => { map.set(name, structuredClone(item)); },
+    delete: async name => map.delete(name),
+    list: async ({ prefix = "" } = {}) => new Map([...map].filter(([name]) => name.startsWith(prefix)).sort(([a], [b]) => utf8Compare(a, b))
+      .map(([name, item]) => [name, structuredClone(item)])),
+    getAlarm: async () => alarm, setAlarm: async at => { alarm = at; }, deleteAlarm: async () => { alarm = null; },
+  };
+  return { ...api, transaction: async work => work(api), map };
+}
+async function deskRecords() {
+  const storage = memoryStorage();
+  const config = { account_selector: "U1234567", broker_environment: "paper", default_strategy_profile: "profile-a" };
+  // t-fresh reads with no observation (overall unknown); t-job drifts.
+  const read = async id => buildReadback({ target: { id, platform: "ibkr", revision: 1, config }, now: Date.now(), cleanRatio: () => true,
+    splitSelectorValues: item => String(item).split(","), ...(id === "t-job" ? { observed: { instance_revision: 1, config, enabled: true },
+      platform: { strategy_profile: "profile-b" } } : { observed: null }) });
+  const store = new DeskReadbackStore(storage, read);
+  await store.command({ action: "desk_readback_fresh", owner: "owner-a", actor: "actor-a", id: "t-fresh" });
+  await store.command({ action: "desk_readback_start", owner: "owner-b", actor: "actor-b", body: { idempotency_key: "k-done" }, ids: ["t-job"] });
+  await store.alarm();
+  await store.command({ action: "desk_readback_start", owner: "owner-c", actor: "actor-c", body: { idempotency_key: "k-running" }, ids: ["t-later"] });
+  return Object.fromEntries(storage.map);
+}
+async function cacheText(build) {
+  const values = new Map();
+  const env = { STRATEGY_SWITCH_CONFIG: { get: async name => values.get(name) ?? null, put: async (name, text) => { values.set(name, text); } } };
+  await writeCurrentStrategiesCache(env, await build(), 1_700_000_000_000);
+  return values.get("current_strategies_cache");
+}
+async function inventoryOf({ doKv = {}, kvValues = {} }) {
+  const h = await harness({ runtime: { sql: [], kv: doKv, alarm: null, initialize: false }, directory: { sql: [], kv: {}, alarm: null, initialize: false },
+    kv: fakeKv(kvValues), extraEnv: { ACCOUNT_IDENTITY_INVENTORY_KV_ENABLED: "true" } });
+  const responses = [];
+  await collect(h.get, "runtime", { responses });
+  await collect(h.get, "directory", { responses });
+  await collectKv(h.get, responses);
+  await collectKv(h.get, responses);
+  const assembled = assemble({ format: EXPORT_FORMAT, responses });
+  assert.deepEqual(violations, [], "no trap fired");
+  await h.unchanged();
+  await h.close();
+  return { responses, ...assembled };
+}
+{
+  const written = await deskRecords();
+  const records = Object.entries(written).filter(([name]) => name.startsWith("desk:readbacks:record:"));
+  const snapshots = records.filter(([, record]) => !("state" in record.payload));
+  assert.deepEqual([records.length, snapshots.length], [4, 2], "writer stored two snapshots, a finished job and a running job");
+  assert.deepEqual(snapshots.map(([, record]) => record.payload.overall).sort(), ["drift", "unknown"]);
+  const [, snapshot] = snapshots[0];
+  const mutate = edit => { const copy = structuredClone(snapshot); edit(copy); return copy; };
+  const controls = {
+    "desk:readbacks:record:rb_overall": mutate(copy => { copy.payload.readback_id = "rb_overall"; copy.payload.overall = "partial"; }),
+    "desk:readbacks:record:rb_mismatch": mutate(copy => { copy.payload.readback_id = "rb_other"; }),
+    "desk:readbacks:record:rb_pending": mutate(copy => { copy.payload.readback_id = "rb_pending"; copy.pending = []; }),
+    "desk:readbacks:record:rb_nofields": mutate(copy => { copy.payload.readback_id = "rb_nofields"; delete copy.payload.fields; }),
+    "desk:readbacks:record:rb_empty": { owner: "owner-x", expires: 4_102_444_800_000, payload: {} },
+    "desk:readbacks:record:rb_scalar": "snapshot",
+    "desk:readbacks:record:rbj_done": { owner: "owner-x", expires: 4_102_444_800_000, payload: { state: "done", results: [] }, pending: [], results: [] },
+    "desk:readbacks:record:rbj_partial": { owner: "owner-x", expires: 4_102_444_800_000, payload: { state: "partial", results: [] }, pending: [], results: [] },
+  };
+  const fresh = await inventoryOf({ doKv: Object.fromEntries(snapshots.filter(([, record]) => record.payload.overall === "unknown")) });
+  assert.deepEqual(fresh.private.pending.filter(item => item.family === "desk_readback_record"), [], "F1: a fresh completed snapshot is not pending, even with overall unknown");
+  const mixed = await inventoryOf({ doKv: { ...written, ...controls } });
+  const exported = mixed.responses.filter(item => item.request.section === "do_kv" && item.request.object === "runtime").flatMap(item => item.body.entries)
+    .filter(item => item.family === "desk_readback_record");
+  assert.deepEqual(Object.keys(controls).filter(name => name.includes(":rb_")).map(name => exported.find(item => item.key === name).record_kind),
+    Array(6).fill("unrecognized"), "snapshot-like and malformed controls are unrecognized");
+  assert.equal(exported.filter(item => item.record_kind === "snapshot").length, 2, "both writer snapshots recognized; every control rejected");
+  assert.equal(exported.filter(item => item.record_kind === "job").length, 4);
+  const desk = mixed.private.pending.filter(item => item.family === "desk_readback_record");
+  const listed = desk.map(item => [item.key.slice("desk:readbacks:record:".length).replace(/^rbj_[0-9a-f-]{36}$/, "rbj_writer"), `${item.status}/${item.classification}`]).sort();
+  assert.deepEqual(listed, [["rb_empty", "missing/unknown"], ["rb_mismatch", "missing/unknown"], ["rb_nofields", "missing/unknown"],
+    ["rb_overall", "missing/unknown"], ["rb_pending", "missing/unknown"], ["rb_scalar", "missing/unknown"], ["rbj_writer", "running/nonterminal"]],
+    "F1: running job listed; finished jobs and both snapshots excluded; malformed records stay unknown");
+}
+{
+  const option = { key: "cache-only", account_selector: "sel-cache", broker_environment: "paper" };
+  const readVariable = Object.assign(async (...args) => (args[3] === "STRATEGY_PROFILE" ? "tqqq_growth_income" : ""), { readStatus: async () => "ok" });
+  const cases = {
+    normal: () => loadStrategiesForPlatform("ibkr", { ibkr: [option] }, { ibkr: "org/repo" }, readVariable).then(entries => ({ ibkr: entries })),
+    fallback_not_connected: () => loadStrategiesForPlatform("ibkr", { ibkr: [option] }, {}, readVariable).then(entries => ({ ibkr: entries })),
+    fallback_read_failed: () => executionEvidenceFallback({ ibkr: [option] }, "read_failed"),
+  };
+  for (const [name, build] of Object.entries(cases)) {
+    const text = await cacheText(build);
+    const stored = JSON.parse(text).data.ibkr["cache-only"];
+    assert.ok(stored && !JSON.stringify(stored).includes("cache-only"), `${name}: writer names the account only by its object key`);
+    const { private: result, summary } = await inventoryOf({ kvValues: { current_strategies_cache: text } });
+    assert.equal(result.groups[20], "complete", `${name}: group 20 complete`);
+    const mapped = result.mapping.entries.filter(item => item.legacy_key === "cache-only");
+    assert.deepEqual(mapped.map(item => item.platform), ["ibkr"], `F2 ${name}: cache-only account is mapped`);
+    assert.deepEqual(mapped[0].episodes.map(episode => [episode.state, episode.locator]),
+      [["kv_reference", { source: "kv", name: "current_strategies_cache", path: ["data", "ibkr", "cache-only"] }]], `${name}: KV locator`);
+    const identity = mapped[0].episodes[0].identity;
+    assert.equal(identity.qualifiers.broker_environment, "paper", `${name}: family qualifier from execution evidence`);
+    assert.deepEqual([identity.cache_entry, identity.evidence_status], name === "normal" ? ["strategy", "config_missing"]
+      : ["execution_evidence_only", name.replace("fallback_", "")], `${name}: entry shape and evidence status`);
+    assert.ok(!JSON.stringify(summary).includes("cache-only"), `${name}: summary stays sanitized`);
+  }
+  // A cache account without a platform lands in the unattributed ledger;
+  // object keys of other families are still not account identities.
+  const { private: loose } = await inventoryOf({ kvValues: { current_strategies_cache: JSON.stringify({ ts: 1, data: { "": { "no-platform": {} } } }),
+    account_facts_bindings: JSON.stringify({ ibkr: { "bindings-key-only": { source_binding_id: "src-9" } } }) } });
+  assert.deepEqual(loose.mapping.unattributed.map(item => [item.legacy_key, item.locator.path]), [["no-platform", ["data", "", "no-platform"]]]);
+  assert.ok(!loose.mapping.entries.some(item => item.legacy_key === "bindings-key-only"), "B2 rule: other families' object keys stay non-identities");
+  // A projection cut at its bound is an unread identity for group 20.
+  const bounded = reader.strategiesCacheAccounts({ data: { ibkr: { a: {}, b: {} } } }, 1);
+  assert.deepEqual([bounded.accounts.length, bounded.truncated], [1, true]);
+  const big = JSON.stringify({ ts: 1, data: { ibkr: Object.fromEntries(range(4001).map(index => [`k-${index}`, {}])) } });
+  const cut = (await inventoryOf({ kvValues: { current_strategies_cache: big } })).private;
+  assert.deepEqual([cut.status, cut.groups[20], cut.group_reasons[20]], ["incomplete", "incomplete", ["kv:current_strategies_cache:cache_accounts_truncated"]]);
+  // A hierarchy that is not the writer's shape is unread, not empty; an empty
+  // account key is a stored slot and lands in the unattributed ledger.
+  for (const data of [[], { ibkr: "flat" }]) {
+    const odd = (await inventoryOf({ kvValues: { current_strategies_cache: JSON.stringify({ ts: 1, data }) } })).private;
+    assert.deepEqual([odd.groups[20], odd.group_reasons[20]], ["incomplete", ["kv:current_strategies_cache:cache_accounts_unexpected_shape"]], JSON.stringify(data));
+  }
+  const blank = (await inventoryOf({ kvValues: { current_strategies_cache: JSON.stringify({ ts: 1, data: { ibkr: { "": {} } } }) } })).private;
+  assert.deepEqual(blank.mapping.unattributed.map(item => [item.legacy_key, item.locator.path]), [["", ["data", "ibkr", ""]]]);
+  assert.equal(blank.groups[20], "complete");
+}
+
 // ---------------------------------------------------- A3: populated, beyond legacy caps, full assembly
 const plan = populatedPlan();
 const counts = seededCounts(plan);

@@ -229,6 +229,37 @@ export function identityProjection(value, cap = 256) {
   return { fields, counts, redacted, truncated };
 }
 
+// `current_strategies_cache` stores `{ ts, data: { [platform]: { [accountKey]:
+// entry } } }` (writeCurrentStrategiesCache and the KV directory `cache`
+// action). The account is named only by its object key, and a fallback entry
+// carries nothing but `execution_evidence`. This walk applies to that family
+// alone; object keys elsewhere are never account identities.
+const CACHE_QUALIFIERS = ["account_selector", "target_name", "target_id", "deployment_selector", "account_scope", "service_name",
+  "broker_environment", "runtime_status_target_id"];
+const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
+export function strategiesCacheAccounts(value, cap = 4000) {
+  if (!isObject(value)) return { state: "unexpected_shape", accounts: [], unexpected_platforms: 0, truncated: false };
+  if (!Object.hasOwn(value, "data")) return { state: "data_absent", accounts: [], unexpected_platforms: 0, truncated: false };
+  if (!isObject(value.data)) return { state: "unexpected_shape", accounts: [], unexpected_platforms: 0, truncated: false };
+  const accounts = [];
+  let unexpected = 0, truncated = false;
+  for (const [platform, entries] of Object.entries(value.data)) {
+    if (!isObject(entries)) { unexpected++; continue; }
+    for (const [accountKey, entry] of Object.entries(entries)) {
+      if (accounts.length >= cap) { truncated = true; break; }
+      const evidence = isObject(entry) && isObject(entry.execution_evidence) ? entry.execution_evidence : null;
+      const qualifiers = {};
+      for (const source of [evidence, isObject(entry) ? entry : null]) {
+        for (const field of CACHE_QUALIFIERS) if (typeof source?.[field] === "string" && source[field]) qualifiers[field] = scalar(source[field]);
+      }
+      const entryShape = !isObject(entry) ? "non_object" : Object.keys(entry).length === 1 && evidence ? "execution_evidence_only" : "strategy";
+      accounts.push({ platform, account_key: accountKey, entry_shape: entryShape, evidence_status: scalar(evidence?.status ?? null), qualifiers });
+    }
+    if (truncated) break;
+  }
+  return { state: "valid", accounts, unexpected_platforms: unexpected, truncated };
+}
+
 function parseJson(text) {
   if (text === null || text === undefined) return { state: "null" };
   if (typeof text !== "string") return { state: "non_text", type: scalar(text) };
@@ -504,11 +535,29 @@ function compareBytes(left, right) {
 }
 
 const ADMISSION_PREFIX = "desk:readbacks:admission:";
+// The Desk record store holds two shapes. `desk_readback_put` stores
+// `{ owner, expires, payload: buildReadback() }`: a completed target snapshot
+// under its own `rb_` id, with no job state, pending list or results.
+// `desk_readback_start` stores a job with `payload.state`, `pending` and
+// `results`. Anything else is `unrecognized` and is classified by state alone.
+const SNAPSHOT_OVERALL = new Set(["match", "drift", "unknown"]);
+function deskRecordKind(readbackId, value) {
+  const record = value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  const payload = record?.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "unrecognized";
+  if (!Object.hasOwn(payload, "state") && !Object.hasOwn(record, "pending") && !Object.hasOwn(record, "results")
+    && readbackId.startsWith("rb_") && payload.readback_id === readbackId && typeof payload.target_id === "string" && payload.target_id
+    && SNAPSHOT_OVERALL.has(payload.overall) && typeof payload.read_at === "string" && Array.isArray(payload.fields)
+    && payload.summary !== null && typeof payload.summary === "object") return "snapshot";
+  if (Object.hasOwn(payload, "state") && Array.isArray(record.pending) && Array.isArray(record.results)) return "job";
+  return "unrecognized";
+}
 function projectDoKv(key, value, now) {
   const expiry = record => Number.isFinite(record?.expires) ? { expires: record.expires, expired: record.expires <= now } : {};
   if (key.startsWith("desk:readbacks:record:")) {
     const payload = value?.payload;
-    return { family: "desk_readback_record", readback_id: key.slice("desk:readbacks:record:".length), ...expiry(value),
+    const readbackId = key.slice("desk:readbacks:record:".length);
+    return { family: "desk_readback_record", readback_id: readbackId, record_kind: deskRecordKind(readbackId, value), ...expiry(value),
       owner_present: Boolean(value?.owner), actor_present: Boolean(value?.actor),
       payload_state: scalar(payload?.state ?? null), pending: Array.isArray(value?.pending) ? value.pending.map(scalar) : null,
       result_count: Array.isArray(value?.results) ? value.results.length : null,

@@ -199,6 +199,26 @@ ledger. Stored settings identities are compared with the current instance, and
 a declared environment that differs from the current broker environment is a
 conflict. Stored values are kept, never replaced.
 
+A bare object key is an account key only where a family's writer defines it as
+one: the stored `identity_json` documents and `current_strategies_cache`. The
+cache is written as `{ ts, data: { [platform]: { [accountKey]: entry } } }` by
+the current-strategies loader, the legacy KV writer and the KV directory
+`cache` action, and its entries carry no account-key field; a fallback entry
+holds only `execution_evidence`. For that family alone the reader exports
+`cache_accounts`, one row per platform/account key with the entry shape
+(`strategy`, `execution_evidence_only` or `non_object`), the evidence status
+and the qualifiers found in the entry or its evidence. The assembler maps each
+row as a `kv_reference` whose locator path is the array
+`["data", platform, accountKey]`, because keys may contain dots. An empty
+platform or account key goes to the unattributed ledger. A cache without `data`
+holds no accounts. A hierarchy cut at the 4000-account bound
+(`cache_accounts_truncated`), a non-object `data` or a non-object platform
+value (`cache_accounts_unexpected_shape`) is an unread value and makes group 20
+`incomplete`. Object keys in every other family remain non-identities.
+Compatibility: exports taken before `cache_accounts` existed carry no cache
+rows, so a cache-only account is missing from their mapping; take a fresh
+export.
+
 The pending ledger covers profile applications, diagnosis tasks, promotion
 applications, stop requests, UX1 jobs, credential rotation operations and
 maintenance deliveries, undecided decision material, Desk readbacks,
@@ -211,7 +231,25 @@ open labels are `nonterminal`; missing, unreadable, `unknown` or unrecognized
 labels are `unknown` and stay listed. A Desk admission is excluded only when
 `active` is explicitly `null`, as an ordinary release writes it; the reader
 exports `active_state` so that an absent field, an invalid value or a
-non-object record stays listed as `unknown`. The ledger is an observation; the
+non-object record stays listed as `unknown`.
+
+The Desk record store holds jobs and completed target snapshots under the same
+prefix. `desk_readback_put` stores `{ owner, expires, payload }` where the
+payload is a finished target readback; `desk_readback_start` stores a job with
+`payload.state`, `pending` and `results`. The reader exports `record_kind` for
+each record: `snapshot` only when the key is `rb_<id>`, `payload.readback_id`
+equals that id, the payload has no `state`, the record has no `pending` or
+`results`, and the payload has a string `target_id` and `read_at`, an `overall`
+of `match`, `drift` or `unknown`, a `fields` array and a `summary` object;
+`job` when the payload has a `state` and the record has `pending` and `results`
+arrays; otherwise `unrecognized`. The assembler drops snapshots before job-state
+classification, whatever their `overall`, because a snapshot is an observation
+and not a job. Jobs keep their terminal labels, and unrecognized records are
+classified by state and stay listed as `unknown`. Compatibility: exports
+without `record_kind` keep the earlier behaviour and list snapshots as
+`unknown`.
+
+The ledger is an observation; the
 assembler never settles or acts on an operation. The summary contains aggregate
 counts only. The exit status is `1` when the result is `incomplete`.
 
