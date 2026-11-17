@@ -205,6 +205,45 @@ overall result `incomplete` with the private reason
 projected references are still mapped and KV failed-read counts are unchanged.
 The summary carries only the aggregate reason count.
 
+The same rule applies to the object sections. In SQL, a row exported as
+`row_projection_too_large` or `row_projection_failed` adds
+`<table>:<error>` (any other projection error `<table>:projection_error`), and
+a generic JSON column cut at its 256-field or depth-8 bound adds
+`<table>:<column>:identity_projection_truncated`, once per table, cause and
+column. `failed_rows` still counts only rows with a projection error. A Desk
+payload identity cut at its 128-field or depth bound adds
+`do_kv:payload_identity_truncated`, and a value whose projection failed adds
+`do_kv:value_projection_failed` (any other projection error
+`do_kv:projection_error`). Each reason makes its table or DO-KV result, its
+object, its group and the overall result `incomplete`; group 15 is complete
+only when both DO-KV results are, so `do_kv:duplicate_key` also leaves it
+incomplete. Group and top-level reasons carry the object prefix
+(`runtime:do_kv:payload_identity_truncated`). Retained rows, references and the
+pending record of an unprojected DO-KV value stay. A page's `byte_limited`
+flag, nested `instance_state` pagination, invalid or non-text JSON, an absent
+legacy column, opaque or redacted columns and writer coverage flags such as
+`reports_truncated` are not projection loss.
+
+An identity scalar beyond the 512-character bound is exported as a
+`{ long_string: <length> }` marker. Where an extractor selects it as an account
+key, its platform or a qualifier of the settings identity (instance
+`platform`, `key` and config tuple, copied SQL `account_key` and platform
+columns, stored `identity_json` fields, explicit reference fields, DO-KV, KV
+and environment references, cache qualifiers, audit and promotion selections),
+the marker is a loss with one private reason per source, locator and path:
+`sql:<object>:<table>:<row-index>:<path>:identity_scalar_long_string`,
+`do_kv:<object>:<entry-index>:payload_identity:<path>:identity_scalar_long_string`,
+`kv:<name>:<path>:identity_scalar_long_string` (a cache qualifier uses
+`cache_accounts.accounts[<index>].qualifiers.<field>` as its path) or
+`env:<binding-name>:<path>:identity_scalar_long_string`. It makes the owning
+table or DO-KV result, object, group and overall result `incomplete` and adds
+no KV failed read. Nothing is mapped for a lost key. A lost platform leaves its
+key unattributed and no more distant platform is used. A settings identity or
+stored identity holding a lost field keeps the marker and is compared with
+nothing (`settings_identity_qualification`, `stored_identity_matches_current:
+null` with `stored_identity_unreadable_fields`). A long value elsewhere, a
+nonselected option ID, a raw primary key or a raw cache account key is no loss.
+
 Configured options in KV `account_options` and the
 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON` binding are read per `platform[index]`
 slot as `normalizeAccountOption()` selects them: the key, or the ID when the
@@ -234,6 +273,12 @@ makes group 16 and the overall result `incomplete`. A projected key, or an
 explicitly projected falsy key, still decides the slot; a matching digest does
 not. Recollect to obtain the evidence.
 
+Known limitation: slots are recognized from flattened paths, so a root property
+literally named like a slot (`{"ibkr[0]": {"key": "x"}}`) yields the same path
+as a genuine slot. With a direct string key it still maps as a configured
+option, although the ordinary reader rejects that payload. Distinguishing the
+two needs structural slot evidence and is not part of this projection.
+
 The assembler derives a mapping keyed by every `(platform, legacy_key)` with
 dated identity episodes, conflicts, cross-platform collisions and an
 unattributed ledger. Account references inside every projected JSON column
@@ -254,6 +299,31 @@ top-level key is the separate `top_config_key_mismatch`. Stored settings
 identities are compared with the current instance, and a declared environment
 that differs from the current broker environment is a conflict. Stored values
 are kept, never replaced.
+
+Account keys in the direct-account tables are literal, whatever their shape.
+Only Binance wallet history stores a composite: an `account_facts_daily` row
+whose platform is `binance` and whose key is `<legacy_key>:<source_binding_id>`
+with the row's own 64-hex `source_binding_id`. The reader exports
+`logical_account` for that row alone, and the assembler decides the composite
+from the row, keeping the full stored key in `storage_key`. A Binance daily row
+that does not meet this contract (another suffix, a different or empty
+binding) is unresolved: its raw row stays, no account is taken from its key,
+and `account_facts_daily:wallet_history_identity_unresolved` makes group 5 and
+the overall result `incomplete`; explicit references in its payload are still
+mapped. Compatibility: exports from earlier readers carry `logical_account` on
+every key ending in `:<64 hex>`, Binance detail and observation rows included;
+the assembler does not trust that hint and maps those keys as literal.
+
+Two families name an account by a field that is not an account field
+elsewhere. In `audit_log`, a direct entry of the root array whose `action` is
+exactly `save_account_settings` or
+`approve_account_settings_profile_application` names its account by its own
+`key` and `platform` (locator `[<index>].key`); without a direct platform it
+is unattributed. A `human_decision_record` of kind `promotion` names its
+account by the root `selected_account.key` and `selected_account.platform` of
+`target_json` and of `payload_json`, one episode per column. Other actions,
+nested keys, other kinds, generic `key` and ID fields and promotion tickets
+name no account.
 
 A bare object key is an account key only where a family's writer defines it as
 one: the stored `identity_json` documents and `current_strategies_cache`. The

@@ -87,6 +87,27 @@ function classify(name, raw) {
 
 const key = (platform, legacyKey) => JSON.stringify([platform, legacyKey]);
 const value = item => (item && typeof item === "object" && !Array.isArray(item) ? undefined : item);
+// The projection's marker for a string beyond its 512-character bound.
+const longString = item => item !== null && typeof item === "object" && !Array.isArray(item) && Object.keys(item).length === 1
+  && Object.hasOwn(item, "long_string") && Number.isInteger(item.long_string) && item.long_string > 512;
+const SCALAR_LOSS = "identity_scalar_long_string";
+
+// Binance wallet history is the only composite account key: an
+// `account_facts_daily` row stored under platform `binance` whose key is
+// `<legacy_key>:<source_binding_id>` with its stored 64-hex source binding.
+// It is decided from the row itself; an exported `logical_account` hint is
+// never authority. A Binance daily row that does not meet the contract is
+// unresolved: no account, literal or decoded, is taken from it.
+function walletIdentity(row) {
+  if (row.pk?.[0] !== "binance") return null;
+  const accountKey = row.pk[1], bindingId = row.columns?.source_binding_id;
+  if (typeof accountKey === "string" && typeof bindingId === "string" && /^[a-f0-9]{64}$/.test(bindingId)) {
+    const prefix = accountKey.slice(0, -(bindingId.length + 1));
+    if (prefix && accountKey === `${prefix}:${bindingId}`) return { legacy_key: prefix, binding_id: bindingId, composite: true };
+  }
+  return { unresolved: true };
+}
+const ROW_ERRORS = new Set(["row_projection_too_large", "row_projection_failed"]);
 
 function chain(pages, reasons, label) {
   const ordered = [...pages].sort((a, b) => a.body.page - b.body.page);
@@ -136,6 +157,18 @@ function assembleObject(object, responses) {
     if (table.null_key_rows) reasons.push(`${name}:null_primary_key_rows`);
     const nested = entry.rows.flatMap(row => Object.values(row.columns || {}).filter(column => Array.isArray(column?.entries)));
     if (nested.some(column => column.entries.length !== column.entry_count)) reasons.push(`${name}:nested_entries_incomplete`);
+    // Exported identity loss: a row whose projection failed, a JSON column
+    // cut at its field or depth bound, and an unresolved wallet-history row.
+    // Each cause once per table (and column); the rows stay as exported.
+    const losses = new Set();
+    for (const row of entry.rows) {
+      if (row.projection_error) losses.add(`${name}:${ROW_ERRORS.has(row.projection_error) ? row.projection_error : "projection_error"}`);
+      for (const [column, projection] of Object.entries(row.columns || {})) {
+        if (projection?.state === "valid" && projection.truncated) losses.add(`${name}:${column}:identity_projection_truncated`);
+      }
+      if (name === "account_facts_daily" && walletIdentity(row)?.unresolved) losses.add(`${name}:wallet_history_identity_unresolved`);
+    }
+    reasons.push(...losses);
     entry.disposition = reasons.some(reason => reason.startsWith(`${name}:`)) ? "incomplete" : "complete";
   }
   const unknown = schema.body.other_schema_objects.filter(item => item.classification === "unknown_table");
@@ -144,7 +177,16 @@ function assembleObject(object, responses) {
   if (kvPages) {
     const entries = kvPages.flatMap(page => page.body.entries);
     if (new Set(entries.map(item => item.key)).size !== entries.length) reasons.push("do_kv:duplicate_key");
-    doKv = { entries, unknown_keys: entries.filter(item => item.family === "unknown").length, alarm: final.body.alarm };
+    // A payload identity cut at its bound, or a value whose projection failed,
+    // holds identities that were not read; the exported entries stay.
+    const losses = new Set();
+    for (const item of entries) {
+      if (item.payload_identity?.truncated) losses.add("do_kv:payload_identity_truncated");
+      if (item.projection_error) losses.add(item.projection_error === "value_projection_failed" ? "do_kv:value_projection_failed" : "do_kv:projection_error");
+    }
+    reasons.push(...losses);
+    doKv = { entries, unknown_keys: entries.filter(item => item.family === "unknown").length, alarm: final.body.alarm,
+      disposition: reasons.some(reason => reason.startsWith("do_kv:")) ? "incomplete" : "complete" };
   }
   return { object, complete: !reasons.length, reasons, scan_id: scanId, schema_state: schema.body.schema_state, tables, do_kv: doKv,
     unknown_tables: unknown.map(item => ({ name: item.name, row_count: item.row_count })) };
@@ -221,6 +263,9 @@ export function ancestorPaths(path) {
   }
   return { paths, parseable: true };
 }
+// A selected account field or platform cut at the long-string bound is lost:
+// it is returned by path, never replaced. A lost platform ends the walk, so
+// its key stays unattributed rather than taking a more distant platform.
 function identityReferences(fields, document) {
   const groups = new Map();
   for (const [path, item] of Object.entries(fields || {})) {
@@ -228,25 +273,38 @@ function identityReferences(fields, document) {
     if (!groups.has(parent)) groups.set(parent, {});
     groups.get(parent)[name] = item;
   }
-  const platformAt = path => PLATFORM_FIELDS.map(name => groups.get(path)?.[name]).find(item => typeof item === "string" && item);
-  const references = [];
+  const platformAt = path => {
+    for (const name of PLATFORM_FIELDS) {
+      const item = groups.get(path)?.[name];
+      if (typeof item === "string" && item) return { platform: item };
+      if (longString(item)) return { lost: path ? `${path}.${name}` : name };
+    }
+    return null;
+  };
+  const references = [], losses = [];
   for (const [parent, group] of groups) {
     for (const name of document ? DOCUMENT_FIELDS : ACCOUNT_FIELDS) {
       const legacyKey = group[name];
+      if (longString(legacyKey)) { losses.push(parent ? `${parent}.${name}` : name); continue; }
       if (typeof legacyKey !== "string" || !legacyKey) continue;
       // An unparseable ancestry keeps only a platform beside the reference;
       // none is inferred through the remainder.
       const ancestry = ancestorPaths(parent);
-      const platform = [parent, ...(ancestry.parseable ? ancestry.paths : [])].map(platformAt).find(Boolean) ?? null;
+      let found = null;
+      for (const path of [parent, ...(ancestry.parseable ? ancestry.paths : [])]) if ((found = platformAt(path))) break;
+      if (found?.lost) losses.push(found.lost);
       const qualifiers = Object.fromEntries(QUALIFIER_FIELDS.filter(field => field in group).map(field => [field, group[field]]));
-      references.push({ legacy_key: legacyKey, platform, path: parent ? `${parent}.${name}` : name, qualifiers,
+      references.push({ legacy_key: legacyKey, platform: found?.platform ?? null, path: parent ? `${parent}.${name}` : name, qualifiers,
         ...(ancestry.parseable ? {} : { path_qualification: "unparseable_identity_path" }) });
     }
   }
-  return references;
+  return { references, losses };
 }
-const normalizedConfig = config => Object.fromEntries(STORED_IDENTITY_FIELDS.map(field => [field, field === "broker_environment"
-  ? (["live", "paper"].includes(config?.[field]) ? config[field] : null) : typeof config?.[field] === "string" ? config[field] : ""]));
+// A tuple field cut at the long-string bound keeps its marker: it is never
+// normalized to an empty identity.
+const normalizedConfig = config => Object.fromEntries(STORED_IDENTITY_FIELDS.map(field => [field, longString(config?.[field]) ? config[field]
+  : field === "broker_environment" ? (["live", "paper"].includes(config?.[field]) ? config[field] : null) : typeof config?.[field] === "string" ? config[field] : ""]));
+const TUPLE_FIELDS = STORED_IDENTITY_FIELDS.filter(field => field !== "key");
 // The settings identity of an instance episode as accountSettingsIdentity()
 // derives it: platform, the top-level key (never config.key) and the
 // normalized config fields, in one fixed order.
@@ -275,9 +333,6 @@ const settingsIdentity = (platform, legacyKey, config) => {
 // selected there carries `key_unobserved_at_truncation`.
 const OPTION_SLOT = /^([^.[]+\[\d+\])\.(key|id)$/;
 const OPTION_KEY = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
-// The projection's marker for a string beyond its 512-character bound.
-const longString = item => item !== null && typeof item === "object" && !Array.isArray(item) && Object.keys(item).length === 1
-  && Object.hasOwn(item, "long_string") && Number.isInteger(item.long_string) && item.long_string > 512;
 function configuredOptions(identity, source) {
   const fields = identity?.fields || {}, slots = new Map();
   for (const [path, item] of Object.entries(fields)) {
@@ -328,8 +383,16 @@ function optionsFrom(kv, env) {
   return { options: read.flatMap(item => item.options), reasons: [...new Set(read.flatMap(item => item.reasons))] };
 }
 
+// The account tables mapped from their own key columns.
+const ACCOUNT_TABLES = ["account_setting_draft", "account_setting_declaration", "account_setting_profile_application", "account_facts_observation",
+  "account_facts_daily", "account_external_flow", "account_executions", "account_execution_reports", "binance_detail_daily",
+  "account_diagnosis_tasks", "research_promotion_applications", "account_period_return", "account_daily_native_return"];
+// audit_log entries whose writer names the account by `platform` and `key`.
+const AUDIT_ACCOUNT_ACTIONS = new Set(["save_account_settings", "approve_account_settings_profile_application"]);
+const AUDIT_ACTION = /^(\[\d+\])\.action$/;
+
 function mappingFrom(objects, kv, env, options) {
-  const mapping = new Map(), unattributed = [];
+  const mapping = new Map(), unattributed = [], losses = new Map();
   const entry = (platform, legacyKey) => {
     const id = key(platform, legacyKey);
     if (!mapping.has(id)) mapping.set(id, { platform, legacy_key: legacyKey, states: new Set(), episodes: [] });
@@ -342,19 +405,35 @@ function mappingFrom(objects, kv, env, options) {
     item.states.add(state);
     item.episodes.push({ state, locator, identity });
   };
-  const addReferences = (projection, state, locator, document) => {
-    for (const reference of identityReferences(projection?.fields, document)) {
+  // A selected identity scalar the export cut at the long-string bound: one
+  // private reason per source, locator and path, with the owning scope.
+  const lose = (reason, scope, locator) => { if (!losses.has(reason)) losses.set(reason, { reason, ...scope, locator }); };
+  const sqlLoss = (object, table, index, pk) => path => lose(`sql:${object}:${table}:${index}:${path}:${SCALAR_LOSS}`, { scope: "sql", object, table }, { object, table, pk, path });
+  const kvLoss = item => path => lose(`kv:${item.name}:${path}:${SCALAR_LOSS}`, { scope: "kv", group: KV_GROUP_OF.get(item.family) ?? null }, { source: "kv", name: item.name, path });
+  const scalarLoss = (item, lost, at) => { if (longString(item)) lost(at); return longString(item); };
+  const addReferences = (projection, state, locator, document, lost, prefix = "") => {
+    const { references, losses: paths } = identityReferences(projection?.fields, document);
+    for (const path of paths) lost(`${prefix}${path}`);
+    for (const reference of references) {
       const qualification = reference.path_qualification ? { path_qualification: reference.path_qualification } : {};
       add(reference.platform, reference.legacy_key, state, { ...locator, path: reference.path, ...qualification }, { qualifiers: reference.qualifiers });
     }
   };
+  // The fixed instance fields an episode is mapped and compared by.
+  const instanceLoss = (instance, lost, at) => {
+    scalarLoss(instance.platform, lost, `${at}.platform`);
+    scalarLoss(instance.key, lost, `${at}.key`);
+    for (const field of TUPLE_FIELDS) scalarLoss(instance.config?.[field], lost, `${at}.config.${field}`);
+  };
   for (const result of objects) {
     for (const [table, data] of Object.entries(result.tables)) {
-      for (const row of data.rows || []) {
+      for (const [index, row] of (data.rows || []).entries()) {
         const locator = { object: result.object, table, pk: row.pk };
         const columns = row.columns || {};
+        const lost = sqlLoss(result.object, table, index, row.pk);
         if (table === "instance_state") {
-          for (const instance of columns.payload?.entries || []) {
+          for (const [at, instance] of (columns.payload?.entries || []).entries()) {
+            instanceLoss(instance, lost, `payload.entries[${at}]`);
             const state = instance.retirement_status && instance.retirement_status !== "none" ? "retirement_requested" : instance.kind === "existing" ? "current" : instance.kind === "draft" ? "draft" : "unknown";
             add(instance.platform, instance.key, state, locator, { config: instance.config, top_config_key_mismatch: instance.top_config_key_mismatch });
           }
@@ -363,24 +442,29 @@ function mappingFrom(objects, kv, env, options) {
         if (table === "instance_history") {
           for (const side of ["before", "after"]) {
             const instance = columns.entry?.[side];
-            if (instance) add(instance.platform, instance.key, "historical", { ...locator, side }, { config: instance.config });
+            if (!instance) continue;
+            instanceLoss(instance, lost, `entry.${side}`);
+            add(instance.platform, instance.key, "historical", { ...locator, side }, { config: instance.config });
           }
           continue;
         }
-        const logical = row.logical_account;
-        const pkNames = { account_period_return: ["account_key"], account_daily_native_return: ["account_key"], binance_detail_daily: ["account_key"] }[table];
-        const platform = table === "binance_detail_daily" ? "binance" : pkNames ? null : value(row.pk[0]);
-        const accountKey = logical?.legacy_key ?? (pkNames ? row.pk[0] : table === "research_promotion_applications" || table === "account_diagnosis_tasks" || table === "account_setting_profile_application" ? columns.account_key : row.pk[1]);
-        const resolvedPlatform = table === "research_promotion_applications" ? columns.platform_id : ["account_diagnosis_tasks", "account_setting_profile_application"].includes(table) ? columns.platform : platform;
-        if (["account_setting_draft", "account_setting_declaration", "account_setting_profile_application", "account_facts_observation",
-          "account_facts_daily", "account_external_flow", "account_executions", "account_execution_reports", "binance_detail_daily",
-          "account_diagnosis_tasks", "research_promotion_applications", "account_period_return", "account_daily_native_return"].includes(table)) {
-          const identity = { storage_key: row.pk, logical_account: logical || null };
+        if (ACCOUNT_TABLES.includes(table)) {
+          // Only a Binance wallet-history row is decoded; every other key is
+          // the literal stored account, whatever an export's hint says.
+          const wallet = table === "account_facts_daily" ? walletIdentity(row) : null;
+          const pkNames = { account_period_return: ["account_key"], account_daily_native_return: ["account_key"], binance_detail_daily: ["account_key"] }[table];
+          const copied = ["research_promotion_applications", "account_diagnosis_tasks", "account_setting_profile_application"].includes(table);
+          const platformColumn = table === "research_promotion_applications" ? "platform_id" : "platform";
+          const resolvedPlatform = table === "binance_detail_daily" ? "binance" : pkNames ? null : copied ? columns[platformColumn] : value(row.pk[0]);
+          const accountKey = wallet ? wallet.legacy_key : pkNames ? row.pk[0] : copied ? columns.account_key : row.pk[1];
+          if (copied) { scalarLoss(columns.account_key, lost, "account_key"); scalarLoss(columns[platformColumn], lost, platformColumn); }
+          const identity = { storage_key: row.pk, logical_account: wallet?.composite ? wallet : null };
           if (STORED_IDENTITY_TABLES.includes(table)) {
             const stored = columns.identity_json;
             identity.stored_identity = stored?.state === "valid"
               ? Object.fromEntries(STORED_IDENTITY_FIELDS.filter(field => field in stored.fields).map(field => [field, stored.fields[field]]))
               : { unreadable: stored?.column_absent ? "column_absent" : stored?.state ?? "absent" };
+            if (stored?.state === "valid") for (const field of STORED_IDENTITY_FIELDS) scalarLoss(stored.fields[field], lost, `identity_json.${field}`);
           }
           if (table === "account_setting_declaration") {
             const declaration = columns.declaration_json;
@@ -388,28 +472,59 @@ function mappingFrom(objects, kv, env, options) {
               ? { state: "valid", environment: declaration.environment, account_type: declaration.account_type, unexpected_keys: declaration.unexpected_keys }
               : { state: declaration?.state ?? (declaration?.column_absent ? "column_absent" : "absent") };
           }
-          add(resolvedPlatform, value(accountKey), "store_reference", locator, identity);
+          if (!wallet?.unresolved) add(resolvedPlatform, value(accountKey), "store_reference", locator, identity);
+        }
+        // A promotion decision names its account by the root selected_account
+        // object of its target and of its payload, each a separate episode.
+        if (table === "human_decision_record" && columns.kind === "promotion") {
+          for (const column of ["target_json", "payload_json"]) {
+            const fields = columns[column]?.state === "valid" ? columns[column].fields || {} : {};
+            const legacyKey = fields["selected_account.key"], platform = fields["selected_account.platform"];
+            if (scalarLoss(legacyKey, lost, `${column}.selected_account.key`)) continue;
+            scalarLoss(platform, lost, `${column}.selected_account.platform`);
+            add(typeof platform === "string" ? platform : null, legacyKey, "store_reference", { ...locator, column, path: "selected_account.key" });
+          }
         }
         // Every projected JSON column, including operation payloads.
         for (const [column, projection] of Object.entries(columns)) {
-          if (projection?.state === "valid" && projection.fields) addReferences(projection, "store_reference", { ...locator, column }, column === "identity_json");
+          if (projection?.state === "valid" && projection.fields) addReferences(projection, "store_reference", { ...locator, column }, column === "identity_json", lost, `${column}.`);
         }
       }
     }
-    for (const item of result.do_kv?.entries || []) {
-      if (item.payload_identity) addReferences(item.payload_identity, "store_reference", { object: result.object, do_kv_key: item.key }, false);
+    for (const [index, item] of (result.do_kv?.entries || []).entries()) {
+      const object = result.object;
+      const lost = path => lose(`do_kv:${object}:${index}:payload_identity:${path}:${SCALAR_LOSS}`, { scope: "do_kv", object }, { object, do_kv_key: item.key, path });
+      if (item.payload_identity) addReferences(item.payload_identity, "store_reference", { object, do_kv_key: item.key }, false, lost);
     }
   }
   for (const item of kv?.keys || []) {
-    if (item.state === "exported") addReferences(item.identity, "kv_reference", { source: "kv", name: item.name }, false);
+    if (item.state === "exported") addReferences(item.identity, "kv_reference", { source: "kv", name: item.name }, false, kvLoss(item));
+  }
+  // audit_log is a root array of entries; only the two account-settings
+  // actions name an account, by the entry's own `key` and `platform`.
+  for (const item of kv?.keys || []) {
+    if (item.family !== "audit_log" || item.state !== "exported") continue;
+    const fields = item.identity?.fields || {}, lost = kvLoss(item);
+    for (const [path, action] of Object.entries(fields)) {
+      const entryPath = AUDIT_ACTION.exec(path)?.[1];
+      if (!entryPath || !AUDIT_ACCOUNT_ACTIONS.has(action)) continue;
+      const legacyKey = fields[`${entryPath}.key`], platform = fields[`${entryPath}.platform`];
+      if (scalarLoss(legacyKey, lost, `${entryPath}.key`)) continue;
+      scalarLoss(platform, lost, `${entryPath}.platform`);
+      add(typeof platform === "string" ? platform : null, legacyKey, "kv_reference", { source: "kv", name: item.name, path: `${entryPath}.key` }, { audit_action: action });
+    }
   }
   // current_strategies_cache names accounts by `data[platform][accountKey]`
   // only; the reader projects that hierarchy for this family alone. The path
   // is an array because object keys may contain dots.
   for (const item of kv?.keys || []) {
     if (item.family !== "current_strategies_cache" || item.state !== "exported") continue;
-    for (const account of item.cache_accounts?.accounts || []) {
+    for (const [index, account] of (item.cache_accounts?.accounts || []).entries()) {
       const locator = { source: "kv", name: item.name, path: ["data", account.platform, account.account_key] };
+      for (const [field, qualifier] of Object.entries(account.qualifiers || {})) {
+        if (longString(qualifier)) lose(`kv:${item.name}:cache_accounts.accounts[${index}].qualifiers.${field}:${SCALAR_LOSS}`,
+          { scope: "kv", group: KV_GROUP_OF.get(item.family) ?? null }, { ...locator, qualifier: field });
+      }
       // An empty object key is still a stored account slot; add() would drop it.
       if (!account.account_key) { unattributed.push({ legacy_key: account.account_key, locator }); continue; }
       add(account.platform, account.account_key, "kv_reference", locator,
@@ -417,7 +532,8 @@ function mappingFrom(objects, kv, env, options) {
     }
   }
   for (const item of env?.bindings || []) {
-    if (item.state === "present") addReferences(item.identity, "env_reference", { source: "env", name: item.name }, false);
+    const lost = path => lose(`env:${item.name}:${path}:${SCALAR_LOSS}`, { scope: "env" }, { source: "env", name: item.name, path });
+    if (item.state === "present") addReferences(item.identity, "env_reference", { source: "env", name: item.name }, false, lost);
   }
   for (const option of options) add(option.platform, option.legacy_key, "configured_option", { source: option.source, path: option.path }, option.identity);
   const current = new Set([...mapping.values()].filter(item => item.states.has("current") || item.states.has("draft") || item.states.has("retirement_requested")).map(item => key(item.platform, item.legacy_key)));
@@ -428,10 +544,12 @@ function mappingFrom(objects, kv, env, options) {
   for (const item of mapping.values()) {
     // Every config-bearing episode, current or historical, compared by its
     // complete settings identity. Generic qualifiers are not part of it.
+    // A tuple holding a lost field is unreadable and is compared with none.
     const identities = new Set();
     for (const episode of item.episodes.filter(episode => episode.identity?.config)) {
       episode.identity.settings_identity = settingsIdentity(item.platform, item.legacy_key, episode.identity.config);
-      identities.add(JSON.stringify(episode.identity.settings_identity));
+      if (Object.values(episode.identity.settings_identity).some(longString)) episode.identity.settings_identity_qualification = SCALAR_LOSS;
+      else identities.add(JSON.stringify(episode.identity.settings_identity));
     }
     if (identities.size > 1) conflicts.push({ platform: item.platform, legacy_key: item.legacy_key, kind: "identity_episodes_differ", episodes: identities.size });
     if (item.episodes.some(episode => episode.identity?.top_config_key_mismatch)) conflicts.push({ platform: item.platform, legacy_key: item.legacy_key, kind: "top_config_key_mismatch" });
@@ -446,8 +564,11 @@ function mappingFrom(objects, kv, env, options) {
       if (!currentIdentity) episode.identity.stored_identity_matches_current = null;
       else if (stored.unreadable) { episode.identity.stored_identity_matches_current = null; differing.push({ locator: episode.locator, fields: ["unreadable"] }); }
       else {
-        const fields = STORED_IDENTITY_FIELDS.filter(field => (stored[field] ?? (field === "broker_environment" ? null : "")) !== currentIdentity[field]);
-        episode.identity.stored_identity_matches_current = !fields.length;
+        // A field lost on either side is unreadable: neither a match nor a difference.
+        const lost = STORED_IDENTITY_FIELDS.filter(field => longString(stored[field]) || longString(currentIdentity[field]));
+        const fields = STORED_IDENTITY_FIELDS.filter(field => !lost.includes(field) && (stored[field] ?? (field === "broker_environment" ? null : "")) !== currentIdentity[field]);
+        episode.identity.stored_identity_matches_current = fields.length ? false : lost.length ? null : true;
+        if (lost.length) episode.identity.stored_identity_unreadable_fields = lost;
         if (fields.length) differing.push({ locator: episode.locator, fields });
       }
       const declared = episode.identity.declaration?.environment;
@@ -460,7 +581,8 @@ function mappingFrom(objects, kv, env, options) {
   }
   const collisions = [...byKey].filter(([, platforms]) => platforms.length > 1).map(([legacyKey, platforms]) => ({ legacy_key: legacyKey, platforms }));
   for (const row of unattributed) row.candidate_platforms = byKey.get(row.legacy_key) || [];
-  return { entries: [...mapping.values()].map(item => ({ ...item, states: [...item.states].sort() })), unattributed, conflicts, collisions };
+  return { entries: [...mapping.values()].map(item => ({ ...item, states: [...item.states].sort() })), unattributed, conflicts, collisions,
+    losses: [...losses.values()] };
 }
 
 function pendingFrom(objects, kv) {
@@ -518,15 +640,37 @@ export function assemble(exported) {
   const kv = assembleKv(responses);
   const envResponse = responses.filter(item => item.request.section === "env" && item.status === 200 && item.body?.ok === true).at(-1);
   const env = envResponse ? envResponse.body : null;
+  // A selected option identity that was not read, or whose selection the
+  // export cannot decide, makes group 16 and the overall result incomplete;
+  // the surviving options stay mapped.
+  const options = optionsFrom(kv, env);
+  const { losses, ...mapping } = mappingFrom(objects, kv, env, options.options);
+  // A lost selected identity scalar makes its table or DO-KV result and its
+  // object incomplete; KV and environment losses reach their group below.
+  for (const loss of losses) {
+    const result = objects.find(item => item.object === loss.object);
+    if (!result) continue;
+    result.complete = false;
+    (result.identity_losses ||= []).push(loss.reason);
+    if (loss.scope === "sql") result.tables[loss.table].disposition = "incomplete";
+    else result.do_kv.disposition = "incomplete";
+  }
+  const lossesOf = (scope, test = () => true) => losses.filter(loss => loss.scope === scope && test(loss)).map(loss => loss.reason);
   const groups = {}, groupReasons = {};
+  const prefixed = test => objects.flatMap(result => result.reasons.filter(test).map(reason => `${result.object}:${reason}`));
   for (const [group, tables] of Object.entries(SQL_GROUPS)) {
     const states = objects.flatMap(result => tables.map(table => result.tables[table]?.disposition ?? "not_collected"));
     groups[group] = states.every(state => ["complete", "absent"].includes(state) || state.startsWith("count_only:")) ? "complete" : "incomplete";
+    const local = [...prefixed(reason => tables.some(table => reason.startsWith(`${table}:`))), ...lossesOf("sql", loss => tables.includes(loss.table))];
+    if (local.length) groupReasons[group] = local;
   }
-  groups[15] = objects.every(result => result.do_kv) ? "complete" : "incomplete";
+  groups[15] = objects.every(result => result.do_kv?.disposition === "complete") ? "complete" : "incomplete";
+  const doKvReasons = [...prefixed(reason => reason.startsWith("do_kv:")), ...lossesOf("do_kv")];
+  if (doKvReasons.length) groupReasons[15] = doKvReasons;
   for (const group of Object.keys(KV_GROUPS)) {
     if (!kv) { groups[group] = "provider_export_required"; continue; }
-    const local = [...kv.reasons, ...kv.failed_reads.filter(item => item.group === group).flatMap(item => item.causes.map(cause => `kv:${item.family}:${cause}`))];
+    const local = [...kv.reasons, ...kv.failed_reads.filter(item => item.group === group).flatMap(item => item.causes.map(cause => `kv:${item.family}:${cause}`)),
+      ...lossesOf("kv", loss => loss.group === group)];
     groups[group] = local.length ? "incomplete" : "complete";
     if (local.length) groupReasons[group] = [...new Set(local)];
   }
@@ -535,25 +679,18 @@ export function assemble(exported) {
   // holds identities that were not read; its projected references stay mapped.
   const envReasons = (env?.bindings || []).filter(item => item.state === "present" && item.identity?.truncated)
     .map(item => `env:${item.name}:identity_projection_truncated`);
-  if (envReasons.length) {
+  for (const local of [envReasons, options.reasons, lossesOf("env")]) {
+    if (!local.length) continue;
     if (groups[16] === "complete") groups[16] = "incomplete";
-    groupReasons[16] = [...new Set([...(groupReasons[16] || []), ...envReasons])];
-  }
-  // A selected option identity that was not read, or whose selection the
-  // export cannot decide, makes group 16 and the overall result incomplete;
-  // the surviving options stay mapped.
-  const options = optionsFrom(kv, env);
-  if (options.reasons.length) {
-    if (groups[16] === "complete") groups[16] = "incomplete";
-    groupReasons[16] = [...new Set([...(groupReasons[16] || []), ...options.reasons])];
+    groupReasons[16] = [...new Set([...(groupReasons[16] || []), ...local])];
   }
   groups[23] = "external_evidence_required";
-  const mapping = mappingFrom(objects, kv, env, options.options);
   const pending = pendingFrom(objects, kv);
   const enumerated = objects.every(result => result.complete) && Object.entries(groups).every(([group, state]) => state === "complete" || group === "23");
   const kvReasons = kv ? [...kv.reasons, ...new Set(kv.failed_reads.flatMap(item => item.causes.map(cause => `kv:${item.family}:${cause}`)))] : [];
   const result = { status: enumerated ? "retained_state_enumerated_external_evidence_required" : "incomplete", objects, kv, env, groups,
-    group_reasons: groupReasons, mapping, pending, reasons: [...kvReasons, ...envReasons, ...options.reasons, ...objects.flatMap(item => item.reasons.map(reason => `${item.object}:${reason}`))] };
+    group_reasons: groupReasons, mapping, identity_losses: losses, pending,
+    reasons: [...kvReasons, ...envReasons, ...options.reasons, ...objects.flatMap(item => item.reasons.map(reason => `${item.object}:${reason}`)), ...losses.map(loss => loss.reason)] };
   return { private: result, summary: summarize(result) };
 }
 
@@ -563,7 +700,7 @@ export function summarize(result) {
   return {
     format: "qsl_account_identity_inventory_summary.v1", status: result.status, groups: result.groups,
     objects: result.objects.map(item => ({ object: item.object, complete: item.complete, schema_state: item.schema_state ?? null,
-      reason_count: item.reasons.length, tables_complete: Object.values(item.tables).filter(table => table.disposition === "complete").length,
+      reason_count: item.reasons.length + (item.identity_losses?.length ?? 0), tables_complete: Object.values(item.tables).filter(table => table.disposition === "complete").length,
       tables_absent: Object.values(item.tables).filter(table => table.disposition === "absent").length,
       rows: Object.values(item.tables).reduce((total, table) => total + (table.rows?.length || 0), 0),
       failed_rows: Object.values(item.tables).reduce((total, table) => total + (table.failed_rows || 0), 0),

@@ -175,10 +175,16 @@ export function instanceIdentity(item) {
   return out;
 }
 
-// Binance wallet history stores `<legacy_key>:<binding_id>` composites.
-function logicalAccount(accountKey) {
-  const match = typeof accountKey === "string" ? /^(.*):([a-f0-9]{64})$/.exec(accountKey) : null;
-  return match ? { legacy_key: match[1], binding_id: match[2], composite: true } : undefined;
+// Binance wallet history alone stores `<legacy_key>:<source_binding_id>`
+// composites (binanceWalletHistoryContext): an `account_facts_daily` row with
+// platform `binance` and a 64-hex source binding the key ends with. Every
+// other account key is literal, whatever its shape.
+function logicalAccount(spec, row) {
+  if (spec.name !== "account_facts_daily" || row.platform !== "binance") return undefined;
+  const accountKey = row.account_key, bindingId = row.source_binding_id;
+  if (typeof accountKey !== "string" || typeof bindingId !== "string" || !HEX64.test(bindingId)) return undefined;
+  const prefix = accountKey.slice(0, -(bindingId.length + 1));
+  return prefix && accountKey === `${prefix}:${bindingId}` ? { legacy_key: prefix, binding_id: bindingId, composite: true } : undefined;
 }
 
 export function projectRow(spec, row, { nested = null, nestedSize = 0 } = {}) {
@@ -223,7 +229,7 @@ export function projectRow(spec, row, { nested = null, nestedSize = 0 } = {}) {
   }
   out.columns = columns;
   if (unexpected.length) out.unexpected_columns = unexpected.sort();
-  const logical = logicalAccount(row.account_key);
+  const logical = logicalAccount(spec, row);
   if (logical) out.logical_account = logical;
   if (spec.name === "binance_detail_daily" && typeof row.observation_date === "string" && row.observation_date.startsWith("digest:")) {
     out.digest_record = { business_day: row.observation_date.slice("digest:".length) };

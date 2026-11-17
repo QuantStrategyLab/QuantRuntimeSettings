@@ -61,7 +61,9 @@ function rows(table, items) {
 }
 const range = count => Array.from({ length: count }, (_, index) => index);
 
-function populatedPlan() {
+// `adverse` keeps one account-facts observation whose identity projection
+// exceeds the row byte limit; the loss-free control stores an ordinary payload.
+function populatedPlan({ adverse = false } = {}) {
   const instances = range(126).map(index => ({ platform: "ibkr", key: `acct-${pad(index, 3)}`, kind: "existing", enabled: true,
     config: { key: `acct-${pad(index, 3)}`, account_selector: `sel-${index}`, target_name: `target-${index}`, broker_account_id: `SYN${index}` } }));
   instances.push(
@@ -84,7 +86,8 @@ function populatedPlan() {
   const big = range(250).reduce((value, index) => ({ ...value, [`n${index}`]: { status: "x".repeat(500) } }), {});
   const oversized = range(256).reduce((value, index) => ({ ...value, [`${"k".repeat(1200)}${index}`]: { status: "y" } }), {});
   const sql = [
-    // As the Binance detail command creates it on first use.
+    // As the Binance detail command creates it on first use; its account keys
+    // are literal (binding.account_key), here shaped like a composite.
     { statement: `CREATE TABLE IF NOT EXISTS binance_detail_daily (account_key TEXT NOT NULL, binding_id TEXT NOT NULL, observation_date TEXT NOT NULL,
       payload_json TEXT NOT NULL, PRIMARY KEY(account_key, binding_id, observation_date))`, rows: [[]] },
     rows("instance_state", [{ id: 1, revision: 131, payload: JSON.stringify(instances) }]),
@@ -107,13 +110,16 @@ function populatedPlan() {
       workflow_run_attempt: null, claimed_at: null }))),
     rows("risk_profile_authority", [{ id: 1, revision: 3, imported: 1, bindings_json: JSON.stringify({ "target-1": { strategy_profile: "p" } }) }]),
     rows("account_facts_observation", range(30).map(index => ({ platform: "ibkr", account_key: `acct-${pad(index, 3)}`,
-      payload_json: JSON.stringify(index === 29 ? oversized : { ...big, net_liquidation: AMOUNT_CANARY }), observed_finished_at: day(index),
+      payload_json: JSON.stringify(index === 29 && adverse ? oversized : { ...big, net_liquidation: AMOUNT_CANARY }), observed_finished_at: day(index),
       observation_date: day(index), target_id: `target-${index}`, source_binding_id: "src-1", account_scope: "scope", updated_at: day(index) }))),
     rows("account_facts_daily", [...range(400).map(index => ({ platform: "ibkr", account_key: "acct-000", observation_date: day(index),
       payload_json: JSON.stringify({ cash: AMOUNT_CANARY }), observed_finished_at: day(index), target_id: "target-0", source_binding_id: "src-1",
       account_scope: "scope", updated_at: day(index) })), ...range(3).map(index => ({ platform: "firstrade", account_key: "orphan-key",
       observation_date: day(index), payload_json: "{bad", observed_finished_at: day(index), target_id: "t", source_binding_id: "src-x",
-      account_scope: "scope", updated_at: day(index) }))]),
+      account_scope: "scope", updated_at: day(index) })),
+      // A Binance wallet-history row as binanceWalletHistoryCommand stores it.
+      { platform: "binance", account_key: `bn-main:${hex("wallet-1")}`, observation_date: day(0), payload_json: "{}", observed_finished_at: day(0),
+        target_id: "target-bn", source_binding_id: hex("wallet-1"), account_scope: "scope-bn", updated_at: day(0) }]),
     rows("account_period_return", [{ account_key: "acct-000", payload_json: "{}" }, { account_key: "unattributed-key", payload_json: "{bad" }]),
     rows("account_daily_native_return", ["src-1", "src-2"].flatMap(source => ["USD", "HKD"].flatMap(currency => range(400).map(index => ({
       account_key: "acct-000", source_binding_id: source, currency, observation_date: day(index), payload_json: "{}" }))))),
@@ -226,19 +232,31 @@ async function seedDatabase(path, plan, { initialize }) {
   for (const { statement, rows: items } of plan.sql) for (const values of items) db.prepare(statement).run(...values);
   db.close();
 }
-function trapObject(path, kvEntries, alarm, log) {
+// `faults` names the R9 fault-injected accessors: reading `sqlColumn.column` of
+// a stored `sqlColumn.table` row, or `payload` of a listed `doKvPayload` value,
+// throws, so the reader's own catch emits the failure export.
+const injectedFault = () => { throw new Error("injected_reader_accessor_fault"); };
+function trapObject(path, kvEntries, alarm, log, faults = {}) {
   const db = new DatabaseSync(path, { readOnly: true });
   const sql = { exec(statement, ...bindings) {
     log.push(statement);
     if (WRITE_SQL.test(statement) || /;\s*\S/.test(statement)) violate(`sql:${statement.slice(0, 40)}`);
-    return cursorOf(db.prepare(statement).all(...bindings));
+    const found = db.prepare(statement).all(...bindings);
+    const fault = faults.sqlColumn;
+    if (fault && statement.startsWith(`SELECT * FROM "${fault.table}"`)) for (const row of found) Object.defineProperty(row, fault.column, { enumerable: true, get: injectedFault });
+    return cursorOf(found);
   } };
   const entries = new Map(Object.entries(kvEntries).sort(([a], [b]) => utf8Compare(a, b)));
+  const listed = (key, value) => {
+    const copy = structuredClone(value);
+    if (faults.doKvPayload?.includes(key)) Object.defineProperty(copy, "payload", { enumerable: true, get: injectedFault });
+    return copy;
+  };
   const storage = trapProxy("storage", {
     sql,
     list: async ({ limit = Infinity, startAfter, ...rest } = {}) => {
       if (Object.keys(rest).length) violate(`storage.list:${Object.keys(rest)}`);
-      return new Map([...entries].filter(([key]) => startAfter === undefined || utf8Compare(key, startAfter) > 0).slice(0, limit).map(([key, value]) => [key, structuredClone(value)]));
+      return new Map([...entries].filter(([key]) => startAfter === undefined || utf8Compare(key, startAfter) > 0).slice(0, limit).map(([key, value]) => [key, listed(key, value)]));
     },
     getAlarm: async () => alarm,
   });
@@ -295,7 +313,7 @@ const ENV_SECTION = {
   CF_VERSION_METADATA: { id: "00000000-0000-4000-8000-000000000000", tag: "synthetic", timestamp: "2026-11-15T00:00:00Z" },
 };
 
-async function harness({ runtime, directory, extraEnv = {}, kv = fakeKv(KV_VALUES), objectFailure = null }) {
+async function harness({ runtime, directory, extraEnv = {}, kv = fakeKv(KV_VALUES), objectFailure = null, faults = {} }) {
   const dir = await mkdtemp(join(tmpdir(), "qrt-inventory-trap-"));
   const objects = {}, logs = {}, digests = {}, doCalls = [];
   for (const [name, plan] of [["runtime-instances", runtime], ["console-kv-directory-v1", directory]]) {
@@ -303,7 +321,7 @@ async function harness({ runtime, directory, extraEnv = {}, kv = fakeKv(KV_VALUE
     await seedDatabase(path, plan, { initialize: plan.initialize !== false && plan.sql.length > 0 || plan.initialize === true });
     digests[name] = createHash("sha256").update(await readFile(path)).digest("hex");
     logs[name] = [];
-    const trap = trapObject(path, plan.kv, plan.alarm, logs[name]);
+    const trap = trapObject(path, plan.kv, plan.alarm, logs[name], name === "runtime-instances" ? faults : {});
     const instance = new RuntimeInstances(trap.ctx, { STRATEGY_SWITCH_CONFIG: kv.store, ...env0 });
     assert.deepEqual(logs[name], [], `${name}: constructor executes no SQL`);
     poison(instance);
@@ -617,9 +635,10 @@ async function inventoryOf({ doKv = {}, kvValues = {} }) {
 // Every fixture is collected through the real route (both objects
 // finalized, two equal KV passes, env collected) and assembled unmodified;
 // `isolate` leaves assembly to a separate process.
-async function inventoryFull({ sql = [], kvValues = {}, envValues = {}, collectEnv = true, isolate = false } = {}) {
-  const h = await harness({ runtime: { sql, kv: {}, alarm: null, initialize: sql.length > 0 }, directory: { sql: [], kv: {}, alarm: null, initialize: false },
-    kv: fakeKv(kvValues), extraEnv: { ACCOUNT_IDENTITY_INVENTORY_KV_ENABLED: "true", ACCOUNT_IDENTITY_INVENTORY_ENV_ENABLED: "true", ...envValues } });
+async function inventoryFull({ sql = [], kvValues = {}, envValues = {}, collectEnv = true, isolate = false, doKv = {}, directoryDoKv = {},
+  initialize = sql.length > 0, faults = {} } = {}) {
+  const h = await harness({ runtime: { sql, kv: doKv, alarm: null, initialize }, directory: { sql: [], kv: directoryDoKv, alarm: null, initialize: false },
+    kv: fakeKv(kvValues), extraEnv: { ACCOUNT_IDENTITY_INVENTORY_KV_ENABLED: "true", ACCOUNT_IDENTITY_INVENTORY_ENV_ENABLED: "true", ...envValues }, faults });
   const responses = [];
   await collect(h.get, "runtime", { responses });
   await collect(h.get, "directory", { responses });
@@ -1514,14 +1533,676 @@ const { accountSettingsIdentity } = await import(new URL("application/account_se
   }
 }
 
+// ---------------------------------------------------- R9: U1-U6 identity export completeness
+// Every row is its own synthetic fixture, collected through the real route
+// (both objects finalized, two equal KV passes, env collected) and assembled
+// unmodified. Long values are built at run time.
+const SCALAR_LOSS = "identity_scalar_long_string";
+const r9Executions = {};
+const r9Row = row => { r9Executions[row] = (r9Executions[row] || 0) + 1; };
+const RUNTIME_SCOPED = /^(?:runtime:|sql:runtime:|do_kv:runtime:)/;
+// The exact disposition: private reasons, incomplete groups, both objects,
+// KV failed reads, and an aggregate-only summary.
+const r9Outcome = (label, { responses, private: result, summary }, { reasons = [], incomplete = [], failedReads = 0, needles = [] } = {}) => {
+  for (const object of ["runtime", "directory"]) {
+    assert.ok(responses.some(item => item.request.section === "finalize" && item.request.object === object && item.body?.stable === true), `${label}: ${object} finalized`);
+  }
+  assert.equal(result.kv.repeated_pass_equal, true, `${label}: two equal KV passes`);
+  assert.deepEqual([result.kv.failed_reads.length, summary.kv.failed_reads], [failedReads, failedReads], `${label}: KV failed reads`);
+  for (let group = 1; group <= 22; group++) {
+    const state = incomplete.includes(group) ? "incomplete" : "complete";
+    assert.deepEqual([result.groups[group], summary.groups[group]], [state, state], `${label}: group ${group}`);
+  }
+  const runtime = !reasons.some(reason => RUNTIME_SCOPED.test(reason));
+  assert.deepEqual([result.objects.map(object => object.complete), summary.objects.map(object => object.complete)], [[runtime, true], [runtime, true]], `${label}: objects`);
+  const status = reasons.length ? "incomplete" : ENUMERATED;
+  assert.deepEqual([[...result.reasons].sort(), result.status, summary.status, summary.reason_count], [[...reasons].sort(), status, status, reasons.length],
+    `${label}: reasons and overall disposition`);
+  summaryAggregatesOnly(summary, label, ["sql:", "do_kv:", "kv:", SCALAR_LOSS, "LLLL", ...needles]);
+};
+const pairs = result => result.mapping.entries.map(entry => [entry.platform, entry.legacy_key]).sort();
+const unattributedKeys = result => result.mapping.unattributed.map(row => row.legacy_key).sort();
+const sqlRowsOf = (responses, table) => responses.filter(item => item.request.section === "sql" && item.request.table === table).flatMap(item => item.body.rows);
+const doKvEntriesOf = (responses, object = "runtime") => responses.filter(item => item.request.section === "do_kv" && item.request.object === object).flatMap(item => item.body.entries);
+const noTruncation = (responses, label) => assert.ok(!JSON.stringify(responses).includes('"truncated":true'), `${label}: no projection flags truncation`);
+const DETAIL_TABLE = { statement: `CREATE TABLE IF NOT EXISTS binance_detail_daily (account_key TEXT NOT NULL, binding_id TEXT NOT NULL, observation_date TEXT NOT NULL,
+  payload_json TEXT NOT NULL, PRIMARY KEY(account_key, binding_id, observation_date))`, rows: [[]] };
+const desk = payload => ({ owner: "owner-r9", expires: 4_102_444_800_000, payload });
+const references = (count, prefix, platform = "ibkr") => ({ refs: range(count).map(index => ({ platform, account_key: `${prefix}-${pad(index)}` })) });
+const deepReference = (depth, legacyKey) => {
+  let node = { platform: "ibkr", account_key: legacyKey };
+  for (let level = depth; level >= 1; level--) node = { [`l${level}`]: node };
+  return node;
+};
+
+// R9-K1: a key shaped like a wallet composite is the literal account in every
+// direct-account table; only Binance wallet history is decoded.
+{
+  const K1 = {
+    account_setting_draft: ["ibkr", key => ({ platform: "ibkr", account_key: key, revision: 1, identity_json: "{}", overrides_json: "{}", updated_at: day(1) })],
+    account_setting_declaration: ["ibkr", key => ({ platform: "ibkr", account_key: key, revision: 1, identity_json: "{}", declaration_json: "{}" })],
+    account_setting_profile_application: ["ibkr", key => ({ request_key: "req-k1", platform: "ibkr", account_key: key, identity_json: "{}", status: "invalidated" })],
+    account_facts_observation: ["ibkr", (key, binding) => ({ platform: "ibkr", account_key: key, payload_json: "{}", source_binding_id: binding })],
+    account_facts_daily: ["ibkr", (key, binding) => ({ platform: "ibkr", account_key: key, observation_date: day(0), payload_json: "{}", source_binding_id: binding })],
+    account_external_flow: ["ibkr", key => ({ platform: "ibkr", account_key: key })],
+    account_executions: ["ibkr", (key, binding) => ({ platform: "ibkr", account_key: key, source_binding_id: binding })],
+    account_execution_reports: ["ibkr", (key, binding) => ({ platform: "ibkr", account_key: key, source_binding_id: binding, metadata_json: "{}" })],
+    binance_detail_daily: ["binance", (key, binding) => ({ account_key: key, binding_id: binding, observation_date: day(0), payload_json: "{}" })],
+    account_diagnosis_tasks: ["ibkr", key => ({ request_id: "diag-k1", platform: "ibkr", account_key: key, status: "succeeded", checks_json: "[]", native_json: "{}" })],
+    research_promotion_applications: ["ibkr", key => ({ application_id: "app-k1", platform_id: "ibkr", account_key: key, status: "rejected", readback_json: "{}" })],
+    account_period_return: [null, key => ({ account_key: key, payload_json: "{}" })],
+    account_daily_native_return: [null, (key, binding) => ({ account_key: key, source_binding_id: binding, currency: "USD", observation_date: day(0), payload_json: "{}" })],
+  };
+  assert.equal(Object.keys(K1).length, 13, "R9-K1: the thirteen direct-account tables");
+  for (const [table, [platform, build]] of Object.entries(K1)) {
+    r9Row("R9-K1");
+    const label = `R9-K1-literal-table-fence ${table}`;
+    const binding = hex(`k1-${table}`), literal = `lit-${table.replace(/_/g, "-")}:${binding}`, prefix = literal.slice(0, -(binding.length + 1));
+    const run = await inventoryFull({ sql: [...(table === "binance_detail_daily" ? [DETAIL_TABLE] : []), rows(table, [build(literal, binding)])] });
+    const [row] = sqlRowsOf(run.responses, table);
+    assert.ok(row && !("logical_account" in row) && (row.pk.includes(literal) || row.columns.account_key === literal), `${label}: projected with its full literal key and no logical-account hint`);
+    assert.ok(!pairs(run.private).some(([, legacyKey]) => legacyKey === prefix) && !unattributedKeys(run.private).includes(prefix), `${label}: no decoded-prefix account`);
+    if (platform) {
+      assert.deepEqual(run.private.mapping.entries.map(entry => [entry.platform, entry.legacy_key, entry.episodes.map(episode => [episode.locator.table, episode.identity.logical_account])]),
+        [[platform, literal, [[table, null]]]], `${label}: exactly one mapping, the literal key`);
+      assert.deepEqual(run.private.mapping.unattributed, [], `${label}: zero unattributed`);
+    } else {
+      assert.deepEqual([run.private.mapping.entries, run.private.mapping.unattributed.map(item => [item.legacy_key, item.locator.table])], [[], [[literal, table]]],
+        `${label}: zero mappings, one unattributed literal key`);
+    }
+    r9Outcome(label, run);
+  }
+}
+
+// R9-K2: a Binance wallet-history row decodes only with its matching stored
+// binding; otherwise it is unresolved and names no account.
+{
+  const daily = (key, binding, payload) => rows("account_facts_daily", [{ platform: "binance", account_key: key, observation_date: day(0), payload_json: JSON.stringify(payload),
+    source_binding_id: binding }]);
+  for (const [variant, prefix] of [["ordinary-prefix", "bn-k2"], ["colon-prefix", "bn:k2:sub"]]) {
+    r9Row("R9-K2");
+    const label = `R9-K2-wallet-contract ${variant}`;
+    const binding = hex(`k2-${variant}`), stored = `${prefix}:${binding}`;
+    const run = await inventoryFull({ sql: [daily(stored, binding, {})] });
+    const decoded = { legacy_key: prefix, binding_id: binding, composite: true };
+    assert.deepEqual(sqlRowsOf(run.responses, "account_facts_daily")[0].logical_account, decoded, `${label}: the producer decodes the wallet-history row`);
+    assert.deepEqual(run.private.mapping.entries.map(entry => [entry.platform, entry.legacy_key, entry.episodes.map(episode => episode.identity)]),
+      [["binance", prefix, [{ storage_key: ["binance", stored, day(0)], logical_account: decoded }]]], `${label}: exactly one decoded mapping, full raw key kept`);
+    assert.deepEqual(run.private.mapping.unattributed, [], `${label}: zero unattributed`);
+    r9Outcome(label, run);
+  }
+  const unresolved = {
+    "malformed-suffix": [`bn-k2m:${"z".repeat(64)}`, hex("k2-m")],
+    "nonmatching-binding": [`bn-k2n:${hex("k2-n1")}`, hex("k2-n2")],
+    "missing-binding": [`bn-k2x:${hex("k2-x")}`, ""],
+  };
+  const reason = "runtime:account_facts_daily:wallet_history_identity_unresolved";
+  for (const [variant, [stored, binding]] of Object.entries(unresolved)) {
+    r9Row("R9-K2");
+    const label = `R9-K2-wallet-contract unresolved ${variant}`;
+    const run = await inventoryFull({ sql: [daily(stored, binding, { platform: "binance", account_key: `k2-payload-${variant}` })] });
+    assert.ok(!("logical_account" in sqlRowsOf(run.responses, "account_facts_daily")[0]), `${label}: no producer hint`);
+    const table = run.private.objects[0].tables.account_facts_daily;
+    assert.deepEqual([table.rows.map(row => row.pk), table.disposition], [[["binance", stored, day(0)]], "incomplete"], `${label}: raw row retained, table incomplete`);
+    assert.deepEqual([pairs(run.private), run.private.mapping.unattributed], [[["binance", `k2-payload-${variant}`]], []],
+      `${label}: only the explicit payload reference; no account from the undecidable key`);
+    assert.deepEqual(run.private.group_reasons[5], [reason], `${label}: group 5 reason`);
+    r9Outcome(label, run, { reasons: [reason], incomplete: [5] });
+  }
+}
+
+// R9-K3: exports from the earlier producer carry a hint on every key ending
+// in `:<64 hex>`. The export is that producer's output for the same rows: the
+// current handler's export plus the hint its decoder, reproduced verbatim,
+// adds. The consumer decides from the row and never from the hint.
+{
+  const preFixLogicalAccount = accountKey => {
+    const match = typeof accountKey === "string" ? /^(.*):([a-f0-9]{64})$/.exec(accountKey) : null;
+    return match ? { legacy_key: match[1], binding_id: match[2], composite: true } : undefined;
+  };
+  const preFixExport = exported => {
+    const copy = structuredClone(exported);
+    for (const response of copy.responses.filter(item => item.request.section === "sql")) {
+      const spec = INVENTORY_TABLES[response.request.table];
+      for (const row of response.body.rows || []) {
+        if (row.projection_error) continue;
+        const hint = preFixLogicalAccount(spec.pk.includes("account_key") ? row.pk[spec.pk.indexOf("account_key")] : row.columns?.account_key);
+        if (hint) row.logical_account = hint;
+      }
+    }
+    return copy;
+  };
+  const binding = hex("k3");
+  const K3 = {
+    "literal-observation": ["account_facts_observation", [rows("account_facts_observation", [{ platform: "ibkr", account_key: `lit-k3-obs:${binding}`, payload_json: "{}" }])],
+      ["ibkr", `lit-k3-obs:${binding}`], null],
+    "literal-detail": ["binance_detail_daily", [DETAIL_TABLE, rows("binance_detail_daily", [{ account_key: `lit-k3-det:${binding}`, binding_id: binding, observation_date: day(0), payload_json: "{}" }])],
+      ["binance", `lit-k3-det:${binding}`], null],
+    "wallet-daily": ["account_facts_daily", [rows("account_facts_daily", [{ platform: "binance", account_key: `bn-k3:${binding}`, observation_date: day(0), payload_json: "{}",
+      source_binding_id: binding }])], ["binance", "bn-k3"], { legacy_key: "bn-k3", binding_id: binding, composite: true }],
+  };
+  for (const [variant, [table, sql, expected, logical]] of Object.entries(K3)) {
+    r9Row("R9-K3");
+    const label = `R9-K3-old-export-replay ${variant}`;
+    const run = await inventoryFull({ sql });
+    const replay = preFixExport(run.exported);
+    const [current, old] = [sqlRowsOf(run.responses, table)[0], sqlRowsOf(replay.responses, table)[0]];
+    assert.deepEqual(old.logical_account, preFixLogicalAccount(old.pk[INVENTORY_TABLES[table].pk.indexOf("account_key")]), `${label}: the old export carries its unconditional hint`);
+    assert.ok(old.logical_account && (logical ? current.logical_account : !("logical_account" in current)), `${label}: the hint differs from the fenced producer only on literal rows`);
+    const assembled = assemble(replay);
+    assert.deepEqual([pairs(assembled.private), assembled.private.mapping.unattributed], [[expected], []], `${label}: exactly one correct mapping`);
+    assert.deepEqual(assembled.private.mapping.entries[0].episodes.map(episode => episode.identity.logical_account), [logical], `${label}: the hint is validated against the row`);
+    r9Outcome(label, { responses: replay.responses, ...assembled });
+  }
+}
+
+// R9-D1/D2: a Desk payload identity cut at its 128-field or depth bound.
+{
+  const reason = "runtime:do_kv:payload_identity_truncated";
+  const deskRun = async (label, payload, { fields, truncated, mapped, prefix }) => {
+    const run = await inventoryFull({ doKv: { "desk:readbacks:record:rb_r9": desk(payload) } });
+    const [entry] = doKvEntriesOf(run.responses);
+    assert.deepEqual([Object.keys(entry.payload_identity.fields).length, entry.payload_identity.truncated], [fields, truncated], `${label}: projected payload fields`);
+    assert.equal(run.private.mapping.entries.filter(item => item.legacy_key.startsWith(prefix)).length, mapped, `${label}: mapped references`);
+    assert.deepEqual([run.private.group_reasons[15], run.private.objects[0].do_kv.disposition], truncated ? [[reason], "incomplete"] : [undefined, "complete"], `${label}: DO-KV disposition`);
+    r9Outcome(label, run, truncated ? { reasons: [reason], incomplete: [15] } : {});
+  };
+  for (const [count, truncated] of [[64, false], [65, true], [70, true]]) {
+    r9Row("R9-D1");
+    const payload = references(count, "d1");
+    assert.equal(payload.refs.reduce((total, item) => total + Object.keys(item).length, 0), count * 2, `R9-D1 ${count}: input fields`);
+    await deskRun(`R9-D1-desk-fields ${count}`, payload, { fields: 128, truncated, mapped: 64, prefix: "d1-" });
+  }
+  for (const [depth, fields, mapped] of [[8, 2, 1], [9, 0, 0]]) {
+    r9Row("R9-D2");
+    await deskRun(`R9-D2-desk-depth ${depth}`, deepReference(depth, "d2-deep"), { fields, truncated: depth === 9, mapped, prefix: "d2-" });
+  }
+}
+
+// R9-D3: a value whose projection failed, and a duplicated key.
+{
+  r9Row("R9-D3");
+  const label = "R9-D3-desk-error-and-duplicate value-projection-failed";
+  const key = "desk:readbacks:record:rb_d3";
+  const run = await inventoryFull({ doKv: { [key]: desk({ platform: "ibkr", account_key: "d3-unread" }) }, faults: { doKvPayload: [key] } });
+  assert.deepEqual(doKvEntriesOf(run.responses), [{ key, projection_error: "value_projection_failed" }], `${label}: one retained failed entry`);
+  assert.deepEqual([run.private.mapping.entries, run.private.mapping.unattributed], [[], []], `${label}: zero account mappings`);
+  assert.deepEqual(run.private.pending.map(item => [item.family, item.key, item.status, item.classification]), [["do_kv_unprojected", key, "unreadable:value_projection_failed", "unknown"]],
+    `${label}: one unknown pending record`);
+  const reason = "runtime:do_kv:value_projection_failed";
+  assert.deepEqual([run.private.group_reasons[15], run.private.objects[0].do_kv.disposition], [[reason], "incomplete"], `${label}: DO-KV disposition`);
+  r9Outcome(label, run, { reasons: [reason], incomplete: [15] });
+}
+{
+  // The reader never lists a key twice in one chain. A collection that retried
+  // under the same scan at another page size can still export one: page 1 of
+  // the first chain and pages 2-3 of the retry, each a genuine response.
+  r9Row("R9-D3");
+  const label = "R9-D3-desk-error-and-duplicate duplicated-key";
+  const doKv = Object.fromEntries(["a", "b", "c"].map(name => [`desk:idempotency:${name}`, { state: "complete", request_id: `idem-${name}` }]));
+  const h = await harness({ runtime: { sql: [], kv: doKv, alarm: null, initialize: false }, directory: { sql: [], kv: {}, alarm: null, initialize: false },
+    kv: fakeKv({}), extraEnv: { ACCOUNT_IDENTITY_INVENTORY_KV_ENABLED: "true", ACCOUNT_IDENTITY_INVENTORY_ENV_ENABLED: "true" } });
+  const first = [];
+  const { schema } = await collect(h.get, "runtime", { pageSize: 2, responses: first });
+  const retry = [];
+  let page = await h.get(`${ROUTE}?${new URLSearchParams({ section: "do_kv", object: "runtime", page_size: "1", scan: schema.scan })}`);
+  retry.push({ request: { section: "do_kv", object: "runtime" }, status: page.status, body: page.body });
+  while (page.status === 200 && page.body.cursor) {
+    page = await h.get(`${ROUTE}?${new URLSearchParams({ section: "do_kv", object: "runtime", page_size: "1", cursor: page.body.cursor })}`);
+    retry.push({ request: { section: "do_kv", object: "runtime" }, status: page.status, body: page.body });
+  }
+  const chained = [first.find(item => item.request.section === "do_kv"), ...retry.slice(1)];
+  assert.deepEqual(chained.map(item => [item.body.page, item.body.terminal, item.body.entries.map(entry => entry.key.slice(-1))]),
+    [[1, false, ["a", "b"]], [2, false, ["b"]], [3, true, ["c"]]], `${label}: the exported chain lists b twice`);
+  const responses = [...first.filter(item => item.request.section !== "do_kv"), ...chained];
+  await collect(h.get, "directory", { responses });
+  await collectKv(h.get, responses);
+  await collectKv(h.get, responses);
+  const envPage = await h.get(`${ROUTE}?section=env`);
+  responses.push({ request: { section: "env" }, status: envPage.status, body: envPage.body });
+  assert.deepEqual(violations, [], `${label}: no trap fired`);
+  await h.unchanged();
+  await h.close();
+  const assembled = assemble({ format: EXPORT_FORMAT, responses });
+  const reason = "runtime:do_kv:duplicate_key";
+  assert.deepEqual([assembled.private.objects[0].do_kv.entries.length, assembled.private.group_reasons[15], assembled.private.objects[0].do_kv.disposition], [4, [reason], "incomplete"],
+    `${label}: duplicate reason kept, DO-KV result incomplete`);
+  r9Outcome(label, { responses, ...assembled }, { reasons: [reason], incomplete: [15] });
+}
+
+// R9-D4: source-quality flags are not projection loss.
+{
+  const written = await deskRecords();
+  const snapshot = Object.entries(written).find(([name, record]) => name.startsWith("desk:readbacks:record:") && !("state" in record.payload) && record.payload.overall === "unknown");
+  const D4 = {
+    "completed-snapshot-overall-unknown": [{ doKv: Object.fromEntries([snapshot]) }, "runtime", entry => entry.record_kind === "snapshot" && entry.payload_identity.truncated === false],
+    "directory-state-incomplete-with-error": [{ directoryDoKv: { "console-kv-directory-v1": { complete: false, keys: ["a"], cursor: "c-1", error: "list_failed",
+      last_error: { code: "kv_list_failed" }, scanned_at: day(1) } } }, "directory", entry => entry.family === "kv_directory_state" && entry.complete === false && entry.error === "list_failed"],
+    "current-strategies-write-state": [{ directoryDoKv: { "console-current-strategies-write-v1": { ts: 1, signature: "sig-d4" } } }, "directory",
+      entry => entry.family === "current_strategies_write_state" && entry.signature_present === true],
+  };
+  for (const [variant, [fixture, object, check]] of Object.entries(D4)) {
+    r9Row("R9-D4");
+    const label = `R9-D4-source-quality-controls ${variant}`;
+    const run = await inventoryFull(fixture);
+    const entries = doKvEntriesOf(run.responses, object);
+    assert.ok(entries.length === 1 && check(entries[0]), `${label}: the source flag is exported`);
+    assert.deepEqual([run.private.mapping.entries, run.private.mapping.unattributed, run.private.pending], [[], [], []], `${label}: no invented account, no pending operation`);
+    r9Outcome(label, run);
+  }
+}
+
+// R9-S1: each of the 24 generic SQL JSON columns at 128 and 129 references.
+{
+  const S1_COLUMNS = Object.values(INVENTORY_TABLES).flatMap(spec => spec.json.map(column => `${spec.name}.${column}`));
+  assert.deepEqual(S1_COLUMNS, ["account_setting_draft.identity_json", "account_setting_declaration.identity_json", "account_setting_profile_application.identity_json",
+    "risk_profile_authority.bindings_json", "account_facts_observation.payload_json", "account_facts_daily.payload_json", "account_period_return.payload_json",
+    "account_external_flow.context_json", "account_external_flow.payload_json", "account_executions.context_json", "account_executions.payload_json",
+    "account_execution_reports.context_json", "account_diagnosis_tasks.native_json", "research_promotion_applications.readback_json",
+    "human_decision_material.summary_json", "human_decision_record.target_json", "human_decision_record.payload_json", "human_decision_source_material.summary_json",
+    "hk_stop_request.identity_json", "hk_stop_request.result_json", "ux1_research_slot.job_json", "runtime_cycle_health_checkpoint.payload_json",
+    "runtime_cycle_health_incident.resolution_history_json", "credential_rotation_operations.record"], "R9-S1: the 24 generic JSON columns");
+  const PK = "pk-s1";
+  const BASE = {
+    account_setting_draft: { platform: "ibkr", account_key: PK },
+    account_setting_declaration: { platform: "ibkr", account_key: PK, declaration_json: "{}" },
+    account_setting_profile_application: { request_key: "req-s1", platform: "ibkr", account_key: PK, status: "invalidated" },
+    risk_profile_authority: { id: 1, revision: 1, imported: 1 },
+    account_facts_observation: { platform: "ibkr", account_key: PK },
+    account_facts_daily: { platform: "ibkr", account_key: PK, observation_date: day(0) },
+    account_period_return: { account_key: PK },
+    account_external_flow: { platform: "ibkr", account_key: PK },
+    account_executions: { platform: "ibkr", account_key: PK, source_binding_id: "src-s1" },
+    account_execution_reports: { platform: "ibkr", account_key: PK, source_binding_id: "src-s1", metadata_json: "{}" },
+    account_diagnosis_tasks: { request_id: "diag-s1", platform: "ibkr", account_key: PK, status: "succeeded", checks_json: "[]" },
+    research_promotion_applications: { application_id: "app-s1", platform_id: "ibkr", account_key: PK, status: "rejected" },
+    human_decision_material: { kind: "owner", subject_id: "subject-s1" },
+    human_decision_record: { request_key: "dec-s1", kind: "owner", subject_id: "subject-s1" },
+    human_decision_source_material: { kind: "owner", subject_id: "subject-s1", source_id: "source-s1" },
+    hk_stop_request: { request_id: "stop-s1", target_id: "target-s1", source_revision: 1, phase: "applied" },
+    ux1_research_slot: { login: "login-s1", revision: 1, draft_json: "{}" },
+    runtime_cycle_health_checkpoint: { target_id: "target-s1", binding_fingerprint: "fp-s1", revision: 1 },
+    runtime_cycle_health_incident: { target_id: "target-s1", binding_fingerprint: "fp-s1", source_id: "source-s1", cycle_id: "cycle-s1", cycle_json: "{}" },
+    credential_rotation_operations: { operation_id: "op-s1" },
+  };
+  const BASELINE = new Set(["account_setting_draft", "account_setting_declaration", "account_setting_profile_application", "account_facts_observation", "account_facts_daily",
+    "account_external_flow", "account_executions", "account_execution_reports", "account_diagnosis_tasks", "research_promotion_applications"]);
+  for (const name of S1_COLUMNS) {
+    const [table, column] = name.split(".");
+    for (const count of [128, 129]) {
+      r9Row("R9-S1");
+      const label = `R9-S1-all-JSON-columns ${name} ${count}`;
+      const value = references(count, "s1");
+      assert.equal(value.refs.reduce((total, item) => total + Object.keys(item).length, 0), count * 2, `${label}: input fields`);
+      const run = await inventoryFull({ sql: [rows(table, [{ ...BASE[table], [column]: JSON.stringify(value) }])] });
+      const [row] = sqlRowsOf(run.responses, table);
+      assert.deepEqual([row.projection_error, Object.keys(row.columns[column].fields).length, row.columns[column].truncated], [undefined, 256, count === 129], `${label}: the real projected column`);
+      const episodes = run.private.mapping.entries.flatMap(entry => entry.episodes.filter(episode => episode.locator.column === column && entry.legacy_key.startsWith("s1-")));
+      const b = BASELINE.has(table) ? 1 : 0;
+      assert.deepEqual([episodes.length, run.private.mapping.entries.length, unattributedKeys(run.private)], [128, 128 + b, table === "account_period_return" ? [PK] : []],
+        `${label}: 128 reference episodes, baseline ${b}`);
+      assert.deepEqual([run.private.objects[0].tables[table].failed_rows, run.summary.objects[0].failed_rows, run.private.objects[0].tables[table].disposition],
+        [0, 0, count === 129 ? "incomplete" : "complete"], `${label}: no failed row; table disposition`);
+      r9Outcome(label, run, count === 129 ? { reasons: [`runtime:${table}:${column}:identity_projection_truncated`], incomplete: [INVENTORY_TABLES[table].group] } : {});
+    }
+  }
+}
+
+// R9-S2: one generic SQL column at the depth bound and beyond it.
+for (const [depth, fields, mapped] of [[8, 2, 1], [9, 0, 0]]) {
+  r9Row("R9-S2");
+  const label = `R9-S2-SQL-depth ${depth}`;
+  const run = await inventoryFull({ sql: [rows("risk_profile_authority", [{ id: 1, revision: 1, imported: 1, bindings_json: JSON.stringify(deepReference(depth, "s2-deep")) }])] });
+  const projection = sqlRowsOf(run.responses, "risk_profile_authority")[0].columns.bindings_json;
+  assert.deepEqual([Object.keys(projection.fields).length, projection.truncated, pairs(run.private).length, run.summary.objects[0].failed_rows], [fields, depth === 9, mapped, 0],
+    `${label}: projection, mapping and failed rows`);
+  r9Outcome(label, run, depth === 9 ? { reasons: ["runtime:risk_profile_authority:bindings_json:identity_projection_truncated"], incomplete: [4] } : {});
+}
+
+// R9-S3: a row whose identity projection was not exported.
+{
+  const oversized = range(256).reduce((item, index) => ({ ...item, [`${"k".repeat(1200)}${index}`]: { status: "y" } }), {});
+  const S3 = {
+    "byte-oversize": [{ ...oversized, ref: { platform: "ibkr", account_key: "s3-unread" } }, {}, "row_projection_too_large"],
+    // Named fault: the stored row's payload_json accessor throws inside the reader.
+    "injected-row-accessor-fault": [{ ref: { platform: "ibkr", account_key: "s3-unread" } }, { sqlColumn: { table: "account_facts_observation", column: "payload_json" } }, "row_projection_failed"],
+  };
+  for (const [variant, [payload, faults, error]] of Object.entries(S3)) {
+    r9Row("R9-S3");
+    const label = `R9-S3-SQL-failed-row ${variant}`;
+    const run = await inventoryFull({ sql: [rows("account_facts_observation", [{ platform: "ibkr", account_key: "s3-pk", payload_json: JSON.stringify(payload) }])], faults });
+    assert.deepEqual(sqlRowsOf(run.responses, "account_facts_observation"), [{ pk: ["ibkr", "s3-pk"], projection_error: error }], `${label}: the reader's failure export`);
+    const table = run.private.objects[0].tables.account_facts_observation;
+    assert.deepEqual([table.rows.length, table.failed_rows, run.summary.objects[0].failed_rows, table.disposition], [1, 1, 1, "incomplete"], `${label}: one retained PK row, one failed row`);
+    assert.deepEqual([pairs(run.private), run.private.mapping.unattributed], [[["ibkr", "s3-pk"]], []],`${label}: the direct key survives; the unread reference is not invented`);
+    r9Outcome(label, run, { reasons: [`runtime:account_facts_observation:${error}`], incomplete: [5] });
+  }
+}
+
+// R9-S4: nested pagination is not truncation.
+for (const count of [100, 101]) {
+  r9Row("R9-S4");
+  const label = `R9-S4-nested-continuation ${count}`;
+  const instances = range(count).map(index => ({ platform: "ibkr", key: `s4-${pad(index)}`, kind: "existing", config: { key: `s4-${pad(index)}` } }));
+  const run = await inventoryFull({ sql: [rows("instance_state", [{ id: 1, revision: 1, payload: JSON.stringify(instances) }])] });
+  const pages = run.responses.filter(item => item.request.section === "sql" && item.request.table === "instance_state");
+  const payload = run.private.objects[0].tables.instance_state.rows[0].columns.payload;
+  assert.deepEqual([pages.length, pages.filter(item => item.body.nested_continuation).length, pages.at(-1).body.terminal, payload.entry_count, payload.entries.length],
+    [count === 100 ? 1 : 2, count === 100 ? 0 : 1, true, count, count], `${label}: nested page segments and completed continuation`);
+  assert.equal(pairs(run.private).length, count, `${label}: every instance mapped`);
+  r9Outcome(label, run);
+}
+
+// R9-S5: qualified source states are observations, not projection loss.
+{
+  const S5 = {
+    "invalid-json": [{ sql: [rows("risk_profile_authority", [{ id: 1, revision: 1, imported: 1, bindings_json: "{bad" }])] }, "risk_profile_authority",
+      columns => columns.bindings_json.state === "invalid_json", []],
+    "nontext-json": [{ sql: [rows("risk_profile_authority", [{ id: 1, revision: 1, imported: 1, bindings_json: new Uint8Array([1, 2, 3]) }])] }, "risk_profile_authority",
+      columns => columns.bindings_json.state === "non_text" && columns.bindings_json.type.blob_bytes === 3, []],
+    "absent-legacy-column": [{ initialize: false, sql: [{ statement: OLD_SCHEMA[1], rows: [[]] },
+      { statement: "INSERT INTO account_diagnosis_tasks VALUES (?, ?, ?, ?)", rows: [["diag-s5", "ibkr", "s5-acct", "succeeded"]] }] }, "account_diagnosis_tasks",
+      columns => columns.native_json.column_absent === true, [["ibkr", "s5-acct"]]],
+    "unexpected-instance-shape": [{ sql: [rows("instance_state", [{ id: 1, revision: 1, payload: "{}" }])] }, "instance_state",
+      columns => columns.payload.state === "unexpected_shape", []],
+  };
+  for (const [variant, [fixture, table, check, expected]] of Object.entries(S5)) {
+    r9Row("R9-S5");
+    const label = `R9-S5-qualified-source-states ${variant}`;
+    const run = await inventoryFull(fixture);
+    assert.ok(check(sqlRowsOf(run.responses, table)[0].columns), `${label}: the qualified source state is exported`);
+    assert.deepEqual([pairs(run.private), run.private.mapping.unattributed, run.private.objects[0].tables[table].disposition], [expected, [], "complete"], `${label}: no invented account`);
+    r9Outcome(label, run);
+  }
+}
+
+// R9-A1..A3: the two account-settings audit actions name their account by
+// the entry's own `key` and `platform`.
+{
+  const auditRun = entries => inventoryFull({ kvValues: { audit_log: JSON.stringify(entries) } });
+  const located = (result, legacyKey) => [
+    ...result.mapping.entries.filter(entry => entry.legacy_key === legacyKey).flatMap(entry => entry.episodes.map(episode => [entry.platform, episode.state, episode.locator.path])),
+    ...result.mapping.unattributed.filter(row => row.legacy_key === legacyKey).map(row => [null, "unattributed", row.locator.path])];
+  for (const action of ["save_account_settings", "approve_account_settings_profile_application"]) {
+    for (const withPlatform of [true, false]) {
+      r9Row("R9-A1");
+      const label = `R9-A1-audit-actions ${action} ${withPlatform ? "platform" : "no-platform"}`;
+      const legacyKey = `a1-${action.slice(0, 4)}-${withPlatform ? "p" : "u"}`;
+      const run = await auditRun([{ login: "fixture-admin", action: "update", ts: 1 }, { login: "fixture-admin", action, ...(withPlatform ? { platform: "ibkr" } : {}), key: legacyKey, ts: 2 }]);
+      assert.deepEqual(located(run.private, legacyKey), [withPlatform ? ["ibkr", "kv_reference", "[1].key"] : [null, "unattributed", "[1].key"]], `${label}: one located account`);
+      assert.deepEqual([pairs(run.private).length, run.private.mapping.unattributed.length], withPlatform ? [1, 0] : [0, 1], `${label}: one direct account field`);
+      r9Outcome(label, run);
+    }
+  }
+  const explicit = { action: "update", platform: "ibkr", account_key: "a2-explicit" };
+  const A2 = {
+    "unrecognized-action": { audit_log: [{ action: "update", platform: "ibkr", key: "a2-key" }, explicit] },
+    "missing-action": { audit_log: [{ platform: "ibkr", key: "a2-key" }, explicit] },
+    "key-nested-in-recognized-entry": { audit_log: [{ action: "save_account_settings", details: { platform: "ibkr", key: "a2-key" } }, explicit] },
+    "non-audit-family": { risk_profile_bindings: [{ action: "save_account_settings", platform: "ibkr", key: "a2-key" }, explicit] },
+  };
+  for (const [variant, values] of Object.entries(A2)) {
+    r9Row("R9-A2");
+    const label = `R9-A2-audit-isolation ${variant}`;
+    const run = await inventoryFull({ kvValues: Object.fromEntries(Object.entries(values).map(([name, item]) => [name, JSON.stringify(item)])) });
+    assert.deepEqual([located(run.private, "a2-key"), located(run.private, "a2-explicit")], [[], [["ibkr", "kv_reference", "[1].account_key"]]],
+      `${label}: no account from the key; the explicit field stays recognized`);
+    assert.deepEqual([pairs(run.private).length, run.private.mapping.unattributed], [1, []], `${label}: nothing else`);
+    r9Outcome(label, run);
+  }
+  {
+    r9Row("R9-A3");
+    const label = "R9-A3-audit-multiplicity same-account";
+    const run = await auditRun([{ action: "save_account_settings", platform: "ibkr", key: "a3-same" }, { action: "approve_account_settings_profile_application", platform: "ibkr", key: "a3-same" }]);
+    assert.equal(exportedKv(run.responses, "audit_log").state, "exported");
+    assert.deepEqual([pairs(run.private), located(run.private, "a3-same")], [[["ibkr", "a3-same"]], [["ibkr", "kv_reference", "[0].key"], ["ibkr", "kv_reference", "[1].key"]]],
+      `${label}: one mapping, two source-path episodes, none repeated across passes`);
+    r9Outcome(label, run);
+  }
+  {
+    r9Row("R9-A3");
+    const label = "R9-A3-audit-multiplicity sibling-platform";
+    const run = await auditRun([{ action: "save_account_settings", key: "a3-lone" }, { action: "update", platform: "ibkr" }]);
+    assert.deepEqual([pairs(run.private), run.private.mapping.unattributed.map(row => [row.legacy_key, row.locator.path, row.candidate_platforms])], [[], [["a3-lone", "[0].key", []]]],
+      `${label}: no borrowed platform, one unattributed key`);
+    r9Outcome(label, run);
+  }
+}
+
+// R9-P1..P3: a promotion decision names its account by the root
+// selected_account object of target_json and of payload_json.
+{
+  const decision = (kind, target, payload) => ({ sql: [rows("human_decision_record", [{ request_key: "dec-r9", kind, subject_id: "ticket-r9", material_key: "material-r9",
+    action: "approve", actor: "fixture-admin", decided_at: day(1), target_json: JSON.stringify(target), payload_json: JSON.stringify(payload) }])] });
+  const selected = legacyKey => ({ selected_account: { platform: "ibkr", key: legacyKey } });
+  const episodes = (result, legacyKey) => result.mapping.entries.filter(entry => entry.legacy_key === legacyKey)
+    .flatMap(entry => entry.episodes.map(episode => [entry.platform, episode.state, episode.locator]));
+  const locator = column => ({ object: "runtime", table: "human_decision_record", pk: ["dec-r9"], column, path: "selected_account.key" });
+  const P1 = { "target-only": [selected("p1-acct"), {}, ["target_json"]], "payload-only": [{}, selected("p1-acct"), ["payload_json"]],
+    both: [selected("p1-acct"), selected("p1-acct"), ["target_json", "payload_json"]] };
+  for (const [variant, [target, payload, columns]] of Object.entries(P1)) {
+    r9Row("R9-P1");
+    const label = `R9-P1-promotion-selection ${variant}`;
+    const run = await inventoryFull(decision("promotion", target, payload));
+    assert.deepEqual([pairs(run.private), episodes(run.private, "p1-acct"), run.private.mapping.unattributed],
+      [[["ibkr", "p1-acct"]], columns.map(column => ["ibkr", "store_reference", locator(column)]), []], `${label}: one mapping, one episode per column`);
+    r9Outcome(label, run);
+  }
+  const P2 = {
+    "wrong-kind": decision("owner", selected("p2-key"), selected("p2-key")),
+    "nested-ticket-and-params": decision("promotion", { ticket: selected("p2-key"), proposed_params: { platform: "ibkr", key: "p2-key" } }, { ticket: selected("p2-key") }),
+    "selected-account-null": decision("promotion", { selected_account: null }, { selected_account: null }),
+    "generic-id-only": decision("promotion", { id: "p2-key", candidate_id: "p2-key", items: [{ id: "p2-key" }] }, { ticket_id: "p2-key" }),
+    "kv-ticket-key": { kvValues: { "research_promotion_ticket:t-p2": JSON.stringify({ ticket_id: "t-p2", state: "awaiting_human", selected_account: { platform: "ibkr", key: "p2-key" } }) } },
+  };
+  for (const [variant, fixture] of Object.entries(P2)) {
+    r9Row("R9-P2");
+    const label = `R9-P2-promotion-isolation ${variant}`;
+    const run = await inventoryFull(fixture);
+    assert.deepEqual([pairs(run.private), run.private.mapping.unattributed], [[], []], `${label}: no promoted account identity`);
+    r9Outcome(label, run);
+  }
+  {
+    r9Row("R9-P3");
+    const label = "R9-P3-promotion-conflicting-references";
+    const run = await inventoryFull(decision("promotion", selected("p3-target"), selected("p3-payload")));
+    assert.deepEqual([pairs(run.private), episodes(run.private, "p3-target"), episodes(run.private, "p3-payload")],
+      [[["ibkr", "p3-payload"], ["ibkr", "p3-target"]], [["ibkr", "store_reference", locator("target_json")]], [["ibkr", "store_reference", locator("payload_json")]]],
+      `${label}: both selections kept as separate episodes`);
+    assert.ok(run.private.mapping.entries.every(entry => !entry.states.includes("current")), `${label}: no inferred current account`);
+    r9Outcome(label, run);
+  }
+}
+
+// R9-L1: a selected identity scalar at the 512-character bound and beyond.
+{
+  const SURVIVOR = { account_options: JSON.stringify({ ibkr: [{ key: "l1-survivor" }] }) };
+  const sqlRow = (table, item) => ({ sql: [rows(table, [item])] });
+  const instance = item => ({ platform: "ibkr", key: item, kind: "existing", config: { key: item } });
+  const history = (side, item) => sqlRow("instance_history", { revision: 1, entry: JSON.stringify({ revision: 1, ts: day(1), action: "update", login: "fixture-admin",
+    before: side === "before" ? instance(item) : null, after: side === "after" ? instance(item) : null }) });
+  const column = (table, read) => responses => read(sqlRowsOf(responses, table)[0].columns);
+  const L1 = [
+    ["current-instance-key", item => sqlRow("instance_state", { id: 1, revision: 1, payload: JSON.stringify([instance(item)]) }),
+      column("instance_state", columns => columns.payload.entries[0].key), "sql:runtime:instance_state:0:payload.entries[0].key", 1, "ibkr"],
+    ["history-before-key", item => history("before", item), column("instance_history", columns => columns.entry.before.key), "sql:runtime:instance_history:0:entry.before.key", 1, "ibkr"],
+    ["history-after-key", item => history("after", item), column("instance_history", columns => columns.entry.after.key), "sql:runtime:instance_history:0:entry.after.key", 1, "ibkr"],
+    ["profile-application-account-key", item => sqlRow("account_setting_profile_application", { request_key: "req-l1", platform: "ibkr", account_key: item, identity_json: "{}",
+      status: "invalidated" }), column("account_setting_profile_application", columns => columns.account_key), "sql:runtime:account_setting_profile_application:0:account_key", 3, "ibkr"],
+    ["diagnosis-account-key", item => sqlRow("account_diagnosis_tasks", { request_id: "diag-l1", platform: "ibkr", account_key: item, status: "succeeded", checks_json: "[]",
+      native_json: "{}" }), column("account_diagnosis_tasks", columns => columns.account_key), "sql:runtime:account_diagnosis_tasks:0:account_key", 10, "ibkr"],
+    ["promotion-application-account-key", item => sqlRow("research_promotion_applications", { application_id: "app-l1", platform_id: "ibkr", account_key: item, status: "rejected",
+      readback_json: "{}" }), column("research_promotion_applications", columns => columns.account_key), "sql:runtime:research_promotion_applications:0:account_key", 11, "ibkr"],
+    ["hk-stop-identity-key", item => sqlRow("hk_stop_request", { request_id: "stop-l1", target_id: "target-l1", identity_json: JSON.stringify({ platform: "ibkr", key: item }),
+      source_revision: 1, phase: "applied", result_json: "{}" }), column("hk_stop_request", columns => columns.identity_json.fields.key), "sql:runtime:hk_stop_request:0:identity_json.key", 13, "ibkr"],
+    ["generic-sql-account-key", item => sqlRow("risk_profile_authority", { id: 1, revision: 1, imported: 1, bindings_json: JSON.stringify({ platform: "ibkr", account_key: item }) }),
+      column("risk_profile_authority", columns => columns.bindings_json.fields.account_key), "sql:runtime:risk_profile_authority:0:bindings_json.account_key", 4, "ibkr"],
+    ["desk-payload-account-key", item => ({ doKv: { "desk:readbacks:record:rb_l1": desk({ platform: "ibkr", account_key: item }) } }),
+      responses => doKvEntriesOf(responses)[0].payload_identity.fields.account_key, "do_kv:runtime:0:payload_identity:account_key", 15, "ibkr"],
+    ["generic-kv-account-key", item => ({ kvValues: { risk_profile_bindings: JSON.stringify({ platform: "ibkr", account_key: item }) } }),
+      responses => exportedKv(responses, "risk_profile_bindings").identity.fields.account_key, "kv:risk_profile_bindings:account_key", 20, "ibkr"],
+    ["binance-env-binding-account-key", item => ({ envValues: { BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({ platform: "binance", account_key: item }) } }),
+      responses => exportedEnv(responses, "BINANCE_ACCOUNT_FACTS_BINDING_JSON").identity.fields.account_key, "env:BINANCE_ACCOUNT_FACTS_BINDING_JSON:account_key", 16, "binance"],
+    ["binance-env-history-account-key", item => ({ envValues: { BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([{ platform: "binance", account_key: item }]) } }),
+      responses => exportedEnv(responses, "BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON").identity.fields["[0].account_key"],
+      "env:BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON:[0].account_key", 16, "binance"],
+  ];
+  assert.equal(L1.length, 12, "R9-L1: twelve selected locations");
+  for (const [name, fixture, projected, path, group, platform] of L1) {
+    for (const length of [LONG_STRING, LONG_STRING + 1]) {
+      r9Row("R9-L1");
+      const label = `R9-L1-scalar-boundaries ${name} ${length}`;
+      const item = long(length), extra = fixture(item);
+      const run = await inventoryFull({ ...extra, kvValues: { ...SURVIVOR, ...extra.kvValues } });
+      noTruncation(run.responses, label);
+      if (length === LONG_STRING) {
+        assert.equal(projected(run.responses), item, `${label}: the full value is exported`);
+        assert.deepEqual([pairs(run.private), run.private.mapping.unattributed], [[["ibkr", "l1-survivor"], [platform, item]].sort(), []], `${label}: tested reference and survivor`);
+        r9Outcome(label, run);
+        continue;
+      }
+      assert.deepEqual(projected(run.responses), { long_string: length }, `${label}: one direct marker`);
+      assert.deepEqual([pairs(run.private), run.private.mapping.unattributed], [[["ibkr", "l1-survivor"]], []], `${label}: the survivor only, no substitute account`);
+      r9Outcome(label, run, { reasons: [`${path}:${SCALAR_LOSS}`], incomplete: [group] });
+    }
+  }
+}
+
+// R9-L2: a lost platform or mapping-tuple qualifier.
+{
+  const lost = long(LONG_STRING + 1);
+  {
+    r9Row("R9-L2");
+    const label = "R9-L2-platform-and-qualifiers selected-platform";
+    const run = await inventoryFull({ kvValues: { risk_profile_bindings: JSON.stringify({ platform: "ibkr", inner: { platform: lost, account_key: "l2-key" } }) } });
+    assert.deepEqual([pairs(run.private), run.private.mapping.unattributed.map(row => [row.legacy_key, row.locator.path, row.candidate_platforms])], [[], [["l2-key", "inner.account_key", []]]],
+      `${label}: the key stays unattributed; no ancestor platform`);
+    r9Outcome(label, run, { reasons: [`kv:risk_profile_bindings:inner.platform:${SCALAR_LOSS}`], incomplete: [20] });
+  }
+  const current = selector => rows("instance_state", [{ id: 1, revision: 1, payload: JSON.stringify([{ platform: "ibkr", key: "l2-acct", kind: "existing",
+    config: { key: "l2-acct", account_selector: selector } }]) }]);
+  const draft = selector => rows("account_setting_draft", [{ platform: "ibkr", account_key: "l2-acct", revision: 1,
+    identity_json: JSON.stringify({ platform: "ibkr", key: "l2-acct", account_selector: selector }), overrides_json: "{}", updated_at: day(1) }]);
+  const tuple = [
+    ["current-instance-account-selector", [current(lost), draft("sel-l2")], `sql:runtime:instance_state:0:payload.entries[0].config.account_selector:${SCALAR_LOSS}`, 1],
+    ["stored-identity-account-selector", [current("sel-l2"), draft(lost)], `sql:runtime:account_setting_draft:0:identity_json.account_selector:${SCALAR_LOSS}`, 2],
+  ];
+  for (const [variant, sql, reason, group] of tuple) {
+    r9Row("R9-L2");
+    const label = `R9-L2-platform-and-qualifiers ${variant}`;
+    const run = await inventoryFull({ sql });
+    const [entry] = run.private.mapping.entries;
+    assert.deepEqual([pairs(run.private), run.private.mapping.conflicts], [[["ibkr", "l2-acct"]], []], `${label}: one account mapping, no asserted comparison`);
+    const live = entry.episodes.find(episode => episode.state === "current"), stored = entry.episodes.find(episode => episode.identity.stored_identity);
+    assert.deepEqual([stored.identity.stored_identity_matches_current, stored.identity.stored_identity_unreadable_fields], [null, ["account_selector"]], `${label}: the comparison is unreadable`);
+    if (group === 1) {
+      assert.deepEqual([live.identity.settings_identity.account_selector, live.identity.settings_identity_qualification], [{ long_string: LONG_STRING + 1 }, SCALAR_LOSS], `${label}: the marker is kept`);
+    } else assert.deepEqual(stored.identity.stored_identity.account_selector, { long_string: LONG_STRING + 1 }, `${label}: the marker is kept`);
+    r9Outcome(label, run, { reasons: [reason], incomplete: [group] });
+  }
+  {
+    r9Row("R9-L2");
+    const label = "R9-L2-platform-and-qualifiers cache-account-selector";
+    const run = await inventoryFull({ kvValues: { current_strategies_cache: JSON.stringify({ ts: 1, data: { ibkr: { "l2-cache": { account_selector: lost } } } }) } });
+    assert.deepEqual([pairs(run.private), run.private.mapping.entries[0].episodes[0].identity.qualifiers.account_selector], [[["ibkr", "l2-cache"]], { long_string: LONG_STRING + 1 }],
+      `${label}: one account mapping, marker kept`);
+    const reason = `kv:current_strategies_cache:cache_accounts.accounts[0].qualifiers.account_selector:${SCALAR_LOSS}`;
+    assert.deepEqual(run.private.identity_losses.map(item => [item.reason, item.locator]), [[reason, { source: "kv", name: "current_strategies_cache",
+      path: ["data", "ibkr", "l2-cache"], qualifier: "account_selector" }]], `${label}: structured locator kept separately`);
+    r9Outcome(label, run, { reasons: [reason], incomplete: [20] });
+  }
+}
+
+// R9-L3: a long value outside a selected identity position is no loss.
+{
+  const item = long(LONG_STRING + 1);
+  const L3 = {
+    "nonselected-option-id": [{ kvValues: { account_options: JSON.stringify({ ibkr: [{ key: "l3-opt", id: item }] }) } }, [["ibkr", "l3-opt"]]],
+    "marker-lookalike-object": [{ kvValues: { risk_profile_bindings: JSON.stringify({ platform: "ibkr", account_key: { long_string: 999 } }) } }, []],
+    "long-operation-status": [{ sql: [rows("account_diagnosis_tasks", [{ request_id: "diag-l3", platform: "ibkr", account_key: "l3-diag", status: item, checks_json: "[]",
+      native_json: "{}" }])] }, [["ibkr", "l3-diag"]]],
+    "ignored-free-text": [{ kvValues: { risk_profile_bindings: JSON.stringify({ platform: "ibkr", account_key: "l3-free", note: item }) } }, [["ibkr", "l3-free"]]],
+    "raw-cache-account-key": [{ kvValues: { current_strategies_cache: JSON.stringify({ ts: 1, data: { ibkr: { [long(LONG_STRING + 1, "C")]: {} } } }) } },
+      [["ibkr", long(LONG_STRING + 1, "C")]]],
+    "raw-sql-account-pk": [{ sql: [rows("account_facts_observation", [{ platform: "ibkr", account_key: long(LONG_STRING + 1, "P"), payload_json: "{}" }])] },
+      [["ibkr", long(LONG_STRING + 1, "P")]]],
+  };
+  for (const [variant, [fixture, expected]] of Object.entries(L3)) {
+    r9Row("R9-L3");
+    const label = `R9-L3-nonidentity-and-preservation ${variant}`;
+    const run = await inventoryFull(fixture);
+    assert.deepEqual([pairs(run.private), run.private.mapping.unattributed, run.private.identity_losses], [expected, [], []], `${label}: accounts kept, no loss reason`);
+    if (variant === "long-operation-status") {
+      assert.deepEqual(run.private.pending.map(row => [row.family, row.status, row.classification]), [["account_diagnosis_tasks", "unreadable", "unknown"]], `${label}: pending semantics unchanged`);
+    }
+    r9Outcome(label, run, { needles: ["CCCC", "PPPP"] });
+  }
+}
+
+// R9-L4: loss causes combine without duplication.
+{
+  const lost = long(LONG_STRING + 1);
+  {
+    r9Row("R9-L4");
+    const label = "R9-L4-combined-causes marker-and-kv-truncation";
+    const value = { first: { platform: "ibkr", account_key: lost }, ...references(2000, "l4a") };
+    const run = await inventoryFull({ kvValues: { risk_profile_bindings: JSON.stringify(value) } });
+    assert.deepEqual([Object.keys(exportedKv(run.responses, "risk_profile_bindings").identity.fields).length, exportedKv(run.responses, "risk_profile_bindings").identity.truncated], [4000, true],
+      `${label}: projected fields`);
+    assert.deepEqual(run.private.kv.failed_reads.map(read => [read.name, read.causes]), [["risk_profile_bindings", ["identity_projection_truncated"]]], `${label}: one failed KV key`);
+    const reasons = ["kv:risk_profile_bindings:identity_projection_truncated", `kv:risk_profile_bindings:first.account_key:${SCALAR_LOSS}`];
+    assert.deepEqual([[...run.private.group_reasons[20]].sort(), pairs(run.private).length], [[...reasons].sort(), 1999], `${label}: both causes once, survivors mapped`);
+    r9Outcome(label, run, { reasons, incomplete: [20], failedReads: 1 });
+  }
+  {
+    r9Row("R9-L4");
+    const label = "R9-L4-combined-causes sql-and-do-truncation";
+    const run = await inventoryFull({ sql: [rows("risk_profile_authority", [{ id: 1, revision: 1, imported: 1, bindings_json: JSON.stringify(references(129, "l4b-sql")) }])],
+      doKv: { "desk:readbacks:record:rb_l4": desk(references(65, "l4b-do")) } });
+    r9Outcome(label, run, { reasons: ["runtime:risk_profile_authority:bindings_json:identity_projection_truncated", "runtime:do_kv:payload_identity_truncated"], incomplete: [4, 15] });
+  }
+  {
+    r9Row("R9-L4");
+    const label = "R9-L4-combined-causes sql-kv-env-markers";
+    const pair = (platform, survivor) => JSON.stringify({ rows: [{ platform, account_key: lost }, { platform, account_key: survivor }] });
+    const run = await inventoryFull({ sql: [rows("risk_profile_authority", [{ id: 1, revision: 1, imported: 1, bindings_json: pair("ibkr", "l4c-sql") }])],
+      kvValues: { risk_profile_bindings: pair("ibkr", "l4c-kv") }, envValues: { BINANCE_ACCOUNT_FACTS_BINDING_JSON: pair("binance", "l4c-env") } });
+    assert.deepEqual([pairs(run.private), run.private.mapping.unattributed], [[["binance", "l4c-env"], ["ibkr", "l4c-kv"], ["ibkr", "l4c-sql"]], []], `${label}: three survivors`);
+    r9Outcome(label, run, { reasons: [`sql:runtime:risk_profile_authority:0:bindings_json.rows[0].account_key:${SCALAR_LOSS}`, `kv:risk_profile_bindings:rows[0].account_key:${SCALAR_LOSS}`,
+      `env:BINANCE_ACCOUNT_FACTS_BINDING_JSON:rows[0].account_key:${SCALAR_LOSS}`], incomplete: [4, 16, 20] });
+  }
+}
+
+// R9-R1: the accepted R8-A residual. A root property named like an option
+// slot with a short direct key still maps as a configured option; this
+// records the unchanged baseline outcome, not a correction.
+for (const [sourceName, source, fixture] of [["kv", "kv:account_options", value => ({ kvValues: { account_options: value } })],
+  ["env", `env:${OPTIONS_BINDING}`, value => ({ envValues: { [OPTIONS_BINDING]: value } })]]) {
+  r9Row("R9-R1");
+  const label = `R9-R1-accepted-alias ${sourceName}`;
+  const run = await inventoryFull(fixture(JSON.stringify({ "ibkr[0]": { key: "r1-alias" } })));
+  assert.deepEqual(configuredEpisodes(run.private), [{ platform: "ibkr", legacy_key: "r1-alias", locator: { source, path: "ibkr[0].key" }, identity: { selected_field: "key" } }],
+    `${label}: the accepted baseline outcome is kept`);
+  r9Outcome(label, run);
+}
+assert.deepEqual(r9Executions, { "R9-K1": 13, "R9-K2": 5, "R9-K3": 3, "R9-D1": 3, "R9-D2": 2, "R9-D3": 2, "R9-D4": 3, "R9-S1": 48, "R9-S2": 2, "R9-S3": 2, "R9-S4": 2,
+  "R9-S5": 4, "R9-A1": 4, "R9-A2": 4, "R9-A3": 2, "R9-P1": 3, "R9-P2": 5, "R9-P3": 1, "R9-L1": 24, "R9-L2": 4, "R9-L3": 6, "R9-L4": 3, "R9-R1": 2 }, "R9: every matrix execution ran");
+assert.equal(Object.values(r9Executions).reduce((total, count) => total + count, 0), 147, "R9: 147 semantic executions");
+
 // ---------------------------------------------------- A3: populated, beyond legacy caps, full assembly
 const plan = populatedPlan();
 const counts = seededCounts(plan);
 assert.ok(counts.instance_history > 50 && counts.account_setting_profile_application > 100 && counts.human_decision_record > 100
   && counts.research_promotion_applications > 100 && counts.human_decision_source_material > 100 && counts.account_daily_native_return > 1000
   && counts.account_facts_daily > 366 && Object.keys(plan.kv).length > 1000 && Object.keys(KV_VALUES).length > 1000, "seed exceeds every legacy cap");
-{
-  const h = await harness({ runtime: plan, directory: { ...directoryPlan(), initialize: true }, extraEnv: {
+// The same populated seed twice: a loss-free control that must enumerate
+// completely, and the adverse seed whose one oversized observation row is a
+// failed identity projection and must leave group 5, its object and the
+// overall result incomplete. Every other assertion runs on both.
+const adversePlan = populatedPlan({ adverse: true });
+assert.deepEqual(seededCounts(adversePlan), counts, "the adverse seed differs from the control by one stored payload only");
+for (const [label, runPlan, adverse] of [["A3-populated-loss-free-control", plan, false], ["A3-populated-adverse-row-projection", adversePlan, true]]) {
+  const h = await harness({ runtime: runPlan, directory: { ...directoryPlan(), initialize: true }, extraEnv: {
     ACCOUNT_IDENTITY_INVENTORY_KV_ENABLED: "true", ACCOUNT_IDENTITY_INVENTORY_ENV_ENABLED: "true", ...ENV_SECTION } });
   const responses = [];
   const runtime = await collect(h.get, "runtime", { responses });
@@ -1534,7 +2215,8 @@ assert.ok(counts.instance_history > 50 && counts.account_setting_profile_applica
   for (const [table, count] of Object.entries(counts)) assert.equal(runtime.schema.tables[table].row_count, count, `${table}: counted`);
   const observation = responses.filter(item => item.request.table === "account_facts_observation");
   assert.ok(observation.some(item => item.body.byte_limited), "response byte budget pages large rows instead of truncating");
-  assert.equal(observation.flatMap(item => item.body.rows).filter(row => row.projection_error === "row_projection_too_large").length, 1, "oversized row recorded as failed, not dropped");
+  assert.equal(observation.flatMap(item => item.body.rows).filter(row => row.projection_error === "row_projection_too_large").length, adverse ? 1 : 0,
+    `${label}: oversized row recorded as failed, not dropped`);
   const statePages = responses.filter(item => item.request.table === "instance_state");
   assert.ok(statePages.length >= 2 && statePages.some(item => item.body.nested_continuation), "singleton array paged by nested entries");
   const kvLast = await collectKv(h.get, responses);
@@ -1553,9 +2235,18 @@ assert.ok(counts.instance_history > 50 && counts.account_setting_profile_applica
   }
 
   const { private: result, summary } = assemble({ format: EXPORT_FORMAT, responses });
-  assert.equal(result.status, "retained_state_enumerated_external_evidence_required", JSON.stringify(result.reasons));
-  for (const object of result.objects) assert.equal(object.complete, true, `${object.object}: ${object.reasons}`);
   const tables = result.objects[0].tables;
+  if (adverse) {
+    const reason = "account_facts_observation:row_projection_too_large";
+    assert.deepEqual([result.status, summary.status, result.reasons, result.objects.map(object => [object.complete, object.reasons])],
+      ["incomplete", "incomplete", [`runtime:${reason}`], [[false, [reason]], [true, []]]], `${label}: the failed row leaves its object and the overall result incomplete`);
+    assert.deepEqual([tables.account_facts_observation.disposition, tables.account_facts_observation.failed_rows, result.groups[5], result.group_reasons[5],
+      summary.groups[5], summary.objects[0].failed_rows], ["incomplete", 1, "incomplete", [`runtime:${reason}`], "incomplete", 1], `${label}: table and group 5 incomplete`);
+  } else {
+    assert.equal(result.status, "retained_state_enumerated_external_evidence_required", JSON.stringify(result.reasons));
+    for (const object of result.objects) assert.equal(object.complete, true, `${object.object}: ${object.reasons}`);
+    assert.equal(summary.objects[0].failed_rows, 0, `${label}: no failed row`);
+  }
   for (const [table, count] of Object.entries(counts)) {
     if (INVENTORY_TABLES[table].countOnly) assert.ok(tables[table].disposition.startsWith("count_only:"));
     else assert.equal(tables[table].rows.length, count, `${table}: every stored row exported`);
@@ -1570,7 +2261,7 @@ assert.ok(counts.instance_history > 50 && counts.account_setting_profile_applica
   assert.equal(kvStates.invalid_json, 1);
   assert.equal(kvStates.scope_excluded, 1);
   assert.equal(kvStates.unknown_family, 1);
-  for (let group = 1; group <= 22; group++) assert.equal(result.groups[group], "complete", `group ${group}`);
+  for (let group = 1; group <= 22; group++) if (!(adverse && group === 5)) assert.equal(result.groups[group], "complete", `${label}: group ${group}`);
   assert.equal(result.groups[23], "external_evidence_required");
   const entry = (platform, key) => result.mapping.entries.find(item => item.platform === platform && item.legacy_key === key);
   assert.ok(entry("ibkr", "orphan-key").states.includes("orphan"));
@@ -1581,6 +2272,14 @@ assert.ok(counts.instance_history > 50 && counts.account_setting_profile_applica
   assert.ok(result.mapping.collisions.some(item => item.legacy_key === "shared" && item.platforms.sort().join() === "ibkr,schwab"));
   assert.ok(result.mapping.unattributed.some(item => item.legacy_key === "unattributed-key"), "platform-less rows are not guessed");
   assert.ok(entry("binance", "bn-main"), "Binance composite resolved to its legacy key");
+  assert.deepEqual(entry("binance", "bn-main").episodes.map(episode => [episode.locator.table, episode.identity.storage_key, episode.identity.logical_account]),
+    [["account_facts_daily", ["binance", `bn-main:${hex("wallet-1")}`, day(0)], { legacy_key: "bn-main", binding_id: hex("wallet-1"), composite: true }]],
+    `${label}: the wallet-history row is the composite witness; its raw key is kept`);
+  assert.ok(tables.binance_detail_daily.rows.every(row => !("logical_account" in row)), `${label}: detail rows carry no logical-account hint`);
+  for (const binding of ["binding-1", "binding-0"]) {
+    assert.deepEqual(entry("binance", `bn-main:${hex(binding)}`)?.episodes.map(episode => [episode.locator.table, episode.identity.logical_account]),
+      [["binance_detail_daily", null]], `${label}: Binance detail key ${binding} survives as its literal account`);
+  }
   const pending = summary.pending;
   assert.equal(pending.account_setting_profile_application, 150, "approved, claimed and labels the profile writer never produces stay pending");
   assert.equal(pending.hk_stop_request, 6, "only the stop family's own terminal phases are terminal; stopped and completed stay pending");
