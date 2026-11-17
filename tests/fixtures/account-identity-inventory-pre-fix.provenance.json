@@ -1,0 +1,136 @@
+{
+  "format": "qsl_account_identity_inventory_pre_fix_fixture_provenance.v1",
+  "fixture": {
+    "file": "account-identity-inventory-pre-fix.json",
+    "sha256": "4f49b09d3dcee5be679a9b2cb6ba65dfbca8b181662fea5ad82a23cdf22e2637",
+    "bytes": 616561,
+    "layout": "{ exports: { <id>: <export> } }; each export is the complete { format, responses } object a collection returned, unedited; JSON whitespace is the serializer's (one-space indent)",
+    "export_sha256_rule": "sha256 of JSON.stringify(export)"
+  },
+  "producer": {
+    "revision_label": "pre-fix inventory producer: the revision immediately before the wallet-history producer fence (U1); its helper adds an unconditional logical-account hint to every key ending in :<64 hex>, and its KV export has no audit shape field",
+    "loading": "the complete console module tree of that revision, extracted on its own and imported from there; no module was shared with or reloaded from the current tree",
+    "module_tree_sha256": "9020deaac28e2b434d5cc26b7b7d169ab09debf0815bcf06407a52c7b690a10c",
+    "module_files": 151,
+    "module_tree_rule": "sha256 over the sorted lines <path>\\0<sha256>\\n of every .js and .mjs file under web/strategy-switch-console of that revision, excluding node_modules and frontend",
+    "modules": {
+      "worker.js": "f77b70ae560ae7931e661ac416d1ef6ebafc1cbe5d3bb11ec8aa5ad7498d3e97",
+      "inspect_account_identity_inventory.mjs": "5012dd8228604eaf8404de42a880e0fae838ff35e8d96a00398d8a92c1d16671",
+      "application/account_identity_inventory/constants.js": "65d318e36295b1d82632b740e162242f681369199b307650fbc215fee2482ba1",
+      "application/account_identity_inventory/helpers.js": "0744c3c640443cdb5798a7d53c6035ff3bcfb3ce305eae4ed7d5396509fcbc7b",
+      "application/account_identity_inventory/http.js": "b2897a53c356e73eae721f60b98e67a4a6a872e5a02b453f88ae0b560d58aea0",
+      "application/runtime_instances/durable_object.js": "a732b8e4e75f8a91b400d6b02a161afc9c6d930564da5a1330cbd1c7f7d3b923"
+    }
+  },
+  "generation": [
+    "the suite harness of tests/account_identity_inventory_validation.mjs (trap storage, synthetic SQLite per object, fake KV, admin session from the synthetic session secret) imported the producer tree above",
+    "each construction ran once through the real Worker route and RuntimeInstances handlers: schema, every SQL page, DO-KV pages and finalize for both objects, two complete KV passes, then the env section",
+    "zero storage or network traps fired and both databases were byte-identical after collection",
+    "each returned export was serialized without assembly or edits, and the bundle was written once"
+  ],
+  "synthetic_seeds": {
+    "binding": "the 64-character lowercase hex binding is the pattern a3 repeated 32 times",
+    "k3": {
+      "literal-observation": "account_facts_observation row: platform ibkr, account_key lit-k3-obs:<binding>, payload {}",
+      "literal-detail": "binance_detail_daily row: account_key lit-k3-det:<binding>, binding_id <binding>, first synthetic day, payload {}",
+      "wallet-daily": "account_facts_daily row: platform binance, account_key bn-k3:<binding>, source_binding_id <binding> (a matching stored binding), first synthetic day, payload {}"
+    },
+    "audit": {
+      "entry": "{ action, platform: ibkr, key } with action save_account_settings or approve_account_settings_profile_application and key the letter A repeated 512 (short) or 513 (long) times",
+      "index-shaped-object": "audit_log value { \"[0]\": entry }",
+      "root-array": "audit_log value [entry]",
+      "count-alias": "audit_log value { \"\": [entry] }",
+      "empty-root-array": "audit_log value []",
+      "unrecognized-action": "audit_log value [{ action: update_strategy_selection, platform: ibkr, key: audit-a8-key }]"
+    },
+    "other": "no other KV value and no env binding; unseeded SQL columns hold the suite defaults (seed, {})"
+  },
+  "tokens": "every scan and cursor token is an AES-GCM seal under the suite's synthetic session secret and opens to scan or page metadata; the suite checks this offline",
+  "exports": {
+    "k3/literal-observation": {
+      "row": "R9-K3",
+      "category": "K3 literal-observation",
+      "sha256": "dd8d38f6425a56dcc2a05819ff6bd2a18486933e09916d9d95865cebe7d75d4f"
+    },
+    "k3/literal-detail": {
+      "row": "R9-K3",
+      "category": "K3 literal-detail",
+      "sha256": "d910ea6a8988d6b5e0e3174bad70b9cf82969ab190b5ef8fd208ca07ac22a7ce"
+    },
+    "k3/wallet-daily": {
+      "row": "R9-K3",
+      "category": "K3 wallet-daily",
+      "sha256": "945213b6afea485d2dafb9f37ba7440157f615cfaae206a970b0850a60fe2e9d"
+    },
+    "a1/save_account_settings/index-shaped-object/512": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A1 construction save_account_settings/index-shaped-object/512",
+      "sha256": "3881ff39c69b6ec90c55f2ec3f676aca895893368d213aeb8d1ea90824bcbea7"
+    },
+    "a1/save_account_settings/index-shaped-object/513": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A1 construction save_account_settings/index-shaped-object/513",
+      "sha256": "bcce5a81774d7eeb3bef100517c2d648e012fdfe43ea2ad77899638383950a0d"
+    },
+    "a1/save_account_settings/root-array/512": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A1 construction save_account_settings/root-array/512",
+      "sha256": "188fd016c76a62918d07a772d1a7a2abadb69b9870aef0b4f86b5e8e9888a5fd"
+    },
+    "a1/save_account_settings/root-array/513": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A1 construction save_account_settings/root-array/513",
+      "sha256": "1ef45ee20618d673fc7f23e4705e47dde9dea0dbbcd0def7df19e80b3cbc1741"
+    },
+    "a1/approve_account_settings_profile_application/index-shaped-object/512": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A1 construction approve_account_settings_profile_application/index-shaped-object/512",
+      "sha256": "fd8c381586d574e1bd4eb602ed1e9c9e1a397141e05d3c28d60277e181e01c43"
+    },
+    "a1/approve_account_settings_profile_application/index-shaped-object/513": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A1 construction approve_account_settings_profile_application/index-shaped-object/513",
+      "sha256": "2db7278ca36ab7cca84220b200981481af7f226dafde47f3a57a937d59294ac3"
+    },
+    "a1/approve_account_settings_profile_application/root-array/512": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A1 construction approve_account_settings_profile_application/root-array/512",
+      "sha256": "6bb4401ad633de771c7e246812d7df0ac23f6688e07b127c1d498188966223b3"
+    },
+    "a1/approve_account_settings_profile_application/root-array/513": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A1 construction approve_account_settings_profile_application/root-array/513",
+      "sha256": "c6aa4100744631dd56774a692ab36281c065393992383103067f3d082f1eaa2e"
+    },
+    "a2/save_account_settings/count-alias/512": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A2 construction save_account_settings/count-alias/512",
+      "sha256": "d253d7353bea9e704ace5fbe2ca88416c5dbbce1701ab9f1317c1730162374e6"
+    },
+    "a2/save_account_settings/count-alias/513": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A2 construction save_account_settings/count-alias/513",
+      "sha256": "89f2b5649af00fec91d824802750dd5176a83cdecf3f3da25c590fb30598f3c1"
+    },
+    "a2/approve_account_settings_profile_application/count-alias/512": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A2 construction approve_account_settings_profile_application/count-alias/512",
+      "sha256": "c1be50b818d353023ef38c5ff46dc2a8876fb48591934abf13cd33bc3e6e7974"
+    },
+    "a2/approve_account_settings_profile_application/count-alias/513": {
+      "row": "R10-A7",
+      "category": "old replay of the R10-A2 construction approve_account_settings_profile_application/count-alias/513",
+      "sha256": "d2fb39c090a5edba77006ee2a22c68a1a4f85ed2c1e5ca3a5a27a8465df4a05b"
+    },
+    "a8/empty-root-array": {
+      "row": "R10-A8",
+      "category": "old noncandidate empty-root-array",
+      "sha256": "568767dfe96c84465a6a569c97d775389f802b9be031d34b06924bd28204359f"
+    },
+    "a8/unrecognized-action": {
+      "row": "R10-A8",
+      "category": "old noncandidate unrecognized-action",
+      "sha256": "9c0a49eadf67226220a56e1a5db00ffd2d46006f9361d5b113907eb70e6dcac4"
+    }
+  }
+}

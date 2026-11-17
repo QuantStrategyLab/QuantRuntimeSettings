@@ -11,6 +11,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 
 const CONSOLE = new URL("../web/strategy-switch-console/", import.meta.url);
@@ -23,7 +24,7 @@ globalThis.fetch = (input) => violate(`fetch:${typeof input === "string" ? input
 const workerModule = await import(new URL("worker.js", CONSOLE));
 const worker = workerModule.default;
 const { RuntimeInstances } = workerModule;
-const { INVENTORY_TABLES, INVENTORY_DO_PATH } = await import(new URL("application/account_identity_inventory/constants.js", CONSOLE));
+const { INVENTORY_TABLES, INVENTORY_DO_PATH, KV_IDENTITY_FIELDS, CURSOR_CONTEXT } = await import(new URL("application/account_identity_inventory/constants.js", CONSOLE));
 const { strategiesCacheAccounts } = await import(new URL("application/account_identity_inventory/helpers.js", CONSOLE));
 const { assemble, EXPORT_FORMAT } = await import(new URL("inspect_account_identity_inventory.mjs", CONSOLE));
 const { makeSession, hmac } = await import(new URL("application/auth/session.js", CONSOLE));
@@ -1651,45 +1652,74 @@ const deepReference = (depth, legacyKey) => {
   }
 }
 
-// R9-K3: exports from the earlier producer carry a hint on every key ending
-// in `:<64 hex>`. The export is that producer's output for the same rows: the
-// current handler's export plus the hint its decoder, reproduced verbatim,
-// adds. The consumer decides from the row and never from the hint.
+// Frozen exports from the pre-fix producer: its own complete console module
+// tree, run once through the real handlers over synthetic stores, both
+// objects finalized, two KV passes and the env section. Each export is the
+// collection's unedited output; its provenance and checksums are checked here
+// offline, and nothing is rebuilt from history.
+const FIXTURES = new URL("fixtures/", import.meta.url);
+const sha256 = value => createHash("sha256").update(value).digest("hex");
+const preFixText = await readFile(new URL("account-identity-inventory-pre-fix.json", FIXTURES), "utf8");
+const provenance = JSON.parse(await readFile(new URL("account-identity-inventory-pre-fix.provenance.json", FIXTURES), "utf8"));
+assert.equal(sha256(preFixText), provenance.fixture.sha256, "pre-fix fixture: file checksum");
+const PRE_FIX = JSON.parse(preFixText).exports;
+assert.deepEqual(Object.keys(PRE_FIX), Object.keys(provenance.exports), "pre-fix fixture: every export has provenance, in order");
+for (const [id, exported] of Object.entries(PRE_FIX)) {
+  assert.equal(sha256(JSON.stringify(exported)), provenance.exports[id].sha256, `pre-fix ${id}: export checksum`);
+  assert.deepEqual(Object.keys(exported), ["format", "responses"], `pre-fix ${id}: a complete collection export`);
+  assert.equal(exported.format, EXPORT_FORMAT, `pre-fix ${id}: export format`);
+}
+assert.ok(!preFixText.includes("audit_root_array"), "pre-fix fixture: the earlier producer emits no audit shape field");
+assert.notEqual(provenance.producer.modules["application/account_identity_inventory/helpers.js"],
+  sha256(await readFile(new URL("application/account_identity_inventory/helpers.js", CONSOLE))), "pre-fix fixture: produced by the earlier helper, not the current one");
+// Every scan and cursor token opens under the suite's synthetic session
+// secret to scan or page metadata alone.
 {
-  const preFixLogicalAccount = accountKey => {
-    const match = typeof accountKey === "string" ? /^(.*):([a-f0-9]{64})$/.exec(accountKey) : null;
-    return match ? { legacy_key: match[1], binding_id: match[2], composite: true } : undefined;
-  };
-  const preFixExport = exported => {
-    const copy = structuredClone(exported);
-    for (const response of copy.responses.filter(item => item.request.section === "sql")) {
-      const spec = INVENTORY_TABLES[response.request.table];
-      for (const row of response.body.rows || []) {
-        if (row.projection_error) continue;
-        const hint = preFixLogicalAccount(spec.pk.includes("account_key") ? row.pk[spec.pk.indexOf("account_key")] : row.columns?.account_key);
-        if (hint) row.logical_account = hint;
+  const subtle = globalThis.crypto.subtle, text = new TextEncoder();
+  const base = await subtle.importKey("raw", text.encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const key = await subtle.importKey("raw", await subtle.sign("HMAC", base, text.encode(CURSOR_CONTEXT)), { name: "AES-GCM" }, false, ["decrypt"]);
+  const bytes = value => Buffer.from(value, "base64url");
+  let tokens = 0;
+  for (const [id, exported] of Object.entries(PRE_FIX)) {
+    for (const { request, body } of exported.responses) {
+      for (const token of [request.scan, request.cursor, body?.scan, body?.cursor].filter(item => typeof item === "string")) {
+        const [iv, sealed] = token.split(".");
+        const opened = JSON.parse(Buffer.from(await subtle.decrypt({ name: "AES-GCM", iv: bytes(iv), additionalData: text.encode(CURSOR_CONTEXT) }, key, bytes(sealed))).toString());
+        assert.ok(opened.v === 1 && ["scan", "page"].includes(opened.kind), `pre-fix ${id}: a synthetic sealed ${opened.kind} token`);
+        tokens++;
       }
     }
-    return copy;
-  };
-  const binding = hex("k3");
+  }
+  assert.ok(tokens > 0, "pre-fix fixture: sealed tokens checked");
+}
+
+// R9-K3: the earlier producer put a hint on every key ending in `:<64 hex>`.
+// Its frozen exports are replayed unedited; the consumer decides from the
+// row and never from the hint. The same stores collected now show the
+// producers differ by that hint alone.
+{
+  const binding = "a3".repeat(32);
   const K3 = {
     "literal-observation": ["account_facts_observation", [rows("account_facts_observation", [{ platform: "ibkr", account_key: `lit-k3-obs:${binding}`, payload_json: "{}" }])],
-      ["ibkr", `lit-k3-obs:${binding}`], null],
+      ["ibkr", `lit-k3-obs:${binding}`], null, "lit-k3-obs"],
     "literal-detail": ["binance_detail_daily", [DETAIL_TABLE, rows("binance_detail_daily", [{ account_key: `lit-k3-det:${binding}`, binding_id: binding, observation_date: day(0), payload_json: "{}" }])],
-      ["binance", `lit-k3-det:${binding}`], null],
+      ["binance", `lit-k3-det:${binding}`], null, "lit-k3-det"],
     "wallet-daily": ["account_facts_daily", [rows("account_facts_daily", [{ platform: "binance", account_key: `bn-k3:${binding}`, observation_date: day(0), payload_json: "{}",
-      source_binding_id: binding }])], ["binance", "bn-k3"], { legacy_key: "bn-k3", binding_id: binding, composite: true }],
+      source_binding_id: binding }])], ["binance", "bn-k3"], { legacy_key: "bn-k3", binding_id: binding, composite: true }, "bn-k3"],
   };
-  for (const [variant, [table, sql, expected, logical]] of Object.entries(K3)) {
+  const withoutHint = ({ logical_account: _, ...row }) => row;
+  for (const [variant, [table, sql, expected, logical, hinted]] of Object.entries(K3)) {
     r9Row("R9-K3");
     const label = `R9-K3-old-export-replay ${variant}`;
-    const run = await inventoryFull({ sql });
-    const replay = preFixExport(run.exported);
-    const [current, old] = [sqlRowsOf(run.responses, table)[0], sqlRowsOf(replay.responses, table)[0]];
-    assert.deepEqual(old.logical_account, preFixLogicalAccount(old.pk[INVENTORY_TABLES[table].pk.indexOf("account_key")]), `${label}: the old export carries its unconditional hint`);
-    assert.ok(old.logical_account && (logical ? current.logical_account : !("logical_account" in current)), `${label}: the hint differs from the fenced producer only on literal rows`);
-    const assembled = assemble(replay);
+    const id = `k3/${variant}`;
+    assert.equal(provenance.exports[id].row, "R9-K3", `${label}: provenance category`);
+    const replay = PRE_FIX[id];
+    const old = sqlRowsOf(replay.responses, table)[0];
+    assert.deepEqual(old.logical_account, { legacy_key: hinted, binding_id: binding, composite: true }, `${label}: the old export carries its unconditional hint`);
+    const current = sqlRowsOf((await inventoryFull({ sql })).responses, table)[0];
+    assert.deepEqual(withoutHint(old), withoutHint(current), `${label}: the old and current producers export the same row apart from the hint`);
+    assert.ok(logical ? isDeepStrictEqual(current.logical_account, logical) : !("logical_account" in current), `${label}: the hint differs from the fenced producer only on literal rows`);
+    const assembled = assemble(structuredClone(replay));
     assert.deepEqual([pairs(assembled.private), assembled.private.mapping.unattributed], [[expected], []], `${label}: exactly one correct mapping`);
     assert.deepEqual(assembled.private.mapping.entries[0].episodes.map(episode => episode.identity.logical_account), [logical], `${label}: the hint is validated against the row`);
     r9Outcome(label, { responses: replay.responses, ...assembled });
@@ -2188,6 +2218,204 @@ for (const [sourceName, source, fixture] of [["kv", "kv:account_options", value 
 assert.deepEqual(r9Executions, { "R9-K1": 13, "R9-K2": 5, "R9-K3": 3, "R9-D1": 3, "R9-D2": 2, "R9-D3": 2, "R9-D4": 3, "R9-S1": 48, "R9-S2": 2, "R9-S3": 2, "R9-S4": 2,
   "R9-S5": 4, "R9-A1": 4, "R9-A2": 4, "R9-A3": 2, "R9-P1": 3, "R9-P2": 5, "R9-P3": 1, "R9-L1": 24, "R9-L2": 4, "R9-L3": 6, "R9-L4": 3, "R9-R1": 2 }, "R9: every matrix execution ran");
 assert.equal(Object.values(r9Executions).reduce((total, count) => total + count, 0), 147, "R9: 147 semantic executions");
+
+// R10: an audit entry names an account only in a root array, which the
+// reader reports as `audit_root_array` from the parsed value. Flattened
+// paths alone cannot show it: a `{ "": [entry] }` value projects exactly as
+// `[entry]`. Without that evidence an export's would-be audit account is
+// unknown. "Short" is 512 characters, "long" 513.
+const r10Executions = {};
+const r10Row = row => { r10Executions[row] = (r10Executions[row] || 0) + 1; };
+const { loadAuditLog } = await import(new URL("application/worker/runtime_support.js", CONSOLE));
+const AUDIT_ACTIONS = ["save_account_settings", "approve_account_settings_profile_application"];
+const AUDIT_SHAPES = { "index-shaped-object": item => ({ "[0]": item }), "root-array": item => [item], "count-alias": item => ({ "": [item] }) };
+const SHAPE_REASON = "kv:audit_log:audit_root_shape_unavailable";
+const auditEntry = (action, length, extra = {}) => ({ action, platform: "ibkr", key: long(length, "A"), ...extra });
+// The ordinary audit reader's entries for a stored value.
+const ordinaryAudit = async text => (await loadAuditLog({ STRATEGY_SWITCH_CONFIG: { get: async () => text, put: () => violate("audit.put") } })).length;
+const rootCount = item => Object.hasOwn(item.identity.counts, "$") ? item.identity.counts.$ : undefined;
+// The shape bit is an own Boolean on every exported audit item in both
+// passes and on nothing else; every other exported field is the unextended
+// projection of the stored value.
+const auditScope = (label, responses, kvValues, envValues = {}) => {
+  const items = responses.filter(item => item.request.section === "kv").flatMap(item => item.body.keys);
+  for (const item of items) {
+    if (item.family === "audit_log" && item.state === "exported") {
+      assert.ok(Object.hasOwn(item, "audit_root_array") && typeof item.audit_root_array === "boolean", `${label}: own Boolean shape on exported audit item`);
+      assert.equal(item.audit_root_array, Array.isArray(JSON.parse(kvValues[item.name])), `${label}: shape bit from the parsed value`);
+    } else assert.ok(!Object.hasOwn(item, "audit_root_array"), `${label}: no shape bit on ${item.family}`);
+    if (item.state !== "exported") continue;
+    const value = JSON.parse(kvValues[item.name]);
+    assert.deepEqual(item.identity, identityProjection(value, KV_IDENTITY_FIELDS, { optionKeyEvidence: item.name === "account_options" }), `${label}: ${item.name} unextended projection`);
+    if (item.family === "current_strategies_cache") assert.deepEqual(item.cache_accounts, strategiesCacheAccounts(value), `${label}: cache sidecar unchanged`);
+  }
+  assert.equal(items.filter(item => item.family === "audit_log" && item.state === "exported").length, "audit_log" in kvValues ? 2 : 0, `${label}: audit item in both passes`);
+  for (const binding of responses.filter(item => item.request.section === "env").flatMap(item => item.body.bindings)) {
+    assert.ok(!Object.hasOwn(binding, "audit_root_array"), `${label}: no shape bit on env ${binding.name}`);
+    if (binding.state === "present") assert.deepEqual(binding.identity, identityProjection(JSON.parse(envValues[binding.name]), KV_IDENTITY_FIELDS,
+      { optionKeyEvidence: binding.name === OPTIONS_BINDING }), `${label}: env ${binding.name} unextended projection`);
+  }
+};
+// A fresh collection of one audit value, its shape inspected before and after.
+const auditRun = async (label, value, { array, count }) => {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  assert.equal(Array.isArray(JSON.parse(text)), array, `${label}: stored root shape`);
+  const run = await inventoryFull({ kvValues: { audit_log: text } });
+  auditScope(label, run.responses, { audit_log: text });
+  const item = exportedKv(run.responses, "audit_log");
+  assert.deepEqual([item.audit_root_array, rootCount(item), item.identity.truncated], [array, count, false], `${label}: shape bit, root count, no truncation`);
+  return { run, item, text, ordinary: await ordinaryAudit(text) };
+};
+const r10Outcome = (label, run, expected = {}) => {
+  assert.equal(run.private.groups[23], "external_evidence_required", `${label}: group 23`);
+  if (expected.reasons?.length) assert.deepEqual(run.private.group_reasons[20], expected.reasons, `${label}: group 20 reasons`);
+  r9Outcome(label, run, { needles: ["AAAA", "audit_root_shape_unavailable", "[0]"], ...expected });
+};
+const auditEpisodes = result => result.mapping.entries.map(entry => [entry.platform, entry.legacy_key, entry.episodes.map(episode => [episode.state, episode.locator])]);
+const auditLocator = path => ({ source: "kv", name: "audit_log", path });
+
+// R10-A1: a recognized entry under an index-shaped property of a root object
+// names nothing; in a genuine root array it is the account, or a located loss.
+const freshAudit = {};
+for (const action of AUDIT_ACTIONS) for (const shape of ["index-shaped-object", "root-array"]) for (const length of [512, 513]) {
+  r10Row("R10-A1");
+  const label = `R10-A1-root-fence ${action} ${shape} ${length}`;
+  const array = shape === "root-array";
+  const { run, item, text, ordinary } = await auditRun(label, AUDIT_SHAPES[shape](auditEntry(action, length)), { array, count: array ? 1 : undefined });
+  freshAudit[`a1/${action}/${shape}/${length}`] = { text, identity: item.identity };
+  assert.deepEqual(item.identity.fields, { "[0].action": action, "[0].platform": "ibkr", "[0].key": length === 512 ? long(512, "A") : { long_string: 513 } }, `${label}: three projected fields, strict marker when long`);
+  assert.equal(ordinary, array ? 1 : 0, `${label}: ordinary reader entries`);
+  if (!array) {
+    assert.deepEqual([pairs(run.private), run.private.mapping.unattributed, run.private.identity_losses], [[], [], []], `${label}: no audit account from a non-array root`);
+    r10Outcome(label, run);
+  } else if (length === 512) {
+    assert.deepEqual([auditEpisodes(run.private), run.private.mapping.unattributed], [[["ibkr", long(512, "A"), [["kv_reference", auditLocator("[0].key")]]]], []], `${label}: one located account`);
+    r10Outcome(label, run);
+  } else {
+    const reason = `kv:audit_log:[0].key:${SCALAR_LOSS}`;
+    assert.deepEqual([pairs(run.private), run.private.mapping.unattributed, run.private.identity_losses.map(loss => loss.reason)], [[], [], [reason]], `${label}: one located loss, no account`);
+    r10Outcome(label, run, { reasons: [reason], incomplete: [20] });
+  }
+}
+
+// R10-A2: the count alias projects exactly as the genuine array; only the
+// shape bit tells them apart, so it names nothing.
+for (const action of AUDIT_ACTIONS) for (const length of [512, 513]) {
+  r10Row("R10-A2");
+  const label = `R10-A2-count-path-collision ${action} ${length}`;
+  const { run, item, text, ordinary } = await auditRun(label, AUDIT_SHAPES["count-alias"](auditEntry(action, length)), { array: false, count: 1 });
+  freshAudit[`a2/${action}/count-alias/${length}`] = { text, identity: item.identity };
+  assert.deepEqual(item.identity, freshAudit[`a1/${action}/root-array/${length}`].identity, `${label}: projection equals the genuine array's`);
+  assert.equal(ordinary, 0, `${label}: ordinary reader entries`);
+  assert.deepEqual([pairs(run.private), run.private.mapping.unattributed, run.private.identity_losses], [[], [], []], `${label}: no audit account from the count alias`);
+  r10Outcome(label, run);
+}
+
+// R10-A3: no root type is an audit account.
+for (const [variant, text, array] of [["null", "null", false], ["boolean", "true", false], ["number", "7", false], ["string", JSON.stringify("audit-r10-string"), false],
+  ["empty-object", "{}", false], ["empty-array", "[]", true]]) {
+  r10Row("R10-A3");
+  const label = `R10-A3-root-types ${variant}`;
+  const { run, item, ordinary } = await auditRun(label, text, { array, count: array ? 0 : undefined });
+  assert.deepEqual([item.identity.fields, ordinary], [{}, 0], `${label}: no projected field, no ordinary entry`);
+  assert.deepEqual([pairs(run.private), run.private.mapping.unattributed, run.private.identity_losses], [[], [], []], `${label}: no audit account`);
+  r10Outcome(label, run);
+}
+
+// R10-A4: a root array with no direct recognized entry.
+for (const [variant, value, entries] of [["null-entry", [null], 0], ["scalar-entry", [7], 0], ["nested-array", [[auditEntry("save_account_settings", 512)]], 0],
+  ["nested-object", [{ nested: auditEntry("approve_account_settings_profile_application", 512) }], 1]]) {
+  r10Row("R10-A4");
+  const label = `R10-A4-entry-types ${variant}`;
+  const { run, ordinary } = await auditRun(label, value, { array: true, count: 1 });
+  assert.equal(ordinary, entries, `${label}: ordinary reader entries`);
+  assert.deepEqual([pairs(run.private), run.private.mapping.unattributed, run.private.identity_losses], [[], [], []], `${label}: no audit account`);
+  r10Outcome(label, run);
+}
+
+// R10-A5: a lost platform leaves the selected key unattributed.
+for (const action of AUDIT_ACTIONS) {
+  r10Row("R10-A5");
+  const label = `R10-A5-selected-platform-loss ${action}`;
+  const { run, item } = await auditRun(label, [{ action, platform: long(513, "P"), key: "audit-a5-key" }], { array: true, count: 1 });
+  assert.deepEqual(item.identity.fields["[0].platform"], { long_string: 513 }, `${label}: strict platform marker`);
+  const reason = `kv:audit_log:[0].platform:${SCALAR_LOSS}`;
+  assert.deepEqual([pairs(run.private), run.private.mapping.unattributed.map(row => [row.legacy_key, row.locator])], [[], [["audit-a5-key", auditLocator("[0].key")]]],
+    `${label}: one unattributed key, no borrowed platform`);
+  assert.deepEqual(run.private.identity_losses.map(loss => loss.reason), [reason], `${label}: one located platform loss`);
+  r10Outcome(label, run, { reasons: [reason], incomplete: [20] });
+}
+
+// R10-A6: an explicit account reference in a non-array audit value stays a
+// generic reference.
+for (const [variant, shape, action] of [["index-shaped-object", "index-shaped-object", "save_account_settings"], ["count-alias", "count-alias", "approve_account_settings_profile_application"]]) {
+  r10Row("R10-A6");
+  const label = `R10-A6-generic-independence ${variant}`;
+  const value = { ...AUDIT_SHAPES[shape](auditEntry(action, 513)), ref: { platform: "ibkr", account_key: "audit-a6-ref" } };
+  const { run } = await auditRun(label, value, { array: false, count: shape === "count-alias" ? 1 : undefined });
+  assert.deepEqual([auditEpisodes(run.private), run.private.mapping.unattributed, run.private.identity_losses],
+    [[["ibkr", "audit-a6-ref", [["kv_reference", auditLocator("ref.account_key")]]]], [], []], `${label}: only the generic reference`);
+  r10Outcome(label, run);
+}
+
+// R10-A7: the frozen pre-fix exports of every A1 and A2 value carry no shape
+// bit. Each would-be audit account is unknown: no account, no loss at an
+// unestablished position, one shape reason.
+for (const id of Object.keys(PRE_FIX).filter(item => /^a[12]\//.test(item))) {
+  r10Row("R10-A7");
+  const label = `R10-A7-old-audit-replay ${id}`;
+  assert.equal(provenance.exports[id].row, "R10-A7", `${label}: provenance category`);
+  const replay = PRE_FIX[id];
+  const item = exportedKv(replay.responses, "audit_log");
+  assert.ok(!Object.hasOwn(item, "audit_root_array"), `${label}: no shape bit in the old export`);
+  assert.deepEqual([item.value_sha256, item.identity], [sha256(freshAudit[id].text), freshAudit[id].identity], `${label}: the same stored value and projection as the fresh collection`);
+  const run = { responses: replay.responses, ...assemble(structuredClone(replay)) };
+  assert.deepEqual([pairs(run.private), run.private.mapping.unattributed], [[], []], `${label}: no audit account`);
+  assert.deepEqual(run.private.identity_losses.map(loss => loss.reason), [SHAPE_REASON], `${label}: exactly one shape-unavailable reason, no scalar loss`);
+  r10Outcome(label, run, { reasons: [SHAPE_REASON], incomplete: [20] });
+}
+
+// R10-A8: an old export without a would-be audit account adds no reason.
+for (const id of ["a8/empty-root-array", "a8/unrecognized-action"]) {
+  r10Row("R10-A8");
+  const label = `R10-A8-old-noncandidate ${id}`;
+  assert.equal(provenance.exports[id].row, "R10-A8", `${label}: provenance category`);
+  const replay = PRE_FIX[id];
+  assert.ok(!Object.hasOwn(exportedKv(replay.responses, "audit_log"), "audit_root_array"), `${label}: no shape bit in the old export`);
+  const run = { responses: replay.responses, ...assemble(structuredClone(replay)) };
+  assert.deepEqual([pairs(run.private), run.private.mapping.unattributed, run.private.identity_losses], [[], [], []], `${label}: no account and no reason`);
+  r10Outcome(label, run);
+}
+assert.deepEqual(r10Executions, { "R10-A1": 8, "R10-A2": 4, "R10-A3": 6, "R10-A4": 4, "R10-A5": 2, "R10-A6": 2, "R10-A7": 12, "R10-A8": 2 }, "R10: every matrix execution ran");
+assert.equal(Object.values(r10Executions).reduce((total, count) => total + count, 0), 40, "R10: 40 semantic executions");
+
+// R10 source scope (supplemental): the shape bit is on the audit item alone,
+// beside other KV families and all three env bindings, whose projections and
+// sidecars are unchanged.
+for (const audit of [JSON.stringify([auditEntry("save_account_settings", 512)]), JSON.stringify({ "[0]": auditEntry("save_account_settings", 512) })]) {
+  const kvValues = { audit_log: audit, account_options: JSON.stringify({ ibkr: [{ key: "r10-opt", id: "r10-opt-id" }] }),
+    account_facts_bindings: JSON.stringify({ bindings: [{ platform: "ibkr", account_key: "r10-fact" }] }),
+    current_strategies_cache: JSON.stringify({ ts: 1, data: { ibkr: { "r10-cache": { account_selector: "s" } } } }), ...UNRELATED };
+  const envValues = { [OPTIONS_BINDING]: JSON.stringify({ ibkr: [{ key: "r10-env-opt" }] }),
+    BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({ platform: "binance", account_key: "r10-bn" }),
+    BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([{ platform: "binance", account_key: "r10-bn-old" }]) };
+  const run = await inventoryFull({ kvValues, envValues });
+  auditScope("R10-source-scope", run.responses, kvValues, envValues);
+  assert.equal(run.private.status, ENUMERATED, "R10-source-scope: complete");
+}
+// R10 malformed shape evidence (supplemental unit checks on edited exports,
+// not real-handler collections): a non-Boolean bit, a true bit without a root
+// count, and a true bit with the entry beyond its count are each unknown.
+{
+  const fresh = (await inventoryFull({ kvValues: { audit_log: freshAudit["a1/save_account_settings/root-array/512"].text } })).exported;
+  for (const [variant, edit] of [["string-bit", item => { item.audit_root_array = "true"; }], ["no-root-count", item => { delete item.identity.counts.$; }],
+    ["index-beyond-count", item => { item.identity.counts.$ = 0; }]]) {
+    const copy = structuredClone(fresh);
+    for (const item of copy.responses.filter(response => response.request.section === "kv").flatMap(response => response.body.keys)) if (item.name === "audit_log") edit(item);
+    const { private: result } = assemble(copy);
+    assert.deepEqual([pairs(result), result.mapping.unattributed, result.reasons, result.groups[20]], [[], [], [SHAPE_REASON], "incomplete"], `R10-supplemental ${variant}: unknown, one shape reason`);
+  }
+}
 
 // ---------------------------------------------------- A3: populated, beyond legacy caps, full assembly
 const plan = populatedPlan();
