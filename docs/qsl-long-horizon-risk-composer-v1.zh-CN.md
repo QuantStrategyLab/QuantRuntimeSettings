@@ -1,3 +1,5 @@
+[English](qsl-long-horizon-risk-composer-v1.md) | 简体中文
+
 # QSL 长期复利风险政策 Composer V1
 
 > 状态：`PRIVATE_P3_OBSERVATION_INGRESS_IMPLEMENTED_POLICY_WRITE_NOT_WIRED`

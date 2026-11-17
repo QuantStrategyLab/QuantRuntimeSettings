@@ -1,3 +1,5 @@
+[English](qsl-research-task-v1.md) | 简体中文
+
 # QSL 研究任务契约 V1
 
 `qsl.research_task.v1` 是 AI、Watcher 与策略仓之间的最小实验任务单。它只描述一个有证据绑定、有限次数与有限时长的离线研究请求；它不是激活、部署、paper、shadow 或 live 指令。

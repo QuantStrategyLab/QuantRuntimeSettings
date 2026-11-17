@@ -33,5 +33,39 @@ The current package retains configuration and compatibility ownership. Broker cr
 - [Account mapping authority](account-mapping-authority.md): eligible/display-only classification policy, evidence states, inventory adapter contract and the runtime-instance read projection.
 - [English fork guide](strategy-switch-fork-guide.md) · [中文 Fork 指南](strategy-switch-fork-guide.zh-CN.md): installation in a separately configured environment.
 - [English permission model](manual-strategy-switch-permission-control.md) · [中文权限说明](manual-strategy-switch-permission-control.zh-CN.md).
+- [Unified control console architecture V1](qsl-unified-control-console-architecture-v1.md) · [中文](qsl-unified-control-console-architecture-v1.zh-CN.md): single human control-plane surface, source snapshots, and owner decision boundaries.
+- [Console information design](console-information-design.md) · [中文](console-information-design.zh-CN.md): overview/account/research layout, frontend rules, IBKR account naming, KV audit deduplication, and frozen research index.
+- [Credential maintenance](credential-maintenance.md) · [中文](credential-maintenance.zh-CN.md): shared `ibkr_flex` expiry registration, reminder deduplication, and write-only rotation endpoints.
+- [Secrets and account config architecture](secrets-architecture.md) · [中文](secrets-architecture.zh-CN.md): secret layering, Worker account catalogs, Gateway vs. cloud split, and rotation proxy architecture.
+
+## Control plane, risk, and lifecycle contracts
+
+| Document | Scope |
+| --- | --- |
+| [P0–P6 current state and driver policy](qsl-p0-p6-current-state-and-driver-policy.md) · [中文](qsl-p0-p6-current-state-and-driver-policy.zh-CN.md) | P0–P6 lifecycle boundaries, component matrix, internal dependency checks, and dated evidence reference. |
+| [Autonomous operating policy V2](qsl-autonomous-operating-policy-v2.md) · [中文](qsl-autonomous-operating-policy-v2.zh-CN.md) | `PREAUTHORIZED_AUTONOMY` bounds, privilege zones, and OpenSSH/Cloud KMS verification gate. |
+| [GCP P0 control root deployment V1](qsl-gcp-p0-control-root-deployment-v1.md) · [中文](qsl-gcp-p0-control-root-deployment-v1.zh-CN.md) | Per-domain Cloud KMS P-256 public verification roots and retired shadow-control root notes. |
+| [Deterministic execution gateway V1](qsl-deterministic-execution-gateway-v1.md) · [中文](qsl-deterministic-execution-gateway-v1.zh-CN.md) | Three-layer isolation, `PARKED` vs. `RECONCILE_ONLY` admission, and gateway acceptance rules. |
+| [Deterministic risk gate kernel V1](qsl-deterministic-risk-gate-kernel-v1.md) · [中文](qsl-deterministic-risk-gate-kernel-v1.zh-CN.md) | Pure in-memory `ALLOW_NEW_RISK` / `NEW_RISK_PROHIBITED` decision kernel and breaker semantics. |
+| [P4/P5 unattended delivery V1](qsl-p4-p5-autonomy-delivery-v1.md) · [中文](qsl-p4-p5-autonomy-delivery-v1.zh-CN.md) | Paper (`P4`) and shadow (`P5`) forward-observation risk controls and state machine. |
+| [Lifecycle truth V1](qsl-lifecycle-truth-v1.md) · [中文](qsl-lifecycle-truth-v1.zh-CN.md) | Canonical lifecycle stages, console read precedence, and monitoring vs. execution evidence. |
+| [Promotion activation control plane](promotion-activation-control-plane.md) · [中文](promotion-activation-control-plane.zh-CN.md) | Signed promotion manifest verification, single-use tag ledger, and variable readback. |
+| [Universal dry-run coverage V1](qsl-universal-dry-run-coverage-v1.md) · [中文](qsl-universal-dry-run-coverage-v1.zh-CN.md) | Mandatory `dry_run` mode contract, buildable route coverage, and artifact freshness gate. |
+| [Capital risk envelope V1](qsl-capital-risk-envelope-v1.md) · [中文](qsl-capital-risk-envelope-v1.zh-CN.md) | Equity-tiered sizing, volatility/drawdown scalars, and `NEW_RISK_PROHIBITED` account gate. |
+| [Multi-strategy combo A→B V1](qsl-multi-strategy-combo-ab-v1.md) · [中文](qsl-multi-strategy-combo-ab-v1.zh-CN.md) | Virtual combo research and multi-account aggregate risk path selection. |
+| [Long-horizon risk composer V1](qsl-long-horizon-risk-composer-v1.md) · [中文](qsl-long-horizon-risk-composer-v1.zh-CN.md) | Offline Composer V1 calculation, dual-basis risk preference, and bounded private ingress. |
+| [Long-horizon risk observation V2](qsl-long-horizon-risk-observation-v2.md) · [中文](qsl-long-horizon-risk-observation-v2.zh-CN.md) | Portable risk profile selection, `risk_capability`, and `benchmark_policy` v2 schema. |
+| [Drift-triggered research HITL V1](qsl-drift-triggered-research-hitl-v1.md) · [中文](qsl-drift-triggered-research-hitl-v1.zh-CN.md) | Production Policy A no-auto-reopt boundaries and bounded explicit research promotion gates. |
+| [Research task contract V1](qsl-research-task-v1.md) · [中文](qsl-research-task-v1.zh-CN.md) | `qsl.research_task.v1` no-order research requests and dedicated console projection. |
+| [Development research review V1](qsl-development-research-review-v1.md) · [中文](qsl-development-research-review-v1.zh-CN.md) | `qsl.development_research_review.v1` read-only consumer validation and receipt persistence. |
+| [Strategy plugin contract V2](qsl-strategy-plugin-contract-v2.md) · [中文](qsl-strategy-plugin-contract-v2.zh-CN.md) | Signal-only plugin contract, `P1`/`P2`/`P3` digest binding, and legacy mount retirement. |
+
+## Notifications and daily digest
+
+| Document | Scope |
+| --- | --- |
+| [QuantSentinel notification architecture](notifications-quant-sentinel.md) · [中文](notifications-quant-sentinel.zh-CN.md) | Unified sentinel bot secret contract, daily digest behavior, `sections_v2`, and route checks. |
+| [Daily digest candidates wiring](digest-candidates-wiring.md) · [中文](digest-candidates-wiring.zh-CN.md) | `qsl.digest_candidates.v1` schema, freshness rules, private store intake, and preflight. |
+| [Daily digest route diagnosis](digest-route-identity.md) · [中文](digest-route-identity.zh-CN.md) | Read-only `digest-bot-identity.yml` token/chat resolution checks and public projection. |
 
 The existing complete documents retain their interfaces and risk controls. Index links and English summaries do not authorize deployment or change data/provider rights. See [LICENSE](../LICENSE).

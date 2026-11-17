@@ -1,3 +1,5 @@
+[English](qsl-capital-risk-envelope-v1.md) | 简体中文
+
 # QSL 资金风险信封 V1（设计）
 
 > 状态：`LIBRARY_READY_PLATFORM_WIRING_IN_PROGRESS`
