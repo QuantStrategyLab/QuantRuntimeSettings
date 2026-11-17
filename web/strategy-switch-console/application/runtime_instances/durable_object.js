@@ -2275,11 +2275,12 @@ export class RuntimeInstances {
     return row ? { revision: row.revision, instances: JSON.parse(row.payload), initialized: true } : { revision: 0, instances: [], initialized: false };
   }
 
-  // Protected read projection of a supplied mapping authority over the
-  // current instance state. No route or action dispatches it yet; it reads
-  // and writes nothing else.
-  accountManagementProjection({ authority, effective = [], links = [] } = {}) {
-    return projectAccountManagement({ state: this.read(), authority, effective, links });
+  // Protected read projection of the mapping authority over the current
+  // instance state, derived from a supplied inventory result, policy
+  // document and collection metadata. No route or action dispatches it yet;
+  // it reads and writes nothing else.
+  accountManagementProjection({ inventory, policy, collection, effective = [], links = [] } = {}) {
+    return projectAccountManagement({ state: this.read(), inventory, policy, collection, effective, links });
   }
 
   response(state) {

@@ -7,7 +7,7 @@
 // link IDs pass through byte-identical. Pure; the caller supplies the
 // instance state read inside the Durable Object.
 import { accountSettingsIdentity } from "../account_settings/helpers.js";
-import { MAPPING_AUTHORITY_INPUT_FORMAT } from "../account_mapping/inventory_adapter.js";
+import { deriveMappingAuthority } from "../account_mapping/inventory_adapter.js";
 import { MANAGEMENT_STATUS, deploymentId, effectiveManagementState, managementStatus, sameSettingsIdentity } from "../account_mapping/policy.js";
 
 export const ACCOUNT_MANAGEMENT_PROJECTION_FORMAT = "qsl_account_management_projection.v1";
@@ -56,35 +56,60 @@ function acceptLinks(links, current, accountOf) {
   return { accepted, rejected };
 }
 
-// `state` is RuntimeInstances.read(); `authority` is a mapping authority
-// derived offline from a complete inventory (deriveMappingAuthority);
-// `effective` are applied management records, one per deployment; `links`
-// are private enrollment links. Every current instance is displayed: one
-// not covered by the authority reads `unknown`. An authority bound to an
-// older instance revision reads `stale`.
-export function projectAccountManagement({ state, authority, effective = [], links = [] }) {
-  const current = state?.initialized === true && Array.isArray(state.instances) ? state.instances.filter(item => item?.kind === "existing") : [];
-  const usable = isObject(authority) && authority.format === MAPPING_AUTHORITY_INPUT_FORMAT && Array.isArray(authority.accounts) && Array.isArray(authority.deployments);
-  const resolved = new Map((usable ? authority.deployments : []).map(item => [deploymentId(item.platform, item.legacy_key), item]));
-  const accounts = (usable ? authority.accounts : []).map(account => ({ account, ids: account.deployments.map(item => deploymentId(item.platform, item.legacy_key)) }));
+// The reader's `current` rule: existing, with no retirement requested.
+const isCurrent = item => item?.kind === "existing" && (!item.retirement_status || item.retirement_status === "none");
+const groupBy = items => items.reduce((groups, item) => groups.set(deploymentId(item?.platform, item?.legacy_key), [...(groups.get(deploymentId(item?.platform, item?.legacy_key)) || []), item]), new Map());
+
+// The mapping authority is derived here, never accepted: any derivation
+// failure (a missing or malformed inventory result, policy document or
+// collection metadata) classifies nothing.
+function derive(inventory, policy, collection) {
+  try { return deriveMappingAuthority(inventory, policy, collection); } catch { return null; }
+}
+
+// `state` is RuntimeInstances.read(). `inventory` is the private result of
+// the #1173 assemble(), `policy` the protected mapping-policy document and
+// `collection` its `{ observedAt, sourceRef }`; classification is derived
+// from them here (deriveMappingAuthority), and no caller-supplied summary,
+// class or evidence is read. The policy document is trusted only as far as
+// the composing caller that supplies it: its content does not authenticate
+// its origin. `effective` are applied management records, one per
+// deployment; `links` are private enrollment links. Every current instance
+// is displayed: one the derived authority does not cover reads `unknown`.
+// An authority derived at an older instance revision reads `stale`.
+export function projectAccountManagement({ state, inventory, policy, collection, effective = [], links = [] } = {}) {
+  const instances = state?.initialized === true && Array.isArray(state.instances) ? state.instances : [];
+  const current = instances.filter(isCurrent);
+  const authority = derive(inventory, policy, collection);
+  const resolved = groupBy(authority?.deployments || []), excluded = groupBy(authority?.excluded || []);
+  const accounts = (authority?.accounts || []).map(account => ({ account, ids: account.deployments.map(item => deploymentId(item.platform, item.legacy_key)), derived: true }));
   const covered = new Set(accounts.flatMap(item => item.ids));
   for (const item of current) {
     const id = deploymentId(item.platform, item.key);
-    if (!covered.has(id)) accounts.push({ account: { deployments: [{ platform: item.platform, legacy_key: item.key }], management_class: null, evidence_state: "unknown" }, ids: [id] });
+    if (covered.has(id)) continue;
+    covered.add(id);
+    accounts.push({ account: { deployments: [{ platform: item.platform, legacy_key: item.key }], management_class: null, evidence_state: "unknown" }, ids: [id], derived: false });
   }
   const owner = new Map(accounts.flatMap((entry, index) => entry.ids.map(id => [id, index])));
   const { accepted, rejected } = acceptLinks(links, current, id => owner.get(id));
-  const stale = !usable || authority.instance_revision !== state?.revision;
-  const rows = accounts.map(({ account, ids }, index) => {
-    let evidence = account.evidence_state === "known" || account.evidence_state === "conflict" ? account.evidence_state : "unknown";
-    // The authority's resolved identity must still be the current one.
+  const stale = authority?.instance_revision !== state?.revision;
+  const rows = accounts.map(({ account, ids, derived }, index) => {
+    let evidence = derived && (account.evidence_state === "known" || account.evidence_state === "conflict") ? account.evidence_state : "unknown";
     for (const id of ids) {
-      const instance = current.find(item => deploymentId(item.platform, item.key) === id);
-      if (!instance) evidence = worst(evidence, "unknown");
-      else if (resolved.has(id) && !sameSettingsIdentity(accountSettingsIdentity(instance), resolved.get(id).identity)) evidence = worst(evidence, "conflict");
+      // Exactly one resolved reader entry, none excluded.
+      const claims = resolved.get(id) || [], exclusions = excluded.get(id) || [];
+      if (exclusions.length) evidence = worst(evidence, exclusions.some(item => item.evidence_state === "conflict") ? "conflict" : "unknown");
+      if (claims.length !== 1) evidence = worst(evidence, claims.length > 1 ? "conflict" : "unknown");
+      // Exactly one current instance, whose identity is still the resolved one.
+      const matches = instances.filter(item => deploymentId(item?.platform, item?.key) === id);
+      if (matches.length > 1) evidence = worst(evidence, "conflict");
+      else if (!matches.length || !isCurrent(matches[0])) evidence = worst(evidence, "unknown");
+      else if (claims.length === 1 && !sameSettingsIdentity(accountSettingsIdentity(matches[0]), claims[0].identity)) evidence = worst(evidence, "conflict");
     }
-    if (stale && usable && covered.has(ids[0])) evidence = worst(evidence, "stale");
-    const applied = effectiveManagementState(account, effective);
+    if (stale && derived) evidence = worst(evidence, "stale");
+    // Applied records are read against a policy class only; an unclassified
+    // row stays unknown whatever they say.
+    const applied = account.management_class ? effectiveManagementState(account, effective) : { evidence_state: "unknown", reasons: ["deployment_unclassified"] };
     // A display-only class needs no applied record; a conflicting one counts.
     if (applied.evidence_state === "conflict" || (account.management_class === "eligible" && applied.evidence_state !== "known")) evidence = worst(evidence, applied.evidence_state);
     const status = managementStatus({ ...account, evidence_state: evidence }, applied);
@@ -92,9 +117,9 @@ export function projectAccountManagement({ state, authority, effective = [], lin
       deployments: account.deployments.map(item => ({ platform: item.platform, legacy_key: item.legacy_key })),
       enrollment_links: accepted.get(index) || [],
       management_status: status, evidence_state: evidence,
-      configuration_revision: { instances: Number.isSafeInteger(state?.revision) ? state.revision : null, mapping_policy: usable ? authority.policy_revision ?? null : null,
+      configuration_revision: { instances: Number.isSafeInteger(state?.revision) ? state.revision : null, mapping_policy: authority?.policy_revision ?? null,
         management: applied.evidence_state === "known" ? applied.revision : null },
-      observed_at: usable ? authority.observed_at : null, source_ref: usable ? authority.source_ref : null,
+      observed_at: authority?.observed_at ?? null, source_ref: authority?.source_ref ?? null,
     };
   });
   const counts = Object.fromEntries(Object.values(MANAGEMENT_STATUS).map(code => [code, rows.filter(row => row.management_status === code).length]));

@@ -86,15 +86,60 @@ protected reference to the export, supplied by the operator.
 The adapter allocates no canonical identity, renames nothing and rewrites no
 history; a later identity migration can replace it.
 
+The assembled result carries `groups`, `group_reasons` and `identity_losses`
+at its root, not under `mapping`. The adapter reads completeness from
+`status`, `groups`, `objects`, `kv`, `env`, the top-level `reasons` and
+`identity_losses`. It does not read `group_reasons`: those are diagnostic
+causes for the incomplete groups, and changing them alone changes nothing.
+
 ## Read projection
 
-`projectAccountManagement({ state, authority, effective, links })` returns,
-per displayed account, only the deployment identities, accepted enrollment
-links, `management_status`, `evidence_state`, `configuration_revision`
-(instance state, mapping policy and applied management revisions),
-`observed_at` and `source_ref`. Every current runtime instance is displayed;
-one the authority does not cover reads `unknown`. Legacy keys and opaque
-link IDs pass through byte-identical. Labels are neither read nor emitted.
+`projectAccountManagement({ state, inventory, policy, collection, effective, links })`
+derives the mapping authority itself. `inventory` is the private result of
+`assemble()`, `policy` the mapping-policy document and `collection` the
+`{ observedAt, sourceRef }` metadata; the projection calls
+`deriveMappingAuthority()` on them. It never reads a caller-supplied
+authority summary, account list, class or evidence. A call in the old
+authority-only shape, or with a missing or malformed inventory result,
+policy or collection metadata, displays the current instances as
+unclassified `unknown` rows, with no policy revision and nothing managed.
+`RuntimeInstances.accountManagementProjection({ inventory, policy, collection, effective, links })`
+passes these inputs with its own `read()` state.
+
+A row's evidence is `known` only when all of these hold:
+
+- the collection is authoritative and the policy validates;
+- every deployment of the account is claimed by that one policy account
+  and has exactly one resolved reader entry, with `known` evidence and none
+  excluded;
+- every deployment is exactly one current runtime instance (existing, no
+  retirement requested) whose settings identity is still the resolved one,
+  and the resolved identity is still the policy's;
+- the authority was derived at the current instance revision; otherwise
+  the row reads `stale`.
+
+Duplicate or contradictory entries, claims or current instances make the
+affected account a `conflict`; no claimant wins. An absent, draft or
+retiring instance reads `unknown`. Applied records are read against the
+policy class only; an unclassified row stays `unknown` whatever they say.
+
+The projection returns, per displayed account, only the deployment
+identities, accepted enrollment links, `management_status`,
+`evidence_state`, `configuration_revision` (instance state, mapping policy
+and applied management revisions), `observed_at` and `source_ref`. Every
+current runtime instance is displayed; one the authority does not cover
+reads `unknown`. Legacy keys and opaque link IDs pass through
+byte-identical. Labels are neither read nor emitted.
+
+### Trust boundary
+
+The policy input is the only classification source. An applied management
+record, an enrollment link, a producer label or a derived summary never
+classifies an account. The policy document is trusted only as far as the
+composing caller that supplies it: a JSON document or a policy revision does
+not authenticate where it came from. No route or protected policy storage
+supplies it yet; later integration work must read it from the protected
+source and register that read.
 
 Private enrollment links (the shape `python/scripts/project_digest_display_roster.py`
 reads) are a compatibility edge onto resolved deployments. A link is
