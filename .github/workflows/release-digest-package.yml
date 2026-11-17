@@ -65,7 +65,7 @@ jobs:
     permissions:
       id-token: write
       actions: read
-    uses: QuantStrategyLab/.github/.github/workflows/deploy-azure-blob.yml@dee8bd9edca02c3466bfc1ceccb7f3dd9ae84237
+    uses: QuantStrategyLab/.github/.github/workflows/deploy-azure-blob.yml@b4966bdd8780cad3ae5154ae50d8b98259a16dc6
     with:
       environment: ${{ inputs.target }}
       operation: ${{ inputs.operation }}
