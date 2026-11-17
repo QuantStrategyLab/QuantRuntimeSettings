@@ -257,6 +257,50 @@ const settingsIdentity = (platform, legacyKey, config) => {
     account_scope: normalized.account_scope, service_name: normalized.service_name };
 };
 
+// The configured options of an account-options value, one per `platform[index]`
+// slot. The ordinary reader names an option by its key, or by its ID when the
+// key is falsy (normalizeAccountOption: `raw.key || raw.id`, a trimmed
+// non-empty string of OPTION_KEY_RE characters). A truthy key always wins: an
+// unreadable one (non-string, cut long string, nested value) names no option
+// and its ID is not used instead. A truthy key the ordinary reader would reject
+// is still listed, as before, with `option_key_valid: false`; an ID the
+// ordinary reader would reject names nothing. In a truncated projection the
+// slot holding the last projected option field may have lost its key, so an ID
+// selected there carries `key_unobserved_at_truncation`.
+const OPTION_SLOT = /^([^.[]+\[\d+\])\.(key|id)$/;
+const OPTION_KEY = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
+function configuredOptions(identity) {
+  const fields = identity?.fields || {}, slots = new Map();
+  for (const [path, item] of Object.entries(fields)) {
+    const match = OPTION_SLOT.exec(path);
+    if (!match) continue;
+    if (!slots.has(match[1])) slots.set(match[1], {});
+    slots.get(match[1])[match[2]] = { path, value: item };
+  }
+  // Slots whose key is an object or array: their key is truthy but unreadable.
+  const nestedKeys = new Set();
+  for (const path of [...Object.keys(fields), ...Object.keys(identity?.counts || {}), ...(identity?.redacted || [])]) {
+    const match = /^([^.[]+\[\d+\])\.key(?:[.[]|$)/.exec(path);
+    if (match && !(path === `${match[1]}.key` && Object.hasOwn(fields, path))) nestedKeys.add(match[1]);
+  }
+  const boundary = identity?.truncated ? Object.keys(fields).map(path => /^([^.[]+\[\d+\])\./.exec(path)?.[1]).filter(Boolean).at(-1) : null;
+  const options = [];
+  for (const [slot, { key: keyField, id: idField }] of slots) {
+    const platform = slot.slice(0, slot.lastIndexOf("["));
+    const selectedField = keyField?.value || nestedKeys.has(slot) ? "key" : idField?.value ? "id" : null;
+    const selected = selectedField === "key" ? keyField : selectedField === "id" ? idField : null;
+    if (!selected || typeof selected.value !== "string") continue;
+    const trimmed = selected.value.trim();
+    const valid = OPTION_KEY.test(trimmed);
+    if (!valid && selectedField === "id") continue;
+    const legacyKey = valid ? trimmed : selected.value;
+    options.push({ platform, legacy_key: legacyKey, path: selected.path, identity: { selected_field: selectedField,
+      ...(legacyKey !== selected.value ? { raw_value: selected.value } : {}), ...(valid ? {} : { option_key_valid: false }),
+      ...(selectedField === "id" && slot === boundary ? { key_unobserved_at_truncation: true } : {}) } });
+  }
+  return options;
+}
+
 function mappingFrom(objects, kv, env) {
   const mapping = new Map(), unattributed = [];
   const entry = (platform, legacyKey) => {
@@ -348,13 +392,10 @@ function mappingFrom(objects, kv, env) {
   for (const item of env?.bindings || []) {
     if (item.state === "present") addReferences(item.identity, "env_reference", { source: "env", name: item.name }, false);
   }
-  const optionSources = [...(kv?.keys || []).filter(item => item.name === "account_options" && item.state === "exported").map(item => ({ fields: item.identity.fields, source: "kv:account_options" })),
-    ...(env?.bindings || []).filter(item => item.name === "STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON" && item.state === "present").map(item => ({ fields: item.identity.fields, source: "env:STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON" }))];
-  for (const { fields, source } of optionSources) {
-    for (const [path, keyValue] of Object.entries(fields)) {
-      const match = /^([^.[]+)\[(\d+)\]\.key$/.exec(path);
-      if (match) add(match[1], keyValue, "configured_option", { source, path });
-    }
+  const optionSources = [...(kv?.keys || []).filter(item => item.name === "account_options" && item.state === "exported").map(item => ({ identity: item.identity, source: "kv:account_options" })),
+    ...(env?.bindings || []).filter(item => item.name === "STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON" && item.state === "present").map(item => ({ identity: item.identity, source: "env:STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON" }))];
+  for (const { identity, source } of optionSources) {
+    for (const option of configuredOptions(identity)) add(option.platform, option.legacy_key, "configured_option", { source, path: option.path }, option.identity);
   }
   const current = new Set([...mapping.values()].filter(item => item.states.has("current") || item.states.has("draft") || item.states.has("retirement_requested")).map(item => key(item.platform, item.legacy_key)));
   for (const item of mapping.values()) if (!current.has(key(item.platform, item.legacy_key))) item.states.add("orphan");
@@ -467,13 +508,21 @@ export function assemble(exported) {
     if (local.length) groupReasons[group] = [...new Set(local)];
   }
   if (groups[16] === "complete" && !env) groups[16] = "env_section_not_collected";
+  // A binding whose identity projection was cut at its field or depth bound
+  // holds identities that were not read; its projected references stay mapped.
+  const envReasons = (env?.bindings || []).filter(item => item.state === "present" && item.identity?.truncated)
+    .map(item => `env:${item.name}:identity_projection_truncated`);
+  if (envReasons.length) {
+    if (groups[16] === "complete") groups[16] = "incomplete";
+    groupReasons[16] = [...new Set([...(groupReasons[16] || []), ...envReasons])];
+  }
   groups[23] = "external_evidence_required";
   const mapping = mappingFrom(objects, kv, env);
   const pending = pendingFrom(objects, kv);
   const enumerated = objects.every(result => result.complete) && Object.entries(groups).every(([group, state]) => state === "complete" || group === "23");
   const kvReasons = kv ? [...kv.reasons, ...new Set(kv.failed_reads.flatMap(item => item.causes.map(cause => `kv:${item.family}:${cause}`)))] : [];
   const result = { status: enumerated ? "retained_state_enumerated_external_evidence_required" : "incomplete", objects, kv, env, groups,
-    group_reasons: groupReasons, mapping, pending, reasons: [...kvReasons, ...objects.flatMap(item => item.reasons.map(reason => `${item.object}:${reason}`))] };
+    group_reasons: groupReasons, mapping, pending, reasons: [...kvReasons, ...envReasons, ...objects.flatMap(item => item.reasons.map(reason => `${item.object}:${reason}`))] };
   return { private: result, summary: summarize(result) };
 }
 

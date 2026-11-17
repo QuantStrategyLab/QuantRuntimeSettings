@@ -198,7 +198,24 @@ a value whose identity projection was cut at its 4000-field or depth-8 bound
 (`identity_projection_truncated`); its projected references are still mapped.
 Each failed key counts once, and its `causes` list every reason, a cache cause
 included. Equal fingerprints show only that a value was stable. A value that
-was read but is invalid JSON remains a qualified observation.
+was read but is invalid JSON remains a qualified observation. An environment
+binding whose projection was cut at the same bounds makes group 16 and the
+overall result `incomplete` with the private reason
+`env:<binding-name>:identity_projection_truncated`, one per binding; its
+projected references are still mapped and KV failed-read counts are unchanged.
+The summary carries only the aggregate reason count.
+
+Configured options in KV `account_options` and the
+`STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON` binding are read per `platform[index]`
+slot as `normalizeAccountOption()` selects them: the key, or the ID when the
+key is falsy, trimmed. A truthy key always wins and the ID is never a second
+identity. A truthy key the ordinary reader would reject is listed with
+`option_key_valid: false`; one the projection cannot carry (non-string, nested
+or beyond the long-string bound) names no option and is not replaced by the ID.
+An ID the ordinary reader would reject names nothing. The episode locator is
+the selected field's path. In a truncated projection, an ID selected in the
+last projected slot carries `key_unobserved_at_truncation`. IDs elsewhere are
+not account identities.
 
 The assembler derives a mapping keyed by every `(platform, legacy_key)` with
 dated identity episodes, conflicts, cross-platform collisions and an

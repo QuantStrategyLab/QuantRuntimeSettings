@@ -617,17 +617,19 @@ async function inventoryOf({ doKv = {}, kvValues = {} }) {
 // Every fixture is collected through the real route (both objects
 // finalized, two equal KV passes, env collected) and assembled unmodified;
 // `isolate` leaves assembly to a separate process.
-async function inventoryFull({ sql = [], kvValues = {}, isolate = false } = {}) {
+async function inventoryFull({ sql = [], kvValues = {}, envValues = {}, collectEnv = true, isolate = false } = {}) {
   const h = await harness({ runtime: { sql, kv: {}, alarm: null, initialize: sql.length > 0 }, directory: { sql: [], kv: {}, alarm: null, initialize: false },
-    kv: fakeKv(kvValues), extraEnv: { ACCOUNT_IDENTITY_INVENTORY_KV_ENABLED: "true", ACCOUNT_IDENTITY_INVENTORY_ENV_ENABLED: "true" } });
+    kv: fakeKv(kvValues), extraEnv: { ACCOUNT_IDENTITY_INVENTORY_KV_ENABLED: "true", ACCOUNT_IDENTITY_INVENTORY_ENV_ENABLED: "true", ...envValues } });
   const responses = [];
   await collect(h.get, "runtime", { responses });
   await collect(h.get, "directory", { responses });
   await collectKv(h.get, responses);
   await collectKv(h.get, responses);
-  const envPage = await h.get(`${ROUTE}?section=env`);
-  responses.push({ request: { section: "env" }, status: envPage.status, body: envPage.body });
-  assert.equal(envPage.status, 200, "env section collected");
+  if (collectEnv) {
+    const envPage = await h.get(`${ROUTE}?section=env`);
+    responses.push({ request: { section: "env" }, status: envPage.status, body: envPage.body });
+    assert.equal(envPage.status, 200, "env section collected");
+  }
   const exported = { format: EXPORT_FORMAT, responses };
   const assembled = isolate ? {} : assemble(structuredClone(exported));
   assert.deepEqual(violations, [], "no trap fired");
@@ -721,6 +723,207 @@ const UNRELATED = { risk_profile_bindings: JSON.stringify({ rows: [{ platform: "
     assert.deepEqual(result.kv.failed_reads.map(read => [read.name, read.state, read.causes]), [["current_strategies_cache", item.causes[0], item.causes]], `${label}: one failed read, every cause`);
     assert.deepEqual([result.groups[20], result.group_reasons[20], result.status, summary.kv.failed_reads],
       ["incomplete", item.causes.map(cause => `kv:current_strategies_cache:${cause}`), "incomplete", 1], `${label}: incomplete for its causes`);
+  }
+}
+
+// C9/C10: an environment binding's identity projection cut at its field or
+// depth bound makes group 16 and the overall result incomplete.
+const ENV_BINDING_NAMES = ["STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON", "BINANCE_ACCOUNT_FACTS_BINDING_JSON", "BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON"];
+const exportedEnv = (responses, name) => {
+  const pages = responses.filter(item => item.request.section === "env");
+  assert.equal(pages.length, 1, "one env response");
+  return pages[0].body.bindings.find(item => item.name === name);
+};
+const envReasonsOf = result => result.reasons.filter(reason => reason.startsWith("env:"));
+const otherGroupsComplete = (result, label) => {
+  for (let group = 1; group <= 22; group++) if (group !== 16) assert.equal(result.groups[group], "complete", `${label}: unrelated group ${group} stays complete`);
+};
+const summaryAggregatesOnly = (summary, label, needles = []) => {
+  const text = JSON.stringify(summary);
+  for (const needle of [...ENV_BINDING_NAMES, "env:", "identity_projection_truncated", ...needles]) assert.ok(!text.includes(needle), `${label}: summary omits ${needle}`);
+};
+{
+  const options = (count, last = null) => JSON.stringify({ ibkr: [...range(count).map(index => ({ key: `opt-${pad(index)}`, account_selector: `sel-${index}` })), ...(last ? [last] : [])] });
+  const reason = "env:STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON:identity_projection_truncated";
+  const cases = {
+    "C9-env-fields-4000": { value: options(2000), inputs: 4000, accounts: 2000, truncated: false },
+    "C9-env-fields-4001": { value: options(2000, { key: "opt-last" }), inputs: 4001, accounts: 2001, truncated: true },
+    "C9-env-fields-4002": { value: options(2001), inputs: 4002, accounts: 2001, truncated: true },
+  };
+  for (const [label, item] of Object.entries(cases)) {
+    const stored = JSON.parse(item.value);
+    assert.deepEqual([stored.ibkr.length, stored.ibkr.reduce((total, option) => total + Object.keys(option).length, 0)], [item.accounts, item.inputs], `${label}: fixture input counts`);
+    const { responses, private: result, summary } = await inventoryFull({ kvValues: UNRELATED, envValues: { STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: item.value } });
+    const projected = exportedEnv(responses, "STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON");
+    assert.deepEqual([projected.state, Object.keys(projected.identity.fields).length, projected.identity.truncated], ["present", 4000, item.truncated], `${label}: projected fields`);
+    const configured = result.mapping.entries.filter(entry => entry.episodes.some(episode => episode.state === "configured_option"));
+    assert.equal(configured.length, 2000, `${label}: surviving mappings remain`);
+    assert.ok(configured.every(entry => entry.episodes.every(episode => episode.locator.source === "env:STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON")), `${label}: environment locators`);
+    assert.equal(result.mapping.entries.length, 2001, `${label}: option accounts plus the unrelated account, no fabricated omitted account`);
+    assert.ok(!result.mapping.entries.some(entry => ["opt-last", "opt-2000"].includes(entry.legacy_key)) && !result.mapping.unattributed.length, `${label}: omitted account not invented`);
+    assert.deepEqual([result.kv.failed_reads, summary.kv.failed_reads, result.kv.repeated_pass_equal], [[], 0, true], `${label}: zero failed KV reads`);
+    otherGroupsComplete(result, label);
+    summaryAggregatesOnly(summary, label, ["opt-", "sel-"]);
+    if (!item.truncated) {
+      assert.deepEqual([result.groups[16], result.group_reasons[16], envReasonsOf(result), result.status, summary.status, summary.groups[16]],
+        ["complete", undefined, [], ENUMERATED, ENUMERATED, "complete"], `${label}: complete and enumerated`);
+      continue;
+    }
+    assert.deepEqual([result.groups[16], result.group_reasons[16], envReasonsOf(result), result.status], ["incomplete", [reason], [reason], "incomplete"],
+      `${label}: group 16 and overall incomplete with the located reason once`);
+    assert.deepEqual([summary.status, summary.groups[16], summary.reason_count], ["incomplete", "incomplete", result.reasons.length], `${label}: summary`);
+  }
+  // The KV control keeps its existing one-failed-key outcome and no env reason.
+  const { private: control, summary } = await inventoryFull({ kvValues: { account_options: options(2001), ...UNRELATED } });
+  assert.deepEqual(control.kv.failed_reads.map(read => [read.name, read.causes]), [["account_options", ["identity_projection_truncated"]]], "C9-kv-control: one failed key");
+  assert.deepEqual([control.groups[16], control.group_reasons[16], envReasonsOf(control), control.status, summary.kv.failed_reads],
+    ["incomplete", ["kv:account_options:identity_projection_truncated"], [], "incomplete", 1], "C9-kv-control: KV disposition unchanged");
+}
+{
+  const nested = depth => {
+    let node = { platform: "ibkr", account_key: "deep-account" };
+    for (let level = depth; level >= 1; level--) node = { [`l${level}`]: node };
+    return JSON.stringify(node);
+  };
+  for (const name of ENV_BINDING_NAMES) {
+    for (const [depth, fields, truncated] of [[8, 2, false], [9, 0, true]]) {
+      const label = `C10-env-depth-${depth} ${name}`;
+      const { responses, private: result, summary } = await inventoryFull({ kvValues: UNRELATED, envValues: { [name]: nested(depth) } });
+      const projected = exportedEnv(responses, name);
+      assert.deepEqual([projected.state, Object.keys(projected.identity.fields).length, projected.identity.truncated], ["present", fields, truncated], `${label}: projected fields`);
+      const deep = result.mapping.entries.filter(entry => entry.legacy_key === "deep-account");
+      assert.deepEqual([result.kv.failed_reads, summary.kv.failed_reads], [[], 0], `${label}: no KV failure`);
+      otherGroupsComplete(result, label);
+      summaryAggregatesOnly(summary, label, ["deep-account"]);
+      if (!truncated) {
+        assert.deepEqual(deep.map(entry => [entry.platform, entry.episodes.map(episode => [episode.state, episode.locator])]),
+          [["ibkr", [["env_reference", { source: "env", name, path: "l1.l2.l3.l4.l5.l6.l7.l8.account_key" }]]]], `${label}: one mapping`);
+        assert.deepEqual([result.groups[16], envReasonsOf(result), result.status, summary.status], ["complete", [], ENUMERATED, ENUMERATED], `${label}: complete`);
+        continue;
+      }
+      const reason = `env:${name}:identity_projection_truncated`;
+      assert.deepEqual([deep, result.mapping.unattributed], [[], []], `${label}: the omitted identity is not invented`);
+      assert.deepEqual([result.groups[16], result.group_reasons[16], envReasonsOf(result), result.status, summary.status, summary.groups[16]],
+        ["incomplete", [reason], [reason], "incomplete", "incomplete", "incomplete"], `${label}: group 16 and overall incomplete`);
+    }
+  }
+  // Two truncated bindings: two distinct reasons, no KV failure.
+  const [first, , third] = ENV_BINDING_NAMES;
+  const { private: both, summary } = await inventoryFull({ kvValues: UNRELATED, envValues: { [first]: nested(9), [third]: nested(9) } });
+  const reasons = [first, third].map(name => `env:${name}:identity_projection_truncated`);
+  assert.deepEqual([both.groups[16], both.group_reasons[16], envReasonsOf(both), both.kv.failed_reads, summary.kv.failed_reads, summary.status],
+    ["incomplete", reasons, reasons, [], 0, "incomplete"], "C10-env-two-bindings: two distinct private reasons");
+  summaryAggregatesOnly(summary, "C10-env-two-bindings");
+  // Collected absent, invalid and empty bindings keep their dispositions.
+  for (const [label, envValues, states] of [["absent", {}, ["absent", "absent", "absent"]],
+    ["invalid-and-empty", { [first]: "{", [third]: " " }, ["invalid_json", "absent", "empty"]]]) {
+    const { responses, private: result, summary: plain } = await inventoryFull({ kvValues: UNRELATED, envValues });
+    assert.deepEqual(ENV_BINDING_NAMES.map(name => exportedEnv(responses, name).state), states, `C10-env-${label}: binding states`);
+    assert.deepEqual([result.groups[16], envReasonsOf(result), result.status, plain.status], ["complete", [], ENUMERATED, ENUMERATED], `C10-env-${label}: existing disposition`);
+  }
+  // No env response keeps env_section_not_collected.
+  const { private: missing, summary: missingSummary } = await inventoryFull({ kvValues: UNRELATED, collectEnv: false });
+  assert.deepEqual([missing.groups[16], envReasonsOf(missing), missing.status, missingSummary.groups[16], missingSummary.env],
+    ["env_section_not_collected", [], "incomplete", "env_section_not_collected", null], "C10-env-not-collected");
+}
+
+// O1-O3: a configured option is named by its key, or by its ID when the key
+// is falsy, as the ordinary reader selects it; normalizeAccountOption is the
+// read-only oracle.
+const { normalizeAccountOption, normalizeAccountOptionsPayload } = await import(new URL("account_options_schema.js", CONSOLE));
+{
+  const OPTION_SOURCES = {
+    kv: { source: "kv:account_options", run: value => inventoryFull({ kvValues: { account_options: value } }) },
+    env: { source: "env:STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON", run: value => inventoryFull({ envValues: { STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: value } }) },
+  };
+  const configuredOf = result => result.mapping.entries.flatMap(entry => entry.episodes.filter(episode => episode.state === "configured_option")
+    .map(episode => ({ platform: entry.platform, legacy_key: entry.legacy_key, locator: episode.locator, identity: episode.identity })));
+  for (const [sourceName, { source, run }] of Object.entries(OPTION_SOURCES)) {
+    // O1: ID-only and every falsy key select the ID.
+    for (const [label, keyField] of [["missing", {}], ["empty", { key: "" }], ["null", { key: null }], ["false", { key: false }], ["zero", { key: 0 }]]) {
+      const raw = { ...keyField, id: "acct-o1", account_selector: "sel-o1" };
+      const name = `O1-${sourceName}-key-${label}`;
+      const oracle = normalizeAccountOption("ibkr", raw).key;
+      assert.deepEqual(Object.keys(normalizeAccountOptionsPayload({ ibkr: [raw] })), ["ibkr"], `${name}: the ordinary reader accepts the payload`);
+      const { private: result, summary } = await run(JSON.stringify({ ibkr: [raw] }));
+      assert.deepEqual(configuredOf(result), [{ platform: "ibkr", legacy_key: oracle, locator: { source, path: "ibkr[0].id" }, identity: { selected_field: "id" } }],
+        `${name}: one configured episode matching normalizeAccountOption`);
+      assert.deepEqual([result.mapping.entries.length, result.mapping.unattributed, result.status, summary.status, summary.mapping.entries, summary.mapping.unattributed_rows],
+        [1, [], ENUMERATED, ENUMERATED, 1, 0], `${name}: complete, one entry, zero unattributed`);
+      summaryAggregatesOnly(summary, name, ["acct-o1", "sel-o1"]);
+    }
+    // O2: precedence, normalization and isolation.
+    const single = async (name, raw, expected, { complete = true } = {}) => {
+      const { responses, private: result, summary } = await run(JSON.stringify(raw));
+      assert.deepEqual(configuredOf(result), expected, `${name}: configured episodes`);
+      if (complete) assert.deepEqual([result.status, summary.status], [ENUMERATED, ENUMERATED], `${name}: complete`);
+      summaryAggregatesOnly(summary, name, ["acct-o2", "gen-o2"]);
+      return { responses, result };
+    };
+    const oracleKey = raw => normalizeAccountOption("ibkr", raw).key;
+    const keyOnly = { key: "acct-o2k" };
+    await single(`O2-${sourceName}-key-only`, { ibkr: [keyOnly] }, [{ platform: "ibkr", legacy_key: oracleKey(keyOnly), locator: { source, path: "ibkr[0].key" }, identity: { selected_field: "key" } }]);
+    const distinct = { key: "acct-o2k", id: "acct-o2i" };
+    const { result: distinctResult } = await single(`O2-${sourceName}-key-and-id`, { ibkr: [distinct] },
+      [{ platform: "ibkr", legacy_key: oracleKey(distinct), locator: { source, path: "ibkr[0].key" }, identity: { selected_field: "key" } }]);
+    assert.ok(!distinctResult.mapping.entries.some(entry => entry.legacy_key === "acct-o2i") && !distinctResult.mapping.unattributed.length, `O2-${sourceName}-key-and-id: the ID is no second identity`);
+    const same = { key: "acct-o2", id: "acct-o2" };
+    const { result: sameResult } = await single(`O2-${sourceName}-identical`, { ibkr: [same] },
+      [{ platform: "ibkr", legacy_key: oracleKey(same), locator: { source, path: "ibkr[0].key" }, identity: { selected_field: "key" } }]);
+    assert.equal(sameResult.mapping.entries.length, 1, `O2-${sourceName}-identical: one entry`);
+    for (const [label, raw, field] of [["key", { key: "  acct-o2w  " }, "key"], ["id", { key: "", id: " acct-o2v\t" }, "id"]]) {
+      const name = `O2-${sourceName}-whitespace-${label}`;
+      const { responses } = await single(name, { ibkr: [raw] },
+        [{ platform: "ibkr", legacy_key: oracleKey(raw), locator: { source, path: `ibkr[0].${field}` }, identity: { selected_field: field, raw_value: raw[field] } }]);
+      const projected = sourceName === "kv" ? exportedKv(responses, "account_options") : exportedEnv(responses, "STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON");
+      assert.equal(projected.identity.fields[`ibkr[0].${field}`], raw[field], `${name}: raw evidence retained in the projection`);
+    }
+    // A truthy key the ordinary reader rejects, or one the projection cannot
+    // carry (a string beyond the long-string bound), never falls back to the ID.
+    const invalidKeys = [["invalid-chars", "bad key", [{ legacy_key: "bad key", identity: { selected_field: "key", option_key_valid: false } }]],
+      ["blank", "   ", [{ legacy_key: "   ", identity: { selected_field: "key", option_key_valid: false } }]],
+      ["number", 7, []], ["array", ["acct-o2a"], []], ["object", { platform: "ibkr" }, []], ["long", "k".repeat(600), []]];
+    for (const [label, keyValue, expected] of invalidKeys) {
+      const raw = { key: keyValue, id: "acct-o2x" };
+      if (label === "long") assert.equal(oracleKey(raw), keyValue, `O2-${sourceName}-invalid-key-${label}: the ordinary reader selects the key, not the ID`);
+      else assert.throws(() => normalizeAccountOption("ibkr", raw), undefined, `O2-${sourceName}-invalid-key-${label}: the ordinary reader rejects it`);
+      const { result } = await single(`O2-${sourceName}-invalid-key-${label}`, { ibkr: [raw] },
+        expected.map(item => ({ platform: "ibkr", locator: { source, path: "ibkr[0].key" }, ...item })), { complete: false });
+      assert.ok(!result.mapping.entries.some(entry => entry.legacy_key === "acct-o2x") && !result.mapping.unattributed.some(row => row.legacy_key === "acct-o2x"),
+        `O2-${sourceName}-invalid-key-${label}: no ID fallback`);
+    }
+    // Generic IDs outside the option slots, and in another reviewed family or binding.
+    const generic = { ibkr: [{ key: "acct-o2k", links: [{ id: "gen-o2a" }], meta: { id: "gen-o2b" } }] };
+    assert.equal(normalizeAccountOptionsPayload(generic).ibkr[0].key, "acct-o2k");
+    const other = JSON.stringify({ ibkr: [{ id: "gen-o2c" }] });
+    const { private: isolated, summary } = sourceName === "kv"
+      ? await inventoryFull({ kvValues: { account_options: JSON.stringify(generic), risk_profile_bindings: other, account_facts_bindings: other } })
+      : await inventoryFull({ envValues: { STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify(generic), BINANCE_ACCOUNT_FACTS_BINDING_JSON: other } });
+    assert.deepEqual(configuredOf(isolated).map(item => [item.legacy_key, item.locator.path]), [["acct-o2k", "ibkr[0].key"]], `O2-${sourceName}-generic-ids: only the option key`);
+    assert.deepEqual([isolated.mapping.entries.map(entry => entry.legacy_key), isolated.mapping.unattributed, isolated.status],
+      [["acct-o2k"], [], ENUMERATED], `O2-${sourceName}-generic-ids: no new account identity`);
+    summaryAggregatesOnly(summary, `O2-${sourceName}-generic-ids`, ["gen-o2"]);
+    // O3: ID fallback through a projection cut at its field bound.
+    const value = { ibkr: range(2001).map(index => ({ id: `opt-${pad(index)}`, account_selector: `sel-${index}` })) };
+    const label = `O3-${sourceName}-fallback-truncated`;
+    assert.deepEqual([value.ibkr.length, value.ibkr.reduce((total, option) => total + Object.keys(option).length, 0)], [2001, 4002], `${label}: fixture input counts`);
+    const oracle = Object.values(normalizeAccountOptionsPayload(value)).flat().map(option => option.key);
+    const { responses, private: result, summary: cut } = await run(JSON.stringify(value));
+    const projected = sourceName === "kv" ? exportedKv(responses, "account_options") : exportedEnv(responses, "STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON");
+    assert.deepEqual([Object.keys(projected.identity.fields).length, projected.identity.truncated], [4000, true], `${label}: projected fields`);
+    const configured = configuredOf(result);
+    assert.deepEqual(configured.map(item => [item.platform, item.legacy_key, item.locator.path]), oracle.slice(0, 2000).map((key, index) => ["ibkr", key, `ibkr[${index}].id`]),
+      `${label}: exactly 2000 surviving configured mappings with ID locators`);
+    assert.deepEqual(configured.filter(item => item.identity.key_unobserved_at_truncation).map(item => item.locator.path), ["ibkr[1999].id"], `${label}: the boundary slot is qualified`);
+    assert.deepEqual([result.groups[16], result.status, cut.status, cut.groups[16]], ["incomplete", "incomplete", "incomplete", "incomplete"], `${label}: group 16 and overall incomplete`);
+    if (sourceName === "kv") {
+      assert.deepEqual([result.kv.failed_reads.map(read => [read.name, read.causes]), envReasonsOf(result), cut.kv.failed_reads],
+        [[["account_options", ["identity_projection_truncated"]]], [], 1], `${label}: exactly one failed KV key`);
+    } else {
+      const reason = "env:STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON:identity_projection_truncated";
+      assert.deepEqual([result.kv.failed_reads, envReasonsOf(result), result.group_reasons[16], cut.kv.failed_reads], [[], [reason], [reason], 0], `${label}: the binding reason, no KV failure`);
+    }
+    summaryAggregatesOnly(cut, label, ["opt-", "sel-"]);
   }
 }
 
