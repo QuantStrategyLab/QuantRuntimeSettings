@@ -97,7 +97,8 @@ export function projectAccountManagement({ state, inventory, policy, collection,
     accounts.push({ account: { deployments: [{ platform: item.platform, legacy_key: item.key }], management_class: null, evidence_state: "unknown" }, ids: [id], derived: false });
   }
   const owner = new Map(accounts.flatMap((entry, index) => entry.ids.map(id => [id, index])));
-  const { accepted, rejected } = acceptLinks(links, current, id => owner.get(id));
+  // Links keep the legacy target set: every existing instance.
+  const { accepted, rejected } = acceptLinks(links, instances.filter(item => item?.kind === "existing"), id => owner.get(id));
   const stale = authority?.instance_revision !== state?.revision;
   const rows = accounts.map(({ account, ids, derived }, index) => {
     let evidence = derived && (account.evidence_state === "known" || account.evidence_state === "conflict") ? account.evidence_state : "unknown";

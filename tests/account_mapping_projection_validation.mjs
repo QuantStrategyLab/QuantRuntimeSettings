@@ -427,6 +427,10 @@ const SLOT_PAIR = [L1, { ...L1, target_id: "syn-run-01-x" }];
     const projection = await project({ ...complete, links });
     assert.deepEqual([acceptedOf(projection), projection.rejected_links.map(item => item.reason)], [[], reasons], `A14: ${label}`);
   }
+  // The link target check is unchanged: a retiring instance is still a
+  // target, while its row reads unknown.
+  const retiring = await project({ ...complete, links: [L5] }, { instances: INSTANCES.map(item => item.key === "syn-acct-05" ? { ...item, retirement_status: "requested" } : item) });
+  assert.deepEqual([acceptedOf(retiring), stateOf(retiring, "schwab/syn-acct-05")], [[bindingOf(L5)], ["unknown", "unknown"]], "A14: link target set unchanged");
 }
 
 // A15 legacy-constructor-parity: the unchanged digest Configuration
