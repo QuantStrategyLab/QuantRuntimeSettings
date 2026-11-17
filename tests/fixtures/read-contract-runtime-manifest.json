@@ -365,7 +365,13 @@
      "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
      "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
      "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
-     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD"
+     "cold-request:sql_ddl ALTER TABLE hk_stop_request ADD",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT",
+     "cold-request:sql_ddl CREATE INDEX IF NOT",
+     "cold-request:sql_ddl CREATE TABLE IF NOT"
     ],
     "detection": "none"
    }

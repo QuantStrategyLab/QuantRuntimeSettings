@@ -71,8 +71,13 @@ assert.equal(response.status, 409);
 assert.equal(writes, 0, 'frozen new account is rejected before KV writes');
 const account = {key:'legacy-ibkr-route', label:'Legacy', target_name:'legacy-ibkr-route', account_selector:'LEGACY_IBKR', deployment_selector:'legacy-ibkr-route', account_scope:'legacy-ibkr-route', service_name:'interactive-brokers-legacy-ibkr-route-service', supported_domains:['us_equity'], default_strategy_profile:'global_etf_rotation'};
 kv.set('account_options', JSON.stringify({ibkr:[account]}));
+const writesBeforeMatching = writes;
 response = await worker.fetch(request(payload), env);
-assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
+// The frozen checks pass, but without the authority Durable Object default
+// sync fails closed with no KV write.
+assert.equal(response.status, 409, JSON.stringify(await response.clone().json()));
+assert.equal((await response.json()).account_options_sync.reason, 'management_authority_unavailable');
+assert.equal(writes, writesBeforeMatching, 'no KV-only default sync write');
 kv.set('account_options', JSON.stringify({ibkr:[{...account, default_strategy_profile:'tqqq_growth_income'}]}));
 response = await worker.fetch(request(payload), env);
 assert.equal(response.status, 409, 'continuity cannot switch an existing account from a different strategy');
@@ -137,9 +142,11 @@ restoredKv.set('account_options', JSON.stringify({ibkr:[{
   account_scope:newTarget.account_scope, service_name:newTarget.service_name,
   supported_domains:['us_equity'], default_strategy_profile:'tqqq_growth_income',
 }]}));
+// The strategy checks admit the target; only the absent authority Durable
+// Object stops the KV-only default sync.
 const newTargetResponse = await worker.fetch(request(newTarget), restoredEnv);
-assert.equal(newTargetResponse.status, 200, JSON.stringify(await newTargetResponse.clone().json()));
-assert.equal((await newTargetResponse.json()).account_options_sync.synced, true);
+assert.equal(newTargetResponse.status, 409, JSON.stringify(await newTargetResponse.clone().json()));
+assert.equal((await newTargetResponse.json()).account_options_sync.reason, 'management_authority_unavailable');
 const unchanged = __test.normalizeStrategyProfilesPayload([
   {profile:'tqqq-growth-income', domain:'us_equity', allowed_execution_modes:['dry_run']},
   {profile:'synthetic-unknown', domain:'us_equity', allowed_execution_modes:['dry_run']},

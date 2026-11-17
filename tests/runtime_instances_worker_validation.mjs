@@ -108,7 +108,7 @@ try {
   // Default sync is processing admission: without a provisioned policy the
   // retiring deployment is denied and its configuration stays unchanged.
   const deniedSync = await call(syncInputs, syncOptions);
-  assert.equal(deniedSync.status, 500);
+  assert.equal(deniedSync.status, 409);
   assert.equal(deniedSync.body.account_options_sync.synced, false);
   assert.equal(deniedSync.body.account_options_sync.reason, "management_policy_unavailable");
   state = await call();

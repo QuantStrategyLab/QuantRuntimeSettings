@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { __test } from "./helpers/directory_worker.mjs";
 import { validate } from "./console_api_contract_validation.mjs";
 import { decisionOperationSha256 } from "../web/strategy-switch-console/application/console_api/decision_contract.js";
+import { enrollSyntheticManagement, miniflareRuntimeInstances } from "./helpers/account_management_enrollment.mjs";
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
@@ -271,6 +272,14 @@ assert.equal(otherOperationSameAction.status, 409);
 assert.equal(otherOperationSameAction.body.error, "decision_operation_conflict");
 assert.equal(otherOperationSameAction.body.recorded_operation_id, "cockpit-request-1");
 
+// A promotion acceptance is processing admission: the runtime store is
+// initialized and every account enrolled through synthetic management first.
+const initializedRuntime = await call("/api/admin/runtime-instances", { method: "POST", body: {
+  action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG",
+} });
+assert.equal(initializedRuntime.status, 200);
+await enrollSyntheticManagement(await miniflareRuntimeInstances(mf));
+
 // Promotion replay binds the recorded operation id, material and full selection.
 const promotionId = `rpt_${"8".repeat(64)}`;
 const promotion = promotionTicket(promotionId);
@@ -373,10 +382,6 @@ assert.equal(__test.auditEventAction("research_promotion_application"), "researc
 assert.equal(__test.auditEventAction("account_settings_application"), "account_settings_approval");
 
 // A promotion application must not be reported as an account-settings approval.
-const initializedRuntime = await call("/api/admin/runtime-instances", { method: "POST", body: {
-  action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG",
-} });
-assert.equal(initializedRuntime.status, 200);
 const auditTicketId = `rpt_${"4".repeat(64)}`;
 const auditTicket = promotionTicket(auditTicketId);
 assert.equal((await syncPromotion(auditTicket)).status, 200);

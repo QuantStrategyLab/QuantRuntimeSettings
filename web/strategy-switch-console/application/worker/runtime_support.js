@@ -2418,30 +2418,9 @@ export async function syncDefaultStrategyForAccount(env, accountOptions, inputs,
       return { synced: false, reason: error instanceof HttpError ? error.message : "runtime_instances_unavailable" };
     }
   }
-  if (!hasConfigStore(env)) return { synced: false, reason: "kv_not_bound" };
-  try {
-    const { options, changed } = updateAccountOptionsDefaultStrategy(accountOptions, inputs);
-    let auditLogged = false;
-    if (changed) {
-      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(options));
-      try {
-        await appendAuditLog(env, {
-          ts: new Date().toISOString(),
-          login: session?.login || "",
-          action: "sync_default_strategy",
-          platform: inputs.platform,
-          target_name: inputs.target_name,
-          strategy_profile: inputs.strategy_profile,
-        });
-        auditLogged = true;
-      } catch {
-        auditLogged = false;
-      }
-    }
-    return { synced: true, changed, audit_logged: auditLogged };
-  } catch (error) {
-    return { synced: false, error: error.message || "account option sync failed" };
-  }
+  // Default sync is processing admission: without the authority Durable
+  // Object there is no KV-only write path.
+  return { synced: false, reason: "management_authority_unavailable" };
 }
 
 export async function syncAccountDefaultResponse(request, env) {
@@ -2466,35 +2445,12 @@ export async function syncAccountDefaultResponse(request, env) {
   const strategy = strategyProfiles.find((item) => sameStrategyProfile(item.profile, inputs.strategy_profile));
   if (!strategy) throw new Error(`strategy ${inputs.strategy_profile} is not configured`);
 
-  let accountOptions = accountConfig.options;
-  let accountOption = configuredAccountForInputs(inputs, accountOptions);
-  let registeredLegacyContinuityAccount = false;
+  const accountOptions = accountConfig.options;
+  const accountOption = configuredAccountForInputs(inputs, accountOptions);
   if (!accountOption) {
     if (isFrozenStrategyProfile(strategy)) throw new HttpError(`strategy ${inputs.strategy_profile} is frozen for new selection`, 409);
-    if (hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instance_registration_requires_management", 409);
-    const registration = registerLegacyContinuityAccount(env, accountOptions, inputs, strategy);
-    accountOptions = registration.options;
-    accountOption = registration.account;
-    registeredLegacyContinuityAccount = registration.registered;
-    if (registeredLegacyContinuityAccount) {
-      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(accountOptions));
-      try {
-        await appendAuditLog(env, {
-          ts: new Date().toISOString(),
-          login: "github-actions",
-          action: "register_legacy_continuity_account",
-          platform: inputs.platform,
-          target_name: inputs.target_name,
-          strategy_profile: inputs.strategy_profile,
-          live_continuity_state: inputs.live_continuity_state,
-        });
-      } catch {
-        // The routing registration is still valid if its non-critical audit
-        // append fails; callers receive the registration result below.
-      }
-    }
+    throw new HttpError("runtime_instance_registration_requires_management", 409);
   }
-  if (!accountOption) throw new Error("switch inputs do not match configured account options");
   if (isFrozenStrategyProfile(strategy) && !sameStrategyProfile(accountOption.default_strategy_profile, inputs.strategy_profile)) {
     throw new HttpError(`strategy ${inputs.strategy_profile} requires an existing matching account default`, 409);
   }
@@ -2502,15 +2458,15 @@ export async function syncAccountDefaultResponse(request, env) {
   const result = await syncDefaultStrategyForAccount(env, accountOptions, inputs, {
     login: "github-actions",
   });
-  const kvSyncSkipped = result.reason === "kv_not_bound";
-  const accountOptionsSync = kvSyncSkipped ? { ...result, skipped: true } : result;
+  // A management denial is a 409 admission outcome, not a sync failure.
+  const denied = typeof result.reason === "string" && result.reason.startsWith("management_");
   return json(
     {
-      ok: result.synced || kvSyncSkipped,
-      account_options_sync: accountOptionsSync,
-      legacy_continuity_account_registered: registeredLegacyContinuityAccount,
+      ok: result.synced,
+      account_options_sync: result,
+      legacy_continuity_account_registered: false,
     },
-    result.synced || kvSyncSkipped ? 200 : 500,
+    result.synced ? 200 : denied ? 409 : 500,
   );
 }
 
