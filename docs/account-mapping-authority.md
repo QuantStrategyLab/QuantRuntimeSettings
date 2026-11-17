@@ -146,19 +146,9 @@ current runtime instance is displayed; one the authority does not cover
 reads `unknown`. Legacy keys and opaque link IDs pass through
 byte-identical. Labels are neither read nor emitted.
 
-### Trust boundary
-
-The policy input is the only classification source. An applied management
-record, an enrollment link, a producer label or a derived summary never
-classifies an account. The policy document is trusted only as far as the
-composing caller that supplies it: a JSON document or a policy revision does
-not authenticate where it came from. No route or protected policy storage
-supplies it yet; later integration work must read it from the protected
-source and register that read.
-
 Private enrollment links (the shape `python/scripts/project_digest_display_roster.py`
 reads) are a compatibility edge onto resolved deployments. A link is
-accepted only if it names exactly one current instance whose configuration
+accepted only if it names exactly one existing instance whose configuration
 equals its recorded `config_identity`. Every other link that passes those
 checks is then compared with it, and these are rejected:
 
@@ -175,6 +165,16 @@ Accepted links keep `platform_id`, `candidate_slot`, `opaque_account_uid`
 and `target_id` byte-identical. Links never create, merge or reidentify an
 account, and a rejected link leaves the account's evidence unchanged. The
 Python consumers are unchanged.
+
+### Trust boundary
+
+The policy input is the only classification source. An applied management
+record, an enrollment link, a producer label or a derived summary never
+classifies an account. The policy document is trusted only as far as the
+composing caller that supplies it: a JSON document or a policy revision does
+not authenticate where it came from. No route or protected policy storage
+supplies it yet; later integration work must read it from the protected
+source and register that read.
 
 No Worker route or Durable Object action dispatches the projection yet, so
 the [read-contract registry](adr/0002-observation-and-identity-boundaries.md)
