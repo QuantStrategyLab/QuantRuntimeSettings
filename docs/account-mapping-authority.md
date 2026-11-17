@@ -167,6 +167,15 @@ checks is then compared with it, and these are rejected:
 | The same full binding twice | `link_duplicated`, for every copy |
 | Two links with the same `platform_id` and `candidate_slot`, within one deployment, across the deployments of one account or across accounts | `link_candidate_slot_ambiguous`, for every link sharing the slot |
 | One deployment with two opaque IDs, or one opaque ID across two accounts | `link_ambiguous` |
+| A deployment that two or more displayed accounts claim, even for a single link | `link_ambiguous` |
+
+The duplicate and slot rules are checked first, so their participants keep
+those reasons. A link attaches only to the one row that owns its
+deployment: a policy account, or the unclassified row of an existing
+deployment no account claims. A deployment with several owner rows has no
+owner, whatever the account order, and the link attaches to none of them.
+A uniquely owned deployment keeps its link even when another deployment of
+the same account is in conflict; that row's evidence is unchanged.
 
 No participant in a collision is accepted. Different platforms may use the
 same slot. This matches the digest `Configuration`, which rejects two

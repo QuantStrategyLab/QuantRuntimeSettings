@@ -26,7 +26,8 @@ const worst = (...states) => states.reduce((left, right) => (rank[right] > rank[
 // link is accepted only when it names exactly one current instance whose
 // configuration still equals its recorded identity, and when no other link
 // makes that deployment, its physical account, the opaque ID or its
-// platform candidate slot ambiguous.
+// platform candidate slot ambiguous. `accountOf` names the deployment's
+// sole owner row, or nothing when it has none or several.
 function acceptLinks(links, current, accountOf) {
   const accepted = new Map(), rejected = [];
   const reject = (link, reason) => rejected.push({ ...(isObject(link) ? Object.fromEntries(LINK_BINDING_FIELDS.filter(field => text(link[field])).map(field => [field, link[field]])) : {}), reason });
@@ -101,9 +102,14 @@ export function projectAccountManagement(options) {
     covered.add(id);
     accounts.push({ account: { deployments: [{ platform: item.platform, legacy_key: item.key }], management_class: null, evidence_state: "unknown" }, ids: [id], derived: false });
   }
-  const owner = new Map(accounts.flatMap((entry, index) => entry.ids.map(id => [id, index])));
+  // Every row owning each deployment. A link attaches only to a sole
+  // owner; a deployment with no or several owner rows has none, and no
+  // order picks one.
+  const owners = new Map();
+  accounts.forEach((entry, index) => entry.ids.forEach(id => owners.set(id, new Set([...(owners.get(id) || []), index]))));
+  const ownerOf = id => (owners.get(id)?.size === 1 ? [...owners.get(id)][0] : undefined);
   // Links keep the legacy target set: every existing instance.
-  const { accepted, rejected } = acceptLinks(links, instances.filter(item => item?.kind === "existing"), id => owner.get(id));
+  const { accepted, rejected } = acceptLinks(links, instances.filter(item => item?.kind === "existing"), ownerOf);
   const stale = authority?.instance_revision !== state?.revision;
   const rows = accounts.map(({ account, ids, derived }, index) => {
     let evidence = derived && (account.evidence_state === "known" || account.evidence_state === "conflict") ? account.evidence_state : "unknown";

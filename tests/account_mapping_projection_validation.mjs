@@ -5,8 +5,9 @@
 // the ten-account roster, generic status codes and evidence states, applied
 // management records, enrollment links as a compatibility edge checked
 // against the legacy digest consumers, byte-identical legacy and opaque IDs,
-// label exclusion and the no-account-branch rule. Rows A01-A16 are the
-// adjudicated acceptance rows. Synthetic identities only; no network.
+// label exclusion and the no-account-branch rule. Rows A01-A27 are the
+// adjudicated acceptance rows; A22-A27 run through both the Durable Object
+// entry and the direct helper. Synthetic identities only; no network.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -562,6 +563,115 @@ const EMPTY = { format: "qsl_account_management_projection.v1", accounts: [], re
   for (const [label, value] of [["null", null], ["object", {}], ["string", "list"], ["number", 7], ["boolean", true]]) {
     assert.deepEqual(await both({ ...inputOf(SINGLE, policy), links: [link], effective: value }, { instances: SINGLE_INSTANCES }), withoutEffective, `A23: effective ${label} reads as absent`);
     assert.deepEqual(await both({ ...valid, links: value }, { instances: SINGLE_INSTANCES }), withoutLinks, `A23: links ${label} reads as absent`);
+  }
+}
+
+// A24-A27: deployment ownership. Left and Right each own one deployment
+// of their own; both may claim Shared. A link attaches only to its
+// deployment's sole owner row.
+const LEFT = "ibkr/syn-acct-02", RIGHT = "ibkr/syn-acct-03", SHARED = "ibkr/syn-acct-04";
+const OTHERS = FIXTURE_ACCOUNTS.filter(([, deployments]) => ![LEFT, RIGHT, SHARED].includes(deployments[0]));
+const SHARED_LINK = linkFor(INSTANCES, SHARED, "syn-slot-04", "uid:syn-opaque-04", "syn-run-04");
+const LEFT_LINK = linkFor(INSTANCES, LEFT, "syn-slot-02", "uid:syn-opaque-02", "syn-run-02");
+const ownedBy = (accounts, reversed) => inputOf(COMPLETE, policyOf(reversed ? [...accounts].reverse() : accounts));
+const DOUBLE = [["eligible", [LEFT, SHARED]], ["eligible", [RIGHT, SHARED]], ...OTHERS];
+const ORDERS = [false, true];
+// Rows keyed by their deployments, so account order does not matter.
+const semantic = projection => projection.accounts.map(row => JSON.stringify([row.deployments, row.evidence_state, row.management_status,
+  row.enrollment_links.map(item => JSON.stringify(item)).sort()])).sort();
+const rejectedOf = projection => projection.rejected_links.map(item => JSON.stringify(item)).sort();
+
+// A24 ambiguous-deployment-owner-rejected.
+for (const [label, accounts, sides] of [["with-unique-deployments", DOUBLE, [LEFT, RIGHT]],
+  ["shared-only", [["eligible", [SHARED]], ["display_only", [SHARED]], ...OTHERS], []]]) {
+  const outcomes = [];
+  for (const reversed of ORDERS) {
+    const input = { ...ownedBy(accounts, reversed), effective: ENABLED };
+    const projection = await both({ ...input, links: [SHARED_LINK] });
+    const tag = `A24: ${label} ${reversed ? "reversed" : "forward"}`;
+    assert.deepEqual(acceptedOf(projection), [], `${tag} accepts none`);
+    assert.deepEqual(projection.rejected_links, [{ ...bindingOf(SHARED_LINK), reason: "link_ambiguous" }], `${tag} one link_ambiguous`);
+    const owners = rowsOf(projection, SHARED);
+    assert.equal(owners.length, 2, `${tag} two owner rows`);
+    assert.ok(owners.every(row => !row.enrollment_links.length && row.evidence_state === "conflict" && row.management_status === "unknown"), `${tag} owners conflict, no link`);
+    for (const side of sides) assert.equal(rowOf(projection, side), owners.find(row => row.deployments.some(item => `${item.platform}/${item.legacy_key}` === side)), `${tag} ${side} is an owner`);
+    assert.equal(owners.filter(row => row.management_status === "managed").length, 0, `${tag} zero managed owners`);
+    assert.deepEqual(projection.accounts, (await both(input)).accounts, `${tag} rejection changes no row`);
+    outcomes.push([semantic(projection), rejectedOf(projection)]);
+  }
+  assert.deepEqual(outcomes[0], outcomes[1], `A24: ${label} account order changes nothing`);
+}
+
+// A25 owner-cardinality-controls.
+{
+  for (const reversed of ORDERS) {
+    const tag = `A25: ${reversed ? "reversed" : "forward"}`;
+    const single = await both({ ...ownedBy([["eligible", [LEFT, SHARED]], ["eligible", [RIGHT]], ...OTHERS], reversed), effective: ENABLED, links: [SHARED_LINK] });
+    assert.deepEqual([JSON.stringify(rowOf(single, SHARED).enrollment_links), single.rejected_links, rowsOf(single, SHARED).length],
+      [JSON.stringify([bindingOf(SHARED_LINK)]), [], 1], `${tag} the sole claimant keeps the link byte-identically`);
+    assert.equal(rowOf(single, SHARED), rowOf(single, LEFT), `${tag} the claimant is Left`);
+    const unclaimed = await both({ ...ownedBy([["eligible", [LEFT]], ["eligible", [RIGHT]], ...OTHERS], reversed), effective: ENABLED, links: [SHARED_LINK] });
+    const fallback = rowsOf(unclaimed, SHARED);
+    assert.deepEqual([fallback.length, fallback[0].deployments.length, fallback[0].evidence_state, fallback[0].management_status, fallback[0].enrollment_links, unclaimed.rejected_links],
+      [1, 1, "unknown", "unknown", [bindingOf(SHARED_LINK)], []], `${tag} an unclaimed existing deployment keeps its row and link`);
+    const without = INSTANCES.filter(item => `${item.platform}/${item.key}` !== SHARED);
+    const absent = await both({ ...inputOf(await collect(without), policyOf([["eligible", [LEFT]], ["eligible", [RIGHT]], ...OTHERS], without)), effective: ENABLED, links: [SHARED_LINK] }, { instances: without });
+    assert.deepEqual([acceptedOf(absent), absent.rejected_links.map(item => item.reason), rowsOf(absent, SHARED).length], [[], ["link_target_missing"], 0], `${tag} an absent target is missing`);
+    const conflicted = await both({ ...ownedBy(DOUBLE, reversed), effective: ENABLED, links: [LEFT_LINK] });
+    assert.deepEqual([rowOf(conflicted, LEFT).enrollment_links, stateOf(conflicted, LEFT), conflicted.rejected_links, rowOf(conflicted, RIGHT).enrollment_links],
+      [[bindingOf(LEFT_LINK)], ["conflict", "unknown"], [], []], `${tag} a uniquely owned deployment in a conflicted account keeps its link`);
+  }
+  const retiring = await both({ ...complete, links: [L5] }, { instances: INSTANCES.map(item => item.key === "syn-acct-05" ? { ...item, retirement_status: "requested" } : item) });
+  assert.deepEqual([acceptedOf(retiring), stateOf(retiring, "schwab/syn-acct-05")], [[bindingOf(L5)], ["unknown", "unknown"]], "A25: the retiring target keeps its link, its row unknown");
+}
+
+// A26 ownership-and-link-ambiguity-composition: duplicate and slot rules
+// come first; ownership chooses no winner among their participants.
+{
+  const pairs = [
+    ["exact-duplicate", [SHARED_LINK, SHARED_LINK], "link_duplicated"],
+    ["same-slot-same-deployment", [SHARED_LINK, { ...SHARED_LINK, target_id: "syn-run-04-x" }], "link_candidate_slot_ambiguous"],
+    ["same-slot-owned-deployment", [SHARED_LINK, { ...LEFT_LINK, candidate_slot: SHARED_LINK.candidate_slot }], "link_candidate_slot_ambiguous"],
+  ];
+  for (const [label, pair, reason] of pairs) {
+    const outcomes = [];
+    for (const reversed of ORDERS) for (const ordered of [[...pair, L10], [L10, ...[...pair].reverse()]]) {
+      const tag = `A26: ${label} ${reversed ? "reversed" : "forward"} ${ordered.indexOf(L10) ? "independent-last" : "independent-first"}`;
+      const projection = await both({ ...ownedBy(DOUBLE, reversed), effective: ENABLED, links: ordered });
+      assert.deepEqual(projection.rejected_links.map(item => item.reason), [reason, reason], `${tag} every participant rejected with ${reason}`);
+      assert.deepEqual(JSON.stringify(acceptedOf(projection)), JSON.stringify([bindingOf(L10)]), `${tag} the independent link stays byte-identical`);
+      assert.deepEqual(stateOf(projection, "firstrade/syn-acct-10"), ["known", "managed"], `${tag} the independent row stays known`);
+      assert.ok(rowsOf(projection, SHARED).every(row => !row.enrollment_links.length && row.evidence_state === "conflict"), `${tag} owners get nothing`);
+      outcomes.push([semantic(projection), rejectedOf(projection)]);
+    }
+    assert.ok(outcomes.every(outcome => JSON.stringify(outcome) === JSON.stringify(outcomes[0])), `A26: ${label} order changes nothing`);
+  }
+}
+
+// A27 distinct-ownership-stability: uniquely owned deployments give the
+// same accepted multiset and attachment in every account and link order.
+{
+  const crossPlatform = [{ ...L5, candidate_slot: "syn-slot-shared" }, { ...L10, candidate_slot: "syn-slot-shared" }];
+  for (const [label, links] of [["distinct-slots", fixture.enrollment_links], ["cross-platform-slot", crossPlatform]]) {
+    const outcomes = [];
+    for (const reversed of ORDERS) for (const ordered of [links, [...links].reverse()]) {
+      const projection = await both({ ...ownedBy(FIXTURE_ACCOUNTS, reversed), effective: ENABLED, links: ordered });
+      assert.deepEqual([projection.rejected_links, acceptedOf(projection).map(item => JSON.stringify(item)).sort()], [[], links.map(link => JSON.stringify(bindingOf(link))).sort()], `A27: ${label} accepted multiset`);
+      for (const link of links) assert.ok(rowOf(projection, `${link.platform_id}/${link.account_key}`).enrollment_links.some(item => JSON.stringify(item) === JSON.stringify(bindingOf(link))), `A27: ${label} ${link.account_key} attached`);
+      outcomes.push(semantic(projection));
+    }
+    assert.ok(outcomes.every(outcome => JSON.stringify(outcome) === JSON.stringify(outcomes[0])), `A27: ${label} order changes nothing`);
+  }
+  const controls = [
+    ["changed-identity", [{ ...L5, config_identity: { ...L5.config_identity, service_name: "syn-service-old" } }], ["link_identity_changed"]],
+    ["two-opaque-ids", [L5, { ...L5, candidate_slot: "syn-slot-05-x", opaque_account_uid: "uid:syn-other" }], ["link_ambiguous", "link_ambiguous"]],
+    ["opaque-id-two-accounts", [L1, linkFor(INSTANCES, LEFT, "syn-slot-02", L1.opaque_account_uid, "syn-run-02")], ["link_ambiguous", "link_ambiguous"]],
+  ];
+  for (const [label, links, reasons] of controls) for (const reversed of ORDERS) for (const ordered of [links, [...links].reverse()]) {
+    const input = { ...ownedBy(FIXTURE_ACCOUNTS, reversed), effective: ENABLED };
+    const projection = await both({ ...input, links: ordered });
+    assert.deepEqual([acceptedOf(projection), projection.rejected_links.map(item => item.reason)], [[], reasons], `A27: ${label} keeps its reasons`);
+    assert.deepEqual(projection.accounts, (await both(input)).accounts, `A27: ${label} leaves account evidence unchanged`);
   }
 }
 
