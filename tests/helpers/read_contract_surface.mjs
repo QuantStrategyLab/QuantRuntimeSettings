@@ -2,8 +2,10 @@
 // Durable Object, read from a strict TypeScript AST (ADR 0002, review F2).
 //
 // The dispatch set D is: the Worker default export entries and its `fetch`;
-// RuntimeInstances `fetch`, `alarm` and the transaction callback at the end of
-// `fetch`; the `rotation_` delegate chain (`durableRotationCommand`,
+// RuntimeInstances `fetch` (its reviewed preamble: the fixed inventory path,
+// then storage initialization), `alarm` and the transaction callback at the
+// end of `fetch`; the inventory delegate `inventoryResponse` and its section
+// gates; the `rotation_` delegate chain (`durableRotationCommand`,
 // `rotationCommand`); `ux1ResearchCommand`; `KvDirectory.command` and
 // `KvDirectory.run`; and the action families those bodies test.
 //
@@ -37,6 +39,8 @@
 //   the object of a dotted access, `super(...)` or a literal-key destructuring
 //   source (the instance as a value), or, in an entry class, a call
 //   `this.name()` names no declared method or a declared method is written.
+//   The one exception is the exact reviewed RuntimeInstances `sql` setter
+//   (`REVIEWED.sqlSetter`), matched as a whole member.
 //
 // There is no fallback tokenizer: unsupported syntax is an error, never an empty
 // extraction.
@@ -59,7 +63,40 @@ export class SurfaceError extends Error {}
 
 // --- Parsing and canonical form ------------------------------------------------
 
-const parsed = new Map();
+/**
+ * A least-recently-used cache keyed by source text, bounded by the total
+ * length of the cached keys. Probes parse hundreds of edited variants of large
+ * files and each tree keeps its checker alive, so an unbounded cache exhausts
+ * the default heap. The unedited tree and the reviewed templates are read by
+ * every extraction and stay cached; a probe variant ages out. One extraction
+ * reads far less than the bound, so nothing it read is evicted before it ends.
+ */
+export function textCache(limit = 16 * 1024 * 1024) {
+  const entries = new Map();
+  let size = 0;
+  return {
+    get(key) {
+      if (!entries.has(key)) return undefined;
+      const value = entries.get(key);
+      entries.delete(key);
+      entries.set(key, value);
+      return value;
+    },
+    set(key, value) {
+      if (entries.has(key)) size -= key.length;
+      entries.delete(key);
+      entries.set(key, value);
+      size += key.length;
+      for (const oldest of entries.keys()) {
+        if (size <= limit || oldest === key) break;
+        entries.delete(oldest);
+        size -= oldest.length;
+      }
+    },
+  };
+}
+
+const parsed = textCache();
 // Binding resolution: each parsed file keeps its own checker, so identifiers
 // resolve to their declarations by scope, not by spelling.
 const checkers = new WeakMap();
@@ -67,7 +104,8 @@ const checkers = new WeakMap();
 /** Parse `text` as JavaScript; any syntactic diagnostic is an error. */
 export function parseStrict(ts, file, text) {
   const key = `${file}\u0000${text}`;
-  if (parsed.has(key)) return parsed.get(key);
+  const cached = parsed.get(key);
+  if (cached) return cached;
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const host = {
     getSourceFile: name => (name === file ? sf : undefined),
@@ -84,7 +122,6 @@ export function parseStrict(ts, file, text) {
     throw new SurfaceError(`${file}: parse_error: ${ts.flattenDiagnosticMessageText(first.messageText, " ")} (line ${line + 1})`);
   }
   checkers.set(sf, program.getTypeChecker());
-  if (parsed.size > 4000) parsed.clear();
   parsed.set(key, sf);
   return sf;
 }
@@ -234,6 +271,8 @@ export const REVIEWED = {
       "fetchResearchPromotionTicketResponse", "researchPromotionTicketsResponse", "recordResearchPromotionDecisionResponse",
       "ux1DraftGet", "ux1DraftPost", "ux1PreviewPost", "ux1IntentPost", "ux1JobClaimPost", "ux1JobResultPost", "dispatchSwitch",
       "dispatchRuntimeStop", "dispatchBinanceResume"].map(target => [`${target}(request, env)`, 1]),
+    // The read-only inventory route; its only dependency is the session reader.
+    ["accountIdentityInventoryResponse(request, env, { readSession })", 1],
     ...["credentialMaintenanceResponse", "runtimeReadbackResponse", "auditEventsResponse", "reconciliationRecoveryControllerReadResponse",
       "binanceDetailArchiveResponse", "binanceDigestSnapshotResponse", "binanceWalletHistoryResponse", "runtimeDailyResponse",
       "accountFactsHistoryResponse", "accountDiagnosisResponse", "accountDiagnosisInternalResponse", "researchPromotionApplicationResponse",
@@ -305,6 +344,7 @@ export const REVIEWED = {
       "syncResearchTaskSourceResponse", "syncRuntimeDailyResponse", "syncRuntimeTargetLifecycleSourceResponse",
       "syncStrategyHealthResponse", "syncStrategyProfilesResponse",
     ],
+    "import:./application/account_identity_inventory/http.js": ["accountIdentityInventoryResponse"],
     "import:./application/auth/login.js": ["finishLogin", "startLogin"],
     "import:./application/auth/session.js": ["readSession"],
     "import:./application/console_api/notification_receipts.js": ["readNotificationLog"],
@@ -341,7 +381,46 @@ export const REVIEWED = {
   doCatch: `catch (error) {
       return json({ ok: false, error: error instanceof HttpError || error instanceof CycleHealthError || error instanceof CredentialMaintenanceError || error instanceof RotationError ? error.message : "runtime_instance_transaction_failed" }, error instanceof HttpError || error instanceof CycleHealthError || error instanceof CredentialMaintenanceError || error instanceof RotationError ? error.status : 409);
     }`,
-  doAlarm: ["await this.deskReadbacks.alarm();"],
+  // The alarm initializes storage, then runs the Desk readback alarm.
+  doAlarm: ["this.initializeStorage();", "await this.deskReadbacks.alarm();"],
+  // The statements of RuntimeInstances.fetch before its try statement, in
+  // order: the fixed inventory path is served before storage initialization,
+  // then every ordinary request initializes storage. The inventory delegate's
+  // names resolve to these bindings; its section dispatch is read from
+  // `inventoryResponse` (`inventorySections`).
+  doPreamble: [
+    "if (new URL(request.url).pathname === INVENTORY_DO_PATH) return inventoryResponse(request, this.inventory);",
+    "this.initializeStorage();",
+  ],
+  doPreambleTargets: {
+    "import:../account_identity_inventory/constants.js": ["INVENTORY_DO_PATH"],
+    "import:../account_identity_inventory/http.js": ["inventoryResponse"],
+  },
+  // `inventoryResponse(request, cap)`: its response helper, then one try
+  // statement with this catch clause. The try block holds these statements,
+  // the section gates and the final rejection of an unknown section.
+  inventoryRespond: 'const respond = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store" } });',
+  inventoryCatch: `catch (error) {
+    return error instanceof InventoryError ? respond({ ok: false, error: error.code }, error.status) : respond({ ok: false, error: "inventory_read_failed" }, 500);
+  }`,
+  inventory: [
+    ['if (request.method !== "POST") throw new InventoryError("method_not_allowed", 405);', 1],
+    ["const text = await request.text();", 1],
+    ['if (byteLength(text) > REQUEST_BYTE_LIMIT) throw new InventoryError("invalid_request");', 1],
+    ["let command;", 1],
+    ['try { command = JSON.parse(text); } catch { throw new InventoryError("invalid_request"); }', 1],
+    [`if (!command || typeof command !== "object" || Array.isArray(command) || Object.keys(command).some(key => !COMMAND_FIELDS.has(key))) {
+      throw new InventoryError("invalid_request");
+    }`, 1],
+    ['if (!Object.hasOwn(INVENTORY_OBJECTS, command.object)) throw new InventoryError("unsupported_object");', 1],
+    [`const base = { schema_version: INVENTORY_SCHEMA_VERSION, object: command.object, section: command.section,
+      ordering: INVENTORY_ORDERING, observed_at: new Date().toISOString() };`, 1],
+  ],
+  inventoryFallthrough: 'throw new InventoryError("unsupported_section");',
+  // The one reviewed position of the instance as a value (`classMethods` and
+  // the module graph): the RuntimeInstances `sql` setter turns an assigned
+  // handle (unit fixtures) into a plain own data property.
+  sqlSetter: 'set sql(value) {\n    Object.defineProperty(this, "sql", { value, writable: true, configurable: true, enumerable: true });\n  }',
   // Whole-command forwards inside gated RuntimeInstances.fetch branches.
   doForwards: [
     ["this.deskReadbacks.command(command)", 1],
@@ -471,13 +550,15 @@ export const REVIEWED = {
  * Extract the classified surface. `sources` maps repository-relative paths to
  * text; with `options.modules` (more path-to-text entries) it must hold every
  * module the Worker bundle reaches. Returns
- * { routes: Map<canonical condition, { condition, text }>, internal: Set, errors }.
+ * { routes: Map<canonical condition, { condition, text }>, internal: Set,
+ * sections: Map<internal id, section names>, errors }.
  */
 export function extractSurface(ts, sources, options = {}) {
   const reviewed = { ...REVIEWED, ...(options.reviewed || {}) };
   const modules = options.modules ? new Map([...options.modules, ...sources]) : sources;
   const errors = [];
   const internal = new Set();
+  const sections = new Map();
   const routes = new Map();
   const files = new Map();
   const families = [];
@@ -504,11 +585,11 @@ export function extractSurface(ts, sources, options = {}) {
   };
 
   guard("worker.js", () => extractWorker(ts, file(WORKER), reviewed, { routes, internal, errors, templates, finishTemplates }));
-  guard("durable_object.js", () => extractDurable(ts, file, reviewed, { internal, errors, templates, finishTemplates, families }));
+  guard("durable_object.js", () => extractDurable(ts, file, reviewed, { internal, sections, errors, templates, finishTemplates, families }));
   guard("module graph", () => auditModules(ts, file, modules, families, errors));
   if (!routes.size) errors.push("worker.js fetch: empty_extraction: no route branch extracted");
   if (![...internal].some(id => id.startsWith("action:"))) errors.push("durable_object.js: empty_extraction: no internal action extracted");
-  return { routes, internal, errors };
+  return { routes, internal, sections, errors };
 }
 
 // Identifier positions that are names, not references.
@@ -1110,6 +1191,41 @@ function routeLeaves(ts, input) {
 
 // --- RuntimeInstances and delegates -------------------------------------------------
 
+/** Canonical form of a class member written as source text. */
+function canonicalMember(ts, text) {
+  const sf = parseStrict(ts, "member.js", `class Member {\n${text}\n}`);
+  return canonical(ts, sf.statements[0].members[0]);
+}
+
+/**
+ * The one reviewed position of the instance as a value, shared by
+ * `classMethods` and the module graph: `this` as the first argument of the
+ * property definition in the RuntimeInstances `sql` setter (`REVIEWED.sqlSetter`,
+ * compared as the whole member). The setter is the only `set sql` of the
+ * module-level RuntimeInstances class of the Durable Object file and is not
+ * static, `Object` is the unshadowed built-in, the defined key is the literal
+ * `sql`, and its data value is the setter's own parameter. Another key,
+ * descriptor, member, class, file or position is not admitted.
+ */
+function isReviewedSqlSetterThis(ts, sf, node) {
+  if (sf.fileName !== DURABLE || node.kind !== ts.SyntaxKind.ThisKeyword) return false;
+  const argument = outer(ts, node);
+  const call = argument.parent;
+  if (!call || !ts.isCallExpression(call) || call.arguments[0] !== argument) return false;
+  const statement = outer(ts, call).parent;
+  const block = statement?.parent;
+  const accessor = block?.parent;
+  if (!statement || !ts.isExpressionStatement(statement) || !block || !ts.isBlock(block) || !accessor || !ts.isSetAccessorDeclaration(accessor) || accessor.body !== block) return false;
+  const cls = accessor.parent;
+  if (!ts.isClassDeclaration(cls) || cls.name?.text !== "RuntimeInstances" || cls.parent !== sf || accessor.modifiers?.length) return false;
+  if (cls.members.filter(member => ts.isSetAccessorDeclaration(member) && member.name && ts.isIdentifier(member.name) && member.name.text === "sql").length !== 1) return false;
+  if (canonical(ts, accessor) !== canonicalMember(ts, REVIEWED.sqlSetter)) return false;
+  const global = unwrap(ts, unwrap(ts, call.expression).expression);
+  if (!ts.isIdentifier(global) || (symbolOf(ts, sf, global)?.declarations || []).length) return false;
+  const value = unwrap(ts, call.arguments[2]).properties.find(property => ts.isShorthandPropertyAssignment(property));
+  return !!value && symbolOf(ts, sf, value.name) === symbolOf(ts, sf, accessor.parameters[0].name);
+}
+
 function classMethods(ts, sf, className, label, audit = {}) {
   const classes = sf.statements.filter(s => ts.isClassDeclaration(s) && s.name?.text === className);
   if (classes.length !== 1) throw new SurfaceError(`${label}: entry_missing: expected one class ${className}, found ${classes.length}`);
@@ -1173,7 +1289,9 @@ function classMethods(ts, sf, className, label, audit = {}) {
       const top = outer(ts, node);
       const access = top.parent;
       if (ts.isElementAccessExpression(access) && access.expression === top) fail(node, `computed access on this in ${className}`);
-      else if (!ts.isPropertyAccessExpression(access) || access.expression !== top) fail(node, `this used as a value in ${className}`);
+      else if (!ts.isPropertyAccessExpression(access) || access.expression !== top) {
+        if (!isReviewedSqlSetterThis(ts, sf, node)) fail(node, `this used as a value in ${className}`);
+      }
       else {
         const name = access.name.text;
         const use = outer(ts, access).parent;
@@ -1340,10 +1458,26 @@ function extractDurable(ts, file, reviewed, ctx) {
   const consumed = new Set();
   const delegates = [];
 
-  const body = fetch.body.statements;
-  if (body.length !== 1 || !ts.isTryStatement(body[0]) || body[0].finallyBlock || !body[0].catchClause) {
-    throw new SurfaceError(`${label}: entry_form: RuntimeInstances.fetch must be one try/catch statement`);
+  // The reviewed preamble, then one try/catch statement.
+  const statements = fetch.body.statements;
+  const dispatch = statements.at(-1);
+  if (!dispatch || !ts.isTryStatement(dispatch) || dispatch.finallyBlock || !dispatch.catchClause) {
+    throw new SurfaceError(`${label}: entry_form: RuntimeInstances.fetch must end in one try/catch statement`);
   }
+  const preamble = statements.slice(0, -1);
+  const expectedPreamble = reviewed.doPreamble.map(text => canonicalStatements(ts, text)[0]);
+  if (preamble.length !== expectedPreamble.length || preamble.some((statement, index) => canonical(ts, statement) !== expectedPreamble[index])) {
+    report(`statement: preamble is not the reviewed inventory dispatch then storage initialization: ${excerpt(sf, preamble.find((statement, index) => canonical(ts, statement) !== expectedPreamble[index]) || fetch)}`);
+  } else {
+    for (const statement of preamble) covered.add(statement);
+    auditForwardTargets(ts, sf, fetch, [preamble[0]], reviewed.doPreambleTargets, message => report(message.replace(/^forward_target: /, "forward_target: inventory preamble: ")));
+    const found = guardSurface(report, () => inventorySections(ts, file, reviewed));
+    if (found) {
+      add("action:account_identity_inventory", "inventory path");
+      ctx.sections.set("action:account_identity_inventory", found);
+    }
+  }
+  const body = [dispatch];
   const level = templates("RuntimeInstances.fetch", reviewed.doFetch);
   const tryBody = body[0].tryBlock.statements;
   if (canonical(ts, body[0].catchClause) !== canonicalCatch(ts, reviewed.doCatch)) report(`statement: catch clause is not the reviewed error response: ${excerpt(sf, body[0].catchClause)}`);
@@ -1448,6 +1582,83 @@ function extractDurable(ts, file, reviewed, ctx) {
   }
   // Comparisons on actions already dispatched by a family are not new actions.
   for (const action of comparisons) if (!internal.has(`action:${action}`)) internal.add(`action:instance_state:${action}`);
+}
+
+/** `fn()`, or null with its SurfaceError reported. */
+function guardSurface(report, fn) {
+  try { return fn(); } catch (error) { if (!(error instanceof SurfaceError)) throw error; report(error.message); return null; }
+}
+
+/**
+ * Section set of the inventory delegate `inventoryResponse(request, cap)` in
+ * the inventory HTTP module, its one location (no other file is searched):
+ * the reviewed response helper, then one try statement with the
+ * reviewed catch clause, whose block holds the reviewed statements, one gate
+ * per section and the reviewed rejection of an unknown section last. A gate
+ * is exactly `if (command.section === "<name>") return respond({ ...base,
+ * ...await <page>(cap) });` (or `(cap, command)`), where `<page>` is a
+ * module-level function of that same module. Returns the section names in order.
+ */
+const INVENTORY_HTTP = `${CONSOLE}/application/account_identity_inventory/http.js`;
+function inventorySections(ts, file, reviewed) {
+  const sf = file(INVENTORY_HTTP);
+  const label = "inventoryResponse";
+  const fail = detail => { throw new SurfaceError(`${label}: ${detail}`); };
+  const fn = topFunction(ts, sf, "inventoryResponse", ["request", "cap"], label);
+  const [respond, attempt, ...rest] = fn.body.statements;
+  if (rest.length || !respond || canonical(ts, respond) !== canonicalStatements(ts, reviewed.inventoryRespond)[0]) fail("statement: body is not the reviewed response helper then one try statement");
+  if (!attempt || !ts.isTryStatement(attempt) || attempt.finallyBlock || !attempt.catchClause) fail("statement: body is not the reviewed response helper then one try statement");
+  if (canonical(ts, attempt.catchClause) !== canonicalCatch(ts, reviewed.inventoryCatch)) fail(`statement: catch clause is not the reviewed error response: ${excerpt(sf, attempt.catchClause)}`);
+  const expected = new Map();
+  for (const [text, count] of reviewed.inventory) {
+    for (const key of canonicalStatements(ts, text)) expected.set(key, { text, count: (expected.get(key)?.count || 0) + count, seen: 0 });
+  }
+  const fallthrough = canonicalStatements(ts, reviewed.inventoryFallthrough)[0];
+  const block = attempt.tryBlock.statements;
+  const sections = [];
+  for (const [index, statement] of block.entries()) {
+    const key = canonical(ts, statement);
+    if (index === block.length - 1) {
+      if (key !== fallthrough) fail(`statement: final statement is not the reviewed unknown-section rejection: ${excerpt(sf, statement)}`);
+      continue;
+    }
+    const entry = expected.get(key);
+    if (entry) { entry.seen += 1; continue; }
+    const section = sectionGate(ts, sf, statement);
+    if (section === null) fail(`inventory_section: statement is neither reviewed nor a section gate: ${excerpt(sf, statement)}`);
+    if (sections.includes(section)) fail(`inventory_section: section ${section} is dispatched twice`);
+    sections.push(section);
+  }
+  for (const entry of expected.values()) {
+    if (entry.seen !== entry.count) fail(`template_multiplicity: reviewed ${entry.count}x, found ${entry.seen}x: ${collapse(entry.text)}`);
+  }
+  if (!sections.length) fail("empty_extraction: no inventory section");
+  return sections;
+}
+function sectionGate(ts, sf, statement) {
+  if (!ts.isIfStatement(statement) || statement.elseStatement) return null;
+  const test = unwrap(ts, statement.expression);
+  if (!ts.isBinaryExpression(test) || test.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken || !isStringLiteral(ts, test.right)) return null;
+  const read = unwrap(ts, test.left);
+  if (!ts.isPropertyAccessExpression(read) || read.questionDotToken || read.name.text !== "section") return null;
+  const receiver = unwrap(ts, read.expression);
+  if (!ts.isIdentifier(receiver) || receiver.text !== "command") return null;
+  const page = statementsOf(ts, statement.thenStatement).length === 1 ? pageCall(ts, statementsOf(ts, statement.thenStatement)[0]) : null;
+  if (!page) return null;
+  const [declaration] = symbolOf(ts, sf, page.expression)?.declarations || [];
+  if (bindingIdentity(ts, sf, page.expression) !== "local" || !ts.isFunctionDeclaration(declaration)) return null;
+  const args = page.arguments.length === 1 ? "cap" : "cap, command";
+  if (canonical(ts, statementsOf(ts, statement.thenStatement)[0]) !== canonicalStatements(ts, `return respond({ ...base, ...await ${page.expression.text}(${args}) });`)[0]) return null;
+  return literalValue(ts, test.right);
+}
+/** The page call `<name>(...)` inside `return respond({ ...base, ...await <name>(...) });`, or null. */
+function pageCall(ts, statement) {
+  const call = ts.isReturnStatement(statement) && statement.expression ? unwrap(ts, statement.expression) : null;
+  const object = call && ts.isCallExpression(call) && call.arguments.length === 1 ? unwrap(ts, call.arguments[0]) : null;
+  const spread = object && ts.isObjectLiteralExpression(object) && object.properties.length === 2 ? object.properties[1] : null;
+  const awaited = spread && ts.isSpreadAssignment(spread) ? unwrap(ts, spread.expression) : null;
+  const page = awaited && ts.isAwaitExpression(awaited) ? unwrap(ts, awaited.expression) : null;
+  return page && ts.isCallExpression(page) && ts.isIdentifier(page.expression) && [1, 2].includes(page.arguments.length) ? page : null;
 }
 
 /** The receivers' own declarations: parameters, and `let` bindings directly in `level`. */
@@ -1932,7 +2143,7 @@ function moduleSummary(ts, sf) {
   const visit = node => {
     if (node.kind === ts.SyntaxKind.ThisKeyword || node.kind === ts.SyntaxKind.SuperKeyword) {
       const detail = instanceValuePosition(ts, node);
-      if (detail) summary.values.push({ node, detail });
+      if (detail && !isReviewedSqlSetterThis(ts, sf, node)) summary.values.push({ node, detail });
     }
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const [argument] = node.arguments;

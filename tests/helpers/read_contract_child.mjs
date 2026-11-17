@@ -200,9 +200,13 @@ const outcome = fn => {
 };
 
 let instance = null;
+// A ready instance: no constructor, storage already initialized (as after the
+// first ordinary request), so its requests start at dispatch. Cold
+// construction and its first initialization are explicit `construct` steps
+// and requests in their own phases.
 const readyInstance = async () => {
   const { RuntimeInstances } = await consoleModule(DO);
-  return Object.assign(Object.create(RuntimeInstances.prototype), { sql, storage, reviewEnv: env });
+  return Object.assign(Object.create(RuntimeInstances.prototype), { sql, storage, reviewEnv: env, storageInitialized: true });
 };
 const instanceFor = async () => (instance ||= await readyInstance());
 const writerArgs = [env, { synthetic: true }, 1];
@@ -237,6 +241,24 @@ const SCRIPTS = {
     return { outcome: "returned", swallowed };
   },
   "b7-noop-input": async () => { const module = await runtimeSupport(); return outcome(() => module.writeCurrentStrategiesCache(env, initial.b7_payload, initial.b7_ts)); },
+  // Every inventory section in order on the current instance, each sealed by
+  // the schema page's scan, then an unknown section; then whether storage
+  // was initialized.
+  "inventory-sections": async () => {
+    const self = await instanceFor();
+    const { INVENTORY_DO_PATH, INVENTORY_TABLES } = await consoleModule("application/account_identity_inventory/constants.js");
+    const call = async body => {
+      const response = await self.fetch(new Request(`https://runtime-instances.invalid${INVENTORY_DO_PATH}`, { method: "POST", body: JSON.stringify({ object: "runtime", ...body }) }));
+      return { section: body.section, ...await summarize(response.clone()), scan: (await response.json()).scan };
+    };
+    const schema = await call({ section: "schema" });
+    const { scan } = schema;
+    const results = [schema];
+    for (const body of [{ section: "sql", table: Object.keys(INVENTORY_TABLES)[0], page_size: 10, scan }, { section: "do_kv", page_size: 10, scan }, { section: "finalize", scan }, { section: "probe_section" }]) {
+      results.push(await call(body));
+    }
+    return { outcome: "returned", sections: results.map(({ scan: _scan, ...rest }) => rest), initialized: self.storageInitialized };
+  },
   "b7-deferred-callback": async () => {
     const module = await runtimeSupport();
     waitUntil(Promise.resolve().then(() => module.writeCurrentStrategiesCache(...writerArgs)).catch(error => { emit({ t: "async_error", name: error?.name, phase: current.name }); }));

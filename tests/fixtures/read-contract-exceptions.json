@@ -5,8 +5,8 @@
     {
       "id": "B0",
       "kind": "effect",
-      "title": "Shared RuntimeInstances constructor initializes schema before dispatch",
-      "effect_type": "SQL DDL/ALTER and index drop/recreate in the constructor of both named objects (runtime-instances, console-kv-directory-v1), before fetch selects an operation",
+      "title": "Shared RuntimeInstances lazy initialization writes schema before ordinary dispatch",
+      "effect_type": "SQL DDL/ALTER and index drop/recreate in initializeStorage(), run once per instance at the start of the ordinary fetch path and of alarm on both named objects (runtime-instances, console-kv-directory-v1), before fetch selects an operation; construction runs no SQL and the account-identity inventory path is dispatched before initialization",
       "reachable_operations": [
         "route:/api/admin/kv-directory#GET",
         "route:/api/performance/#GET",

@@ -27,6 +27,8 @@ import { accountFactsIdentityDates } from "../account_facts/read.js";
 import { runtimeInstanceConflict } from "./command.js";
 import { deskErrorResponse } from "../desk/http.js";
 import { binanceDetailCommand } from "../../binance_detail_archive.js";
+import { INVENTORY_DO_PATH } from "../account_identity_inventory/constants.js";
+import { inventoryCapability, inventoryResponse } from "../account_identity_inventory/http.js";
 import {
   ACCOUNT_FACTS_FUTURE_SKEW_MS,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
@@ -99,16 +101,17 @@ import {
 } from '../worker/runtime_support.js';
 
 export class RuntimeInstances {
+  // The constructor records references and builds side-effect-free adapters
+  // only. Storage initialization runs on the ordinary fetch and alarm paths,
+  // after the read-only account-identity inventory dispatch.
   constructor(ctx, env) {
     this.directory = new KvDirectory(ctx.storage, env?.STRATEGY_SWITCH_CONFIG, env);
     this.storage = ctx.storage;
-    this.sql = ctx.storage.sql;
-    initializeExecutions(this.sql);
+    this.sqlStorage = ctx.storage.sql;
     this.externalFlowEnabled = externalFlowEnabled(env);
-    initializeExternalFlow(this.sql);
-    initializeCredentialMaintenance(this.sql);
-    initializeSecretRotation(this.sql);
     this.rotationEnv = env;
+    this.storageInitialized = false;
+    this.inventory = inventoryCapability(ctx.storage, crypto.randomUUID());
     this.deskReadbacks = new DeskReadbackStore(ctx.storage, async (id, actor) => {
       const state = this.read();
       const target = readbackTargets({ options: runtimeInstanceAccountOptions(state.instances), revision: state.revision }).find(target => target.id === id);
@@ -117,36 +120,58 @@ export class RuntimeInstances {
       try { observed = this.readAccountSettings({ platform: target.platform, key: target.key, legacy: await readRiskProfileLegacy(env) }); } catch { /* Degrade saved independently. */ }
       return deskTargetReadback(env, target, actor, observed);
     });
+  }
+
+  // Ordinary code reaches SQL only through this accessor, which initializes
+  // first. The inventory capability holds ctx.storage directly and never uses it.
+  get sql() {
+    this.initializeStorage();
+    return this.sqlStorage;
+  }
+
+  // An assigned handle (unit fixtures) is a plain property, as before.
+  set sql(value) {
+    Object.defineProperty(this, "sql", { value, writable: true, configurable: true, enumerable: true });
+  }
+
+  // Previously the constructor body, in the same order. Runs once per instance.
+  initializeStorage() {
+    if (this.storageInitialized) return;
+    const sql = this.sqlStorage;
+    initializeExecutions(sql);
+    initializeExternalFlow(sql);
+    initializeCredentialMaintenance(sql);
+    initializeSecretRotation(sql);
     // Native intervals remain in the existing private account read-model store.
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_period_return (
+    sql.exec(`CREATE TABLE IF NOT EXISTS account_period_return (
       account_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL
     )`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_daily_native_return (
+    sql.exec(`CREATE TABLE IF NOT EXISTS account_daily_native_return (
       account_key TEXT NOT NULL, source_binding_id TEXT NOT NULL, currency TEXT NOT NULL,
       observation_date TEXT NOT NULL, payload_json TEXT NOT NULL,
       PRIMARY KEY(account_key, source_binding_id, currency, observation_date)
     )`);
     // Dormant: only an independent protected provisioning step may seed admission.
     // There is deliberately no ingress/admin command that writes an admission.
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_source (
+    sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_source (
       source_id TEXT PRIMARY KEY, target_id TEXT NOT NULL UNIQUE, binding_fingerprint TEXT NOT NULL,
       configuration_sha256 TEXT NOT NULL, authority_revision INTEGER NOT NULL,
       required_from TEXT NOT NULL, observed_at TEXT, observation_json TEXT,
       observation_sha256 TEXT, received_at TEXT, checkpoint_revision INTEGER
     )`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_checkpoint (
+    sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_checkpoint (
       target_id TEXT NOT NULL, binding_fingerprint TEXT NOT NULL, source_id TEXT NOT NULL,
       revision INTEGER NOT NULL, payload_json TEXT NOT NULL,
       PRIMARY KEY (target_id, binding_fingerprint)
     )`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_incident (
+    sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_incident (
       target_id TEXT NOT NULL, binding_fingerprint TEXT NOT NULL, source_id TEXT NOT NULL,
       cycle_id TEXT NOT NULL, cycle_json TEXT NOT NULL, category TEXT NOT NULL,
       active_category TEXT, latest_fault_at TEXT NOT NULL, attempt_count INTEGER NOT NULL,
       resolution_history_json TEXT NOT NULL,
       PRIMARY KEY (target_id, binding_fingerprint, source_id, cycle_id)
     )`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_attempt (
+    sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_attempt (
       history_id INTEGER PRIMARY KEY AUTOINCREMENT,
       target_id TEXT NOT NULL, binding_fingerprint TEXT NOT NULL, source_id TEXT NOT NULL,
       cycle_id TEXT NOT NULL, attempt_key TEXT NOT NULL, fault_at TEXT NOT NULL,
@@ -154,10 +179,10 @@ export class RuntimeInstances {
       resolution_ref TEXT,
       UNIQUE (target_id, binding_fingerprint, source_id, attempt_key)
     )`);
-    this.sql.exec("CREATE INDEX IF NOT EXISTS runtime_cycle_health_history_page ON runtime_cycle_health_attempt (target_id, source_id, history_id)");
-    this.sql.exec("CREATE TABLE IF NOT EXISTS instance_state (id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL, payload TEXT NOT NULL)");
-    this.sql.exec("CREATE TABLE IF NOT EXISTS instance_history (revision INTEGER PRIMARY KEY, entry TEXT NOT NULL)");
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_diagnosis_tasks (
+    sql.exec("CREATE INDEX IF NOT EXISTS runtime_cycle_health_history_page ON runtime_cycle_health_attempt (target_id, source_id, history_id)");
+    sql.exec("CREATE TABLE IF NOT EXISTS instance_state (id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL, payload TEXT NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS instance_history (revision INTEGER PRIMARY KEY, entry TEXT NOT NULL)");
+    sql.exec(`CREATE TABLE IF NOT EXISTS account_diagnosis_tasks (
       request_id TEXT PRIMARY KEY,
       platform TEXT NOT NULL,
       account_key TEXT NOT NULL,
@@ -177,10 +202,10 @@ export class RuntimeInstances {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`);
-    try { this.sql.exec("ALTER TABLE account_diagnosis_tasks ADD COLUMN auto_source TEXT NOT NULL DEFAULT 'manual'"); } catch { /* already present */ }
-    try { this.sql.exec("ALTER TABLE account_diagnosis_tasks ADD COLUMN native_json TEXT"); } catch { /* already present */ }
-    this.sql.exec("CREATE INDEX IF NOT EXISTS account_diagnosis_tasks_fingerprint ON account_diagnosis_tasks (target_id, state_fingerprint, updated_at)");
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS research_promotion_applications (
+    try { sql.exec("ALTER TABLE account_diagnosis_tasks ADD COLUMN auto_source TEXT NOT NULL DEFAULT 'manual'"); } catch { /* already present */ }
+    try { sql.exec("ALTER TABLE account_diagnosis_tasks ADD COLUMN native_json TEXT"); } catch { /* already present */ }
+    sql.exec("CREATE INDEX IF NOT EXISTS account_diagnosis_tasks_fingerprint ON account_diagnosis_tasks (target_id, state_fingerprint, updated_at)");
+    sql.exec(`CREATE TABLE IF NOT EXISTS research_promotion_applications (
       application_id TEXT PRIMARY KEY,
       ticket_id TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -210,9 +235,9 @@ export class RuntimeInstances {
     // A rejected application is a terminal record, but an explicitly
     // re-qualified user request may create a new attempt. Keep history while
     // deduplicating all still-active/uncertain attempts.
-    this.sql.exec("DROP INDEX IF EXISTS research_promotion_applications_ticket_account");
-    this.sql.exec("CREATE INDEX IF NOT EXISTS research_promotion_applications_ticket_account_idx ON research_promotion_applications (ticket_id, platform_id, account_key, status)");
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS ux1_research_slot (
+    sql.exec("DROP INDEX IF EXISTS research_promotion_applications_ticket_account");
+    sql.exec("CREATE INDEX IF NOT EXISTS research_promotion_applications_ticket_account_idx ON research_promotion_applications (ticket_id, platform_id, account_key, status)");
+    sql.exec(`CREATE TABLE IF NOT EXISTS ux1_research_slot (
       login TEXT PRIMARY KEY,
       revision INTEGER NOT NULL,
       draft_json TEXT NOT NULL,
@@ -222,11 +247,11 @@ export class RuntimeInstances {
       job_json TEXT
     )`);
     try {
-      this.sql.exec("ALTER TABLE ux1_research_slot ADD COLUMN job_json TEXT");
+      sql.exec("ALTER TABLE ux1_research_slot ADD COLUMN job_json TEXT");
     } catch {
       /* already migrated */
     }
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS human_decision_material (
+    sql.exec(`CREATE TABLE IF NOT EXISTS human_decision_material (
       kind TEXT NOT NULL,
       subject_id TEXT NOT NULL,
       source_id TEXT NOT NULL,
@@ -239,7 +264,7 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (kind, subject_id)
     )`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS human_decision_record (
+    sql.exec(`CREATE TABLE IF NOT EXISTS human_decision_record (
       request_key TEXT PRIMARY KEY,
       kind TEXT NOT NULL,
       subject_id TEXT NOT NULL,
@@ -250,8 +275,8 @@ export class RuntimeInstances {
       target_json TEXT NOT NULL,
       payload_json TEXT NOT NULL
     )`);
-    this.sql.exec("CREATE INDEX IF NOT EXISTS human_decision_record_subject ON human_decision_record (kind, subject_id, material_key)");
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS human_decision_source_material (
+    sql.exec("CREATE INDEX IF NOT EXISTS human_decision_record_subject ON human_decision_record (kind, subject_id, material_key)");
+    sql.exec(`CREATE TABLE IF NOT EXISTS human_decision_source_material (
       kind TEXT NOT NULL,
       subject_id TEXT NOT NULL,
       source_id TEXT NOT NULL,
@@ -262,13 +287,13 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (kind, subject_id, source_id)
     )`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS risk_profile_authority (
+    sql.exec(`CREATE TABLE IF NOT EXISTS risk_profile_authority (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       revision INTEGER NOT NULL,
       imported INTEGER NOT NULL,
       bindings_json TEXT NOT NULL
     )`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_draft (
+    sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_draft (
       platform TEXT NOT NULL,
       account_key TEXT NOT NULL,
       revision INTEGER NOT NULL,
@@ -277,12 +302,12 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (platform, account_key)
     )`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_declaration (
+    sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_declaration (
       platform TEXT NOT NULL, account_key TEXT NOT NULL, revision INTEGER NOT NULL,
       identity_json TEXT NOT NULL, declaration_json TEXT NOT NULL,
       PRIMARY KEY (platform, account_key)
     )`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_profile_application (
+    sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_profile_application (
       request_key TEXT PRIMARY KEY,
       platform TEXT NOT NULL,
       account_key TEXT NOT NULL,
@@ -298,8 +323,8 @@ export class RuntimeInstances {
       workflow_run_attempt TEXT,
       claimed_at TEXT
     )`);
-    this.sql.exec("CREATE INDEX IF NOT EXISTS account_setting_profile_application_target ON account_setting_profile_application (platform, account_key, status)");
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_facts_observation (
+    sql.exec("CREATE INDEX IF NOT EXISTS account_setting_profile_application_target ON account_setting_profile_application (platform, account_key, status)");
+    sql.exec(`CREATE TABLE IF NOT EXISTS account_facts_observation (
       platform TEXT NOT NULL,
       account_key TEXT NOT NULL,
       payload_json TEXT NOT NULL,
@@ -311,7 +336,7 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (platform, account_key)
     )`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_facts_daily (
+    sql.exec(`CREATE TABLE IF NOT EXISTS account_facts_daily (
       platform TEXT NOT NULL,
       account_key TEXT NOT NULL,
       observation_date TEXT NOT NULL,
@@ -323,8 +348,8 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (platform, account_key, observation_date)
     )`);
-    this.sql.exec("CREATE INDEX IF NOT EXISTS account_facts_daily_account ON account_facts_daily (platform, account_key, observation_date)");
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS market_benchmark_daily (
+    sql.exec("CREATE INDEX IF NOT EXISTS account_facts_daily_account ON account_facts_daily (platform, account_key, observation_date)");
+    sql.exec(`CREATE TABLE IF NOT EXISTS market_benchmark_daily (
       series_id TEXT NOT NULL,
       observation_date TEXT NOT NULL,
       close TEXT NOT NULL,
@@ -332,8 +357,8 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (series_id, observation_date)
     )`);
-    this.sql.exec("CREATE INDEX IF NOT EXISTS market_benchmark_daily_date ON market_benchmark_daily (observation_date)");
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS market_benchmark_revision_ledger (
+    sql.exec("CREATE INDEX IF NOT EXISTS market_benchmark_daily_date ON market_benchmark_daily (observation_date)");
+    sql.exec(`CREATE TABLE IF NOT EXISTS market_benchmark_revision_ledger (
       proposal_sha256 TEXT NOT NULL,
       entry_index INTEGER NOT NULL,
       series_id_sha256 TEXT NOT NULL,
@@ -345,8 +370,8 @@ export class RuntimeInstances {
       applied_at TEXT NOT NULL,
       PRIMARY KEY (proposal_sha256, entry_index)
     )`);
-    this.sql.exec("CREATE INDEX IF NOT EXISTS market_benchmark_revision_ledger_date ON market_benchmark_revision_ledger (observation_date)");
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS hk_stop_request (
+    sql.exec("CREATE INDEX IF NOT EXISTS market_benchmark_revision_ledger_date ON market_benchmark_revision_ledger (observation_date)");
+    sql.exec(`CREATE TABLE IF NOT EXISTS hk_stop_request (
       request_id TEXT PRIMARY KEY,
       target_id TEXT NOT NULL,
       identity_json TEXT NOT NULL,
@@ -359,10 +384,11 @@ export class RuntimeInstances {
       workflow_run_attempt TEXT,
       updated_at TEXT NOT NULL
     )`);
-    this.sql.exec("CREATE INDEX IF NOT EXISTS hk_stop_request_target ON hk_stop_request (target_id, requested_at)");
+    sql.exec("CREATE INDEX IF NOT EXISTS hk_stop_request_target ON hk_stop_request (target_id, requested_at)");
     for (const column of ["source_identity_sha256", "runtime_identity_sha256", "result_json", "stopped_at"]) {
-      try { this.sql.exec(`ALTER TABLE hk_stop_request ADD COLUMN ${column} TEXT`); } catch { /* already present */ }
+      try { sql.exec(`ALTER TABLE hk_stop_request ADD COLUMN ${column} TEXT`); } catch { /* already present */ }
     }
+    this.storageInitialized = true;
   }
 
   emptyCycleHealthState(targetId, bindingId) {
@@ -2256,9 +2282,14 @@ export class RuntimeInstances {
     };
   }
 
-  async alarm() { await this.deskReadbacks.alarm(); }
+  async alarm() {
+    this.initializeStorage();
+    await this.deskReadbacks.alarm();
+  }
 
   async fetch(request) {
+    if (new URL(request.url).pathname === INVENTORY_DO_PATH) return inventoryResponse(request, this.inventory);
+    this.initializeStorage();
     try {
       if (new URL(request.url).pathname === DIRECTORY_PATH) {
         if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
