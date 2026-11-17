@@ -217,6 +217,23 @@ the selected field's path. In a truncated projection, an ID selected in the
 last projected slot carries `key_unobserved_at_truncation`. IDs elsewhere are
 not account identities.
 
+These two sources alone add `option_key_truthy` to their identity projection:
+one Boolean, `Boolean(option.key)`, per object directly in a root platform
+array whose first direct key or ID field was retained, under its
+`platform[index]` path. It carries no key content, costs no projected field and
+is bounded by the retained fields. A true bit blocks the ID even when the key
+projected nothing (an empty or unprojected object); a false bit allows the ID.
+A missing entry or a non-Boolean value is unknown, never false. A selected key
+or ID beyond the 512-character bound is lost: nothing is mapped for the slot,
+and group 16 and the overall result are `incomplete` with the private reason
+`<source>:<platform[index].key|id>:selected_option_identity_long_string`. A
+nonselected long ID is no loss. Exports collected before this evidence existed
+cannot decide an ID-only slot whose key projected nothing: its ID is not
+inferred and the reason `<source>:<platform[index]>.key:option_key_evidence_missing`
+makes group 16 and the overall result `incomplete`. A projected key, or an
+explicitly projected falsy key, still decides the slot; a matching digest does
+not. Recollect to obtain the evidence.
+
 The assembler derives a mapping keyed by every `(platform, legacy_key)` with
 dated identity episodes, conflicts, cross-platform collisions and an
 unattributed ledger. Account references inside every projected JSON column

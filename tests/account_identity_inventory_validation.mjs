@@ -927,6 +927,408 @@ const { normalizeAccountOption, normalizeAccountOptionsPayload } = await import(
   }
 }
 
+// D2/D3: the two account-options sources carry one key-truthiness bit per
+// retained option slot (`option_key_truthy`); selection reads it, and a
+// selected key or ID cut at the long-string bound is a located loss. Long
+// values are built at run time; no fixture holds a long literal.
+const { identityProjection } = await import(new URL("application/account_identity_inventory/helpers.js", CONSOLE));
+const { LONG_STRING } = await import(new URL("application/account_identity_inventory/constants.js", CONSOLE));
+const LOSS = "selected_option_identity_long_string";
+const MISSING = "option_key_evidence_missing";
+const OPTIONS_BINDING = "STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON";
+const long = (length, fill = "L") => fill.repeat(length);
+const configuredEpisodes = result => result.mapping.entries.flatMap(entry => entry.episodes.filter(episode => episode.state === "configured_option")
+  .map(episode => ({ platform: entry.platform, legacy_key: entry.legacy_key, locator: episode.locator, identity: episode.identity })));
+// Both objects finalized, two equal KV passes, the KV failed-read count,
+// unrelated groups untouched and an aggregate-only summary.
+const settled = (label, result, summary, { failedReads = 0, needles = [] } = {}) => {
+  assert.ok(result.objects.every(object => object.complete), `${label}: both objects finalized`);
+  assert.equal(result.kv.repeated_pass_equal, true, `${label}: two equal KV passes`);
+  assert.deepEqual([result.kv.failed_reads.length, summary.kv.failed_reads], [failedReads, failedReads], `${label}: KV failed reads`);
+  otherGroupsComplete(result, label);
+  summaryAggregatesOnly(summary, label, ["option_key_truthy", "kv:", "ibkr[", LOSS, MISSING, ...needles]);
+};
+const disposition = (label, result, summary, reasons) => {
+  const state = reasons.length ? "incomplete" : "complete", status = reasons.length ? "incomplete" : ENUMERATED;
+  assert.deepEqual([result.groups[16], result.group_reasons[16], result.reasons, result.status, summary.status, summary.groups[16], summary.reason_count],
+    [state, reasons.length ? reasons : undefined, reasons, status, status, state, reasons.length], `${label}: group 16, private and summary disposition`);
+};
+{
+  const SOURCES = {
+    kv: { source: "kv:account_options", projected: responses => exportedKv(responses, "account_options"),
+      run: (value, extra = {}) => inventoryFull({ kvValues: { account_options: value, ...extra.kvValues }, envValues: extra.envValues }) },
+    env: { source: `env:${OPTIONS_BINDING}`, projected: responses => exportedEnv(responses, OPTIONS_BINDING),
+      run: (value, extra = {}) => inventoryFull({ kvValues: extra.kvValues, envValues: { [OPTIONS_BINDING]: value, ...extra.envValues } }) },
+  };
+  for (const [sourceName, { source, projected, run }] of Object.entries(SOURCES)) {
+    const truncation = sourceName === "kv" ? "kv:account_options:identity_projection_truncated" : `env:${OPTIONS_BINDING}:identity_projection_truncated`;
+    const truncationFailures = sourceName === "kv" ? 1 : 0;
+    const truncated = (label, result, summary) => {
+      disposition(label, result, summary, [truncation]);
+      if (sourceName === "kv") assert.deepEqual(result.kv.failed_reads.map(read => [read.name, read.causes]), [["account_options", ["identity_projection_truncated"]]], `${label}: one failed KV key`);
+    };
+
+    // D2-N1/N2: a truthy object key that projects nothing still blocks its ID.
+    for (const [row, keyValue] of [[`D2-N1-${sourceName}-empty-object`, {}], [`D2-N2-${sourceName}-unprojected-object`, { note: "d2-note" }]]) {
+      for (const order of ["key-first", "id-first"]) {
+        const label = `${row} ${order}`;
+        const raw = order === "key-first" ? { key: keyValue, id: "acct-d2n" } : { id: "acct-d2n", key: keyValue };
+        assert.throws(() => normalizeAccountOption("ibkr", raw), undefined, `${label}: the ordinary reader rejects it`);
+        const { responses, private: result, summary } = await run(JSON.stringify({ ibkr: [raw] }));
+        assert.deepEqual(projected(responses).identity, { fields: { "ibkr[0].id": "acct-d2n" }, counts: { ibkr: 1 }, redacted: [], truncated: false,
+          option_key_truthy: { "ibkr[0]": true } }, `${label}: one direct ID field, no key field, count or path, bit true`);
+        assert.deepEqual([configuredEpisodes(result), result.mapping.entries, result.mapping.unattributed], [[], [], []], `${label}: no configured episode, mapping or unattributed ID`);
+        disposition(label, result, summary, []);
+        settled(label, result, summary, { needles: ["acct-d2n", "d2-note"] });
+      }
+    }
+
+    // D2-P1: the five O1 fixtures carry a false bit and keep their outcome.
+    for (const [variant, keyField] of [["missing", {}], ["empty", { key: "" }], ["null", { key: null }], ["false", { key: false }], ["zero", { key: 0 }]]) {
+      const raw = { ...keyField, id: "acct-o1", account_selector: "sel-o1" };
+      const name = `D2-P1-${sourceName}-O1-preserved ${variant}`;
+      const oracle = normalizeAccountOption("ibkr", raw).key;
+      assert.deepEqual(Object.keys(normalizeAccountOptionsPayload({ ibkr: [raw] })), ["ibkr"], `${name}: the ordinary reader accepts the payload`);
+      const { responses, private: result, summary } = await run(JSON.stringify({ ibkr: [raw] }));
+      assert.deepEqual(projected(responses).identity.option_key_truthy, { "ibkr[0]": false }, `${name}: bit false`);
+      assert.deepEqual(configuredEpisodes(result), [{ platform: "ibkr", legacy_key: oracle, locator: { source, path: "ibkr[0].id" }, identity: { selected_field: "id" } }],
+        `${name}: one configured episode matching normalizeAccountOption`);
+      assert.deepEqual([result.mapping.entries.length, result.mapping.unattributed, result.status, summary.status, summary.mapping.entries, summary.mapping.unattributed_rows],
+        [1, [], ENUMERATED, ENUMERATED, 1, 0], `${name}: complete, one entry, zero unattributed`);
+      disposition(name, result, summary, []);
+      settled(name, result, summary, { needles: ["acct-o1", "sel-o1"] });
+    }
+
+    // D2-P2: a true bit neither replaces a selected key nor promotes other IDs.
+    for (const [variant, raw, expected, bits] of [
+      ["key-and-id", { key: "acct-o2k", id: "acct-o2i" }, [["acct-o2k", "ibkr[0].key", { selected_field: "key" }]], { "ibkr[0]": true }],
+      ["id-before-key", { id: "acct-o2i", key: "acct-o2k" }, [["acct-o2k", "ibkr[0].key", { selected_field: "key" }]], { "ibkr[0]": true }],
+      ["identical", { key: "acct-o2", id: "acct-o2" }, [["acct-o2", "ibkr[0].key", { selected_field: "key" }]], { "ibkr[0]": true }],
+      ["whitespace-key", { key: "  acct-o2w  " }, [["acct-o2w", "ibkr[0].key", { selected_field: "key", raw_value: "  acct-o2w  " }]], { "ibkr[0]": true }],
+      ["whitespace-id", { key: "", id: " acct-o2v\t" }, [["acct-o2v", "ibkr[0].id", { selected_field: "id", raw_value: " acct-o2v\t" }]], { "ibkr[0]": false }],
+      ["invalid-chars", { key: "bad key", id: "acct-o2x" }, [["bad key", "ibkr[0].key", { selected_field: "key", option_key_valid: false }]], { "ibkr[0]": true }],
+      ["generic-ids", { key: "acct-o2k", links: [{ id: "gen-o2a" }], meta: { id: "gen-o2b" } }, [["acct-o2k", "ibkr[0].key", { selected_field: "key" }]], { "ibkr[0]": true }],
+    ]) {
+      const label = `D2-P2-${sourceName}-O2-preserved ${variant}`;
+      const { responses, private: result, summary } = await run(JSON.stringify({ ibkr: [raw] }));
+      assert.deepEqual(projected(responses).identity.option_key_truthy, bits, `${label}: one bit for the slot`);
+      assert.deepEqual(configuredEpisodes(result).map(item => [item.legacy_key, item.locator.path, item.identity]), expected, `${label}: configured episodes unchanged`);
+      assert.deepEqual([result.mapping.entries.map(entry => entry.legacy_key), result.mapping.unattributed], [expected.map(([legacyKey]) => legacyKey), []], `${label}: no second identity`);
+      disposition(label, result, summary, []);
+      settled(label, result, summary, { needles: ["acct-o2", "gen-o2"] });
+    }
+
+    // D2-B1: the last slot's key follows its ID and the 4000th field.
+    {
+      const label = `D2-B1-${sourceName}-hidden-key-at-exact-cap`;
+      const last = { id: "acct-b1", account_selector: "sel-b1", key: { note: "d2-hidden" } };
+      const value = { ibkr: [...range(1999).map(index => ({ key: `opt-${pad(index)}`, account_selector: `sel-${index}` })), last] };
+      assert.throws(() => normalizeAccountOption("ibkr", last, 1999), undefined, `${label}: the ordinary reader rejects the last option`);
+      const { responses, private: result, summary } = await run(JSON.stringify(value));
+      const identity = projected(responses).identity;
+      const bits = Object.values(identity.option_key_truthy);
+      assert.deepEqual([Object.keys(identity.fields).length, identity.truncated, bits.length, identity.option_key_truthy["ibkr[1999]"], bits.every(bit => bit === true)],
+        [4000, false, 2000, true, true], `${label}: 4000 fields, 2000 slot bits, last bit true`);
+      assert.deepEqual(configuredEpisodes(result).map(item => [item.legacy_key, item.locator.path]), range(1999).map(index => [`opt-${pad(index)}`, `ibkr[${index}].key`]),
+        `${label}: exactly 1999 configured mappings`);
+      assert.ok(!result.mapping.entries.some(entry => entry.legacy_key === "acct-b1") && !result.mapping.unattributed.length, `${label}: no final ID fallback`);
+      disposition(label, result, summary, []);
+      settled(label, result, summary, { needles: ["opt-", "acct-b1"] });
+    }
+
+    // D2-B2: the last slot's ID is the 4000th field; its key lies beyond the cap.
+    {
+      const label = `D2-B2-${sourceName}-key-after-cutoff`;
+      const accepted = range(1999).map(index => ({ key: `opt-${pad(index)}`, account_selector: `sel-${index}`, ...(index === 0 ? { target_name: "tgt-b2" } : {}) }));
+      const value = { ibkr: [...accepted, { id: "acct-b2i", key: "acct-b2k" }] };
+      assert.deepEqual([value.ibkr.length, value.ibkr.reduce((total, option) => total + Object.keys(option).length, 0)], [2000, 4001], `${label}: fixture input counts`);
+      const { responses, private: result, summary } = await run(JSON.stringify(value));
+      const identity = projected(responses).identity;
+      assert.deepEqual([Object.keys(identity.fields).length, identity.truncated, Object.keys(identity.option_key_truthy).length, identity.option_key_truthy["ibkr[1999]"],
+        identity.fields["ibkr[1999].id"], Object.hasOwn(identity.fields, "ibkr[1999].key")], [4000, true, 2000, true, "acct-b2i", false], `${label}: projection and bits`);
+      assert.deepEqual(configuredEpisodes(result).map(item => item.legacy_key), range(1999).map(index => `opt-${pad(index)}`), `${label}: 1999 configured mappings survive`);
+      assert.ok(!result.mapping.entries.some(entry => entry.legacy_key.startsWith("acct-b2")) && !result.mapping.unattributed.length, `${label}: no final ID inference`);
+      truncated(label, result, summary);
+      settled(label, result, summary, { failedReads: truncationFailures, needles: ["opt-", "acct-b2"] });
+    }
+
+    // D2-B3: evidence is bounded by the retained fields, with no second cap.
+    for (const count of [4000, 4001]) {
+      const label = `D2-B3-${sourceName}-evidence-bound ${count}`;
+      const value = { ibkr: range(count).map(index => ({ id: `opt-${pad(index)}` })) };
+      const { responses, private: result, summary } = await run(JSON.stringify(value));
+      const identity = projected(responses).identity;
+      const bits = Object.values(identity.option_key_truthy);
+      assert.deepEqual([Object.keys(identity.fields).length, identity.truncated, bits.length, bits.every(bit => bit === false), Object.hasOwn(identity.option_key_truthy, "ibkr[4000]")],
+        [4000, count > 4000, 4000, true, false], `${label}: 4000 fields and 4000 false bits, none for the unretained slot`);
+      const configured = configuredEpisodes(result);
+      assert.deepEqual(configured.map(item => [item.legacy_key, item.locator.path]), range(4000).map(index => [`opt-${pad(index)}`, `ibkr[${index}].id`]), `${label}: 4000 configured mappings`);
+      if (count === 4000) {
+        disposition(label, result, summary, []);
+        settled(label, result, summary, { needles: ["opt-"] });
+        continue;
+      }
+      assert.deepEqual(configured.filter(item => item.identity.key_unobserved_at_truncation).map(item => item.locator.path), ["ibkr[3999].id"], `${label}: the boundary slot is qualified`);
+      truncated(label, result, summary);
+      settled(label, result, summary, { failedReads: truncationFailures, needles: ["opt-"] });
+    }
+
+    // D2-C2: only direct key/ID fields of objects in a root platform array
+    // get a bit; the bit carries nothing of the key or the option.
+    {
+      const label = `D2-C2-${sourceName}-slot-fence-and-privacy`;
+      const raw = { ibkr: [{ key: { label: CANARY, note: "d2-ignored" }, id: "acct-c2x", meta: { id: "gen-c2m" }, links: [{ id: "gen-c2l" }] },
+        { key: "acct-c2", meta: { id: "gen-c2n" }, api_key: CANARY }, { account_selector: "sel-c2" }], "acct.c2": [{ id: "gen-c2d" }] };
+      const { responses, private: result, summary } = await run(JSON.stringify(raw));
+      const identity = projected(responses).identity;
+      assert.deepEqual(identity.option_key_truthy, { "ibkr[0]": true, "ibkr[1]": true }, `${label}: genuine slots only, none for nested, keyless or dotted-root IDs`);
+      assert.ok(Object.hasOwn(identity.fields, "ibkr[0].meta.id") && Object.hasOwn(identity.fields, "acct.c2[0].id"), `${label}: the fenced IDs are still projected`);
+      const text = JSON.stringify(identity.option_key_truthy);
+      for (const needle of [CANARY, "d2-ignored", "acct-c2", "gen-c2", "label", "note"]) assert.ok(!text.includes(needle), `${label}: the bits omit ${needle}`);
+      assert.deepEqual([configuredEpisodes(result).map(item => [item.legacy_key, item.locator.path]), result.mapping.unattributed], [[["acct-c2", "ibkr[1].key"]], []], `${label}: only the genuine key`);
+      disposition(label, result, summary, []);
+      settled(label, result, summary, { needles: [CANARY, "acct-c2", "gen-c2", "d2-ignored", source] });
+      // A root property whose name only resembles a slot gets no bit, so its
+      // ID is never inferred; the empty dictionary is still emitted.
+      const lookalike = `${label} lookalike`;
+      const { responses: lookResponses, private: look, summary: lookSummary } = await run(JSON.stringify({ "ibkr[0]": { id: "gen-c2p" }, "acct.c2": [{ id: "gen-c2d" }] }));
+      const lookIdentity = projected(lookResponses).identity;
+      assert.deepEqual([lookIdentity.fields, lookIdentity.option_key_truthy], [{ "ibkr[0].id": "gen-c2p", "acct.c2[0].id": "gen-c2d" }, {}], `${lookalike}: no bit for a lookalike`);
+      assert.deepEqual([configuredEpisodes(look), look.mapping.entries, look.mapping.unattributed], [[], [], []], `${lookalike}: no inferred identity`);
+      disposition(lookalike, look, lookSummary, [`${source}:ibkr[0].key:${MISSING}`]);
+      settled(lookalike, look, lookSummary, { needles: ["gen-c2"] });
+    }
+
+    // D2-C3: an export collected before the bits existed. The stripped
+    // projection equals the default (pre-extension) projection of the value.
+    {
+      const strip = exported => {
+        const copy = structuredClone(exported);
+        for (const response of copy.responses) {
+          const items = response.request.section === "kv" ? response.body.keys : response.request.section === "env" ? response.body.bindings : [];
+          for (const item of items || []) if (item.identity) delete item.identity.option_key_truthy;
+        }
+        return copy;
+      };
+      const optionItems = exported => exported.responses.flatMap(response => response.request.section === "kv" ? response.body.keys.filter(item => item.name === "account_options")
+        : response.request.section === "env" ? response.body.bindings.filter(item => item.name === OPTIONS_BINDING) : []).filter(item => item.identity);
+      const cases = [["missing", { id: "acct-c3" }, null], ["empty-object", { key: {}, id: "acct-c3" }, null], ["unprojected-object", { id: "acct-c3", key: { note: "d2-note" } }, null],
+        ["short-key", { key: "acct-c3k", id: "acct-c3" }, ["acct-c3k", "ibkr[0].key"]],
+        ...[["empty", ""], ["null", null], ["false", false], ["zero", 0]].map(([variant, keyValue]) => [`falsy-${variant}`, { key: keyValue, id: "acct-c3" }, ["acct-c3", "ibkr[0].id"]])];
+      for (const [variant, raw, expected] of cases) {
+        const label = `D2-C3-${sourceName}-legacy-ambiguity ${variant}`;
+        const text = JSON.stringify({ ibkr: [raw] });
+        const current = await run(text, { kvValues: UNRELATED });
+        const legacy = strip(current.exported);
+        for (const item of optionItems(legacy)) assert.deepEqual(item.identity, identityProjection(JSON.parse(text), 4000), `${label}: the authentic pre-extension projection`);
+        assert.deepEqual(optionItems(legacy).map(item => item.value_sha256), optionItems(current.exported).map(item => item.value_sha256), `${label}: the same digest`);
+        const { private: result, summary } = assemble(legacy);
+        const unrelated = result.mapping.entries.filter(entry => entry.legacy_key === "unrelated-account").length;
+        assert.equal(unrelated, 1, `${label}: other observations are kept`);
+        if (expected) {
+          assert.deepEqual(configuredEpisodes(result).map(item => [item.legacy_key, item.locator.path]), [expected], `${label}: proved by direct key evidence`);
+          disposition(label, result, summary, []);
+        } else {
+          assert.deepEqual([configuredEpisodes(result), result.mapping.entries.length, result.mapping.unattributed], [[], 1, []], `${label}: the ambiguous ID is not inferred`);
+          disposition(label, result, summary, [`${source}:ibkr[0].key:${MISSING}`]);
+          // The current handler's export of the same value decides it.
+          assert.deepEqual(configuredEpisodes(current.private).map(item => item.legacy_key), variant === "missing" ? ["acct-c3"] : [], `${label}: current export decides`);
+          disposition(`${label} current`, current.private, current.summary, []);
+        }
+        settled(label, result, summary, { needles: ["acct-c3", "unrelated-account"] });
+        if (variant !== "missing") continue;
+        // Missing or non-Boolean evidence is never read as false.
+        for (const [bad, bits] of [["no-entry", {}], ["string", { "ibkr[0]": "false" }], ["zero", { "ibkr[0]": 0 }], ["null-entry", { "ibkr[0]": null }],
+          ["null", null], ["array", [false]], ["text", "false"]]) {
+          const tampered = structuredClone(current.exported);
+          for (const item of optionItems(tampered)) item.identity.option_key_truthy = structuredClone(bits);
+          const { private: out, summary: outSummary } = assemble(tampered);
+          assert.deepEqual(configuredEpisodes(out), [], `${label} evidence-${bad}: no ID inferred`);
+          disposition(`${label} evidence-${bad}`, out, outSummary, [`${source}:ibkr[0].key:${MISSING}`]);
+        }
+      }
+    }
+
+    // D3-L1: a selected key beyond the long-string bound is lost, never replaced.
+    for (const length of [513, 600]) {
+      const label = `D3-L1-${sourceName}-selected-long-key ${length}`;
+      const raw = { key: long(length), id: "acct-l1" };
+      assert.equal(normalizeAccountOption("ibkr", raw).key, raw.key, `${label}: the ordinary reader selects the key`);
+      const { responses, private: result, summary } = await run(JSON.stringify({ ibkr: [raw] }));
+      const identity = projected(responses).identity;
+      assert.deepEqual([identity.fields["ibkr[0].key"], identity.option_key_truthy, identity.truncated], [{ long_string: length }, { "ibkr[0]": true }, false], `${label}: direct marker, bit true`);
+      assert.deepEqual([configuredEpisodes(result), result.mapping.entries, result.mapping.unattributed], [[], [], []], `${label}: no episode or substitute`);
+      disposition(label, result, summary, [`${source}:ibkr[0].key:${LOSS}`]);
+      settled(label, result, summary, { needles: ["acct-l1", "LLLL"] });
+    }
+
+    // D3-L2: a selected ID beyond the bound, for every missing or falsy key.
+    for (const length of [513, 600]) {
+      for (const [variant, keyField] of [["missing", {}], ["empty", { key: "" }], ["null", { key: null }], ["false", { key: false }], ["zero", { key: 0 }]]) {
+        const label = `D3-L2-${sourceName}-selected-long-id ${length} ${variant}`;
+        const raw = { ...keyField, id: long(length), account_selector: "sel-l2" };
+        assert.equal(normalizeAccountOption("ibkr", raw).key, raw.id, `${label}: the ordinary reader selects the ID`);
+        const { responses, private: result, summary } = await run(JSON.stringify({ ibkr: [raw] }));
+        const identity = projected(responses).identity;
+        assert.deepEqual([identity.fields["ibkr[0].id"], identity.option_key_truthy, identity.truncated], [{ long_string: length }, { "ibkr[0]": false }, false], `${label}: direct marker, bit false`);
+        assert.deepEqual([configuredEpisodes(result), result.mapping.entries, result.mapping.unattributed], [[], [], []], `${label}: no episode or substitute`);
+        disposition(label, result, summary, [`${source}:ibkr[0].id:${LOSS}`]);
+        settled(label, result, summary, { needles: ["sel-l2", "LLLL"] });
+      }
+    }
+
+    // D3-P1: a nonselected long ID is no loss.
+    for (const [variant, keyValue, expected] of [["valid-key", "acct-p1k", [["acct-p1k", "ibkr[0].key"]]], ["rejected-numeric-key", 7, []]]) {
+      const label = `D3-P1-${sourceName}-valid-key-long-id ${variant}`;
+      const raw = { key: keyValue, id: long(513) };
+      if (expected.length) assert.equal(normalizeAccountOption("ibkr", raw).key, keyValue, `${label}: the ordinary reader selects the key`);
+      else assert.throws(() => normalizeAccountOption("ibkr", raw), undefined, `${label}: the ordinary reader rejects it`);
+      const { responses, private: result, summary } = await run(JSON.stringify({ ibkr: [raw] }));
+      assert.deepEqual(projected(responses).identity.option_key_truthy, { "ibkr[0]": true }, `${label}: bit true`);
+      assert.deepEqual([configuredEpisodes(result).map(item => [item.legacy_key, item.locator.path]), result.mapping.entries.length, result.mapping.unattributed],
+        [expected, expected.length, []], `${label}: no ID observation`);
+      disposition(label, result, summary, []);
+      settled(label, result, summary, { needles: ["acct-p1k", "LLLL"] });
+    }
+
+    // D3-P2: exactly 512 characters is still a string and maps.
+    assert.equal(LONG_STRING, 512, "D3-P2: the bound stays 512");
+    for (const [variant, raw, field] of [["key", { key: long(512, "K") }, "key"], ["id-fallback", { id: long(512, "I") }, "id"]]) {
+      const label = `D3-P2-${sourceName}-exact-512 ${variant}`;
+      const oracle = normalizeAccountOption("ibkr", raw).key;
+      const { responses, private: result, summary } = await run(JSON.stringify({ ibkr: [raw] }));
+      assert.equal(projected(responses).identity.fields[`ibkr[0].${field}`], raw[field], `${label}: the field stays a string`);
+      assert.deepEqual(configuredEpisodes(result), [{ platform: "ibkr", legacy_key: oracle, locator: { source, path: `ibkr[0].${field}` }, identity: { selected_field: field } }],
+        `${label}: one oracle-equal episode`);
+      disposition(label, result, summary, []);
+      settled(label, result, summary, { needles: ["KKKK", "IIII"] });
+    }
+
+    // D3-P3: an object holding a `long_string` property is not the marker.
+    for (const [variant, raw, fields, bits] of [["key-object", { key: { long_string: 513 }, id: "acct-p3" }, { "ibkr[0].id": "acct-p3" }, { "ibkr[0]": true }],
+      ["id-object", { id: { long_string: 513 } }, {}, {}]]) {
+      const label = `D3-P3-${sourceName}-marker-lookalike ${variant}`;
+      assert.throws(() => normalizeAccountOption("ibkr", raw), undefined, `${label}: the ordinary reader rejects it`);
+      const { responses, private: result, summary } = await run(JSON.stringify({ ibkr: [raw] }));
+      const identity = projected(responses).identity;
+      assert.deepEqual([identity.fields, identity.option_key_truthy], [fields, bits], `${label}: no direct marker`);
+      assert.deepEqual([configuredEpisodes(result), result.mapping.entries, result.mapping.unattributed], [[], [], []], `${label}: no fallback or inferred identity`);
+      disposition(label, result, summary, []);
+      settled(label, result, summary, { needles: ["acct-p3"] });
+    }
+
+    // D3-R1: two losses, one survivor and an unrelated reference in one source.
+    {
+      const label = `D3-R1-${sourceName}-survivors-and-dedup`;
+      const value = { ibkr: [{ key: long(600), id: long(513) }, { id: long(513) }, { key: "acct-r1" }] };
+      const extra = sourceName === "kv" ? { kvValues: { risk_profile_bindings: JSON.stringify({ rows: [{ platform: "ibkr", account_key: "acct-r1u" }] }) } }
+        : { envValues: { BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({ platform: "binance", account_key: "acct-r1u" }) } };
+      const { responses, private: result, summary } = await run(JSON.stringify(value), extra);
+      const identity = projected(responses).identity;
+      assert.deepEqual([identity.fields["ibkr[0].key"], identity.fields["ibkr[1].id"], identity.option_key_truthy], [{ long_string: 600 }, { long_string: 513 },
+        { "ibkr[0]": true, "ibkr[1]": false, "ibkr[2]": true }], `${label}: markers retained`);
+      assert.deepEqual(configuredEpisodes(result).map(item => [item.legacy_key, item.locator]), [["acct-r1", { source, path: "ibkr[2].key" }]], `${label}: one configured survivor`);
+      assert.deepEqual([result.mapping.entries.map(entry => entry.legacy_key).sort(), result.mapping.unattributed], [["acct-r1", "acct-r1u"], []], `${label}: plus the unrelated mapping only`);
+      disposition(label, result, summary, [`${source}:ibkr[0].key:${LOSS}`, `${source}:ibkr[1].id:${LOSS}`]);
+      settled(label, result, summary, { needles: ["acct-r1", "LLLL"] });
+    }
+  }
+
+  // D3-R2: one loss in each source at once, one survivor in each.
+  {
+    const label = "D3-R2-both-sources";
+    const { private: result, summary } = await inventoryFull({ kvValues: { account_options: JSON.stringify({ ibkr: [{ key: long(513), id: "acct-r2x" }, { key: "acct-r2k" }] }) },
+      envValues: { [OPTIONS_BINDING]: JSON.stringify({ ibkr: [{ id: long(600) }, { id: "acct-r2e" }] }) } });
+    assert.deepEqual(configuredEpisodes(result).map(item => [item.legacy_key, item.locator]),
+      [["acct-r2k", { source: "kv:account_options", path: "ibkr[1].key" }], ["acct-r2e", { source: `env:${OPTIONS_BINDING}`, path: "ibkr[1].id" }]], `${label}: two survivors`);
+    assert.deepEqual([result.mapping.entries.length, result.mapping.unattributed], [2, []], `${label}: no invented account`);
+    disposition(label, result, summary, [`kv:account_options:ibkr[0].key:${LOSS}`, `env:${OPTIONS_BINDING}:ibkr[0].id:${LOSS}`]);
+    settled(label, result, summary, { needles: ["acct-r2", "LLLL"] });
+  }
+}
+
+// D2-C1: the default projection is unchanged and only the two option
+// sources opt in.
+{
+  const deep = depth => {
+    let node = { platform: "ibkr", account_key: "deep-c1" };
+    for (let level = depth; level >= 1; level--) node = { [`l${level}`]: node };
+    return node;
+  };
+  const DEFAULT_KEYS = ["fields", "counts", "redacted", "truncated"];
+  const inputs = {
+    normal: [{ ibkr: [{ key: "acct-c1", id: "acct-c1i", account_selector: "sel-c1" }], schwab: [{ id: "acct-c1s" }] }, 4000,
+      { fields: { "ibkr[0].key": "acct-c1", "ibkr[0].id": "acct-c1i", "ibkr[0].account_selector": "sel-c1", "schwab[0].id": "acct-c1s" }, counts: { ibkr: 1, schwab: 1 }, redacted: [], truncated: false }],
+    "empty-object": [{ ibkr: [{ key: {}, id: "acct-c1" }] }, 4000, { fields: { "ibkr[0].id": "acct-c1" }, counts: { ibkr: 1 }, redacted: [], truncated: false }],
+    "unprojected-object": [{ ibkr: [{ id: "acct-c1", key: { note: "n" }, token: "t" }] }, 4000,
+      { fields: { "ibkr[0].id": "acct-c1" }, counts: { ibkr: 1 }, redacted: ["ibkr[0].token"], truncated: false }],
+    "nested-id": [{ ibkr: [{ key: "acct-c1", meta: { id: "gen-c1" }, links: [{ id: "gen-c1l" }] }] }, 4000,
+      { fields: { "ibkr[0].key": "acct-c1", "ibkr[0].meta.id": "gen-c1", "ibkr[0].links[0].id": "gen-c1l" }, counts: { ibkr: 1, "ibkr[0].links": 1 }, redacted: [], truncated: false }],
+    "long-string": [{ ibkr: [{ key: long(600), id: long(513) }] }, 4000,
+      { fields: { "ibkr[0].key": { long_string: 600 }, "ibkr[0].id": { long_string: 513 } }, counts: { ibkr: 1 }, redacted: [], truncated: false }],
+    "field-cutoff": [{ ibkr: [{ key: "a1", account_selector: "s1" }, { id: "a2", key: "a2k" }] }, 3,
+      { fields: { "ibkr[0].key": "a1", "ibkr[0].account_selector": "s1", "ibkr[1].id": "a2" }, counts: { ibkr: 2 }, redacted: [], truncated: true }],
+    "depth-cutoff": [deep(9), 4000, { fields: {}, counts: {}, redacted: [], truncated: true }],
+  };
+  for (const [name, [value, cap, expected]] of Object.entries(inputs)) {
+    const label = `D2-C1-default-output-and-source-fence ${name}`;
+    const off = identityProjection(value, cap);
+    assert.deepEqual([Object.keys(off), off], [DEFAULT_KEYS, expected], `${label}: default output, four properties, pinned values`);
+    assert.deepEqual(identityProjection(value, cap, {}), off, `${label}: empty options`);
+    assert.deepEqual(identityProjection(value, cap, { optionKeyEvidence: false }), off, `${label}: mode off`);
+    const on = identityProjection(value, cap, { optionKeyEvidence: true });
+    assert.deepEqual(Object.keys(on), [...DEFAULT_KEYS, "option_key_truthy"], `${label}: mode on adds only the bits`);
+    const { option_key_truthy: bits, ...rest } = on;
+    assert.deepEqual(rest, off, `${label}: stripping the bits gives the default output`);
+    assert.ok(Object.values(bits).every(bit => typeof bit === "boolean"), `${label}: Boolean bits`);
+  }
+  assert.deepEqual(Object.keys(identityProjection({ ibkr: [{ key: "a" }] })), DEFAULT_KEYS, "D2-C1: default cap call");
+
+  // Real handlers: SQL JSON, non-option KV families and non-option bindings
+  // carry no bits; their references keep their locators.
+  const label = "D2-C1-default-output-and-source-fence handlers";
+  const shaped = (platform, account) => JSON.stringify({ [platform]: [{ platform, account_key: account, id: `gen-${account}` }] });
+  const { responses, private: result, summary } = await inventoryFull({
+    sql: [rows("account_setting_draft", [{ platform: "ibkr", account_key: "acct-c1q", revision: 1,
+      identity_json: JSON.stringify({ ibkr: [{ platform: "ibkr", key: "acct-c1q", id: "gen-c1q" }] }), overrides_json: "{}", updated_at: day(1) }])],
+    kvValues: { account_options: JSON.stringify({ ibkr: [{ key: "acct-c1k" }] }), risk_profile_bindings: shaped("ibkr", "acct-c1r"),
+      account_facts_bindings: shaped("ibkr", "acct-c1f"), current_strategies_cache: JSON.stringify({ ts: 1, data: { ibkr: { "acct-c1c": { account_selector: "s" } } } }) },
+    envValues: { [OPTIONS_BINDING]: JSON.stringify({ ibkr: [{ id: "acct-c1e" }] }), BINANCE_ACCOUNT_FACTS_BINDING_JSON: shaped("binance", "acct-c1b"),
+      BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: shaped("binance", "acct-c1h") } });
+  const carriers = [];
+  const walk = (node, path) => {
+    if (!node || typeof node !== "object") return;
+    if (Object.hasOwn(node, "option_key_truthy")) carriers.push(path);
+    for (const [name, item] of Object.entries(node)) walk(item, `${path}/${name}`);
+  };
+  responses.forEach((response, index) => walk(response.body, `${index}`));
+  const expectedCarriers = responses.flatMap((response, index) => response.request.section === "kv"
+    ? response.body.keys.map((item, at) => item.name === "account_options" ? `${index}/keys/${at}/identity` : null).filter(Boolean)
+    : response.request.section === "env" ? response.body.bindings.map((item, at) => item.name === OPTIONS_BINDING ? `${index}/bindings/${at}/identity` : null).filter(Boolean) : []);
+  assert.deepEqual([carriers, expectedCarriers.length], [expectedCarriers, 3], `${label}: bits only on the two option sources (two KV passes, one env)`);
+  for (const name of ["risk_profile_bindings", "account_facts_bindings", "current_strategies_cache"]) assert.deepEqual(Object.keys(exportedKv(responses, name).identity), DEFAULT_KEYS, `${label}: ${name}`);
+  for (const name of ["BINANCE_ACCOUNT_FACTS_BINDING_JSON", "BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON"]) assert.deepEqual(Object.keys(exportedEnv(responses, name).identity), DEFAULT_KEYS, `${label}: ${name}`);
+  const sqlRow = responses.find(response => response.request.section === "sql" && response.request.table === "account_setting_draft").body.rows[0];
+  assert.deepEqual(Object.keys(sqlRow.columns.identity_json), ["state", "bytes", ...DEFAULT_KEYS], `${label}: SQL JSON projection`);
+  const episodes = legacyKey => result.mapping.entries.filter(entry => entry.legacy_key === legacyKey).flatMap(entry => entry.episodes.map(episode => [entry.platform, episode.state, episode.locator.path ?? null]));
+  assert.deepEqual([episodes("acct-c1q"), episodes("acct-c1r"), episodes("acct-c1f"), episodes("acct-c1c"), episodes("acct-c1b"), episodes("acct-c1h"), episodes("acct-c1k"), episodes("acct-c1e")],
+    [[["ibkr", "store_reference", null], ["ibkr", "store_reference", "ibkr[0].key"]], [["ibkr", "kv_reference", "ibkr[0].account_key"]], [["ibkr", "kv_reference", "ibkr[0].account_key"]],
+      [["ibkr", "kv_reference", ["data", "ibkr", "acct-c1c"]]], [["binance", "env_reference", "binance[0].account_key"]], [["binance", "env_reference", "binance[0].account_key"]],
+      [["ibkr", "configured_option", "ibkr[0].key"]], [["ibkr", "configured_option", "ibkr[0].id"]]], `${label}: mapping outcomes and locators`);
+  assert.ok(!result.mapping.entries.some(entry => entry.legacy_key.startsWith("gen-")) && !result.mapping.unattributed.length, `${label}: generic IDs stay non-identities`);
+  disposition(label, result, summary, []);
+  summaryAggregatesOnly(summary, label, ["option_key_truthy", "acct-c1", "gen-"]);
+  // Desk payloads from the real writer, and an option-shaped job payload.
+  const desk = await inventoryOf({ doKv: { ...await deskRecords(), "desk:readbacks:record:rb_c1": { owner: "owner-c1", expires: Date.now() + 86_400_000,
+    payload: { state: "running", ibkr: [{ id: "gen-c1d", key: "acct-c1d" }] }, pending: [], results: [] } } });
+  const deskCarriers = [];
+  desk.responses.forEach((response, index) => { const before = carriers.length; walk(response.body, `${index}`); deskCarriers.push(...carriers.splice(before)); });
+  const payloads = desk.responses.filter(response => response.request.section === "do_kv").flatMap(response => response.body.entries).filter(item => item.payload_identity);
+  assert.deepEqual([deskCarriers, payloads.length, payloads.every(item => JSON.stringify(Object.keys(item.payload_identity)) === JSON.stringify(DEFAULT_KEYS))], [[], 5, true], `${label}: Desk payloads`);
+  assert.deepEqual(desk.private.pending.filter(item => item.key === "desk:readbacks:record:rb_c1").map(item => [item.status, item.classification]), [["running", "nonterminal"]], `${label}: Desk pending outcome`);
+  assert.ok(!desk.private.mapping.entries.some(entry => ["acct-c1d", "gen-c1d"].includes(entry.legacy_key)), `${label}: Desk payload names no option`);
+}
+
 // N3: every ancestor step shortens the path; an unparseable ancestry stops
 // the walk and qualifies the reference. The isolated runs come first, so a
 // walk that does not terminate fails by the child bound, not by a hang here.

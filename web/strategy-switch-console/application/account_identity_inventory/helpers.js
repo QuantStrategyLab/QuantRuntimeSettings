@@ -58,15 +58,20 @@ export function scalar(value) {
 
 // Bounded walk collecting identity scalars by path and array sizes as
 // embedded record counts. Secret-like keys are named, never valued.
-export function identityProjection(value, cap = ROW_IDENTITY_FIELDS) {
-  const fields = {}, counts = {}, redacted = [];
+// With `optionKeyEvidence` (account-options sources only) the result also
+// carries `option_key_truthy`: for each object directly in a root
+// `platform` array whose first direct key or ID field is retained,
+// `Boolean(option.key)` under its `platform[index]` path. It costs no field.
+export function identityProjection(value, cap = ROW_IDENTITY_FIELDS, { optionKeyEvidence = false } = {}) {
+  const fields = {}, counts = {}, redacted = [], evidence = {};
   let entries = 0, truncated = false;
-  const visit = (node, path, depth, parentKey) => {
+  const visit = (node, path, depth, parentKey, slot) => {
     if (truncated) return;
     if (depth > PROJECTION_MAX_DEPTH) { truncated = true; return; }
     if (Array.isArray(node)) {
       counts[path || "$"] = node.length;
-      node.forEach((item, index) => visit(item, `${path}[${index}]`, depth + 1, parentKey));
+      const platformArray = optionKeyEvidence && depth === 1 && /^[^.[]+$/.test(path);
+      node.forEach((item, index) => visit(item, `${path}[${index}]`, depth + 1, parentKey, platformArray));
       return;
     }
     if (!node || typeof node !== "object") return;
@@ -76,15 +81,16 @@ export function identityProjection(value, cap = ROW_IDENTITY_FIELDS) {
         redacted.push(next);
         continue;
       }
-      if (item && typeof item === "object") visit(item, next, depth + 1, key);
+      if (item && typeof item === "object") visit(item, next, depth + 1, key, false);
       else if (IDENTITY_KEYS.has(key) && (key !== "id" || parentKey !== undefined)) {
         if (++entries > cap) { truncated = true; return; }
         fields[next] = scalar(item);
+        if (slot && (key === "key" || key === "id") && !Object.hasOwn(evidence, path)) evidence[path] = Boolean(node.key);
       }
     }
   };
-  visit(value, "", 0, undefined);
-  return { fields, counts, redacted, truncated };
+  visit(value, "", 0, undefined, false);
+  return optionKeyEvidence ? { fields, counts, redacted, truncated, option_key_truthy: evidence } : { fields, counts, redacted, truncated };
 }
 
 // `current_strategies_cache` stores `{ ts, data: { [platform]: { [accountKey]:

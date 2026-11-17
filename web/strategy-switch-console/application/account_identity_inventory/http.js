@@ -378,7 +378,7 @@ async function kvSection(env, values) {
     let value;
     try { value = JSON.parse(text); }
     catch { keys.push({ ...item, state: "invalid_json", bytes, value_sha256 }); continue; }
-    keys.push({ ...item, state: "exported", bytes, value_sha256, identity: identityProjection(value, KV_IDENTITY_FIELDS),
+    keys.push({ ...item, state: "exported", bytes, value_sha256, identity: identityProjection(value, KV_IDENTITY_FIELDS, { optionKeyEvidence: entry.name === "account_options" }),
       ...(family.family === "current_strategies_cache" ? { cache_accounts: strategiesCacheAccounts(value) } : {}) });
   }
   const page = (cursor?.page ?? 0) + 1;
@@ -400,7 +400,8 @@ async function envSection(env) {
     const base = { name, bytes: byteLength(raw), value_sha256: await sha256Hex(raw) };
     let value;
     try { value = JSON.parse(raw); } catch { bindings.push({ ...base, state: "invalid_json" }); continue; }
-    bindings.push({ ...base, state: "present", identity: identityProjection(value, KV_IDENTITY_FIELDS) });
+    bindings.push({ ...base, state: "present",
+      identity: identityProjection(value, KV_IDENTITY_FIELDS, { optionKeyEvidence: name === "STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON" }) });
   }
   const metadata = env.CF_VERSION_METADATA;
   const version = metadata && typeof metadata === "object"
