@@ -378,8 +378,11 @@ async function kvSection(env, values) {
     let value;
     try { value = JSON.parse(text); }
     catch { keys.push({ ...item, state: "invalid_json", bytes, value_sha256 }); continue; }
+    // An audit log is a root array of entries; flattened paths cannot show
+    // whether the parsed root was one, so the audit family alone says so.
     keys.push({ ...item, state: "exported", bytes, value_sha256, identity: identityProjection(value, KV_IDENTITY_FIELDS, { optionKeyEvidence: entry.name === "account_options" }),
-      ...(family.family === "current_strategies_cache" ? { cache_accounts: strategiesCacheAccounts(value) } : {}) });
+      ...(family.family === "current_strategies_cache" ? { cache_accounts: strategiesCacheAccounts(value) } : {}),
+      ...(family.family === "audit_log" ? { audit_root_array: Array.isArray(value) } : {}) });
   }
   const page = (cursor?.page ?? 0) + 1;
   const scanId = cursor?.scan_id ?? crypto.randomUUID();

@@ -390,6 +390,8 @@ const ACCOUNT_TABLES = ["account_setting_draft", "account_setting_declaration", 
 // audit_log entries whose writer names the account by `platform` and `key`.
 const AUDIT_ACCOUNT_ACTIONS = new Set(["save_account_settings", "approve_account_settings_profile_application"]);
 const AUDIT_ACTION = /^(\[\d+\])\.action$/;
+const AUDIT_ENTRY = /^\[(0|[1-9]\d*)\]$/;
+const AUDIT_SHAPE_UNAVAILABLE = "audit_root_shape_unavailable";
 
 function mappingFrom(objects, kv, env, options) {
   const mapping = new Map(), unattributed = [], losses = new Map();
@@ -501,13 +503,30 @@ function mappingFrom(objects, kv, env, options) {
     if (item.state === "exported") addReferences(item.identity, "kv_reference", { source: "kv", name: item.name }, false, kvLoss(item));
   }
   // audit_log is a root array of entries; only the two account-settings
-  // actions name an account, by the entry's own `key` and `platform`.
+  // actions name an account, by the entry's own `key` and `platform`. A
+  // flattened `[index]` path does not show a root array: only the reader's
+  // own `audit_root_array: true`, its root count and an index within it do.
+  // `false` is a non-array value, which names no audit account. Without that
+  // evidence (an export from before it, or a malformed one) an entry that
+  // would name an account is unknown: one shape reason for the value, and
+  // neither an account nor a lost scalar at the unestablished position.
   for (const item of kv?.keys || []) {
     if (item.family !== "audit_log" || item.state !== "exported") continue;
     const fields = item.identity?.fields || {}, lost = kvLoss(item);
+    const shape = Object.hasOwn(item, "audit_root_array") ? item.audit_root_array : undefined;
+    if (shape === false) continue;
+    const counts = item.identity?.counts;
+    const rootCount = counts !== null && typeof counts === "object" && Object.hasOwn(counts, "$") ? counts.$ : undefined;
+    const countValid = Number.isSafeInteger(rootCount) && rootCount >= 0;
     for (const [path, action] of Object.entries(fields)) {
       const entryPath = AUDIT_ACTION.exec(path)?.[1];
       if (!entryPath || !AUDIT_ACCOUNT_ACTIONS.has(action)) continue;
+      if (!Object.hasOwn(fields, `${entryPath}.key`) && !Object.hasOwn(fields, `${entryPath}.platform`)) continue;
+      const index = AUDIT_ENTRY.exec(entryPath)?.[1];
+      if (shape !== true || !countValid || index === undefined || Number(index) >= rootCount) {
+        lose(`kv:${item.name}:${AUDIT_SHAPE_UNAVAILABLE}`, { scope: "kv", group: KV_GROUP_OF.get(item.family) ?? null }, { source: "kv", name: item.name });
+        continue;
+      }
       const legacyKey = fields[`${entryPath}.key`], platform = fields[`${entryPath}.platform`];
       if (scalarLoss(legacyKey, lost, `${entryPath}.key`)) continue;
       scalarLoss(platform, lost, `${entryPath}.platform`);
