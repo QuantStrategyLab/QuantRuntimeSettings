@@ -55,7 +55,22 @@ Status codes are generic: `managed`, `management_disabled`,
 `unknown`; a disabled status is never invented for missing state. An
 eligible account needs an applied management record for every deployment,
 all agreeing; a display-only account reads `not_under_management` without
-one. Website and digest are to translate these same codes; neither may
+one.
+
+`effectiveManagementState(account, records)` inspects the records of every
+deployment before choosing the outcome:
+
+1. `conflict` if any deployment has a duplicated or malformed record, any
+   valid record enables management for a class that may not have it, or the
+   available valid records disagree on `management_enabled` or `revision`.
+   This holds even when another deployment has no record.
+2. Otherwise `unknown` if any deployment has no record.
+3. Otherwise `known`, with the agreed state and revision.
+
+The outcome does not depend on deployment or record order. Only a `known`
+outcome carries a management revision. A display-only account with no
+contradicting record stays `not_under_management`, even when records are
+missing; a contradiction makes it `conflict` and `unknown`. Website and digest are to translate these same codes; neither may
 display a label supplied by a candidate producer in their place.
 
 `processingEligible(row)` is true only for `known` evidence with status

@@ -129,22 +129,31 @@ export function normalizeEffectiveManagement(record) {
 export const managementEnableAllowed = managementClass => managementClass === "eligible";
 
 // The effective management state of one classified account from the
-// per-deployment records. Every deployment needs exactly one accepted
-// record and all must agree; otherwise the state is unknown or a conflict.
-// A display-only account whose records enable management is a conflict: it
-// is never reported as managed.
+// per-deployment records. Every deployment's records are inspected before
+// the outcome is chosen. Any contradiction is a conflict: a duplicated or
+// malformed record, a record enabling management for a class that may not
+// have it, or available records disagreeing on value or revision. Without
+// one, a missing record makes the state unknown; otherwise the agreed state
+// is known. The outcome does not depend on deployment or record order, and
+// only a known outcome carries a revision. A display-only account is never
+// reported as managed.
 export function effectiveManagementState(account, records) {
-  const states = [];
+  const list = Array.isArray(records) ? records : [];
+  const states = [], conflicts = [];
+  let missing = false;
   for (const item of account.deployments) {
-    const matching = (records || []).filter(record => record?.platform === item.platform && record?.legacy_key === item.legacy_key);
-    if (!matching.length) return { evidence_state: "unknown", reasons: ["effective_state_missing"] };
-    const accepted = matching.map(normalizeEffectiveManagement);
-    if (accepted.length > 1 || accepted[0].rejected) return { evidence_state: "conflict", reasons: [accepted.length > 1 ? "effective_state_duplicated" : accepted[0].rejected] };
-    states.push(accepted[0]);
+    const matching = list.filter(record => record?.platform === item.platform && record?.legacy_key === item.legacy_key);
+    if (!matching.length) { missing = true; continue; }
+    if (matching.length > 1) { conflicts.push("effective_state_duplicated"); continue; }
+    const accepted = normalizeEffectiveManagement(matching[0]);
+    if (accepted.rejected) { conflicts.push(accepted.rejected); continue; }
+    if (accepted.management_enabled && !managementEnableAllowed(account.management_class)) conflicts.push("management_enabled_for_ineligible_class");
+    states.push(accepted);
   }
-  if (new Set(states.map(state => JSON.stringify([state.management_enabled, state.revision]))).size !== 1) return { evidence_state: "conflict", reasons: ["effective_state_differs_across_deployments"] };
+  if (new Set(states.map(state => JSON.stringify([state.management_enabled, state.revision]))).size > 1) conflicts.push("effective_state_differs_across_deployments");
+  if (conflicts.length) return { evidence_state: "conflict", reasons: [...new Set(conflicts)].sort() };
+  if (missing) return { evidence_state: "unknown", reasons: ["effective_state_missing"] };
   const [state] = states;
-  if (state.management_enabled && !managementEnableAllowed(account.management_class)) return { evidence_state: "conflict", reasons: ["management_enabled_for_ineligible_class"] };
   return { evidence_state: "known", reasons: [], management_enabled: state.management_enabled, revision: state.revision,
     effective_at: states.map(item => item.effective_at).sort().at(-1) };
 }

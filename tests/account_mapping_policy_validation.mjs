@@ -99,6 +99,73 @@ const odd = deployment("alpha", "Acct.01:x-Ω", { account_selector: "  spaced se
   assert.deepEqual(effectiveManagementState(displayOnly, [record("a-1"), record("a-2")]).reasons, ["management_enabled_for_ineligible_class"], "P4: display-only enable is a conflict");
 }
 
+// A09-A12: every record is inspected before the outcome is chosen. A
+// contradiction is a conflict whatever is missing, in any deployment or
+// record order; a missing record without one is unknown; only a known
+// outcome carries a revision.
+{
+  const at = "2026-11-17T00:00:00Z";
+  const rec = (key, enabled, revision = 3) => ({ platform: "alpha", legacy_key: key, management_enabled: enabled, revision, effective_at: at });
+  const accountOf = (managementClass, keys) => ({ deployments: keys.map(key => ({ platform: "alpha", legacy_key: key })), management_class: managementClass, evidence_state: "known" });
+  const outcome = (account, records) => {
+    const effective = effectiveManagementState(account, records);
+    const status = managementStatus(account, effective);
+    return { effective, status, eligible: processingEligible({ evidence_state: effective.evidence_state === "conflict" ? "conflict" : account.evidence_state, management_status: status }) };
+  };
+  const contradiction = (label, account, records) => {
+    const { effective, status, eligible } = outcome(account, records);
+    assert.equal(effective.evidence_state, "conflict", `${label}: conflict`);
+    assert.ok(!Object.hasOwn(effective, "revision") && !Object.hasOwn(effective, "management_enabled"), `${label}: no management revision`);
+    assert.deepEqual([status, eligible], ["unknown", false], `${label}: unknown, not processing-eligible`);
+  };
+  let cases = 0;
+  // A09/A10: a two-deployment display-only account, one record missing and
+  // the other enabling, class-tampered or duplicated; both deployment
+  // orders and both positions of the missing record.
+  const present = {
+    enable: key => [rec(key, true)],
+    tampered: key => [{ ...rec(key, false), management_class: "eligible" }],
+    duplicated: key => [rec(key, false), rec(key, false)],
+  };
+  for (const [row, kinds] of [["A09", ["enable"]], ["A10", ["tampered", "duplicated"]]]) for (const kind of kinds) {
+    for (const keys of [["a-1", "a-2"], ["a-2", "a-1"]]) for (const missingKey of ["a-1", "a-2"]) {
+      const other = missingKey === "a-1" ? "a-2" : "a-1";
+      contradiction(`${row}: ${kind} ${keys} missing ${missingKey}`, accountOf("display_only", keys), present[kind](other));
+      cases++;
+    }
+  }
+  assert.equal(cases, 12, "A09/A10: four plus eight cases");
+  // A11: a three-deployment eligible account, one record missing and two
+  // disagreeing on value or revision; six deployment orders, both record
+  // orders.
+  const permutations = items => items.length < 2 ? [items] : items.flatMap((item, index) => permutations(items.filter((_, other) => other !== index)).map(rest => [item, ...rest]));
+  let disagreements = 0;
+  for (const [kind, records] of [["value", [rec("a-2", true), rec("a-3", false)]], ["revision", [rec("a-2", true, 3), rec("a-3", true, 4)]]]) {
+    for (const keys of permutations(["a-1", "a-2", "a-3"])) for (const ordered of [records, [...records].reverse()]) {
+      contradiction(`A11: ${kind} ${keys} ${ordered.map(item => item.legacy_key)}`, accountOf("eligible", keys), ordered);
+      disagreements++;
+    }
+  }
+  assert.equal(disagreements, 24, "A11: twenty-four cases");
+  // A12: the controls.
+  const pair = ["a-1", "a-2"];
+  const controls = [
+    ["display-only, all absent", "display_only", [], "unknown", "not_under_management"],
+    ["display-only, partial disabled", "display_only", [rec("a-1", false)], "unknown", "not_under_management"],
+    ["display-only, complete disabled", "display_only", [rec("a-1", false), rec("a-2", false)], "known", "not_under_management"],
+    ["eligible, missing", "eligible", [rec("a-1", true)], "unknown", "unknown"],
+    ["eligible, complete enabled", "eligible", [rec("a-1", true), rec("a-2", true)], "known", "managed"],
+    ["eligible, complete disabled", "eligible", [rec("a-1", false), rec("a-2", false)], "known", "management_disabled"],
+    ["display-only, complete enable", "display_only", [rec("a-1", true), rec("a-2", true)], "conflict", "unknown"],
+  ];
+  for (const [label, managementClass, records, evidence, status] of controls) {
+    const result = outcome(accountOf(managementClass, pair), records);
+    assert.deepEqual([result.effective.evidence_state, result.status], [evidence, status], `A12: ${label}`);
+    assert.equal(Object.hasOwn(result.effective, "revision"), evidence === "known", `A12: ${label} revision only when known`);
+    assert.equal(result.eligible, status === "managed", `A12: ${label} processing predicate`);
+  }
+}
+
 // P5: predicates. Only the class decides whether management may be
 // enabled; a display-only account is never managed or processing-eligible,
 // whatever the evidence or the applied records say.

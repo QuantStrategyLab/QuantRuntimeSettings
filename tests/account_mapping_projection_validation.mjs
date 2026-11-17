@@ -267,6 +267,69 @@ const SINGLE = await collect(SINGLE_INSTANCES);
   assert.deepEqual([counted.counts.display_accounts, counted.counts.managed, JSON.stringify(counted).includes("syn-unattributed")], [10, 9, false], "A08: unattributed rows create no account");
 }
 
+// A09-A12: applied records through the projection. Every record is
+// inspected; a contradiction is a conflict whatever is missing.
+{
+  const PAIR = ["ibkr/syn-acct-01", "ibkr/syn-acct-01-b"];
+  const othersEnabled = ENABLED.filter(item => item.legacy_key !== "syn-acct-01" && item.legacy_key !== "syn-acct-01-b");
+  const pairAs = (managementClass, order = PAIR) => policyOf([[managementClass, order], ...FIXTURE_ACCOUNTS.slice(1)]);
+  const contradiction = (projection, label) => {
+    const row = rowOf(projection, PAIR[0]);
+    assert.deepEqual([row.evidence_state, row.management_status, row.configuration_revision.management, processingEligible(row)], ["conflict", "unknown", null, false], label);
+  };
+  const present = {
+    enable: text => [recordAt(text, true, 5)],
+    tampered: text => [{ ...recordAt(text, false, 5), management_class: "eligible" }],
+    duplicated: text => [recordAt(text, false, 5), recordAt(text, false, 5)],
+  };
+  let cases = 0;
+  for (const [row, kinds] of [["A09", ["enable"]], ["A10", ["tampered", "duplicated"]]]) for (const kind of kinds) {
+    for (const order of [PAIR, [...PAIR].reverse()]) for (const missingText of PAIR) {
+      const other = PAIR.find(text => text !== missingText);
+      contradiction(await project({ ...inputOf(COMPLETE, pairAs("display_only", order)), effective: [...othersEnabled, ...present[kind](other)] }), `${row}: ${kind} ${order} missing ${missingText}`);
+      cases++;
+    }
+  }
+  assert.equal(cases, 12, "A09/A10: four plus eight cases");
+
+  // A11: a three-deployment eligible account.
+  const tri = ["syn-tri-a", "syn-tri-b", "syn-tri-c"].map(key => settled({ platform: "ibkr", key,
+    config: { key, target_name: `target-${key}`, account_selector: "SYN0000500", deployment_selector: `deploy-${key}`, service_name: `service-${key}`, broker_environment: "live" } }));
+  const triInventory = await collect(tri);
+  const permutations = items => items.length < 2 ? [items] : items.flatMap((item, index) => permutations(items.filter((_, other) => other !== index)).map(rest => [item, ...rest]));
+  let disagreements = 0;
+  for (const [kind, records] of [["value", [recordAt("ibkr/syn-tri-b", true, 5), recordAt("ibkr/syn-tri-c", false, 5)]],
+    ["revision", [recordAt("ibkr/syn-tri-b", true, 5), recordAt("ibkr/syn-tri-c", true, 6)]]]) {
+    for (const order of permutations(tri.map(item => `ibkr/${item.key}`))) for (const ordered of [records, [...records].reverse()]) {
+      const projection = await project({ ...inputOf(triInventory, policyOf([["eligible", order]], tri)), effective: ordered }, { instances: tri });
+      assert.deepEqual([projection.counts.display_accounts, stateOf(projection, "ibkr/syn-tri-a"), projection.accounts[0].configuration_revision.management],
+        [1, ["conflict", "unknown"], null], `A11: ${kind} ${order} ${ordered.map(item => item.legacy_key)}`);
+      disagreements++;
+    }
+  }
+  assert.equal(disagreements, 24, "A11: twenty-four cases");
+  const triAgree = await project({ ...inputOf(triInventory, policyOf([["eligible", tri.map(item => `ibkr/${item.key}`)]], tri)), effective: tri.map(item => recordAt(`ibkr/${item.key}`, true, 5)) }, { instances: tri });
+  assert.deepEqual(stateOf(triAgree, "ibkr/syn-tri-a"), ["known", "managed"], "A11: the agreeing control");
+
+  // A12: the controls.
+  const controls = [
+    ["display-only, all absent", "display_only", [], ["known", "not_under_management"], null],
+    ["display-only, partial disabled", "display_only", [recordAt(PAIR[0], false, 5)], ["known", "not_under_management"], null],
+    ["display-only, complete disabled", "display_only", PAIR.map(text => recordAt(text, false, 5)), ["known", "not_under_management"], 5],
+    ["eligible, missing", "eligible", [recordAt(PAIR[1], true, 5)], ["unknown", "unknown"], null],
+    ["eligible, complete enabled", "eligible", PAIR.map(text => recordAt(text, true, 5)), ["known", "managed"], 5],
+    ["eligible, complete disabled", "eligible", PAIR.map(text => recordAt(text, false, 5)), ["known", "management_disabled"], 5],
+    ["display-only, complete enable", "display_only", PAIR.map(text => recordAt(text, true, 5)), ["conflict", "unknown"], null],
+  ];
+  for (const [label, managementClass, records, expected, revision] of controls) {
+    const projection = await project({ ...inputOf(COMPLETE, pairAs(managementClass)), effective: [...othersEnabled, ...records] });
+    const row = rowOf(projection, PAIR[0]);
+    assert.deepEqual([[row.evidence_state, row.management_status], row.configuration_revision.management, processingEligible(row)], [expected, revision, expected[1] === "managed"], `A12: ${label}`);
+  }
+  const noRecords = await project(complete);
+  assert.deepEqual(stateOf(noRecords, "longbridge/syn-acct-08"), ["known", "not_under_management"], "A12: the single display-only account without records");
+}
+
 // Applied state drives the code: missing state is unknown, never an
 // invented disabled label; disagreeing or tampered records are conflicts.
 {
