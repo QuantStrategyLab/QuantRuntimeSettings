@@ -1,3 +1,5 @@
+[English](notifications-quant-sentinel.md) | 简体中文
+
 # 量化哨兵（QuantSentinel）通知架构
 
 真源：`QuantRuntimeSettings/platform-config.json` → `notifications.quant_sentinel`
@@ -178,7 +180,6 @@ Receipt totals follow the same evidence boundary: absent evidence, stale candida
 - 聚合键：`platform_id + strategy + opaque_account_uid|unknown + target_id|unknown`；同策略多账户不得混拼
 - 发送：正式入口通过 `TELEGRAM_TOKEN` 的原 Secret 引用及批准的 `QSL_GLOBAL_TELEGRAM_CHAT_ID`；按接收范围和报告日期使用 GCS 防重账本（Cloud Run 设计合同）。
 - 预览：`workflow_dispatch` 仅 `dry_run=true` 可运行；Cloud Run `/preview` 仅回传安全状态，不预留或发送。
-- 接线基线模板：[private-target-wiring-baseline.zh-CN.md](./private-target-wiring-baseline.zh-CN.md)
 - Binance：历史 `TG_TOKEN` 仍独立；对齐步骤见 `platform-config.json` → `daily_digest.aggregator.binance_alignment_note_*`（公开仓只记名称）
 
 **secret 名与变量契约以本文为准**；缺失 Environment secret 时 receipt 写明缺项，不在日志打印 token/chat id。

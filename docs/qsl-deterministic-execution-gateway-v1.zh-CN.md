@@ -1,3 +1,5 @@
+[English](qsl-deterministic-execution-gateway-v1.md) | 简体中文
+
 # QSL 确定性执行网关 V1：设计契约
 
 > 状态：`P0_RECONCILE_ONLY_GATE_IMPLEMENTED_NOT_WIRED`

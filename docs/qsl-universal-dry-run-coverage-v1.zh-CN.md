@@ -1,3 +1,5 @@
+[English](qsl-universal-dry-run-coverage-v1.md) | 简体中文
+
 # QSL 通用不下单演练覆盖 V1
 
 > 状态：已接入 `QuantRuntimeSettings` 配置校验、健康报告与策略切换控制台。
