@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { __test } from "../web/strategy-switch-console/worker.js";
 import { validate } from "./console_api_contract_validation.mjs";
 import { consoleApiResponse } from "../web/strategy-switch-console/application/console_api/routes.js";
+import { enrollSyntheticManagement, miniflareRuntimeInstances } from "./helpers/account_management_enrollment.mjs";
 const require = createRequire(
   new URL("../web/strategy-switch-console/package.json", import.meta.url),
 );
@@ -110,6 +111,8 @@ try {
     ).status,
     200,
   );
+  // Processing admission needs a provisioned policy and applied management.
+  await enrollSyntheticManagement(await miniflareRuntimeInstances(mf));
   const settings = await call(
     "/api/account-settings?platform=longbridge&key=synthetic-alpha",
   );

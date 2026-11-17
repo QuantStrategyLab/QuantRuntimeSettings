@@ -26,6 +26,10 @@ import { RotationError } from "../../secretRotationStepUp.js";
 import { accountFactsIdentityDates } from "../account_facts/read.js";
 import { runtimeInstanceConflict } from "./command.js";
 import { projectAccountManagement } from "./mapping_projection.js";
+import {
+  applyManagementDraft, initializeAccountManagement, processingDenial, readManagementSnapshot, replaceMappingPolicy,
+  requireProcessingAdmission, resolveManagement, saveManagementDraft,
+} from "./account_management.js";
 import { deskErrorResponse } from "../desk/http.js";
 import { binanceDetailCommand } from "../../binance_detail_archive.js";
 import { INVENTORY_DO_PATH } from "../account_identity_inventory/constants.js";
@@ -63,8 +67,10 @@ import {
 import { BROKER_ENVIRONMENTS } from "../../account_options_schema.js";
 import { RISK_TIER_POLICY_BINDINGS } from "../console_api/risk_tiers.js";
 import {
+  ACCOUNT_OPTIONS_KEY,
   ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY,
   AUDIT_EVENTS_MAX_ROWS,
+  accountOptionMatchesInputs,
   HK_STOP_REQUEST_ID,
   HK_STOP_TARGET_ID,
   RISK_PROFILE_PREFERENCES,
@@ -80,6 +86,7 @@ import {
   hkStopSourceIdentity,
   isDcaProfile,
   json,
+  normalizeAccountOptionsPayload,
   normalizeControlPlaneIdentifier,
   promotionMaterialReviewBinding,
   promotionReviewBindingsMatch,
@@ -389,6 +396,7 @@ export class RuntimeInstances {
     for (const column of ["source_identity_sha256", "runtime_identity_sha256", "result_json", "stopped_at"]) {
       try { sql.exec(`ALTER TABLE hk_stop_request ADD COLUMN ${column} TEXT`); } catch { /* already present */ }
     }
+    initializeAccountManagement(sql);
     this.storageInitialized = true;
   }
 
@@ -1581,7 +1589,39 @@ export class RuntimeInstances {
     if (command.action === "account_settings_profile_application_lookup") return this.readAccountSettingsProfileApplication(command);
     if (command.action === "account_settings_profile_application_approve") return this.approveAccountSettingsProfileApplication(command);
     if (command.action === "account_settings_profile_application_claim") return this.claimAccountSettingsProfileApplication(command);
+    if (command.action === "account_mapping_policy_replace") return replaceMappingPolicy(this.sql, command);
+    if (command.action === "account_management_draft_save") return saveManagementDraft(this.sql, this.read(), command);
+    if (command.action === "account_management_apply") return applyManagementDraft(this.sql, this.read(), command);
     throw new HttpError("unsupported_account_settings_action", 400);
+  }
+
+  // Processing admission of one deployment, re-resolved from local storage
+  // inside the caller's transaction. A typed denial throws before any write.
+  requireManagementAdmission(platform, key, state = this.read()) {
+    return requireProcessingAdmission(this.sql, state, platform, key);
+  }
+
+  managementDenialFor(platform, key, state = this.read()) {
+    return processingDenial(resolveManagement(readManagementSnapshot(this.sql, state), platform, key));
+  }
+
+  // Default sync writes processing configuration: its one matched deployment
+  // is admitted first; several matches pick no winner.
+  requireSyncDefaultsAdmission(state, inputs) {
+    const platform = inputs?.platform;
+    const options = Object.entries(normalizeAccountOptionsPayload(runtimeInstanceAccountOptions(state.instances), ACCOUNT_OPTIONS_KEY))
+      .filter(([name]) => name === platform).flatMap(([, list]) => list);
+    const matched = options.filter(option => accountOptionMatchesInputs(option, inputs));
+    if (matched.length > 1) throw new HttpError("management_sync_target_ambiguous", 409);
+    if (matched.length === 1) this.requireManagementAdmission(platform, matched[0].key, state);
+  }
+
+  // The existing deployments a risk binding target names. A target naming
+  // none or several resolves no deployment and admits nothing.
+  requireRiskTargetAdmission(platform, targetName, state = this.read()) {
+    const matches = state.instances.filter(item => item.kind === "existing" && item.platform === platform && item.config?.target_name === targetName);
+    if (matches.length !== 1) throw new HttpError("management_status_unknown", 409);
+    this.requireManagementAdmission(platform, matches[0].key, state);
   }
 
   ensureRiskProfileAuthority(legacy) {
@@ -1661,6 +1701,16 @@ export class RuntimeInstances {
     if (!Array.isArray(command.bindings)) throw new HttpError("invalid_risk_profile_binding", 400);
     for (const binding of command.bindings) this.assertStoredRiskBinding(binding, options);
     const bindings = [...command.bindings].sort((left, right) => left.scope_id.localeCompare(right.scope_id));
+    // Every changed scope is admitted before any write: one denial rejects the whole replacement.
+    const stored = new Map(this.storedRiskBindings(row).map(binding => [binding?.scope_id, binding]));
+    const next = new Map(bindings.map(binding => [binding.scope_id, binding]));
+    const state = this.read();
+    for (const scopeId of new Set([...stored.keys(), ...next.keys()])) {
+      const before = stored.get(scopeId), after = next.get(scopeId);
+      if (before !== undefined && after !== undefined && canonicalResearchTaskJson(before) === canonicalResearchTaskJson(after)) continue;
+      const target = after || before;
+      this.requireRiskTargetAdmission(target?.platform, target?.target_name, state);
+    }
     return this.writeRiskProfileAuthority(row, bindings);
   }
 
@@ -1671,6 +1721,7 @@ export class RuntimeInstances {
     if (!riskProfileBindingTargets(options).some((target) => target.platform === command.platform && target.target_name === command.target_name)) {
       throw new HttpError("risk_profile_binding_target_not_configured", 409);
     }
+    this.requireRiskTargetAdmission(command.platform, command.target_name);
     const scopeId = riskProfileScopeId(command.platform, command.target_name);
     const current = this.storedRiskBindings(row).filter((binding) => binding.scope_id !== scopeId);
     if (command.risk_change === "clear") return this.writeRiskProfileAuthority(row, current);
@@ -1808,6 +1859,17 @@ export class RuntimeInstances {
     const hasRisk = Object.prototype.hasOwnProperty.call(command, "risk_change");
     const hasDeclaration = Object.prototype.hasOwnProperty.call(command, "declaration");
     if (!hasDraft && !hasRisk && !hasDeclaration) throw new HttpError("account_settings_change_required", 400);
+    // Strategy/parameter drafts and risk changes are processing configuration;
+    // a declaration alone is an observation and stays available.
+    if (hasDraft || hasRisk) {
+      if (!command.identity || Array.isArray(command.identity) || typeof command.identity !== "object") {
+        throw new HttpError("account_settings_identity_required", 400);
+      }
+      if (canonicalResearchTaskJson(command.identity) !== canonicalResearchTaskJson(identity)) {
+        throw new HttpError("account_settings_identity_conflict", 409);
+      }
+      this.requireManagementAdmission(item.platform, item.key);
+    }
     if (hasDeclaration) this.saveAccountSettingDeclaration(item, identity, command);
     if (hasDraft) this.saveAccountSettingDraft(item, identity, command);
     if (hasRisk) {
@@ -1880,6 +1942,8 @@ export class RuntimeInstances {
     const oldProfile = accountSettingsProfileName(command.old_profile);
     const newProfile = accountSettingsProfileName(command.new_profile);
     if (!oldProfile || !newProfile || oldProfile === newProfile) throw new HttpError("account_settings_profile_application_profile_invalid", 400);
+    // Fresh and replayed approvals alike need current processing authority.
+    this.requireManagementAdmission(command.platform, command.key);
 
     const existing = this.sql.exec("SELECT * FROM account_setting_profile_application WHERE request_key = ?", requestKey).toArray()[0];
     if (existing) {
@@ -1974,6 +2038,8 @@ export class RuntimeInstances {
       && command.current_profile === row.old_profile
       && command.runtime_target_enabled === false;
     if (!boundRequest) throw new HttpError("account_settings_profile_application_conflict", 409);
+    // A claim, including its replay, needs current processing authority.
+    this.requireManagementAdmission(row.platform, row.account_key);
     if (row.status === "claimed") {
       if (row.workflow_run_id !== workflowRunId || row.workflow_run_attempt !== workflowRunAttempt) {
         throw new HttpError("account_settings_profile_application_already_claimed", 409);
@@ -2417,6 +2483,7 @@ export class RuntimeInstances {
             }
             after = item;
           } else if (command.action === "sync_defaults") {
+            this.requireSyncDefaultsAdmission(state, command.inputs);
             const current = runtimeInstanceAccountOptions(state.instances);
             const update = updateAccountOptionsDefaultStrategy(current, command.inputs);
             changed = update.changed;
@@ -2907,6 +2974,12 @@ export class RuntimeInstances {
         throw new HttpError("human_decision_review_binding_unqualified", 409);
       }
     };
+    // A promotion acceptance selects an account for processing; a replay
+    // of one needs the same current authority as a fresh decision.
+    if (kind === "promotion" && actionName === "accept") {
+      const selected = command.payload?.selected_account;
+      this.requireManagementAdmission(selected?.platform, selected?.key);
+    }
     const byRequest = this.sql.exec("SELECT * FROM human_decision_record WHERE request_key = ?", requestKey).toArray()[0];
     if (byRequest) {
       if (byRequest.kind !== kind || byRequest.subject_id !== subjectId || byRequest.material_key !== materialKey || byRequest.action !== actionName || byRequest.target_json !== targetJson) {
@@ -3011,6 +3084,7 @@ export class RuntimeInstances {
           throw new HttpError("promotion_account_binding_conflict", 409);
         }
         const instances = this.read();
+        this.requireManagementAdmission(command.platform_id, command.account_key, instances);
         if (!instances.initialized || instances.revision !== Number(command.expected_revision) || !Number.isSafeInteger(decisionPayload.account_revision) || decisionPayload.account_revision !== instances.revision) {
           throw new HttpError("runtime_instance_revision_conflict", 409);
         }
@@ -3090,15 +3164,17 @@ export class RuntimeInstances {
           && String(config.broker_environment || "") === row.broker_environment
           && String(config.account_selector || "") === row.account_selector
           && String(config.service_name || "") === row.service_name;
-        const claimed = row.status === "approved" && ["pending", "sent", "unknown"].includes(row.dispatch_state)
+        const denial = this.managementDenialFor(row.platform_id, row.account_key, state);
+        const claimable = row.status === "approved" && ["pending", "sent", "unknown"].includes(row.dispatch_state)
           && row.claim_token === command.claim_token && bindingStillMatches;
+        const claimed = claimable && !denial;
         if (claimed) {
           this.sql.exec(
             "UPDATE research_promotion_applications SET status = 'claimed', workflow_run_id = ?, workflow_run_attempt = ?, updated_at = ? WHERE application_id = ? AND status = 'approved'",
             command.workflow_run_id, command.workflow_run_attempt, command.updated_at, applicationId,
           );
         }
-        return { ok: true, claimed, reason: claimed ? "" : (bindingStillMatches ? "already_claimed_or_invalid_token" : "account_changed") };
+        return { ok: true, claimed, reason: claimed ? "" : claimable ? denial : (bindingStillMatches ? "already_claimed_or_invalid_token" : "account_changed") };
       }
       if (command.action === "application_result") {
         const sameRun = row.workflow_run_id === command.workflow_run_id
@@ -3124,6 +3200,10 @@ export class RuntimeInstances {
           if (!bindingStillMatches) {
             effectiveStatus = "uncertain";
             effectiveReasonCode = "account_changed";
+          } else if (this.managementDenialFor(row.platform_id, row.account_key, state)) {
+            // Retained as evidence; no current strategy install after a management change.
+            effectiveStatus = "uncertain";
+            effectiveReasonCode = "management_state_changed";
           } else {
             const before = structuredClone(instance);
             instance.config = { ...instance.config, default_strategy_profile: row.strategy_profile };

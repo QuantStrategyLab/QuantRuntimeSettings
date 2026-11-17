@@ -105,7 +105,12 @@ try {
   const rejectedRegistration = await call({ ...syncInputs, target_name: "draft-one" }, syncOptions);
   assert.equal(rejectedRegistration.status, 409);
   assert.equal(rejectedRegistration.body.error, "runtime_instance_registration_requires_management");
-  assert.equal((await call(syncInputs, syncOptions)).status, 200);
+  // Default sync is processing admission: without a provisioned policy the
+  // retiring deployment is denied and its configuration stays unchanged.
+  const deniedSync = await call(syncInputs, syncOptions);
+  assert.equal(deniedSync.status, 500);
+  assert.equal(deniedSync.body.account_options_sync.synced, false);
+  assert.equal(deniedSync.body.account_options_sync.reason, "management_policy_unavailable");
   state = await call();
   assert.equal(state.body.instances[1].config.label, "Edited draft");
   assert.equal(state.body.instances[0].retirement_status, "requested");

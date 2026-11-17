@@ -7,6 +7,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import worker, { __test, initializeDirectory } from "./helpers/directory_worker.mjs";
+import { enrollSyntheticManagement, miniflareRuntimeInstances } from "./helpers/account_management_enrollment.mjs";
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
@@ -150,6 +151,8 @@ try {
   });
   assert.equal(initialized.status, 200);
   assert.equal(initialized.body.revision, 1);
+  // Processing admission needs a provisioned policy and applied management.
+  await enrollSyntheticManagement(await miniflareRuntimeInstances(mf));
 
   const firstTicket = ticket(`rpt_${"1".repeat(64)}`);
   assert.equal((await syncTicket(firstTicket)).status, 200);
@@ -303,38 +306,6 @@ try {
   assert.equal(mismatchPublic.body.application.status, "uncertain");
   assert.equal(dispatches.length, 3, "unknown/readback mismatch does not redispatch");
 
-  const conflictTicket = ticket(`rpt_${"6".repeat(64)}`);
-  assert.equal((await syncTicket(conflictTicket)).status, 200);
-  assert.equal((await acceptTicket(conflictTicket.ticket_id)).status, 200);
-  const conflictBefore = await call("/api/admin/runtime-instances");
-  const conflictCreate = await call("/api/research-promotion-applications", {
-    method: "POST",
-    body: { ...firstApplicationBody, ticket_id: conflictTicket.ticket_id, expected_revision: conflictBefore.body.revision },
-  });
-  assert.equal(conflictCreate.status, 202);
-  const conflictId = conflictCreate.body.application.application_id;
-  const conflictInternal = await call(`/api/internal/research-promotion-application/${conflictId}`, { cookie: "", origin: "", headers: { Authorization: "Bearer application-execution-evidence-token" } });
-  const conflictToken = conflictInternal.body.application.claim.token;
-  assert.equal((await call(`/api/internal/research-promotion-application/${conflictId}`, { method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer application-execution-evidence-token" }, body: { application_id: conflictId, claim: { token: conflictToken, workflow_run_id: "703", workflow_run_attempt: "1" }, status: "claimed" } })).body.claimed, true);
-  const changedEnvironment = await call("/api/admin/runtime-instances", {
-    method: "POST",
-    body: { action: "set_broker_environment", expected_revision: conflictBefore.body.revision, platform: "longbridge", key: "paper", broker_environment: "live" },
-  });
-  assert.equal(changedEnvironment.status, 200);
-  const conflictReadback = { ...readback, application_id: conflictId };
-  const conflictResult = await call(`/api/internal/research-promotion-application/${conflictId}`, { method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer application-execution-evidence-token" }, body: { application_id: conflictId, claim: { token: conflictToken, workflow_run_id: "703", workflow_run_attempt: "1" }, status: "applied_paused", readback: conflictReadback } });
-  assert.deepEqual(conflictResult.body, { ok: true, replayed: false, status: "uncertain" });
-  const restoredEnvironment = await call("/api/admin/runtime-instances", {
-    method: "POST",
-    body: { action: "set_broker_environment", expected_revision: changedEnvironment.body.revision, platform: "longbridge", key: "paper", broker_environment: "paper" },
-  });
-  assert.equal(restoredEnvironment.status, 200);
-  assert.equal(restoredEnvironment.body.instances[0].config.default_strategy_profile, v7.profile, "revision conflict does not overwrite the applied strategy");
-  assert.equal(restoredEnvironment.body.instances[0].enabled, false, "revision conflict keeps the paused state");
-
-  const badToken = await call(`/api/internal/research-promotion-application/${applicationId}`, { cookie: "", origin: "", headers: { Authorization: "Bearer wrong" } });
-  assert.equal(badToken.status, 401);
-
   const bindingTicket = ticket(`rpt_${"8".repeat(64)}`);
   assert.equal((await syncTicket(bindingTicket)).status, 200);
   assert.equal((await acceptTicket(bindingTicket.ticket_id)).status, 200);
@@ -368,6 +339,45 @@ try {
   assert.equal(bindingChangedApplication.status, 409);
   const bindingRevived = await syncTicket(bindingTicket);
   assert.equal(bindingRevived.status, 409);
+
+  const conflictTicket = ticket(`rpt_${"6".repeat(64)}`);
+  assert.equal((await syncTicket(conflictTicket)).status, 200);
+  assert.equal((await acceptTicket(conflictTicket.ticket_id)).status, 200);
+  const conflictBefore = await call("/api/admin/runtime-instances");
+  const conflictCreate = await call("/api/research-promotion-applications", {
+    method: "POST",
+    body: { ...firstApplicationBody, ticket_id: conflictTicket.ticket_id, expected_revision: conflictBefore.body.revision },
+  });
+  assert.equal(conflictCreate.status, 202);
+  const conflictId = conflictCreate.body.application.application_id;
+  const conflictInternal = await call(`/api/internal/research-promotion-application/${conflictId}`, { cookie: "", origin: "", headers: { Authorization: "Bearer application-execution-evidence-token" } });
+  const conflictToken = conflictInternal.body.application.claim.token;
+  assert.equal((await call(`/api/internal/research-promotion-application/${conflictId}`, { method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer application-execution-evidence-token" }, body: { application_id: conflictId, claim: { token: conflictToken, workflow_run_id: "703", workflow_run_attempt: "1" }, status: "claimed" } })).body.claimed, true);
+  const changedEnvironment = await call("/api/admin/runtime-instances", {
+    method: "POST",
+    body: { action: "set_broker_environment", expected_revision: conflictBefore.body.revision, platform: "longbridge", key: "paper", broker_environment: "live" },
+  });
+  assert.equal(changedEnvironment.status, 200);
+  const conflictReadback = { ...readback, application_id: conflictId };
+  const conflictResult = await call(`/api/internal/research-promotion-application/${conflictId}`, { method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer application-execution-evidence-token" }, body: { application_id: conflictId, claim: { token: conflictToken, workflow_run_id: "703", workflow_run_attempt: "1" }, status: "applied_paused", readback: conflictReadback } });
+  assert.deepEqual(conflictResult.body, { ok: true, replayed: false, status: "uncertain" });
+  const restoredEnvironment = await call("/api/admin/runtime-instances", {
+    method: "POST",
+    body: { action: "set_broker_environment", expected_revision: changedEnvironment.body.revision, platform: "longbridge", key: "paper", broker_environment: "paper" },
+  });
+  assert.equal(restoredEnvironment.status, 200);
+  assert.equal(restoredEnvironment.body.instances[0].config.default_strategy_profile, v7.profile, "revision conflict does not overwrite the applied strategy");
+  assert.equal(restoredEnvironment.body.instances[0].enabled, false, "revision conflict keeps the paused state");
+
+  const badToken = await call(`/api/internal/research-promotion-application/${applicationId}`, { cookie: "", origin: "", headers: { Authorization: "Bearer wrong" } });
+  assert.equal(badToken.status, 401);
+
+  // A retained identity change fails the account closed for new admissions.
+  const afterChangeTicket = ticket(`rpt_${"9".repeat(64)}`);
+  assert.equal((await syncTicket(afterChangeTicket)).status, 200);
+  const afterChangeAccept = await acceptTicket(afterChangeTicket.ticket_id);
+  assert.equal(afterChangeAccept.status, 409);
+  assert.equal(afterChangeAccept.body.error, "management_status_unknown");
   console.log("research promotion application validation passed");
 } finally {
   await mf.dispose();

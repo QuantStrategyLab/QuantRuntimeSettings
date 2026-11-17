@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 
 import worker, { __test } from "./helpers/directory_worker.mjs";
 import { DEFAULT_ACCOUNT_OPTIONS, RUNTIME_CATALOG_PROJECTION, PLATFORM_META } from "../web/strategy-switch-console/config.js";
+import { enrollSyntheticManagement } from "./helpers/account_management_enrollment.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const liveFrontendSrc = resolve(root, "web/strategy-switch-console/frontend/src");
@@ -3957,6 +3958,30 @@ const previewEnvelope = __test.buildRiskEnvelopeView({ riskPreference: "BALANCED
 assert.equal(previewEnvelope.preference.label_zh, "均衡");
 assert.equal(previewEnvelope.scales.promotion_size_scale, 0.75);
 assert.equal(previewEnvelope.live_authority_granted, false);
+// A promotion acceptance is processing admission: it needs an initialized
+// authority store with a provisioned policy and applied management.
+const promotionRuntime = {
+  send: async command => { const response = await humanDecisionNamespace.get(humanDecisionNamespace.idFromName("runtime-instances")).fetch("https://runtime-instances/", { method: "POST", body: JSON.stringify(command) }); return { status: response.status, body: await response.json() }; },
+  read: async () => (await humanDecisionNamespace.get(humanDecisionNamespace.idFromName("runtime-instances")).fetch("https://runtime-instances/")).json(),
+};
+const promotionUninitialized = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-decisions", {
+    method: "POST",
+    headers: researchPromotionAdminHeaders,
+    body: JSON.stringify({
+      ticket_id: "promo-ticket-1",
+      decision: "accept",
+      expected_proposed_params: { lookback: 20 },
+      confirmation: { target_platform: "ibkr", execution_mode: "live", risk_profile: "BALANCED_COMPOUNDING" },
+      selected_account: { platform: "ibkr", key: "ibkr-primary" },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(promotionUninitialized.status, 409, "absent authority state fails the acceptance closed");
+assert.equal((await promotionUninitialized.json()).error, "management_status_unknown");
+assert.equal((await promotionRuntime.send({ action: "initialize", actor: "synthetic-admin", expected_revision: 0, account_options: accountOptions })).status, 200);
+await enrollSyntheticManagement(promotionRuntime);
 const promotionAccept = await worker.fetch(
   new Request("https://switch.example/api/research-promotion-decisions", {
     method: "POST",

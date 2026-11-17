@@ -247,6 +247,9 @@ export const INTERNAL_OPERATIONS = Object.freeze({
   "action:account_settings_profile_application_lookup": read(),
   "action:account_settings_profile_application_approve": write(),
   "action:account_settings_profile_application_claim": write(),
+  "action:account_mapping_policy_replace": write(),
+  "action:account_management_draft_save": write(),
+  "action:account_management_apply": write(),
   // ACCOUNT_FACTS_DO_ACTIONS
   "action:account_external_flow_put": write(),
   "action:account_executions_put": write(),
