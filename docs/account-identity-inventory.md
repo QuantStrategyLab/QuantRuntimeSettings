@@ -319,7 +319,26 @@ elsewhere. In `audit_log`, a direct entry of the root array whose `action` is
 exactly `save_account_settings` or
 `approve_account_settings_profile_application` names its account by its own
 `key` and `platform` (locator `[<index>].key`); without a direct platform it
-is unattributed. A `human_decision_record` of kind `promotion` names its
+is unattributed. Flattened paths cannot show that the root was an array: a
+property named `[0]`, or `{ "": [entry] }`, projects the same `[0].action`
+path, and the latter even the same root count. The reader therefore adds one
+Boolean to each exported `audit_log` item, `audit_root_array`, taken from the
+parsed value before projection: `true` for a root array and `false` for any
+other JSON value. No other KV family or environment binding carries it, and the
+identity projection itself is unchanged. An entry is selected only when the
+bit is exactly `true`, the projection's root count is a nonnegative integer and
+the entry's `[<index>]` is a canonical index below it; its key and platform are
+read only from that entry, and a long-string marker there is a loss as above.
+With `false` the value names no audit account and adds no reason. Without that
+evidence (an export from an earlier reader, a non-Boolean bit, a missing or
+invalid root count, or an index beyond it) a recognized entry carrying a key or
+platform is unknown: nothing is mapped or left unattributed for it, no
+long-string loss is recorded at its unestablished position, and the private
+reason `kv:audit_log:audit_root_shape_unavailable`, once per value, makes group
+20 and the overall result `incomplete` with no KV failed read. An earlier
+export with no such entry adds no reason. Explicit account fields in the value,
+read failures and truncation keep their own dispositions. Recollect to obtain
+the evidence. A `human_decision_record` of kind `promotion` names its
 account by the root `selected_account.key` and `selected_account.platform` of
 `target_json` and of `payload_json`, one episode per column. Other actions,
 nested keys, other kinds, generic `key` and ID fields and promotion tickets
@@ -389,3 +408,11 @@ mutation, bookmark read, KV write, `waitUntil`, external fetch or ordinary
 Miniflare. The workerd run checks byte-identical schema, rows, DO-KV, alarm and
 `total_changes()` before and after a scan, drift detection between pages, and
 that the ordinary-path schema matches the reader allowlist.
+
+Earlier-reader compatibility is checked against frozen exports in
+`tests/fixtures/account-identity-inventory-pre-fix.json`: complete, unedited
+collections that the earlier reader's own module tree produced once over
+synthetic stores. `account-identity-inventory-pre-fix.provenance.json` records
+how they were collected, the seeds, the producer module checksums and each
+export's checksum. The test verifies these offline and replays each export
+through the current assembler; it never rebuilds them from history.
