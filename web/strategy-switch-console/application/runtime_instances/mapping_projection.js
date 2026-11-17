@@ -25,7 +25,8 @@ const worst = (...states) => states.reduce((left, right) => (rank[right] > rank[
 // already resolved: they never create, merge or reidentify an account. A
 // link is accepted only when it names exactly one current instance whose
 // configuration still equals its recorded identity, and when no other link
-// makes that deployment, its physical account or the opaque ID ambiguous.
+// makes that deployment, its physical account, the opaque ID or its
+// platform candidate slot ambiguous.
 function acceptLinks(links, current, accountOf) {
   const accepted = new Map(), rejected = [];
   const reject = (link, reason) => rejected.push({ ...(isObject(link) ? Object.fromEntries(LINK_BINDING_FIELDS.filter(field => text(link[field])).map(field => [field, link[field]])) : {}), reason });
@@ -43,6 +44,10 @@ function acceptLinks(links, current, accountOf) {
     candidates.push(link);
   }
   const binding = link => JSON.stringify(LINK_BINDING_FIELDS.map(field => link[field]));
+  // A platform candidate slot names one digest object: every link sharing
+  // one is rejected, across deployments and accounts; none is chosen.
+  const slot = link => JSON.stringify([link.platform_id, link.candidate_slot]);
+  const slots = candidates.reduce((counts, link) => counts.set(slot(link), (counts.get(slot(link)) || 0) + 1), new Map());
   for (const link of candidates) {
     const id = deploymentId(link.platform_id, link.account_key), account = accountOf(id);
     const duplicate = candidates.filter(other => binding(other) === binding(link)).length > 1;
@@ -50,6 +55,7 @@ function acceptLinks(links, current, accountOf) {
     const accounts = new Set(candidates.filter(other => other.platform_id === link.platform_id && other.opaque_account_uid === link.opaque_account_uid)
       .map(other => accountOf(deploymentId(other.platform_id, other.account_key))));
     if (duplicate) reject(link, "link_duplicated");
+    else if (slots.get(slot(link)) > 1) reject(link, "link_candidate_slot_ambiguous");
     else if (uids.size > 1 || accounts.size > 1 || account === undefined) reject(link, "link_ambiguous");
     else accepted.set(account, [...(accepted.get(account) || []), Object.fromEntries(LINK_BINDING_FIELDS.map(field => [field, link[field]]))]);
   }

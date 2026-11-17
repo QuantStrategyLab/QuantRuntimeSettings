@@ -368,6 +368,130 @@ const SINGLE = await collect(SINGLE_INSTANCES);
   assert.deepEqual(rowOf(ignored, "firstrade/syn-acct-10").enrollment_links, [{ platform_id: "firstrade", candidate_slot: "syn-slot-10", opaque_account_uid: "uid:syn-opaque-10", target_id: "syn-run-10" }]);
 }
 
+// The real Python consumers in a child with a bounded timeout. A timeout,
+// signal or non-zero exit fails the row; it is never read as acceptance.
+const PYTHON_SCRIPTS = fileURLToPath(new URL("python/scripts", ROOT));
+function python(source, input) {
+  const child = spawnSync("python3", ["-I", "-c", `import json, sys; sys.path.insert(0, sys.argv[1])\n${source}`, PYTHON_SCRIPTS],
+    { input: JSON.stringify(input), encoding: "utf8", timeout: 60000, killSignal: "SIGKILL" });
+  assert.equal(child.error, undefined, `python child: ${child.error}`);
+  assert.deepEqual([child.status, child.signal], [0, null], `python child exit: ${child.stderr}`);
+  return JSON.parse(child.stdout);
+}
+const bindingOf = link => ({ platform_id: link.platform_id, candidate_slot: link.candidate_slot, opaque_account_uid: link.opaque_account_uid, target_id: link.target_id });
+const acceptedOf = projection => projection.accounts.flatMap(row => row.enrollment_links);
+const linkFor = (instances, text, slot, uid, target) => { const [platform, key] = ref(text);
+  const config = instances.find(item => item.platform === platform && item.key === key).config;
+  return { platform_id: platform, candidate_slot: slot, opaque_account_uid: uid, target_id: target, account_key: key,
+    config_identity: { account_selector: config.account_selector, deployment_selector: config.deployment_selector ?? null, service_name: config.service_name ?? null, runtime_status_target_id: null } }; };
+const [L1, L1B, L5, L10] = fixture.enrollment_links;
+const SLOT_PAIR = [L1, { ...L1, target_id: "syn-run-01-x" }];
+
+// A13 same-platform-slot-ambiguity: links sharing one platform candidate
+// slot are all rejected, within a deployment, across the deployments of
+// one account and across accounts. Account rows stay as proven.
+{
+  const cases = [
+    ["one-deployment", SLOT_PAIR],
+    ["two-deployments-one-account", [L1, { ...L1B, candidate_slot: L1.candidate_slot }]],
+    ["two-accounts", [L1, linkFor(INSTANCES, "ibkr/syn-acct-02", L1.candidate_slot, "uid:syn-opaque-02", "syn-run-02")]],
+  ];
+  for (const [label, links] of cases) {
+    for (const ordered of [links, [...links].reverse()]) {
+      const projection = await project({ ...complete, effective: ENABLED, links: ordered });
+      assert.deepEqual(acceptedOf(projection), [], `A13: ${label} accepts none`);
+      assert.deepEqual(projection.rejected_links.map(item => item.reason), ["link_candidate_slot_ambiguous", "link_candidate_slot_ambiguous"], `A13: ${label} rejects both`);
+      assert.deepEqual([projection.counts.display_accounts, projection.counts.managed, projection.accounts.every(row => row.evidence_state === "known")], [10, 9, true], `A13: ${label} rows stay known`);
+    }
+  }
+}
+
+// A14 slot-and-link-controls.
+{
+  const crossPlatform = [{ ...L5, candidate_slot: "syn-slot-shared" }, { ...L10, candidate_slot: "syn-slot-shared" }];
+  const shared = await project({ ...complete, links: crossPlatform });
+  assert.deepEqual([acceptedOf(shared), shared.rejected_links], [crossPlatform.map(bindingOf), []], "A14: distinct platforms may reuse a slot");
+  const distinct = await project({ ...complete, links: fixture.enrollment_links });
+  assert.deepEqual(acceptedOf(distinct), fixture.enrollment_links.map(bindingOf), "A14: distinct slots accepted, fields byte-identical");
+  for (const link of fixture.enrollment_links) {
+    assert.ok(rowOf(distinct, `${link.platform_id}/${link.account_key}`).enrollment_links.some(item => JSON.stringify(item) === JSON.stringify(bindingOf(link))), `A14: ${link.account_key} keeps its link`);
+  }
+  const controls = [
+    ["exact-duplicate", [L10, L10], ["link_duplicated", "link_duplicated"]],
+    ["missing-target", [{ ...L10, account_key: "syn-acct-gone" }], ["link_target_missing"]],
+    ["changed-config-identity", [{ ...L5, config_identity: { ...L5.config_identity, service_name: "syn-service-old" } }], ["link_identity_changed"]],
+    ["two-opaque-ids", [L5, { ...L5, candidate_slot: "syn-slot-05-x", opaque_account_uid: "uid:syn-other" }], ["link_ambiguous", "link_ambiguous"]],
+    ["opaque-id-two-accounts", [L1, linkFor(INSTANCES, "ibkr/syn-acct-02", "syn-slot-02", L1.opaque_account_uid, "syn-run-02")], ["link_ambiguous", "link_ambiguous"]],
+  ];
+  for (const [label, links, reasons] of controls) {
+    const projection = await project({ ...complete, links });
+    assert.deepEqual([acceptedOf(projection), projection.rejected_links.map(item => item.reason)], [[], reasons], `A14: ${label}`);
+  }
+}
+
+// A15 legacy-constructor-parity: the unchanged digest Configuration
+// accepts the single binding and rejects the A13 pair. The strategy
+// profile is a synthetic legacy run-binding input only.
+{
+  const expected = links => links.map(link => ({ ...bindingOf(link), strategy_profile: "syn_profile" }));
+  const outcomes = python(`import cloud_run_daily_digest as app
+out = []
+for expected in json.loads(sys.stdin.read()):
+    try:
+        app.Configuration(expected, "projects/synthetic/locations/synthetic/jobs/synthetic", "synthetic", "2026-10-16", False, "en")
+        out.append({"ok": True})
+    except ValueError as error:
+        out.append({"error": str(error)})
+print(json.dumps(out))`, [expected([L1]), expected(SLOT_PAIR)]);
+  assert.deepEqual(outcomes, [{ ok: true }, { error: "digest_duplicate_target_binding" }], "A15: legacy Configuration parity");
+  assert.deepEqual(acceptedOf(await project({ ...complete, links: [L1] })), [bindingOf(L1)], "A15: the projection accepts the single binding");
+}
+
+// A16 synthetic-ibkr-boundary: projection links through the digest roster
+// preparer, the Telegram settings projection and Configuration. The IBKR
+// selectors are synthetic broker-format values, never real identities.
+{
+  const SELECTOR = "U0000000002";
+  const ibkr = INSTANCES.map(item => item.key === "syn-acct-02" ? { ...item, config: { ...item.config, account_selector: SELECTOR } } : item);
+  const inventory = await collect(ibkr);
+  const links = [linkFor(ibkr, "ibkr/syn-acct-02", "syn-slot-02", "uid:syn-opaque-02", "syn-run-02"), L5];
+  const projection = await project({ ...inputOf(inventory, policyFor(ibkr)), effective: ENABLED, links }, { instances: ibkr });
+  assert.deepEqual([acceptedOf(projection), projection.rejected_links, stateOf(projection, "ibkr/syn-acct-02")], [links.map(bindingOf), [], ["known", "managed"]], "A16: the projection accepts the links");
+  assert.ok(!JSON.stringify(projection).includes(SELECTOR), "A16: no broker ID in the projection");
+  const changedLinks = links.map(link => link.account_key === "syn-acct-02" ? { ...link, config_identity: { ...link.config_identity, account_selector: "U0000000099" } } : link);
+  assert.deepEqual((await project({ ...inputOf(inventory, policyFor(ibkr)), links: changedLinks }, { instances: ibkr })).rejected_links.map(item => item.reason), ["link_identity_changed"], "A16: JS rejects a changed selector");
+  const management = { initialized: true, instances: ibkr.map((item, index) => ({ ...item, config: { ...item.config, label: `Synthetic Label ${index}` } })) };
+  const roster = acceptedOf(projection).map(binding => ({ ...binding, strategy_profile: "syn_profile" }));
+  const result = python(`import os
+import cloud_run_daily_digest as app
+from project_digest_display_roster import project_telegram_display_settings
+roster, management, links, changed = json.loads(sys.stdin.read())
+settings = project_telegram_display_settings(roster, management, links, "syn-recipient")
+def configured(recipient, accounts_json):
+    os.environ.update({"QRS_UNIFIED_NOTIFICATION_ENABLED": "true", "DIGEST_EXPECTED_TARGETS_JSON": settings["DIGEST_EXPECTED_TARGETS_JSON"],
+        "DIGEST_SCHEDULER_JOB_NAME": "projects/synthetic/locations/synthetic/jobs/synthetic", "DIGEST_RECIPIENT_SCOPE": "synthetic",
+        "DIGEST_CUTOVER_REPORT_DATE": "2026-10-16", "DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON": accounts_json, "QSL_GLOBAL_TELEGRAM_CHAT_ID": recipient})
+    configuration = app.Configuration.from_environment()
+    return {"expected": configuration.expected, "ibkr_accounts": configuration.telegram_ibkr_accounts}
+mismatched = json.loads(settings["DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON"])
+mismatched["accounts"][0]["target_id"] = "syn-run-other"
+try:
+    project_telegram_display_settings(roster, management, changed, "syn-recipient")
+    changed_outcome = "accepted"
+except ValueError as error:
+    changed_outcome = str(error)
+print(json.dumps({"settings": settings, "matching": configured("syn-recipient", settings["DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON"]),
+    "wrong_recipient": configured("syn-other-recipient", settings["DIGEST_TELEGRAM_IBKR_ACCOUNT_IDS_JSON"]),
+    "mismatched_binding": configured("syn-recipient", json.dumps(mismatched)), "changed": changed_outcome}))`, [roster, management, links, changedLinks]);
+  const fields = rows => rows.map(row => [row.platform_id, row.opaque_account_uid, row.candidate_slot, row.target_id]);
+  assert.deepEqual(fields(JSON.parse(result.settings.DIGEST_EXPECTED_TARGETS_JSON)), fields(acceptedOf(projection)), "A16: preparer keeps the opaque, slot and target fields byte-identical");
+  assert.deepEqual(fields(result.matching.expected), fields(acceptedOf(projection)), "A16: Configuration keeps them byte-identical");
+  assert.deepEqual(result.matching.ibkr_accounts, { "uid:syn-opaque-02": SELECTOR }, "A16: the matching recipient binding maps the synthetic IBKR account");
+  assert.deepEqual([result.wrong_recipient.ibkr_accounts, result.mismatched_binding.ibkr_accounts], [{}, {}], "A16: wrong recipient or mismatched binding maps nothing");
+  assert.equal(result.changed, "digest_configured_account_identity_changed", "A16: the preparer rejects a changed selector");
+  for (const text of [result.settings.DIGEST_EXPECTED_TARGETS_JSON, JSON.stringify(result.matching.expected)]) assert.ok(!text.includes(SELECTOR), "A16: no broker ID in the general roster");
+}
+
 // Labels are never keys and never emitted, whoever supplies them.
 {
   const labeled = INSTANCES.map((item, index) => ({ ...item, label: `Synthetic Label ${index}`, config: { ...item.config, label: `Synthetic Config Label ${index}` } }));

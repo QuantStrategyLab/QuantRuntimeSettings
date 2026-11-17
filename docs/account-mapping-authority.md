@@ -159,9 +159,22 @@ source and register that read.
 Private enrollment links (the shape `python/scripts/project_digest_display_roster.py`
 reads) are a compatibility edge onto resolved deployments. A link is
 accepted only if it names exactly one current instance whose configuration
-equals its recorded `config_identity`; one deployment with two opaque IDs,
-one opaque ID across two accounts, or a duplicated binding is rejected.
-Links never create, merge or reidentify an account.
+equals its recorded `config_identity`. Every other link that passes those
+checks is then compared with it, and these are rejected:
+
+| Case | Reason |
+| --- | --- |
+| The same full binding twice | `link_duplicated`, for every copy |
+| Two links with the same `platform_id` and `candidate_slot`, within one deployment, across the deployments of one account or across accounts | `link_candidate_slot_ambiguous`, for every link sharing the slot |
+| One deployment with two opaque IDs, or one opaque ID across two accounts | `link_ambiguous` |
+
+No participant in a collision is accepted. Different platforms may use the
+same slot. This matches the digest `Configuration`, which rejects two
+bindings for one platform and slot with `digest_duplicate_target_binding`.
+Accepted links keep `platform_id`, `candidate_slot`, `opaque_account_uid`
+and `target_id` byte-identical. Links never create, merge or reidentify an
+account, and a rejected link leaves the account's evidence unchanged. The
+Python consumers are unchanged.
 
 No Worker route or Durable Object action dispatches the projection yet, so
 the [read-contract registry](adr/0002-observation-and-identity-boundaries.md)
@@ -176,3 +189,7 @@ is unchanged. Adding one requires its registry entry in the same change.
 - The management toggle, its applied-state storage and journal, and the
   processing gates are later work. Until applied management records exist,
   eligible accounts read `unknown`.
+- This code adds no route, dispatcher, policy storage, production policy
+  seed or roster transition. Later integration must supply the policy from
+  the protected source, register the routed read and establish its
+  lifecycle guarantees.
