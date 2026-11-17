@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import json
 import os
 import re
@@ -13,13 +12,9 @@ import shlex
 import subprocess
 import sys
 import time
-import zipfile
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -27,6 +22,89 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from config_overlay import load_platform_config as load_platform_config_with_overlay  # noqa: E402
+from runtime_control_ops import (  # noqa: E402
+    _disabled_profile_expected_variables as _disabled_profile_expected_variables_impl,
+    _disabled_profile_target_pair as _disabled_profile_target_pair_impl,
+    _optional_stop_correlation,
+    _stop_request_identity as _stop_request_identity_impl,
+    apply_disabled_strategy_profile_change as _apply_disabled_strategy_profile_change_impl,
+    build_stop_assignments as _build_stop_assignments_impl,
+    command_runtime_control as _command_runtime_control_impl,
+    command_runtime_control_readback as _command_runtime_control_readback_impl,
+    command_stop as _command_stop_impl,
+    dispatch_hk_stop as _dispatch_hk_stop_impl,
+    dispatch_runtime_control as _dispatch_runtime_control_impl,
+    execute_stop as _execute_stop_impl,
+    load_stop_request,
+    read_disabled_profile_apply_variables as _read_disabled_profile_apply_variables_impl,
+    read_runtime_control_receipt_zip,
+    read_runtime_control_result as _read_runtime_control_result_impl,
+    read_stop_variables as _read_stop_variables_impl,
+    recover_runtime_control_run as _recover_runtime_control_run_impl,
+    require_hk_stop_target as _require_hk_stop_target_impl,
+    runtime_control_workflow_preflight as _runtime_control_workflow_preflight_impl,
+    validate_runtime_control_receipt as _validate_runtime_control_receipt_impl,
+    write_disabled_profile_assignment as _write_disabled_profile_assignment_impl,
+)
+from schema_check import is_nonempty_str, is_strict_int, parse_json_payload  # noqa: E402
+from strategy_policy import (  # noqa: E402
+    ACCOUNT_SYNC_CONTROL_FIELDS,
+    MARKET_FIELDS,
+    _effective_target_plugin_mounts as _effective_target_plugin_mounts_impl,
+    _service_target_entry_matches,
+    _service_target_identity,
+    effective_execution_mode,
+    extract_account_sync_controls,
+    normalize_allowed_execution_modes,
+    select_service_target_entry_index,
+    validate_live_ibkr_us_scheduler as _validate_live_ibkr_us_scheduler_impl,
+    validate_runtime_target_strategy_policy as _validate_runtime_target_strategy_policy_impl,
+)
+from target_validators import (  # noqa: E402
+    DECISION_DATA_ARTIFACT_FIELDS,
+    DECISION_DATA_ASSURANCE_STATUSES,
+    DECISION_DATA_FIELDS,
+    DECISION_DATA_IDENTIFIER_PATTERN,
+    DECISION_DATA_MODES,
+    DECISION_DATA_REQUIRED_FIELDS,
+    GENERATED_VARIABLES,
+    LEGACY_INCOME_LAYER_VARIABLES,
+    LIVE_CONTINUITY_BASELINE_ID_PATTERN,
+    LIVE_CONTINUITY_BASELINE_KINDS,
+    LIVE_CONTINUITY_FIELDS,
+    LIVE_CONTINUITY_STATES,
+    OPTION_OVERLAY_AMOUNT_VARIABLES,
+    OPTION_OVERLAY_ENABLED_VARIABLES,
+    OPTION_OVERLAY_RATIO_VARIABLES,
+    OPTION_OVERLAY_RECIPE_VARIABLES,
+    OPTION_OVERLAY_VARIABLES,
+    PLATFORM_DRY_RUN_VARIABLES,
+    RESEARCH_ONLY_EXTRA_VARIABLES,
+    RUNTIME_REQUIRED_FIELDS,
+    SCHEDULER_FIELDS,
+    SECRET_MARKERS,
+    SHA256_PATTERN,
+    STRATEGY_RELEASE_DIGEST_FIELDS,
+    STRATEGY_RELEASE_ID_PATTERN,
+    STRATEGY_RELEASE_REQUIRED_FIELDS,
+    WINDOW_MODES,
+    is_live_continuity_target,
+    is_secret_variable_name,
+    option_bool_value,
+    runtime_target_fingerprint,
+    validate_account_domain,
+    validate_decision_data,
+    validate_extra_variables as _validate_extra_variables_impl,
+    validate_github,
+    validate_live_continuity,
+    validate_nonsecret_service_target_inventory,
+    validate_option_overlay_variables,
+    validate_plugin_mounts as _validate_plugin_mounts_impl,
+    validate_repository_variables,
+    validate_runtime_target as _validate_runtime_target_impl,
+    validate_strategy_release,
+    validate_target as _validate_target_impl,
+)
 
 LOCAL_TARGETS_DIR = ROOT / "local" / "targets"
 EXAMPLE_TARGETS_DIR = ROOT / "examples" / "targets"
@@ -50,134 +128,13 @@ PLATFORM_REPOSITORY_ENV = {
     "qmt": "RUNTIME_SETTINGS_QMT_REPO",
     "binance": "RUNTIME_SETTINGS_BINANCE_REPO",
 }
-RUNTIME_REQUIRED_FIELDS = (
-    "platform_id",
-    "strategy_profile",
-    "dry_run_only",
-    "deployment_selector",
-    "account_selector",
-    "account_scope",
-    "service_name",
-    "execution_mode",
-)
-WINDOW_MODES = {
-    "precheck": {"notify_only", "dry_run"},
-    "execution": {"live", "paper", "dry_run"},
-}
-SCHEDULER_FIELDS = frozenset({"timezone", "main_time", "probe_time", "precheck_time"})
-MARKET_FIELDS = ("market", "market_calendar", "market_timezone")
-STRATEGY_RELEASE_REQUIRED_FIELDS = (
-    "release_id",
-    "manifest_sha256",
-    "strategy_revision",
-    "config_sha256",
-    "risk_policy_sha256",
-    "evidence_sha256",
-    "plugin_bundle_sha256",
-    "effective_session",
-)
-STRATEGY_RELEASE_DIGEST_FIELDS = frozenset(
-    {
-        "manifest_sha256",
-        "config_sha256",
-        "risk_policy_sha256",
-        "evidence_sha256",
-        "plugin_bundle_sha256",
-    }
-)
-STRATEGY_RELEASE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
-SHA256_PATTERN = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
-DECISION_DATA_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$")
-DECISION_DATA_MODES = frozenset(
-    {"legacy_runtime_fetch", "artifact_optional", "artifact_required"}
-)
-DECISION_DATA_ASSURANCE_STATUSES = frozenset({"LEGACY", "VERIFIED", "DEGRADED", "PARKED"})
-DECISION_DATA_REQUIRED_FIELDS = frozenset(
-    {"binding_id", "binding_sha256", "strategy_scope", "mode", "source_ids", "assurance_status"}
-)
-DECISION_DATA_ARTIFACT_FIELDS = frozenset({"as_of", "adjustment_basis", "artifact_sha256"})
-DECISION_DATA_FIELDS = DECISION_DATA_REQUIRED_FIELDS | DECISION_DATA_ARTIFACT_FIELDS
-LIVE_CONTINUITY_STATES = frozenset(
-    {
-        "ACTIVE_LKG",
-        "ACTIVE_REDUCED",
-        "RECONCILE_ONLY",
-        "RISK_REDUCTION_ONLY",
-        "PAUSED",
-        "ROLLBACK_LKG",
-    }
-)
-LIVE_CONTINUITY_BASELINE_KINDS = frozenset({"legacy_authorized", "release_attested"})
-LIVE_CONTINUITY_FIELDS = frozenset(
-    {
-        "state",
-        "baseline_kind",
-        "baseline_id",
-        "baseline_target_sha256",
-        "captured_at",
-    }
-)
-LIVE_CONTINUITY_BASELINE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
-GENERATED_VARIABLES = {"RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"}
-SECRET_MARKERS = ("PASSWORD", "PRIVATE_KEY", "TOKEN", "API_KEY", "ACCESS_KEY", "CLIENT_SECRET", "SECRET")
-LEGACY_INCOME_LAYER_VARIABLES = frozenset(
-    {
-        "INCOME_THRESHOLD_USD",
-        "QQQI_INCOME_RATIO",
-        "INCOME_LAYER_QQQI_WEIGHT",
-        "INCOME_LAYER_SPYI_WEIGHT",
-    }
-)
-OPTION_OVERLAY_VARIABLES = frozenset(
-    {
-        "OPTION_OVERLAY_ENABLED",
-        "OPTION_GROWTH_OVERLAY_ENABLED",
-        "OPTION_GROWTH_OVERLAY_RECIPE",
-        "OPTION_GROWTH_OVERLAY_START_USD",
-        "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO",
-        "OPTION_INCOME_OVERLAY_ENABLED",
-        "OPTION_INCOME_OVERLAY_RECIPE",
-        "OPTION_INCOME_OVERLAY_START_USD",
-        "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO",
-    }
-)
-OPTION_OVERLAY_ENABLED_VARIABLES = frozenset(
-    {
-        "OPTION_OVERLAY_ENABLED",
-        "OPTION_GROWTH_OVERLAY_ENABLED",
-        "OPTION_INCOME_OVERLAY_ENABLED",
-    }
-)
-OPTION_OVERLAY_RECIPE_VARIABLES = frozenset(
-    {
-        "OPTION_GROWTH_OVERLAY_RECIPE",
-        "OPTION_INCOME_OVERLAY_RECIPE",
-    }
-)
-OPTION_OVERLAY_AMOUNT_VARIABLES = frozenset(
-    {
-        "OPTION_GROWTH_OVERLAY_START_USD",
-        "OPTION_INCOME_OVERLAY_START_USD",
-    }
-)
-OPTION_OVERLAY_RATIO_VARIABLES = frozenset(
-    {
-        "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO",
-        "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO",
-    }
-)
-RESEARCH_ONLY_EXTRA_VARIABLES = LEGACY_INCOME_LAYER_VARIABLES
-PLATFORM_DRY_RUN_VARIABLES = {
-    "schwab": "SCHWAB_DRY_RUN_ONLY",
-    "longbridge": "LONGBRIDGE_DRY_RUN_ONLY",
-    "ibkr": "IBKR_DRY_RUN_ONLY",
-    "firstrade": "FIRSTRADE_DRY_RUN_ONLY",
-    "binance": "BINANCE_DRY_RUN",
-}
+PRODUCTION_WRITER_REF = "refs/heads/main"
 
 
 @dataclass(frozen=True)
 class Assignment:
+    """One deterministic GitHub Actions variable write derived from a target."""
+
     target_id: str
     repository: str
     variable_scope: str
@@ -211,9 +168,6 @@ def redacted_value() -> str:
     return "<redacted>"
 
 
-PRODUCTION_WRITER_REF = "refs/heads/main"
-
-
 def production_resource_key(
     *,
     repository: str,
@@ -226,11 +180,7 @@ def production_resource_key(
 
 
 def require_production_writer_ref(ref: str | None = None) -> str:
-    """Reject writes from feature branches or other stale workflow refs.
-
-    Shared workflow concurrency only serializes known writers in this repository.
-    It is not a complete cross-workflow or cross-repository lock.
-    """
+    """Reject writes from feature branches or other stale workflow refs."""
     actual = os.environ.get("GITHUB_REF", "") if ref is None else ref
     if actual != PRODUCTION_WRITER_REF:
         raise ValueError("stale_writer_ref_rejected")
@@ -301,15 +251,6 @@ def assignment_payload(assignment: Assignment, *, redact_values: bool = False) -
 
 def compact_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-
-
-def runtime_target_fingerprint(runtime_target: dict[str, Any]) -> str:
-    """Fingerprint a frozen target excluding only its current continuity state."""
-
-    payload = dict(runtime_target)
-    payload.pop("live_continuity", None)
-    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def env_string(value: Any) -> str:
@@ -439,435 +380,18 @@ def target_path_id(path: Path) -> str | None:
             break
         except ValueError:
             continue
-    if relative is None:
-        return None
-    if relative.suffix != ".json" or len(relative.parts) != 2:
+    if relative is None or relative.suffix != ".json" or len(relative.parts) != 2:
         return None
     stem = relative.stem.removesuffix(".example")
     return f"{relative.parent.as_posix()}/{stem}"
 
 
-def is_secret_variable_name(name: str) -> bool:
-    upper_name = name.upper()
-    allowed_secret_pointer_suffixes = (
-        "_SECRET_ID",
-        "_SECRET_NAME",
-        "_SECRET_REF",
-        "_SECRET_RESOURCE",
-        "_SECRET_RESOURCE_NAME",
-        "_SECRET_VERSION",
-    )
-    if upper_name.endswith(allowed_secret_pointer_suffixes):
-        return False
-    return any(marker in upper_name for marker in SECRET_MARKERS)
-
-
-def validate_github(target: dict[str, Any], errors: list[str]) -> None:
-    github = target.get("github")
-    if not isinstance(github, dict):
-        errors.append("github must be an object")
-        return
-
-    repository = github.get("repository")
-    if not isinstance(repository, str) or "/" not in repository:
-        errors.append("github.repository must be owner/repo")
-
-    scope = github.get("variable_scope")
-    if scope not in {"repository", "environment"}:
-        errors.append("github.variable_scope must be repository or environment")
-    if scope == "environment" and not str(github.get("environment") or "").strip():
-        errors.append("github.environment is required for environment variable scope")
-    if scope == "repository" and github.get("environment"):
-        errors.append("github.environment must be omitted for repository variable scope")
-
-
-
-def validate_account_domain(domain: Any, errors: list[str]) -> None:
-    identity_fields = {"environment", "platform_id", "server", "account_id_fingerprint", "lifecycle_id"}
-    policy_fields = {"capital_kind", "product", "phase", "account_type", "style", "preference", "currency", "source", "effective_at", "valid_until", "version"}
-    if not isinstance(domain, dict) or set(domain) != {"identity", "policy"}:
-        errors.append("runtime_target.account_domain must contain identity and policy")
-        return
-    identity, policy = domain["identity"], domain["policy"]
-    if not isinstance(identity, dict) or set(identity) != identity_fields or not all(isinstance(v, str) and v.strip() for v in identity.values()):
-        errors.append("runtime_target.account_domain.identity is invalid")
-        return
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", identity["account_id_fingerprint"]):
-        errors.append("runtime_target.account_domain.identity fingerprint is invalid")
-    if not isinstance(policy, dict) or set(policy) != policy_fields or not all(isinstance(v, str) and v.strip() for v in policy.values()):
-        errors.append("runtime_target.account_domain.policy is invalid")
-        return
-    ftmo = (policy["capital_kind"], policy["product"], policy["phase"], identity["environment"]) == ("FTMO_SIMULATED", "FTMO_CFD_2_STEP", "FREE_TRIAL", "DEMO") and policy["account_type"] in {"STANDARD", "SWING"}
-    own = (policy["capital_kind"], policy["product"], policy["phase"], identity["environment"]) == ("OWN_REAL", "BROKERAGE", "LIVE", "LIVE") and policy["account_type"] in {"CASH", "MARGIN"}
-    if not (ftmo or own):
-        errors.append("runtime_target.account_domain policy combination is invalid")
-    if policy["preference"] not in {"CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"}:
-        errors.append("runtime_target.account_domain preference is invalid")
-    if not re.fullmatch(r"[A-Z]{3}", policy["currency"]):
-        errors.append("runtime_target.account_domain currency is invalid")
-    try:
-        effective = datetime.fromisoformat(policy["effective_at"].replace("Z", "+00:00"))
-        expiry = datetime.fromisoformat(policy["valid_until"].replace("Z", "+00:00"))
-        if effective.utcoffset() != timedelta(0) or expiry.utcoffset() != timedelta(0) or expiry <= effective:
-            raise ValueError
-    except ValueError:
-        errors.append("runtime_target.account_domain policy validity interval is invalid")
-
-def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
-    runtime_target = target.get("runtime_target")
-    if not isinstance(runtime_target, dict):
-        errors.append("runtime_target must be an object")
-        return
-
-    if "account_domain" in runtime_target:
-        validate_account_domain(runtime_target["account_domain"], errors)
-        domain = runtime_target["account_domain"]
-        if isinstance(domain, dict) and isinstance(domain.get("identity"), dict):
-            if domain["identity"].get("platform_id") != runtime_target.get("platform_id"):
-                errors.append("runtime_target.account_domain platform_id must match runtime_target.platform_id")
-
-    for field in RUNTIME_REQUIRED_FIELDS:
-        if field not in runtime_target:
-            errors.append(f"runtime_target.{field} is required")
-
-    platform_id = runtime_target.get("platform_id")
-    if platform_id not in SUPPORTED_PLATFORMS:
-        errors.append(f"runtime_target.platform_id is unsupported: {platform_id!r}")
-
-    strategy_profile = runtime_target.get("strategy_profile")
-    if not isinstance(strategy_profile, str) or not strategy_profile.strip():
-        errors.append("runtime_target.strategy_profile must be a non-empty string")
-
-    if not isinstance(runtime_target.get("dry_run_only"), bool):
-        errors.append("runtime_target.dry_run_only must be boolean")
-
-    account_selector = runtime_target.get("account_selector")
-    if not isinstance(account_selector, list) or not account_selector:
-        errors.append("runtime_target.account_selector must be a non-empty list")
-    elif not all(isinstance(item, str) and item.strip() for item in account_selector):
-        errors.append("runtime_target.account_selector must only contain non-empty strings")
-
-    execution_mode = runtime_target.get("execution_mode")
-    domain = runtime_target.get("account_domain")
-    if isinstance(domain, dict) and isinstance(domain.get("policy"), dict):
-        kind = domain["policy"].get("capital_kind")
-        if runtime_target.get("dry_run_only") is False:
-            required_mode = {"FTMO_SIMULATED": "paper", "OWN_REAL": "live"}.get(kind)
-            if required_mode is None or execution_mode != required_mode:
-                errors.append("runtime_target.execution_mode conflicts with account_domain capital_kind")
-    if execution_mode not in {"live", "paper", "dry_run"}:
-        errors.append("runtime_target.execution_mode must be live, paper, or dry_run")
-    else:
-        dry_run_only = runtime_target.get("dry_run_only")
-        if execution_mode == "live" and dry_run_only is not False:
-            errors.append("runtime_target.execution_mode live requires dry_run_only false")
-        if execution_mode == "dry_run" and dry_run_only is not True:
-            errors.append("runtime_target.execution_mode dry_run requires dry_run_only true")
-        validate_runtime_target_strategy_policy(runtime_target, errors)
-
-    execution_windows = runtime_target.get("execution_windows")
-    if execution_windows is not None:
-        if not isinstance(execution_windows, dict):
-            errors.append("runtime_target.execution_windows must be an object when present")
-        else:
-            for window_name, allowed_modes in WINDOW_MODES.items():
-                window = execution_windows.get(window_name)
-                if window is None:
-                    continue
-                if not isinstance(window, dict):
-                    errors.append(f"runtime_target.execution_windows.{window_name} must be an object")
-                    continue
-                for field in window:
-                    if field not in {"enabled", "offset_minutes", "mode"}:
-                        errors.append(f"runtime_target.execution_windows.{window_name}.{field} is unsupported")
-                if "enabled" in window and not isinstance(window["enabled"], bool):
-                    errors.append(f"runtime_target.execution_windows.{window_name}.enabled must be boolean")
-                if "offset_minutes" in window:
-                    offset_minutes = window["offset_minutes"]
-                    if not isinstance(offset_minutes, int) or offset_minutes < 0:
-                        errors.append(
-                            "runtime_target.execution_windows."
-                            f"{window_name}.offset_minutes must be a non-negative integer"
-                        )
-                mode = window.get("mode")
-                if mode is not None and mode not in allowed_modes:
-                    errors.append(
-                        f"runtime_target.execution_windows.{window_name}.mode must be one of {sorted(allowed_modes)}"
-                    )
-            for window_name in execution_windows:
-                if window_name not in WINDOW_MODES:
-                    errors.append("runtime_target.execution_windows only supports precheck and execution")
-                    break
-
-    scheduler = runtime_target.get("scheduler")
-    if scheduler is not None:
-        if not isinstance(scheduler, dict):
-            errors.append("runtime_target.scheduler must be an object when present")
-        else:
-            for field in scheduler:
-                if field not in SCHEDULER_FIELDS:
-                    errors.append(f"runtime_target.scheduler.{field} is unsupported")
-            timezone = scheduler.get("timezone")
-            if not isinstance(timezone, str) or not timezone.strip():
-                errors.append("runtime_target.scheduler.timezone must be a non-empty string")
-            for field in ("main_time", "probe_time", "precheck_time"):
-                value = scheduler.get(field)
-                if not isinstance(value, str) or len(value.split()) not in {2, 5}:
-                    errors.append(f"runtime_target.scheduler.{field} must have 2 time fields or 5 cron fields")
-            validate_live_ibkr_us_scheduler(
-                runtime_target,
-                scheduler,
-                errors,
-                plugin_mounts=_effective_target_plugin_mounts(target, runtime_target),
-            )
-
-    configured_market_fields = []
-    for field in MARKET_FIELDS:
-        value = runtime_target.get(field)
-        if value is not None:
-            configured_market_fields.append(field)
-        if value is not None and (not isinstance(value, str) or not value.strip()):
-            errors.append(f"runtime_target.{field} must be a non-empty string when present")
-    if configured_market_fields and len(configured_market_fields) != len(MARKET_FIELDS):
-        errors.append(
-            "runtime_target market metadata must include "
-            "market, market_calendar, and market_timezone together"
-        )
-    market_timezone = runtime_target.get("market_timezone")
-    if isinstance(market_timezone, str) and market_timezone.strip():
-        try:
-            ZoneInfo(market_timezone)
-        except (ZoneInfoNotFoundError, ValueError):
-            errors.append(f"runtime_target.market_timezone is invalid: {market_timezone!r}")
-    validate_strategy_release(runtime_target, errors)
-    validate_decision_data(runtime_target, errors)
-    validate_live_continuity(runtime_target, errors)
-
-
-def validate_strategy_release(runtime_target: dict[str, Any], errors: list[str]) -> None:
-    """Validate an optional immutable release identity without enabling it.
-
-    Existing targets intentionally remain valid without ``strategy_release``
-    during the read-only migration. Once present, however, a partial identity
-    is never accepted because it could be mistaken for a verified release.
-    """
-
-    release = runtime_target.get("strategy_release")
-    if release is None:
-        return
-    if not isinstance(release, dict):
-        errors.append("runtime_target.strategy_release must be an object when present")
-        return
-    unexpected = sorted(set(release) - set(STRATEGY_RELEASE_REQUIRED_FIELDS))
-    if unexpected:
-        errors.append(
-            "runtime_target.strategy_release contains unsupported fields: "
-            + ", ".join(unexpected)
-        )
-    for field in STRATEGY_RELEASE_REQUIRED_FIELDS:
-        value = release.get(field)
-        if not isinstance(value, str) or not value.strip():
-            errors.append(f"runtime_target.strategy_release.{field} is required")
-            continue
-        if field == "release_id" and not STRATEGY_RELEASE_ID_PATTERN.fullmatch(value.strip()):
-            errors.append("runtime_target.strategy_release.release_id has invalid characters")
-        if field in STRATEGY_RELEASE_DIGEST_FIELDS and not SHA256_PATTERN.fullmatch(value.strip()):
-            errors.append(f"runtime_target.strategy_release.{field} must be a SHA-256 digest")
-        if field == "effective_session":
-            try:
-                date.fromisoformat(value.strip())
-            except ValueError:
-                errors.append(
-                    "runtime_target.strategy_release.effective_session must be an ISO-8601 date"
-                )
-
-
-def validate_decision_data(runtime_target: dict[str, Any], errors: list[str]) -> None:
-    """Validate an optional public-safe decision-data binding summary.
-
-    The field is intentionally optional during the migration: adding the
-    schema must not change any incumbent target's execution behavior. Once a
-    target declares it, partial bindings, private paths, and silent fallback
-    shapes are rejected before settings can be published.
-    """
-
-    decision_data = runtime_target.get("decision_data")
-    if decision_data is None:
-        return
-    if not isinstance(decision_data, dict):
-        errors.append("runtime_target.decision_data must be an object when present")
-        return
-
-    unsupported = sorted(set(decision_data) - DECISION_DATA_FIELDS)
-    if unsupported:
-        errors.append(
-            "runtime_target.decision_data contains unsupported fields: " + ", ".join(unsupported)
-        )
-    for field in sorted(DECISION_DATA_REQUIRED_FIELDS):
-        if field not in decision_data:
-            errors.append(f"runtime_target.decision_data.{field} is required")
-
-    for field in ("binding_id", "strategy_scope"):
-        value = decision_data.get(field)
-        if not isinstance(value, str) or not DECISION_DATA_IDENTIFIER_PATTERN.fullmatch(value.strip()):
-            errors.append(f"runtime_target.decision_data.{field} must be a stable identifier")
-
-    binding_sha256 = decision_data.get("binding_sha256")
-    if not isinstance(binding_sha256, str) or not SHA256_PATTERN.fullmatch(binding_sha256.strip()):
-        errors.append("runtime_target.decision_data.binding_sha256 must be a SHA-256 digest")
-
-    mode = decision_data.get("mode")
-    if mode not in DECISION_DATA_MODES:
-        errors.append(
-            "runtime_target.decision_data.mode must be one of " + ", ".join(sorted(DECISION_DATA_MODES))
-        )
-
-    source_ids = decision_data.get("source_ids")
-    if not isinstance(source_ids, list) or not source_ids:
-        errors.append("runtime_target.decision_data.source_ids must be a non-empty list")
-    elif (
-        not all(isinstance(value, str) and DECISION_DATA_IDENTIFIER_PATTERN.fullmatch(value.strip()) for value in source_ids)
-        or len(set(source_ids)) != len(source_ids)
-    ):
-        errors.append("runtime_target.decision_data.source_ids must contain unique stable identifiers")
-
-    assurance_status = decision_data.get("assurance_status")
-    if assurance_status not in DECISION_DATA_ASSURANCE_STATUSES:
-        errors.append(
-            "runtime_target.decision_data.assurance_status must be one of "
-            + ", ".join(sorted(DECISION_DATA_ASSURANCE_STATUSES))
-        )
-
-    if mode == "legacy_runtime_fetch":
-        unexpected = sorted(field for field in DECISION_DATA_ARTIFACT_FIELDS if field in decision_data)
-        if unexpected:
-            errors.append(
-                "runtime_target.decision_data.legacy_runtime_fetch must not contain " + ", ".join(unexpected)
-            )
-        if assurance_status != "LEGACY":
-            errors.append("runtime_target.decision_data.legacy_runtime_fetch requires assurance_status LEGACY")
-        return
-
-    for field in sorted(DECISION_DATA_ARTIFACT_FIELDS):
-        value = decision_data.get(field)
-        if not isinstance(value, str) or not value.strip():
-            errors.append(f"runtime_target.decision_data.{field} is required for artifact modes")
-    artifact_sha256 = decision_data.get("artifact_sha256")
-    if isinstance(artifact_sha256, str) and artifact_sha256.strip() and not SHA256_PATTERN.fullmatch(artifact_sha256.strip()):
-        errors.append("runtime_target.decision_data.artifact_sha256 must be a SHA-256 digest")
-    adjustment_basis = decision_data.get("adjustment_basis")
-    if isinstance(adjustment_basis, str) and adjustment_basis.strip() and not DECISION_DATA_IDENTIFIER_PATTERN.fullmatch(adjustment_basis.strip()):
-        errors.append("runtime_target.decision_data.adjustment_basis must be a stable identifier")
-    as_of = decision_data.get("as_of")
-    if isinstance(as_of, str) and as_of.strip():
-        try:
-            date.fromisoformat(as_of.strip())
-        except ValueError:
-            errors.append("runtime_target.decision_data.as_of must be an ISO-8601 date")
-    if assurance_status == "LEGACY":
-        errors.append("runtime_target.decision_data artifact modes must not use LEGACY assurance_status")
-    if mode == "artifact_required" and assurance_status != "VERIFIED":
-        errors.append("runtime_target.decision_data artifact_required requires assurance_status VERIFIED")
-
-
-def validate_live_continuity(runtime_target: dict[str, Any], errors: list[str]) -> None:
-    """Validate a frozen incumbent baseline independently of candidate policy."""
-
-    continuity = runtime_target.get("live_continuity")
-    if continuity is None:
-        return
-    if not isinstance(continuity, dict):
-        errors.append("runtime_target.live_continuity must be an object when present")
-        return
-    unsupported = sorted(set(continuity) - LIVE_CONTINUITY_FIELDS)
-    if unsupported:
-        errors.append(
-            "runtime_target.live_continuity contains unsupported fields: " + ", ".join(unsupported)
-        )
-    for field in sorted(LIVE_CONTINUITY_FIELDS):
-        value = continuity.get(field)
-        if not isinstance(value, str) or not value.strip():
-            errors.append(f"runtime_target.live_continuity.{field} is required")
-
-    state = str(continuity.get("state") or "").strip().upper()
-    if state not in LIVE_CONTINUITY_STATES:
-        errors.append(
-            "runtime_target.live_continuity.state must be one of "
-            + ", ".join(sorted(LIVE_CONTINUITY_STATES))
-        )
-    baseline_kind = str(continuity.get("baseline_kind") or "").strip()
-    if baseline_kind not in LIVE_CONTINUITY_BASELINE_KINDS:
-        errors.append(
-            "runtime_target.live_continuity.baseline_kind must be one of "
-            + ", ".join(sorted(LIVE_CONTINUITY_BASELINE_KINDS))
-        )
-    baseline_id = str(continuity.get("baseline_id") or "").strip()
-    if baseline_id and not LIVE_CONTINUITY_BASELINE_ID_PATTERN.fullmatch(baseline_id):
-        errors.append("runtime_target.live_continuity.baseline_id has invalid characters")
-    digest = str(continuity.get("baseline_target_sha256") or "").strip().lower()
-    digest = digest.removeprefix("sha256:")
-    if not SHA256_PATTERN.fullmatch(digest):
-        errors.append("runtime_target.live_continuity.baseline_target_sha256 must be a SHA-256 digest")
-    elif digest != runtime_target_fingerprint(runtime_target):
-        errors.append(
-            "runtime_target.live_continuity.baseline_target_sha256 does not match the runtime target"
-        )
-    captured_at = str(continuity.get("captured_at") or "").strip()
-    if captured_at:
-        try:
-            date.fromisoformat(captured_at)
-        except ValueError:
-            errors.append("runtime_target.live_continuity.captured_at must be an ISO-8601 date")
-    if baseline_kind == "release_attested" and not isinstance(runtime_target.get("strategy_release"), dict):
-        errors.append("release_attested live_continuity requires runtime_target.strategy_release")
-
-
-def is_live_continuity_target(runtime_target: dict[str, Any]) -> bool:
-    return isinstance(runtime_target.get("live_continuity"), dict)
-
-
 def _effective_target_plugin_mounts(target: dict[str, Any], runtime_target: dict[str, Any]) -> Any:
-    """Resolve strategy plugin mounts from top-level target or matched service inventory entry."""
-    if isinstance(target.get("plugin_mounts"), list):
-        return target["plugin_mounts"]
-    platform = str(runtime_target.get("platform_id") or "").strip()
-    platform_cfg = SUPPORTED_PLATFORMS.get(platform)
-    if not isinstance(platform_cfg, dict):
-        return None
-    mounts_variable = f"{platform_cfg.get('plugin_mounts_prefix', '')}STRATEGY_PLUGIN_MOUNTS_JSON"
-    for scope_key in ("extra_variables", "repository_variables"):
-        variables = target.get(scope_key)
-        if not isinstance(variables, dict) or "CLOUD_RUN_SERVICE_TARGETS_JSON" not in variables:
-            continue
-        inventory = variables.get("CLOUD_RUN_SERVICE_TARGETS_JSON")
-        if isinstance(inventory, str):
-            try:
-                inventory = json.loads(inventory)
-            except json.JSONDecodeError:
-                continue
-        raw_entries = inventory.get("targets") if isinstance(inventory, dict) else inventory
-        if not isinstance(raw_entries, list) or any(not isinstance(item, dict) for item in raw_entries):
-            continue
-        try:
-            matched_index = select_service_target_entry_index(runtime_target, raw_entries)
-        except ValueError:
-            continue
-        if matched_index is None:
-            continue
-        entry = raw_entries[matched_index]
-        raw_mounts = entry.get(mounts_variable)
-        if raw_mounts is None and isinstance(entry.get("env"), dict):
-            raw_mounts = entry["env"].get(mounts_variable)
-        if isinstance(raw_mounts, str):
-            try:
-                raw_mounts = json.loads(raw_mounts)
-            except json.JSONDecodeError:
-                continue
-        if isinstance(raw_mounts, dict) and isinstance(raw_mounts.get("strategy_plugins"), list):
-            return raw_mounts["strategy_plugins"]
-        if isinstance(raw_mounts, list):
-            return raw_mounts
-    return None
+    return _effective_target_plugin_mounts_impl(
+        target,
+        runtime_target,
+        supported_platforms=SUPPORTED_PLATFORMS,
+    )
 
 
 def validate_live_ibkr_us_scheduler(
@@ -877,445 +401,74 @@ def validate_live_ibkr_us_scheduler(
     *,
     plugin_mounts: Any = None,
 ) -> None:
-    if (
-        runtime_target.get("platform_id") != "ibkr"
-        or runtime_target.get("execution_mode") != "live"
-        or runtime_target.get("dry_run_only") is not False
-    ):
-        return
-
-    config = load_platform_config()
-    strategies = config.get("strategies", {})
-    domains = config.get("domains", {})
-    profile = str(runtime_target.get("strategy_profile") or "").strip()
-    normalized_profile = profile.lower().replace("-", "_")
-    canonical_profile = strategy_aliases().get(normalized_profile, normalized_profile)
-    strategy = strategies.get(canonical_profile) if isinstance(strategies, dict) else None
-    if not isinstance(strategy, dict) and isinstance(strategies, dict) and canonical_profile != profile:
-        strategy = strategies.get(profile)
-    domain = (
-        domains.get(strategy.get("domain"))
-        if isinstance(strategy, dict) and isinstance(domains, dict)
-        else None
+    _validate_live_ibkr_us_scheduler_impl(
+        runtime_target,
+        scheduler,
+        errors,
+        plugin_mounts=plugin_mounts,
+        load_config_fn=load_platform_config,
+        aliases_fn=strategy_aliases,
     )
-
-    market = str(runtime_target.get("market") or "").strip().upper()
-    if not market and isinstance(domain, dict):
-        market = str(domain.get("market") or "").strip().upper()
-    if market != "US":
-        return
-
-    scheduler_profile = None
-    if isinstance(strategy, dict):
-        scheduler_profile = strategy.get("scheduler_profile")
-        plugin_overrides = strategy.get("scheduler_profile_by_plugin")
-        if isinstance(plugin_overrides, dict) and isinstance(plugin_mounts, list):
-            for mount in plugin_mounts:
-                if (
-                    isinstance(mount, dict)
-                    and mount.get("strategy") in {canonical_profile, profile}
-                    and mount.get("enabled") is True
-                ):
-                    plugin = str(mount.get("plugin") or "").strip()
-                    if plugin in plugin_overrides:
-                        scheduler_profile = plugin_overrides[plugin]
-    if not scheduler_profile and isinstance(domain, dict):
-        scheduler_profile = domain.get("scheduler_profile")
-
-    allow_23x5 = str(scheduler_profile or "").strip().startswith("us_23x5_")
-    allowed_weekdays = {"1-5", "0-5", "0,1-5"} if allow_23x5 else {"1-5"}
-
-    for field in ("main_time", "probe_time", "precheck_time"):
-        value = scheduler.get(field)
-        if not isinstance(value, str):
-            continue
-        cron = value.split()
-        if len(cron) == 2:
-            continue
-        if len(cron) == 5 and cron[2] == "*" and cron[4] in allowed_weekdays:
-            continue
-        if allow_23x5:
-            errors.append(
-                f"runtime_target.scheduler.{field} must be a two-field time or Sun-Fri 23x5 cron "
-                "for live IBKR US 23x5 targets"
-            )
-        else:
-            errors.append(
-                f"runtime_target.scheduler.{field} must be a two-field time or Mon-Fri cron "
-                "for live IBKR US targets"
-            )
 
 
 def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], errors: list[str]) -> None:
-    config = load_platform_config()
-    strategies = config.get("strategies", {})
-    platforms = config.get("platforms", {})
-    domains = config.get("domains", {})
-    if not isinstance(strategies, dict) or not isinstance(platforms, dict) or not isinstance(domains, dict):
-        return
-    profile = str(runtime_target.get("strategy_profile") or "").strip()
-    normalized_profile = profile.lower().replace("-", "_")
-    canonical_profile = strategy_aliases().get(normalized_profile, normalized_profile)
-    strategy = strategies.get(canonical_profile)
-    if not isinstance(strategy, dict) and canonical_profile != profile:
-        strategy = strategies.get(profile)
-    if not isinstance(strategy, dict):
-        return
-
-    platform_id = str(runtime_target.get("platform_id") or "").strip()
-    platform = platforms.get(platform_id)
-    domain = str(strategy.get("domain") or "").strip()
-    domain_config = domains.get(domain)
-    supported_domains = platform.get("supported_domains", []) if isinstance(platform, dict) else []
-    if domain and isinstance(supported_domains, list) and supported_domains and domain not in supported_domains:
-        errors.append(f"runtime_target.strategy_profile domain {domain} is not supported by {platform_id}")
-
-    if isinstance(domain_config, dict):
-        if any(runtime_target.get(field) is not None for field in MARKET_FIELDS):
-            for field in MARKET_FIELDS:
-                actual = runtime_target.get(field)
-                expected = domain_config.get(field)
-                if isinstance(actual, str) and actual.strip() and actual.strip() != expected:
-                    errors.append(
-                        f"runtime_target.{field} must match strategy domain {domain}: expected {expected!r}"
-                    )
-            scheduler = runtime_target.get("scheduler")
-            if isinstance(scheduler, dict):
-                actual_timezone = scheduler.get("timezone")
-                expected_timezone = domain_config.get("market_timezone")
-                if (
-                    isinstance(actual_timezone, str)
-                    and actual_timezone.strip()
-                    and actual_timezone.strip() != expected_timezone
-                ):
-                    errors.append(
-                        "runtime_target.scheduler.timezone must match strategy domain "
-                        f"{domain}: expected {expected_timezone!r}"
-                    )
-
-    execution_mode = effective_execution_mode(runtime_target)
-    deployment = platform.get("deployment", {}) if isinstance(platform, dict) else {}
-    if (
-        execution_mode == "live"
-        and isinstance(deployment, dict)
-        and deployment.get("live_configured") is False
-    ):
-        errors.append(f"platform {platform_id} has no live runtime configuration")
-    supported_execution_modes = (
-        normalize_allowed_execution_modes(deployment.get("supported_execution_modes"))
-        if isinstance(deployment, dict)
-        else []
+    _validate_runtime_target_strategy_policy_impl(
+        runtime_target,
+        errors,
+        load_config_fn=load_platform_config,
+        aliases_fn=strategy_aliases,
+        validate_live_continuity_fn=validate_live_continuity,
+        is_live_continuity_target_fn=is_live_continuity_target,
     )
-    if supported_execution_modes and execution_mode not in supported_execution_modes:
-        errors.append(
-            f"platform {platform_id} does not support {execution_mode} control execution"
-        )
-    continuity_target = is_live_continuity_target(runtime_target)
-    if strategy.get("frozen") is True:
-        continuity = runtime_target.get("live_continuity")
-        continuity_errors: list[str] = []
-        validate_live_continuity(runtime_target, continuity_errors)
-        allowed_continuity = (
-            execution_mode == "live"
-            and isinstance(continuity, dict)
-            and continuity.get("state") in {"RECONCILE_ONLY", "RISK_REDUCTION_ONLY"}
-            and not continuity_errors
-        )
-        if not allowed_continuity:
-            errors.append(f"runtime_target.strategy_profile {profile} is frozen for new selection")
-    allowed_modes = normalize_allowed_execution_modes(strategy.get("allowed_execution_modes"))
-    if allowed_modes and execution_mode not in allowed_modes and not continuity_target:
-        errors.append(f"runtime_target.strategy_profile {profile} does not allow {execution_mode} execution")
-
-    if execution_mode != "live":
-        return
-    if continuity_target:
-        continuity_policy = strategy.get("live_continuity")
-        if not isinstance(continuity_policy, dict) or continuity_policy.get("eligible") is not True:
-            errors.append(
-                f"runtime_target.strategy_profile {profile} is not eligible for live continuity"
-            )
-            return
-        allowed_platforms = continuity_policy.get("allowed_platforms")
-        if not isinstance(allowed_platforms, list) or platform_id not in allowed_platforms:
-            errors.append(
-                f"runtime_target.strategy_profile {profile} live continuity is not allowed on {platform_id}"
-            )
-        return
-    lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
-    if strategy.get("runtime_enabled") is not True:
-        errors.append(f"runtime_target.strategy_profile {profile} is not runtime_enabled")
-    if strategy.get("can_switch_live") is not True:
-        errors.append(f"runtime_target.strategy_profile {profile} cannot switch live")
-    if lifecycle_stage not in {"live_enabled", "runtime_enabled"}:
-        errors.append(
-            f"runtime_target.strategy_profile {profile} lifecycle_stage must be "
-            "live_enabled (or legacy runtime_enabled) for live"
-        )
-    if "live" not in allowed_modes:
-        errors.append(
-            f"runtime_target.strategy_profile {profile} must explicitly allow live execution"
-        )
-    blocked_reason = str(strategy.get("blocked_live_reason") or "").strip()
-    if blocked_reason:
-        errors.append(f"runtime_target.strategy_profile {profile} is blocked for live: {blocked_reason}")
 
 
-def normalize_allowed_execution_modes(value: Any) -> list[str]:
-    if isinstance(value, str):
-        raw_modes = re.split(r"[,\s/|]+", value)
-    elif isinstance(value, (list, tuple, set)):
-        raw_modes = list(value)
-    else:
-        return []
-    modes: list[str] = []
-    for item in raw_modes:
-        mode = str(item or "").strip().lower()
-        if mode and mode not in modes:
-            modes.append(mode)
-    return modes
-
-
-def effective_execution_mode(runtime_target: dict[str, Any]) -> str:
-    """Return the policy mode without changing a legacy serialized target.
-
-    ``execution_mode=paper`` combined with ``dry_run_only=true`` is the
-    deployed no-order envelope, not a P4 paper-broker authorization. The
-    manual switch accepts canonical ``dry_run`` and serializes that envelope
-    until every platform parser has migrated.
-    """
-    mode = str(runtime_target.get("execution_mode") or "").strip().lower()
-    if runtime_target.get("dry_run_only") is True and mode in {"paper", "dry_run"}:
-        return "dry_run"
-    return mode
+def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
+    _validate_runtime_target_impl(
+        target,
+        errors,
+        supported_platforms=SUPPORTED_PLATFORMS,
+        strategy_policy_validator=validate_runtime_target_strategy_policy,
+        scheduler_validator=validate_live_ibkr_us_scheduler,
+        effective_mounts_fn=_effective_target_plugin_mounts,
+    )
 
 
 def validate_plugin_mounts(target: dict[str, Any], errors: list[str]) -> None:
-    runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
-    strategy_profile = runtime_target.get("strategy_profile")
-    platform_id = runtime_target.get("platform_id")
-    mounts_variable = target.get("plugin_mounts_variable")
-    mounts = target.get("plugin_mounts", [])
-
-    if mounts_variable is not None:
-        if not isinstance(mounts_variable, str) or not mounts_variable.strip():
-            errors.append("plugin_mounts_variable must be a non-empty string when present")
-        elif platform_id in SUPPORTED_PLATFORMS:
-            expected_prefix = SUPPORTED_PLATFORMS[platform_id]["plugin_mounts_prefix"]
-            if not mounts_variable.startswith(expected_prefix):
-                errors.append(f"plugin_mounts_variable should start with {expected_prefix!r} for {platform_id}")
-
-    if mounts_variable is None and mounts:
-        errors.append("plugin_mounts_variable is required when plugin_mounts are present")
-        return
-
-    if not isinstance(mounts, list):
-        errors.append("plugin_mounts must be a list")
-        return
-
-    matching_plugins: set[str] = set()
-    for index, mount in enumerate(mounts):
-        if not isinstance(mount, dict):
-            errors.append(f"plugin_mounts[{index}] must be an object")
-            continue
-
-        for field in ("strategy", "plugin", "signal_path", "enabled", "expected_mode"):
-            if field not in mount:
-                errors.append(f"plugin_mounts[{index}].{field} is required")
-
-        if not isinstance(mount.get("enabled"), bool):
-            errors.append(f"plugin_mounts[{index}].enabled must be boolean")
-
-        expected_schema_version = mount.get("expected_schema_version")
-        if expected_schema_version is not None and (
-            not isinstance(expected_schema_version, str) or not expected_schema_version.strip()
-        ):
-            errors.append(f"plugin_mounts[{index}].expected_schema_version must be a non-empty string")
-
-        expected_mode = mount.get("expected_mode")
-        if not isinstance(expected_mode, str) or expected_mode not in {"dry_run", "paper", "shadow"}:
-            errors.append(
-                f"plugin_mounts[{index}].expected_mode must be dry_run, paper, or shadow; plugins cannot request live execution"
-            )
-
-        signal_path = mount.get("signal_path")
-        if not isinstance(signal_path, str) or not signal_path.startswith("gs://"):
-            errors.append(f"plugin_mounts[{index}].signal_path must be a gs:// URI")
-
-        if mount.get("strategy") == strategy_profile and mount.get("enabled") is True:
-            plugin = mount.get("plugin")
-            if isinstance(plugin, str):
-                matching_plugins.add(plugin)
-
-    policy = load_local_policy()
-    required_plugins_by_strategy = policy.get("required_plugins_by_strategy", {})
-    if required_plugins_by_strategy and not isinstance(required_plugins_by_strategy, dict):
-        errors.append("local policy required_plugins_by_strategy must be an object")
-        return
-
-    required_plugins = required_plugins_by_strategy.get(strategy_profile, [])
-    if isinstance(required_plugins, str):
-        required_plugins = [required_plugins]
-    if not isinstance(required_plugins, list):
-        errors.append(f"local policy required plugins for {strategy_profile} must be a list or string")
-        return
-    for plugin in required_plugins:
-        if plugin not in matching_plugins:
-            errors.append(f"{strategy_profile} requires an enabled {plugin} plugin mount")
-
-
-def option_bool_value(value: Any) -> bool | None:
-    text = str(value if value is not None else "").strip().lower()
-    if text in {"1", "true", "yes", "y", "on"}:
-        return True
-    if text in {"0", "false", "no", "n", "off"}:
-        return False
-    return None
-
-
-def validate_option_overlay_variables(extra_variables: dict[str, Any], errors: list[str]) -> None:
-    """Reject legacy option requests while allowing explicit disabled markers."""
-    for name in sorted(OPTION_OVERLAY_VARIABLES):
-        if name not in extra_variables:
-            continue
-        value = extra_variables[name]
-        text = str(value if value is not None else "").strip()
-        if not text:
-            continue
-        if name in OPTION_OVERLAY_ENABLED_VARIABLES and option_bool_value(value) is False:
-            continue
-        errors.append(f"extra_variables.{name}: option overlay retired; migrate existing settings explicitly")
-
-
-def validate_nonsecret_service_target_inventory(value: Any, *, path: str, errors: list[str]) -> None:
-    """Reject secret-shaped keys nested in a variable-backed service inventory."""
-    payload = value
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except json.JSONDecodeError:
-            return
-
-    def visit(node: Any, current_path: str) -> None:
-        if isinstance(node, dict):
-            for key, nested in node.items():
-                key_text = str(key)
-                nested_path = f"{current_path}.{key_text}"
-                if is_secret_variable_name(key_text):
-                    errors.append(f"{nested_path} looks like a secret and must not be stored here")
-                    continue
-                visit(nested, nested_path)
-        elif isinstance(node, list):
-            for index, nested in enumerate(node):
-                visit(nested, f"{current_path}[{index}]")
-
-    if isinstance(payload, (dict, list)):
-        visit(payload, path)
+    _validate_plugin_mounts_impl(
+        target,
+        errors,
+        supported_platforms=SUPPORTED_PLATFORMS,
+        load_local_policy_fn=load_local_policy,
+    )
 
 
 def validate_extra_variables(target: dict[str, Any], errors: list[str]) -> None:
-    extra_variables = target.get("extra_variables", {})
-    if not isinstance(extra_variables, dict):
-        errors.append("extra_variables must be an object")
-        return
-
-    generated_names = set(GENERATED_VARIABLES)
-    plugin_mounts_variable = target.get("plugin_mounts_variable")
-    if isinstance(plugin_mounts_variable, str):
-        generated_names.add(plugin_mounts_variable)
-
-    for name, value in extra_variables.items():
-        if name in generated_names:
-            errors.append(f"extra_variables.{name} duplicates a generated variable")
-        if name in RESEARCH_ONLY_EXTRA_VARIABLES:
-            errors.append(f"extra_variables.{name} is research-only and must not be stored in live switch settings")
-        if is_secret_variable_name(name):
-            errors.append(f"extra_variables.{name} looks like a secret and must not be stored here")
-        if isinstance(value, str) and "\n" in value:
-            errors.append(f"extra_variables.{name} must be a single-line value")
-        if name == "CLOUD_RUN_SERVICE_TARGETS_JSON":
-            validate_nonsecret_service_target_inventory(
-                value, path=f"extra_variables.{name}", errors=errors
-            )
-
-    validate_option_overlay_variables(extra_variables, errors)
-
-    runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
-    dry_run_only = runtime_target.get("dry_run_only")
-    platform_id = runtime_target.get("platform_id")
-    dry_run_variable = PLATFORM_DRY_RUN_VARIABLES.get(str(platform_id or ""))
-    platform_dry_run = extra_variables.get(dry_run_variable) if dry_run_variable else None
-    if platform_dry_run is not None and env_string(platform_dry_run).lower() != env_string(dry_run_only):
-        errors.append(f"extra_variables.{dry_run_variable} must match runtime_target.dry_run_only")
-
-
-def validate_repository_variables(target: dict[str, Any], errors: list[str]) -> None:
-    repository_variables = target.get("repository_variables", {})
-    if not isinstance(repository_variables, dict):
-        errors.append("repository_variables must be an object")
-        return
-
-    extra_variables = target.get("extra_variables")
-    extra_variable_names = set(extra_variables) if isinstance(extra_variables, dict) else set()
-    for name, value in repository_variables.items():
-        if name in GENERATED_VARIABLES:
-            errors.append(f"repository_variables.{name} duplicates a generated variable")
-        if name in extra_variable_names:
-            errors.append(f"repository_variables.{name} duplicates extra_variables.{name}")
-        if name in RESEARCH_ONLY_EXTRA_VARIABLES:
-            errors.append(
-                f"repository_variables.{name} is research-only and must not be stored in live switch settings"
-            )
-        if is_secret_variable_name(name):
-            errors.append(f"repository_variables.{name} looks like a secret and must not be stored here")
-        if isinstance(value, str) and "\n" in value:
-            errors.append(f"repository_variables.{name} must be a single-line value")
-        if name == "CLOUD_RUN_SERVICE_TARGETS_JSON":
-            validate_nonsecret_service_target_inventory(
-                value, path=f"repository_variables.{name}", errors=errors
-            )
+    _validate_extra_variables_impl(target, errors, env_string_fn=env_string)
 
 
 def validate_target(target: dict[str, Any], path: Path | None = None) -> list[str]:
-    errors: list[str] = []
-    target_id = target.get("target_id")
-
-    if not isinstance(target_id, str) or "/" not in target_id:
-        errors.append("target_id must be platform/name")
-    elif path is not None:
-        expected_id = target_path_id(path)
-        if expected_id and expected_id != target_id:
-            errors.append(f"target_id {target_id!r} does not match path id {expected_id!r}")
-
-    validate_github(target, errors)
-    validate_runtime_target(target, errors)
-    validate_plugin_mounts(target, errors)
-    validate_extra_variables(target, errors)
-    validate_repository_variables(target, errors)
-
-    runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
-    github = target.get("github") if isinstance(target.get("github"), dict) else {}
-    platform_id = runtime_target.get("platform_id")
-    if platform_id in SUPPORTED_PLATFORMS:
-        try:
-            expected_repository = platform_repository(platform_id)
-        except ValueError as exc:
-            errors.append(str(exc))
-        else:
-            if github.get("repository") != expected_repository:
-                errors.append(
-                    f"github.repository does not match platform {platform_id}: expected {expected_repository}"
-                )
-
-    return errors
+    return _validate_target_impl(
+        target,
+        path,
+        supported_platforms=SUPPORTED_PLATFORMS,
+        target_path_id_fn=target_path_id,
+        platform_repository_fn=platform_repository,
+        validate_github_fn=validate_github,
+        validate_runtime_target_fn=validate_runtime_target,
+        validate_plugin_mounts_fn=validate_plugin_mounts,
+        validate_extra_variables_fn=validate_extra_variables,
+        validate_repository_variables_fn=validate_repository_variables,
+    )
 
 
 def build_assignments(target: dict[str, Any], *, _existing_disabled: bool = False) -> list[Assignment]:
     errors = validate_target(target)
     if _existing_disabled:
         profile = str(target.get("runtime_target", {}).get("strategy_profile") or "").strip()
-        errors = [error for error in errors if error !=
-                  f"runtime_target.strategy_profile {profile} is frozen for new selection"]
+        errors = [
+            error for error in errors
+            if error != f"runtime_target.strategy_profile {profile} is frozen for new selection"
+        ]
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -1363,964 +516,222 @@ def build_assignments(target: dict[str, Any], *, _existing_disabled: bool = Fals
     return assignments
 
 
-def _optional_stop_correlation(request: dict[str, Any], target_id: str) -> None:
-    """HK may carry the original request correlation; other targets stay unchanged."""
-    if "correlation" not in request:
-        return
-    error = "stop requires an unambiguous current target with matching identity"
-    correlation = request["correlation"]
-    fields = {"request_id", "source_revision", "source_identity_sha256"}
-    revision = correlation["source_revision"] if isinstance(correlation, dict) else None
-    if (target_id != "longbridge/hk" or not isinstance(correlation, dict) or set(correlation) != fields
-            or not isinstance(correlation["request_id"], str)
-            or re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", correlation["request_id"]) is None
-            or type(revision) is not int or revision < 0 or revision > 9007199254740991
-            or not isinstance(correlation["source_identity_sha256"], str)
-            or re.fullmatch(r"[0-9a-f]{64}", correlation["source_identity_sha256"]) is None):
-        raise ValueError(error)
-
-
 def _stop_request_identity(request: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, Any]]:
-    error = "stop requires an unambiguous current target with matching identity"
-    identity_fields = {"platform_id", "deployment_selector", "account_selector", "account_scope", "service_name"}
-    allowed = {"target_id", "github", "runtime_target"}
-    if not isinstance(request, dict) or set(request) not in (allowed, allowed | {"correlation"}):
-        raise ValueError(error)
-    identity = request["runtime_target"]
-    if not isinstance(identity, dict) or set(identity) != identity_fields:
-        raise ValueError(error)
-    for field in identity_fields - {"account_selector"}:
-        if not isinstance(identity[field], str) or not identity[field].strip():
-            raise ValueError(error)
-    selectors = identity["account_selector"]
-    if (not isinstance(selectors, list) or not selectors
-            or not all(isinstance(value, str) and value.strip() for value in selectors)
-            or len(set(selectors)) != len(selectors)):
-        raise ValueError(error)
-    platform = identity["platform_id"]
-    target_id = request["target_id"]
-    if (platform not in SUPPORTED_PLATFORMS or not isinstance(target_id, str)
-            or not re.fullmatch(re.escape(platform) + r"/[A-Za-z0-9][A-Za-z0-9._-]*", target_id)):
-        raise ValueError(error)
-    github = request["github"]
-    errors: list[str] = []
-    validate_github(request, errors)
-    if (errors or set(github) - {"repository", "variable_scope", "environment"}
-            or github["repository"] != platform_repository(platform)):
-        raise ValueError(error)
-    _optional_stop_correlation(request, target_id)
-    return target_id, identity, github
+    return _stop_request_identity_impl(
+        request,
+        supported_platforms=SUPPORTED_PLATFORMS,
+        platform_repository_fn=platform_repository,
+        validate_github_fn=validate_github,
+    )
 
 
-def build_stop_assignments(request: dict[str, Any], current_variables: dict[str, str], *, enabled: bool = False) -> list[Assignment]:
-    """Plan one enabled setting against authoritative, caller-read variables.
-
-    Authentication, source ownership and application belong to the caller.
-    This function does not prove that a running platform adopted the setting.
-    """
-    target_id, identity, github = _stop_request_identity(request)
-    if type(enabled) is not bool or (enabled and identity["platform_id"] not in {"ibkr", "schwab"}):
-        raise ValueError("runtime_control_target_unsupported")
-    enabled_value = "true" if enabled else "false"
-    error = "stop requires an unambiguous current target with matching identity"
-    errors: list[str] = []
-    if not isinstance(current_variables, dict):
-        raise ValueError(error)
-
-    def matches(current: Any) -> bool:
-        return isinstance(current, dict) and all(current.get(key) == value for key, value in identity.items())
-
-    def parse(name: str) -> Any:
-        try:
-            return json.loads(current_variables[name])
-        except (KeyError, TypeError, ValueError):
-            raise ValueError(error) from None
-
-    inventory_name = "CLOUD_RUN_SERVICE_TARGETS_JSON"
-    if inventory_name in current_variables:
-        inventory = parse(inventory_name)
-        entries = inventory.get("targets") if isinstance(inventory, dict) else inventory
-        if not isinstance(entries, list) or not entries or not all(isinstance(entry, dict) for entry in entries):
-            raise ValueError(error)
-        validate_nonsecret_service_target_inventory(inventory, path=inventory_name, errors=errors)
-        if errors:
-            raise ValueError("stop refuses a secret-bearing service inventory")
-        try:
-            index = select_service_target_entry_index(identity, entries, allow_account_scope_fallback=False)
-        except ValueError:
-            raise ValueError(error) from None
-        if index is None or not matches(entries[index].get("runtime_target")):
-            raise ValueError(error)
-        # Some consumers prefer an environment target for its exact service.
-        # An inventory match alone must not authorize stopping another target.
-        source_service = str(current_variables.get("CLOUD_RUN_SERVICE") or "").strip()
-        if (source_service == identity["service_name"]
-                and "RUNTIME_TARGET_JSON" in current_variables
-                and not matches(parse("RUNTIME_TARGET_JSON"))):
-            raise ValueError(error)
-        entry = entries[index]
-        for field in ("service_name", "account_scope"):
-            if _service_target_identity(entry, field) != {identity[field]}:
-                raise ValueError(error)
-        if (identity["platform_id"] == "longbridge" and source_service == identity["service_name"]
-                and str(current_variables.get("RUNTIME_TARGET_ENABLED") or "").strip()):
-            # LongBridge alone prefers this exact service's top-level override.
-            # Writing only the inventory would leave an inherited true active.
-            name, value = "RUNTIME_TARGET_ENABLED", enabled_value
-        else:
-            # The other per-service consumers prefer the inventory override.
-            if identity["platform_id"] == "ibkr":
-                nested = entry.get("env") if isinstance(entry.get("env"), dict) else {}
-                # Match IBKR's upper-case then lower-case, top-level then env precedence.
-                candidates = [(container, key) for key in ("RUNTIME_TARGET_ENABLED", "runtime_target_enabled")
-                              for container in (entry, nested)]
-                location = next(((container, key) for container, key in candidates
-                                 if key in container and container[key] is not None
-                                 and (not isinstance(container[key], str) or container[key].strip())), None)
-                container, key = location if location is not None else (entry, "RUNTIME_TARGET_ENABLED")
-                current = container.get(key)
-                normalized = str(current).strip().lower()
-                same = normalized in ({"true", "1", "yes", "on"} if enabled else {"false", "0", "no", "off"})
-                if not same:
-                    container[key] = enabled if isinstance(current, bool) else enabled_value
-            else:
-                entry["RUNTIME_TARGET_ENABLED"] = enabled_value
-            name, value = inventory_name, compact_json(inventory)
-    else:
-        if not matches(parse("RUNTIME_TARGET_JSON")):
-            raise ValueError(error)
-        for name in ("CLOUD_RUN_SERVICE", "CLOUD_RUN_SERVICES"):
-            services = str(current_variables.get(name) or "").replace(",", " ").split()
-            if services and set(services) != {identity["service_name"]}:
-                raise ValueError(error)
-        name, value = "RUNTIME_TARGET_ENABLED", enabled_value
-    return [Assignment(target_id, github["repository"], github["variable_scope"], github.get("environment"), name, value)]
+def build_stop_assignments(
+    request: dict[str, Any],
+    current_variables: dict[str, str],
+    *,
+    enabled: bool = False,
+) -> list[Assignment]:
+    return _build_stop_assignments_impl(
+        request,
+        current_variables,
+        enabled=enabled,
+        stop_identity_fn=_stop_request_identity,
+        validate_inventory_fn=validate_nonsecret_service_target_inventory,
+        compact_json_fn=compact_json,
+        assignment_cls=Assignment,
+    )
 
 
 def read_stop_variables(github: dict[str, Any]) -> dict[str, str]:
-    """Read every page into memory; never expose variable values or GH errors."""
-    endpoint = f"repos/{github['repository']}"
-    if github["variable_scope"] == "environment":
-        endpoint += f"/environments/{quote(github['environment'], safe='')}"
-    else:
-        endpoint += "/actions"
-    endpoint += "/variables?per_page=100"
-    reason = "stop_source_unavailable"
-    try:
-        result = subprocess.run(
-            ["gh", "api", "--method", "GET", "--paginate", "--slurp", endpoint],
-            capture_output=True, text=True, timeout=60, check=False,
-        )
-        if result.returncode != 0:
-            # Classify the response without ever printing private GH output.
-            if "unknown flag: --slurp" in result.stderr:
-                reason = "stop_source_cli_unsupported"
-            elif "HTTP 401" in result.stderr or "HTTP 403" in result.stderr:
-                reason = "stop_source_permission_denied"
-            elif "HTTP 404" in result.stderr:
-                reason = "stop_source_not_accessible"
-            raise ValueError
-        pages = json.loads(result.stdout)
-        if not isinstance(pages, list) or not pages:
-            raise ValueError
-        values: dict[str, str] = {}
-        total = pages[0]["total_count"]
-        if type(total) is not int or total < 0:
-            raise ValueError
-        for page in pages:
-            if page["total_count"] != total or not isinstance(page["variables"], list):
-                raise ValueError
-            for item in page["variables"]:
-                name, value = item["name"], item["value"]
-                if not isinstance(name, str) or not name or not isinstance(value, str) or name in values:
-                    raise ValueError
-                values[name] = value
-        if len(values) != total:
-            reason = "stop_source_incomplete"
-            raise ValueError
-        return values
-    except subprocess.TimeoutExpired:
-        raise ValueError("stop_source_timeout") from None
-    except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, IndexError):
-        raise ValueError(reason) from None
+    return _read_stop_variables_impl(github, subprocess_mod=subprocess)
 
 
 def read_disabled_profile_apply_variables(github: dict[str, Any]) -> dict[str, dict[str, str]]:
-    """Read repository and target variables for the disabled profile writer."""
-    repository_scope = {"repository": github["repository"], "variable_scope": "repository"}
-    try:
-        repository = read_stop_variables(repository_scope)
-        if github["variable_scope"] == "environment":
-            target = read_stop_variables(github)
-        else:
-            target = dict(repository)
-    except ValueError:
-        raise ValueError("target_source_unavailable") from None
-    return {"repository": repository, "target": target}
+    return _read_disabled_profile_apply_variables_impl(github, read_stop_variables_fn=read_stop_variables)
 
 
 def write_disabled_profile_assignment(assignment: Assignment) -> subprocess.CompletedProcess[str]:
-    """Write exactly one variable; caller owns all compare and readback checks."""
-    command = [
-        "gh", "variable", "set", assignment.name, "--repo", assignment.repository,
-        "--body", assignment.value,
-    ]
-    if assignment.variable_scope == "environment":
-        command.extend(["--env", assignment.environment or ""])
-    return subprocess.run(command, text=True, capture_output=True, timeout=60, check=False)
+    return _write_disabled_profile_assignment_impl(assignment, subprocess_mod=subprocess)
 
 
 def _disabled_profile_target_pair(
-    old_targets: list[dict[str, Any]], new_targets: list[dict[str, Any]],
+    old_targets: list[dict[str, Any]],
+    new_targets: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    if not isinstance(old_targets, list) or not isinstance(new_targets, list) \
-            or len(old_targets) != 1 or len(new_targets) != 1:
-        raise ValueError("single_target_required")
-    old_target, new_target = old_targets[0], new_targets[0]
-    for target in (old_target, new_target):
-        if not isinstance(target, dict):
-            raise ValueError("invalid_target")
-        runtime_target = target.get("runtime_target")
-        identity_fields = {"platform_id", "deployment_selector", "account_selector", "account_scope", "service_name"}
-        if not isinstance(runtime_target, dict):
-            raise ValueError("invalid_target")
-        identity = {field: runtime_target.get(field) for field in identity_fields}
-        try:
-            _stop_request_identity({
-                "target_id": target.get("target_id"),
-                "github": target.get("github"),
-                "runtime_target": identity,
-            })
-        except ValueError:
-            raise ValueError("invalid_target_identity") from None
-        errors = validate_target(target)
-        if target is old_target:
-            old_profile = str(runtime_target.get("strategy_profile") or "").strip()
-            errors = [error for error in errors if error !=
-                      f"runtime_target.strategy_profile {old_profile} is frozen for new selection"]
-        if errors:
-            raise ValueError("invalid_target")
-        if "enabled" in runtime_target:
-            raise ValueError("invalid_target")
-
-    old_runtime = old_target["runtime_target"]
-    new_runtime = new_target["runtime_target"]
-    if old_target["target_id"] != new_target["target_id"]:
-        raise ValueError("target_identity_changed")
-    old_without_profile = dict(old_target)
-    new_without_profile = dict(new_target)
-    old_without_profile["runtime_target"] = dict(old_runtime)
-    new_without_profile["runtime_target"] = dict(new_runtime)
-    old_without_profile["runtime_target"].pop("strategy_profile", None)
-    new_without_profile["runtime_target"].pop("strategy_profile", None)
-    if old_without_profile != new_without_profile:
-        raise ValueError("target_identity_changed")
-    old_profile = old_runtime.get("strategy_profile")
-    new_profile = new_runtime.get("strategy_profile")
-    if not isinstance(old_profile, str) or not old_profile or not isinstance(new_profile, str) or not new_profile:
-        raise ValueError("invalid_strategy_profile")
-    if old_profile == new_profile:
-        raise ValueError("profile_change_required")
-
-    old_assignment_list = build_assignments(old_target, _existing_disabled=True)
-    new_assignment_list = build_assignments(new_target)
-    old_assignments = {assignment.name: assignment for assignment in old_assignment_list}
-    new_assignments = {assignment.name: assignment for assignment in new_assignment_list}
-    if len(old_assignments) != len(old_assignment_list) or len(new_assignments) != len(new_assignment_list):
-        raise ValueError("duplicate_assignment")
-    if old_assignments.keys() != new_assignments.keys():
-        raise ValueError("assignment_set_changed")
-    changed = {
-        name for name in old_assignments
-        if old_assignments[name].value != new_assignments[name].value
-    }
-    if changed != {"RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"}:
-        raise ValueError("assignment_scope_changed")
-    for name in old_assignments:
-        left, right = old_assignments[name], new_assignments[name]
-        if (left.target_id, left.repository, left.variable_scope, left.environment) != (
-            right.target_id, right.repository, right.variable_scope, right.environment,
-        ):
-            raise ValueError("assignment_identity_changed")
-    return old_target, new_target
+    return _disabled_profile_target_pair_impl(
+        old_targets,
+        new_targets,
+        stop_identity_fn=_stop_request_identity,
+        validate_target_fn=validate_target,
+        build_assignments_fn=build_assignments,
+    )
 
 
 def _disabled_profile_expected_variables(
-    snapshot: dict[str, dict[str, str]], target: dict[str, Any], *, existing_disabled: bool = False,
+    snapshot: dict[str, dict[str, str]],
+    target: dict[str, Any],
+    *,
+    existing_disabled: bool = False,
 ) -> dict[str, dict[str, str]]:
-    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("repository"), dict) \
-            or not isinstance(snapshot.get("target"), dict):
-        raise ValueError("target_source_unavailable")
-    repository = snapshot["repository"]
-    scoped = snapshot["target"]
-    if any(not isinstance(values, dict) for values in (repository, scoped)):
-        raise ValueError("target_source_unavailable")
-    enabled = scoped.get("RUNTIME_TARGET_ENABLED", repository.get("RUNTIME_TARGET_ENABLED"))
-    if enabled != "false":
-        raise ValueError("target_not_disabled")
-
-    assignments = {assignment.name: assignment for assignment in build_assignments(target, _existing_disabled=existing_disabled)}
-    current_scope = repository if target["github"]["variable_scope"] == "repository" else scoped
-    observed_json = current_scope.get("RUNTIME_TARGET_JSON")
-    observed_profile = current_scope.get("STRATEGY_PROFILE")
-    if not isinstance(observed_json, str) or not isinstance(observed_profile, str):
-        raise ValueError("target_source_unavailable")
-    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError
-            result[key] = value
-        return result
-
-    try:
-        parsed = json.loads(observed_json, object_pairs_hook=unique_object)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        raise ValueError("target_source_unavailable") from None
-    if (not isinstance(parsed, dict) or parsed != target["runtime_target"]
-            or observed_json != assignments["RUNTIME_TARGET_JSON"].value):
-        raise ValueError("target_source_changed")
-    if observed_profile != target["runtime_target"]["strategy_profile"]:
-        raise ValueError("target_source_changed")
-    expected = {"repository": dict(repository), "target": dict(scoped)}
-    for name in ("RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"):
-        expected_scope = "repository" if target["github"]["variable_scope"] == "repository" else "target"
-        expected[expected_scope][name] = assignments[name].value
-    if target["github"]["variable_scope"] == "repository":
-        expected["target"] = dict(expected["repository"])
-    return expected
+    return _disabled_profile_expected_variables_impl(
+        snapshot,
+        target,
+        existing_disabled=existing_disabled,
+        build_assignments_fn=build_assignments,
+    )
 
 
 def apply_disabled_strategy_profile_change(
-    old_targets: list[dict[str, Any]], new_targets: list[dict[str, Any]],
+    old_targets: list[dict[str, Any]],
+    new_targets: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Update only a single disabled target's profile variables, never the runtime.
-
-    This is a variable-layer primitive for a future claimed consumer, not an
-    approval or activation path. It is not a cross-workflow CAS or platform
-    sync; a consumer must hold its durable claim and separately verify the
-    deployed target remains disabled. A write result that cannot be fully read
-    back is reported as unknown and is never retried or rolled back.
-    """
-    old_target, new_target = _disabled_profile_target_pair(old_targets, new_targets)
-    github = old_target["github"]
-    old_snapshot = read_disabled_profile_apply_variables(github)
-    enabled = old_snapshot["target"].get(
-        "RUNTIME_TARGET_ENABLED", old_snapshot["repository"].get("RUNTIME_TARGET_ENABLED"),
+    return _apply_disabled_strategy_profile_change_impl(
+        old_targets,
+        new_targets,
+        pair_fn=_disabled_profile_target_pair,
+        read_vars_fn=read_disabled_profile_apply_variables,
+        expected_vars_fn=_disabled_profile_expected_variables,
+        write_assignment_fn=write_disabled_profile_assignment,
+        build_assignments_fn=build_assignments,
+        require_writer_ref_fn=require_production_writer_ref,
+        subprocess_mod=subprocess,
     )
-    if enabled != "false":
-        raise ValueError("target_not_disabled")
-    try:
-        current_new = _disabled_profile_expected_variables(old_snapshot, new_target)
-    except ValueError as exc:
-        if str(exc) != "target_source_changed":
-            raise
-    else:
-        if current_new == old_snapshot:
-            return {"outcome": "variables_updated", "variables_updated": False, "runtime_applied": False}
-    expected_old = _disabled_profile_expected_variables(old_snapshot, old_target, existing_disabled=True)
-    old_assignments = {item.name: item for item in build_assignments(old_target, _existing_disabled=True)}
-    new_assignments = {item.name: item for item in build_assignments(new_target)}
-    writes = [new_assignments[name] for name in ("RUNTIME_TARGET_JSON", "STRATEGY_PROFILE")]
-    expected_new = {"repository": dict(expected_old["repository"]), "target": dict(expected_old["target"])}
-    for assignment in writes:
-        expected_scope = "repository" if assignment.variable_scope == "repository" else "target"
-        expected_new[expected_scope][assignment.name] = assignment.value
-    if github["variable_scope"] == "repository":
-        expected_new["target"] = dict(expected_new["repository"])
-    if all(
-        (expected_old["repository"] if item.variable_scope == "repository" else expected_old["target"])
-        .get(item.name) == item.value
-        for item in writes
-    ):
-        return {"outcome": "variables_updated", "variables_updated": False, "runtime_applied": False}
-
-    for item in writes:
-        observed = (expected_old["repository"] if item.variable_scope == "repository" else expected_old["target"])
-        if observed.get(item.name) != old_assignments[item.name].value:
-            raise ValueError("target_source_changed")
-    require_production_writer_ref()
-    if read_disabled_profile_apply_variables(github) != old_snapshot:
-        raise ValueError("target_source_changed")
-
-    write_failed = False
-    for assignment in writes:
-        try:
-            result = write_disabled_profile_assignment(assignment)
-            if result.returncode != 0:
-                write_failed = True
-                break
-        except (OSError, subprocess.SubprocessError):
-            write_failed = True
-            break
-
-    try:
-        readback = read_disabled_profile_apply_variables(github)
-    except ValueError:
-        readback = None
-    if write_failed or readback != expected_new:
-        return {"outcome": "unknown", "variables_updated": None, "runtime_applied": False}
-    return {"outcome": "variables_updated", "variables_updated": True, "runtime_applied": False}
 
 
 def execute_stop(request: dict[str, Any], *, apply: bool = False, enabled: bool = False) -> dict[str, Any]:
-    """Save the enabled setting under the single configuration writer; no platform sync.
-
-    Workflow concurrency serializes known writers in this repository. It is not a
-    complete cross-workflow or cross-repository lock. The pre-write comparison is
-    a stale-read check, not an atomic CAS against external administrators.
-    """
-    _, _, github = _stop_request_identity(request)
-    repository_scope = {"repository": github["repository"], "variable_scope": "repository"}
-
-    def read() -> tuple[dict[str, str], dict[str, str]]:
-        repository = read_stop_variables(repository_scope)
-        environment = read_stop_variables(github) if github["variable_scope"] == "environment" else {}
-        return repository, environment
-
-    before = read()
-    effective = {**before[0], **before[1]}
-    inventory = "CLOUD_RUN_SERVICE_TARGETS_JSON"
-    assignment = build_stop_assignments(request, effective, enabled=enabled)[0]
-    owner = github
-    if assignment.name == inventory and inventory not in before[1]:
-        owner = repository_scope
-        assignment = Assignment(assignment.target_id, assignment.repository, "repository", None,
-                                assignment.name, assignment.value)
-    resource_key = production_resource_key(
-        repository=assignment.repository,
-        variable_scope=assignment.variable_scope,
-        environment=assignment.environment,
-        name=assignment.name,
+    return _execute_stop_impl(
+        request,
+        apply=apply,
+        enabled=enabled,
+        stop_identity_fn=_stop_request_identity,
+        read_stop_variables_fn=read_stop_variables,
+        build_stop_assignments_fn=build_stop_assignments,
+        require_writer_ref_fn=require_production_writer_ref,
+        production_resource_key_fn=production_resource_key,
+        build_audit_fn=build_resource_write_audit,
+        assignment_cls=Assignment,
+        subprocess_mod=subprocess,
     )
-    if not apply:
-        return {
-            "configured": False,
-            "platform_applied": False,
-            "preview": True,
-            "resource_key": resource_key,
-        }
-    require_production_writer_ref()
-    # Never overwrite a source that changed after planning. No automatic retry.
-    if read() != before:
-        raise ValueError("stop_source_changed")
-    owner_index = 1 if owner["variable_scope"] == "environment" else 0
-    current_value = before[owner_index].get(assignment.name)
-    unchanged = current_value == assignment.value
-    if assignment.name == inventory and current_value is not None:
-        unchanged = json.loads(current_value) == json.loads(assignment.value)
-    readback = "skipped_unchanged"
-    if not unchanged:
-        command = ["gh", "variable", "set", assignment.name, "--repo", assignment.repository]
-        if assignment.variable_scope == "environment":
-            command.extend(["--env", assignment.environment or ""])
-        try:
-            result = subprocess.run(command, input=assignment.value, text=True, capture_output=True,
-                                    timeout=60, check=False)
-            if result.returncode != 0:
-                raise ValueError
-        except (OSError, subprocess.SubprocessError, ValueError):
-            raise ValueError("stop_write_outcome_unverified") from None
-        expected = [dict(before[0]), dict(before[1])]
-        expected[owner_index][assignment.name] = assignment.value
-        try:
-            after = read()
-        except ValueError:
-            raise ValueError("stop_readback_unverified") from None
-        if after != tuple(expected):
-            raise ValueError("stop_readback_unverified")
-        readback = "matched"
-    return {
-        "configured": True,
-        "platform_applied": False,
-        "preview": False,
-        "resource_write_audit": build_resource_write_audit(
-            resource_key=resource_key,
-            reason="runtime_enable" if enabled else "runtime_stop",
-            old_value=current_value,
-            new_value=assignment.value,
-            readback=readback,
-        ),
-    }
-
-
-def load_stop_request() -> dict[str, Any]:
-    """Use GitHub's event file without interpolating private inputs into step logs."""
-    event_path = os.environ.get("GITHUB_EVENT_PATH")
-    if event_path:
-        path = Path(event_path)
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
-            raise ValueError("stop_event_unverified")
-        with path.open() as source:
-            return json.loads(json.load(source)["inputs"]["stop_request"])
-    # Local CLI/testing only; GitHub workflows must not place this value in env/with.
-    return json.loads(os.environ.get("RUNTIME_STOP_REQUEST_JSON", ""))
 
 
 def require_hk_stop_target(request: dict[str, Any]) -> None:
-    """The first platform consumer is the existing HK stop, never activation."""
-    target_id, identity, github = _stop_request_identity(request)
-    if (target_id != "longbridge/hk" or identity["account_scope"] != "HK"
-            or identity["service_name"] != "longbridge-quant-hk-service"
-            or github != {"repository": "QuantStrategyLab/LongBridgePlatform",
-                          "variable_scope": "environment", "environment": "longbridge-hk"}):
-        raise ValueError("stop_platform_target_unsupported")
+    _require_hk_stop_target_impl(request, stop_identity_fn=_stop_request_identity)
 
 
 def runtime_control_workflow_preflight(request: dict[str, Any]) -> str:
-    """Verify the fixed platform workflow is readable and active before any setting write."""
-    _, identity, github = _stop_request_identity(request)
-    workflows = {"ibkr": "sync-cloud-run-env.yml", "schwab": "pilot-metadata-readback.yml"}
-    workflow = workflows.get(identity["platform_id"])
-    if identity["platform_id"] == "schwab":
-        # The platform's existing adapter supports exactly this fixed service;
-        # CLOUD_RUN_SERVICE is a Secret there and cannot be read as a variable.
-        if identity["service_name"] != "charles-schwab-quant-service":
-            raise ValueError("runtime_control_target_unsupported")
-    if workflow is None:
-        raise ValueError("runtime_control_target_unsupported")
-    endpoint = f"repos/{github['repository']}/actions/workflows/{workflow}"
-    try:
-        result = subprocess.run(["gh", "api", "--method", "GET", endpoint], capture_output=True,
-                                text=True, timeout=30, check=False)
-        if result.returncode:
-            if "HTTP 403" in result.stderr or "HTTP 401" in result.stderr:
-                raise ValueError("runtime_control_workflow_permission_denied")
-            raise ValueError("runtime_control_workflow_unavailable")
-        document = json.loads(result.stdout)
-        if document.get("state") != "active" or document.get("path") != f".github/workflows/{workflow}":
-            raise ValueError("runtime_control_workflow_unavailable")
-    except (OSError, subprocess.SubprocessError, TypeError, AttributeError, json.JSONDecodeError):
-        raise ValueError("runtime_control_workflow_unavailable") from None
-    return workflow
+    return _runtime_control_workflow_preflight_impl(
+        request,
+        stop_identity_fn=_stop_request_identity,
+        subprocess_mod=subprocess,
+    )
 
 
-def dispatch_runtime_control(request: dict[str, Any], operation: str, request_id: str, workflow: str) -> dict[str, Any]:
-    """Send once; a missing run id is unknown and must never trigger a second dispatch."""
-    _, identity, github = _stop_request_identity(request)
-    if operation not in {"enable", "disable"} or not isinstance(request_id, str) or not re.fullmatch(
-            r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", request_id):
-        raise ValueError("runtime_control_request_invalid")
-    expected = {"ibkr": "sync-cloud-run-env.yml", "schwab": "pilot-metadata-readback.yml"}
-    if expected.get(identity["platform_id"]) != workflow:
-        raise ValueError("runtime_control_target_unsupported")
-    if identity["platform_id"] == "ibkr":
-        inputs = {"target": "configured", "configured_service": identity["service_name"],
-                  "runtime_switch_only": "true", "request_id": request_id,
-                  "deploy_image": "false", "sync_env": "true", "approve_traffic_shift": "true",
-                  "approve_scheduler_sync": "true"}
-    else:
-        inputs = {"resume_operation": operation, "request_id": request_id}
-    payload = {"ref": "main", "inputs": inputs, "return_run_details": True}
-    endpoint = f"repos/{github['repository']}/actions/workflows/{workflow}/dispatches"
-    try:
-        result = subprocess.run(["gh", "api", "--method", "POST", endpoint, "--input", "-"],
-                                input=json.dumps(payload), text=True, capture_output=True, timeout=45, check=False)
-        if result.returncode:
-            if re.search(r"HTTP (?:400|401|403|404|422)\b", result.stderr):
-                return {"status": "rejected", "run_id": None}
-            return {"status": "unknown", "run_id": None}
-        body = json.loads(result.stdout)
-        run_id = body.get("workflow_run_id")
-        if type(run_id) is int and run_id > 0:
-            return {"status": "accepted", "run_id": run_id}
-        return {"status": "unknown", "run_id": None}
-    except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError):
-        return {"status": "unknown", "run_id": None}
+def dispatch_runtime_control(
+    request: dict[str, Any],
+    operation: str,
+    request_id: str,
+    workflow: str,
+) -> dict[str, Any]:
+    return _dispatch_runtime_control_impl(
+        request,
+        operation,
+        request_id,
+        workflow,
+        stop_identity_fn=_stop_request_identity,
+        subprocess_mod=subprocess,
+    )
 
 
-def validate_runtime_control_receipt(request: dict[str, Any], operation: str, request_id: str,
-                                     run_id: int, receipt: dict[str, Any]) -> str:
-    """Only a matching platform receipt can prove adoption of this request."""
-    _, identity, _ = _stop_request_identity(request)
-    if (not isinstance(receipt, dict) or receipt.get("request_id") != request_id
-            or str(receipt.get("run_id")) != str(run_id) or str(receipt.get("attempt")) != "1"
-            or receipt.get("operation") != operation or operation not in {"enable", "disable"}):
-        return "unknown"
-    if identity["platform_id"] == "ibkr":
-        if receipt.get("target_sha256") != hashlib.sha256(identity["service_name"].encode("utf-8")).hexdigest():
-            return "unknown"
-    elif identity["platform_id"] != "schwab":
-        return "unknown"
-    status = receipt.get("status")
-    if isinstance(status, str) and status in {"partial", "protected", "unknown"}:
-        return status
-    if status != "applied":
-        return "unknown"
-    if identity["platform_id"] == "ibkr":
-        if (receipt.get("target_sha256") != hashlib.sha256(identity["service_name"].encode("utf-8")).hexdigest()
-                or receipt.get("platform_applied") is not True
-                or receipt.get("enabled") is not (operation == "enable")
-                or not re.fullmatch(r"[0-9a-f]{64}", str(receipt.get("revision_sha256") or ""))):
-            return "unknown"
-        if operation == "enable" and receipt.get("continuity") not in {"ACTIVE_LKG", "ROLLBACK_LKG"}:
-            return "protected" if receipt.get("continuity") in {"PAUSED", "RECONCILE_ONLY"} else "unknown"
-        if receipt.get("scheduler_state") != ("ENABLED" if operation == "enable" else "PAUSED"):
-            return "partial"
-    elif identity["platform_id"] == "schwab":
-        if (receipt.get("operator_state") != ("enabled" if operation == "enable" else "disabled")
-                or receipt.get("effective_state") != ("enabled" if operation == "enable" else "disabled")
-                or not re.fullmatch(r"[0-9a-f]{64}", str(receipt.get("serving_revision_sha256") or ""))):
-            return "unknown"
-        if operation == "enable" and receipt.get("continuity_state") != "ACTIVE_LKG":
-            return "protected" if receipt.get("continuity_state") in {"PAUSED", "RECONCILE_ONLY"} else "unknown"
-        if operation == "enable" and receipt.get("scheduler_state") != "enabled":
-            return "partial"
-    else:
-        return "unknown"
-    return "applied"
-
-
-def read_runtime_control_receipt_zip(archive: bytes, platform: str) -> dict[str, Any]:
-    """Read exactly one fixed, bounded public result from an Actions artifact."""
-    filenames = {"ibkr": "ibkr-runtime-switch-result.json", "schwab": "schwab-runtime-switch.safe.json"}
-    name = filenames.get(platform)
-    if not name or not isinstance(archive, bytes) or len(archive) > 262144:
-        raise ValueError("runtime_control_receipt_invalid")
-    try:
-        with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
-            entries = zipped.infolist()
-            matches = [entry for entry in entries if entry.filename == name]
-            if len(entries) > 16 or len(matches) != 1 or matches[0].file_size > 65536 or matches[0].flag_bits & 1:
-                raise ValueError("runtime_control_receipt_invalid")
-            with zipped.open(matches[0]) as member:
-                content = member.read(65537)
-            if len(content) > 65536 or len(content) != matches[0].file_size:
-                raise ValueError("runtime_control_receipt_invalid")
-            value = json.loads(content)
-            if not isinstance(value, dict):
-                raise ValueError("runtime_control_receipt_invalid")
-            return value
-    except (zipfile.BadZipFile, OSError, UnicodeError, json.JSONDecodeError, RuntimeError, NotImplementedError):
-        raise ValueError("runtime_control_receipt_invalid") from None
+def validate_runtime_control_receipt(
+    request: dict[str, Any],
+    operation: str,
+    request_id: str,
+    run_id: int,
+    receipt: dict[str, Any],
+) -> str:
+    return _validate_runtime_control_receipt_impl(
+        request,
+        operation,
+        request_id,
+        run_id,
+        receipt,
+        stop_identity_fn=_stop_request_identity,
+    )
 
 
 def recover_runtime_control_run(request: dict[str, Any], request_id: str, workflow: str, since: str) -> int | None:
-    """Recover a missing dispatch response by exact run title, never by time."""
-    _, identity, github = _stop_request_identity(request)
-    if (not isinstance(request_id, str) or not re.fullmatch(
-            r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", request_id)
-            or {"ibkr": "sync-cloud-run-env.yml", "schwab": "pilot-metadata-readback.yml"}.get(identity["platform_id"]) != workflow):
-        return None
-    title = ("Runtime switch " if identity["platform_id"] == "ibkr" else "Schwab runtime switch ") + request_id
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", since):
-        return None
-    endpoint = f"repos/{github['repository']}/actions/workflows/{workflow}/runs?event=workflow_dispatch&branch=main&per_page=100&created={quote('>=' + since, safe='')}"
-    try:
-        runs = []
-        page = 0
-        while True:
-            page += 1
-            response = subprocess.run(["gh", "api", "--method", "GET", f"{endpoint}&page={page}"], capture_output=True, timeout=30, check=False)
-            if response.returncode or len(response.stdout) > 524288:
-                return None
-            listing = json.loads(response.stdout)
-            total = listing.get("total_count")
-            current = listing.get("workflow_runs")
-            if type(total) is not int or not isinstance(current, list):
-                return None
-            runs.extend(current)
-            if len(runs) >= total:
-                break
-            if not current:
-                return None
-        if len(runs) != total:
-            return None
-        matches = [run for run in runs if run.get("display_title") == title
-                   and run.get("event") == "workflow_dispatch" and run.get("head_branch") == "main" and run.get("run_attempt") == 1]
-        if len(matches) != 1 or type(matches[0].get("id")) is not int or matches[0]["id"] <= 0:
-            return None
-        return matches[0]["id"]
-    except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError, UnicodeError):
-        return None
+    return _recover_runtime_control_run_impl(
+        request,
+        request_id,
+        workflow,
+        since,
+        stop_identity_fn=_stop_request_identity,
+        subprocess_mod=subprocess,
+    )
 
 
-def read_runtime_control_result(request: dict[str, Any], operation: str, request_id: str,
-                                run_id: int, workflow: str, diagnostics: dict[str, Any] | None = None) -> str:
-    """Read only this run and its uniquely named safe artifact, with no side effects."""
-    _, identity, github = _stop_request_identity(request)
-    if (type(run_id) is not int or run_id <= 0
-            or {"ibkr": "sync-cloud-run-env.yml", "schwab": "pilot-metadata-readback.yml"}.get(identity["platform_id"]) != workflow):
-        return "unknown"
-    prefix = f"repos/{github['repository']}"
-
-    def get(path: str, binary: bool = False, allow_log_colours: bool = False) -> Any:
-        try:
-            command = ["gh", "api", "--method", "GET"]
-            if allow_log_colours:
-                version = subprocess.run(["gh", "--version"], capture_output=True, timeout=10, check=False)
-                match = re.match(rb"gh version (\d+)\.(\d+)\.(\d+)(?:\s|$)", version.stdout or b"")
-                if version.returncode == 0 and match and tuple(map(int, match.groups())) >= (2, 97, 0):
-                    command.append("--allow-escape-sequences")
-            response = subprocess.run([*command, f"{prefix}/{path}"],
-                                      capture_output=True, timeout=30, check=False)
-            if response.returncode or len(response.stdout) > (262144 if binary else 524288):
-                if diagnostics is not None:
-                    diagnostics["failure_kind"] = "command_failed" if response.returncode else "response_too_large"
-                    if response.returncode:
-                        stderr = (response.stderr or b"").lower()
-                        diagnostics["exit_code"] = response.returncode if -255 <= response.returncode <= 255 else None
-                        diagnostics["stderr_empty"] = not bool(stderr)
-                        categories = ((b"redirect", "redirect"), (b"no such host", "dns"),
-                                      (b"resolve host", "dns"), (b"tls", "tls"),
-                                      (b"certificate", "tls"), (b"unexpected eof", "eof"),
-                                      (b"unauthorized", "auth"), (b"not logged", "auth"),
-                                      (b"authentication", "auth"), (b"forbidden", "auth"),
-                                      (b"rate limit", "rate_limit"), (b"connection", "network"),
-                                      (b"network", "network"), (b"timeout", "timeout"),
-                                      (b"unknown flag", "cli"), (b"unknown command", "cli"),
-                                      (b"command not found", "cli"), (b"not found", "not_found"))
-                        diagnostics["error_category"] = next((name for marker, name in categories if marker in stderr), "other")
-                        match = re.search(rb"http ([1-5][0-9]{2})", stderr)
-                        if match:
-                            diagnostics["http_status"] = int(match.group(1))
-                        try:
-                            version = subprocess.run(["gh", "--version"], capture_output=True, timeout=10, check=False)
-                            match = re.match(rb"gh version (\d+\.\d+\.\d+)(?:\s|$)", version.stdout or b"")
-                            if version.returncode == 0 and match:
-                                diagnostics["gh_version"] = match.group(1).decode("ascii")
-                        except (OSError, subprocess.SubprocessError, TypeError):
-                            pass
-                raise ValueError("runtime_control_read_unavailable")
-            return response.stdout if binary else json.loads(response.stdout)
-        except subprocess.TimeoutExpired:
-            if diagnostics is not None:
-                diagnostics["failure_kind"] = "timeout"
-            raise ValueError("runtime_control_read_unavailable") from None
-        except (OSError, subprocess.SubprocessError, TypeError, UnicodeError, json.JSONDecodeError):
-            if diagnostics is not None:
-                diagnostics["failure_kind"] = "read_failed"
-            raise ValueError("runtime_control_read_unavailable") from None
-
-    try:
-        if diagnostics is not None: diagnostics["stage"] = "workflow"
-        meta = get(f"actions/workflows/{workflow}")
-        if diagnostics is not None: diagnostics["stage"] = "run"
-        run = get(f"actions/runs/{run_id}")
-        title = ("Runtime switch " if identity["platform_id"] == "ibkr" else "Schwab runtime switch ") + request_id
-        if (meta.get("path") != f".github/workflows/{workflow}" or run.get("workflow_id") != meta.get("id")
-                or run.get("id") != run_id or run.get("run_attempt") != 1
-                or run.get("event") != "workflow_dispatch" or run.get("head_branch") != "main"
-                or run.get("display_title") != title or run.get("status") != "completed"):
-            return "unknown"
-        if diagnostics is not None: diagnostics["stage"] = "artifacts"
-        listing = get(f"actions/runs/{run_id}/artifacts?per_page=100")
-        artifact_name = (f"ibkr-runtime-switch-result-{run_id}-1" if identity["platform_id"] == "ibkr"
-                         else "schwab-runtime-switch-safe")
-        if not isinstance(listing.get("artifacts"), list) or listing.get("total_count", 101) > 100:
-            return "unknown"
-        matches = [item for item in listing["artifacts"] if item.get("name") == artifact_name and not item.get("expired")]
-        if (len(matches) != 1 or type(matches[0].get("id")) is not int
-                or type(matches[0].get("size_in_bytes")) is not int or matches[0]["size_in_bytes"] > 262144):
-            return "unknown"
-        if diagnostics is not None: diagnostics["stage"] = "receipt"
-        archive = get(f"actions/artifacts/{matches[0]['id']}/zip", binary=True)
-        receipt = read_runtime_control_receipt_zip(archive, identity["platform_id"])
-        result = validate_runtime_control_receipt(request, operation, request_id, run_id, receipt)
-        # This reviewed version rejects this specific candidate before traffic
-        # adoption. It may already have created a no-traffic revision, so this
-        # says only that the request was not adopted, not that nothing was written.
-        if diagnostics is not None: diagnostics["stage"] = "receipt_match"
-        reviewed_failures = {
-            "49af5187aabace9dec41059620ecc4f16aa76daf": "error: switch candidate changed service annotations or labels",
-            "c0bd4c01b9db95d61785e9e20dceea8f750c72a2": "ValueError: traffic candidate has not passed its application startup probe",
-            "bf0077ea3a12ca78337c49cf61316467af5d1dea": "ValueError: traffic candidate has not passed its application startup probe",
-        }
-        if (result == "unknown" and identity["platform_id"] == "ibkr" and operation == "enable"
-                and run.get("head_sha") in reviewed_failures
-                and run.get("conclusion") == "failure" and receipt.get("status") == "unknown"
-                and receipt.get("request_id") == request_id and str(receipt.get("run_id")) == str(run_id)
-                and str(receipt.get("attempt")) == "1" and receipt.get("operation") == operation
-                and receipt.get("target_sha256") == hashlib.sha256(identity["service_name"].encode("utf-8")).hexdigest()):
-            if diagnostics is not None: diagnostics["stage"] = "jobs"
-            jobs = get(f"actions/runs/{run_id}/jobs?per_page=100")
-            if not isinstance(jobs.get("jobs"), list) or jobs.get("total_count", 101) > 100:
-                return "unknown"
-            candidates = [job for job in jobs["jobs"] if job.get("conclusion") == "failure"
-                          and job.get("run_id") == run_id and job.get("run_attempt") == 1]
-            if len(candidates) != 1 or type(candidates[0].get("id")) is not int:
-                return "unknown"
-            steps = candidates[0].get("steps")
-            if not isinstance(steps, list):
-                return "unknown"
-            traffic = [step for step in steps if step.get("name") == "Reconcile Cloud Run traffic"]
-            scheduler = [step for step in steps if step.get("name") == "Reconcile existing runtime switch scheduler"]
-            prepare = [step for step in steps if step.get("name") == "Prepare env-only revision and runtime switch"]
-            if (len(traffic) != 1 or traffic[0].get("conclusion") != "failure"
-                    or len(scheduler) != 1 or scheduler[0].get("conclusion") != "skipped"
-                    or len(prepare) != 1 or prepare[0].get("conclusion") != "success"):
-                return "unknown"
-            start = datetime.fromisoformat(traffic[0]["started_at"].replace("Z", "+00:00"))
-            end = datetime.fromisoformat(traffic[0]["completed_at"].replace("Z", "+00:00"))
-            if start.tzinfo is None or end.tzinfo is None or end < start:
-                return "unknown"
-            if diagnostics is not None: diagnostics["stage"] = "job_log"
-            raw_log = get(f"actions/jobs/{candidates[0]['id']}/logs", binary=True, allow_log_colours=True)
-            if diagnostics is not None: diagnostics["stage"] = "job_log_decode"
-            if raw_log.startswith(b"PK\x03\x04"):
-                if diagnostics is not None: diagnostics["failure_kind"] = "unexpected_zip"
-                return "unknown"
-            log = raw_log.decode("utf-8")
-            if diagnostics is not None: diagnostics["stage"] = "log_match"
-            pattern = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z " + re.escape(reviewed_failures[run["head_sha"]]) + r"$")
-            found = [match for line in log.splitlines() if (match := pattern.fullmatch(line))]
-            if len(found) == 1:
-                when = datetime.fromisoformat(found[0].group(1) + "+00:00")
-                if start.replace(microsecond=0) <= when <= end.replace(microsecond=0):
-                    return "rejected"
-        return result
-    except (ValueError, TypeError, AttributeError, KeyError):
-        return "unknown"
+def read_runtime_control_result(
+    request: dict[str, Any],
+    operation: str,
+    request_id: str,
+    run_id: int,
+    workflow: str,
+    diagnostics: dict[str, Any] | None = None,
+) -> str:
+    return _read_runtime_control_result_impl(
+        request,
+        operation,
+        request_id,
+        run_id,
+        workflow,
+        diagnostics,
+        stop_identity_fn=_stop_request_identity,
+        read_receipt_zip_fn=read_runtime_control_receipt_zip,
+        validate_receipt_fn=validate_runtime_control_receipt,
+        subprocess_mod=subprocess,
+    )
 
 
 def command_runtime_control(args: argparse.Namespace) -> int:
-    """Run one already-authorized request through the existing protected writer."""
-    request_id = args.request_id
-    operation = args.operation
-    summary = {"request_id": request_id, "operation": operation, "status": "unknown", "platform_run_id": None,
-               "run_id": os.environ.get("GITHUB_RUN_ID"), "attempt": os.environ.get("GITHUB_RUN_ATTEMPT"), "reason": None}
-    stage = "request"
-    try:
-        if (operation not in {"enable", "disable"} or not isinstance(request_id, str) or not re.fullmatch(
-                r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", request_id)):
-            raise ValueError("runtime_control_request_invalid")
-        request = load_stop_request()
-        stage = "workflow_preflight"
-        workflow = runtime_control_workflow_preflight(request)
-        stage = "configuration"
-        execute_stop(request, apply=True, enabled=operation == "enable")
-        stage = "platform_dispatch"
-        since = (datetime.now(timezone.utc) - timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        dispatched = dispatch_runtime_control(request, operation, request_id, workflow)
-        if dispatched["status"] == "rejected":
-            summary["status"] = "partial"
-            summary["reason"] = "platform_dispatch_rejected"
-        else:
-            run_id = dispatched["run_id"]
-            for attempt in range(10):
-                if run_id is None:
-                    run_id = recover_runtime_control_run(request, request_id, workflow, since)
-                if run_id is not None:
-                    summary["platform_run_id"] = run_id
-                    outcome = read_runtime_control_result(request, operation, request_id, run_id, workflow)
-                    if outcome != "unknown":
-                        summary["status"] = outcome
-                        break
-                if attempt < 9:
-                    time.sleep(10)
-            if summary["status"] == "unknown":
-                summary["reason"] = "platform_result_unavailable" if run_id else "platform_dispatch_unverified"
-    except (OSError, ValueError, TypeError, KeyError) as error:
-        # Private inputs and provider errors never appear in the receipt or logs.
-        reason = str(error)
-        summary["reason"] = reason if reason in {"runtime_control_workflow_permission_denied", "runtime_control_workflow_unavailable", "runtime_control_target_unsupported", "stop_source_permission_denied", "stop_source_not_accessible"} else stage + "_unverified"
-        if stage in {"request", "workflow_preflight"}:
-            summary["status"] = "rejected"
-    result_path = os.environ.get("RUNTIME_CONTROL_RESULT_PATH")
-    if result_path:
-        with open(result_path, "w", encoding="utf-8") as output:
-            json.dump(summary, output)
-    return 0 if summary["status"] == "applied" else 1
+    return _command_runtime_control_impl(
+        args,
+        load_stop_request_fn=load_stop_request,
+        preflight_fn=runtime_control_workflow_preflight,
+        execute_stop_fn=execute_stop,
+        dispatch_fn=dispatch_runtime_control,
+        recover_fn=recover_runtime_control_run,
+        read_result_fn=read_runtime_control_result,
+        time_mod=time,
+    )
 
 
 def command_runtime_control_readback(args: argparse.Namespace) -> int:
-    """Read the persisted original platform run without changing configuration or dispatching it."""
-    summary = {"request_id": args.request_id, "check_id": args.check_id, "operation": args.operation,
-               "status": "unknown", "platform_run_id": args.platform_run_id,
-               "run_id": os.environ.get("GITHUB_RUN_ID"), "attempt": os.environ.get("GITHUB_RUN_ATTEMPT"), "reason": None}
-    try:
-        for value in (args.request_id, args.check_id):
-            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", value):
-                raise ValueError("runtime_control_request_invalid")
-        if args.operation not in {"enable", "disable"} or not re.fullmatch(r"[1-9][0-9]*", args.platform_run_id):
-            raise ValueError("runtime_control_request_invalid")
-        request = load_stop_request()
-        workflow = runtime_control_workflow_preflight(request)
-        diagnostics = {}
-        summary["status"] = read_runtime_control_result(request, args.operation, args.request_id, int(args.platform_run_id), workflow, diagnostics)
-        if summary["status"] == "unknown":
-            summary["reason"] = "platform_result_unavailable"
-            summary["readback_stage"] = diagnostics.get("stage")
-            summary["http_status"] = diagnostics.get("http_status")
-            summary["failure_kind"] = diagnostics.get("failure_kind")
-            summary["error_category"] = diagnostics.get("error_category")
-            summary["gh_version"] = diagnostics.get("gh_version")
-            summary["exit_code"] = diagnostics.get("exit_code")
-            summary["stderr_empty"] = diagnostics.get("stderr_empty")
-    except (OSError, ValueError, TypeError, KeyError):
-        summary["reason"] = "platform_result_unavailable"
-    result_path = os.environ.get("RUNTIME_CONTROL_RESULT_PATH")
-    if result_path:
-        with open(result_path, "w", encoding="utf-8") as output:
-            json.dump(summary, output)
-    return 0 if summary["status"] == "applied" else 1
+    return _command_runtime_control_readback_impl(
+        args,
+        load_stop_request_fn=load_stop_request,
+        preflight_fn=runtime_control_workflow_preflight,
+        read_result_fn=read_runtime_control_result,
+    )
 
 
 def dispatch_hk_stop(request: dict[str, Any]) -> None:
-    require_hk_stop_target(request)
-    # The caller has to have saved and read back enabled=false. This check
-    # refuses the platform call when that save is missing. It does not read a
-    # protected secret, and a failed call is not retried here.
-    if read_stop_variables(request["github"]).get("RUNTIME_TARGET_ENABLED") != "false":
-        raise ValueError("stop_saved_configuration_required")
-    payload = {"ref": "main", "inputs": {"stop_request": json.dumps(request), "confirm": "STOP_ONLY"}}
-    try:
-        result = subprocess.run(
-            ["gh", "api", "--method", "POST",
-             "repos/QuantStrategyLab/LongBridgePlatform/actions/workflows/stop-hk-runtime.yml/dispatches", "--input", "-"],
-            input=json.dumps(payload), text=True, capture_output=True, timeout=45, check=False,
-        )
-        if result.returncode:
-            raise ValueError
-    except (ValueError, OSError, subprocess.SubprocessError):
-        # A failed response may follow an accepted dispatch. Never retry it here.
-        raise ValueError("stop_platform_dispatch_unverified") from None
+    _dispatch_hk_stop_impl(
+        request,
+        require_hk_fn=require_hk_stop_target,
+        read_stop_variables_fn=read_stop_variables,
+        subprocess_mod=subprocess,
+    )
 
 
 def command_stop(args: argparse.Namespace) -> int:
-    if args.yes and args.confirm != "STOP_ONLY":
-        print("stop requires --confirm STOP_ONLY for writes", file=sys.stderr)
-        return 2
-    stage = "event"
-    try:
-        request = load_stop_request()
-        stage = "configuration"
-        apply_hk_stop = getattr(args, "apply_hk_stop", False)
-        if apply_hk_stop:
-            if not args.yes:
-                raise ValueError("stop_platform_apply_requires_saved_stop")
-            require_hk_stop_target(request)
-            require_production_writer_ref()
-            saved = execute_stop(request, apply=True)
-            stage = "platform_dispatch"
-            dispatch_hk_stop(request)
-            result = {
-                **saved,
-                "platform_apply_requested": True,
-                "platform_applied": False,
-                "resource_key": saved["resource_write_audit"]["resource_key"],
-            }
-        else:
-            result = execute_stop(request, apply=args.yes)
-    except (OSError, ValueError, TypeError, KeyError) as error:
-        # Underlying errors and private target/config values stay out of logs.
-        safe_reasons = {
-            "stop_event_unverified", "stop_source_unavailable", "stop_source_cli_unsupported",
-            "stop_source_permission_denied", "stop_source_not_accessible", "stop_source_incomplete",
-            "stop_source_timeout", "stop_source_changed", "stop_write_outcome_unverified",
-            "stop_readback_unverified", "stale_writer_ref_rejected", "stop_platform_target_unsupported",
-            "stop_saved_configuration_required", "stop_platform_dispatch_unverified",
-            "stop_platform_apply_requires_saved_stop",
-        }
-        reason = str(error)
-        if reason == "stop requires an unambiguous current target with matching identity":
-            reason = "stop_identity_mismatch"
-        elif reason not in safe_reasons:
-            reason = "stop_event_unverified" if stage == "event" else "stop_configuration_unverified"
-        print(f"stop_not_verified; stage={stage}; reason={reason}; do not retry or infer platform state", file=sys.stderr)
-        return 2
-    print(json.dumps(result, sort_keys=True))
-    return 0
+    return _command_stop_impl(
+        args,
+        load_stop_request_fn=load_stop_request,
+        require_hk_fn=require_hk_stop_target,
+        require_writer_ref_fn=require_production_writer_ref,
+        execute_stop_fn=execute_stop,
+        dispatch_hk_fn=dispatch_hk_stop,
+    )
 
 
 def load_targets(paths: list[str]) -> list[tuple[Path, dict[str, Any]]]:
@@ -2384,10 +795,8 @@ def command_apply(args: argparse.Namespace) -> int:
         print(assignment.shell_command(redact_body=redact_preview, redact_metadata=redact_preview))
 
     if not args.yes:
-        if args.show_values:
-            print("\nDry run only. Re-run with --yes to apply these GitHub variables.")
-        else:
-            print("\nDry run only. Re-run with --yes to apply these GitHub variables.")
+        print("\nDry run only. Re-run with --yes to apply these GitHub variables.")
+        if not args.show_values:
             print("Values are redacted by default; add --show-values only in a private local terminal.")
         return 0
 
@@ -2424,105 +833,6 @@ def command_settings_activation(args: argparse.Namespace) -> int:
     return 0
 
 
-ACCOUNT_SYNC_CONTROL_FIELDS = {
-    "DCA_MODE": "dca_mode",
-    "DCA_BASE_INVESTMENT_USD": "dca_base_investment_usd",
-}
-
-
-def _service_target_identity(entry: dict[str, Any], field: str) -> set[str]:
-    entry_runtime = entry.get("runtime_target") if isinstance(entry.get("runtime_target"), dict) else {}
-    if field == "service_name":
-        values = (
-            entry.get("service"),
-            entry.get("service_name"),
-            entry_runtime.get("service_name"),
-        )
-    else:
-        values = (
-            entry.get("ACCOUNT_GROUP"),
-            entry.get("account_scope"),
-            entry_runtime.get("account_scope"),
-        )
-    return {str(value or "").strip() for value in values if str(value or "").strip()}
-
-
-def select_service_target_entry_index(
-    runtime_target: dict[str, Any],
-    entries: list[dict[str, Any]],
-    *,
-    allow_account_scope_fallback: bool = True,
-) -> int | None:
-    service_name = str(runtime_target.get("service_name") or "").strip()
-    account_scope = str(runtime_target.get("account_scope") or "").strip()
-    service_matches = [
-        index
-        for index, entry in enumerate(entries)
-        if service_name and service_name in _service_target_identity(entry, "service_name")
-    ]
-    if len(service_matches) > 1:
-        raise ValueError(f"multiple service targets match service_name {service_name!r}")
-    if service_matches:
-        return service_matches[0]
-
-    if not allow_account_scope_fallback:
-        return None
-    scope_matches = [
-        index
-        for index, entry in enumerate(entries)
-        if (
-            account_scope
-            and not _service_target_identity(entry, "service_name")
-            and account_scope in _service_target_identity(entry, "account_scope")
-        )
-    ]
-    if len(scope_matches) > 1:
-        raise ValueError(
-            f"multiple service targets match account_scope {account_scope!r}; "
-            "service_name must match an existing target"
-        )
-    return scope_matches[0] if scope_matches else None
-
-
-def _service_target_entry_matches(runtime_target: dict[str, Any], entry: dict[str, Any]) -> bool:
-    return select_service_target_entry_index(runtime_target, [entry]) == 0
-
-
-def extract_account_sync_controls(target: dict[str, Any]) -> dict[str, str]:
-    extra_variables = dict(target.get("extra_variables") or {})
-    controls: dict[str, str] = {}
-    for source_key, payload_key in ACCOUNT_SYNC_CONTROL_FIELDS.items():
-        value = extra_variables.get(source_key)
-        if value not in (None, ""):
-            controls[payload_key] = str(value).strip()
-
-    service_targets = extra_variables.get("CLOUD_RUN_SERVICE_TARGETS_JSON")
-    if service_targets is None:
-        repository_variables = target.get("repository_variables")
-        if isinstance(repository_variables, dict):
-            service_targets = repository_variables.get("CLOUD_RUN_SERVICE_TARGETS_JSON")
-    if isinstance(service_targets, str):
-        try:
-            service_targets = json.loads(service_targets)
-        except json.JSONDecodeError:
-            service_targets = None
-
-    runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
-    if isinstance(service_targets, (dict, list)):
-        raw_entries = service_targets.get("targets") if isinstance(service_targets, dict) else service_targets
-        entries = [entry for entry in raw_entries or [] if isinstance(entry, dict)]
-        matched_index = select_service_target_entry_index(runtime_target, entries)
-        matched = entries[matched_index] if matched_index is not None else None
-        if matched:
-            for source_key, payload_key in ACCOUNT_SYNC_CONTROL_FIELDS.items():
-                if payload_key in controls:
-                    continue
-                value = matched.get(source_key)
-                if value not in (None, ""):
-                    controls[payload_key] = str(value).strip()
-    return controls
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -2550,7 +860,11 @@ def build_parser() -> argparse.ArgumentParser:
     stop = subparsers.add_parser("stop", help="save only an existing target's disable setting; never activate or sync")
     stop.add_argument("--yes", action="store_true")
     stop.add_argument("--confirm", default="")
-    stop.add_argument("--apply-hk-stop", action="store_true", help="apply an already-saved LongBridge HK stop; never writes configuration or enables a target")
+    stop.add_argument(
+        "--apply-hk-stop",
+        action="store_true",
+        help="apply an already-saved LongBridge HK stop; never writes configuration or enables a target",
+    )
     stop.set_defaults(func=command_stop)
 
     runtime_control = subparsers.add_parser("runtime-control", help="apply one correlated platform enabled setting")
