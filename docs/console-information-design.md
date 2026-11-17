@@ -106,7 +106,7 @@ The sections below define acceptance contracts and boundaries; they do not claim
 
 Because release gates do not overwrite private strategy catalogs on label-only edits, the frontend normalizes those four exact IDs from the generated asset without altering private catalog versions, parameters, or runtime adoption. Unknown IDs and other private labels stay untouched.
 
-All 27 catalog profiles omit actual strategy source revision, research role, and observed execution lane, displaying "Unknown". Only V7's catalog `research_candidate_identity` supplies an immutable candidate ID and config digest `843ab4…514d1`; `lifecycle_stage`, `allowed_execution_modes`, account environment, enablement, and display names never backfill missing identity fields.
+All 27 catalog profiles omit actual strategy source revision, research role, and observed execution lane, displaying "Unknown". Only V7's catalog `research_candidate_identity` supplies an immutable candidate ID and config digest `<frozen-config-sha256-v7>`; `lifecycle_stage`, `allowed_execution_modes`, account environment, enablement, and display names never backfill missing identity fields.
 
 Current account config, strategy selection/drafts, decision details, and application cards share a unified display helper with full technical identity collapsed by default. Ticket, candidate, and application records read their own fields without patching gaps from today's catalog, and ticket creation timestamps are not evidence timestamps.
 
