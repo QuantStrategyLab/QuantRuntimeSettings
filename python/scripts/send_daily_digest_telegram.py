@@ -499,7 +499,7 @@ def main(argv: list[str] | None = None) -> int:
         business_failed = True
         payload, text, collected = None, "", []
         if deadline.enabled(os.environ):
-            text = deadline.failure_text(os.environ, is_late=deadline.late(os.environ, reserve_seconds=30), locale=args.locale or 'zh')
+            text = deadline.failure_text(os.environ, is_late=deadline.late(os.environ, reserve_seconds=30), locale=args.locale or 'en')
         print("Daily digest construction failed; guarded exception path.", file=sys.stderr)
 
     delivery_locale = str(payload.locale) if payload is not None else aggregator.resolve_locale(args.locale)
@@ -525,7 +525,7 @@ def main(argv: list[str] | None = None) -> int:
     receipt.update(
         {
             "business_day": day if payload is not None or deadline.enabled(os.environ) else None,
-            "locale": digest.normalize_locale(str(payload.locale)) if payload is not None else digest.normalize_locale(args.locale or "zh"),
+            "locale": digest.normalize_locale(str(payload.locale)) if payload is not None else digest.normalize_locale(args.locale or "en"),
             "run_count": len(payload.runs) if payload is not None else None,
             "missing": [],
         }

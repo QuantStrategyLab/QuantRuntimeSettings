@@ -66,7 +66,7 @@ def read_budget(seconds, reason='digest_read_budget_exhausted'):
             signal.setitimer(signal.ITIMER_REAL, max(0.000001, previous_timer[0] - (clock.monotonic() - started)), previous_timer[1])
 
 
-def failure_text(env, *, is_late, locale='zh'):
+def failure_text(env, *, is_late, locale='en'):
     from notification_mode import consolidation_enabled
     if consolidation_enabled():
         from notification_snapshot.presentation import render_operator_message
