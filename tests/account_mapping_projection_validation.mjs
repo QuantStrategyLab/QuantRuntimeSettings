@@ -19,6 +19,7 @@ import { collectInventory, historyRow, instanceStateRow } from "./helpers/accoun
 const ROOT = new URL("../", import.meta.url);
 const CONSOLE = new URL("web/strategy-switch-console/", ROOT);
 const { RuntimeInstances } = await import(new URL("worker.js", CONSOLE));
+const { projectAccountManagement } = await import(new URL("application/runtime_instances/mapping_projection.js", CONSOLE));
 const { deriveMappingAuthority } = await import(new URL("application/account_mapping/inventory_adapter.js", CONSOLE));
 const { processingEligible } = await import(new URL("application/account_mapping/policy.js", CONSOLE));
 const { accountSettingsIdentity } = await import(new URL("application/account_settings/helpers.js", CONSOLE));
@@ -56,6 +57,23 @@ async function objectWith(revision, instances) {
 async function project(input, { revision = fixture.instance_revision, instances = INSTANCES } = {}) {
   const { object, close } = await objectWith(revision, instances);
   try { return object.accountManagementProjection(input); } finally { close(); }
+}
+// The same top-level arguments through the real Durable Object entry and
+// the direct helper.
+async function entries(args, { revision = fixture.instance_revision, instances = INSTANCES, state } = {}) {
+  const { object, close } = await objectWith(revision, instances);
+  let viaObject;
+  try { viaObject = object.accountManagementProjection(...args); } finally { close(); }
+  return { viaObject, direct: projectAccountManagement(...args.map(arg => state ? { ...arg, state } : arg)) };
+}
+// One input at both entries, the helper given the state the object reads;
+// both must agree.
+async function both(input, options = {}) {
+  const instances = options.instances === undefined ? INSTANCES : options.instances;
+  const state = instances ? { revision: options.revision ?? fixture.instance_revision, instances, initialized: true } : { revision: 0, instances: [], initialized: false };
+  const { viaObject, direct } = await entries([input], { ...options, state });
+  assert.deepEqual(direct, viaObject, "both entries agree");
+  return viaObject;
 }
 
 const eligibleKeys = policyFor().accounts.filter(account => account.management_class === "eligible").flatMap(account => account.deployments);
@@ -494,6 +512,57 @@ print(json.dumps({"settings": settings, "matching": configured("syn-recipient", 
   assert.deepEqual([result.wrong_recipient.ibkr_accounts, result.mismatched_binding.ibkr_accounts], [{}, {}], "A16: wrong recipient or mismatched binding maps nothing");
   assert.equal(result.changed, "digest_configured_account_identity_changed", "A16: the preparer rejects a changed selector");
   for (const text of [result.settings.DIGEST_EXPECTED_TARGETS_JSON, JSON.stringify(result.matching.expected)]) assert.ok(!text.includes(SELECTOR), "A16: no broker ID in the general roster");
+}
+
+// A22 null-and-top-level-options: any top-level argument returns a
+// projection. The object reads its own state; the helper given no state
+// projects nothing.
+const unknownSingle = (projection, label) => {
+  assert.deepEqual(projection.counts, { display_accounts: 1, managed: 0, management_disabled: 0, not_under_management: 0, unknown: 1 }, `${label}: one row, zero managed`);
+  const [row] = projection.accounts;
+  assert.deepEqual([row.evidence_state, row.management_status, row.deployments, row.configuration_revision.mapping_policy, row.enrollment_links],
+    ["unknown", "unknown", [{ platform: "longbridge", legacy_key: "syn-acct-08" }], null, []], `${label}: unclassified unknown row`);
+};
+const EMPTY = { format: "qsl_account_management_projection.v1", accounts: [], rejected_links: [], counts: { display_accounts: 0, managed: 0, management_disabled: 0, not_under_management: 0, unknown: 0 } };
+{
+  const forms = [["omitted", []], ["undefined", [undefined]], ["null", [null]], ["empty-object", [{}]], ["empty-array", [[]]], ["populated-array", [[complete]]],
+    ["empty-string", [""]], ["string", ["inventory"]], ["zero", [0]], ["number", [7]], ["false", [false]], ["true", [true]], ["bigint", [7n]], ["symbol", [Symbol("options")]],
+    ["null-prototype", [Object.create(null)]], ["date", [new Date(0)]]];
+  for (const [label, args] of forms) {
+    const { viaObject, direct } = await entries(args, { instances: SINGLE_INSTANCES });
+    unknownSingle(viaObject, `A22: ${label} object`);
+    assert.deepEqual(direct, EMPTY, `A22: ${label} helper without state`);
+  }
+  const valid = { ...inputOf(SINGLE, policyOf([["eligible", ["longbridge/syn-acct-08"]]], SINGLE_INSTANCES)), effective: [recordAt("longbridge/syn-acct-08", true, 2)] };
+  const control = await both(valid, { instances: SINGLE_INSTANCES });
+  assert.deepEqual([control.counts.managed, stateOf(control, "longbridge/syn-acct-08")], [1, ["known", "managed"]], "A22: valid state-bearing control");
+}
+
+// A23 malformed-derivation-with-state: each authority input replaced, one
+// usable current instance, at both entries.
+{
+  const policy = policyOf([["eligible", ["longbridge/syn-acct-08"]]], SINGLE_INSTANCES);
+  const valid = { ...inputOf(SINGLE, policy), effective: [recordAt("longbridge/syn-acct-08", true, 2)] };
+  const values = [["undefined", undefined], ["null", null], ["empty-object", {}], ["array", [SINGLE]], ["string", "input"], ["number", 7], ["boolean", true]];
+  let calls = 0;
+  for (const field of ["inventory", "policy", "collection"]) for (const [label, value] of values) {
+    const projection = await both({ ...valid, [field]: value }, { instances: SINGLE_INSTANCES });
+    unknownSingle(projection, `A23: ${field} ${label}`);
+    calls += 2;
+  }
+  assert.equal(calls, 42, "A23: forty-two entry calls");
+  const authority = deriveMappingAuthority(SINGLE, policy, META);
+  unknownSingle(await both({ authority, accounts: authority.accounts, effective: valid.effective }, { instances: SINGLE_INSTANCES }), "A23: authority-only");
+  // Malformed lists read as absent ones.
+  const link = linkFor(SINGLE_INSTANCES, "longbridge/syn-acct-08", "syn-slot-08", "uid:syn-opaque-08", "syn-run-08");
+  const withoutEffective = await both({ ...inputOf(SINGLE, policy), links: [link] }, { instances: SINGLE_INSTANCES });
+  const withoutLinks = await both(valid, { instances: SINGLE_INSTANCES });
+  assert.deepEqual([stateOf(withoutEffective, "longbridge/syn-acct-08"), acceptedOf(withoutEffective)], [["unknown", "unknown"], [bindingOf(link)]], "A23: absent effective control");
+  assert.deepEqual([stateOf(withoutLinks, "longbridge/syn-acct-08"), acceptedOf(withoutLinks)], [["known", "managed"], []], "A23: absent links control");
+  for (const [label, value] of [["null", null], ["object", {}], ["string", "list"], ["number", 7], ["boolean", true]]) {
+    assert.deepEqual(await both({ ...inputOf(SINGLE, policy), links: [link], effective: value }, { instances: SINGLE_INSTANCES }), withoutEffective, `A23: effective ${label} reads as absent`);
+    assert.deepEqual(await both({ ...valid, links: value }, { instances: SINGLE_INSTANCES }), withoutLinks, `A23: links ${label} reads as absent`);
+  }
 }
 
 // Labels are never keys and never emitted, whoever supplies them.

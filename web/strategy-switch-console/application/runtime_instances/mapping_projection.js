@@ -73,6 +73,10 @@ function derive(inventory, policy, collection) {
   try { return deriveMappingAuthority(inventory, policy, collection); } catch { return null; }
 }
 
+// Call options are normalized before any field is read: an absent, null or
+// non-object argument supplies no state and no authority input.
+const projectionOptions = options => (isObject(options) ? options : {});
+
 // `state` is RuntimeInstances.read(). `inventory` is the private result of
 // the #1173 assemble(), `policy` the protected mapping-policy document and
 // `collection` its `{ observedAt, sourceRef }`; classification is derived
@@ -83,7 +87,8 @@ function derive(inventory, policy, collection) {
 // deployment; `links` are private enrollment links. Every current instance
 // is displayed: one the derived authority does not cover reads `unknown`.
 // An authority derived at an older instance revision reads `stale`.
-export function projectAccountManagement({ state, inventory, policy, collection, effective = [], links = [] } = {}) {
+export function projectAccountManagement(options) {
+  const { state, inventory, policy, collection, effective = [], links = [] } = projectionOptions(options);
   const instances = state?.initialized === true && Array.isArray(state.instances) ? state.instances : [];
   const current = instances.filter(isCurrent);
   const authority = derive(inventory, policy, collection);

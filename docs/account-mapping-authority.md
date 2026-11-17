@@ -121,6 +121,16 @@ unclassified `unknown` rows, with no policy revision and nothing managed.
 `RuntimeInstances.accountManagementProjection({ inventory, policy, collection, effective, links })`
 passes these inputs with its own `read()` state.
 
+Both entries read their options only after normalizing them: an omitted,
+`null` or other non-object argument counts as an empty options object and
+never throws. The Durable Object still reads its own state and displays
+each current instance once as an unclassified `unknown` row. The helper
+called without a usable `state` returns an empty projection; with a usable
+`state`, a missing or malformed inventory, policy or collection keeps the
+current instances as unclassified `unknown` rows. A `null` or non-array
+`effective` or `links` reads as an absent list. Normalization covers only
+the call options; a storage failure inside `read()` is not caught.
+
 A row's evidence is `known` only when all of these hold:
 
 - the collection is authoritative and the policy validates;

@@ -2278,8 +2278,10 @@ export class RuntimeInstances {
   // Protected read projection of the mapping authority over the current
   // instance state, derived from a supplied inventory result, policy
   // document and collection metadata. No route or action dispatches it yet;
-  // it reads and writes nothing else.
-  accountManagementProjection({ inventory, policy, collection, effective = [], links = [] } = {}) {
+  // it reads and writes nothing else. Absent, null or non-object options
+  // still project the current instances, unclassified.
+  accountManagementProjection(options) {
+    const { inventory, policy, collection, effective = [], links = [] } = options !== null && typeof options === "object" && !Array.isArray(options) ? options : {};
     return projectAccountManagement({ state: this.read(), inventory, policy, collection, effective, links });
   }
 
