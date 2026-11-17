@@ -42,15 +42,11 @@ Set these non-secret repository variables before running the affected workflows.
 - 密钥和环境专属配置不要写进共享库代码。
 - 会影响多个平台或策略包的改动，需要在文档中说明。
 
-## 运行授权状态
+## 状态
 
-`platform-config.json.meta.runtime_authority` 是 P0–P6 控制面的机器可读状态。当前 `P0_CONTROL_PLANE_NOT_RUNTIME_WIRED` 表示本仓没有 active 的预授权自治策略，也没有已接入 runtime 的 P0 执行网关。
+实验性项目。本仓库保存各平台共用的版本化运行配置，不提交订单，也不授予实盘交易权限。`default_execution_mode`、`live_configured`、策略生命周期标签与 CI 绿灯仅描述配置状态；详情见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
-`default_execution_mode`、`live_configured`、策略生命周期标签、本仓切换 workflow 与 CI 绿灯都只是配置或历史元数据，不是运行、订单、资金或阶段升级授权。P1–P3 的 non-live 数据获取必须有独立、精确的契约，不能从 P0 隐含推导；P4–P6 仍未定义。详见[架构边界](docs/ARCHITECTURE.md#p0p6-runtime-authority-boundary)。
-
-已明确授权、已在运行的旧实盘基线不应因为新的候选正在 P1–P6 验证而被一并停掉。它使用独立、hash 冻结的 `live_continuity` 状态：只有 `ACTIVE_LKG` / `ROLLBACK_LKG` 可进行普通执行；暂停、对账和减风险状态默认拒绝普通下单，但继续保留监控和对账。该状态不会自行启用实盘、扩大风险或绕过 `RUNTIME_TARGET_ENABLED` 硬门。详见 [runtime target 生命周期](docs/runtime-target-lifecycle.md#live-champion-continuity)。
-
-AI 与监测系统只能创建不可变、无订单的 `qsl.research_task.v1` 离线研究请求。该请求绑定证据摘要和受限实验，但不会激活候选，也不会授予 P4–P6 权限。详见[研究任务契约](docs/qsl-research-task-v1.zh-CN.md)。
+已授权运行的实盘基线使用独立的 `live_continuity` 状态（详见 [runtime target 生命周期](docs/runtime-target-lifecycle.md#live-champion-continuity)），不因新候选验证而连带停机。AI 与监测系统只能创建不可变、无订单的 `qsl.research_task.v1` 离线研究请求（详见[研究任务契约](docs/qsl-research-task-v1.zh-CN.md)）。
 
 ## 当前账户资产合计
 

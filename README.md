@@ -56,13 +56,11 @@ Only `regular.enabled` defaults to `true`; all extended sessions default to `fal
 - Keep secrets and environment-specific settings outside the shared library code.
 - Document changes that affect multiple platforms or strategy packages.
 
-## Runtime-authority status
+## Status
 
-`platform-config.json.meta.runtime_authority` is the machine-readable status for the P0–P6 control plane. Its current `P0_CONTROL_PLANE_NOT_RUNTIME_WIRED` status means that this repository has no active preauthorized autonomy policy and no runtime-wired P0 execution gateway.
+Experimental. This repository stores versioned runtime settings for the platform repositories. It does not place orders or authorize trading: settings such as `default_execution_mode`, `live_configured`, strategy lifecycle labels, and green CI results describe configuration only. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how settings reach a runtime.
 
-`default_execution_mode`, `live_configured`, strategy lifecycle labels, this repository's switch workflow, and a green CI result are configuration or historical metadata—not authorization for runtime, orders, funds, or a stage change. P1–P3 non-live data acquisition needs its own precise contract; P0 does not grant it by implication. P4–P6 remain undefined. See [the architecture boundary](docs/ARCHITECTURE.md#p0p6-runtime-authority-boundary).
-
-AI and monitoring systems can create only an immutable, no-order `qsl.research_task.v1` request for offline research.  The request binds evidence digests and a bounded experiment, but it does not activate a candidate or grant P4–P6 authority.  See the [research task contract](docs/qsl-research-task-v1.zh-CN.md).
+AI and monitoring systems can create only an immutable, no-order `qsl.research_task.v1` request for offline research; it binds evidence digests without activating a candidate. See the [research task contract](docs/qsl-research-task-v1.zh-CN.md).
 
 ## Current account asset totals
 
