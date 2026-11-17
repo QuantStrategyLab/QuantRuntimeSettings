@@ -25,6 +25,7 @@ import { RotationError } from "../../secretRotationStepUp.js";
 
 import { accountFactsIdentityDates } from "../account_facts/read.js";
 import { runtimeInstanceConflict } from "./command.js";
+import { projectAccountManagement } from "./mapping_projection.js";
 import { deskErrorResponse } from "../desk/http.js";
 import { binanceDetailCommand } from "../../binance_detail_archive.js";
 import { INVENTORY_DO_PATH } from "../account_identity_inventory/constants.js";
@@ -2272,6 +2273,16 @@ export class RuntimeInstances {
   read() {
     const row = this.sql.exec("SELECT revision, payload FROM instance_state WHERE id = 1").toArray()[0];
     return row ? { revision: row.revision, instances: JSON.parse(row.payload), initialized: true } : { revision: 0, instances: [], initialized: false };
+  }
+
+  // Protected read projection of the mapping authority over the current
+  // instance state, derived from a supplied inventory result, policy
+  // document and collection metadata. No route or action dispatches it yet;
+  // it reads and writes nothing else. Absent, null or non-object options
+  // still project the current instances, unclassified.
+  accountManagementProjection(options) {
+    const { inventory, policy, collection, effective = [], links = [] } = options !== null && typeof options === "object" && !Array.isArray(options) ? options : {};
+    return projectAccountManagement({ state: this.read(), inventory, policy, collection, effective, links });
   }
 
   response(state) {

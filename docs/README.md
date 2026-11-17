@@ -30,6 +30,7 @@ The current package retains configuration and compatibility ownership. Broker cr
 - [Console API](console-api.md): interface details.
 - [Snapshot completeness](snapshot-completeness.md): cloud archive checks, daily Binance detail, and approval-bound activation.
 - [Account-identity inventory](account-identity-inventory.md): no-write enumeration of Durable Object account-identity state, collection runbook and offline assembly. Observation only; it grants no authority.
+- [Account mapping authority](account-mapping-authority.md): eligible/display-only classification policy, evidence states, inventory adapter contract and the runtime-instance read projection.
 - [English fork guide](strategy-switch-fork-guide.md) · [中文 Fork 指南](strategy-switch-fork-guide.zh-CN.md): installation in a separately configured environment.
 - [English permission model](manual-strategy-switch-permission-control.md) · [中文权限说明](manual-strategy-switch-permission-control.zh-CN.md).
 
