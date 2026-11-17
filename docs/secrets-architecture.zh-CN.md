@@ -1,3 +1,5 @@
+[English](secrets-architecture.md) | 简体中文
+
 # 机密与账户配置架构（开源说明）
 
 [Security Policy](../SECURITY.md) · 完整设计备忘（维护者）：仓库外 `机密与账户配置架构.md`

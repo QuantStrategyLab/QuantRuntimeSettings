@@ -1,3 +1,5 @@
+[English](promotion-activation-control-plane.md) | 简体中文
+
 # Promotion 激活控制面（签名 + 单次消费 + 写入读回）
 
 状态：代码已就绪，**默认仍关闭**。在 owner 完成下面的"启用前置"之前，apply 一律 fail-closed。

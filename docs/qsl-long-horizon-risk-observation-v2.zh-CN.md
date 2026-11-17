@@ -1,3 +1,5 @@
+[English](qsl-long-horizon-risk-observation-v2.md) | 简体中文
+
 # QSL 通用长期风险观察件 V2
 
 > 状态：`CORE_AND_EXACT_INGRESS_PORT_IMPLEMENTED_NO_RUNTIME_OR_POLICY_WRITE`

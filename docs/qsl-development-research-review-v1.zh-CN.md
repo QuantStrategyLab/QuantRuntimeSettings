@@ -1,3 +1,5 @@
+[English](qsl-development-research-review-v1.md) | 简体中文
+
 # `qsl.development_research_review.v1`
 
 这是已完成 development 研究的只读审阅消息。它和 `qsl.research_task.v1`

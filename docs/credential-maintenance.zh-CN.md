@@ -1,3 +1,5 @@
+[English](credential-maintenance.md) | 简体中文
+
 # IBKR Flex 到期维护 / IBKR Flex expiry maintenance
 
 这是一条共享主用户名的 `ibkr_flex` 到期待办，不按账户或 Gateway 拆分。到期时刻由管理员依据 IBKR CurrentTokenDetails 登记，必须包含时区，例如合成格式 `2035-04-01T08:00:00+08:00`。后端保存 UTC instant；未知或无效元数据保持未知，不能推断为正常、到期或券商有效性。登记只更新到期记录，不证明 token 已轮换，不改变交易权限。

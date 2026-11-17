@@ -1,3 +1,5 @@
+[English](qsl-strategy-plugin-contract-v2.md) | 简体中文
+
 # 策略插件契约 V2（设计边界）
 
 > 状态：`DESIGN_ONLY_NOT_RUNTIME`

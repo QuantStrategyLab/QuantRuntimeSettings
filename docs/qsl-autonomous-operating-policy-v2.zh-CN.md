@@ -1,3 +1,5 @@
+[English](qsl-autonomous-operating-policy-v2.md) | 简体中文
+
 # QSL 自治运行策略 V2
 
 > 状态：`P0_CONTROL_PLANE_AND_VERIFICATION_GATE`

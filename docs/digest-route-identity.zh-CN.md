@@ -1,3 +1,5 @@
+[English](digest-route-identity.md) | 简体中文
+
 # 中央摘要通知配置只读诊断 / Read-only daily digest route diagnosis
 
 ## 范围与入口 / Scope and entry point
