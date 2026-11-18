@@ -232,9 +232,11 @@ try {
   );
   assert.equal(history.status, 200);
   validate("settings_history", history.body);
-  assert.equal(history.body.items.length, 1);
-  assert.equal(history.body.items[0].event, "draft_saved");
+  assert.equal(history.body.items.length, 2);
+  assert.deepEqual(new Set(history.body.items.map(item => item.event)), new Set(["draft_saved", "account_management_change"]));
+  assert.equal(history.body.availability.management_change.status, "ok");
   assert.ok(!JSON.stringify(history.body).includes("synthetic-admin"));
+  assert.ok(!JSON.stringify(history.body).includes("synthetic-enrollment"));
   const accounts = await call("/api/accounts");
   assert.equal(accounts.status, 200);
   validate("accounts", accounts.body);

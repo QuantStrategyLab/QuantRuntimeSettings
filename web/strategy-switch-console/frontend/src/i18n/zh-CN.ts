@@ -385,6 +385,7 @@ export const zhCN = {
   "accounts.history.empty": "暂无变更记录",
   "accounts.event.draft_saved": "草案保存",
   "accounts.event.approved": "批准",
+  "accounts.event.account_management_change": "量化管理范围变更",
   "accounts.event.unrecorded": "未记录",
   "accounts.history.note": "变更记录有保留上限；批准或保存不代表已生效。",
   "accounts.draft_revision": "草案版本 {value}",

@@ -5755,6 +5755,7 @@ export function auditEventAction(source, kind) {
   if (source === "durable_human_decision") return `record_${kind}_decision`;
   if (source === "research_promotion_application") return "research_promotion_application";
   if (source === "account_settings_application") return "account_settings_approval";
+  if (source === "account_management_change") return "account_management_change";
   return null;
 }
 
@@ -5803,13 +5804,16 @@ export async function auditEventsResponse(request, env, url) {
     const source = row.source === "decision" ? "durable_human_decision"
       : row.source === "promotion_application" ? "research_promotion_application"
         : row.source === "account_settings_application" ? "account_settings_application"
-          : null;
+          : row.source === "account_management_change" ? "account_management_change"
+            : null;
     if (!source) return json({ ok: false, error: "audit_projection_invalid" }, 503);
     const subject = source === "durable_human_decision"
       ? { kind: `${row.kind}_decision`, id: row.subject_id }
       : source === "research_promotion_application"
         ? { kind: "strategy_promotion", id: row.subject_id }
-        : { kind: "account_settings", id: row.subject_id };
+        : source === "account_management_change"
+          ? { kind: "account_management", id: row.subject_id }
+          : { kind: "account_settings", id: row.subject_id };
     if (typeof subject.id !== "string" || !subject.id || subject.id.length > 256) return json({ ok: false, error: "audit_projection_invalid" }, 503);
     const revision = /^[0-9a-f]{64}$/.test(row.revision || "") ? row.revision : null;
     events.push({

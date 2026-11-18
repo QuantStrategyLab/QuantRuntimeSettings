@@ -387,6 +387,7 @@ export const en: Record<CoreMessageKey, string> = {
   "accounts.history.empty": "No changes recorded",
   "accounts.event.draft_saved": "Draft saved",
   "accounts.event.approved": "Approved",
+  "accounts.event.account_management_change": "Quant management scope updated",
   "accounts.event.unrecorded": "Not recorded",
   "accounts.history.note": "History retention is bounded; a save or approval does not prove the change took effect.",
   "accounts.draft_revision": "Draft revision {value}",

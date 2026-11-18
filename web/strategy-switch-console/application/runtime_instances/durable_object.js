@@ -2690,6 +2690,11 @@ export class RuntimeInstances {
           SELECT 'credential_rotation', 'credential', 'ibkr_flex', '', action, actor,
             occurred_at, operation_id, outcome, 'credential_rotation:' || event_id
           FROM credential_rotation_audit
+          UNION ALL
+          SELECT 'account_management_change', 'account_management', platform || ':' || account_key, '',
+            'account_management_change', actor, strftime('%Y-%m-%dT%H:%M:%fZ', occurred_at),
+            event_id, result, 'account_management_change:' || event_id
+          FROM account_management_change
         ) SELECT * FROM events WHERE occurred_at <= ?
           AND (? IS NULL OR occurred_at < ? OR (occurred_at = ? AND event_id > ?))
         ORDER BY occurred_at DESC, event_id ASC LIMIT ?`, snapshot,
@@ -2702,16 +2707,40 @@ export class RuntimeInstances {
     }
     if (command.action === "console_settings_history") {
       this.existingAccountInstance(command.platform, command.key);
-      return { approvals: this.sql.exec("SELECT request_key, status, identity_json, instance_revision, old_profile, new_profile, approved_at, approved_by, draft_revision FROM account_setting_profile_application WHERE platform = ? AND account_key = ? ORDER BY approved_at DESC", command.platform, command.key).toArray() };
+      const approvals = this.sql.exec("SELECT request_key, status, identity_json, instance_revision, old_profile, new_profile, approved_at, approved_by, draft_revision FROM account_setting_profile_application WHERE platform = ? AND account_key = ? ORDER BY approved_at DESC", command.platform, command.key).toArray();
+      const changes = this.sql.exec("SELECT event_id, occurred_at, actor, platform, account_key, members_json, policy_revision, instance_revision, draft_revision, old_applied_revision, new_applied_revision, old_management_enabled, new_management_enabled, result FROM account_management_change ORDER BY occurred_at DESC, event_id ASC").toArray()
+        .filter(row => {
+          if (row.platform === command.platform && row.account_key === command.key) return true;
+          try {
+            const members = JSON.parse(row.members_json);
+            return Array.isArray(members) && members.some(member => member?.platform === command.platform && member?.legacy_key === command.key);
+          } catch { return false; }
+        });
+      return { approvals, management_changes: changes };
     }
     const drafts = this.sql.exec("SELECT platform, account_key, overrides_json, updated_at FROM account_setting_draft").toArray();
     const approvals = this.sql.exec("SELECT platform, account_key, MAX(approved_at) AS approved_at FROM account_setting_profile_application GROUP BY platform, account_key").toArray();
+    const managementLatest = new Map();
+    for (const row of this.sql.exec("SELECT occurred_at, platform, account_key, members_json FROM account_management_change").toArray()) {
+      const ids = new Set([`${row.platform}:${row.account_key}`]);
+      try {
+        const members = JSON.parse(row.members_json);
+        if (Array.isArray(members)) for (const member of members) {
+          if (typeof member?.platform === "string" && typeof member?.legacy_key === "string") ids.add(`${member.platform}:${member.legacy_key}`);
+        }
+      } catch { /* unreadable members_json leaves direct addressing only */ }
+      for (const id of ids) {
+        const prev = managementLatest.get(id);
+        if (!prev || row.occurred_at > prev) managementLatest.set(id, row.occurred_at);
+      }
+    }
     return { rows: this.read().instances.map(item => {
       const draft = drafts.find(row => row.platform === item.platform && row.account_key === item.key);
       const approval = approvals.find(row => row.platform === item.platform && row.account_key === item.key);
+      const mgmtAt = managementLatest.get(`${item.platform}:${item.key}`) || null;
       return { platform: item.platform, account_key: item.key,
         pending_draft_count: draft ? new Set(Object.keys(JSON.parse(draft.overrides_json)).map(field => field.startsWith("dca_") ? "dca" : field.startsWith("reserved_") ? "cash" : field)).size : 0,
-        last_change_at: [draft?.updated_at, approval?.approved_at, item.updated_at].filter(Boolean).sort().at(-1) || null,
+        last_change_at: [draft?.updated_at, approval?.approved_at, mgmtAt, item.updated_at].filter(Boolean).sort().at(-1) || null,
       };
     }) };
   }

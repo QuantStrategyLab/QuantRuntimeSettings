@@ -153,7 +153,27 @@ export async function consoleApiResponse(request, env, deps) {
         platform: account.platform,
         key: account.key,
       });
-      const audit = await deps.audit(env);
+      let audit = [];
+      let auditStatus = {
+        status: "partial",
+        unavailable_reason: "bounded_audit_log",
+      };
+      try {
+        const loaded = await deps.audit(env);
+        if (Array.isArray(loaded)) {
+          audit = loaded;
+        } else {
+          auditStatus = {
+            status: "unavailable",
+            unavailable_reason: "stored_records_unreadable",
+          };
+        }
+      } catch {
+        auditStatus = {
+          status: "unavailable",
+          unavailable_reason: "stored_records_unreadable",
+        };
+      }
       const saves = audit.filter(
         (row) =>
           row.action === "save_account_settings" &&
@@ -161,6 +181,9 @@ export async function consoleApiResponse(request, env, deps) {
           row.key === account.key &&
           Number.isInteger(row.draft_revision),
       );
+      const managementChanges = Array.isArray(result.management_changes)
+        ? result.management_changes
+        : [];
       const items = await Promise.all(
         [
           ...saves.map((row) => ({
@@ -171,7 +194,7 @@ export async function consoleApiResponse(request, env, deps) {
             draft_revision: row.draft_revision ?? null,
             source: "bounded_audit_log",
           })),
-          ...result.approvals.map((row) => ({
+          ...(result.approvals || []).map((row) => ({
             id: row.request_key || `approval:${account.platform}:${account.key}:${row.draft_revision}:${row.approved_at}`,
             event: "approved",
             time: row.approved_at,
@@ -179,12 +202,30 @@ export async function consoleApiResponse(request, env, deps) {
             draft_revision: row.draft_revision,
             source: "profile_application",
           })),
+          ...managementChanges.map((row) => ({
+            id: row.event_id,
+            event: "account_management_change",
+            time: row.occurred_at,
+            actor: row.actor,
+            draft_revision: row.draft_revision ?? null,
+            management_revision: row.new_applied_revision ?? null,
+            old_management_revision: row.old_applied_revision ?? null,
+            old_management_enabled:
+              row.old_management_enabled === 1
+                ? true
+                : row.old_management_enabled === 0
+                  ? false
+                  : null,
+            new_management_enabled: row.new_management_enabled === 1,
+            change_ref: row.event_id,
+            source: "account_management_change",
+          })),
         ].map(async (row) => {
           const { actor, ...rest } = row;
           return { ...rest, short_id: shortId(rest.id, "CH"), actor_alias: await actorAlias(actor) };
         }),
       );
-      items.sort((a, b) => b.time.localeCompare(a.time));
+      items.sort((a, b) => b.time.localeCompare(a.time) || a.id.localeCompare(b.id));
       return json({
         status: "partial",
         account_alias: account.key,
@@ -194,13 +235,16 @@ export async function consoleApiResponse(request, env, deps) {
           items.length > page.offset + page.limit
             ? String(page.offset + page.limit)
             : null,
-        coverage: "bounded_audit_log_and_profile_applications",
+        coverage: "bounded_audit_log_and_durable_account_records",
         availability: {
-          draft_saved: {
-            status: "partial",
-            unavailable_reason: "bounded_audit_log",
-          },
+          draft_saved: auditStatus,
           approved: { status: "ok", unavailable_reason: null },
+          management_change: Array.isArray(result.management_changes)
+            ? { status: "ok", unavailable_reason: null }
+            : {
+                status: "unavailable",
+                unavailable_reason: "management_journal_unavailable",
+              },
           effect_verification: {
             status: "unavailable",
             unavailable_reason: "effect_verification_not_recorded",

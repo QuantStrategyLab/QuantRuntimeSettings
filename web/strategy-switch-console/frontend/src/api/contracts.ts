@@ -272,10 +272,15 @@ export interface SettingsHistoryResponse {
   items: {
     id: string;
     short_id: string;
-    event: "draft_saved" | "approved";
+    event: "draft_saved" | "approved" | "account_management_change";
     time: string;
     actor_alias: string | null;
     draft_revision: number | null;
+    management_revision?: number | null;
+    old_management_revision?: number | null;
+    old_management_enabled?: boolean | null;
+    new_management_enabled?: boolean | null;
+    change_ref?: string | null;
     source: string;
   }[];
   next_cursor: string | null;
@@ -283,7 +288,9 @@ export interface SettingsHistoryResponse {
   availability: Record<
     "draft_saved" | "approved" | "effect_verification",
     { status: Status; unavailable_reason: Reason | null }
-  >;
+  > & {
+    management_change?: { status: Status; unavailable_reason: Reason | null };
+  };
 }
 export interface AccountsResponse {
   status: "ok" | "partial";

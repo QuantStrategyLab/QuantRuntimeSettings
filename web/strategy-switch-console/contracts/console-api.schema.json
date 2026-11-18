@@ -847,7 +847,8 @@
               "event": {
                 "enum": [
                   "draft_saved",
-                  "approved"
+                  "approved",
+                  "account_management_change"
                 ]
               },
               "time": {
@@ -862,6 +863,36 @@
               "draft_revision": {
                 "type": [
                   "number",
+                  "null"
+                ]
+              },
+              "management_revision": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "old_management_revision": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "old_management_enabled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "new_management_enabled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "change_ref": {
+                "type": [
+                  "string",
                   "null"
                 ]
               },
@@ -925,6 +956,31 @@
               ]
             },
             "approved": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "enum": [
+                    "ok",
+                    "partial",
+                    "stale",
+                    "no_data",
+                    "not_connected",
+                    "unavailable"
+                  ]
+                },
+                "unavailable_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "status",
+                "unavailable_reason"
+              ]
+            },
+            "management_change": {
               "type": "object",
               "properties": {
                 "status": {

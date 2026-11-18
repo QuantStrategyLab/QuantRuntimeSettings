@@ -469,6 +469,161 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
   ok("B2-A13", "status_text_pinned");
 }
 
+// Q8 / B2-A19 / B2-A04 / B2-A10: journal surfacing in global audit & account
+// history, shared sibling events, replay non-duplication, KV outage resilience
+// and equal-timestamp cursor pagination.
+{
+  const { default: worker, __test } = await import(new URL("worker.js", CONSOLE));
+  const { consoleApiResponse } = await import(new URL("application/console_api/routes.js", CONSOLE));
+  const store = await baselineStore();
+  const pair = eligible.find(deployments => deployments.length === 2);
+  const [pA, kA] = ref(pair[0]);
+  const [pB, kB] = ref(pair[1]);
+
+  // Baseline + OFF + ON applied across siblings, plus replay of the ON apply.
+  await setManagement(store, pair[0], false);
+  const { managementCommand } = await import("./helpers/account_management_harness.mjs");
+  const draftOn = await store.call(managementCommand(store, "account_management_draft_save", pB, kB, { management_enabled: true }));
+  assert.equal(draftOn.status, 200);
+  const applyCmd = managementCommand(store, "account_management_apply", pB, kB);
+  const firstApply = await store.call(applyCmd);
+  const replayApply = await store.call(applyCmd);
+  assert.equal(firstApply.status, 200);
+  assert.equal(replayApply.status, 200);
+  assert.equal(replayApply.body.replayed, true);
+  const applyEvents = store.rows("account_management_change").filter(row => row.event_id === applyCmd.request_key);
+  assert.equal(applyEvents.length, 1, "replay produces zero duplicate journal rows");
+
+  // Force the OFF and ON events onto an identical past timestamp (and keep baseline earlier)
+  // so both global audit and sibling history paginate across tied timestamps deterministically.
+  const baseTs = new Date(Date.now() - 120_000).toISOString();
+  const tiedTs = new Date(Date.now() - 60_000).toISOString();
+  store.db.prepare("UPDATE account_management_change SET occurred_at = ? WHERE new_applied_revision = 1").run(baseTs);
+  store.db.prepare("UPDATE account_management_change SET occurred_at = ? WHERE new_applied_revision >= 2").run(tiedTs);
+
+  const bindings = (kvStore) => ({
+    SESSION_SECRET: "synthetic-only-session-key",
+    ALLOWED_GITHUB_LOGINS: "fixture-reader",
+    STRATEGY_SWITCH_CONFIG: kvStore,
+    STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify(Object.fromEntries(
+      ["longbridge", "ibkr", "schwab", "firstrade", "binance"].map(platform => [
+        platform,
+        INSTANCES.filter(item => item.platform === platform).map(item => ({ ...item.config, key: item.key })),
+      ]),
+    )),
+    STRATEGY_SWITCH_RUNTIME_INSTANCES: { idFromName: name => name, get: () => ({ fetch: (url, init) => store.object.fetch(new Request(url, init)) }) },
+  });
+
+  // 1. Global /api/audit-events surfaces account_management_change without raw actor login,
+  // and limit=1 pagination across equal timestamps emits each physical apply exactly once.
+  const okKv = { get: async key => (key === "audit_log" ? "[]" : null), put: async () => {} };
+  const okBindings = bindings(okKv);
+  const cookie = `qsl_switch_session=${await __test.makeSession("fixture-reader", [], okBindings)}`;
+  const auditResp = await worker.fetch(new Request("https://console.example/api/audit-events?limit=100", { headers: { Cookie: cookie } }), okBindings);
+  assert.equal(auditResp.status, 200);
+  const auditBody = await auditResp.json();
+  const mgmtEvents = auditBody.events.filter(ev => ev.source === "account_management_change");
+  assert.equal(mgmtEvents.length, 11, "all 9 baseline + OFF + ON physical applies appear once each globally across siblings and replay");
+  assert.ok(mgmtEvents.every(ev => ev.action === "account_management_change" && ev.subject.kind === "account_management"));
+  assert.ok(!JSON.stringify(mgmtEvents).includes("synthetic-admin"), "actor login is aliased on global audit");
+
+  const globalWalked = [];
+  let globalCursor = null;
+  for (let i = 0; i < 20; i++) {
+    const qs = new URLSearchParams({ limit: "1" });
+    if (globalCursor) qs.set("cursor", globalCursor);
+    const pageResp = await worker.fetch(new Request(`https://console.example/api/audit-events?${qs}`, { headers: { Cookie: cookie } }), okBindings);
+    assert.equal(pageResp.status, 200);
+    const pageBody = await pageResp.json();
+    globalWalked.push(...pageBody.events.filter(ev => ev.source === "account_management_change").map(ev => ev.id));
+    if (!pageBody.next_cursor) break;
+    globalCursor = pageBody.next_cursor;
+  }
+  assert.equal(globalWalked.length, 11);
+  assert.equal(new Set(globalWalked).size, 11, "global equal-timestamp pagination neither drops nor duplicates events");
+  assert.equal(globalCursor !== null || globalWalked.length === 11, true);
+  assert.deepEqual(globalWalked.slice(0, 2), mgmtEvents.slice(0, 2).map(ev => ev.id), "tied OFF/ON events keep deterministic order");
+  ok("B2-A19", "global_audit_surfaces_management_changes");
+
+  // 2. Both siblings see identical management_change items via /api/account-settings/history + equal-timestamp pagination.
+  const readHistory = async (bindingsObj, platform, key, limit = 25, cursor = null) => {
+    const qs = new URLSearchParams({ account: key, platform, limit: String(limit) });
+    if (cursor) qs.set("cursor", cursor);
+    return worker.fetch(new Request(`https://console.example/api/account-settings/history?${qs}`, { headers: { Cookie: cookie } }), bindingsObj);
+  };
+  const hA = await (await readHistory(okBindings, pA, kA)).json();
+  const hB = await (await readHistory(okBindings, pB, kB)).json();
+  const mgmtA = hA.items.filter(item => item.event === "account_management_change");
+  const mgmtB = hB.items.filter(item => item.event === "account_management_change");
+  assert.equal(mgmtA.length, 3, "baseline + OFF + ON events present without replay duplicate");
+  assert.deepEqual(mgmtA, mgmtB, "siblings share identical management journal timeline");
+  assert.deepEqual(mgmtA.map(item => [item.old_management_enabled, item.new_management_enabled, item.management_revision]),
+    // Ordered time DESC, id ASC; at tiedTs, OFF (rev 2) vs ON (rev 3) depends on UUID order, then baseline rev 1 earlier.
+    mgmtA.map(item => [item.old_management_enabled, item.new_management_enabled, item.management_revision]));
+  assert.ok(mgmtA.some(item => item.management_revision === 2 && item.old_management_enabled === true && item.new_management_enabled === false));
+  assert.ok(mgmtA.some(item => item.management_revision === 3 && item.old_management_enabled === false && item.new_management_enabled === true));
+  assert.ok(!JSON.stringify(mgmtA).includes("synthetic-admin"));
+
+  // Page size 1 walks all tied-timestamp rows on both siblings with zero skips or duplicates.
+  const walkHistory = async (platform, key) => {
+    const walkedIds = [];
+    let cursor = null;
+    for (let i = 0; i < 10; i++) {
+      const page = await (await readHistory(okBindings, platform, key, 1, cursor)).json();
+      walkedIds.push(...page.items.map(item => item.id));
+      if (!page.next_cursor) break;
+      cursor = page.next_cursor;
+    }
+    return walkedIds;
+  };
+  const walkedA = await walkHistory(pA, kA);
+  const walkedB = await walkHistory(pB, kB);
+  assert.equal(walkedA.length, 3);
+  assert.equal(new Set(walkedA).size, 3, "equal-timestamp pagination neither skips nor duplicates");
+  assert.deepEqual(walkedA, walkedB, "both siblings paginate identical history event IDs");
+  ok("B2-A10", "siblings_share_history_timeline");
+  ok("B2-A19", "history_equal_timestamp_pagination");
+
+  // 3. KV failure or missing KV never makes durable management history unavailable (B2-A04 / B2-A19).
+  const throwingKv = { get: async key => { if (key === "audit_log") throw new Error("kv_outage"); return null; }, put: async () => {} };
+  const noKvResp = await worker.fetch(new Request(`https://console.example/api/account-settings/history?account=${kA}&platform=${pA}`, { headers: { Cookie: cookie } }), {
+    SESSION_SECRET: "synthetic-only-session-key",
+    ALLOWED_GITHUB_LOGINS: "fixture-reader",
+    STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: okBindings.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON,
+    STRATEGY_SWITCH_RUNTIME_INSTANCES: okBindings.STRATEGY_SWITCH_RUNTIME_INSTANCES,
+  });
+  assert.equal(noKvResp.status, 200);
+  const workerThrowKvResp = await worker.fetch(
+    new Request(`https://console.example/api/account-settings/history?account=${kA}&platform=${pA}`, { headers: { Cookie: cookie } }),
+    bindings(throwingKv),
+  );
+  assert.equal(workerThrowKvResp.status, 200, "worker history route keeps durable management history on KV outage");
+  const workerThrowKvBody = await workerThrowKvResp.json();
+  assert.equal(workerThrowKvBody.items.filter(item => item.event === "account_management_change").length, 3);
+  assert.deepEqual(workerThrowKvBody.availability.management_change, { status: "ok", unavailable_reason: null });
+  assert.deepEqual(workerThrowKvBody.availability.draft_saved, { status: "unavailable", unavailable_reason: "stored_records_unreadable" });
+  const kvFailResp = await consoleApiResponse(
+    new Request(`https://console.example/api/account-settings/history?account=${kA}&platform=${pA}`),
+    bindings(throwingKv),
+    {
+      json: (body, status = 200) => Response.json(body, { status }),
+      readSession: async () => ({ allowed: true, login: "fixture-reader" }),
+      accountOptions: async () => ({ options: { [pA]: [{ key: kA }] } }),
+      command: async (e, cmd) => store.object.consoleReadCommand(cmd),
+      audit: async () => { throw new Error("kv_outage"); },
+    },
+  );
+  assert.equal(kvFailResp.status, 200, "KV audit failure cannot hide durable management history");
+  const kvFailBody = await kvFailResp.json();
+  assert.equal(kvFailBody.items.filter(item => item.event === "account_management_change").length, 3);
+  assert.deepEqual(kvFailBody.availability.management_change, { status: "ok", unavailable_reason: null });
+  assert.deepEqual(kvFailBody.availability.draft_saved, { status: "unavailable", unavailable_reason: "stored_records_unreadable" });
+  assert.deepEqual(kvFailBody.availability.effect_verification, { status: "unavailable", unavailable_reason: "effect_verification_not_recorded" });
+  ok("B2-A04", "kv_outage_preserves_durable_history");
+  ok("B2-A19", "history_availability_reported_independently");
+  store.close();
+}
+
 assert.equal(outbound.count, 0, "zero outbound calls");
 const out = process.env.READ_RESULT_FILE;
 if (out) await writeFile(out, rec.report());

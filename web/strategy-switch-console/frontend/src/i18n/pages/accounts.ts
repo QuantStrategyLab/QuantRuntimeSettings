@@ -148,6 +148,10 @@ export const zh: Record<string, string> = {
   "accounts.management.admin_only": "需要管理员权限方可编辑或应用量化管理范围。",
   "accounts.management.reason_summary": "状态依据：{reasons}",
   "accounts.management.read_failed": "管理状态暂不可读，不会假定关闭；请重试或查看只读事实。",
+  "accounts.management.history_transition": "{from} → {to} · 生效版本 {revision}",
+  "accounts.management.history_init": "初始生效：{to} · 生效版本 {revision}",
+  "accounts.management.history_note": "管理范围变更仅记录控制面准入调整，不证明运行时已执行或券商侧已生效。",
+  "accounts.management.history_availability": "管理变更记录",
 
 };
 export const en: Record<string, string> = {
@@ -299,5 +303,9 @@ export const en: Record<string, string> = {
   "accounts.management.admin_only": "Admin permission is required to modify quant management scope.",
   "accounts.management.reason_summary": "Reasons: {reasons}",
   "accounts.management.read_failed": "Management state is temporarily unreadable and is not assumed disabled; retry or review read-only facts.",
+  "accounts.management.history_transition": "{from} → {to} · Applied rev {revision}",
+  "accounts.management.history_init": "Initial state: {to} · Applied rev {revision}",
+  "accounts.management.history_note": "Management scope events record control-plane admission only and do not prove runtime execution or broker effect.",
+  "accounts.management.history_availability": "Management change log",
 
 };
