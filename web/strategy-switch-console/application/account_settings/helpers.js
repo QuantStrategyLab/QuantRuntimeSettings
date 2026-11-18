@@ -122,6 +122,8 @@ export function accountSettingsPayload(observed, effective, admin, extras = {}) 
     effective,
     effective_read: extras.effectiveRead,
     draft: observed.draft,
+    // The management group's own draft/applied readback; never part of the strategy overrides.
+    management: observed.management ?? null,
     declaration: observed.declaration,
     strategy_options: Array.isArray(extras.strategyOptions) ? extras.strategyOptions : [],
     current_option_supported: extras.currentOptionSupported === true,

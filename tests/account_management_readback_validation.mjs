@@ -420,6 +420,42 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
   ok("B2-A17", "production_wiring_three_surfaces");
 }
 
+
+// Q6: the account-settings readback carries independent draft and applied
+// objects, the sibling list, both revisions and the status/evidence/reasons.
+{
+  const store = await baselineStore();
+  const pair = eligible.find(deployments => deployments.length === 2);
+  const settings = async text => (await store.call({ action: "account_settings_read", actor: "synthetic-admin", platform: ref(text)[0], key: ref(text)[1] })).body.management;
+  const first = await settings(pair[0]);
+  assert.deepEqual(Object.keys(first).sort(), ["applied", "draft", "evidence_scope", "evidence_state", "instance_revision", "management_class", "management_status",
+    "policy_revision", "processing_eligible", "reasons", "siblings"], "management section fields");
+  // The baseline was initialized through a draft that its apply consumed.
+  assert.deepEqual([first.management_status, first.evidence_state, first.management_class, first.draft, first.applied.revision, first.applied.management_enabled],
+    ["managed", "known", "eligible", { management_enabled: true, revision: 1, base_applied_revision: 0, status: "consumed", consumed_applied_revision: 1 }, 1, true]);
+  assert.deepEqual(first.siblings, pair.map(text => ({ platform: ref(text)[0], key: ref(text)[1] })), "both siblings are listed");
+  assert.deepEqual(await settings(pair[1]), first, "the sibling reads the identical section");
+  const { managementCommand } = await import("./helpers/account_management_harness.mjs");
+  const saved = await store.call(managementCommand(store, "account_management_draft_save", ref(pair[0])[0], ref(pair[0])[1], { management_enabled: false }));
+  assert.equal(saved.status, 200);
+  const drafted = await settings(pair[1]);
+  assert.deepEqual([drafted.draft.revision, drafted.draft.management_enabled, drafted.draft.base_applied_revision, drafted.draft.status, drafted.applied.revision, drafted.applied.management_enabled],
+    [2, false, 1, "pending", 1, true], "the two axes are independent");
+  const applied = await store.call(managementCommand(store, "account_management_apply", ref(pair[1])[0], ref(pair[1])[1]));
+  assert.equal(applied.status, 200);
+  const after = await settings(pair[0]);
+  assert.deepEqual([after.draft.status, after.draft.consumed_applied_revision, after.applied.revision, after.applied.management_enabled, after.management_status],
+    ["consumed", 2, 2, false, "management_disabled"]);
+  assert.equal(after.draft.revision, 2, "draft and applied revisions are separate shared axes");
+  ok("B2-A22", "settings_readback_draft_applied_axes");
+  ok("B2-A10", "settings_readback_siblings_identical");
+  const missing = createStore();
+  const unknown = (await missing.call({ action: "account_settings_read", actor: "synthetic-admin", platform: ref(pair[0])[0], key: ref(pair[0])[1] })).body.management;
+  assert.deepEqual([unknown.management_status, unknown.evidence_state, unknown.applied, unknown.draft, unknown.policy_revision, unknown.processing_eligible, unknown.reasons.includes("management_policy_unavailable")],
+    ["unknown", "unknown", null, null, null, false, true], "no policy: unknown, never an invented flag");
+  ok("B2-A16", "settings_readback_missing_policy_unknown");
+}
+
 // Status text table: the pinned bilingual contract.
 {
   assert.deepEqual(MANAGEMENT_STATUS_TEXT, {

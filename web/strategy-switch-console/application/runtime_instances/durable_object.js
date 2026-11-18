@@ -34,7 +34,7 @@ import { deskErrorResponse } from "../desk/http.js";
 import { binanceDetailCommand } from "../../binance_detail_archive.js";
 import { INVENTORY_DO_PATH } from "../account_identity_inventory/constants.js";
 import { inventoryCapability, inventoryResponse } from "../account_identity_inventory/http.js";
-import { MANAGEMENT_READ_DO_PATH, managementReadCapability, managementReadResponse } from "./account_management_readback.js";
+import { MANAGEMENT_READ_DO_PATH, managementReadCapability, managementReadResponse, managementSettingsView } from "./account_management_readback.js";
 import {
   ACCOUNT_FACTS_FUTURE_SKEW_MS,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
@@ -1802,6 +1802,7 @@ export class RuntimeInstances {
       enabled: item.enabled,
       identity,
       config: item.config,
+      management: managementSettingsView(resolveManagement(readManagementSnapshot(this.sql, state), item.platform, item.key)),
       draft: this.accountSettingDraftView(item, identity),
       declaration: this.accountSettingDeclaration(item, identity),
       risk: {

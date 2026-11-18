@@ -153,6 +153,23 @@ export function buildManagementReadback(sql, observedAt) {
   };
 }
 
+// The management section of the account-settings readback: independent draft
+// and applied objects (the draft is never effective authority), the physical
+// siblings, both policy and instance revisions, and the status, evidence and
+// reasons of the live resolution. Absent state is null, never an invented flag.
+export function managementSettingsView(resolution) {
+  const draft = resolution.draft;
+  return {
+    evidence_scope: resolution.evidence_scope, policy_revision: resolution.policy_revision, instance_revision: resolution.instance_revision,
+    management_class: resolution.management_class, management_status: resolution.management_status, evidence_state: resolution.evidence_state,
+    reasons: resolution.reasons, processing_eligible: resolution.processing_eligible === true,
+    siblings: resolution.deployments.map(item => ({ platform: item.platform, key: item.legacy_key })),
+    applied: resolution.applied ? { management_enabled: resolution.applied.management_enabled, revision: resolution.applied.revision, effective_at: resolution.applied.effective_at } : null,
+    draft: draft ? { management_enabled: draft.management_enabled, revision: draft.revision, base_applied_revision: draft.base_applied_revision,
+      status: draft.status, consumed_applied_revision: draft.consumed_applied_revision } : null,
+  };
+}
+
 const respond = (body, status = 200) => new Response(JSON.stringify(body), {
   status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store" },
 });
