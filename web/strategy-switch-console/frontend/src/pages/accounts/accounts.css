@@ -20,9 +20,9 @@
 .accounts-alias-button:hover { text-decoration: underline; }
 
 .accounts-mobile-back { display: none; margin-bottom: 12px; }
-.accounts-unassigned { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
+.accounts-unassigned, .management-badges, .management-radio-group, .management-radio { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
 
-.accounts-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 10px; }
+.accounts-detail-head, .management-coverage-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 10px; }
 .accounts-detail-head > .card-title { margin: 0; font-size: 19px; letter-spacing: -.02em; min-width: 0; overflow-wrap: anywhere; }
 
 .accounts-summary-rows { display: flex; flex-direction: column; gap: 0; }
@@ -84,45 +84,12 @@
   .accounts-summary-row { padding: 8px 0; }
 }
 
-.management-card { display: grid; gap: 8px; }
-.management-badges { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.management-card, .management-controls, .management-coverage-bar { display: grid; gap: 8px; }
+.management-controls { padding-top: 8px; border-top: 1px solid var(--line); }
+.management-coverage-bar { margin-bottom: 12px; }
+.management-coverage-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.management-badges, .management-radio-group, .management-radio { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.management-radio-group { border: 0; margin: 0; padding: 0; }
+.management-legend { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+.management-radio { font-size: 13px; cursor: pointer; }
 .management-draft-pending { color: var(--warning); font-weight: 600; }
-.management-controls {
-  display: grid;
-  gap: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-.management-radio-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.management-legend {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-.management-radio {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-.management-coverage-bar {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-.management-coverage-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 12px;
-  flex-wrap: wrap;
-}
