@@ -78,7 +78,7 @@ The account-facts read model deduplicates IBKR, Schwab and Firstrade snapshots u
 - `.github/workflows/`: CI, scheduled jobs, release, or deployment workflows.
 - `docs/ARCHITECTURE.md`: Detailed architecture documentation.
 
-## QSL compatibility manifest (phase 1)
+## QSL compatibility manifest
 
 This repository is the central manifest source for QSL compatibility checks.
 
@@ -105,7 +105,7 @@ Runtime targets may include an optional `account_domain` identity and policy. It
 
 `.github/workflows/manual-strategy-switch.yml` provides a central manual switch entrypoint. It builds a transient runtime target from workflow inputs, validates it with `python/scripts/runtime_settings.py`, and writes GitHub variables into the target platform repository. It supports `longbridge`, `ibkr`, `schwab`, `firstrade`, `qmt`, and `binance`.
 
-This is a legacy settings-change path. It does not create or broaden P0–P6 runtime authority, and it must not be used to infer permission while the status above is not runtime-wired.
+This is a legacy settings-change path. It does not create or broaden runtime execution authority, and it must not be used to infer permission while the status above is not runtime-wired.
 
 Recommended flow:
 
@@ -140,8 +140,8 @@ Notes:
 - LongBridge, IBKR, Schwab, and Firstrade `service_targets_mode=auto` checks the target repository's multi-service inventory, so even preview mode requires `RUNTIME_SETTINGS_GH_TOKEN`.
 - Binance runs through an Oracle Cloud VPS self-hosted runner. Repository variable writes are consumed by the next externally scheduled `main.yml` dispatch; the central switch does not dispatch that runtime workflow because it may execute live trading. A strategy cadence change also requires a separate review of the external VPS scheduler.
 - QMT remains dry-run only and has no live deployment configuration. Its generated target can stage repository variables, but `trigger_platform_sync=true` is rejected.
-- Every strategy must retain a domain-matched, no-order `dry_run` route. The health report separately proves declared and default-buildable routes, parking profiles with missing required runtime artifacts instead of fabricating inputs; this is not P4 paper trading. See [Universal Dry-run Coverage V1](docs/qsl-universal-dry-run-coverage-v1.zh-CN.md).
-- `plugin_mode=none` is the safe default. `auto` remains only as a compatibility alias for `none`; strategy names must not auto-mount a `latest_signal.json` artifact. Legacy `custom` mounts are disabled and cannot bypass P1/P2/P3 binding through the manual form. A future runtime plugin must be referenced by the frozen P2 candidate and recomputable in P3; see the [Strategy Plugin Contract V2](docs/qsl-strategy-plugin-contract-v2.zh-CN.md).
+- Every strategy must retain a domain-matched, no-order `dry_run` route. The health report separately proves declared and default-buildable routes, parking profiles with missing required runtime artifacts instead of fabricating inputs; this is not paper trading. See [Universal Dry-run Coverage V1](docs/qsl-universal-dry-run-coverage-v1.zh-CN.md).
+- `plugin_mode=none` is the safe default. `auto` remains only as a compatibility alias for `none`; strategy names must not auto-mount a `latest_signal.json` artifact. Legacy `custom` mounts are disabled and cannot bypass strategy-binding and candidate-verification checks through the manual form. A future runtime plugin must be referenced by a frozen candidate artifact and recomputable at runtime; see the [Strategy Plugin Contract V2](docs/qsl-strategy-plugin-contract-v2.zh-CN.md).
 - The workflow is bound to the `runtime-strategy-switch` GitHub Environment. For a personal system, required reviewers are optional; prefer storing `RUNTIME_SETTINGS_GH_TOKEN` as an Environment secret and rely on preview, confirmation text, and a least-privilege token for day-to-day safety.
 - Follow the simplified permission-control plan before enabling real switches: [docs/manual-strategy-switch-permission-control.zh-CN.md](docs/manual-strategy-switch-permission-control.zh-CN.md).
 
