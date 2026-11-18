@@ -103,7 +103,6 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 }
 .topnav-item:hover { color: var(--text-primary); background: var(--surface-subtle); }
 .topnav-item.active { color: var(--accent-foreground); border-bottom-color: var(--accent-foreground); }
-.topnav-item svg { flex: 0 0 auto; }
 
 .nav-item {
   display: flex;
@@ -118,9 +117,9 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   position: relative;
 }
 .topnav-item, .nav-item { transition: color 120ms cubic-bezier(0.2, 0, 0, 1), background-color 120ms cubic-bezier(0.2, 0, 0, 1); }
-.nav-item:hover { background: var(--surface-hover); color: var(--text-primary); }
+.nav-item:hover, .icon-button:hover, .icon-button[aria-pressed="true"] { background: var(--surface-hover); color: var(--text-primary); }
 .nav-item.active { background: var(--accent-surface); color: var(--accent-foreground); font-weight: 600; }
-.nav-item svg { flex: 0 0 auto; }
+.topnav-item svg, .nav-item svg, .badge svg { flex: 0 0 auto; }
 
 .nav-badge {
   margin-left: auto;
@@ -153,7 +152,6 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   border-radius: var(--radius-s);
   color: var(--text-secondary);
 }
-.icon-button:hover, .icon-button[aria-pressed="true"] { background: var(--surface-hover); color: var(--text-primary); }
 
 /* Bottom tabs (mobile): Overview, Decisions, More. */
 .bottom-tabs {
@@ -242,7 +240,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .card-title { margin: 0 0 12px; font-size: 20px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.4; }
 .card-note { color: var(--text-muted); font-size: 12px; margin: 8px 0 0; line-height: 1.55; }
 
-.kpi-grid {
+.kpi-grid, .stat-strip {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
@@ -283,7 +281,6 @@ button.kpi-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(
   line-height: 18px;
   white-space: nowrap;
 }
-.badge svg { flex: 0 0 auto; }
 .badge-ok { color: var(--status-verified); background: var(--status-verified-bg); }
 .badge-warn { color: var(--status-attention); background: var(--status-attention-bg); }
 .badge-error { color: var(--status-blocked); background: var(--status-blocked-bg); }
@@ -294,7 +291,7 @@ button.kpi-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(
 .down { color: var(--down); }
 .flat { color: var(--muted); }
 
-.asof { color: var(--muted); font-size: 12px; }
+.asof, .timeline .timeline-time { color: var(--muted); font-size: 12px; }
 
 .empty-state,
 .error-state {
@@ -388,7 +385,7 @@ button.kpi-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(
 .page-header-actions { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-left: auto; }
 .page-header-actions .segmented { max-width: 100%; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-.section-stack { display: flex; flex-direction: column; gap: 16px; }
+.section-stack, .prefs-grid { display: flex; flex-direction: column; gap: 16px; }
 
 /* ---------- Tables ---------- */
 
@@ -412,15 +409,10 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .table-sort { border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: inherit; min-height: 24px; }
 .data-table th.sortable { cursor: pointer; user-select: none; }
 .data-table th.sortable:hover { color: var(--ink); }
-.data-table td.num, .data-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table td.num, .data-table th.num, .barlist-value { text-align: right; font-variant-numeric: tabular-nums; }
 
 .account-facts-notes { margin-top: 4px; font-size: 12px; color: var(--muted); }
 .account-facts-notes summary { cursor: pointer; }
-
-@media (max-width: 768px) {
-  /* Long identifiers and status text wrap instead of forcing a wide table. */
-  .data-table th, .data-table td { white-space: normal; overflow-wrap: anywhere; }
-}
 
 /* ---------- Tabs ---------- */
 
@@ -569,7 +561,6 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   border-radius: 50%;
   background: var(--accent);
 }
-.timeline .timeline-time { color: var(--muted); font-size: 12px; }
 
 /* ---------- Danger zone ---------- */
 
@@ -605,7 +596,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   overflow-wrap: anywhere;
   text-align: left;
 }
-.chart-legend button:hover { background: var(--surface-2); }
+.chart-legend button:hover, .scope-option:hover, .user-menu-panel .menu-item:hover { background: var(--surface-2); }
 .chart-legend button.off { opacity: 0.4; text-decoration: line-through; }
 .chart-legend .legend-swatch { flex: 0 0 14px; width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
 .chart-tooltip {
@@ -624,7 +615,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 .chart-tooltip .tooltip-date { color: var(--muted); margin-bottom: 4px; }
 .chart-tooltip .tooltip-row { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
-.chart-frame { position: relative; }
+.chart-frame, .user-menu { position: relative; }
 
 /* ---------- Calendar heatmap ---------- */
 
@@ -653,12 +644,11 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* ---------- Bar list ---------- */
 
-.barlist { display: flex; flex-direction: column; gap: 8px; }
+.barlist, .inbox-list { display: flex; flex-direction: column; gap: 8px; }
 .barlist-row { display: grid; grid-template-columns: 90px 1fr 90px; align-items: center; gap: 8px; font-size: 13px; }
 .barlist-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .barlist-track { position: relative; height: 14px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .barlist-fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
-.barlist-value { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ---------- Inbox ---------- */
 
@@ -666,7 +656,6 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* No selection: the list owns the page instead of leaving an empty reading pane. */
 .inbox.list-only { grid-template-columns: minmax(0, 1fr); }
 .inbox.list-only .inbox-list { max-width: none; }
-.inbox-list { display: flex; flex-direction: column; gap: 8px; }
 .inbox-item {
   display: flex;
   gap: 10px;
@@ -685,7 +674,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .priority-medium { background: var(--status-warn); }
 .priority-normal { background: var(--status-unknown); }
 .inbox-item .item-main { min-width: 0; flex: 1 1 auto; }
-.inbox-item .item-title { font-weight: 600; overflow-wrap: anywhere; }
+.inbox-item .item-title, .account-strategy-name { font-weight: 600; overflow-wrap: anywhere; }
 .inbox-item .item-meta { color: var(--muted); font-size: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
 .inbox-detail { position: sticky; top: 72px; }
 .inbox-actions {
@@ -749,8 +738,6 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .health-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
 .health-legend span { display: inline-flex; align-items: center; gap: 6px; }
 
-.stat-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
-
 /* ---------- Scope switcher ---------- */
 
 .scope-switcher { position: relative; min-width: 0; }
@@ -795,12 +782,10 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .scope-option .badge { flex: none; }
 /* Same automatic-minimum problem inside the panel's status row. */
 .scope-panel-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
-.scope-option:hover { background: var(--surface-2); }
 .scope-option.active { color: var(--accent); font-weight: 600; }
 
 /* ---------- User menu / preferences ---------- */
 
-.user-menu { position: relative; }
 .user-menu > summary {
   list-style: none;
   width: 32px; height: 32px;
@@ -837,10 +822,8 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   border-radius: var(--radius-s);
   text-align: left;
 }
-.user-menu-panel .menu-item:hover { background: var(--surface-2); }
 .user-menu-name { padding: 4px 8px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 
-.prefs-grid { display: flex; flex-direction: column; gap: 16px; }
 .prefs-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .prefs-row > span { font-weight: 500; }
 
@@ -877,8 +860,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 @media (max-width: 1024px) {
   .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .grid-2 { grid-template-columns: 1fr; }
-  .inbox { grid-template-columns: 1fr; }
+  .grid-2, .inbox { grid-template-columns: 1fr; }
   .inbox-detail { position: static; }
 }
 @media (max-width: 1100px) {
@@ -893,20 +875,17 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 @media (max-width: 1180px) and (min-width: 769px) {
   .topbar { gap: 10px; padding: 0 16px; }
-  .topbar-updated { display: none; }
+  .topbar-updated, .topnav-label { display: none; }
   .topnav-item { width: 44px; padding: 0; justify-content: center; }
-  .topnav-label { display: none; }
 }
 
 @media (max-width: 768px) {
-  .stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .topnav { display: none; }
-  .bottom-tabs { display: block; }
+  .stat-strip, .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topnav, .topbar-updated, .brand-copy, .topbar .spacer, .lang-label-full, .topbar .theme-toggle-label { display: none; }
+  .bottom-tabs, .health-grid-hint, .table-scroll-hint { display: block; }
   /* The document is the scroll container: reserve the fixed tab bar plus the
      safe area, with a gap, so the last row of every page clears the nav. */
   .content { padding: 20px 16px calc(var(--bottom-tabs-height) + 32px + env(safe-area-inset-bottom)); }
-  .health-grid-hint { display: block; }
-  .table-scroll-hint { display: block; }
   .page { gap: 16px; }
   .page-header { gap: 10px; }
   .page-title { font-size: 28px; letter-spacing: -0.02em; }
@@ -919,21 +898,16 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .page-header-actions > .segmented .segment { flex: 1 1 auto; justify-content: center; white-space: nowrap; }
   .card { padding: 16px; }
   .card-title { font-size: 18px; margin-bottom: 10px; }
-  .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kpi-value { font-size: 22px; }
   .kpi-card { padding: 14px; }
-  .topbar-updated { display: none; }
   /* Topbar keeps one row: the scope trigger flexes and truncates, the icon
      controls keep a 44px touch target. The brand copy is dropped on phones so
      the scope keeps its width; the page title carries the context. */
   .topbar { min-height: 56px; flex-wrap: nowrap; gap: 8px; padding: 6px 12px; }
-  .topbar .brand img { width: 24px; height: 24px; }
-  .brand-copy { display: none; }
+  .topbar .brand img, .state-icon { width: 24px; height: 24px; }
   .topbar .scope-switcher { flex: 1 1 auto; min-width: 44px; }
-  .topbar .spacer { display: none; }
-  .lang-label-full { display: none; }
+  .scope-switcher > button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lang-label-short { display: inline; }
-  .topbar .theme-toggle-label { display: none; }
   .topbar .appearance-toggle,
   .topbar .icon-button,
   .topbar .user-menu > summary { min-width: 44px; min-height: 44px; }
@@ -942,12 +916,11 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
      account name still truncates inside the label. */
   .topbar .scope-trigger { width: 100%; min-width: 44px; min-height: 44px; }
   .scope-panel { width: min(340px, calc(100vw - 24px)); max-height: 60dvh; }
-  .scope-option { min-height: 44px; }
+  .scope-option, .account-strategy-link { min-height: 44px; }
   .calendar-year-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .inbox-actions { position: static; }
   .empty-state, .error-state { padding: 11px 12px; }
-  .state-icon { width: 24px; height: 24px; }
-  .data-table th, .data-table td { padding: 9px 11px; }
+  .data-table th, .data-table td { padding: 9px 11px; white-space: normal; overflow-wrap: anywhere; }
 }
 
 /* At the narrowest widths the synthetic badge, which cannot shrink, would take
@@ -987,9 +960,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 .appearance-toggle { flex: 0 0 auto; white-space: nowrap; }
 .account-platform-group + .account-platform-group { margin-top: 20px; }
-.account-platform-title { margin: 0 0 10px; font-size: 16px; }
 .account-strategy-link { display: flex; flex-direction: column; text-align: left; width: 100%; gap: 6px; padding: 10px 8px; margin: 0 -8px; border-radius: 8px; transition: background-color 120ms ease; }
-.account-strategy-link + .account-strategy-link { border-top: 1px solid var(--line); }
 .account-strategy-link:hover .account-strategy-name { color: var(--accent); text-decoration: underline; }
 /* The row opens settings: show it with a chevron and a hover/focus surface. */
 .account-strategy-link:hover,
@@ -998,20 +969,7 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .account-strategy-chevron { flex: 0 0 auto; color: var(--muted); font-size: 16px; line-height: 1; transition: color 120ms ease, transform 120ms ease; }
 .account-strategy-link:hover .account-strategy-chevron,
 .account-strategy-link:focus-visible .account-strategy-chevron { color: var(--accent); transform: translateX(2px); }
-.account-strategy-name { font-weight: 600; overflow-wrap: anywhere; }
 .account-broker-title { margin: 0 0 8px; font-size: 15px; overflow-wrap: anywhere; }
-@media (max-width: 768px) {
-  .topbar { gap: 8px; padding-inline: 12px; }
-  /* The scope trigger takes the free space; its own label truncates, but the
-     box never shrinks below a usable touch target. */
-  .topbar .scope-switcher { min-width: 44px; }
-  .scope-switcher > button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .account-strategy-link { min-height: 44px; }
-}
-
-.account-group-card .account-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
-.account-group-card .account-row > span:first-child { color: var(--muted); }
-.account-strategy-link > .badge { align-self: flex-start; }
 
 /* Future and explicitly closed calendar days use neutral solids; real missing
    data keeps the dashed/striped empty style. */
