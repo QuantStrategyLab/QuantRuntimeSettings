@@ -4530,7 +4530,8 @@
                       "durable_human_decision",
                       "research_promotion_application",
                       "account_settings_application",
-                      "bounded_audit_log"
+                      "bounded_audit_log",
+                      "account_management_change"
                     ]
                   },
                   "occurred_at": {
