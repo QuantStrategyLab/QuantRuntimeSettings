@@ -47,6 +47,6 @@ candidate 各字段约定：
 
 ## 启用前置（owner）
 1. 建 tag ruleset（见交接提示词）。
-2. 新增 secret `QSL_PROMOTION_LEDGER_TOKEN`：fine-grained token，只给 QRS 的 contents 读写权限。
+2. 创建私有账本 GitHub App，仅安装到 `QuantRuntimeSettings`。仓库权限为 `Contents: Read and write` 和 `Metadata: Read-only`，不授予 ruleset bypass。在 `runtime-strategy-switch` 环境设置变量 `QSL_PROMOTION_LEDGER_APP_CLIENT_ID` 和 Secret `QSL_PROMOTION_LEDGER_APP_PRIVATE_KEY`。获批的 apply 作业为账本步骤签发短效令牌。
 3. Environment 变量 `QSL_PROMOTION_TRUSTED_ROOTS_JSON` 设置为独立核验后固定的摘要（`{platform: sha256}`）；不能从待验记录动态生成信任值。项目映射和完整根记录分别通过 secrets `QSL_PROMOTION_ROOT_PROJECTS_JSON`、`QSL_PROMOTION_ROOT_RECORDS_JSON` 提供。
 4. 运行 KMS IAM 提示词，创建 signer SA 并授权。
