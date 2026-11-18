@@ -1,3 +1,9 @@
+import type {
+  AccountManagementApplyRequest,
+  AccountManagementDraftSaveRequest,
+  AccountManagementReceipt,
+  AccountManagementSettingsSection,
+} from "./api/contracts.ts";
 import { accountSettingDraftBody, type AccountSettingOverridePatch } from "./operations.ts";
 import { cashDraftDirty, decimalUnitRatio, percentTextToRatio } from "./presentation.ts";
 import { createRequestGate } from "./requestGate.js";
@@ -51,24 +57,48 @@ export type AccountSettingsDraftFields = {
   cashMode: CashEditMode;
   acknowledge: boolean;
 };
-export type AccountSettingsReview = { draft: boolean; risk: boolean; declaration: boolean };
+export type AccountSettingsReview = { draft: boolean; risk: boolean; declaration: boolean; management: boolean };
+export type AccountManagementEditorState = {
+  section: AccountManagementSettingsSection | null;
+  draftValue: "" | "true" | "false";
+  dirty: boolean;
+  saving: "" | "management_draft" | "management_apply";
+  uncertain: boolean;
+  uncertainRequestKey: string | null;
+  uncertainOperation: "" | "management_draft" | "management_apply";
+  staleReplayIgnored: boolean;
+};
 export type AccountSettingsView = {
   account: AccountSettingsAccount | null;
   settings: Record<string, any> | null;
   preference: string;
   declaration: AccountDeclarationFields;
   notice: string;
-  noticeGroup: "" | "cash" | "income" | "option" | "strategy" | "risk" | "declaration";
+  noticeGroup: "" | "cash" | "income" | "option" | "strategy" | "risk" | "declaration" | "management";
   unavailable: string;
   saving: string;
   review: AccountSettingsReview;
   draft: AccountSettingsDraftFields;
+  management: AccountManagementEditorState;
 };
 export type AccountSettingsOp = {
   token: number;
   account: AccountSettingsAccount;
-  kind: "read" | "save" | "refresh";
+  kind: "read" | "save" | "refresh" | "management_draft" | "management_apply";
   body?: Record<string, unknown>;
+};
+type ManagementPendingSave = {
+  token: number;
+  requestKey: string;
+  operation: "management_draft" | "management_apply";
+  account: AccountSettingsAccount;
+  siblings: string[];
+  identity: unknown;
+  instanceRevision: number;
+  policyRevision: number;
+  draftRevision: number;
+  appliedRevision: number;
+  targetEnabled: boolean | null;
 };
 type AccountSettingsSaveSnapshot = {
   token: number;
@@ -176,7 +206,135 @@ function blankDraft(): AccountSettingsDraftFields {
 }
 
 function emptyReview(): AccountSettingsReview {
-  return { draft: false, risk: false, declaration: false };
+  return { draft: false, risk: false, declaration: false, management: false };
+}
+
+function emptyManagementState(): AccountManagementEditorState {
+  return {
+    section: null,
+    draftValue: "",
+    dirty: false,
+    saving: "",
+    uncertain: false,
+    uncertainRequestKey: null,
+    uncertainOperation: "",
+    staleReplayIgnored: false,
+  };
+}
+
+const BLOCKING_MANAGEMENT_REASONS = new Set([
+  "management_policy_unavailable",
+  "management_policy_invalid",
+  "runtime_instances_not_initialized",
+  "deployment_unclassified",
+  "deployment_claimed_by_multiple_accounts",
+  "sibling_not_current",
+  "sibling_duplicated",
+  "sibling_retiring",
+  "top_config_key_mismatch",
+  "physical_identity_changed",
+  "claimant_shadowing",
+  "legacy_key_cross_platform_collision",
+  "local_history_unreadable",
+  "stored_identity_differs_from_current",
+  "stored_identity_unreadable",
+  "management_identity_differs_from_current",
+  "management_record_unreadable",
+  "management_journal_unreadable",
+  "local_store_unreadable",
+  "declared_environment_differs_from_current",
+  "management_binding_changed",
+  "history_identity_differs_from_current",
+]);
+
+function validManagementSection(value: unknown): value is AccountManagementSettingsSection {
+  return record(value)
+    && typeof value.evidence_scope === "string"
+    && typeof value.management_status === "string"
+    && typeof value.evidence_state === "string"
+    && Array.isArray(value.reasons)
+    && typeof value.processing_eligible === "boolean"
+    && Array.isArray(value.siblings);
+}
+
+function managementDraftBaseline(section: AccountManagementSettingsSection | null): "" | "true" | "false" {
+  if (!section) return "";
+  if (section.draft?.status === "pending") return section.draft.management_enabled ? "true" : "false";
+  if (section.applied) return section.applied.management_enabled ? "true" : "false";
+  return "";
+}
+
+function canWriteManagement(
+  settings: Record<string, any> | null,
+  section: AccountManagementSettingsSection | null,
+): section is AccountManagementSettingsSection {
+  if (!settings || !section) return false;
+  if (settings.operations?.save_draft !== true) return false;
+  if (section.management_class !== "eligible") return false;
+  if (!Number.isSafeInteger(section.policy_revision) || (section.policy_revision ?? 0) < 1) return false;
+  if (!Number.isSafeInteger(section.instance_revision) || (section.instance_revision ?? -1) < 0) return false;
+  if (section.evidence_state === "conflict") return false;
+  return !section.reasons.some(reason => BLOCKING_MANAGEMENT_REASONS.has(reason));
+}
+
+function managementSiblingKeys(
+  account: AccountSettingsAccount,
+  siblings?: ReadonlyArray<{ platform?: string; key?: string; legacy_key?: string }> | null,
+): string[] {
+  const keys = new Set([`${account.platform}:${account.key}`]);
+  for (const item of siblings || []) {
+    const k = typeof item.key === "string" && item.key ? item.key : item.legacy_key;
+    if (typeof item.platform === "string" && item.platform && typeof k === "string" && k) {
+      keys.add(`${item.platform}:${k}`);
+    }
+  }
+  return [...keys];
+}
+
+function matchesManagementAcknowledgement(
+  pending: ManagementPendingSave,
+  payload: Record<string, any>,
+): boolean {
+  if (!record(payload) || !sameSavedValue(payload.identity, pending.identity)) return false;
+  const section = payload.management;
+  if (!validManagementSection(section)) return false;
+  const draftRevision = section.draft?.revision ?? 0;
+  const appliedRevision = section.applied?.revision ?? 0;
+  if (pending.operation === "management_draft") {
+    if (draftRevision <= pending.draftRevision) return false;
+    if (draftRevision === pending.draftRevision + 1 && section.draft?.status === "pending") {
+      return section.draft.management_enabled === pending.targetEnabled;
+    }
+    return true;
+  }
+  if (appliedRevision <= pending.appliedRevision) return false;
+  if (appliedRevision === pending.appliedRevision + 1) {
+    return section.applied?.management_enabled === pending.targetEnabled
+      && (section.draft?.consumed_applied_revision ?? 0) >= appliedRevision;
+  }
+  return true;
+}
+
+const MANAGEMENT_STORES = new WeakMap<
+  Map<string, AccountSettingsSaveSnapshot>,
+  {
+    pending: Map<string, ManagementPendingSave>;
+    cache: Map<string, AccountManagementSettingsSection>;
+  }
+>();
+
+function managementStoreFor(unresolvedSaves: Map<string, AccountSettingsSaveSnapshot>) {
+  let store = MANAGEMENT_STORES.get(unresolvedSaves);
+  if (!store) {
+    store = { pending: new Map(), cache: new Map() };
+    MANAGEMENT_STORES.set(unresolvedSaves, store);
+  }
+  return store;
+}
+
+function newRequestKey(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
+  return "00000000-0000-4000-8000-000000000001";
 }
 
 function layerDraftValue(overrides: Record<string, any> | undefined, key: string): string {
@@ -227,7 +385,19 @@ function savedNoticeGroup(op: AccountSettingsOp): AccountSettingsView["noticeGro
 }
 
 function emptyView(): AccountSettingsView {
-  return { account: null, settings: null, preference: "", declaration: { environment: "", accountType: "" }, notice: "", noticeGroup: "", unavailable: "", saving: "", review: emptyReview(), draft: blankDraft() };
+  return {
+    account: null,
+    settings: null,
+    preference: "",
+    declaration: { environment: "", accountType: "" },
+    notice: "",
+    noticeGroup: "",
+    unavailable: "",
+    saving: "",
+    review: emptyReview(),
+    draft: blankDraft(),
+    management: emptyManagementState(),
+  };
 }
 
 function floorText(value: string): boolean {
@@ -304,25 +474,52 @@ export function pendingDraftOverrides(draft: AccountSettingsDraftFields, scope: 
 
 export function createAccountSettingsController(unresolvedSaves = new Map<string, AccountSettingsSaveSnapshot>()) {
   const gate = createRequestGate();
+  const mgmtStore = managementStoreFor(unresolvedSaves);
   let selected: AccountSettingsAccount | null = null;
   let view = emptyView();
   let lastSettings: Record<string, any> | null = null;
   let saveSnapshot: AccountSettingsSaveSnapshot | null = null;
+  let managementSnapshot: ManagementPendingSave | null = null;
   const sameAccount = (account: AccountSettingsAccount | null) => Boolean(
     selected && account && selected.platform === account.platform && selected.key === account.key,
   );
   const current = (op: AccountSettingsOp | null | undefined) => Boolean(
     op && gate.isCurrent(op.token) && sameAccount(op.account),
   );
+  const clearPendingManagement = (match: ManagementPendingSave) => {
+    for (const sibKey of match.siblings) {
+      if (mgmtStore.pending.get(sibKey)?.token === match.token || mgmtStore.pending.get(sibKey)?.requestKey === match.requestKey) {
+        mgmtStore.pending.delete(sibKey);
+      }
+      mgmtStore.cache.delete(sibKey);
+    }
+  };
   return {
     selectedId() {
       return selected ? `${selected.platform}:${selected.key}` : "";
     },
+    cachedManagementSection(account: AccountSettingsAccount) {
+      return mgmtStore.cache.get(`${account.platform}:${account.key}`) || null;
+    },
     view() {
-      const pending = unresolvedSaves.get(this.selectedId());
+      const id = this.selectedId();
+      const pending = unresolvedSaves.get(id);
       if (pending) {
         const kind = pendingKind(pending.body);
         view = { ...view, review: { ...view.review, [kind]: true } };
+      }
+      const pendingMgmt = mgmtStore.pending.get(id);
+      if (pendingMgmt) {
+        view = {
+          ...view,
+          review: { ...view.review, management: true },
+          management: {
+            ...view.management,
+            uncertain: true,
+            uncertainRequestKey: pendingMgmt.requestKey,
+            uncertainOperation: pendingMgmt.operation,
+          },
+        };
       }
       return view;
     },
@@ -343,6 +540,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
         view = { ...emptyView(), account: selected };
         lastSettings = null;
         saveSnapshot = null;
+        managementSnapshot = null;
       }
       return this.start("read");
     },
@@ -356,13 +554,18 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
     abandon(op: AccountSettingsOp) {
       if (current(op)) gate.invalidate();
     },
-    applyRead(op: AccountSettingsOp, payload: Record<string, any>, options: { preserveNotice?: boolean; keepCash?: boolean; keepPreference?: boolean; keepIncome?: boolean; keepStrategy?: boolean; keepOption?: boolean; keepDeclaration?: boolean } = {}) {
+    applyRead(op: AccountSettingsOp, payload: Record<string, any>, options: { preserveNotice?: boolean; keepCash?: boolean; keepPreference?: boolean; keepIncome?: boolean; keepStrategy?: boolean; keepOption?: boolean; keepDeclaration?: boolean; keepManagement?: boolean } = {}) {
       if (!current(op) || payload?.platform !== op.account.platform || payload?.key !== op.account.key) return false;
       const pending = unresolvedSaves.get(this.selectedId());
       const hadDeclaration = record((view.settings || lastSettings)?.declaration) || pending?.declaration.present;
       if ((hadDeclaration || Object.prototype.hasOwnProperty.call(payload, "declaration")) && !validDeclaration(payload.declaration)) return false;
       const resolved = pending && matchesSaveAcknowledgement(pending, payload);
       if (resolved) unresolvedSaves.delete(this.selectedId());
+      const incomingSection = validManagementSection(payload.management) ? copyJson(payload.management) : null;
+      const pendingMgmt = mgmtStore.pending.get(this.selectedId());
+      const mgmtResolved = Boolean(pendingMgmt && incomingSection && matchesManagementAcknowledgement(pendingMgmt, payload));
+      if (mgmtResolved && pendingMgmt) clearPendingManagement(pendingMgmt);
+      if (incomingSection) mgmtStore.cache.set(this.selectedId(), copyJson(incomingSection));
       const draft = payload.draft?.overrides || {};
       const savedPreference = typeof (view.settings || lastSettings)?.risk?.preference === "string" ? (view.settings || lastSettings)!.risk.preference : "";
       const keepCash = options.keepCash === true && cashDraftDirty(view.draft);
@@ -373,6 +576,10 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       const keepIncome = options.keepIncome === true && view.draft.incomeTouched === true;
       const keepStrategy = options.keepStrategy === true && strategyGroupDirty(view.draft);
       const keepOption = options.keepOption === true && view.draft.optionTouched === true;
+      const keepManagement = options.keepManagement === true && view.management.dirty && view.management.draftValue !== "";
+      const nextMgmtSection = incomingSection ?? (payload.management === null ? null : view.management.section);
+      const baselineMgmt = managementDraftBaseline(nextMgmtSection);
+      const stillPendingMgmt = mgmtStore.pending.get(this.selectedId());
       lastSettings = payload;
       view = {
         account: { platform: op.account.platform, key: op.account.key },
@@ -383,7 +590,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
         noticeGroup: options.preserveNotice ? view.noticeGroup : "",
         unavailable: "",
         saving: "",
-        review: emptyReview(),
+        review: { ...emptyReview(), management: Boolean(stillPendingMgmt) },
         draft: {
           strategy: keepStrategy ? view.draft.strategy : (typeof draft.strategy_profile === "string" ? draft.strategy_profile : ""),
           floor: keepCash ? view.draft.floor : (typeof draft.reserved_cash_floor === "string" ? draft.reserved_cash_floor : ""),
@@ -407,12 +614,29 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
           cashMode: keepCash ? view.draft.cashMode : "",
           acknowledge: false,
         },
+        management: {
+          section: nextMgmtSection,
+          draftValue: keepManagement ? view.management.draftValue : baselineMgmt,
+          dirty: keepManagement ? (view.management.draftValue !== baselineMgmt) : false,
+          saving: "",
+          uncertain: Boolean(stillPendingMgmt),
+          uncertainRequestKey: stillPendingMgmt?.requestKey || null,
+          uncertainOperation: stillPendingMgmt?.operation || "",
+          staleReplayIgnored: options.preserveNotice ? view.management.staleReplayIgnored : false,
+        },
       };
       if (pending) {
         const kind = pendingKind(pending.body);
         view = { ...view, notice: resolved ? (kind === "risk" ? "偏好已保存" : kind === "declaration" ? "声明已保存" : "草案已保存") : "状态未知",
           noticeGroup: resolved ? savedNoticeGroup({ ...op, body: pending.body }) : "",
           review: { ...view.review, [kind]: !resolved } };
+      } else if (pendingMgmt) {
+        view = {
+          ...view,
+          notice: mgmtResolved ? (pendingMgmt.operation === "management_apply" ? "管理设置已应用" : "管理草案已保存") : "状态未知",
+          noticeGroup: mgmtResolved ? "management" : "",
+          review: { ...view.review, management: !mgmtResolved },
+        };
       }
       return true;
     },
@@ -582,6 +806,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
         keepStrategy: (sentStrategy || sentDca) ? strategyGroupMoved : strategyGroupDirty(view.draft),
         keepPreference: preferenceMoved,
         keepDeclaration: declarationMoved,
+        keepManagement: view.management.dirty,
       })) return false;
       const sentDraft = sentCash || sentIncome || sentOption || sentStrategy || sentDca;
       const otherMoved = (sentCash && (incomeMoved || optionMoved || strategyGroupMoved))
@@ -597,6 +822,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
           draft: sentDraft ? Boolean(identityChanged && otherMoved) : review.draft || draftConflict,
           risk: sentRisk ? false : review.risk || riskConflict,
           declaration: sentDeclaration ? false : review.declaration || declarationConflict,
+          management: Boolean(review.management) || mgmtStore.pending.has(this.selectedId()),
         },
       };
       return true;
@@ -623,7 +849,9 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
         return this.applySave({ ...op, body: copyJson(pending.body) }, payload,
           kind === "risk" ? "偏好已保存" : kind === "declaration" ? "声明已保存" : "草案已保存");
       }
-      const notice = pending ? "状态未知" : before.notice;
+      const pendingMgmt = mgmtStore.pending.get(this.selectedId());
+      const mgmtResolvedNow = Boolean(pendingMgmt && validManagementSection(payload.management) && matchesManagementAcknowledgement(pendingMgmt, payload));
+      const notice = (pending || (pendingMgmt && !mgmtResolvedNow)) ? "状态未知" : before.notice;
       const beforeSettings = before.settings || lastSettings;
       const dirtyCash = cashDraftDirty(before.draft);
       const dirtyIncome = before.draft.incomeTouched === true;
@@ -633,26 +861,37 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       const dirtyRisk = (before.preference || "") !== savedPreference;
       const savedDeclaration = declarationFields(beforeSettings?.declaration);
       const dirtyDeclaration = before.declaration.environment !== savedDeclaration.environment || before.declaration.accountType !== savedDeclaration.accountType;
+      const beforeMgmt = before.management.section;
+      const incomingMgmt = validManagementSection(payload.management) ? payload.management : null;
+      const mgmtRevisionChanged = Boolean(
+        (beforeMgmt?.draft?.revision ?? 0) !== (incomingMgmt?.draft?.revision ?? 0)
+        || (beforeMgmt?.applied?.revision ?? 0) !== (incomingMgmt?.applied?.revision ?? 0)
+        || beforeMgmt?.policy_revision !== incomingMgmt?.policy_revision,
+      );
       const identityChanged = !sameIdentity(beforeSettings?.identity, payload?.identity);
       const draftChanged = Number(beforeSettings?.draft?.revision) !== Number(payload?.draft?.revision);
       const riskChanged = Number(beforeSettings?.risk?.revision) !== Number(payload?.risk?.revision);
       const declarationChanged = Number(beforeSettings?.declaration?.revision) !== Number(payload?.declaration?.revision);
-      if (!this.applyRead(op, payload, { preserveNotice: true, keepCash: true, keepPreference: true, keepIncome: true, keepOption: true, keepStrategy: true, keepDeclaration: true })) return false;
+      if (!this.applyRead(op, payload, { preserveNotice: true, keepCash: true, keepPreference: true, keepIncome: true, keepOption: true, keepStrategy: true, keepDeclaration: true, keepManagement: !mgmtRevisionChanged && !mgmtResolvedNow })) return false;
+      const remainingMgmt = mgmtStore.pending.get(this.selectedId());
       view = {
         ...view,
-        notice,
+        notice: mgmtResolvedNow ? (pendingMgmt?.operation === "management_apply" ? "管理设置已应用" : "管理草案已保存") : notice,
+        noticeGroup: mgmtResolvedNow ? "management" : view.noticeGroup,
         saving: "",
         review: {
           draft: Boolean(before.review?.draft) || (dirtyCash || dirtyIncome || dirtyOption || dirtyStrategy) && (identityChanged || draftChanged),
           risk: Boolean(before.review?.risk) || dirtyRisk && (identityChanged || riskChanged),
           declaration: Boolean(before.review?.declaration) || dirtyDeclaration && (identityChanged || declarationChanged),
+          management: mgmtResolvedNow ? false : Boolean(remainingMgmt) || (Boolean(before.review?.management) && !incomingMgmt) || (before.management.dirty && (identityChanged || mgmtRevisionChanged)),
         },
       };
       return true;
     },
-    acknowledgeReview(kind: "draft" | "risk" | "declaration") {
+    acknowledgeReview(kind: "draft" | "risk" | "declaration" | "management") {
       const pending = unresolvedSaves.get(this.selectedId());
       if (pending && pendingKind(pending.body) === kind) return false;
+      if (kind === "management" && mgmtStore.pending.has(this.selectedId())) return false;
       if (!view.review?.[kind]) return false;
       view = { ...view, review: { ...view.review, [kind]: false } };
       return true;
@@ -662,7 +901,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       const overrides = view.settings.draft?.overrides || {};
       view = {
         ...view,
-        review: { draft: false, risk: Boolean(view.review?.risk), declaration: Boolean(view.review?.declaration) },
+        review: { draft: false, risk: Boolean(view.review?.risk), declaration: Boolean(view.review?.declaration), management: Boolean(view.review?.management) },
         draft: {
           ...blankDraft(),
           strategy: typeof overrides.strategy_profile === "string" ? overrides.strategy_profile : "",
@@ -683,7 +922,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       const incomeStill = view.draft.incomeTouched === true || view.draft.optionTouched === true || strategyGroupDirty(view.draft);
       view = {
         ...view,
-        review: { draft: incomeStill ? Boolean(view.review?.draft) : false, risk: Boolean(view.review?.risk), declaration: Boolean(view.review?.declaration) },
+        review: { draft: incomeStill ? Boolean(view.review?.draft) : false, risk: Boolean(view.review?.risk), declaration: Boolean(view.review?.declaration), management: Boolean(view.review?.management) },
         draft: {
           ...view.draft,
           floor: typeof overrides.reserved_cash_floor === "string" ? overrides.reserved_cash_floor : "",
@@ -705,7 +944,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       const current = view.settings.draft?.overrides || {};
       view = {
         ...view,
-        review: { draft: still ? Boolean(view.review?.draft) : false, risk: Boolean(view.review?.risk), declaration: Boolean(view.review?.declaration) },
+        review: { draft: still ? Boolean(view.review?.draft) : false, risk: Boolean(view.review?.risk), declaration: Boolean(view.review?.declaration), management: Boolean(view.review?.management) },
         draft: {
           ...view.draft,
           strategy: typeof overrides.strategy_profile === "string" ? overrides.strategy_profile : "",
@@ -726,7 +965,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       const still = cashDraftDirty(view.draft) || view.draft.incomeTouched === true || strategyGroupDirty(view.draft);
       view = {
         ...view,
-        review: { draft: still ? Boolean(view.review?.draft) : false, risk: Boolean(view.review?.risk), declaration: Boolean(view.review?.declaration) },
+        review: { draft: still ? Boolean(view.review?.draft) : false, risk: Boolean(view.review?.risk), declaration: Boolean(view.review?.declaration), management: Boolean(view.review?.management) },
         draft: {
           ...view.draft,
           option: layerDraftValue(overrides, "option_overlay_enabled"),
@@ -740,7 +979,7 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       view = {
         ...view,
         preference: typeof view.settings.risk?.preference === "string" ? view.settings.risk.preference : "",
-        review: { draft: Boolean(view.review?.draft), risk: false, declaration: Boolean(view.review?.declaration) },
+        review: { draft: Boolean(view.review?.draft), risk: false, declaration: Boolean(view.review?.declaration), management: Boolean(view.review?.management) },
       };
       return true;
     },
@@ -753,9 +992,303 @@ export function createAccountSettingsController(unresolvedSaves = new Map<string
       };
       return true;
     },
+    editManagement(enabled: boolean) {
+      if (!view.settings || !sameAccount(view.account)) return false;
+      if (view.management.saving || view.management.uncertain || mgmtStore.pending.has(this.selectedId())) return false;
+      if (!canWriteManagement(view.settings, view.management.section)) return false;
+      const next: "true" | "false" = enabled ? "true" : "false";
+      const baseline = managementDraftBaseline(view.management.section);
+      view = {
+        ...view,
+        management: {
+          ...view.management,
+          draftValue: next,
+          dirty: next !== baseline,
+          staleReplayIgnored: false,
+        },
+      };
+      return true;
+    },
+    revertManagement() {
+      if (!view.settings || mgmtStore.pending.has(this.selectedId())) return false;
+      const baseline = managementDraftBaseline(view.management.section);
+      view = {
+        ...view,
+        review: { ...view.review, management: false },
+        management: {
+          ...view.management,
+          draftValue: baseline,
+          dirty: false,
+        },
+      };
+      return true;
+    },
+    startManagementDraftSave(requestKey = newRequestKey()): { op: AccountSettingsOp; body: AccountManagementDraftSaveRequest } | null {
+      if (view.saving || view.management.saving || mgmtStore.pending.has(this.selectedId())) return null;
+      if (!selected || !view.settings || !sameAccount(view.account)) return null;
+      if (view.settings.platform !== selected.platform || view.settings.key !== selected.key) return null;
+      if (!record(view.settings.identity)) return null;
+      const section = view.management.section;
+      if (!canWriteManagement(view.settings, section) || view.review.management) return null;
+      if (view.management.draftValue !== "true" && view.management.draftValue !== "false") return null;
+      const siblings = managementSiblingKeys(selected, section.siblings);
+      if (siblings.some(sibKey => mgmtStore.pending.has(sibKey))) return null;
+      const managementEnabled = view.management.draftValue === "true";
+      const draftRevision = section.draft ? section.draft.revision : 0;
+      const appliedRevision = section.applied ? section.applied.revision : 0;
+      const body: AccountManagementDraftSaveRequest = {
+        platform: selected.platform,
+        key: selected.key,
+        identity: copyJson(view.settings.identity),
+        request_key: requestKey,
+        expected_instance_revision: section.instance_revision!,
+        expected_policy_revision: section.policy_revision!,
+        expected_management_draft_revision: draftRevision,
+        expected_management_revision: appliedRevision,
+        management_draft: { management_enabled: managementEnabled },
+      };
+      const token = gate.begin();
+      managementSnapshot = {
+        token,
+        requestKey,
+        operation: "management_draft",
+        account: { platform: selected.platform, key: selected.key },
+        siblings,
+        identity: copyJson(view.settings.identity),
+        instanceRevision: section.instance_revision!,
+        policyRevision: section.policy_revision!,
+        draftRevision,
+        appliedRevision,
+        targetEnabled: managementEnabled,
+      };
+      const op: AccountSettingsOp = { token, account: { platform: selected.platform, key: selected.key }, kind: "management_draft", body: copyJson(body) as unknown as Record<string, unknown> };
+      return { op, body };
+    },
+    startManagementApply(requestKey = newRequestKey()): { op: AccountSettingsOp; body: AccountManagementApplyRequest } | null {
+      if (view.saving || view.management.saving || mgmtStore.pending.has(this.selectedId())) return null;
+      if (!selected || !view.settings || !sameAccount(view.account)) return null;
+      if (view.settings.platform !== selected.platform || view.settings.key !== selected.key) return null;
+      if (!record(view.settings.identity)) return null;
+      const section = view.management.section;
+      if (!canWriteManagement(view.settings, section) || view.review.management) return null;
+      if (!section.draft || section.draft.status !== "pending" || view.management.dirty) return null;
+      const siblings = managementSiblingKeys(selected, section.siblings);
+      if (siblings.some(sibKey => mgmtStore.pending.has(sibKey))) return null;
+      const draftRevision = section.draft.revision;
+      const appliedRevision = section.applied ? section.applied.revision : 0;
+      const body: AccountManagementApplyRequest = {
+        platform: selected.platform,
+        key: selected.key,
+        identity: copyJson(view.settings.identity),
+        request_key: requestKey,
+        expected_instance_revision: section.instance_revision!,
+        expected_policy_revision: section.policy_revision!,
+        expected_management_draft_revision: draftRevision,
+        expected_management_revision: appliedRevision,
+      };
+      const token = gate.begin();
+      managementSnapshot = {
+        token,
+        requestKey,
+        operation: "management_apply",
+        account: { platform: selected.platform, key: selected.key },
+        siblings,
+        identity: copyJson(view.settings.identity),
+        instanceRevision: section.instance_revision!,
+        policyRevision: section.policy_revision!,
+        draftRevision,
+        appliedRevision,
+        targetEnabled: section.draft.management_enabled,
+      };
+      const op: AccountSettingsOp = { token, account: { platform: selected.platform, key: selected.key }, kind: "management_apply", body: copyJson(body) as unknown as Record<string, unknown> };
+      return { op, body };
+      return { op, body };
+    },
+    markManagementSubmitting(op: AccountSettingsOp) {
+      if (view.saving || view.management.saving || !current(op)) return false;
+      if (!managementSnapshot || managementSnapshot.token !== op.token) return false;
+      if (op.kind !== "management_draft" && op.kind !== "management_apply") return false;
+      for (const sibKey of managementSnapshot.siblings) {
+        mgmtStore.pending.set(sibKey, managementSnapshot);
+        mgmtStore.cache.delete(sibKey);
+      }
+      view = {
+        ...view,
+        notice: "",
+        noticeGroup: "",
+        management: {
+          ...view.management,
+          saving: op.kind,
+          staleReplayIgnored: false,
+        },
+      };
+      return true;
+    },
+    failManagement(op: AccountSettingsOp, uncertain = false, notice = "状态未知") {
+      const targetKey = `${op.account.platform}:${op.account.key}`;
+      const match = (managementSnapshot && managementSnapshot.token === op.token ? managementSnapshot : null)
+        ?? (mgmtStore.pending.get(targetKey)?.token === op.token ? mgmtStore.pending.get(targetKey)! : null);
+      if (match) {
+        if (!uncertain) {
+          clearPendingManagement(match);
+        } else {
+          for (const sibKey of match.siblings) {
+            mgmtStore.pending.set(sibKey, match);
+            mgmtStore.cache.delete(sibKey);
+          }
+        }
+      }
+      if (!current(op)) return false;
+      const stillPending = mgmtStore.pending.get(this.selectedId());
+      view = {
+        ...view,
+        notice: uncertain ? "状态未知" : notice,
+        noticeGroup: "",
+        review: { ...view.review, management: true },
+        management: {
+          ...view.management,
+          saving: "",
+          uncertain: Boolean(stillPending),
+          uncertainRequestKey: stillPending?.requestKey || null,
+          uncertainOperation: stillPending?.operation || "",
+        },
+      };
+      return true;
+    },
+    applyManagementSuccess(op: AccountSettingsOp, receipt: AccountManagementReceipt, readbackPayload?: Record<string, any> | null) {
+      if (!record(receipt) || receipt.ok !== true || receipt.platform !== op.account.platform || receipt.key !== op.account.key) {
+        return false;
+      }
+      const targetKey = `${op.account.platform}:${op.account.key}`;
+      const match = (managementSnapshot && managementSnapshot.token === op.token ? managementSnapshot : null)
+        ?? (mgmtStore.pending.get(targetKey)?.token === op.token ? mgmtStore.pending.get(targetKey)! : null);
+      const siblingKeys = managementSiblingKeys(op.account, [
+        ...(receipt.deployments || []),
+        ...((match?.siblings || []).map(k => {
+          const idx = k.indexOf(":");
+          return idx > 0 ? { platform: k.slice(0, idx), key: k.slice(idx + 1) } : {};
+        })),
+      ]);
+      const freshSection = readbackPayload && validManagementSection(readbackPayload.management)
+        ? copyJson(readbackPayload.management)
+        : null;
+      let highestKnown = freshSection;
+      for (const sibKey of siblingKeys) {
+        const cached = mgmtStore.cache.get(sibKey);
+        if (!highestKnown && cached) highestKnown = cached;
+        if (cached && highestKnown) {
+          const cApp = cached.applied?.revision ?? 0;
+          const hApp = highestKnown.applied?.revision ?? 0;
+          const cDraft = cached.draft?.revision ?? 0;
+          const hDraft = highestKnown.draft?.revision ?? 0;
+          if (cApp > hApp || (cApp === hApp && cDraft > hDraft)) highestKnown = cached;
+        }
+      }
+      const isHistoricalReplay = receipt.replayed === true && Boolean(highestKnown) && (
+        (highestKnown!.applied?.revision ?? 0) > receipt.management_revision
+        || (highestKnown!.draft?.revision ?? 0) > receipt.management_draft_revision
+      );
+      if (match) clearPendingManagement(match);
+      for (const sibKey of siblingKeys) {
+        mgmtStore.cache.delete(sibKey);
+        const existingPending = mgmtStore.pending.get(sibKey);
+        if (existingPending && (existingPending.token === op.token || existingPending.requestKey === receipt.request_key)) {
+          mgmtStore.pending.delete(sibKey);
+        }
+      }
+      if (isHistoricalReplay) {
+        if (freshSection) mgmtStore.cache.set(targetKey, copyJson(freshSection));
+        if (!current(op)) return false;
+        if (readbackPayload) {
+          this.applyRead(op, readbackPayload, { preserveNotice: false });
+        }
+        view = {
+          ...view,
+          management: {
+            ...view.management,
+            saving: "",
+            staleReplayIgnored: true,
+          },
+        };
+        return true;
+      }
+      if (freshSection) mgmtStore.cache.set(targetKey, copyJson(freshSection));
+      if (!current(op)) return false;
+      if (readbackPayload && this.applyRead(op, readbackPayload, { preserveNotice: false })) {
+        view = {
+          ...view,
+          notice: receipt.outcome === "applied" ? "管理设置已应用" : receipt.outcome === "no_op" ? "管理设置未变更" : "管理草案已保存",
+          noticeGroup: "management",
+          management: {
+            ...view.management,
+            saving: "",
+            uncertain: false,
+            uncertainRequestKey: null,
+            uncertainOperation: "",
+            staleReplayIgnored: false,
+          },
+        };
+        return true;
+      }
+      const prevSection = view.management.section;
+      const nextSection: AccountManagementSettingsSection | null = prevSection ? copyJson(prevSection) : null;
+      if (nextSection) {
+        nextSection.policy_revision = receipt.policy_revision;
+        nextSection.instance_revision = receipt.instance_revision;
+        if (receipt.outcome === "draft_saved") {
+          nextSection.draft = {
+            management_enabled: receipt.management_enabled,
+            revision: receipt.management_draft_revision,
+            base_applied_revision: receipt.management_revision,
+            status: "pending",
+            consumed_applied_revision: null,
+          };
+        } else if (receipt.outcome === "applied") {
+          nextSection.applied = {
+            management_enabled: receipt.management_enabled,
+            revision: receipt.management_revision,
+            effective_at: receipt.committed_at,
+          };
+          nextSection.management_status = receipt.management_enabled ? "managed" : "management_disabled";
+          nextSection.evidence_state = "known";
+          nextSection.processing_eligible = receipt.management_enabled;
+          nextSection.reasons = [];
+          nextSection.draft = {
+            management_enabled: receipt.management_enabled,
+            revision: receipt.management_draft_revision,
+            base_applied_revision: receipt.previous_management_revision ?? nextSection.draft?.base_applied_revision ?? 0,
+            status: "consumed",
+            consumed_applied_revision: receipt.management_revision,
+          };
+        }
+        mgmtStore.cache.set(targetKey, copyJson(nextSection));
+      }
+      const nextBaseline = managementDraftBaseline(nextSection);
+      view = {
+        ...view,
+        notice: receipt.outcome === "applied" ? "管理设置已应用" : receipt.outcome === "no_op" ? "管理设置未变更" : "管理草案已保存",
+        noticeGroup: "management",
+        review: { ...view.review, management: false },
+        management: {
+          section: nextSection,
+          draftValue: nextBaseline,
+          dirty: false,
+          saving: "",
+          uncertain: false,
+          uncertainRequestKey: null,
+          uncertainOperation: "",
+          staleReplayIgnored: false,
+        },
+      };
+      return true;
+    },
     finish(op: AccountSettingsOp) {
       if (!current(op)) return false;
-      view = { ...view, saving: "" };
+      view = {
+        ...view,
+        saving: "",
+        management: { ...view.management, saving: "" },
+      };
       return true;
     },
   };

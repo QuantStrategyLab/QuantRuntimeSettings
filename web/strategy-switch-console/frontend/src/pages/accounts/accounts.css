@@ -83,3 +83,46 @@
 @media (max-width: 480px) {
   .accounts-summary-row { padding: 8px 0; }
 }
+
+.management-card { display: grid; gap: 8px; }
+.management-badges { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.management-draft-pending { color: var(--warning); font-weight: 600; }
+.management-controls {
+  display: grid;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.management-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.management-legend {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.management-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.management-coverage-bar {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.management-coverage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}

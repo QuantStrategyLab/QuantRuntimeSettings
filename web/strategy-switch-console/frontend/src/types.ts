@@ -1,4 +1,5 @@
 import { ACCOUNT_FACTS_STALE_MS, ACCOUNT_FACTS_FUTURE_SKEW_MS } from "../../account_facts.js";
+import type { AccountFactsAssetCoverage } from "./api/contracts";
 
 export type AccountFactsReturn = {
   status: "unavailable";
@@ -137,6 +138,7 @@ export type AccountFactsSnapshot = {
   configured?: boolean;
   accounts: AccountFactsAccount[];
   totals: AccountFactsTotals;
+  asset_coverage?: AccountFactsAssetCoverage;
   return: AccountFactsReturn;
 };
 
@@ -363,6 +365,8 @@ export function totalsUnavailableDetail(reason: string | null | undefined): stri
   if (reason === "physical_identity_unverified") return "实物账户尚未完成去重，暂不合计";
   if (reason === "coverage_incomplete") return "账户资产资料覆盖不全，暂不合计";
   if (reason === "no_non_paper_accounts") return "暂无可合计的非模拟账户";
+  if (reason === "management_status_unknown") return "存在量化管理状态未知的非模拟账户，暂不合计";
+  if (reason === "no_managed_non_paper_accounts") return "暂无已纳入量化管理的非模拟账户";
   return "全部账户总额暂不可用";
 }
 
@@ -472,6 +476,7 @@ export function verifiedCurrentAccountAssets(
   })) return null;
   if (snapshot.accounts.some(row => row.aggregation_status !== "duplicate"
       && row.broker_environment !== "paper" && row.account_scope !== "paper"
+      && !(row.evidence_state === "known" && (row.management_status === "management_disabled" || row.management_status === "not_under_management"))
       && !accountFactsDisplayReady(accountFactsForDisplay(row, now)))) return null;
   return snapshot.totals.by_currency.map(row => ({currency: row.currency, amount: row.net_assets}));
 }

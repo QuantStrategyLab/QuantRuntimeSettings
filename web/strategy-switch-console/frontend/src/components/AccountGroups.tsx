@@ -9,6 +9,7 @@ import { DateText } from "./primitives";
 import {
   AccountFactsAmounts,
   EnvironmentBadge,
+  ManagementStatusBadge,
   PlatformFactsSummary,
   environmentOfFacts,
   type AccountEnvironment,
@@ -114,7 +115,15 @@ export function AccountGroups({ accounts, config, facts, onSelect }: { accounts:
         <div className="account-grid">{section.cards.map(({ account, canonical, representative, environment, declarationConflict, binanceKey }) => <article className="card account-group-card" key={account.identity}>
           <div className="account-card-head">
             <h3 className="account-broker-title">{names.account(account.rows[0].account_alias, group.platform)}</h3>
-            <EnvironmentBadge environment={environment} />
+            <div className="account-card-badges">
+              {representative?.management_status && (
+                <ManagementStatusBadge
+                  status={representative.management_status}
+                  evidenceState={representative.evidence_state ?? "unknown"}
+                />
+              )}
+              <EnvironmentBadge environment={environment} />
+            </div>
           </div>
           {declarationConflict && <p className="accounts-inline-note error" role="alert">{t("accounts.declaration.conflict_notice")}</p>}
           {facts && <div className="account-card-facts">

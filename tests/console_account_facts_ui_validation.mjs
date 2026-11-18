@@ -439,6 +439,21 @@ try {
     ok(!aliasGroup.includes('data-state="facts.identity_unverified"'), "a canonical included row keeps the shared card amounts");
     ok((aliasGroup.match(/USD 1,234\.56/g) || []).length === 2, "the amount appears once on the card and once in the total");
 
+    // 18c-bis. Management membership gating in PlatformFactsSummary & AccountGroups:
+    // unknown non-paper management status blocks platform sums while keeping card
+    // balances visible; known disabled/outside rows yield platform_no_managed_accounts.
+    const mgmtUnknownRow = { ...baseFact(), account_key: "ibkr-mgmt-unknown", management_status: "unknown", evidence_state: "unknown", management_revision: null };
+    const mgmtUnknownHtml = ui.platform(language, [{ ...baseFact(), management_status: "managed", evidence_state: "known", management_revision: 1 }, mgmtUnknownRow], 2, "ready");
+    ok(withheldState(mgmtUnknownHtml, "facts.platform_management_unknown"),
+      "unknown non-paper management status hides platform total behind explicit state");
+    const mgmtDisabledRow = { ...baseFact(), account_key: "ibkr-mgmt-off", management_status: "management_disabled", evidence_state: "known", management_revision: 2 };
+    const mgmtDisabledHtml = ui.platform(language, [mgmtDisabledRow], 1, "ready");
+    ok(withheldState(mgmtDisabledHtml, "facts.platform_no_managed_accounts"),
+      "all-disabled non-paper rows render no-managed-accounts state cleanly");
+    const mgmtCardHtml = ui.groups(language, [dirRow("ibkr-mgmt-unknown")], null, { rows: [mgmtUnknownRow], phase: "ready" });
+    ok(mgmtCardHtml.includes('data-management-status="unknown"') && mgmtCardHtml.includes("USD 1,234.56"),
+      "card surfaces management badge while preserving raw balances");
+
     // 18d. Known built-in IBKR titles follow the language switch; arbitrary
     // custom aliases and generic tickers are never translated.
     const builtInConfig = { accountOptions: { ibkr: [

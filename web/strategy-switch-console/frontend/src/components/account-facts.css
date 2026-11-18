@@ -15,6 +15,7 @@
 .account-group-card { min-width: 0; padding: 16px; }
 .account-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 10px; }
 .account-card-head .account-broker-title { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.account-card-badges { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 /* One account card fills its desktop track and groups identity, amounts and
    strategies horizontally; narrow screens keep the natural vertical order. */
 @media (min-width: 900px) {

@@ -22,6 +22,7 @@ import { ControlsTab } from "./ControlsTab";
 import { HistoryTab } from "./HistoryTab";
 import { RiskPreference } from "./RiskPreference";
 import { AccountDeclaration } from "./AccountDeclaration";
+import { AccountManagementPanel } from "./AccountManagementPanel";
 import { verifiedSchwabAccountTypeToken } from "../../presentation";
 
 type TodayRun = TodayRunSummary["accounts"][number];
@@ -187,6 +188,7 @@ export function AccountDetail({
             )}
           </section>
         )}
+        {active === "overview" && <AccountManagementPanel platform={account.platform} accountKey={account.account_alias} onChanged={onDeclarationSaved} />}
         {active === "overview" && <RiskPreference platform={account.platform} accountKey={account.account_alias} />}
         {active === "overview" && <PolicyReadback platform={account.platform} accountKey={account.account_alias} />}
         {active === "overview" && <AccountDeclaration platform={account.platform} accountKey={account.account_alias} onSaved={onDeclarationSaved} />}

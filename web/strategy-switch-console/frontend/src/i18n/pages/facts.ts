@@ -27,6 +27,14 @@ export const zh: Record<string, string> = {
   "facts.wallet_no_data": "暂无数据",
   "facts.wallet_pending": "待更新",
   "facts.wallet_read_failed": "读取失败",
+  "facts.platform_management_unknown": "平台合计不可用：存在量化管理状态未知的非模拟账户",
+  "facts.platform_no_managed_accounts": "暂无已纳入量化管理的非模拟账户",
+  "facts.management_badge_label": "管理范围",
+  "facts.management_coverage.title": "量化管理口径覆盖",
+  "facts.management_coverage.complete": "口径完整",
+  "facts.management_coverage.incomplete": "覆盖不完整",
+  "facts.management_coverage.counts": "已纳管 {managed} · 已停用 {disabled} · 不纳入 {outside} · 状态未知 {unknown} · 模拟已排除 {paper} · 同账户重复部署 {duplicates} · 未归类 {unresolved}",
+  "facts.management_coverage.raw_preserved": "各账户原始资产与现金事实仍按实展示。",
 };
 export const en: Record<string, string> = {
   "facts.assets": "Assets",
@@ -56,4 +64,12 @@ export const en: Record<string, string> = {
   "facts.wallet_no_data": "No data",
   "facts.wallet_pending": "Update pending",
   "facts.wallet_read_failed": "Read failed",
+  "facts.platform_management_unknown": "Platform total unavailable: non-paper quant management status is unknown",
+  "facts.platform_no_managed_accounts": "No non-paper accounts under quant management",
+  "facts.management_badge_label": "Management",
+  "facts.management_coverage.title": "Quant management coverage",
+  "facts.management_coverage.complete": "Coverage complete",
+  "facts.management_coverage.incomplete": "Coverage incomplete",
+  "facts.management_coverage.counts": "Managed {managed} · Disabled {disabled} · Outside {outside} · Unknown {unknown} · Paper excluded {paper} · Duplicate deployments {duplicates} · Unresolved {unresolved}",
+  "facts.management_coverage.raw_preserved": "Per-account raw balances and cash facts remain visible below.",
 };

@@ -1112,6 +1112,12 @@ export function totalsUnavailableDetail(reason) {
   if (reason === "duplicate_account_mapping") {
     return "账户映射重复，金额不汇总；未知不等于零。";
   }
+  if (reason === "management_status_unknown") {
+    return "存在量化管理状态未知的非模拟账户，暂不提供全部账户总额；未知不等于零。";
+  }
+  if (reason === "no_managed_non_paper_accounts") {
+    return "暂无已纳入量化管理的非模拟账户，暂不提供全部账户总额。";
+  }
   return "全部账户总额暂不可用；未知不等于零。";
 }
 

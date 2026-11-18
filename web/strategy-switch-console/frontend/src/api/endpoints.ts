@@ -3,6 +3,9 @@ import { AccessError, HttpError, getJson, postJson, readRevision } from "./clien
 import { MutationOutcomeUnknown } from "./cockpit";
 import type {
   AccountFactsResponse,
+  AccountManagementApplyRequest,
+  AccountManagementDraftSaveRequest,
+  AccountManagementReceipt,
   AccountsResponse,
   AssetsResponse,
   BinanceAccountFactsResponse,
@@ -117,6 +120,14 @@ export function saveCombinedDraft(request: CombinedDraftRequest): Promise<Combin
 export function loadAccountSettings(platform: string, key: string): Promise<Record<string, unknown>> {
   const params = new URLSearchParams({ platform, key });
   return getJson<Record<string, unknown>>(`/api/account-settings?${params}`);
+}
+
+export function saveManagementDraft(request: AccountManagementDraftSaveRequest): Promise<AccountManagementReceipt> {
+  return postJson<AccountManagementReceipt>("/api/account-settings", request);
+}
+
+export function applyManagementDraft(request: AccountManagementApplyRequest): Promise<AccountManagementReceipt> {
+  return postJson<AccountManagementReceipt>("/api/account-settings/management/apply", request);
 }
 
 export function loadTodayRuns(): Promise<TodayRunSummary> {

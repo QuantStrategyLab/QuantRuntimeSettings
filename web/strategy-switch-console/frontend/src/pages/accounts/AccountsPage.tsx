@@ -1,4 +1,5 @@
 import { AccountGroups, type AccountFactsView } from "../../components/AccountGroups";
+import { AccountFactsManagementCoverageBar } from "../../components/AccountFactsAmounts";
 import { findAccount } from "../../lib/accountDirectory";
 import type { BinanceFactsView } from "../../lib/binanceWalletFacts";
 import { useState } from "react";
@@ -75,6 +76,9 @@ export default function AccountsPage({ account, tab }: { account: string | null;
             {t("accounts.go_todos")}
           </button>
         </p>
+      )}
+      {!selected && factsState.phase === "ready" && (
+        <AccountFactsManagementCoverageBar coverage={factsState.data.asset_coverage} />
       )}
       <div className={`accounts-split${selected ? " detail-open" : ""}`}>
         <div className="accounts-list">{listBody}</div>
