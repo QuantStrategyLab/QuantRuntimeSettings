@@ -1,0 +1,62 @@
+name: Runtime Settings App authentication check
+
+# Read-only configuration verification: mints scoped GitHub App tokens and
+# checks read access without modifying variables, secrets, or runtime state.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  authenticate:
+    if: github.repository == 'QuantStrategyLab/QuantRuntimeSettings' && github.ref == 'refs/heads/main'
+    strategy:
+      max-parallel: 1
+      matrix:
+        write-capability: [read, write]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: runtime-strategy-switch
+    steps:
+      - name: Require RUNTIME_SETTINGS_APP_CLIENT_ID
+        env:
+          APP_CLIENT_ID: ${{ vars.RUNTIME_SETTINGS_APP_CLIENT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${APP_CLIENT_ID:-}" ]]; then
+            echo "::error::Configure RUNTIME_SETTINGS_APP_CLIENT_ID and RUNTIME_SETTINGS_APP_PRIVATE_KEY in runtime-strategy-switch first."
+            exit 1
+          fi
+
+      - name: Mint scoped control-plane installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RUNTIME_SETTINGS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RUNTIME_SETTINGS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-actions: ${{ matrix.write-capability }}
+          permission-contents: read
+          permission-environments: ${{ matrix.write-capability }}
+          permission-metadata: read
+        env:
+          INPUT_PERMISSION-ACTIONS-VARIABLES: ${{ matrix.write-capability }}
+
+      - name: Verify installation scope and read-only configuration access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SELF_REPOSITORY: ${{ github.repository }}
+          BINANCE_REPOSITORY: ${{ vars.RUNTIME_SETTINGS_BINANCE_REPO || 'QuantStrategyLab/BinancePlatform' }}
+        run: |
+          set -euo pipefail
+          installed=$(gh api installation/repositories --jq '.repositories | map(.full_name) | index(env.SELF_REPOSITORY) != null')
+          if [[ "$installed" != "true" ]]; then
+            echo "::error::Installation does not include QuantRuntimeSettings."
+            exit 1
+          fi
+          gh api --silent "repos/${SELF_REPOSITORY}/environments/runtime-strategy-switch/secrets/public-key"
+          gh api --silent "repos/${BINANCE_REPOSITORY}/actions/runs?per_page=1"
+          gh api --silent "repos/${BINANCE_REPOSITORY}/actions/variables?per_page=1"
+          echo "Scoped Runtime Settings GitHub App authentication verified; zero writes performed."

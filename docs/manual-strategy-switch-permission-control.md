@@ -65,8 +65,8 @@ skip the reviewer job. The existing secret Environment retains its role.
 ## Default: single-operator mode
 
 1. Only your GitHub account has write/admin on the runtime settings repository.
-2. Configure `RUNTIME_SETTINGS_GH_TOKEN` as a GitHub secret.
-3. Scope the token to the minimum variables/workflow permissions for target platform repos; do not grant `contents: write`.
+2. For unattended operation without 90-day PAT expiry, configure an organization GitHub App in the `runtime-strategy-switch` Environment (`vars.RUNTIME_SETTINGS_APP_CLIENT_ID` + `secrets.RUNTIME_SETTINGS_APP_PRIVATE_KEY`); workflows mint a 1-hour installation token via `actions/create-github-app-token` and fall back to `secrets.RUNTIME_SETTINGS_GH_TOKEN` only when `RUNTIME_SETTINGS_APP_CLIENT_ID` is unset.
+3. Grant the App (or fallback PAT) only `Actions: Read and write`, `Variables: Read and write`, `Environments: Read and write`, `Contents: Read-only`, and `Metadata: Read-only` on `QuantRuntimeSettings` and the target platform repositories; never grant `contents: write`, and verify read-only access with `.github/workflows/runtime-settings-app-auth-check.yml`.
 4. Use `apply=false` to review the preview; stop there while activation is disconnected.
 5. New strategy adoption, risk increases, and large capital changes remain human decisions.
    Single-operator mode removes the need for extra team reviewers, not investment authorization.
