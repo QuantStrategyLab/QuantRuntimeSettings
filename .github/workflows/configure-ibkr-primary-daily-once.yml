@@ -63,7 +63,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
-      RUNTIME_SETTINGS_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       GITHUB_TOKEN: ${{ github.token }}
       DAILY_SETUP_MODE: ${{ inputs.mode }}
       DAILY_EXECUTION_PLATFORM: ${{ inputs.execution_platform }}
@@ -89,5 +88,15 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      - name: Mint short-lived GitHub App token
+        id: app-token
+        if: vars.RUNTIME_SETTINGS_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RUNTIME_SETTINGS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RUNTIME_SETTINGS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
       - name: Configure the fixed primary target once
+        env:
+          RUNTIME_SETTINGS_GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
         run: node web/strategy-switch-console/ibkr_daily_setup_transport.mjs
