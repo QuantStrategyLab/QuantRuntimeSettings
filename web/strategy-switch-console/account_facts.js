@@ -1,4 +1,5 @@
 import { projectForwardReconciliation } from "./forward_reconciliation.js";
+import { MANAGEMENT_SCOPE, managementCounts, managementDisposition } from "./application/account_mapping/management_cohort.js";
 
 // Pure account-facts projection helpers. Keeps broker snapshot history out of
 // runtime-daily and never invents FX totals, returns, or historical backfill.
@@ -802,7 +803,21 @@ function sumMoneyTexts(amounts) {
   return `${total < 0n ? "-" : ""}${scale ? `${digits.slice(0, -scale)}.${digits.slice(-scale)}`.replace(/\.?0+$/, "") : digits}`;
 }
 
-export function aggregateAccountFactsTotals(accountRows, physicalIdentities = new Map()) {
+const isPaperRow = row => row?.broker_environment === "paper" || row?.account_scope === "paper";
+const rowDisposition = (row, cohort) => managementDisposition({ paper: isPaperRow(row) }, cohort.view(row.platform, row.account_key));
+
+// Stamp each row with its management state and return its disposition.
+function classifyManagement(rows, cohort) {
+  return new Map(rows.map(row => {
+    const view = cohort.view(row.platform, row.account_key);
+    row.management_status = view.management_status;
+    row.evidence_state = view.evidence_state;
+    row.management_revision = view.revision;
+    return [row, rowDisposition(row, cohort)];
+  }));
+}
+
+export function aggregateAccountFactsTotals(accountRows, physicalIdentities = new Map(), cohort = null) {
   const rows = Array.isArray(accountRows) ? accountRows : [];
   const nonPaper = row => row?.broker_environment !== "paper" && row?.account_scope !== "paper";
   const unavailable = reason => ({ status: "unavailable", reason, by_currency: [] });
@@ -834,8 +849,18 @@ export function aggregateAccountFactsTotals(accountRows, physicalIdentities = ne
       for (const row of ordered.slice(1)) row.aggregation_status = "duplicate";
     }
   }
-  const included = rows.filter(row => nonPaper(row) && row.aggregation_status !== "duplicate");
-  if (!included.length) return unavailable("no_non_paper_accounts");
+  // With a cohort, the complete displayed cohort is classified before any
+  // filtering. An unknown non-paper membership means no total at all; a known
+  // empty managed live cohort is not a zero.
+  let cohortRows = rows;
+  if (cohort) {
+    const dispositions = classifyManagement(rows, cohort);
+    if (rows.some(row => dispositions.get(row) === "unknown")) return unavailable("management_status_unknown");
+    cohortRows = rows.filter(row => dispositions.get(row) === "managed");
+    if (!cohortRows.length) return unavailable("no_managed_non_paper_accounts");
+  }
+  const included = cohortRows.filter(row => nonPaper(row) && row.aggregation_status !== "duplicate");
+  if (!included.length) return unavailable(cohort ? "no_managed_non_paper_accounts" : "no_non_paper_accounts");
   if (included.some(row => row.aggregation_status === "conflict")) return unavailable("duplicate_account_mapping");
   if (included.some(row => row.binding_status !== "bound" || row.data_status !== "fresh")) return unavailable("coverage_incomplete");
   if (included.some(row => !physicalIdentities.has(row))) return unavailable("physical_identity_unverified");
@@ -865,19 +890,37 @@ export function aggregateAccountFactsTotals(accountRows, physicalIdentities = ne
 }
 
 // Membership in this endpoint's existing totals, not performance/history coverage.
-function accountFactsAssetCoverage(accounts, totals) {
+export function accountFactsAssetCoverage(accounts, totals, cohort = null) {
+  const dispositions = cohort ? new Map(accounts.map(row => [row, rowDisposition(row, cohort)])) : null;
+  const unknownCohort = dispositions ? accounts.some(row => dispositions.get(row) === "unknown") : false;
   return {
     scope: "account_facts_totals",
     source: "validated_account_facts_snapshot",
     totals_status: totals.status,
     totals_reason: totals.reason,
+    ...(cohort ? {
+      management_scope: MANAGEMENT_SCOPE,
+      management_coverage_status: unknownCohort ? "incomplete" : "complete",
+      management_counts: managementCounts(accounts, dispositions, cohort, row => row.aggregation_status === "duplicate"),
+      management_observed_at: cohort.meta.observed_at,
+      management_instance_revision: cohort.meta.instance_revision,
+      management_policy_revision: cohort.meta.policy_revision,
+    } : {}),
     accounts: accounts.map(row => {
       let status = "unavailable";
       let reason;
-      if (row.broker_environment === "paper" || row.account_scope === "paper") {
+      const disposition = dispositions?.get(row);
+      if (row.broker_environment === "paper" || row.account_scope === "paper" || disposition === "paper") {
         status = "excluded";
         reason = "paper_account";
-      } else if (row.aggregation_status === "duplicate") {
+      } else if (disposition === "disabled") {
+        status = "excluded";
+        reason = "management_disabled";
+      } else if (disposition === "not_under_management") {
+        status = "excluded";
+        reason = "not_under_management";
+      } else if (disposition === "unknown") reason = "management_status_unknown";
+      else if (row.aggregation_status === "duplicate") {
         status = "excluded";
         reason = "duplicate_account";
       } else if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(row.platform)) reason = "source_not_supported";
@@ -901,6 +944,7 @@ function accountFactsAssetCoverage(accounts, totals) {
         account_key: row.account_key,
         status,
         reason,
+        ...(cohort ? { management_status: row.management_status, evidence_state: row.evidence_state, management_revision: row.management_revision } : {}),
         observation_date: row.observation_date,
         observed_finished_at: row.observed_finished_at,
       };
@@ -913,6 +957,10 @@ export function buildAccountFactsReadModel({
   bindings = null,
   storedByAccount = new Map(),
   now = Date.now(),
+  // The shared management cohort (`managementCohort(readback)`). Production
+  // callers always pass one, an unreadable readback giving an all-unknown
+  // cohort; omitting it is the pure-builder form with no management claim.
+  management = null,
 } = {}) {
   const normalizedBindings = bindings
     ? normalizeAccountFactsBindings(bindings)
@@ -1030,13 +1078,13 @@ export function buildAccountFactsReadModel({
     return platformCmp !== 0 ? platformCmp : left.account_key.localeCompare(right.account_key);
   });
 
-  const totals = aggregateAccountFactsTotals(accounts, physicalIdentities);
+  const totals = aggregateAccountFactsTotals(accounts, physicalIdentities, management);
 
   return {
     ok: true,
     accounts,
     totals,
-    asset_coverage: accountFactsAssetCoverage(accounts, totals),
+    asset_coverage: accountFactsAssetCoverage(accounts, totals, management),
     return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
   };
 }

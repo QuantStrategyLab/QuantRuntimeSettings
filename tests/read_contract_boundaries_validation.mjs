@@ -1709,7 +1709,8 @@ assert.deepEqual(checkIndirectEdges({ sources, surface, register, operations: re
     const HTTP_FILE = "application/account_identity_inventory/http.js";
     const CONSTANTS_FILE = "application/account_identity_inventory/constants.js";
     const HELPERS_FILE = "application/account_identity_inventory/helpers.js";
-    const DISPATCH = "if (new URL(request.url).pathname === INVENTORY_DO_PATH) return inventoryResponse(request, this.inventory);";
+    // The inventory dispatch, then the fixed management read dispatch; both run before storage initialization.
+    const DISPATCH = "if (new URL(request.url).pathname === INVENTORY_DO_PATH) return inventoryResponse(request, this.inventory);\n    if (new URL(request.url).pathname === MANAGEMENT_READ_DO_PATH) return managementReadResponse(request, this.managementRead);";
     const PREAMBLE = `${DISPATCH}\n    this.initializeStorage();\n    try {`;
     const DO_CONSTANTS_IMPORT = 'import { INVENTORY_DO_PATH } from "../account_identity_inventory/constants.js";';
     const DO_IMPORT = 'import { inventoryCapability, inventoryResponse } from "../account_identity_inventory/http.js";';

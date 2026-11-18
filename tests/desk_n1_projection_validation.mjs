@@ -1019,7 +1019,8 @@ assert.equal(switchStrategiesTargetId("/api/desk/switch/targets"), null);
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.deepEqual([...new Set(actions)].sort(), ["account_facts_history_read", "account_facts_list", "credential_maintenance_read"]);
+  // The Desk totals follow the shared management cohort, read through the object's fixed read-only path.
+  assert.deepEqual([...new Set(actions)].sort(), ["account_facts_history_read", "account_facts_list", "account_management_read", "credential_maintenance_read"]);
   assert.equal(kvPuts, 0, "zero config-store writes");
   assert.equal(outbound, 0, "zero outbound provider/collector fetches");
   assert.deepEqual([...__test.DESK_N1_READ_COMMANDS], ["account_facts_list", "account_facts_history_read", "credential_maintenance_read"]);

@@ -814,9 +814,19 @@ export interface AccountFactsAccount {
    * or unknown values are treated as unverified, never as included.
    */
   aggregation_status?: "included" | "unverified" | "conflict" | "duplicate";
+  /**
+   * The row's management membership from the registered live readback. When
+   * present it is authoritative for the managed non-paper cohort; any value
+   * other than a known "managed" keeps the row out of every live sum.
+   */
+  management_status?: ManagementStatusCode;
+  evidence_state?: ManagementEvidenceState;
+  management_revision?: number | null;
   balances: AccountFactsBalance[];
   cash: AccountFactsCash[];
 }
+export type ManagementStatusCode = "managed" | "management_disabled" | "not_under_management" | "unknown";
+export type ManagementEvidenceState = "known" | "unknown" | "conflict" | "stale";
 export interface AccountFactsResponse extends ReadOnlyProjection {
   ok: true;
   accounts: AccountFactsAccount[];

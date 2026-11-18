@@ -345,6 +345,7 @@ import {
   runtimeInstanceConflict,
   runtimeInstanceFields,
 } from "../runtime_instances/command.js";
+import { fetchManagementReadback } from "../runtime_instances/account_management_readback.js";
 import {
   HK_STOP_DO_ACTIONS,
   HK_STOP_REQUEST_ID,
@@ -5012,6 +5013,8 @@ export async function accountFactsResponse(request, env) {
     runtimeInstanceCommand,
     periodReturnCommand,
     accountFactsErrorResponse,
+    // The shared management cohort of the totals and coverage (Q5).
+    managementReadback: fetchManagementReadback,
   });
 }
 

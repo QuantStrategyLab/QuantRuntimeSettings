@@ -86,6 +86,10 @@ export type AccountFactsAccount = {
   identity_status: "partial_identity" | "missing_identity";
   identity_mismatch?: boolean;
   aggregation_status?: "included" | "duplicate" | "conflict" | "unverified";
+  /** Management membership from the live readback; present means authoritative. */
+  management_status?: "managed" | "management_disabled" | "not_under_management" | "unknown";
+  evidence_state?: "known" | "unknown" | "conflict" | "stale";
+  management_revision?: number | null;
   data_status: "fresh" | "stale" | "unavailable";
   broker_environment?: string | null;
   target_id: string | null;
@@ -441,6 +445,12 @@ export type CurrentAccountFactsSummary = {
   excludingPaper: CurrentAccountFactsGroup;
   duplicateConfigurationKeys: number;
   duplicateConfigurationConflicts: number;
+  /**
+   * A non-paper account's management membership is unknown (unknown, conflict
+   * or stale evidence). No live or non-paper sum is formed then, matching the
+   * server's unavailable totals; raw per-account facts are unaffected.
+   */
+  managementUnknown: boolean;
 };
 
 /** Use server totals only for the same current configured set, before local expiry. */
@@ -540,6 +550,7 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[],
   }
   let duplicateConfigurationKeys = 0;
   let duplicateConfigurationConflicts = 0;
+  let managementUnknown = false;
   const uniqueAccounts: CurrentAccountFactsRow[] = [];
   for (const rows of rowsByConfigKey.values()) {
     if (rows.length === 1) {
@@ -584,6 +595,15 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[],
     const physicalConflict = facts?.aggregation_status === "conflict";
     const paperEvidence = account.brokerEnvironment === "paper"
       || facts?.account_scope === "paper" || facts?.broker_environment === "paper";
+    // The shared cohort predicate: a row stamped by the producer is a live-sum
+    // member only as a known managed account. Known disabled or display-only
+    // rows are clean exclusions; anything else non-paper is unknown membership.
+    const stamped = facts?.management_status !== undefined;
+    if (stamped && !paperEvidence) {
+      const known = facts!.evidence_state === "known";
+      if (known && (facts!.management_status === "management_disabled" || facts!.management_status === "not_under_management")) continue;
+      if (!known || facts!.management_status !== "managed") managementUnknown = true;
+    }
     const environmentConflict = (account.brokerEnvironment === "live" && paperEvidence)
       || (account.brokerEnvironment === "paper" && facts?.broker_environment === "live");
     const environment = environmentConflict ? "unknown"
@@ -635,6 +655,13 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[],
     group.cashBalance = sumCurrentAmounts(group.cashBalance);
     group.availableCash = sumCurrentAmounts(group.availableCash);
   }
+  // Unknown non-paper membership leaves no live or non-paper sum to show.
+  if (managementUnknown) {
+    for (const name of ["live", "unknown"] as const) {
+      groups[name].assets = []; groups[name].cashBalance = []; groups[name].availableCash = [];
+      groups[name].covered = 0; groups[name].cashCovered = 0;
+    }
+  }
   const excludingPaper: CurrentAccountFactsGroup = {
     accounts: groups.live.accounts + groups.unknown.accounts,
     covered: groups.live.covered + groups.unknown.covered,
@@ -648,7 +675,7 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[],
     cashUnbound: groups.live.cashUnbound + groups.unknown.cashUnbound,
     cashMissing: groups.live.cashMissing + groups.unknown.cashMissing,
   };
-  return { ...groups, excludingPaper, duplicateConfigurationKeys, duplicateConfigurationConflicts };
+  return { ...groups, excludingPaper, duplicateConfigurationKeys, duplicateConfigurationConflicts, managementUnknown };
 }
 
 export function accountHistoryCoverage(series: {

@@ -34,6 +34,7 @@ import { deskErrorResponse } from "../desk/http.js";
 import { binanceDetailCommand } from "../../binance_detail_archive.js";
 import { INVENTORY_DO_PATH } from "../account_identity_inventory/constants.js";
 import { inventoryCapability, inventoryResponse } from "../account_identity_inventory/http.js";
+import { MANAGEMENT_READ_DO_PATH, managementReadCapability, managementReadResponse } from "./account_management_readback.js";
 import {
   ACCOUNT_FACTS_FUTURE_SKEW_MS,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
@@ -120,6 +121,7 @@ export class RuntimeInstances {
     this.rotationEnv = env;
     this.storageInitialized = false;
     this.inventory = inventoryCapability(ctx.storage, crypto.randomUUID());
+    this.managementRead = managementReadCapability(ctx.storage);
     this.deskReadbacks = new DeskReadbackStore(ctx.storage, async (id, actor) => {
       const state = this.read();
       const target = readbackTargets({ options: runtimeInstanceAccountOptions(state.instances), revision: state.revision }).find(target => target.id === id);
@@ -2366,6 +2368,7 @@ export class RuntimeInstances {
 
   async fetch(request) {
     if (new URL(request.url).pathname === INVENTORY_DO_PATH) return inventoryResponse(request, this.inventory);
+    if (new URL(request.url).pathname === MANAGEMENT_READ_DO_PATH) return managementReadResponse(request, this.managementRead);
     this.initializeStorage();
     try {
       if (new URL(request.url).pathname === DIRECTORY_PATH) {

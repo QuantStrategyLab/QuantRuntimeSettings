@@ -185,6 +185,7 @@ import {
 import { readSession, makeSession } from "./application/auth/session.js";
 import { INVENTORY_ROUTE } from "./application/account_identity_inventory/constants.js";
 import { accountIdentityInventoryResponse } from "./application/account_identity_inventory/http.js";
+import { MANAGEMENT_ROUTE, accountManagementReadResponse, fetchManagementReadback } from "./application/runtime_instances/account_management_readback.js";
 import { startLogin, finishLogin } from "./application/auth/login.js";
 import {
   ux1DraftGet,
@@ -393,6 +394,7 @@ export default {
     try {
       // Read-only inventory: dispatched before every ordinary console handler.
       if (url.pathname === INVENTORY_ROUTE) return await accountIdentityInventoryResponse(request, env, { readSession });
+      if (url.pathname === MANAGEMENT_ROUTE) return await accountManagementReadResponse(request, env, { readSession });
       if (url.pathname === "/") {
         if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "method_not_allowed" }, 405);
         const headers = responseHeaders({ "Content-Type": "text/html; charset=utf-8", "X-Console-Build": V2_BUILD_ID, "Cache-Control": "no-store" });
@@ -441,6 +443,8 @@ export default {
           history: (req, e) => accountFactsHistoryResponse(req, e, new URL(req.url)),
           binanceCurrent: binanceAccountFactsResponse,
           wallet: (req, e) => binanceWalletHistoryResponse(req, e, new URL(req.url)), benchmarks: marketBenchmarkResponse,
+          // The shared management cohort for `scope=all` (Q5).
+          managementReadback: fetchManagementReadback,
         });
       }
       if (["/api/decisions-inbox", "/api/owner-decisions/history", "/api/accounts", "/api/account-settings/diff", "/api/account-settings/history", "/api/account-settings/draft", "/api/runtime/today", "/api/strategies/summary", "/api/notifications/send-log", "/api/desk/alerts/delivery", "/api/accounts/run-controls"].includes(url.pathname)) {
@@ -811,6 +815,8 @@ function deskN1Deps() {
     factsBindings: e => loadAccountFactsBindings(e, { propagateReadErrors: true }),
     // The stored-facts loader issues only the allowlisted account_facts_list read.
     factsStored: (e, options, bindings) => loadStoredAccountFactsMap(e, options, bindings),
+    // The shared management cohort of the totals (Q5).
+    managementReadback: fetchManagementReadback,
     // One stored runtime-daily summary for a New York business date (16:00Z is inside it).
     // `options.schedule` is the ribbon's explicit opt-in; the same single read is made.
     runtimeDay: (req, e, accounts, date, options) => todaySummary(req, e, dailyDeps, accounts, Date.parse(`${date}T16:00:00Z`), options),

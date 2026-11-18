@@ -345,6 +345,17 @@ try {
     ok(lbConfiguredTotals.length === 1 && lbConfiguredTotals[0].currency === "USD"
       && lbConfiguredTotals[0].netAssets === "100" && lbConfiguredTotals[0].cashBalance === "-20",
       "available-only currencies cannot create empty platform asset totals or change native cash");
+    // 15a. Management cohort (Q5): a stamped row is a sum member only as a known
+    // managed account; no frontend sum may bypass unavailable server totals.
+    const stampedRow = (status, evidence = "known") => ({ ...lbConfigured, management_status: status, evidence_state: evidence, management_revision: 2 });
+    ok(ui.lib.platformCurrencyTotals([stampedRow("managed")], 1).length === 1, "a known managed row still sums");
+    ok(ui.lib.platformCurrencyTotals([stampedRow("unknown", "unknown")], 1).length === 0, "unknown membership forms no platform sum");
+    ok(ui.lib.platformCurrencyTotals([stampedRow("managed", "conflict")], 1).length === 0, "conflicting evidence forms no platform sum");
+    ok(ui.lib.platformCurrencyTotals([stampedRow("managed", "stale")], 1).length === 0, "stale evidence forms no platform sum");
+    ok(ui.lib.platformCurrencyTotals([stampedRow("management_disabled")], 1).length === 0, "a known disabled row alone leaves no sum");
+    const withDisabled = ui.lib.platformCurrencyTotals([stampedRow("managed"), { ...stampedRow("management_disabled"), balances: [{ currency: "USD", net_assets: "900", total_cash: "0" }] }], 2);
+    ok(withDisabled.length === 1 && withDisabled[0].netAssets === "100" && withDisabled[0].expected === 1, "a known disabled row is a clean exclusion, never summed");
+    ok(ui.lib.platformCurrencyTotals([stampedRow("managed"), stampedRow("unknown", "unknown")], 2).length === 0, "one unknown member blocks the whole platform sum");
     ok(ui.card(language, lbConfigured, "ready").includes(language === "zh" ? "可用现金 · HKD" : "Available cash · HKD"),
       "native available cash still appears on its account card");
     const unverifiedOnly = ui.platform(language, [lbLive], 1, "ready");

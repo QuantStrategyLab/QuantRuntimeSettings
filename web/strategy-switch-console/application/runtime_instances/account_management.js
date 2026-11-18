@@ -92,10 +92,10 @@ export function canonicalPolicyDocument(policy) {
 
 // A physical account's membership snapshot: its policy deployments with
 // their exact identities, in deployment order.
-const membershipOf = deployments => [...deployments].sort(deploymentOrder)
+export const membershipOf = deployments => [...deployments].sort(deploymentOrder)
   .map(item => ({ platform: item.platform, legacy_key: item.legacy_key, identity: orderedIdentity(item.identity) }));
 
-function storedPolicy(row) {
+export function storedPolicy(row) {
   if (!row) return { reason: "management_policy_unavailable" };
   try {
     const policy = normalizeMappingPolicy(JSON.parse(row.policy_json));

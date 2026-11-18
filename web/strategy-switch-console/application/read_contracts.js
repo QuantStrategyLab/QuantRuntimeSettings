@@ -30,10 +30,12 @@ export const ROUTE_METHODS = Object.freeze(["GET", "HEAD", "POST", "*"]);
 
 const N1 = "contract:docs/desk-n1-read-projection-contract.md";
 const INVENTORY = "contract:docs/account-identity-inventory.md";
+const MANAGEMENT = "contract:docs/account-mapping-authority.md";
 
 // `match` is the route condition exactly as written in `worker.js`, with
 // whitespace collapsed. `handler` is the function or value the branch serves.
 export const PUBLIC_ROUTES = Object.freeze([
+  { id: "/api/admin/account-management", match: "url.pathname === MANAGEMENT_ROUTE", handler: "accountManagementReadResponse", effects: { GET: "observation" }, scope: MANAGEMENT },
   { id: "/api/admin/account-identity-inventory", match: "url.pathname === INVENTORY_ROUTE", handler: "accountIdentityInventoryResponse", effects: { GET: "observation" }, scope: INVENTORY },
   { id: "/", match: 'url.pathname === "/"', handler: "V2_PAGE_HTML", effects: { GET: "observation", HEAD: "observation" }, scope: "static" },
   { id: "/v2 redirect", match: '["/v2", "/v2/", "/v2/index.html"].includes(url.pathname)', handler: "Location", effects: { GET: "observation", HEAD: "observation" }, scope: "static" },
@@ -160,6 +162,9 @@ export const INTERNAL_OPERATIONS = Object.freeze({
     effect: "observation", scope: INVENTORY,
     sections: { schema: "observation", sql: "observation", do_kv: "observation", finalize: "observation" },
   },
+  // RuntimeInstances.fetch: the fixed management read path, dispatched before
+  // storage initialization through a SELECT-only facade; it is one observation.
+  "action:account_management_read": { effect: "observation", scope: MANAGEMENT },
   // RuntimeInstances.fetch: GET and the instance-state transaction.
   "action:instance_state:GET": read(),
   "action:instance_state:initialize": write(),

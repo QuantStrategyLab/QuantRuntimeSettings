@@ -14,6 +14,7 @@ const CONSOLE = new URL("web/strategy-switch-console/", ROOT);
 export const { RuntimeInstances } = await import(new URL("worker.js", CONSOLE));
 export const { accountSettingsIdentity } = await import(new URL("application/account_settings/helpers.js", CONSOLE));
 export const management = await import(new URL("application/runtime_instances/account_management.js", CONSOLE));
+export const readback = await import(new URL("application/runtime_instances/account_management_readback.js", CONSOLE));
 const fixture = JSON.parse(await readFile(new URL("tests/fixtures/account-mapping-roster.synthetic.json", ROOT), "utf8"));
 
 export const PROVISIONER = "account-mapping-policy-provisioner";
@@ -80,6 +81,7 @@ export function createStore({ file = ":memory:", seed = true, instances = INSTAN
   object.storage = storage;
   object.sqlStorage = storage.sql;
   object.storageInitialized = false;
+  object.managementRead = readback.managementReadCapability(storage);
   object.initializeStorage();
   if (seed) db.prepare("INSERT OR IGNORE INTO instance_state (id, revision, payload) VALUES (1, ?, ?)").run(revision, JSON.stringify(instances));
   const store = {
@@ -87,6 +89,11 @@ export function createStore({ file = ":memory:", seed = true, instances = INSTAN
     async call(command) {
       const response = await object.fetch(new Request("https://runtime-instances/", { method: "POST", body: JSON.stringify(command) }));
       return { status: response.status, body: await response.json() };
+    },
+    // The registered read path: dispatched before storage initialization.
+    async read() {
+      const response = await object.fetch(new Request(`https://runtime-instances${readback.MANAGEMENT_READ_DO_PATH}`, { method: "POST", body: JSON.stringify({ action: readback.MANAGEMENT_READ_ACTION }) }));
+      return { status: response.status, body: await response.json(), headers: response.headers };
     },
     state() { return object.read(); },
     instance(platform, key) { return object.read().instances.find(item => item.platform === platform && item.key === key); },

@@ -241,8 +241,17 @@ export function platformCurrencyTotals(rows: AccountFactsAccount[], expected: nu
   if (!rows.length || expected < 1) return [];
   const unique = [...new Set(rows)];
   const inScope = unique.filter(row => row.aggregation_status !== "duplicate" && !isPaperFact(row));
-  const liveExpected = Math.max(0, expected - (unique.length - inScope.length));
-  const readable = inScope.filter(isReadableFact);
+  // The shared cohort predicate. A row stamped with management evidence is a
+  // sum member only as a known managed account; known disabled or display-only
+  // rows leave the scope, and any other stamped non-paper row makes the
+  // membership unknown, which forms no platform sum at all (the server's
+  // totals are unavailable then; a frontend sum may not bypass that).
+  const stamped = inScope.filter(row => row.management_status !== undefined);
+  if (stamped.some(row => row.evidence_state !== "known" || row.management_status === "unknown")) return [];
+  const managedScope = inScope.filter(row => row.management_status === undefined || row.management_status === "managed");
+  if (stamped.length && !managedScope.length) return [];
+  const liveExpected = Math.max(0, expected - (unique.length - managedScope.length));
+  const readable = managedScope.filter(isReadableFact);
   const eligible = readable.filter(row =>
     row.aggregation_status === "included" && effectiveFactEnvironment(row) === "live");
   const conflict = readable.some(row => row.aggregation_status === "conflict");

@@ -1,0 +1,439 @@
+// READ suite for the registered live management readback
+// (`qsl_account_management_readback.v1`), the trusted applied-state export,
+// the full-projection seam and the Q5 aggregate cohort. Synthetic fixtures
+// only; the results name row IDs, outcome codes and counts, never data.
+import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
+import {
+  INSTANCES, INSTANCE_REVISION, FIXTURE_ACCOUNTS, baselineStore, createStore, evidence, outbound, policyOf, provision, readback, ref, setManagement,
+} from "./helpers/account_management_harness.mjs";
+import { collectInventory, instanceStateRow } from "./helpers/account_identity_inventory_collect.mjs";
+
+const rec = evidence("account_management_readback");
+const ok = (row, outcome) => rec.record(row, outcome);
+const ROOT = new URL("../", import.meta.url);
+const CONSOLE = new URL("web/strategy-switch-console/", ROOT);
+const { accountSettingsIdentity } = await import(new URL("application/account_settings/helpers.js", CONSOLE));
+const { aggregateAccountFactsTotals, accountFactsAssetCoverage } = await import(new URL("account_facts.js", CONSOLE));
+const { managementCohort } = await import(new URL("application/account_mapping/management_cohort.js", CONSOLE));
+const { MANAGEMENT_STATUS_TEXT, MANAGEMENT_EVIDENCE_TEXT } = await import(new URL("application/runtime_instances/account_management_text.js", CONSOLE));
+
+const EXPORT_FIELDS = ["effective_at", "legacy_key", "management_enabled", "platform", "revision"];
+const READBACK_KEYS = ["counts", "effective_export", "evidence_scope", "format", "groups", "instance_revision", "observed_at", "ok", "physical_grouping_complete",
+  "policy_revision", "policy_status", "reasons", "status", "uncovered_deployments"];
+const eligible = FIXTURE_ACCOUNTS.filter(([managementClass]) => managementClass === "eligible").map(([, deployments]) => deployments);
+
+// Observation of the object's SQL write surface during one read.
+function counting(store) {
+  const writes = [];
+  const sql = store.object.storage.sql;
+  const exec = sql.exec;
+  sql.exec = (statement, ...bindings) => { if (!/^\s*SELECT\b/i.test(String(statement))) writes.push(String(statement).trim().slice(0, 24)); return exec(statement, ...bindings); };
+  return { writes, restore: () => { sql.exec = exec; } };
+}
+const group = (body, text) => { const [platform, key] = ref(text); return body.groups.find(item => item.deployments.some(member => member.platform === platform && member.key === key)); };
+
+// A01/A02/A11: the baseline envelope and the persisted applies that drive it.
+{
+  const store = await baselineStore();
+  const base = (await store.read()).body;
+  assert.deepEqual(Object.keys(base).sort(), READBACK_KEYS, "envelope keys exact");
+  assert.equal(base.format, "qsl_account_management_readback.v1");
+  assert.equal(base.evidence_scope, "runtime_instances_sqlite", "the live scope is never the #1173 label");
+  assert.deepEqual(base.counts, { physical_accounts: 10, display_deployments: 11, uncovered_deployments: 0, managed: 9, management_disabled: 0, not_under_management: 1, unknown: 0 });
+  assert.equal(base.physical_grouping_complete, true);
+  assert.equal(base.instance_revision, INSTANCE_REVISION);
+  assert.ok(base.policy_revision >= 1 && Number.isFinite(Date.parse(base.observed_at)));
+  assert.ok(base.groups.every(item => ["management_class", "management_status", "evidence_state", "reasons", "scope", "processing_eligible", "processing_denial", "applied", "deployments"]
+    .every(field => Object.hasOwn(item, field))), "group fields");
+  const pair = base.groups.find(item => item.deployments.length === 2);
+  assert.ok(pair, "the two-deployment physical account is one group");
+  assert.deepEqual(pair.applied && Object.keys(pair.applied).sort(), ["effective_at", "management_enabled", "revision"]);
+  const displayOnly = base.groups.find(item => item.management_class === "display_only");
+  assert.deepEqual([displayOnly.management_status, displayOnly.applied, displayOnly.processing_eligible], ["not_under_management", null, false], "display-only is known, not under management");
+  ok("B2-A01", "baseline_counts");
+  assert.ok(base.groups.some(item => item.scope === "paper"), "a paper scope group is reported");
+  assert.ok(base.groups.every(item => ["paper", "live", "unknown"].includes(item.scope)));
+  ok("B2-A11", "paper_scope_reported");
+  const target = eligible.find(deployments => deployments.length === 1 && group(base, deployments[0]).scope === "live");
+  await setManagement(store, target[0], false);
+  const off = (await store.read()).body;
+  assert.deepEqual([off.counts.managed, off.counts.management_disabled, off.counts.not_under_management, off.counts.physical_accounts, off.counts.display_deployments], [8, 1, 1, 10, 11]);
+  const disabled = group(off, target[0]);
+  assert.deepEqual([disabled.management_status, disabled.processing_eligible, disabled.processing_denial, disabled.applied.management_enabled, disabled.applied.revision],
+    ["management_disabled", false, "management_disabled", false, 2]);
+  assert.equal(off.effective_export.records.length, 10, "export lists every persisted applied row");
+  ok("B2-A01", "off_applied_counts");
+  await setManagement(store, target[0], true);
+  const on = (await store.read()).body;
+  assert.deepEqual([on.counts.managed, on.counts.management_disabled, group(on, target[0]).applied.revision], [9, 0, 3]);
+  ok("B2-A02", "on_restores_count");
+  // A draft never drives the export or the counts.
+  const sibling = eligible.find(deployments => deployments.length === 2);
+  const [platform, key] = ref(sibling[0]);
+  const saved = await store.call((await import("./helpers/account_management_harness.mjs")).managementCommand(store, "account_management_draft_save", platform, key, { management_enabled: false }));
+  assert.equal(saved.status, 200);
+  const drafted = (await store.read()).body;
+  assert.deepEqual([drafted.counts, drafted.effective_export.records], [on.counts, on.effective_export.records], "a pending draft changes neither counts nor export");
+  assert.ok(!JSON.stringify(drafted).includes("draft"), "no draft object in the live readback");
+  ok("B2-A20", "draft_not_authority");
+  store.close();
+}
+
+// A20: the adapter emits exactly the five B1 fields and never launders.
+{
+  const store = await baselineStore();
+  const body = (await store.read()).body;
+  assert.ok(body.effective_export.records.every(item => JSON.stringify(Object.keys(item).sort()) === JSON.stringify(EXPORT_FIELDS)), "exactly five fields");
+  assert.equal(body.effective_export.format, readback.MANAGEMENT_EFFECTIVE_EXPORT_FORMAT);
+  assert.equal(body.effective_export.instance_revision, body.instance_revision);
+  assert.equal(body.effective_export.policy_revision, body.policy_revision, "same coherent snapshot");
+  const [platform, key] = ref(eligible[0][0]);
+  store.db.prepare("UPDATE account_management_applied SET management_enabled = 2 WHERE platform = ? AND account_key = ?").run(platform, key);
+  const tampered = (await store.read()).body;
+  assert.equal(group(tampered, eligible[0][0]).management_status, "unknown", "a non-boolean stored value is not coerced");
+  assert.equal(group(tampered, eligible[0][0]).evidence_state, "conflict");
+  assert.equal(tampered.effective_export.records.find(item => item.platform === platform && item.legacy_key === key).management_enabled, 2, "raw value stays raw for the strict parser");
+  ok("B2-A20", "export_exact_fields_no_laundering");
+  ok("B2-A08", "malformed_applied_is_conflict");
+  store.close();
+}
+
+// A16/A08: missing and malformed policy stay unknown and retain the display.
+{
+  const store = createStore();
+  const missing = (await store.read()).body;
+  assert.deepEqual([missing.status, missing.policy_status, missing.policy_revision, missing.physical_grouping_complete, missing.reasons.includes("management_policy_unavailable")],
+    ["available", "unavailable", null, false, true]);
+  assert.deepEqual(missing.counts, { physical_accounts: null, display_deployments: 11, uncovered_deployments: 11, managed: null, management_disabled: null, not_under_management: null, unknown: null });
+  assert.equal(missing.uncovered_deployments.length, 11, "every discoverable deployment stays visible");
+  assert.ok(missing.uncovered_deployments.every(item => item.management_status === "unknown" && item.processing_eligible === false));
+  ok("B2-A16", "missing_policy_unknown_display_retained");
+  store.db.prepare("INSERT INTO account_mapping_policy (id, policy_revision, policy_json, updated_at) VALUES (1, 3, ?, ?)").run("{not json", "2026-01-01T00:00:00.000Z");
+  const invalid = (await store.read()).body;
+  assert.deepEqual([invalid.policy_status, invalid.policy_revision, invalid.reasons.includes("management_policy_invalid"), invalid.counts.managed], ["invalid", null, true, null]);
+  ok("B2-A16", "malformed_policy_unknown");
+  store.close();
+}
+
+// A08: an absent eligible applied row, an unclassified instance and an
+// identity change are explicit unknown/conflict; display-only stays known.
+{
+  const store = await baselineStore();
+  const [platform, key] = ref(eligible.find(deployments => deployments.length === 1)[0]);
+  store.db.prepare("DELETE FROM account_management_applied WHERE platform = ? AND account_key = ?").run(platform, key);
+  const absent = (await store.read()).body;
+  const row = group(absent, `${platform}/${key}`);
+  assert.deepEqual([row.management_status, row.evidence_state, row.processing_eligible, row.applied], ["unknown", "unknown", false, null]);
+  assert.equal(absent.counts.unknown, 1);
+  assert.deepEqual(absent.groups.filter(item => item.management_class === "display_only").map(item => item.management_status), ["not_under_management"]);
+  ok("B2-A08", "absent_applied_unknown_display_only_known");
+  const state = store.state();
+  state.instances.push({ ...structuredClone(state.instances[0]), key: "syn-unclassified", config: { ...state.instances[0].config, key: "syn-unclassified", target_name: "syn-unclassified-target", account_selector: "SYN9999999", deployment_selector: "syn-deploy-99", service_name: "syn-service-99", account_scope: "SYN-SCOPE-99" } });
+  store.db.prepare("UPDATE instance_state SET payload = ? WHERE id = 1").run(JSON.stringify(state.instances));
+  const extra = (await store.read()).body;
+  assert.equal(extra.uncovered_deployments.length, 1);
+  assert.deepEqual([extra.physical_grouping_complete, extra.counts.physical_accounts, extra.counts.display_deployments, extra.counts.uncovered_deployments], [false, null, 12, 1], "an unclassified deployment makes the physical count unavailable, never promoted");
+  ok("B2-A08", "unclassified_instance_incomplete_grouping");
+  store.close();
+}
+
+// A15: a revision-only advance keeps the live read valid with the new revision.
+{
+  const store = await baselineStore();
+  const before = (await store.read()).body;
+  store.db.prepare("UPDATE instance_state SET revision = revision + 1 WHERE id = 1").run();
+  const after = (await store.read()).body;
+  assert.equal(after.instance_revision, before.instance_revision + 1);
+  assert.deepEqual(after.counts, before.counts, "unaffected identities stay managed");
+  ok("B2-A15", "revision_only_keeps_live_read");
+  store.close();
+}
+
+// A22: the read path writes nothing, initializes nothing, repairs nothing.
+{
+  const store = await baselineStore();
+  const dumpBefore = JSON.stringify(store.dump());
+  const changesBefore = store.db.prepare("SELECT total_changes() AS n").get().n;
+  const probe = counting(store);
+  const result = await store.read();
+  probe.restore();
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get("Cache-Control"), "private, no-store");
+  assert.deepEqual(probe.writes, [], "no SQL write statement on the read path");
+  assert.equal(store.db.prepare("SELECT total_changes() AS n").get().n, changesBefore, "no row changed");
+  assert.equal(JSON.stringify(store.dump()), dumpBefore);
+  ok("B2-A22", "read_path_no_sql_writes");
+  // No KV/alarm effect: the read facade offers SELECT only and the object's KV is never reached.
+  const kv = [];
+  const storage = store.object.storage;
+  for (const name of ["put", "delete", "deleteAll", "setAlarm", "deleteAlarm"]) storage[name] = (...args) => { kv.push(name); return undefined; };
+  await store.read();
+  assert.deepEqual(kv, [], "no KV or alarm write on the read path");
+  ok("B2-A22", "read_path_no_kv_writes");
+  const cap = readback.managementReadCapability({ sql: { exec: () => ({ toArray: () => [] }) } });
+  for (const statement of ["INSERT INTO x VALUES (1)", "SELECT 1; DELETE FROM x", "CREATE TABLE x (a)", "PRAGMA writable_schema = 1"]) {
+    assert.throws(() => cap.sql.exec(statement), /statement_not_allowed/, "the facade admits one SELECT only");
+  }
+  ok("B2-A22", "facade_select_only");
+  store.close();
+}
+
+// A22: missing tables and missing state report unavailable without creating anything.
+{
+  const store = createStore({ seed: false });
+  assert.equal((await provision(store, policyOf(FIXTURE_ACCOUNTS))).status, 200);
+  for (const table of ["account_management_applied", "account_management_draft"]) store.db.exec(`DROP TABLE ${table}`);
+  const objectsBefore = JSON.stringify(store.db.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY name").all());
+  const none = (await store.read()).body;
+  assert.deepEqual([none.status, none.reasons, none.instance_revision, none.counts.physical_accounts], ["unavailable", ["runtime_instances_not_initialized"], null, null]);
+  store.db.prepare("INSERT INTO instance_state (id, revision, payload) VALUES (1, ?, ?)").run(INSTANCE_REVISION, JSON.stringify(INSTANCES));
+  const partial = (await store.read()).body;
+  assert.ok(partial.status === "available" && partial.reasons.includes("local_store_unreadable"), "unreadable management tables are an explicit reason");
+  assert.ok(partial.groups.every(item => item.management_status === "unknown" && item.processing_eligible === false));
+  const objectsAfter = JSON.stringify(store.db.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY name").all());
+  assert.equal(objectsAfter, objectsBefore, "no table was created or repaired");
+  ok("B2-A22", "missing_tables_unavailable_no_init");
+  store.close();
+  // A never-initialized object: the read path must not run initializeStorage.
+  const fresh = createStore({ seed: false });
+  for (const table of ["instance_state", "account_management_applied"]) fresh.db.exec(`DROP TABLE ${table}`);
+  const empty = (await fresh.read()).body;
+  assert.deepEqual([empty.status, empty.reasons], ["unavailable", ["runtime_instances_state_unreadable"]]);
+  assert.equal(fresh.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'instance_state'").get().n, 0, "the read did not recreate storage");
+  fresh.close();
+  ok("B2-A22", "uninitialized_no_creation");
+}
+
+// A22: request boundary of the DO read action and the Worker route.
+{
+  const store = await baselineStore();
+  const post = async body => { const response = await store.object.fetch(new Request(`https://runtime-instances${readback.MANAGEMENT_READ_DO_PATH}`, { method: "POST", body })); return response.status; };
+  assert.equal(await post(JSON.stringify({ action: "account_management_read", extra: 1 })), 400, "extra field");
+  assert.equal(await post(JSON.stringify({ action: "other" })), 400, "wrong action");
+  assert.equal(await post("nope"), 400, "malformed body");
+  assert.equal((await store.object.fetch(new Request(`https://runtime-instances${readback.MANAGEMENT_READ_DO_PATH}`))).status, 405, "GET to the DO path");
+  const namespace = { idFromName: name => name, get: () => ({ fetch: (url, init) => store.object.fetch(new Request(url, init)) }) };
+  const env = { STRATEGY_SWITCH_RUNTIME_INSTANCES: namespace };
+  const call = async (session, { method = "GET", url = "https://console.example.test/api/admin/account-management", headers = {}, bound = true } = {}) =>
+    readback.accountManagementReadResponse(new Request(url, { method, headers }), bound ? env : {}, { readSession: async () => session });
+  assert.equal((await call(null)).status, 401);
+  assert.equal((await call({ admin: false })).status, 403);
+  assert.equal((await call({ admin: true }, { method: "POST" })).status, 405);
+  assert.equal((await call({ admin: true }, { url: "https://console.example.test/api/admin/account-management?platform=x" })).status, 400, "no caller authority input");
+  assert.equal((await call({ admin: true }, { headers: { Origin: "https://elsewhere.example.test" } })).status, 403);
+  assert.equal((await call({ admin: true }, { bound: false })).status, 503);
+  const good = await call({ admin: true });
+  assert.equal(good.status, 200);
+  assert.equal(good.headers.get("Cache-Control"), "private, no-store");
+  assert.equal((await good.json()).format, "qsl_account_management_readback.v1");
+  ok("B2-A22", "http_401_403_400_boundaries");
+  store.close();
+}
+
+// A12: the live envelope next to the full #1173 projection.
+{
+  const store = await baselineStore();
+  const before = (await store.read()).body;
+  const target = eligible.find(deployments => deployments.length === 1 && group(before, deployments[0]).scope === "live")[0];
+  await setManagement(store, target, false);
+  const live = (await store.read()).body;
+  const META = { observedAt: "2026-11-17T01:00:00.000Z", sourceRef: "inventory_export:synthetic-01" };
+  const collect = async revision => (await collectInventory({ statements: [instanceStateRow(revision, INSTANCES)] })).private;
+  const links = JSON.parse(await (await import("node:fs/promises")).readFile(new URL("tests/fixtures/account-mapping-roster.synthetic.json", ROOT), "utf8")).enrollment_links;
+  const policy = policyOf(FIXTURE_ACCOUNTS);
+  const full = store.object.accountManagementProjection({ inventory: await collect(INSTANCE_REVISION), policy, collection: META, effective: live.effective_export.records, links });
+  assert.equal(full.format, "qsl_account_management_projection.v1", "the full projection keeps its own format");
+  assert.deepEqual([full.counts.display_accounts, full.counts.managed, full.counts.management_disabled], [10, 8, 1], "full display ten, managed eight");
+  assert.equal(live.counts.managed, 8);
+  assert.notEqual(full.format, live.format);
+  const opaque = full.accounts.flatMap(item => item.enrollment_links).map(link => link.opaque_account_uid);
+  assert.ok(opaque.includes("uid:SYN-Opaque/01=="), "opaque link bytes preserved");
+  const stale = store.object.accountManagementProjection({ inventory: await collect(INSTANCE_REVISION - 1), policy, collection: META, effective: live.effective_export.records, links });
+  assert.equal(stale.counts.managed, 0, "a stale full inventory confers no managed authority");
+  assert.equal((await store.read()).body.counts.managed, 8, "the refreshed live read stays valid");
+  ok("B2-A12", "live_and_full_seam");
+  store.close();
+}
+
+
+// Q5: the shared cohort predicate through the totals and the coverage. The
+// cohort is built from a real readback of the object, never hand-written.
+{
+  const rowsOf = (instances = INSTANCES) => instances.map((item, index) => ({
+    platform: item.platform, account_key: item.key, binding_status: "bound", data_status: "fresh", identity_mismatch: false,
+    broker_environment: item.config.broker_environment ?? null, account_scope: item.config.account_scope ?? null,
+    observation_date: "2026-11-18", observed_finished_at: "2026-11-18T01:00:00.000Z",
+    balances: [{ currency: "USD", net_assets: "100", total_cash: "10" }], cash: [{ currency: "USD", available_cash: "10", cash_balance: "10" }],
+    // One physical identity per policy account: the sibling pair shares one (a channel alias never does).
+    __identity: item.key.replace(/-b$/, ""),
+  }));
+  const identities = rows => new Map(rows.map(row => [row, JSON.stringify([row.platform, row.__identity])]));
+  const cohortOf = async store => managementCohort((await store.read()).body);
+  const evaluate = async (store, mutate = rows => rows) => {
+    const rows = mutate(rowsOf());
+    const cohort = await cohortOf(store);
+    const totals = aggregateAccountFactsTotals(rows, identities(rows), cohort);
+    return { rows, totals, coverage: accountFactsAssetCoverage(rows, totals, cohort), cohort };
+  };
+  const live = store => eligible.find(deployments => deployments.length === 1 && store.resolve(...ref(deployments[0])).management_status === "managed"
+    && INSTANCES.find(item => `${item.platform}/${item.key}` === deployments[0]).config.broker_environment === "live")[0];
+  const paperText = FIXTURE_ACCOUNTS.flatMap(([, deployments]) => deployments).find(text => INSTANCES.find(item => `${item.platform}/${item.key}` === text).config.broker_environment === "paper");
+  const dispositions = result => Object.fromEntries(result.coverage.accounts.map(row => [`${row.platform}/${row.account_key}`, `${row.status}:${row.reason}`]));
+
+  const store = await baselineStore();
+  const base = await evaluate(store);
+  assert.equal(base.totals.status, "by_currency", "known cohort sums");
+  const liveManaged = INSTANCES.filter(item => item.config.broker_environment !== "paper" && `${item.platform}/${item.key}` !== "longbridge/syn-acct-08").length;
+  assert.equal(base.totals.by_currency[0].account_count, liveManaged - 1, "the duplicate pair is one physical account, never summed twice");
+  assert.equal(base.coverage.management_scope, "managed_non_paper");
+  assert.equal(base.coverage.management_coverage_status, "complete");
+  assert.deepEqual(Object.keys(base.coverage.management_counts), ["display_physical", "display_deployments", "managed_non_paper", "management_disabled_non_paper",
+    "not_under_management_non_paper", "unknown_non_paper", "paper_excluded", "duplicate_deployments", "unresolved_deployments"], "exact count fields");
+  assert.deepEqual(base.coverage.management_counts, { display_physical: 10, display_deployments: 11, managed_non_paper: 8, management_disabled_non_paper: 0,
+    not_under_management_non_paper: 1, unknown_non_paper: 0, paper_excluded: 1, duplicate_deployments: 1, unresolved_deployments: 0 });
+  assert.equal(base.coverage.management_policy_revision, (await store.read()).body.policy_revision);
+  assert.ok(base.coverage.accounts.every(row => ["management_status", "evidence_state", "management_revision"].every(field => Object.hasOwn(row, field))));
+  const disp = dispositions(base);
+  assert.equal(disp["longbridge/syn-acct-08"], "excluded:not_under_management");
+  assert.equal(disp[paperText], "excluded:paper_account");
+  assert.equal(Object.values(disp).filter(text => text === "excluded:duplicate_account").length, 1);
+  ok("B2-A17", "known_cohort_totals_and_counts");
+
+  // Disable one live account: a clean exclusion, totals stay available.
+  const disabledText = live(store);
+  await setManagement(store, disabledText, false);
+  const off = await evaluate(store);
+  assert.equal(off.totals.status, "by_currency");
+  assert.equal(off.totals.by_currency[0].account_count, base.totals.by_currency[0].account_count - 1);
+  assert.equal(dispositions(off)[disabledText], "excluded:management_disabled");
+  assert.equal(off.coverage.management_counts.management_disabled_non_paper, 1);
+  ok("B2-A01", "disabled_group_excluded_from_totals");
+
+  // Known disabled and display-only rows with missing facts are clean exclusions.
+  const missing = await evaluate(store, rows => rows.map(row => ["longbridge/syn-acct-08"].includes(`${row.platform}/${row.account_key}`) ? { ...row, data_status: "unavailable", balances: [], cash: [] } : row));
+  assert.equal(missing.totals.status, "by_currency", "a display-only row with missing facts is a clean exclusion");
+  ok("B2-A17", "known_exclusions_with_missing_facts_clean");
+
+  // Unknown non-paper membership: no totals at all, every other row blocked.
+  const [livePlatform, liveKey] = ref(live(store));
+  store.db.prepare("DELETE FROM account_management_applied WHERE platform = ? AND account_key = ?").run(livePlatform, liveKey);
+  const unknown = await evaluate(store);
+  assert.deepEqual([unknown.totals.status, unknown.totals.reason, unknown.totals.by_currency], ["unavailable", "management_status_unknown", []]);
+  assert.equal(dispositions(unknown)[`${livePlatform}/${liveKey}`], "unavailable:management_status_unknown");
+  assert.ok(Object.entries(dispositions(unknown)).filter(([text]) => text !== `${livePlatform}/${liveKey}` && text !== paperText && text !== "longbridge/syn-acct-08")
+    .every(([, text]) => text === "excluded:duplicate_account" || text === "excluded:management_disabled" || text === "unavailable:source_not_supported" || text === "blocked:aggregate_management_status_unknown"), "unknown cohort blocks the managed rows");
+  assert.equal(unknown.coverage.management_coverage_status, "incomplete");
+  assert.equal(unknown.coverage.management_counts.unknown_non_paper, 1);
+  ok("B2-A17", "unknown_non_paper_unavailable_no_totals");
+  // The raw rows stay visible.
+  assert.ok(unknown.rows.every(row => row.balances.length === 1), "raw balances persist");
+  ok("B2-A17", "raw_rows_persist");
+
+  // Conflict evidence is unknown too.
+  const conflictStore = await baselineStore();
+  const target = live(conflictStore);
+  conflictStore.db.prepare("UPDATE account_management_applied SET management_enabled = 2 WHERE platform = ? AND account_key = ?").run(...ref(target));
+  const conflict = await evaluate(conflictStore);
+  assert.equal(conflict.totals.reason, "management_status_unknown");
+  ok("B2-A17", "conflict_evidence_unavailable");
+
+  // Paper unknown status cannot invalidate live membership.
+  const paperStore = await baselineStore();
+  paperStore.db.prepare("DELETE FROM account_management_applied WHERE platform = ? AND account_key = ?").run(...ref(paperText));
+  const paperUnknown = await evaluate(paperStore);
+  assert.equal(paperUnknown.totals.status, "by_currency", "an unknown paper status never invalidates the live cohort");
+  assert.equal(dispositions(paperUnknown)[paperText], "excluded:paper_account");
+  ok("B2-A17", "paper_unknown_does_not_invalidate");
+  ok("B2-A11", "paper_never_in_live_totals");
+
+  // Empty managed live cohort: unavailable, never a zero.
+  const emptyStore = await baselineStore();
+  for (const deployments of eligible) {
+    const text = deployments[0];
+    if (INSTANCES.find(item => `${item.platform}/${item.key}` === text).config.broker_environment !== "paper") await setManagement(emptyStore, text, false);
+  }
+  const empty = await evaluate(emptyStore);
+  assert.deepEqual([empty.totals.status, empty.totals.reason], ["unavailable", "no_managed_non_paper_accounts"]);
+  ok("B2-A17", "no_managed_cohort_never_zero");
+
+  // No readback at all: everything non-paper is unknown.
+  const rows = rowsOf();
+  const none = aggregateAccountFactsTotals(rows, identities(rows), managementCohort(null));
+  assert.equal(none.reason, "management_status_unknown");
+  assert.equal(managementCohort(null).groupingComplete, false);
+  const noneCoverage = accountFactsAssetCoverage(rows, none, managementCohort(null));
+  assert.deepEqual([noneCoverage.management_counts.display_physical, noneCoverage.management_counts.unresolved_deployments, noneCoverage.management_counts.display_deployments], [null, 11, 11]);
+  ok("B2-A17", "absent_readback_all_unknown");
+
+  // An unclassified deployment makes the physical count null; it is not promoted.
+  const extraState = await baselineStore();
+  const instances = extraState.state().instances;
+  instances.push({ ...structuredClone(instances[0]), key: "syn-unclassified", config: { ...instances[0].config, key: "syn-unclassified", target_name: "syn-unclassified-target", account_selector: "SYN9999999", deployment_selector: "syn-deploy-99", service_name: "syn-service-99", account_scope: "SYN-SCOPE-99" } });
+  extraState.db.prepare("UPDATE instance_state SET payload = ? WHERE id = 1").run(JSON.stringify(instances));
+  const extraRows = rowsOf(instances);
+  const extraCohort = managementCohort((await extraState.read()).body);
+  const extraTotals = aggregateAccountFactsTotals(extraRows, identities(extraRows), extraCohort);
+  const extraCoverage = accountFactsAssetCoverage(extraRows, extraTotals, extraCohort);
+  assert.equal(extraTotals.reason, "management_status_unknown", "an unclassified non-paper deployment is unknown");
+  assert.deepEqual([extraCoverage.management_counts.display_physical, extraCoverage.management_counts.unresolved_deployments, extraCoverage.management_counts.display_deployments], [null, 1, 12]);
+  ok("B2-A17", "unresolved_deployment_physical_null");
+}
+
+
+// Q5: performance `scope=all` through the real Worker over the real object, and
+// the production wiring of the shared cohort into every aggregate surface.
+{
+  const { default: worker, __test } = await import(new URL("worker.js", CONSOLE));
+  const { readFile } = await import("node:fs/promises");
+  const env = store => ({
+    SESSION_SECRET: "synthetic-only-session-key", ALLOWED_GITHUB_LOGINS: "fixture-reader",
+    STRATEGY_SWITCH_RUNTIME_INSTANCES: { idFromName: name => name, get: () => ({ fetch: (url, init) => store.object.fetch(new Request(url, init)) }) },
+  });
+  const read = async (store, query = "scope=all") => {
+    const bindings = env(store);
+    const cookie = `qsl_switch_session=${await __test.makeSession("fixture-reader", [], bindings)}`;
+    const response = await worker.fetch(new Request(`https://console.example/api/performance/summary?${query}`, { headers: { Cookie: cookie } }), bindings);
+    return { status: response.status, body: await response.json() };
+  };
+  const known = await baselineStore();
+  const knownRead = await read(known);
+  assert.notEqual(knownRead.body.unavailable_reason, "management_status_unknown", "a known cohort is not the unavailable contract");
+  const unknownStore = await baselineStore();
+  const target = eligible.find(deployments => deployments.length === 1 && INSTANCES.find(item => `${item.platform}/${item.key}` === deployments[0]).config.broker_environment === "live")[0];
+  unknownStore.db.prepare("DELETE FROM account_management_applied WHERE platform = ? AND account_key = ?").run(...ref(target));
+  const unknownRead = await read(unknownStore);
+  assert.equal(unknownRead.status, 200, "unavailability is a successful observation, not a server failure");
+  assert.deepEqual([unknownRead.body.status, unknownRead.body.unavailable_reason, unknownRead.body.management_scope, unknownRead.body.management_coverage_status],
+    ["unavailable", "management_status_unknown", "managed_non_paper", "incomplete"]);
+  assert.equal(unknownRead.body.management_counts.unknown_non_paper, 1);
+  assert.deepEqual(Object.keys(unknownRead.body.management_counts).length, 9);
+  assert.ok(!["points", "rows", "per_currency", "totals", "coverage"].some(field => Object.hasOwn(unknownRead.body, field)), "no aggregate curve, value, holdings or trade total");
+  ok("B2-A17", "performance_scope_all_unavailable_200");
+  const accountScoped = await read(unknownStore, `scope=${ref(target)[1]}&platform=${ref(target)[0]}`);
+  assert.notEqual(accountScoped.body.unavailable_reason, "management_status_unknown", "an account-specific read is not gated by the cohort");
+  ok("B2-A17", "account_specific_read_stays_available");
+
+  // The production wiring supplies the shared cohort to every aggregate surface.
+  const sources = await Promise.all(["worker.js", "application/worker/runtime_support.js"].map(path => readFile(new URL(path, CONSOLE), "utf8")));
+  assert.equal(sources.join("\n").split("managementReadback: fetchManagementReadback").length - 1, 3, "performance, Desk and account-facts wiring");
+  ok("B2-A17", "production_wiring_three_surfaces");
+}
+
+// Status text table: the pinned bilingual contract.
+{
+  assert.deepEqual(MANAGEMENT_STATUS_TEXT, {
+    managed: { "zh-CN": "已纳入量化管理", en: "Under quant management" },
+    management_disabled: { "zh-CN": "已停用量化管理", en: "Quant management disabled" },
+    not_under_management: { "zh-CN": "不纳入量化管理", en: "Outside quant management" },
+    unknown: { "zh-CN": "量化管理状态未知", en: "Quant management status unknown" },
+  });
+  assert.deepEqual(Object.keys(MANAGEMENT_EVIDENCE_TEXT), ["unknown", "conflict", "stale"]);
+  assert.equal(MANAGEMENT_EVIDENCE_TEXT.stale["zh-CN"], "证据已过期");
+  ok("B2-A13", "status_text_pinned");
+}
+
+assert.equal(outbound.count, 0, "zero outbound calls");
+const out = process.env.READ_RESULT_FILE;
+if (out) await writeFile(out, rec.report());
+console.log(`account_management_readback_validation ok ${Object.values(rec.rows).reduce((total, row) => total + row.checks, 0)} checks outbound=${outbound.count}`);

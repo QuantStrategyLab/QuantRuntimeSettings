@@ -135,6 +135,7 @@
           "file": "web/strategy-switch-console/application/runtime_instances/command.js",
           "literal": "idFromName(\"runtime-instances\")",
           "sites": {
+            "web/strategy-switch-console/application/runtime_instances/account_management_readback.js": 1,
             "web/strategy-switch-console/application/runtime_instances/command.js": 1
           }
         },

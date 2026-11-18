@@ -1,4 +1,5 @@
 import { isAggregateAssetAccount } from "../../performance_math.js";
+import { MANAGEMENT_SCOPE, managementCohort, managementCounts, managementDisposition } from "../account_mapping/management_cohort.js";
 import { MARKET_BENCHMARK_SERIES_IDS } from "../../infrastructure/market_benchmark/market_benchmark.js";
 import { applyNativeDailyReturns } from "./native_daily_returns.js";
 import { businessDate, performanceBlocks } from "./performance.js";
@@ -49,7 +50,7 @@ export async function performanceResponse(request, env, deps) {
     const options = Object.entries(config.options || {}).flatMap(
       ([platform, rows]) => rows.map((a) => ({ ...a, platform })),
     );
-    const matches = options.filter((a) =>
+    const candidates = options.filter((a) =>
       scope === "all"
         ? isAggregateAssetAccount({
             brokerEnvironment: a.broker_environment ?? null,
@@ -59,6 +60,29 @@ export async function performanceResponse(request, env, deps) {
           (!url.searchParams.has("platform") ||
             a.platform === url.searchParams.get("platform")),
     );
+    // `scope=all` is the managed non-paper cohort (Q5). Unknown membership is a
+    // successful observation of unavailability: no aggregate of any kind.
+    let matches = candidates;
+    // The production wiring always supplies `deps.managementReadback`; a caller
+    // that injects none is the pure form with no management claim.
+    if (scope === "all" && deps.managementReadback) {
+      const cohort = managementCohort(await deps.managementReadback(env));
+      const items = options.map((a) => ({ platform: a.platform, account_key: a.key, option: a, paper: !candidates.includes(a) }));
+      const dispositions = new Map(items.map((item) => [item, managementDisposition(item, cohort.view(item.platform, item.account_key))]));
+      const unknown = items.some((item) => dispositions.get(item) === "unknown");
+      const managed = items.filter((item) => dispositions.get(item) === "managed").map((item) => item.option);
+      if (unknown) {
+        return json({ schema_version: "console_api.v1", scope, range, status: "unavailable",
+          unavailable_reason: "management_status_unknown", as_of: null,
+          management_scope: MANAGEMENT_SCOPE, management_coverage_status: "incomplete",
+          management_counts: managementCounts(items, dispositions, cohort),
+          management_observed_at: cohort.meta.observed_at, management_instance_revision: cohort.meta.instance_revision,
+          management_policy_revision: cohort.meta.policy_revision });
+      }
+      // A known cohort with no managed live account keeps the endpoint's own
+      // empty-scope result; it is never turned into a zero here.
+      matches = managed;
+    }
     if (scope !== "all" && matches.length !== 1)
       return json(
         { ok: false, error: "account_alias_required_or_ambiguous" },
