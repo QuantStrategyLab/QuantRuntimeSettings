@@ -2,18 +2,27 @@
 
 The account mapping authority classifies each existing account identity as
 `eligible` or `display_only` for quant management and projects a generic
-management status per displayed account. It is derived only from a complete
-[account-identity inventory](account-identity-inventory.md) collection and
-a protected mapping policy. It grants no trading, strategy, deployment or
-execution authority, and nothing gates on it yet.
+management status per displayed account. Local processing admissions and
+managed-cohort aggregates gate on the synchronous `RuntimeInstances` live
+resolver (`processingEligible`), while `projectAccountManagement`
+(`qsl_account_management_projection.v1`) remains the strict offline
+[account-identity inventory](account-identity-inventory.md) projection. Neither
+surface grants trading, strategy-execution, deployment, or runtime-activation
+authority.
 
 ## Where it lives
 
 | Part | File | Role |
 | --- | --- | --- |
 | Mapping policy | `web/strategy-switch-console/application/account_mapping/policy.js` | Policy document schema, class rules, status codes, evidence states and predicates. |
+| Cohort predicate | `web/strategy-switch-console/application/account_mapping/management_cohort.js` | Pure Q5 cohort disposition and nine-counter builder over `qsl_account_management_readback.v1`. |
 | Reader adapter | `web/strategy-switch-console/application/account_mapping/inventory_adapter.js` | Turns the private result of `assemble()` into the mapping authority input and classified accounts. |
-| Read projection | `web/strategy-switch-console/application/runtime_instances/mapping_projection.js` | Joins the authority with the runtime-instance state; exposed as `RuntimeInstances.accountManagementProjection()`. |
+| Read projection | `web/strategy-switch-console/application/runtime_instances/mapping_projection.js` | Joins the offline #1173 authority with runtime-instance state; exposed as `RuntimeInstances.accountManagementProjection()`. |
+| Live resolver & store | `web/strategy-switch-console/application/runtime_instances/account_management.js` | Synchronous DO-internal resolver (`qsl_account_management_live_resolution.v1`), policy provisioning, sibling draft/apply, journal and idempotency store. |
+| Live readback & export | `web/strategy-switch-console/application/runtime_instances/account_management_readback.js` | Physically read-only `qsl_account_management_readback.v1` builder, five-field applied adapter (`qsl_account_management_effective_export.v1`), `managementSettingsView`, and `GET /api/admin/account-management`. |
+| HTTP control layer | `web/strategy-switch-console/application/runtime_instances/account_management_http.js` | Closed-shape handlers for `management_draft`, `POST /api/account-settings/management/apply`, and dormant `POST /api/internal/account-mapping-policy`. |
+| Advisory preflight | `web/strategy-switch-console/application/runtime_instances/management_preflight.js` | Worker-side advisory readback preflight (`409 management_*`) before forwarding admission commands. |
+| Status text table | `web/strategy-switch-console/application/runtime_instances/account_management_text.js` | Single pinned bilingual (`zh-CN` primary, `en` alongside) status and evidence text map. |
 
 The policy values themselves (which deployments form an account, and each
 account's class) are protected configuration. They are not in this
@@ -187,28 +196,173 @@ Python consumers are unchanged.
 
 ### Trust boundary
 
-The policy input is the only classification source. An applied management
-record, an enrollment link, a producer label or a derived summary never
-classifies an account. The policy document is trusted only as far as the
-composing caller that supplies it: a JSON document or a policy revision does
-not authenticate where it came from. No route or protected policy storage
-supplies it yet; later integration work must read it from the protected
-source and register that read.
+The protected `qsl_account_mapping_policy.v1` singleton in `RuntimeInstances`
+(`account_mapping_policy`) is the sole classification source for live reads and
+admissions; the offline projection accepts the same document shape via its
+composing caller. An applied management record, draft, enrollment link,
+producer label, or client-supplied class/status/sibling list never classifies an
+account.
 
-No Worker route or Durable Object action dispatches the projection yet, so
-the [read-contract registry](adr/0002-observation-and-identity-boundaries.md)
-is unchanged. Adding one requires its registry entry in the same change.
+Provisioning (`POST /api/internal/account-mapping-policy` ->
+`account_mapping_policy_replace`) accepts only the dedicated
+`ACCOUNT_MAPPING_POLICY_PROVISION_TOKEN` Bearer secret; missing binding fails
+with `503 account_mapping_policy_provisioning_unavailable`, and neither user
+sessions nor producer/dispatch tokens authenticate it. Read routes
+(`GET /api/admin/account-management`) and control routes are registered in
+`web/strategy-switch-console/application/read_contracts.js` under
+[observation and identity boundaries](adr/0002-observation-and-identity-boundaries.md).
+
+## Live resolution versus full inventory projection
+
+The live resolver and the offline #1173 projection serve distinct boundaries and
+must not be conflated or substituted for one another:
+
+| Dimension | Live resolution & readback (`qsl_account_management_live_resolution.v1` / `qsl_account_management_readback.v1`) | Full #1173 projection (`qsl_account_management_projection.v1`) |
+| --- | --- | --- |
+| Evidence scope | `evidence_scope: "runtime_instances_sqlite"` (local DO SQLite only; never claims KV, `env`, or directory completeness). | Full inventory `assemble()` across SQL groups 1–22, two equal KV passes, and collected `env`. |
+| Purpose | Commit-time DO admission gates inside `storage.transactionSync`, advisory HTTP preflight, `GET /api/account-settings` management section, and live cohort aggregates. | Strict offline audit projection joining complete retained inventory with opaque enrollment links. |
+| Revision advances | Identity-preserving `instance_revision` increments (such as `sync_defaults` or paper application results) keep valid local accounts live without recollecting the full #1173 export; stale CAS requests still fail with `409`. | Any `instance_revision` mismatch between the authority input and current `instance_state` marks every row `stale` until a fresh #1173 inventory is collected. |
+| Failure mode | Missing/malformed policy, unreadable SQL tables (`local_store_unreadable`, `local_history_unreadable`, `stored_identity_unreadable`, `management_journal_unreadable`), changed identity, retired/missing sibling, duplicate policy claim, or cross-platform collision fail closed (`unknown` or `conflict`). | Incomplete inventory, KV instability, truncated projections, or identity conflicts mark the projection non-authoritative (`unknown` or `conflict`) while preserving opaque link bytes (`link_*` rules). |
+| Substitution | Never claims #1173-wide completeness or substitutes for `projectAccountManagement()`. | Never bypassed by live readback; remains unchanged for offline audit and Python roster projection compatibility. |
+
+## Live readback and effective-record export
+
+`GET /api/admin/account-management` (handler `accountManagementReadResponse`, DO
+path `/internal/account-management-read`, DO action `account_management_read`)
+provides an authenticated admin readback (`qsl_account_management_readback.v1`)
+with `Cache-Control: private, no-store` and `X-Robots-Tag: noindex`.
+
+- **Authentication and inputs**: requires a valid admin session and same-origin
+  request (`401 login_required`, `403 admin_required` /
+  `cross_origin_rejected`, `405 method_not_allowed`). Any query parameter fails
+  with `400 management_read_invalid`; no caller authority input is accepted and
+  no provisioning occurs. Missing DO binding or read failure yields `503`.
+- **Physically read-only DO execution**: `RuntimeInstances.fetch` dispatches
+  `/internal/account-management-read` **before** `initializeStorage` through
+  `managementReadCapability`, a SQL facade admitting single `SELECT` statements
+  only (any write or multi-statement SQL throws `statement_not_allowed`). When
+  tables or `instance_state` are absent or unreadable, the DO returns HTTP 200
+  with `status: "unavailable"`, `reasons: ["runtime_instances_not_initialized"]`
+  or `["runtime_instances_state_unreadable"]`, `physical_grouping_complete: false`,
+  null counts, and zero SQL, KV, or alarm writes.
+- **Schema and nullability (`qsl_account_management_readback.v1`)**:
+  - Top-level scalars: `ok` (`true`), `format`, `evidence_scope`
+    (`"runtime_instances_sqlite"`), `status` (`"available" | "unavailable"`),
+    `reasons` (`string[]`), `observed_at` (server UTC timestamp),
+    `instance_revision` (`integer | null`), `policy_revision` (`integer | null`),
+    `policy_status` (`"available" | "unavailable" | "invalid" | "unknown"`),
+    `physical_grouping_complete` (`boolean`).
+  - `counts`: `physical_accounts` (`integer | null`), `display_deployments`,
+    `uncovered_deployments`, `managed`, `management_disabled`,
+    `not_under_management`, `unknown` (`integer | null`). When `status` is
+    `"unavailable"`, every count is `null`. When policy is missing or invalid, or
+    when any deployment is uncovered or claimed twice, `physical_grouping_complete`
+    is `false` and `physical_accounts` is `null` (deployment counts are never
+    promoted to a physical count), while `display_deployments` and
+    `uncovered_deployments` still report every discoverable existing instance.
+  - `groups[]`: per policy physical account, sorted deterministically:
+    `management_class`, `management_status`, `evidence_state`, `reasons`,
+    `scope` (`"live" | "paper" | "unknown"`), `processing_eligible` (`boolean`),
+    `processing_denial` (`string | null`), `applied` (`{ management_enabled,
+    revision, effective_at } | null`), and `deployments[]` (`{ platform, key,
+    present }`).
+  - `uncovered_deployments[]`: existing instances not covered by a valid policy
+    (`platform`, `key`, `management_status: "unknown"`, `evidence_state:
+    "unknown"`, `reasons`, `processing_eligible: false`, `processing_denial`).
+- **Privacy and bilingual text**: responses contain existing `(platform, key)`
+  deployment identifiers only; actors, credentials, policy JSON internals, and
+  pending management drafts never enter this envelope. UI surfaces translate
+  codes strictly from `MANAGEMENT_STATUS_TEXT` and `MANAGEMENT_EVIDENCE_TEXT`
+  (`account_management_text.js`); producer labels never replace them.
+- **Applied-state adapter contract (`qsl_account_management_effective_export.v1`)**:
+  `effective_export` (`{ format, instance_revision, policy_revision, records }`)
+  is read from the same synchronous DO snapshot as the envelope's revisions.
+  `exportAppliedRecords` maps each row of `account_management_applied` to
+  strictly the five `EFFECTIVE_MANAGEMENT_FIELDS` (`platform`, `legacy_key`,
+  `management_enabled`, `revision`, `effective_at`). Metadata columns
+  (`identity_json`, `membership_json`) are never forwarded, pending drafts never
+  enter the export, and a stored non-`0/1` `management_enabled` passes through
+  raw so `normalizeEffectiveManagement` / `effectiveManagementState` rejects it
+  as `conflict` rather than coercing it to a boolean.
+
+## Account-settings management section and control routes
+
+- **`GET /api/account-settings` `management` section**: built by
+  `managementSettingsView(resolution)` from the same `RuntimeInstances` snapshot:
+  `evidence_scope`, `policy_revision` (`integer | null`), `instance_revision`
+  (`integer | null`), `management_class` (`string | null`), `management_status`,
+  `evidence_state`, `reasons`, `processing_eligible` (`boolean`),
+  `siblings` (`Array<{ platform, key }>`), `applied` (`{ management_enabled,
+  revision, effective_at } | null`), and `draft` (`{ management_enabled,
+  revision, base_applied_revision, status, consumed_applied_revision } | null`).
+  Draft and applied revisions are independent per-physical-account axes; when
+  policy or applied state is missing, `applied` stays `null` and
+  `management_status` stays `unknown`.
+- **Management draft save (`POST /api/account-settings`, DO action
+  `account_management_draft_save`)**: closed request body (`platform`, `key`,
+  `identity`, UUID `request_key`, `expected_instance_revision`, positive
+  `expected_policy_revision`, `expected_management_draft_revision`,
+  `expected_management_revision`, and `management_draft: { management_enabled }`).
+  Mixing `overrides`, `risk_change`, `declaration`, or extra fields returns
+  `400 management_request_invalid`. A valid save atomically writes all sibling
+  rows in `account_management_draft` with the next shared draft revision and
+  never modifies `account_management_applied` or `account_management_change`.
+- **Management apply (`POST /api/account-settings/management/apply`, DO action
+  `account_management_apply`)**: closed request body (same common fields, no
+  editable boolean or `acknowledge_identity_conflict` bypass). Inside one
+  `storage.transactionSync`, the DO re-checks replay receipts
+  (`account_management_requests`), policy/instance/draft/applied CAS revisions,
+  exact eight-field sibling identities, and complete eligible membership before
+  fanning out `account_management_applied`, marking the draft `consumed`,
+  appending one logical `account_management_change` journal row, and recording
+  the idempotent receipt. A validated apply matching the current applied boolean
+  records a `no_op` receipt without incrementing applied revision or appending a
+  journal row. One physical apply surfaces once globally in
+  `GET /api/audit-events` (`source: "account_management_change"`) and in
+  `GET /api/account-settings/history` for every sibling deployment; KV failures
+  do not hide durable DO management history.
+- **Policy provisioning (`POST /api/internal/account-mapping-policy`, DO action
+  `account_mapping_policy_replace`)**: dormant authenticated endpoint accepting
+  `{ expected_policy_revision, policy }` with monotonic revision and
+  canonical-content comparison (`409 management_policy_revision_conflict` /
+  `management_policy_content_conflict`, same revision + identical canonical
+  content idempotent). Responses return `{ ok, replaced, policy_revision,
+  no_order: true, execution_authority_granted: false }` with `Cache-Control:
+  private, no-store`; tokens and policy payloads are never logged or echoed.
+
+## Managed cohort aggregates and performance unavailability
+
+- **Account facts (`GET /api/account-facts`)**: `aggregateAccountFactsTotals`
+  and `accountFactsAssetCoverage` classify the complete displayed cohort via
+  `managementCohort` before summing non-paper balances. Each row carries
+  `management_status`, `evidence_state`, and `management_revision`;
+  `asset_coverage` adds `management_scope: "managed_non_paper"`,
+  `management_coverage_status` (`"complete" | "incomplete"`),
+  `management_observed_at`, `management_instance_revision`,
+  `management_policy_revision`, and `management_counts` (`display_physical`,
+  `display_deployments`, `managed_non_paper`, `management_disabled_non_paper`,
+  `not_under_management_non_paper`, `unknown_non_paper`, `paper_excluded`,
+  `duplicate_deployments`, `unresolved_deployments`). Any non-paper row with
+  unknown/conflict/stale status forces `totals_status: "unavailable"` and
+  `totals_reason: "management_status_unknown"` (row disposition `unavailable`,
+  otherwise-eligible managed rows `blocked` / `aggregate_management_status_unknown`).
+  When all non-paper rows are known and none are managed, totals report
+  `unavailable` / `no_managed_non_paper_accounts`. Known paper, disabled, and
+  display-only rows are clean exclusions; raw account cards stay visible.
+- **Performance (`GET /api/performance/{summary,equity,returns,trades}`)**:
+  for `scope=all`, unknown non-paper cohort membership returns HTTP 200 with
+  `status: "unavailable"`, `unavailable_reason: "management_status_unknown"`,
+  the `management_scope` / `management_coverage_status` / `management_counts`
+  / metadata fields, and no aggregate curve, equity, valuation, or trade total.
+  Account-specific scopes remain directly readable.
 
 ## Boundaries
 
-- The existing `DIGEST_EXPECTED_TARGETS_JSON` roster consumer is unchanged.
-- Seeding the production policy, exporting protected mappings or links, and
-  replacing the write-only roster setting are owner-flag F1 actions, outside
-  this code.
-- The management toggle, its applied-state storage and journal, and the
-  processing gates are later work. Until applied management records exist,
-  eligible accounts read `unknown`.
-- This code adds no route, dispatcher, policy storage, production policy
-  seed or roster transition. Later integration must supply the policy from
-  the protected source, register the routed read and establish its
-  lifecycle guarantees.
+- The existing `DIGEST_EXPECTED_TARGETS_JSON` roster consumer and all Python
+  scripts under `python/` are separate downstream work (B3).
+- Seeding production policy data, exporting protected mappings or links, and
+  replacing the write-only roster setting are owner-gated F1 actions outside
+  this repository state.
+- `SWITCH_ACTIVATION_CONNECTED` stays `false`; management actions never dispatch
+  workflows, change lifecycle flags, modify strategies/risk, or authorize live
+  trading.
