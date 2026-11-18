@@ -120,8 +120,8 @@ assert.match(workerText, /^import \{ accountIdentityInventoryResponse \} from "\
 assert.match(workerText, /if \(url\.pathname === INVENTORY_ROUTE\) return await accountIdentityInventoryResponse\(request, env, \{ readSession \}\);/, "Worker forward unchanged");
 assert.match(doText, /^import \{ INVENTORY_DO_PATH \} from "\.\.\/account_identity_inventory\/constants\.js";$/m, "DO: path from constants.js");
 assert.match(doText, /^import \{ inventoryCapability, inventoryResponse \} from "\.\.\/account_identity_inventory\/http\.js";$/m, "DO: capability and delegate from http.js");
-assert.match(doText, /if \(new URL\(request\.url\)\.pathname === INVENTORY_DO_PATH\) return inventoryResponse\(request, this\.inventory\);\n {4}this\.initializeStorage\(\);/,
-  "DO: inventory dispatch precedes storage initialization");
+assert.match(doText, /if \(new URL\(request\.url\)\.pathname === INVENTORY_DO_PATH\) return inventoryResponse\(request, this\.inventory\);\n {4}if \(new URL\(request\.url\)\.pathname === MANAGEMENT_READ_DO_PATH\) return managementReadResponse\(request, this\.managementRead\);\n {4}this\.initializeStorage\(\);/,
+  "DO: inventory and management readback dispatches precede storage initialization");
 for (const [file, owners] of [["tests/account_identity_inventory_validation.mjs", ["constants", "helpers"]], ["tests/helpers/read_contract_child.mjs", ["constants"]],
   ["tests/read_contract_boundaries_validation.mjs", ["constants"]]]) {
   const text = source(new URL(`../${file}`, import.meta.url));
@@ -143,10 +143,10 @@ assert.deepEqual([constants.RESPONSE_BYTE_BUDGET, constants.ROW_BYTE_LIMIT, cons
 assert.deepEqual([constants.PROJECTION_MAX_DEPTH, constants.ROW_IDENTITY_FIELDS, constants.DESK_IDENTITY_FIELDS, constants.KV_IDENTITY_FIELDS, constants.CACHE_ACCOUNTS],
   [8, 256, 128, 4000, 4000]);
 assert.deepEqual([constants.CURSOR_TTL_MS, constants.CURSOR_CLOCK_SKEW_MS, constants.CURSOR_MAX_LENGTH], [6 * 3600_000, 60_000, 8192]);
-assert.equal(Object.keys(constants.INVENTORY_TABLES).length, 34);
-assert.equal(sha(constants.INVENTORY_TABLES), "e7d5f25a4f91ab99efef06506468ce4457a21e1bad1f0b6b32a680b2063d7e4f", "table specifications unchanged");
-assert.equal(constants.ALLOWED.size, 173);
-assert.equal(sha([...constants.ALLOWED].sort()), "42d093768e7751672dd99d13bdf4212257bd9e9a5c6aa6e1823530c3795d9230", "statement allowlist unchanged");
+assert.equal(Object.keys(constants.INVENTORY_TABLES).length, 39);
+assert.equal(sha(constants.INVENTORY_TABLES), "f71d80c277122511fbbe847381b66734dc940fa7ae5979ea2d11fe525640f262", "table specifications match B2 schema");
+assert.equal(constants.ALLOWED.size, 198);
+assert.equal(sha([...constants.ALLOWED].sort()), "5696d932eeb73ee8b6bebc8d04e99c62248e06702a0f6142cd28695d189a74e0", "statement allowlist matches B2 schema");
 assert.deepEqual([...constants.SECTIONS], ["manifest", "schema", "sql", "do_kv", "finalize", "kv", "env"]);
 assert.equal(constants.DO_ERRORS.size, 16);
 

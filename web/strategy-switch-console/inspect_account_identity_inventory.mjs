@@ -9,8 +9,11 @@ import { pathToFileURL } from "node:url";
 export const EXPORT_FORMAT = "qsl_account_identity_inventory_export.v1";
 const OBJECTS = ["runtime", "directory"];
 const SQL_GROUPS = {
-  1: ["instance_state", "instance_history"], 2: ["account_setting_draft", "account_setting_declaration"],
-  3: ["account_setting_profile_application"], 4: ["risk_profile_authority"], 5: ["account_facts_observation", "account_facts_daily"],
+  1: ["instance_state", "instance_history"],
+  2: ["account_setting_draft", "account_setting_declaration", "account_management_draft", "account_management_applied"],
+  3: ["account_setting_profile_application", "account_management_change", "account_management_requests"],
+  4: ["risk_profile_authority", "account_mapping_policy"],
+  5: ["account_facts_observation", "account_facts_daily"],
   6: ["account_period_return", "account_daily_native_return"], 7: ["account_external_flow"],
   8: ["account_executions", "account_execution_reports"], 9: ["binance_detail_daily"], 10: ["account_diagnosis_tasks"],
   11: ["research_promotion_applications"], 12: ["human_decision_record", "human_decision_material", "human_decision_source_material"],
@@ -171,6 +174,13 @@ function assembleObject(object, responses) {
     reasons.push(...losses);
     entry.disposition = reasons.some(reason => reason.startsWith(`${name}:`)) ? "incomplete" : "complete";
   }
+  for (const [group, groupTables] of Object.entries(SQL_GROUPS)) {
+    for (const name of groupTables) {
+      if (Object.hasOwn(tables, name)) continue;
+      tables[name] = { group: Number(group), present: null, rows: [], disposition: "not_collected" };
+      reasons.push(`${name}:not_collected`);
+    }
+  }
   const unknown = schema.body.other_schema_objects.filter(item => item.classification === "unknown_table");
   const kvPages = chain(ok.filter(item => item.request.section === "do_kv" && item.body.scan_id === scanId), reasons, "do_kv");
   let doKv = null;
@@ -245,7 +255,8 @@ const DOCUMENT_FIELDS = ["key", ...ACCOUNT_FIELDS];
 const PLATFORM_FIELDS = ["platform", "platform_id"];
 const QUALIFIER_FIELDS = ["account_selector", "target_name", "target_id", "deployment_selector", "account_scope", "service_name",
   "broker_environment", "source_binding_id", "binding_id"];
-const STORED_IDENTITY_TABLES = ["account_setting_draft", "account_setting_declaration", "account_setting_profile_application"];
+const STORED_IDENTITY_TABLES = ["account_setting_draft", "account_setting_declaration", "account_setting_profile_application",
+  "account_management_draft", "account_management_applied", "account_management_requests"];
 const STORED_IDENTITY_FIELDS = ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name", "broker_environment"];
 const parentPath = path => (path.includes(".") ? path.slice(0, path.lastIndexOf(".")) : "");
 const LAST_SEGMENT = /(?:\.[^.[\]]+|\[\d+\]|^[^.[\]]+)$/;
@@ -384,9 +395,43 @@ function optionsFrom(kv, env) {
 }
 
 // The account tables mapped from their own key columns.
-const ACCOUNT_TABLES = ["account_setting_draft", "account_setting_declaration", "account_setting_profile_application", "account_facts_observation",
+const ACCOUNT_TABLES = ["account_setting_draft", "account_setting_declaration", "account_setting_profile_application", "account_management_draft",
+  "account_management_applied", "account_management_change", "account_management_requests", "account_facts_observation",
   "account_facts_daily", "account_external_flow", "account_executions", "account_execution_reports", "binance_detail_daily",
   "account_diagnosis_tasks", "research_promotion_applications", "account_period_return", "account_daily_native_return"];
+const STORED_JSON_DOCUMENTS = new Set(["identity_json", "initiating_identity_json"]);
+const TYPED_DEPLOYMENT_COLUMNS = {
+  account_mapping_policy: "policy_json",
+  account_management_draft: "membership_json",
+  account_management_applied: "membership_json",
+  account_management_change: "members_json",
+};
+function deploymentSlots(table, projection) {
+  const fields = projection?.fields || {}, counts = projection?.counts || {};
+  const slots = new Set();
+  if (table === "account_mapping_policy") {
+    for (const path of Object.keys(fields)) {
+      const match = /^(accounts\[\d+\]\.deployments\[\d+\])\.(?:platform|legacy_key|identity\.[A-Za-z_]+)$/.exec(path);
+      if (match) slots.add(match[1]);
+    }
+    if (!projection.truncated && Number.isSafeInteger(counts.accounts)) {
+      for (let a = 0; a < counts.accounts; a += 1) {
+        const depCount = counts[`accounts[${a}].deployments`];
+        if (!Number.isSafeInteger(depCount)) continue;
+        for (let d = 0; d < depCount; d += 1) slots.add(`accounts[${a}].deployments[${d}]`);
+      }
+    }
+    return [...slots];
+  }
+  for (const path of Object.keys(fields)) {
+    const match = /^(\[\d+\])\.(?:platform|legacy_key|identity\.[A-Za-z_]+)$/.exec(path);
+    if (match) slots.add(match[1]);
+  }
+  if (!projection.truncated && Number.isSafeInteger(counts.$)) {
+    for (let index = 0; index < counts.$; index += 1) slots.add(`[${index}]`);
+  }
+  return [...slots];
+}
 // audit_log entries whose writer names the account by `platform` and `key`.
 const AUDIT_ACCOUNT_ACTIONS = new Set(["save_account_settings", "approve_account_settings_profile_application"]);
 const AUDIT_ACTION = /^(\[\d+\])\.action$/;
@@ -413,10 +458,11 @@ function mappingFrom(objects, kv, env, options) {
   const sqlLoss = (object, table, index, pk) => path => lose(`sql:${object}:${table}:${index}:${path}:${SCALAR_LOSS}`, { scope: "sql", object, table }, { object, table, pk, path });
   const kvLoss = item => path => lose(`kv:${item.name}:${path}:${SCALAR_LOSS}`, { scope: "kv", group: KV_GROUP_OF.get(item.family) ?? null }, { source: "kv", name: item.name, path });
   const scalarLoss = (item, lost, at) => { if (longString(item)) lost(at); return longString(item); };
-  const addReferences = (projection, state, locator, document, lost, prefix = "") => {
+  const addReferences = (projection, state, locator, document, lost, prefix = "", skipPaths = null) => {
     const { references, losses: paths } = identityReferences(projection?.fields, document);
     for (const path of paths) lost(`${prefix}${path}`);
     for (const reference of references) {
+      if (skipPaths?.has(reference.path)) continue;
       const qualification = reference.path_qualification ? { path_qualification: reference.path_qualification } : {};
       add(reference.platform, reference.legacy_key, state, { ...locator, path: reference.path, ...qualification }, { qualifiers: reference.qualifiers });
     }
@@ -455,18 +501,21 @@ function mappingFrom(objects, kv, env, options) {
           // the literal stored account, whatever an export's hint says.
           const wallet = table === "account_facts_daily" ? walletIdentity(row) : null;
           const pkNames = { account_period_return: ["account_key"], account_daily_native_return: ["account_key"], binance_detail_daily: ["account_key"] }[table];
-          const copied = ["research_promotion_applications", "account_diagnosis_tasks", "account_setting_profile_application"].includes(table);
+          const copied = ["research_promotion_applications", "account_diagnosis_tasks", "account_setting_profile_application",
+            "account_management_change", "account_management_requests"].includes(table);
           const platformColumn = table === "research_promotion_applications" ? "platform_id" : "platform";
           const resolvedPlatform = table === "binance_detail_daily" ? "binance" : pkNames ? null : copied ? columns[platformColumn] : value(row.pk[0]);
           const accountKey = wallet ? wallet.legacy_key : pkNames ? row.pk[0] : copied ? columns.account_key : row.pk[1];
           if (copied) { scalarLoss(columns.account_key, lost, "account_key"); scalarLoss(columns[platformColumn], lost, platformColumn); }
           const identity = { storage_key: row.pk, logical_account: wallet?.composite ? wallet : null };
-          if (STORED_IDENTITY_TABLES.includes(table)) {
-            const stored = columns.identity_json;
+          const storedColumn = table === "account_management_change" ? "initiating_identity_json"
+            : STORED_IDENTITY_TABLES.includes(table) ? "identity_json" : null;
+          if (storedColumn) {
+            const stored = columns[storedColumn];
             identity.stored_identity = stored?.state === "valid"
               ? Object.fromEntries(STORED_IDENTITY_FIELDS.filter(field => field in stored.fields).map(field => [field, stored.fields[field]]))
               : { unreadable: stored?.column_absent ? "column_absent" : stored?.state ?? "absent" };
-            if (stored?.state === "valid") for (const field of STORED_IDENTITY_FIELDS) scalarLoss(stored.fields[field], lost, `identity_json.${field}`);
+            if (stored?.state === "valid") for (const field of STORED_IDENTITY_FIELDS) scalarLoss(stored.fields[field], lost, `${storedColumn}.${field}`);
           }
           if (table === "account_setting_declaration") {
             const declaration = columns.declaration_json;
@@ -475,6 +524,58 @@ function mappingFrom(objects, kv, env, options) {
               : { state: declaration?.state ?? (declaration?.column_absent ? "column_absent" : "absent") };
           }
           if (!wallet?.unresolved) add(resolvedPlatform, value(accountKey), "store_reference", locator, identity);
+          const typedColumn = TYPED_DEPLOYMENT_COLUMNS[table];
+          if (typedColumn && columns[typedColumn]
+            && (columns[typedColumn].state !== "valid"
+              || (!columns[typedColumn].truncated && !Number.isSafeInteger(columns[typedColumn].counts?.$)))) {
+            const memberCol = columns[typedColumn];
+            add(resolvedPlatform, value(accountKey), "store_reference", { ...locator, column: typedColumn },
+              { stored_identity: { unreadable: memberCol.column_absent ? "column_absent" : memberCol.state !== "valid" ? (memberCol.state ?? "absent") : "unexpected_shape" } });
+          }
+        }
+        // Policy and sibling-membership JSON decode every deployment's stored settings identity.
+        const typedColumn = TYPED_DEPLOYMENT_COLUMNS[table];
+        const typedPaths = new Set();
+        if (typedColumn && columns[typedColumn]?.state === "valid" && columns[typedColumn].fields) {
+          const projection = columns[typedColumn], fields = projection.fields;
+          for (const slot of deploymentSlots(table, projection)) {
+            const depPlatform = fields[`${slot}.platform`], depKey = fields[`${slot}.legacy_key`];
+            const idPlatform = fields[`${slot}.identity.platform`], idKey = fields[`${slot}.identity.key`];
+            scalarLoss(depPlatform, lost, `${typedColumn}.${slot}.platform`);
+            scalarLoss(depKey, lost, `${typedColumn}.${slot}.legacy_key`);
+            scalarLoss(idPlatform, lost, `${typedColumn}.${slot}.identity.platform`);
+            for (const field of STORED_IDENTITY_FIELDS) scalarLoss(fields[`${slot}.identity.${field}`], lost, `${typedColumn}.${slot}.identity.${field}`);
+            const hasIdentity = Object.hasOwn(fields, `${slot}.identity.platform`)
+              || STORED_IDENTITY_FIELDS.some(field => Object.hasOwn(fields, `${slot}.identity.${field}`));
+            let stored;
+            if (hasIdentity) {
+              stored = typeof depPlatform === "string" && typeof idPlatform === "string" && idPlatform !== depPlatform
+                ? { unreadable: "platform_mismatch" }
+                : Object.fromEntries(STORED_IDENTITY_FIELDS.filter(field => Object.hasOwn(fields, `${slot}.identity.${field}`))
+                  .map(field => [field, fields[`${slot}.identity.${field}`]]));
+            } else if (!projection.truncated) {
+              stored = { unreadable: "absent" };
+            }
+            typedPaths.add(`${slot}.legacy_key`);
+            typedPaths.add(`${slot}.identity.key`);
+            if (typeof depKey === "string" && depKey && !longString(depKey)) {
+              add(typeof depPlatform === "string" ? depPlatform : null, depKey, "store_reference",
+                { ...locator, column: typedColumn, path: `${slot}.legacy_key` }, stored ? { stored_identity: stored } : {});
+            }
+            if (typeof idKey === "string" && idKey && !longString(idKey)
+              && (idKey !== depKey || (typeof idPlatform === "string" && idPlatform !== depPlatform))) {
+              add(typeof idPlatform === "string" ? idPlatform : null, idKey, "store_reference",
+                { ...locator, column: typedColumn, path: `${slot}.identity.key` }, stored ? { stored_identity: stored } : {});
+            }
+            if (!projection.truncated && ACCOUNT_TABLES.includes(table)
+              && !(typeof depKey === "string" && depKey) && !longString(depKey)
+              && !(typeof idKey === "string" && idKey) && !longString(idKey)) {
+              const rowPlatform = table === "account_management_change" ? columns.platform : value(row.pk[0]);
+              const rowKey = value(table === "account_management_change" ? columns.account_key : row.pk[1]);
+              add(typeof rowPlatform === "string" ? rowPlatform : null, rowKey, "store_reference",
+                { ...locator, column: typedColumn, path: slot }, { stored_identity: { unreadable: "absent" } });
+            }
+          }
         }
         // A promotion decision names its account by the root selected_account
         // object of its target and of its payload, each a separate episode.
@@ -489,7 +590,10 @@ function mappingFrom(objects, kv, env, options) {
         }
         // Every projected JSON column, including operation payloads.
         for (const [column, projection] of Object.entries(columns)) {
-          if (projection?.state === "valid" && projection.fields) addReferences(projection, "store_reference", { ...locator, column }, column === "identity_json", lost, `${column}.`);
+          if (projection?.state === "valid" && projection.fields) {
+            addReferences(projection, "store_reference", { ...locator, column }, STORED_JSON_DOCUMENTS.has(column), lost, `${column}.`,
+              column === typedColumn ? typedPaths : null);
+          }
         }
       }
     }
