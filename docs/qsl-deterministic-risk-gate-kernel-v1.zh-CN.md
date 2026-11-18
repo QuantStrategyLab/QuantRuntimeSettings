@@ -1,3 +1,5 @@
+[English](qsl-deterministic-risk-gate-kernel-v1.md) | 简体中文
+
 # QSL 确定性风险判定内核 V1
 
 > 状态：`DETERMINISTIC_CORE_IMPLEMENTED_NOT_WIRED`

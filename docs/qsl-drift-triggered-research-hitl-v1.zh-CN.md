@@ -1,3 +1,5 @@
+[English](qsl-drift-triggered-research-hitl-v1.md) | 简体中文
+
 # QSL 偏离触发研究晋级与人工门 V1（冻结口径）
 
 > 状态：`POLICY_FROZEN_LIBRARY_GATES_MERGED`

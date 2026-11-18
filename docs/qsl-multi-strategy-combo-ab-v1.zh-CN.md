@@ -1,3 +1,5 @@
+[English](qsl-multi-strategy-combo-ab-v1.md) | 简体中文
+
 # QSL 多策略组合 A→B V1（设计）
 
 > 状态：`DESIGN_FROZEN_A_LIBRARY_READY_B_VIEW_READY`

@@ -1,3 +1,5 @@
+[English](qsl-gcp-p0-control-root-deployment-v1.md) | 简体中文
+
 # QSL GCP P0 控制根部署 V1
 
 > 状态：`P0_SIX_ROOTS_ALPACA_SHADOW_CONTROL_RETIRED_NOT_RUNTIME_WIRED`

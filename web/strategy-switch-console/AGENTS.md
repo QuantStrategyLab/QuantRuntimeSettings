@@ -22,4 +22,4 @@ Follow the root [AGENTS.md](../../AGENTS.md) rules together with the Worker modu
 ## Public-Hygiene Constraints
 
 - Never include real commit SHAs, KV namespace or bucket names, deployment subdomains, Cloudflare or broker account IDs, tokens, or workstation local paths anywhere in code, fixtures, docs, or comments.
-- Run `python3 scripts/check_style.py --phase 2` when adding or editing documentation.
+- Run `git clone https://github.com/QuantStrategyLab/.github ../.github && python3 ../.github/scripts/check_style.py --root . --phase 2` from a sibling `.github` checkout when adding or editing documentation.

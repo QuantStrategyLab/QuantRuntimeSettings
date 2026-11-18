@@ -1,3 +1,5 @@
+[English](qsl-unified-control-console-architecture-v1.md) | 简体中文
+
 # QSL 统一决策平台架构 V1
 
 > 状态：`DESIGN_AND_SNAPSHOT_CONTRACT_ONLY`

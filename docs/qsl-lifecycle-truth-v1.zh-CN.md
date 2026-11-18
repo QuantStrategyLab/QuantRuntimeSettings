@@ -1,3 +1,5 @@
+[English](qsl-lifecycle-truth-v1.md) | 简体中文
+
 # QSL 生命周期唯一语义 v1
 
 策略 catalog、跨资产 inventory 和 evidence package 只描述策略所处阶段，
