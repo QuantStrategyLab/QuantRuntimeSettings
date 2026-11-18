@@ -48,6 +48,6 @@ Candidate field conventions:
 ## Owner prerequisites
 
 1. Create the tag ruleset protecting `refs/tags/qsl-promotion-consumed/**` against update/deletion with zero bypass actors.
-2. Add secret `QSL_PROMOTION_LEDGER_TOKEN` (fine-grained token with `contents: read/write` on `QuantRuntimeSettings` only).
+2. Install a private ledger GitHub App on `QuantRuntimeSettings` only. Grant repository `Contents: Read and write` and `Metadata: Read-only`, with no ruleset bypass. In the `runtime-strategy-switch` environment, set the variable `QSL_PROMOTION_LEDGER_APP_CLIENT_ID` and secret `QSL_PROMOTION_LEDGER_APP_PRIVATE_KEY`. The approved apply job mints a short-lived token for the ledger step.
 3. Set Environment variable `QSL_PROMOTION_TRUSTED_ROOTS_JSON` to independently verified `{platform: sha256}` digests (never derived dynamically from unverified records), and provide project mappings and root records in secrets `QSL_PROMOTION_ROOT_PROJECTS_JSON` and `QSL_PROMOTION_ROOT_RECORDS_JSON`.
 4. Provision the KMS IAM signer service account and permissions.
