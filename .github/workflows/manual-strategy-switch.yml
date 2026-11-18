@@ -216,7 +216,7 @@ jobs:
       CONFIRM_APPLY: ${{ inputs.confirm_apply }}
       PLATFORM_SYNC_WORKFLOW: ${{ inputs.platform_sync_workflow }}
       STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
-      STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+      STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN }}
       RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON: ${{ vars.RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON }}
       RUNTIME_SETTINGS_LONGBRIDGE_REPO: ${{ vars.RUNTIME_SETTINGS_LONGBRIDGE_REPO }}
       RUNTIME_SETTINGS_IBKR_REPO: ${{ vars.RUNTIME_SETTINGS_IBKR_REPO }}
@@ -248,7 +248,7 @@ jobs:
 
       - name: Resolve GitHub control token
         env:
-          RESOLVED_GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+          RESOLVED_GH_TOKEN: ${{ steps.app-token.outputs.token }}
         shell: bash
         run: |
           set +x
