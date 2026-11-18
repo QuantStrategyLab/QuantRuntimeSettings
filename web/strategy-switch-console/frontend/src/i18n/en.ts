@@ -179,7 +179,7 @@ export const en: Record<CoreMessageKey, string> = {
   "reason.management_policy_invalid": "The account mapping policy is invalid or revision-mismatched.",
   "reason.management_policy_revision_conflict": "The account mapping policy revision changed; refresh to check.",
   "reason.management_instance_revision_conflict": "The runtime instance revision changed; refresh to check.",
-  "reason.management_identity_conflict": "Account identity or historical evidence differs from current state.",
+  "reason.management_identity_conflict": "Account identity or historical records differ from the current state.",
   "reason.management_membership_conflict": "Physical account deployment membership conflicts or is uncovered.",
   "reason.management_state_conflict": "Sibling deployments disagree or local state conflicts.",
   "reason.management_draft_revision_conflict": "Management draft revision conflict; re-read first.",

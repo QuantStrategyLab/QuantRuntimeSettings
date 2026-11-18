@@ -177,7 +177,7 @@ export const zhCN = {
   "reason.management_policy_invalid": "账户映射策略格式无效或版本不一致。",
   "reason.management_policy_revision_conflict": "账户映射策略版本已变化，请刷新确认。",
   "reason.management_instance_revision_conflict": "实例列表版本已变化，请刷新确认。",
-  "reason.management_identity_conflict": "账户身份或历史凭证发生变化，请核对。",
+  "reason.management_identity_conflict": "账户身份或历史凭证发生变化，请刷新确认。",
   "reason.management_membership_conflict": "物理账户成员部署列表冲突或未覆盖。",
   "reason.management_state_conflict": "同物理账户下多个部署状态不一致或存在冲突。",
   "reason.management_draft_revision_conflict": "管理草案版本冲突，请重新读取。",
