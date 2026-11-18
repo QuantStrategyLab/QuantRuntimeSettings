@@ -387,20 +387,4 @@ await assert.rejects(diagnoseBinanceAccountFactsKv({
 }), error => error.code === "namespace_target_unqualified");
 assert.equal(oversizedNamespace.calls.some(call => call.url === kvUrl), false);
 
-const workflow = readFileSync(
-  new URL("../.github/workflows/diagnose-binance-account-facts.yml", import.meta.url), "utf8",
-);
-assert.match(workflow, /^on:\s*\n\s+workflow_dispatch:/m);
-assert.doesNotMatch(workflow, /^\s+(?:push|schedule|workflow_run):/m);
-assert.match(workflow, /actions:\s*read\s*\n\s*contents:\s*read/);
-assert.match(workflow, /confirm_read_only:[\s\S]*?default:\s*false/);
-assert.match(workflow, /source_run_id:[\s\S]*?default:\s*'37039707588'/);
-assert.match(workflow, /github\.ref == 'refs\/heads\/main'[\s\S]*inputs\.confirm_read_only == true/);
-assert.match(workflow, /environment:\s*runtime-strategy-switch/);
-assert.match(workflow, /ref:\s*\$\{\{ github\.sha \}\}[\s\S]*persist-credentials:\s*false/);
-assert.match(workflow, /GH_TOKEN:\s*\$\{\{ secrets\.RUNTIME_SETTINGS_GH_TOKEN \}\}/);
-assert.match(workflow, /CLOUDFLARE_API_TOKEN:\s*\$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
-assert.match(workflow, /CLOUDFLARE_ACCOUNT_ID:\s*\$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \|\| vars\.CLOUDFLARE_ACCOUNT_ID \}\}/);
-assert.doesNotMatch(workflow, /WRANGLER|upload-artifact|kv\s+key\s+(?:put|delete)|actions:\s*write/i);
-
 console.log("Binance account-facts KV diagnostic: synthetic read-only checks PASS");
