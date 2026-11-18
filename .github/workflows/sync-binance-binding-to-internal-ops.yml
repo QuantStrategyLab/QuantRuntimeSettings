@@ -1,0 +1,33 @@
+name: Sync Binance binding to internal ops
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'QuantStrategyLab/QuantRuntimeSettings' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 5
+    steps:
+      - name: Copy the binding and confirm destination metadata
+        env:
+          GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+          BINDING: ${{ secrets.BINANCE_ACCOUNT_FACTS_BINDING_JSON }}
+        shell: bash
+        run: |
+          set +x
+          set -euo pipefail
+          : "${GH_TOKEN:?GitHub credential unavailable}" "${BINDING:?Source binding unavailable}"
+          repo=QuantStrategyLab/QuantInternalOps
+          environment=runtime-strategy-switch
+          secret=BINANCE_ACCOUNT_FACTS_BINDING_JSON
+          printf '%s' "$BINDING" | gh secret set "$secret" --repo "$repo" --env "$environment" >/dev/null
+          name=$(gh api "repos/$repo/environments/$environment/secrets/$secret" --jq '.name')
+          [[ "$name" == "$secret" ]]
