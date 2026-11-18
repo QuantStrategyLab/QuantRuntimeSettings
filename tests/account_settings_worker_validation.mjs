@@ -1256,8 +1256,11 @@ const optionOnlyAck = await call("/api/account-settings", {
     overrides: { option_overlay_enabled: true },
   },
 });
-assert.equal(optionOnlyAck.status, 400);
-assert.equal(optionOnlyAck.body.error, "account_settings_option_rejected");
+// The flipped environment changed the settings identity: the account is no longer a
+// certified management member, so the generic admission denial now precedes the
+// option validation (the object would deny it at commit as well).
+assert.equal(optionOnlyAck.status, 409);
+assert.equal(optionOnlyAck.body.error, "management_status_unknown");
 const afterOptionReject = await call("/api/account-settings?platform=longbridge&key=sg");
 assert.equal(afterOptionReject.body.draft.revision, conflictedSettings.body.draft.revision);
 assert.equal(afterOptionReject.body.draft.status, "identity_conflict");
@@ -1799,7 +1802,8 @@ for (const [label, config] of [
   const rejected = await profileApplicationOidcStreamCall(await profileApplicationOidcToken(), body, { namespace: scopeMismatchNamespace });
   assert.equal(rejected.status, 409, `${label} must reject before claim`);
   assert.equal(rejected.body.error, "account_settings_profile_application_target_conflict");
-  assert.deepEqual(commands, ["account_settings_profile_application_lookup", "account_settings_read"],
+  // The advisory admission preflight is one read of the management readback.
+  assert.deepEqual(commands, ["account_settings_profile_application_lookup", "account_management_read", "account_settings_read"],
     `${label} must not invoke the DO claim action`);
   const stillApproved = await profileApplicationDo("account_settings_profile_application_lookup", {
     request_key: hkClaim.request_key,

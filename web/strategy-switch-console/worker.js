@@ -186,6 +186,9 @@ import { readSession, makeSession } from "./application/auth/session.js";
 import { INVENTORY_ROUTE } from "./application/account_identity_inventory/constants.js";
 import { accountIdentityInventoryResponse } from "./application/account_identity_inventory/http.js";
 import { MANAGEMENT_ROUTE, accountManagementReadResponse, fetchManagementReadback } from "./application/runtime_instances/account_management_readback.js";
+import {
+  MANAGEMENT_APPLY_ROUTE, POLICY_PROVISION_ROUTE, accountManagementApplyResponse, accountMappingPolicyResponse,
+} from "./application/runtime_instances/account_management_http.js";
 import { startLogin, finishLogin } from "./application/auth/login.js";
 import {
   ux1DraftGet,
@@ -529,6 +532,8 @@ export default {
       if (url.pathname === "/api/account-settings" && request.method === "POST") {
         return await saveAccountSettings(request, env);
       }
+      if (url.pathname === MANAGEMENT_APPLY_ROUTE) return await accountManagementApplyResponse(request, env, { readSession });
+      if (url.pathname === POLICY_PROVISION_ROUTE) return await accountMappingPolicyResponse(request, env);
       if (url.pathname === "/api/account-settings/profile-application/approve" && request.method === "POST") {
         return await approveAccountSettingsProfileApplication(request, env);
       }

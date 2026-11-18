@@ -103,9 +103,11 @@ export function buildManagementReadback(sql, observedAt) {
   const current = state.instances.filter(item => item?.kind === "existing" && typeof item.platform === "string" && typeof item.key === "string");
   const effectiveExport = { format: MANAGEMENT_EFFECTIVE_EXPORT_FORMAT, instance_revision: state.revision,
     policy_revision: parsed.policy?.policy_revision ?? null, records: exportAppliedRecords(snapshot.applied) };
+  // The typed denial an admission would raise: a missing or invalid policy is named as such.
   const uncoveredEntry = (item, reasons) => ({
     platform: item.platform, key: item.key, management_status: MANAGEMENT_STATUS.UNKNOWN, evidence_state: "unknown",
-    reasons, processing_eligible: false, processing_denial: "management_status_unknown",
+    reasons, processing_eligible: false,
+    processing_denial: reasons.find(reason => reason.startsWith("management_policy_")) || "management_status_unknown",
   });
   const base = {
     ok: true, format: MANAGEMENT_READBACK_FORMAT, evidence_scope: MANAGEMENT_EVIDENCE_SCOPE, status: "available", reasons: snapshot.unreadable.length ? ["local_store_unreadable"] : [],

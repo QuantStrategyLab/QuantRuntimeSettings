@@ -10,7 +10,9 @@ import { PLATFORM_CONFIG } from "../../config.js";
 import { riskTierBindingView } from "../console_api/risk_tiers.js";
 import { hasConfigStore } from "../config_kv.js";
 import { HttpError } from "../http_error.js";
+import { saveManagementDraftRequest } from "../runtime_instances/account_management_http.js";
 import { hasRuntimeInstanceStore, runtimeInstanceCommand } from "../runtime_instances/command.js";
+import { changedRiskDeployments, managementPreflight, preflightBody } from "../runtime_instances/management_preflight.js";
 import { ux1ExactKeys } from "../ux1/research.js";
 import { ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY } from "./constants.js";
 import {
@@ -183,6 +185,11 @@ export async function saveAccountSettings(request, env, deps) {
   if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
   let raw;
   try { raw = await request.json(); } catch { return json({ ok: false, error: "request body must be valid JSON" }, 400); }
+  // The dedicated management group: its own closed request shape, never mixed with another group.
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && Object.hasOwn(raw, "management_draft")) {
+    if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "runtime_instances_not_bound", no_order: true, execution_authority_granted: false }, 503);
+    return saveManagementDraftRequest(env, session, raw);
+  }
   const platform = raw?.platform;
   const key = raw?.key;
   if (!SUPPORTED_PLATFORMS.includes(platform) || typeof key !== "string" || !key) return json({ ok: false, error: "account_settings_account_required" }, 400);
@@ -203,6 +210,13 @@ export async function saveAccountSettings(request, env, deps) {
   }
   if ((wantsDraft || wantsRisk || wantsDeclaration) && canonicalResearchTaskJson(raw.identity) !== canonicalResearchTaskJson(observed.identity)) {
     return json({ ok: false, error: "account_settings_identity_conflict" }, 409);
+  }
+  // Advisory processing-admission preflight (the object re-resolves at commit):
+  // a strategy, parameter or risk write for a non-eligible account stops here,
+  // before any profile or runtime readback. Declarations are observations.
+  if (wantsDraft || wantsRisk) {
+    const denial = await managementPreflight(env, [{ platform, key }]);
+    if (denial) return json(preflightBody(denial), denial.status);
   }
   const command = { action: "account_settings_save", actor: session.login, platform, key, legacy };
   if (wantsDraft || wantsRisk || wantsDeclaration) command.identity = raw.identity;
@@ -386,6 +400,10 @@ export async function saveRiskProfileBindings(request, env, deps) {
   } catch (error) {
     return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
   }
+  // Advisory preflight over every changed scope (added, removed, modified); the
+  // object admits all of them atomically at commit, one denial rejecting the set.
+  const denial = await managementPreflight(env, changedRiskDeployments(observed.bindings, bindings, observed.account_options, deps.canonicalResearchTaskJson));
+  if (denial) return json(preflightBody(denial), denial.status);
   let saved;
   try {
     saved = await runtimeInstanceCommand(env, {
@@ -481,6 +499,9 @@ export async function approveAccountSettingsProfileApplication(request, env, dep
     return json({ ok: false, error: "account_settings_profile_application_profile_invalid" }, 400);
   }
   if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "runtime_instances_not_bound" }, 503);
+  // Advisory preflight, replay branches included: an old approval never renews admission.
+  const denial = await managementPreflight(env, [{ platform: raw.platform, key: raw.key }]);
+  if (denial) return json(preflightBody(denial), denial.status);
 
   const command = {
     action: "account_settings_profile_application_approve",
@@ -612,6 +633,10 @@ export async function claimAccountSettingsProfileApplicationFromGitHub(request, 
     });
     const application = lookup.application;
     if (!application) return json({ ok: false, error: "account_settings_profile_application_not_found", no_order: true, execution_authority_granted: false }, 404);
+    // Generic admission first (a display-only target fails whatever its name); the
+    // fixed-HK predicate below stays as an additional legacy restriction.
+    const denial = await managementPreflight(env, [{ platform: application.platform, key: application.key }]);
+    if (denial) return json(preflightBody(denial), denial.status);
     if (!accountSettingsProfileApplicationIsFixedHk(application)) {
       return json({ ok: false, error: "account_settings_profile_application_target_conflict", no_order: true, execution_authority_granted: false }, 409);
     }

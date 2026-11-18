@@ -71,6 +71,8 @@ export const PUBLIC_ROUTES = Object.freeze([
   { id: "/api/risk-profiles", match: 'url.pathname === "/api/risk-profiles" && request.method === "POST"', handler: "saveRiskProfileBindings", effects: { POST: "command" }, scope: "command" },
   { id: "/api/account-settings", match: 'url.pathname === "/api/account-settings" && request.method === "GET"', handler: "accountSettingsResponse", effects: { GET: ["B1", "B0"] }, scope: "undeclared" },
   { id: "/api/account-settings", match: 'url.pathname === "/api/account-settings" && request.method === "POST"', handler: "saveAccountSettings", effects: { POST: "command" }, scope: "command" },
+  { id: "/api/account-settings/management/apply", match: "url.pathname === MANAGEMENT_APPLY_ROUTE", handler: "accountManagementApplyResponse", effects: { POST: "command" }, scope: "command" },
+  { id: "/api/internal/account-mapping-policy", match: "url.pathname === POLICY_PROVISION_ROUTE", handler: "accountMappingPolicyResponse", effects: { POST: "command" }, scope: "command" },
   { id: "/api/account-settings/profile-application/approve", match: 'url.pathname === "/api/account-settings/profile-application/approve" && request.method === "POST"', handler: "approveAccountSettingsProfileApplication", effects: { POST: "command" }, scope: "command" },
   { id: "ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH", match: "url.pathname === ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH", handler: "claimAccountSettingsProfileApplicationFromGitHub", effects: { POST: "command" }, scope: "command" },
   { id: "/api/internal/sync-account-default", match: 'url.pathname === "/api/internal/sync-account-default" && request.method === "POST"', handler: "syncAccountDefaultResponse", effects: { POST: "command" }, scope: "command" },

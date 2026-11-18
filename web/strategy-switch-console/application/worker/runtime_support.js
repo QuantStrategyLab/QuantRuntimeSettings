@@ -346,6 +346,7 @@ import {
   runtimeInstanceFields,
 } from "../runtime_instances/command.js";
 import { fetchManagementReadback } from "../runtime_instances/account_management_readback.js";
+import { managementPreflight } from "../runtime_instances/management_preflight.js";
 import {
   HK_STOP_DO_ACTIONS,
   HK_STOP_REQUEST_ID,
@@ -2456,6 +2457,11 @@ export async function syncAccountDefaultResponse(request, env) {
     throw new HttpError(`strategy ${inputs.strategy_profile} requires an existing matching account default`, 409);
   }
   assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles);
+  // Advisory preflight before any fallback write; the object gates again inside its transaction.
+  const denial = hasRuntimeInstanceStore(env) ? await managementPreflight(env, [{ platform: inputs.platform, key: accountOption.key }]) : null;
+  if (denial) {
+    return json({ ok: false, account_options_sync: { synced: false, reason: denial.error }, legacy_continuity_account_registered: false }, denial.status);
+  }
   const result = await syncDefaultStrategyForAccount(env, accountOptions, inputs, {
     login: "github-actions",
   });
@@ -6065,6 +6071,11 @@ export async function recordResearchPromotionDecisionResponse(request, env) {
   const reviewBinding = await researchPromotionReviewBinding(ticket);
   const selectedAccount = raw?.selected_account || null;
   const confirmation = raw?.confirmation || null;
+  // Advisory admission preflight of the selected account (replays included); the object re-resolves at commit.
+  if (decision === "accept" && selectedAccount) {
+    const denial = await managementPreflight(env, [{ platform: selectedAccount.platform, key: selectedAccount.key }]);
+    if (denial) return json({ ok: false, error: denial.error, no_order: true, execution_authority_granted: false }, denial.status);
+  }
   const target = { selected_account: selectedAccount, confirmation };
   const targetJson = canonicalResearchTaskJson(target);
   let authority;
@@ -6365,6 +6376,7 @@ export async function researchPromotionApplicationResponse(request, env, url) {
       error instanceof HttpError
       && error.message === "unsupported_research_promotion_application_action"
     ),
+    managementPreflight,
     V7_PAPER_APPLICATION_MAX_BODY_BYTES,
     V7_PAPER_APPLICATION_SOURCE_COMMIT,
     V7_PAPER_APPLICATION_UES_REVISION,

@@ -27,6 +27,7 @@
  *   dispatchV7PaperApplication: Function,
  *   publicResearchPromotionApplication: Function,
  *   isUnsupportedApplicationActionError: Function,
+ *   managementPreflight?: Function,
  *   V7_PAPER_APPLICATION_MAX_BODY_BYTES: number,
  *   V7_PAPER_APPLICATION_SOURCE_COMMIT: string,
  *   V7_PAPER_APPLICATION_UES_REVISION: string,
@@ -45,6 +46,7 @@ export async function researchPromotionApplicationResponse(request, env, url, de
     dispatchV7PaperApplication,
     publicResearchPromotionApplication,
     isUnsupportedApplicationActionError,
+    managementPreflight,
     V7_PAPER_APPLICATION_MAX_BODY_BYTES,
     V7_PAPER_APPLICATION_SOURCE_COMMIT,
     V7_PAPER_APPLICATION_UES_REVISION,
@@ -86,6 +88,9 @@ export async function researchPromotionApplicationResponse(request, env, url, de
       selectedAccount: raw.selected_account,
       expectedRevision: raw.expected_revision,
     });
+    // Advisory admission preflight before the create command; the object admits again at commit.
+    const denial = await managementPreflight?.(env, [{ platform: qualified.account.platform_id, key: qualified.account.account_key }]);
+    if (denial) return json({ ok: false, error: denial.error, no_order: true, execution_authority_granted: false }, denial.status);
     const applicationId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     const created = await runtimeInstanceCommand(env, {
