@@ -1,7 +1,3 @@
-/**
- * Risk profile binding validation, normalization, and digest helpers.
- */
-
 import { PLATFORM_CONFIG } from "../../config.js";
 import { cleanGithubLogin } from "../auth/identity_lists.js";
 import {
@@ -15,20 +11,17 @@ import {
   cleanBoundedArray,
   cleanChoice,
   cleanSlug,
-} from "./schema_validators.js";
+} from "../schema_validators.js";
+import {
+  RISK_PROFILE_BINDINGS_KEY,
+  RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
+  RISK_PROFILE_BINDING_SCHEMA_VERSION,
+  RISK_PROFILE_IDS,
+  RISK_PROFILE_PREFERENCES,
+  RISK_PROFILE_SELECTION_SCHEMA_VERSION,
+} from "./constants.js";
 
 const SUPPORTED_PLATFORMS = Object.keys(PLATFORM_CONFIG);
-
-export const RISK_PROFILE_BINDINGS_KEY = "risk_profile_bindings";
-export const RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION = "qsl.risk_profile_binding_registry.v1";
-export const RISK_PROFILE_BINDING_SCHEMA_VERSION = "qsl.risk_profile_binding.v1";
-export const RISK_PROFILE_SELECTION_SCHEMA_VERSION = "qsl.risk_profile_selection.v1";
-export const RISK_PROFILE_IDS = {
-  CAPITAL_PRESERVATION: "capital_preservation_v1",
-  BALANCED_COMPOUNDING: "balanced_compounding_v1",
-  GROWTH_COMPOUNDING: "growth_compounding_v1",
-};
-export const RISK_PROFILE_PREFERENCES = Object.keys(RISK_PROFILE_IDS);
 
 export function riskProfileScopeId(platform, targetName) {
   return `${platform}--${targetName}`;

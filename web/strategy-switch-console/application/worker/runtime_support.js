@@ -659,7 +659,7 @@ import {
   cleanRatio,
   cleanRepositoryName,
   cleanSlug,
-} from "./schema_validators.js";
+} from "../schema_validators.js";
 import {
   STRATEGY_HEALTH_SNAPSHOT_KEY,
   STRATEGY_HEALTH_MAX_BODY_BYTES,
@@ -667,6 +667,8 @@ import {
   STRATEGY_HEALTH_STATUSES,
   STRATEGY_HEALTH_DOMAINS,
   STRATEGY_HEALTH_DATA_STATUSES,
+} from "../strategy_health_snapshot/constants.js";
+import {
   normalizeStrategyHealthSnapshot,
   normalizeStrategyHealthStrategies,
   normalizeStrategyHealthSummary,
@@ -684,9 +686,11 @@ import {
   normalizeStrategyHealthPolicy,
   emptyStrategyHealthPayload,
   strategyHealthStaleTtlSeconds,
+} from "../strategy_health_snapshot/helpers.js";
+import {
   syncStrategyHealthResponseImpl,
   strategyHealthResponseImpl,
-} from "./strategy_health_snapshot.js";
+} from "../strategy_health_snapshot/http.js";
 import {
   ADAPTIVE_SELECTION_SOURCE_PREFIX,
   ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION,
@@ -696,6 +700,8 @@ import {
   ADAPTIVE_SELECTION_MAX_BODY_BYTES,
   ADAPTIVE_SELECTION_DEFAULT_STALE_TTL_SECONDS,
   ADAPTIVE_SELECTION_AUTHORITY,
+} from "../adaptive_selection_snapshot/constants.js";
+import {
   adaptiveSelectionSourceKey,
   normalizeAdaptiveSelectionSourceSnapshot,
   normalizeAdaptiveSelectionDecision,
@@ -711,11 +717,13 @@ import {
   emptyAdaptiveSelectionSourceSnapshot,
   emptyAdaptiveSelectionPayload,
   adaptiveSelectionStaleTtlSeconds,
+} from "../adaptive_selection_snapshot/helpers.js";
+import {
   readAdaptiveSelectionSourcesImpl,
   aggregateAdaptiveSelectionSourcesImpl,
   syncAdaptiveSelectionSourceResponseImpl,
   adaptiveSelectionResponseImpl,
-} from "./adaptive_selection_snapshot.js";
+} from "../adaptive_selection_snapshot/http.js";
 import {
   BINANCE_PRIVATE_SCOPE_KEY,
   BINANCE_PRIVATE_SCOPE_MAX_BODY_BYTES,
@@ -724,12 +732,16 @@ import {
   BINANCE_PRIVATE_SCOPE_INGEST_MAX_AGE_MS,
   BINANCE_PRIVATE_SCOPE_FUTURE_SKEW_MS,
   BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS,
+} from "../binance_private_scope/constants.js";
+import {
   normalizeBinancePrivateScopeReport,
   normalizeBinancePrivateScopeDecimal,
   binancePrivateScopeDecimalIsZero,
+} from "../binance_private_scope/helpers.js";
+import {
   syncBinancePrivateScopeResponseImpl,
   binancePrivateScopeResponseImpl,
-} from "./binance_private_scope.js";
+} from "../binance_private_scope/http.js";
 import {
   EXECUTION_EVIDENCE_SOURCE_PREFIX,
   EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION,
@@ -741,6 +753,8 @@ import {
   EXECUTION_EVIDENCE_ENVIRONMENTS,
   EXECUTION_EVIDENCE_CAPABILITIES,
   EXECUTION_EVIDENCE_STATUSES,
+} from "../execution_evidence_snapshot/constants.js";
+import {
   executionEvidenceSourceKey,
   normalizeExecutionEvidenceSourceSnapshot,
   normalizeExecutionEvidenceDeployment,
@@ -749,11 +763,13 @@ import {
   emptyExecutionEvidenceSourceSnapshot,
   emptyExecutionEvidencePayload,
   executionEvidenceStaleTtlSeconds,
+} from "../execution_evidence_snapshot/helpers.js";
+import {
   readExecutionEvidenceSourcesImpl,
   aggregateExecutionEvidenceSourcesImpl,
   syncExecutionEvidenceSourceResponseImpl,
   executionEvidenceResponseImpl,
-} from "./execution_evidence_snapshot.js";
+} from "../execution_evidence_snapshot/http.js";
 import {
   RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX,
   RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION,
@@ -765,6 +781,8 @@ import {
   RUNTIME_TARGET_LIFECYCLE_CHECK_STATUSES,
   RUNTIME_TARGET_LIFECYCLE_DISPOSITIONS,
   RUNTIME_TARGET_LIFECYCLE_EXECUTION_OBSERVATIONS,
+} from "../runtime_target_lifecycle/constants.js";
+import {
   runtimeTargetLifecycleAuditState,
   projectRuntimeAccountState,
   runtimeTargetLifecycleExecutionObservation,
@@ -773,12 +791,14 @@ import {
   normalizeRuntimeTargetLifecycleTarget,
   emptyRuntimeTargetLifecycleSourceSnapshot,
   emptyRuntimeTargetLifecyclePayload,
+} from "../runtime_target_lifecycle/helpers.js";
+import {
   readRuntimeTargetLifecycleSourcesImpl,
   aggregateRuntimeTargetLifecycleSourcesImpl,
   syncRuntimeTargetLifecycleSourceResponseImpl,
   runtimeReadbackResponseImpl,
   runtimeTargetLifecycleResponseImpl,
-} from "./runtime_target_lifecycle.js";
+} from "../runtime_target_lifecycle/http.js";
 import {
   RUNTIME_DAILY_KEY_PREFIX,
   RUNTIME_DAILY_MAX_BODY_BYTES,
@@ -792,8 +812,9 @@ import {
   RUNTIME_DAILY_LANES,
   RUNTIME_DAILY_SCHEDULE_STATES,
   RUNTIME_DAILY_KINDS,
+} from "../runtime_daily_projection/constants.js";
+import {
   runtimeDailyReadModelEnabled,
-  runtimeDailyDisabledResponse,
   runtimeDailyKey,
   runtimeDailyToday,
   runtimeDailyCalendarDate,
@@ -810,18 +831,23 @@ import {
   normalizeRuntimeDailyRun,
   normalizeRuntimeDailyProjection,
   runtimeDailyStoredProjection,
-  runtimeDailyUnattributedResponse,
   runtimeDailyPublicRecord,
-  runtimeDailyHistory,
   runtimeDailyReadSummary,
   runtimeDailyReadStatus,
-} from "./runtime_daily_projection.js";
+} from "../runtime_daily_projection/helpers.js";
+import {
+  runtimeDailyDisabledResponse,
+  runtimeDailyUnattributedResponse,
+  runtimeDailyHistory,
+} from "../runtime_daily_projection/http.js";
 import {
   RISK_PROFILE_BINDINGS_KEY,
   RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
   RISK_PROFILE_BINDING_SCHEMA_VERSION,
   RISK_PROFILE_SELECTION_SCHEMA_VERSION,
   RISK_PROFILE_PREFERENCES,
+} from "../risk_profile_bindings/constants.js";
+import {
   riskProfileScopeId,
   riskProfileBindingTargets,
   utcTimestampSeconds,
@@ -831,7 +857,7 @@ import {
   normalizeRiskProfileBinding,
   normalizeRiskProfileBindingRegistry,
   buildRiskProfileBindings,
-} from "./risk_profile_bindings.js";
+} from "../risk_profile_bindings/helpers.js";
 import {
   SUPPORTED_PLATFORMS,
   LEGACY_CASH_ONLY_EXECUTION_VARIABLE,
@@ -848,6 +874,8 @@ import {
   IBIT_ZSCORE_EXIT_PARKING_SYMBOL_VARIABLE,
   OPTION_OVERLAY_VARIABLES,
   OPTION_OVERLAY_MODES,
+} from "../strategy_and_account_normalizers/constants.js";
+import {
   validateAccountOptionsSchemaOrThrow,
   normalizeBrokerEnvironment,
   parseAccountOptions,
@@ -884,7 +912,7 @@ import {
   supportedExecutionModesForPlatform,
   cleanCurrentStrategy,
   cleanCsv,
-} from "./strategy_and_account_normalizers.js";
+} from "../strategy_and_account_normalizers/helpers.js";
 
 export {
   AUTH_CONFIG_KEY,

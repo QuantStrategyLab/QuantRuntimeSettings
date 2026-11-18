@@ -17,7 +17,7 @@ import {
   staleTtlSecondsFromEnv,
   normalizeSourceSnapshotEnvelope,
   aggregateSnapshotMetrics,
-} from "../web/strategy-switch-console/application/worker/schema_validators.js";
+} from "../web/strategy-switch-console/application/schema_validators.js";
 
 test("validateObjectSchema enforces required, optional, and exact key rules", () => {
   assertExactObject({ a: 1, b: 2 }, ["a", "b"], "obj");

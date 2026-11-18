@@ -1,11 +1,11 @@
 /**
  * Shared declarative field, object, and snapshot schema validation helpers.
  *
- * Pure leaf module under application/worker/: never imports runtime_support.js
+ * Pure leaf module under application/: never imports runtime_support.js
  * or worker.js.
  */
 
-import { HttpError } from "../http_error.js";
+import { HttpError } from "./http_error.js";
 
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/;
 const UNSAFE_MARKERS = ["secret", "token", "password", "bearer", "traceback", "/users/", "/home/"];
