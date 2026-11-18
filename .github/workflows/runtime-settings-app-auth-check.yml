@@ -40,6 +40,7 @@ jobs:
           permission-contents: read
           permission-environments: ${{ matrix.write-capability }}
           permission-metadata: read
+          permission-secrets: ${{ matrix.write-capability }}
         env:
           INPUT_PERMISSION-ACTIONS-VARIABLES: ${{ matrix.write-capability }}
 
@@ -49,6 +50,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SELF_REPOSITORY: ${{ github.repository }}
           BINANCE_REPOSITORY: ${{ vars.RUNTIME_SETTINGS_BINANCE_REPO || 'QuantStrategyLab/BinancePlatform' }}
+          IBKR_REPOSITORY: ${{ vars.RUNTIME_SETTINGS_IBKR_REPO || 'QuantStrategyLab/InteractiveBrokersPlatform' }}
         run: |
           set -euo pipefail
           installed=$(gh api installation/repositories --jq '.repositories | map(.full_name) | index(env.SELF_REPOSITORY) != null')
@@ -57,6 +59,7 @@ jobs:
             exit 1
           fi
           gh api --silent "repos/${SELF_REPOSITORY}/environments/runtime-strategy-switch/secrets/public-key"
+          gh api --silent "repos/${IBKR_REPOSITORY}/actions/secrets/public-key"
           gh api --silent "repos/${BINANCE_REPOSITORY}/actions/runs?per_page=1"
           gh api --silent "repos/${BINANCE_REPOSITORY}/actions/variables?per_page=1"
           echo "Scoped Runtime Settings GitHub App authentication verified; zero writes performed."

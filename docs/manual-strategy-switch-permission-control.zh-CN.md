@@ -33,7 +33,7 @@
 
 在 `QuantRuntimeSettings` 仓库的 `runtime-strategy-switch` Environment 配置：
 
-- **推荐无人值守方式（免定期续期）**：创建仅安装于 `QuantRuntimeSettings` 与目标平台仓库的组织级 GitHub App（Repository permissions 仅勾选 `Actions: Read and write`、`Variables: Read and write`、`Environments: Read and write`、`Contents: Read-only`、`Metadata: Read-only`，不授 `contents: write`），将 Client ID 存入变量 `RUNTIME_SETTINGS_APP_CLIENT_ID`，将永不过期的 `.pem` 私钥存入 Secret `RUNTIME_SETTINGS_APP_PRIVATE_KEY`。工作流每次通过 `actions/create-github-app-token` 现场签发 1 小时短效令牌并在结束后自动吊销；配置后可运行 `runtime-settings-app-auth-check.yml` 做零写入连通性校验。
+- **推荐无人值守方式（免定期续期）**：创建仅安装于 `QuantRuntimeSettings` 与目标平台仓库的组织级 GitHub App（Repository permissions 仅勾选 `Actions: Read and write`、`Variables: Read and write`、`Secrets: Read and write`、`Environments: Read and write`、`Contents: Read-only`、`Metadata: Read-only`，不授 `contents: write`），将 Client ID 存入变量 `RUNTIME_SETTINGS_APP_CLIENT_ID`，将永不过期的 `.pem` 私钥存入 Secret `RUNTIME_SETTINGS_APP_PRIVATE_KEY`。工作流每次通过 `actions/create-github-app-token` 现场签发 1 小时短效令牌并在结束后自动吊销；配置后可运行 `runtime-settings-app-auth-check.yml` 做零写入连通性校验。
 - **兼容回退方式**：未设置 `RUNTIME_SETTINGS_APP_CLIENT_ID` 时，工作流回退读取 Environment Secret `RUNTIME_SETTINGS_GH_TOKEN`。
 - Required reviewers：不配置
 - Deployment branches：建议只允许 `main`

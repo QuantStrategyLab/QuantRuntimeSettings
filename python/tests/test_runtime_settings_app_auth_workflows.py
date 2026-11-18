@@ -40,6 +40,8 @@ class RuntimeSettingsAppAuthWorkflowTests(unittest.TestCase):
         )
         self.assertIn("environment: runtime-strategy-switch", text)
         self.assertIn("permissions: {}", text)
+        self.assertIn("permission-secrets: ${{ matrix.write-capability }}", text)
+        self.assertIn("/actions/secrets/public-key", text)
         self.assertNotIn("gh variable set", text)
         self.assertNotIn("gh secret set", text)
 
