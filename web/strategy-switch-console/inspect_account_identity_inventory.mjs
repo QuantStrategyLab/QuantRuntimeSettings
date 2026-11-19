@@ -11,7 +11,7 @@ export const EXPORT_FORMAT = "qsl_account_identity_inventory_export.v1";
 const OBJECTS = ["runtime", "directory"];
 const SQL_GROUPS = {
   1: ["instance_state", "instance_history"],
-  2: ["account_setting_draft", "account_setting_declaration", "account_management_draft", "account_management_applied"],
+  2: ["account_setting_draft", "account_setting_declaration", "account_management_draft", "account_management_applied", "account_management_invalidation"],
   3: ["account_setting_profile_application", "account_management_change", "account_management_requests"],
   4: ["risk_profile_authority", "account_mapping_policy"],
   5: ["account_facts_observation", "account_facts_daily"],
@@ -169,6 +169,14 @@ function assembleObject(object, responses) {
       if (row.projection_error) losses.add(`${name}:${ROW_ERRORS.has(row.projection_error) ? row.projection_error : "projection_error"}`);
       for (const [column, projection] of Object.entries(row.columns || {})) {
         if (projection?.state === "valid" && projection.truncated) losses.add(`${name}:${column}:identity_projection_truncated`);
+        // A promotion's admission binding: a present binding whose outer shape or
+        // inner membership was not read in full is incomplete evidence. A null
+        // binding is explicit legacy absence.
+        if (column === "management_binding_json" && projection && !projection.column_absent && projection.state !== "null") {
+          if (projection.state !== "valid") losses.add(`${name}:${column}:admission_binding_unreadable`);
+          else if (projection.membership?.state !== "valid") losses.add(`${name}:${column}:admission_binding_membership_unreadable`);
+          else if (projection.membership.truncated) losses.add(`${name}:${column}:identity_projection_truncated`);
+        }
       }
       if (name === "account_facts_daily" && walletIdentity(row)?.unresolved) losses.add(`${name}:wallet_history_identity_unresolved`);
     }
@@ -421,7 +429,7 @@ function optionsFrom(kv, env) {
 
 // The account tables mapped from their own key columns.
 const ACCOUNT_TABLES = ["account_setting_draft", "account_setting_declaration", "account_setting_profile_application", "account_management_draft",
-  "account_management_applied", "account_management_change", "account_management_requests", "account_facts_observation",
+  "account_management_applied", "account_management_invalidation", "account_management_change", "account_management_requests", "account_facts_observation",
   "account_facts_daily", "account_external_flow", "account_executions", "account_execution_reports", "binance_detail_daily",
   "account_diagnosis_tasks", "research_promotion_applications", "account_period_return", "account_daily_native_return"];
 const STORED_JSON_DOCUMENTS = new Set(["identity_json", "initiating_identity_json"]);
@@ -430,7 +438,19 @@ const TYPED_DEPLOYMENT_COLUMNS = {
   account_management_draft: "membership_json",
   account_management_applied: "membership_json",
   account_management_change: "members_json",
+  research_promotion_applications: "management_binding_json",
 };
+// The projection a typed column decodes deployments from. A promotion's
+// admission binding nests its membership one level down; a missing binding is
+// explicit legacy absence and decodes nothing. Any other unread state stays
+// the column's own state, so it is reported rather than dropped.
+function typedProjection(table, columns, column) {
+  const projection = columns[column];
+  if (table !== "research_promotion_applications") return projection;
+  // An absent column is a legacy table; the schema section already reports it as a missing column.
+  if (!projection || projection.state === "null" || projection.column_absent) return null;
+  return projection.state === "valid" ? projection.membership : projection;
+}
 function deploymentSlots(table, projection) {
   const fields = projection?.fields || {}, counts = projection?.counts || {};
   const slots = new Set();
@@ -550,10 +570,11 @@ function mappingFrom(objects, kv, env, options) {
           }
           if (!wallet?.unresolved) add(resolvedPlatform, value(accountKey), "store_reference", locator, identity);
           const typedColumn = TYPED_DEPLOYMENT_COLUMNS[table];
-          if (typedColumn && columns[typedColumn]
-            && (columns[typedColumn].state !== "valid"
-              || (!columns[typedColumn].truncated && !Number.isSafeInteger(columns[typedColumn].counts?.$)))) {
-            const memberCol = columns[typedColumn];
+          const typedValue = typedColumn ? typedProjection(table, columns, typedColumn) : null;
+          if (typedValue
+            && (typedValue.state !== "valid"
+              || (!typedValue.truncated && !Number.isSafeInteger(typedValue.counts?.$)))) {
+            const memberCol = typedValue;
             add(resolvedPlatform, value(accountKey), "store_reference", { ...locator, column: typedColumn },
               { stored_identity: { unreadable: memberCol.column_absent ? "column_absent" : memberCol.state !== "valid" ? (memberCol.state ?? "absent") : "unexpected_shape" } });
           }
@@ -561,8 +582,9 @@ function mappingFrom(objects, kv, env, options) {
         // Policy and sibling-membership JSON decode every deployment's stored settings identity.
         const typedColumn = TYPED_DEPLOYMENT_COLUMNS[table];
         const typedPaths = new Set();
-        if (typedColumn && columns[typedColumn]?.state === "valid" && columns[typedColumn].fields) {
-          const projection = columns[typedColumn], fields = projection.fields;
+        const typedBody = typedColumn ? typedProjection(table, columns, typedColumn) : null;
+        if (typedBody?.state === "valid" && typedBody.fields) {
+          const projection = typedBody, fields = projection.fields;
           for (const slot of deploymentSlots(table, projection)) {
             const depPlatform = fields[`${slot}.platform`], depKey = fields[`${slot}.legacy_key`];
             const idPlatform = fields[`${slot}.identity.platform`], idKey = fields[`${slot}.identity.key`];
@@ -595,8 +617,9 @@ function mappingFrom(objects, kv, env, options) {
             if (!projection.truncated && ACCOUNT_TABLES.includes(table)
               && !(typeof depKey === "string" && depKey) && !longString(depKey)
               && !(typeof idKey === "string" && idKey) && !longString(idKey)) {
-              const rowPlatform = table === "account_management_change" ? columns.platform : value(row.pk[0]);
-              const rowKey = value(table === "account_management_change" ? columns.account_key : row.pk[1]);
+              const copiedKey = table === "account_management_change" || table === "research_promotion_applications";
+              const rowPlatform = table === "research_promotion_applications" ? columns.platform_id : table === "account_management_change" ? columns.platform : value(row.pk[0]);
+              const rowKey = value(copiedKey ? columns.account_key : row.pk[1]);
               add(typeof rowPlatform === "string" ? rowPlatform : null, rowKey, "store_reference",
                 { ...locator, column: typedColumn, path: slot }, { stored_identity: { unreadable: "absent" } });
             }

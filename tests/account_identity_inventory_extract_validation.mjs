@@ -39,7 +39,7 @@ const OWNERS = {
     "CURSOR_MAX_LENGTH", "CURSOR_CONTEXT", "KV_PAGE_SIZE", "KV_VALUE_MAX_BYTES", "DO_ERRORS", "KV_KEYS", "KV_PREFIXES", "KV_EXCLUDED_KEYS",
     "KV_EXCLUDED_PREFIXES", "RESPONSE_BYTE_BUDGET", "ROW_BYTE_LIMIT", "REQUEST_BYTE_LIMIT", "LONG_STRING", "PROJECTION_MAX_DEPTH",
     "ROW_IDENTITY_FIELDS", "DESK_IDENTITY_FIELDS", "KV_IDENTITY_FIELDS", "CACHE_ACCOUNTS"],
-  helpers: ["InventoryError", "InventoryHttpError", "identityProjection", "strategiesCacheAccounts", "instanceIdentity", "declarationProjection",
+  helpers: ["InventoryError", "InventoryHttpError", "identityProjection", "strategiesCacheAccounts", "instanceIdentity", "declarationProjection", "admissionBindingProjection",
     "projectRow", "deskRecordKind", "projectDoKv", "scalar", "encodeKey", "decodeKey", "fromBase64Url", "sealParameters", "byteLength", "sha256Hex",
     "fingerprints", "compareBytes", "pageSize", "requireScan", "assertStable", "kvFamily", "parameters"],
   http: ["inventoryCapability", "inventoryResponse", "accountIdentityInventoryResponse"],
@@ -144,7 +144,7 @@ assert.deepEqual([constants.PROJECTION_MAX_DEPTH, constants.ROW_IDENTITY_FIELDS,
   [8, 256, 128, 4000, 4000]);
 assert.deepEqual([constants.CURSOR_TTL_MS, constants.CURSOR_CLOCK_SKEW_MS, constants.CURSOR_MAX_LENGTH], [6 * 3600_000, 60_000, 8192]);
 assert.equal(Object.keys(constants.INVENTORY_TABLES).length, 40);
-assert.equal(sha(constants.INVENTORY_TABLES), "678677be7a82443b071d4e869787264636df21b180a5aa89a1dc81ad28a07da7", "table specifications match B2 schema");
+assert.equal(sha(constants.INVENTORY_TABLES), "6f97b71ab336249077f63b43e747b6012cf406de25b63ed77b1d92c18bfac89c", "table specifications match B2 schema");
 assert.equal(constants.ALLOWED.size, 203);
 assert.equal(sha([...constants.ALLOWED].sort()), "c061e233d9bd2c7cdd87246a0350200102338143e0d77de9bb81955cb67f0893", "statement allowlist matches B2 schema");
 assert.deepEqual([...constants.SECTIONS], ["manifest", "schema", "sql", "do_kv", "finalize", "kv", "env"]);

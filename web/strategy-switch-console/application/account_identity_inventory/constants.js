@@ -105,7 +105,7 @@ export const TABLE_SPECS = Object.freeze([
   { copy: ["ticket_id", "status", "dispatch_state", "platform_id", "account_key", "account_scope", "account_selector", "service_name",
     "broker_environment", "expected_revision", "expected_strategy_profile", "strategy_profile", "candidate_id", "config_sha256",
     "source_commit", "approved_ues_revision", "desired_state", "workflow_run_id", "workflow_run_attempt", "reason_code", "created_at",
-    "updated_at"], json: ["readback_json"], redact: ["claim_token"] }),
+    "updated_at"], json: ["readback_json"], binding: "management_binding_json", redact: ["claim_token"] }),
   c("human_decision_material", 12, ["kind", "subject_id"], ["kind", "subject_id", "source_id", "material_key", "summary_json", "eligible",
     "expires_at_ms", "legacy_state", "legacy_block", "updated_at"],
   { copy: ["source_id", "material_key", "eligible", "expires_at_ms", "legacy_state", "legacy_block", "updated_at"], json: ["summary_json"] }),

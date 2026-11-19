@@ -58,7 +58,7 @@ const jsonColumn = name => /json$|^payload$|^entry$|^record$|^response$/.test(na
 function rows(table, items) {
   const columns = INVENTORY_TABLES[table].columns;
   return { statement: `INSERT INTO "${table}" (${columns.map(name => `"${name}"`).join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
-    rows: items.map(item => columns.map(name => name in item ? item[name] : jsonColumn(name) ? "{}" : "seed")) };
+    rows: items.map(item => columns.map(name => name in item ? item[name] : name === "management_binding_json" ? null : jsonColumn(name) ? "{}" : "seed")) };
 }
 const range = count => Array.from({ length: count }, (_, index) => index);
 
@@ -1616,7 +1616,7 @@ const r9Executions = {};
 const r9Row = row => { r9Executions[row] = (r9Executions[row] || 0) + 1; };
 const RUNTIME_SCOPED = /^(?:runtime:|sql:runtime:|do_kv:runtime:)/;
 const DIRECTORY_SCOPED = /^(?:directory:|sql:directory:|do_kv:directory:)/;
-const PRE_B2_TABLES = ["account_management_draft", "account_management_applied", "account_management_change", "account_management_requests", "account_mapping_policy"];
+const PRE_B2_TABLES = ["account_management_draft", "account_management_applied", "account_management_invalidation", "account_management_change", "account_management_requests", "account_mapping_policy"];
 const PRE_B2_REASONS = ["runtime", "directory"].flatMap(object => PRE_B2_TABLES.map(table => `${object}:${table}:not_collected`));
 // The exact disposition: private reasons, incomplete groups, both objects,
 // KV failed reads, and an aggregate-only summary.
@@ -1673,7 +1673,7 @@ const deepReference = (depth, legacyKey) => {
     account_execution_reports: ["ibkr", (key, binding) => ({ platform: "ibkr", account_key: key, source_binding_id: binding, metadata_json: "{}" })],
     binance_detail_daily: ["binance", (key, binding) => ({ account_key: key, binding_id: binding, observation_date: day(0), payload_json: "{}" })],
     account_diagnosis_tasks: ["ibkr", key => ({ request_id: "diag-k1", platform: "ibkr", account_key: key, status: "succeeded", checks_json: "[]", native_json: "{}" })],
-    research_promotion_applications: ["ibkr", key => ({ application_id: "app-k1", platform_id: "ibkr", account_key: key, status: "rejected", readback_json: "{}" })],
+    research_promotion_applications: ["ibkr", key => ({ application_id: "app-k1", platform_id: "ibkr", account_key: key, status: "rejected", readback_json: "{}", management_binding_json: null })],
     account_period_return: [null, key => ({ account_key: key, payload_json: "{}" })],
     account_daily_native_return: [null, (key, binding) => ({ account_key: key, source_binding_id: binding, currency: "USD", observation_date: day(0), payload_json: "{}" })],
   };
@@ -1687,7 +1687,7 @@ const deepReference = (depth, legacyKey) => {
     assert.ok(row && !("logical_account" in row) && (row.pk.includes(literal) || row.columns.account_key === literal), `${label}: projected with its full literal key and no logical-account hint`);
     assert.ok(!pairs(run.private).some(([, legacyKey]) => legacyKey === prefix) && !unattributedKeys(run.private).includes(prefix), `${label}: no decoded-prefix account`);
     if (platform) {
-      assert.deepEqual(run.private.mapping.entries.map(entry => [entry.platform, entry.legacy_key, entry.episodes.map(episode => [episode.locator.table, episode.identity.logical_account])]),
+    assert.deepEqual(run.private.mapping.entries.map(entry => [entry.platform, entry.legacy_key, entry.episodes.map(episode => [episode.locator.table, episode.identity.logical_account])]),
         [[platform, literal, [[table, null]]]], `${label}: exactly one mapping, the literal key`);
       assert.deepEqual(run.private.mapping.unattributed, [], `${label}: zero unattributed`);
     } else {
@@ -1937,7 +1937,7 @@ assert.notEqual(provenance.producer.modules["application/account_identity_invent
     account_executions: { platform: "ibkr", account_key: PK, source_binding_id: "src-s1" },
     account_execution_reports: { platform: "ibkr", account_key: PK, source_binding_id: "src-s1", metadata_json: "{}" },
     account_diagnosis_tasks: { request_id: "diag-s1", platform: "ibkr", account_key: PK, status: "succeeded", checks_json: "[]" },
-    research_promotion_applications: { application_id: "app-s1", platform_id: "ibkr", account_key: PK, status: "rejected" },
+    research_promotion_applications: { application_id: "app-s1", platform_id: "ibkr", account_key: PK, status: "rejected", management_binding_json: null },
     human_decision_material: { kind: "owner", subject_id: "subject-s1" },
     human_decision_record: { request_key: "dec-s1", kind: "owner", subject_id: "subject-s1" },
     human_decision_source_material: { kind: "owner", subject_id: "subject-s1", source_id: "source-s1" },
@@ -2155,7 +2155,7 @@ for (const count of [100, 101]) {
     ["diagnosis-account-key", item => sqlRow("account_diagnosis_tasks", { request_id: "diag-l1", platform: "ibkr", account_key: item, status: "succeeded", checks_json: "[]",
       native_json: "{}" }), column("account_diagnosis_tasks", columns => columns.account_key), "sql:runtime:account_diagnosis_tasks:0:account_key", 10, "ibkr"],
     ["promotion-application-account-key", item => sqlRow("research_promotion_applications", { application_id: "app-l1", platform_id: "ibkr", account_key: item, status: "rejected",
-      readback_json: "{}" }), column("research_promotion_applications", columns => columns.account_key), "sql:runtime:research_promotion_applications:0:account_key", 11, "ibkr"],
+      readback_json: "{}", management_binding_json: null }), column("research_promotion_applications", columns => columns.account_key), "sql:runtime:research_promotion_applications:0:account_key", 11, "ibkr"],
     ["hk-stop-identity-key", item => sqlRow("hk_stop_request", { request_id: "stop-l1", target_id: "target-l1", identity_json: JSON.stringify({ platform: "ibkr", key: item }),
       source_revision: 1, phase: "applied", result_json: "{}" }), column("hk_stop_request", columns => columns.identity_json.fields.key), "sql:runtime:hk_stop_request:0:identity_json.key", 13, "ibkr"],
     ["generic-sql-account-key", item => sqlRow("risk_profile_authority", { id: 1, revision: 1, imported: 1, bindings_json: JSON.stringify({ platform: "ibkr", account_key: item }) }),
@@ -2955,6 +2955,47 @@ for (const [label, runPlan, adverse] of [["A3-populated-loss-free-control", plan
   for (const [label, group, reasons, tableRows] of lossCases) {
     const run = await inventoryFull({ sql: [tableRows] });
     r9Outcome(`B2-A14-${label}`, run, { reasons, incomplete: [group], needles: ["b2-a", "b2-b"] });
+  }
+
+  // 4. B07: retained invalidations and admission bindings, through the real HTTP reader into the assembler.
+  {
+    const promotion = binding => rows("research_promotion_applications", [{ application_id: "app-b07", ticket_id: "t", status: "rejected", platform_id: "ibkr",
+      account_key: "b2-a", expected_revision: 1, workflow_run_id: null, workflow_run_attempt: null, readback_json: null, management_binding_json: binding }]);
+    const members = JSON.stringify([{ platform: "ibkr", legacy_key: "b2-a", identity: idA }, { platform: "ibkr", legacy_key: "b2-b", identity: idBDrift }]);
+    const state = rows("instance_state", [{ id: 1, revision: 1, payload: JSON.stringify([currentA, currentB]) }]);
+    // Invalidation table: its composite key maps an account no other store names; group 2 stays complete.
+    const invalid = await inventoryFull({ sql: [state, rows("account_management_invalidation", [
+      { platform: "ibkr", account_key: "b2-gone", policy_revision: 2, applied_revision: 3, draft_revision: 1, invalidated_at: day(1) }])] });
+    assert.equal(invalid.private.status, ENUMERATED);
+    assert.equal(invalid.private.groups[2], "complete");
+    assert.ok(pairs(invalid.private).some(([platform, legacyKey]) => platform === "ibkr" && legacyKey === "b2-gone"), "the invalidation key contributes a mapped account");
+    assert.ok(invalid.private.mapping.entries.find(entry => entry.legacy_key === "b2-gone").episodes.some(episode => episode.locator.table === "account_management_invalidation"));
+    // Populated multi-sibling binding: the sibling distinct from the addressed account and its saved identity are decoded.
+    const binding = JSON.stringify({ membership_json: members, applied_revision: 1 });
+    const bound = await inventoryFull({ sql: [state, promotion(binding)] });
+    assert.equal(bound.private.status, ENUMERATED);
+    assert.equal(bound.private.groups[11], "complete");
+    const sibling = bound.private.mapping.entries.find(entry => entry.legacy_key === "b2-b");
+    assert.ok(sibling.episodes.some(episode => episode.locator.table === "research_promotion_applications" && episode.locator.column === "management_binding_json"),
+      "the sibling named only inside the binding is referenced");
+    assert.ok(bound.private.mapping.conflicts.some(item => item.legacy_key === "b2-b" && item.kind === "stored_identity_differs_from_current"
+      && item.records.some(record => record.locator.column === "management_binding_json")), "the saved sibling identity is compared with the current one");
+    assert.ok(!bound.private.mapping.conflicts.some(item => item.legacy_key === "b2-a"), "the agreeing addressed identity raises no conflict");
+    // Explicit legacy absence is complete and adds nothing.
+    const legacy = await inventoryFull({ sql: [state, promotion(null)] });
+    assert.equal(legacy.private.status, ENUMERATED);
+    assert.ok(!legacy.private.mapping.entries.some(entry => entry.episodes.some(episode => episode.locator.column === "management_binding_json")));
+    // Malformed present bindings are incomplete evidence, never complete.
+    const bad = column => `runtime:research_promotion_applications:management_binding_json:${column}`;
+    for (const [label, text, reason] of [
+      ["outer-not-json", "{bad", "admission_binding_unreadable"],
+      ["outer-wrong-shape", "{}", "admission_binding_unreadable"],
+      ["revision-invalid", JSON.stringify({ membership_json: members, applied_revision: -1 }), "admission_binding_unreadable"],
+      ["inner-not-json", JSON.stringify({ membership_json: "{bad", applied_revision: 1 }), "admission_binding_membership_unreadable"],
+    ]) {
+      const run = await inventoryFull({ sql: [state, promotion(text)] });
+      r9Outcome(`B07-${label}`, run, { reasons: [bad(reason)], incomplete: [11], needles: ["b2-a", "b2-b"] });
+    }
   }
 }
 assert.deepEqual(violations, [], "no trap fired in Part A");

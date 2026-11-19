@@ -155,6 +155,19 @@ function declarationField(object, field) {
   return DECLARATION_VALUES[field].includes(item) ? { present: true, value: item, valid: true }
     : { present: true, valid: false, value_type: Array.isArray(item) ? "array" : typeof item };
 }
+// The admission binding a promotion stored: an outer JSON object holding the
+// applied revision and the admitted group as a serialized membership string.
+// The inner string is projected as one bounded identity document (each member
+// and its full saved identity); a missing binding is explicit legacy absence
+// (`state: "null"`), and an outer shape that is not exactly that is unread.
+export function admissionBindingProjection(text) {
+  const parsed = parseJson(text);
+  if (parsed.state !== "valid") return parsed;
+  const value = parsed.value;
+  if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.membership_json !== "string"
+    || !Number.isSafeInteger(value.applied_revision) || value.applied_revision < 0) return { state: "unexpected_shape", bytes: parsed.bytes };
+  return { state: "valid", bytes: parsed.bytes, applied_revision: value.applied_revision, membership: jsonIdentity(value.membership_json, ROW_IDENTITY_FIELDS) };
+}
 export function declarationProjection(text) {
   const parsed = parseJson(text);
   if (parsed.state !== "valid") return parsed;
@@ -198,6 +211,7 @@ export function projectRow(spec, row, { nested = null, nestedSize = 0 } = {}) {
     else if (spec.redact.includes(name)) columns[name] = { present: value !== null && value !== undefined && value !== "" };
     else if (spec.keys?.includes(name)) columns[name] = objectKeys(value);
     else if (spec.declaration === name) columns[name] = declarationProjection(value);
+    else if (spec.binding === name) columns[name] = admissionBindingProjection(value);
     else if (spec.history === name) {
       const parsed = parseJson(value);
       columns[name] = parsed.state !== "valid" ? parsed : !parsed.value || typeof parsed.value !== "object" ? { state: "unexpected_shape" } : {
@@ -224,7 +238,7 @@ export function projectRow(spec, row, { nested = null, nestedSize = 0 } = {}) {
       }
     } else unexpected.push(name);
   }
-  for (const name of [...spec.copy, ...spec.json, ...spec.opaque, ...spec.redact, ...(spec.declaration ? [spec.declaration] : [])]) {
+  for (const name of [...spec.copy, ...spec.json, ...spec.opaque, ...spec.redact, ...(spec.declaration ? [spec.declaration] : []), ...(spec.binding ? [spec.binding] : [])]) {
     if (!(name in row)) columns[name] = { column_absent: true };
   }
   out.columns = columns;
