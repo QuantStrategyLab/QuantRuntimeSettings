@@ -17,15 +17,18 @@ const HISTORY_CURSOR = /^h1\.[A-Za-z0-9_-]{1,2048}$/;
 const encodeHistoryCursor = payload => `h1.${btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(payload)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
 const decodeHistoryCursor = text => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0))));
 // The first page's stable version: an insertion-sequence high-water mark and
-// row count per append-only source, and the head and length of the bounded
-// legacy log (`h` null with `n` 0 when it was empty or unavailable).
+// row count per append-only source, and a full-content digest of the bounded
+// legacy log's ordered first-read window with its length and initial
+// availability (`d` is absent on an older descriptor, which cannot prove the
+// window and expires on continuation).
 const sourceMark = value => value && Number.isSafeInteger(value.hwm) && Number.isSafeInteger(value.count) && value.hwm >= 0 && value.count >= 0;
 const validHistorySnapshot = value => Boolean(value) && sourceMark(value.journal) && sourceMark(value.approvals)
-  && value.legacy && (value.legacy.h === null || /^[0-9a-f]{16}$/.test(value.legacy.h)) && Number.isSafeInteger(value.legacy.n) && value.legacy.n >= 0
-  && typeof value.legacy.ok === "boolean";
-async function legacyEntryDigest(entry) {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(entry)));
-  return [...new Uint8Array(bytes)].slice(0, 8).map(byte => byte.toString(16).padStart(2, "0")).join("");
+  && value.legacy && (value.legacy.d === undefined ? (value.legacy.h === null || /^[0-9a-f]{16}$/.test(value.legacy.h)) : /^[0-9a-f]{32}$/.test(value.legacy.d))
+  && Number.isSafeInteger(value.legacy.n) && value.legacy.n >= 0 && typeof value.legacy.ok === "boolean";
+// Digest of the ordered window (entries in stored order), its length and its availability.
+async function legacyWindowDigest(entries, ok) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([ok, entries.length, entries])));
+  return [...new Uint8Array(bytes)].slice(0, 16).map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
 function historyPageQuery(url) {
   const limit = Number(url.searchParams.get("limit") || 25);
@@ -205,24 +208,31 @@ export async function consoleApiResponse(request, env, deps) {
           unavailable_reason: "stored_records_unreadable",
         };
       }
-      // The bounded legacy log is newest-first: the first read's head and length
-      // pin its contents. A continuation keeps only the suffix from that head;
-      // a missing head, a changed length or a source that has become
-      // unavailable means the pinned version is gone.
+      // The bounded legacy log is newest-first: the first read pins its whole
+      // ordered window and initial availability. A continuation keeps the
+      // pinned availability and, for a readable non-empty window, only the
+      // original suffix, which must match the pinned content as a whole; a
+      // prepend leaves it intact, while a replaced, evicted or unreadable
+      // window means the pinned version is gone.
       const legacyOk = auditStatus.status === "partial";
       let legacy;
       if (!page.cursor) {
-        legacy = { h: audit.length ? await legacyEntryDigest(audit[0]) : null, n: audit.length, ok: legacyOk };
+        legacy = { d: await legacyWindowDigest(legacyOk ? audit : [], legacyOk), n: legacyOk ? audit.length : 0, ok: legacyOk };
       } else {
         legacy = page.cursor.snapshot.legacy;
-        if (legacy.h === null) {
+        if (legacy.d === undefined) return expired();
+        if (!legacy.ok) {
           audit = [];
+          auditStatus = { status: "unavailable", unavailable_reason: "stored_records_unreadable" };
+        } else if (legacy.n === 0) {
+          audit = [];
+          auditStatus = { status: "partial", unavailable_reason: "bounded_audit_log" };
         } else {
-          if (!legacyOk) return expired();
-          const digests = await Promise.all(audit.map(legacyEntryDigest));
-          const head = digests.indexOf(legacy.h);
-          if (head < 0 || audit.length - head !== legacy.n) return expired();
-          audit = audit.slice(head);
+          if (!legacyOk || audit.length < legacy.n) return expired();
+          const original = audit.slice(audit.length - legacy.n);
+          if (await legacyWindowDigest(original, true) !== legacy.d) return expired();
+          audit = original;
+          auditStatus = { status: "partial", unavailable_reason: "bounded_audit_log" };
         }
       }
       const saves = audit.filter(

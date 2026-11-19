@@ -727,6 +727,24 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
     assert.deepEqual([expiredJournal.status, expiredJournal.error], [409, "history_snapshot_expired"], "a changed journal prefix expires the snapshot");
     const columns = Object.keys(savedRow);
     store.db.prepare(`INSERT INTO account_management_change (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`).run(...columns.map(column => savedRow[column]));
+    // B06: the pinned legacy window is the full ordered content, not its head and length.
+    const interior = await walk(pA, kA, async () => { auditEntries = [auditEntries[0], { ...auditEntries[1], draft_revision: 7 }]; });
+    assert.deepEqual([interior.status, interior.error], [409, "history_snapshot_expired"], "an interior substitution of the same length expires the snapshot");
+    auditEntries = [
+      { action: "save_account_settings", platform: pA, key: kA, draft_revision: 3, ts: "2026-11-18T00:10:00.000Z", login: "fixture-reader" },
+      { action: "save_account_settings", platform: pA, key: kA, draft_revision: 2, ts: "2026-11-18T00:05:00.000Z", login: "fixture-reader" },
+    ];
+    const prepended = await walk(pA, kA, async () => { auditEntries = [{ action: "save_account_settings", platform: pA, key: kA, draft_revision: 9, ts: tiedTs, login: "fixture-reader" }, ...auditEntries]; });
+    assert.equal(prepended.status, 200, "an ordinary prepend keeps the pinned window");
+    auditEntries = auditEntries.slice(1);
+    let unreadable = true;
+    const flaky = bindings({ get: async key => { if (key !== "audit_log") return null; if (unreadable) throw new Error("kv_outage"); return JSON.stringify(auditEntries); }, put: async () => {} });
+    const firstUnavailable = await (await readHistory(flaky, pA, kA, 1)).json();
+    assert.equal(firstUnavailable.availability.draft_saved.status, "unavailable");
+    unreadable = false;
+    const continued = await (await readHistory(flaky, pA, kA, 1, firstUnavailable.next_cursor)).json();
+    assert.deepEqual(continued.availability.draft_saved, firstUnavailable.availability.draft_saved, "an unavailable start keeps its original coverage on continuation");
+    assert.ok(continued.items.every(item => item.source !== "bounded_audit_log"), "an unavailable start stays empty for that source");
     ok("B2-A19", "history_snapshot_three_sources");
   }
 
