@@ -1,5 +1,5 @@
 import { projectForwardReconciliation } from "./forward_reconciliation.js";
-import { MANAGEMENT_SCOPE, managementCounts, managementDisposition } from "./application/account_mapping/management_cohort.js";
+import { MANAGEMENT_SCOPE, managementCounts, managementDisposition, scopeConflict } from "./application/account_mapping/management_cohort.js";
 
 // Pure account-facts projection helpers. Keeps broker snapshot history out of
 // runtime-daily and never invents FX totals, returns, or historical backfill.
@@ -804,7 +804,8 @@ function sumMoneyTexts(amounts) {
 }
 
 const isPaperRow = row => row?.broker_environment === "paper" || row?.account_scope === "paper";
-const rowDisposition = (row, cohort) => managementDisposition({ paper: isPaperRow(row) }, cohort.view(row.platform, row.account_key));
+const rowItem = row => ({ paper: isPaperRow(row), environment: row?.broker_environment ?? null });
+const rowDisposition = (row, cohort) => managementDisposition(rowItem(row), cohort.view(row.platform, row.account_key));
 
 // Stamp each row with its management state and return its disposition.
 function classifyManagement(rows, cohort) {
@@ -813,6 +814,8 @@ function classifyManagement(rows, cohort) {
     row.management_status = view.management_status;
     row.evidence_state = view.evidence_state;
     row.management_revision = view.revision;
+    // A scope conflict is stamped, so a frontend rollup cannot sum around it.
+    row.management_scope_conflict = scopeConflict(rowItem(row), view);
     return [row, rowDisposition(row, cohort)];
   }));
 }
@@ -944,7 +947,8 @@ export function accountFactsAssetCoverage(accounts, totals, cohort = null) {
         account_key: row.account_key,
         status,
         reason,
-        ...(cohort ? { management_status: row.management_status, evidence_state: row.evidence_state, management_revision: row.management_revision } : {}),
+        ...(cohort ? { management_status: row.management_status, evidence_state: row.evidence_state, management_revision: row.management_revision,
+          ...(row.management_scope_conflict ? { management_scope_conflict: true } : {}) } : {}),
         observation_date: row.observation_date,
         observed_finished_at: row.observed_finished_at,
       };

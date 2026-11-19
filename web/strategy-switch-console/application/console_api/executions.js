@@ -1,8 +1,8 @@
 import { rangeStart } from "../../performance_math.js";
 
 /** Only broker executions. Snapshot, benchmark and wallet failures are unrelated. */
-export async function executionStatsResponse(options, { scope, range, today }, env, deps) {
-  const coverage = [], rows = [];
+export async function executionStatsResponse(options, { scope, range, today, groupOf = null }, env, deps) {
+  const coverage = [], rows = [], seen = new Set();
   let asOf = null, connected = 0, failures = 0;
   const start = range === "ALL" ? null : rangeStart(range.toLowerCase(), today);
   for (const option of options) {
@@ -24,8 +24,14 @@ export async function executionStatsResponse(options, { scope, range, today }, e
       unavailable_reason: "execution_coverage_unverified", coverage: source.coverage, reports: source.reports, reports_truncated: source.reports_truncated ?? false });
     const observations = source.as_of ? [source.as_of] : source.reports.map(report => report.observed_at);
     for (const observedAt of observations) if (!asOf || Date.parse(observedAt) > Date.parse(asOf)) asOf = observedAt;
+    // Sibling deployments of one physical account observe the same executions:
+    // an identical observation counts once, a distinct one stays.
+    const owner = groupOf?.(option) ?? JSON.stringify([option.platform, option.key]);
     for (const row of source.records) {
       if (row.trade_date > today || start && row.trade_date < start) continue;
+      const identity = JSON.stringify([owner, row.execution_ref, row]);
+      if (seen.has(identity)) continue;
+      seen.add(identity);
       rows.push({ platform: option.platform, account_alias: option.key, ...row });
     }
   }

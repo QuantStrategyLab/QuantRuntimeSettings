@@ -14,6 +14,17 @@ const ENDPOINTS = {
   holdings: "holdings",
   trades: "trades",
 };
+// The endpoint's own typed empty payload: every required field present, no
+// numeric aggregate, so a successful unavailable observation validates against
+// the endpoint's schema.
+function unavailablePerformance(endpoint, { range, today, year, month }, env) {
+  if (endpoint === "trades") {
+    return { as_of: null, coverage: [], value_kind: "pnl", rows: [], reported_execution_count: null, per_currency: [], win_rate_percent: null, realized_pnl: null };
+  }
+  const { status, unavailable_reason, ...block } = performanceBlocks({ now: Date.now(), freshnessThresholdHours: env.CONSOLE_ACCOUNT_FRESHNESS_HOURS,
+    accounts: [], histories: [], benchmarks: [], range, today, year, month, failed: [] })[endpoint];
+  return block;
+}
 const number = (value) =>
   typeof value === "string" &&
   value.trim() !== "" &&
@@ -65,30 +76,34 @@ export async function performanceResponse(request, env, deps) {
     let matches = candidates;
     // The production wiring always supplies `deps.managementReadback`; a caller
     // that injects none is the pure form with no management claim.
+    let groupOf = null;
     if (scope === "all" && deps.managementReadback) {
       const cohort = managementCohort(await deps.managementReadback(env));
-      const items = options.map((a) => ({ platform: a.platform, account_key: a.key, option: a, paper: !candidates.includes(a) }));
+      const items = options.map((a) => ({ platform: a.platform, account_key: a.key, option: a, paper: !candidates.includes(a), environment: a.broker_environment ?? null }));
+      // Every deployment is classified before any grouping or reading; one
+      // unknown or conflicting scope vetoes the whole total.
       const dispositions = new Map(items.map((item) => [item, managementDisposition(item, cohort.view(item.platform, item.account_key))]));
       const unknown = items.some((item) => dispositions.get(item) === "unknown");
       const managed = items.filter((item) => dispositions.get(item) === "managed").map((item) => item.option);
-      if (unknown) {
-        return json({ schema_version: "console_api.v1", scope, range, status: "unavailable",
-          unavailable_reason: "management_status_unknown", as_of: null,
-          management_scope: MANAGEMENT_SCOPE, management_coverage_status: "incomplete",
-          management_counts: managementCounts(items, dispositions, cohort),
-          management_observed_at: cohort.meta.observed_at, management_instance_revision: cohort.meta.instance_revision,
-          management_policy_revision: cohort.meta.policy_revision });
-      }
-      // A known cohort with no managed live account keeps the endpoint's own
-      // empty-scope result; it is never turned into a zero here.
+      const unavailable = reason => json({ schema_version: "console_api.v1", scope, range, ...unavailablePerformance(endpoint, { range, today, year, month }, env),
+        status: "unavailable", unavailable_reason: reason, as_of: null,
+        management_scope: MANAGEMENT_SCOPE, management_coverage_status: unknown ? "incomplete" : "complete",
+        management_counts: managementCounts(items, dispositions, cohort),
+        management_observed_at: cohort.meta.observed_at, management_instance_revision: cohort.meta.instance_revision,
+        management_policy_revision: cohort.meta.policy_revision });
+      if (unknown) return unavailable("management_status_unknown");
+      // A known cohort with no managed live account is not a zero and never
+      // reaches an endpoint read.
+      if (!managed.length) return unavailable("no_managed_non_paper_accounts");
       matches = managed;
+      groupOf = option => cohort.view(option.platform, option.key).group;
     }
     if (scope !== "all" && matches.length !== 1)
       return json(
         { ok: false, error: "account_alias_required_or_ambiguous" },
         400,
       );
-    if (endpoint === "trades") return executionStatsResponse(matches, { scope, range, today }, env, deps);
+    if (endpoint === "trades") return executionStatsResponse(matches, { scope, range, today, groupOf }, env, deps);
     const makeRequest = (path, params = {}) => {
       const u = new URL(path, request.url);
       for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);

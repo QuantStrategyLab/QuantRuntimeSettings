@@ -2662,7 +2662,9 @@
           "enum": [
             "fills_not_connected",
             "execution_coverage_unverified",
-            "stored_records_unreadable"
+            "stored_records_unreadable",
+            "management_status_unknown",
+            "no_managed_non_paper_accounts"
           ]
         },
         "as_of": {

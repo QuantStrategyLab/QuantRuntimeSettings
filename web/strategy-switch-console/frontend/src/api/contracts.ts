@@ -851,6 +851,8 @@ export interface AccountFactsAccount {
   management_status?: ManagementStatusCode;
   evidence_state?: ManagementEvidenceState;
   management_revision?: number | null;
+  /** Set by the server when the row's own environment contradicts its group's scope. */
+  management_scope_conflict?: boolean;
   balances: AccountFactsBalance[];
   cash: AccountFactsCash[];
 }

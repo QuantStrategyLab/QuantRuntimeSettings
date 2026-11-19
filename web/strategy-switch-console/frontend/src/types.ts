@@ -91,6 +91,8 @@ export type AccountFactsAccount = {
   management_status?: "managed" | "management_disabled" | "not_under_management" | "unknown";
   evidence_state?: "known" | "unknown" | "conflict" | "stale";
   management_revision?: number | null;
+  /** Set by the server when the row's own environment contradicts its group's scope. */
+  management_scope_conflict?: boolean;
   data_status: "fresh" | "stale" | "unavailable";
   broker_environment?: string | null;
   target_id: string | null;

@@ -240,14 +240,17 @@ function factHasCurrency(row: AccountFactsAccount, currency: string): boolean {
 export function platformCurrencyTotals(rows: AccountFactsAccount[], expected: number): PlatformCurrencyTotal[] {
   if (!rows.length || expected < 1) return [];
   const unique = [...new Set(rows)];
-  const inScope = unique.filter(row => row.aggregation_status !== "duplicate" && !isPaperFact(row));
+  // Management evidence is judged before duplicates leave the set: a duplicate
+  // carrying unknown or conflicting evidence, or any row stamped as a scope
+  // conflict, vetoes the total just as a kept row would.
+  const livePool = unique.filter(row => !isPaperFact(row));
+  const stamped = livePool.filter(row => row.management_status !== undefined);
+  if (stamped.some(row => row.evidence_state !== "known" || row.management_status === "unknown")) return [];
+  if (unique.some(row => row.management_scope_conflict === true)) return [];
   // The shared cohort predicate. A row stamped with management evidence is a
   // sum member only as a known managed account; known disabled or display-only
-  // rows leave the scope, and any other stamped non-paper row makes the
-  // membership unknown, which forms no platform sum at all (the server's
-  // totals are unavailable then; a frontend sum may not bypass that).
-  const stamped = inScope.filter(row => row.management_status !== undefined);
-  if (stamped.some(row => row.evidence_state !== "known" || row.management_status === "unknown")) return [];
+  // rows leave the scope. Producer-known duplicates leave it after the veto.
+  const inScope = livePool.filter(row => row.aggregation_status !== "duplicate");
   const managedScope = inScope.filter(row => row.management_status === undefined || row.management_status === "managed");
   if (stamped.length && !managedScope.length) return [];
   const liveExpected = Math.max(0, expected - (unique.length - managedScope.length));

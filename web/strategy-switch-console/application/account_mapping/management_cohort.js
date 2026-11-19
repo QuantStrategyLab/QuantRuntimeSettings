@@ -57,13 +57,25 @@ export function managementCohort(readback) {
 export const knownStatus = view => view.evidence_state === "known" && Object.values(MANAGEMENT_STATUS).includes(view.management_status)
   && view.management_status !== MANAGEMENT_STATUS.UNKNOWN;
 
+// A row's own environment and the group's scope are two observations of one
+// fact. They conflict when one says paper and the other says live; the group's
+// paper scope also only counts while its evidence is known. `environment` is
+// the row's own broker environment, or null when it does not say.
+export function scopeConflict({ paper, environment = null }, view) {
+  const ownPaper = paper === true || environment === "paper", ownLive = environment === "live";
+  return (ownPaper && view.scope === "live") || (ownLive && !ownPaper && view.scope === "paper")
+    || (paper === true && environment === "live");
+}
+
 // The disposition of one displayed deployment under the cohort: paper (by the
 // item's own scope or a known paper policy scope) is outside the live-money
 // cohort whatever its status; a known disabled or display-only item is a clean
 // exclusion; a known managed non-paper item is the cohort; every other
-// non-paper item, including a missing environment, is unknown.
-export function managementDisposition({ paper }, view) {
-  if (paper || view.scope === "paper") return "paper";
+// non-paper item, including a missing environment or a scope conflict, is
+// unknown. A policy scope proves paper only with known evidence.
+export function managementDisposition({ paper, environment = null }, view) {
+  if (scopeConflict({ paper, environment }, view)) return "unknown";
+  if (paper === true || environment === "paper" || (view.scope === "paper" && view.evidence_state === "known")) return "paper";
   if (!knownStatus(view)) return "unknown";
   return { [MANAGEMENT_STATUS.MANAGED]: "managed", [MANAGEMENT_STATUS.DISABLED]: "disabled",
     [MANAGEMENT_STATUS.NOT_UNDER_MANAGEMENT]: "not_under_management" }[view.management_status] || "unknown";
