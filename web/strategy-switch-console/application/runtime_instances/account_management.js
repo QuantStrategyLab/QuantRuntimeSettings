@@ -595,6 +595,13 @@ function controlTarget(sql, state, command) {
   if (addressed && !sameSettingsIdentity(command.identity, addressed.identity)) throw new HttpError("management_identity_conflict", 409);
   if (resolution.reasons.some(reason => IDENTITY_REASONS.has(reason))) throw new HttpError("management_identity_conflict", 409);
   if (resolution.reasons.some(reason => MEMBERSHIP_REASONS.has(reason)) || !addressed) throw new HttpError("management_membership_conflict", 409);
+  // Row presence and binding invalidation are separate facts. A group with an
+  // outstanding invalidation (its membership or policy changed under stored
+  // rows) is never repaired by an ordinary write, whatever rows remain: only a
+  // genuinely new eligible group (no applied row, no invalidation) initializes.
+  if (resolution.invalidated || resolution.applied_state === "invalidated" || resolution.draft_state === "invalidated") {
+    throw new HttpError("management_state_conflict", 409);
+  }
   if (resolution.management_class !== "eligible" || resolution.evidence_state === "conflict"
     || resolution.applied_state === "partial" || resolution.applied_state === "conflict"
     || resolution.draft_state === "partial" || resolution.draft_state === "conflict") {

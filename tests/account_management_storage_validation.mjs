@@ -480,12 +480,43 @@ for (const point of [0, 1, 2, 3, 4, 5, "commit"]) {
     assert.equal((await provision(current, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 3), POLICY_REVISION + 2)).status, 200);
     same("B2-A20", "invalidation_survives_later_replacement", current.resolve("ibkr", "syn-acct-02").processing_eligible, false);
     same("B2-A20", "idempotent_replacement_writes_nothing", (await provision(current, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 3), POLICY_REVISION + 2)).body.replaced, false);
-    const reconciled = await setManagement(current, "ibkr/syn-acct-02", true);
-    same("B2-A20", "explicit_apply_reconciles_above_history", [reconciled.applied.management_revision, reconciled.applied.previous_management_enabled], [2, null]);
-    const after = current.resolve("ibkr", "syn-acct-02");
-    same("B2-A20", "reconciled_group_eligible", [after.processing_eligible, after.applied.revision], [true, 2]);
+    // An ordinary write never reconciles an invalidated binding: typed 409, nothing written.
+    const frozen = current.dump();
+    for (const action of ["account_management_draft_save", "account_management_apply"]) {
+      const denied = await current.call(managementCommand(current, action, "ibkr", "syn-acct-02"));
+      same("B2-A20", "ordinary_write_does_not_reconcile", [denied.status, denied.body.error], [409, "management_state_conflict"], action);
+    }
+    same("B2-A20", "rejected_reconcile_writes_nothing", current.dump(), frozen);
     current.close();
     await rm(dir, { recursive: true, force: true });
+  }
+  // B05: an initialized member joins a new sibling (forward change). Both
+  // sibling addresses are denied for save and apply, across a restart, with
+  // rows, journal and receipts untouched; a clean new group still initializes.
+  {
+    const dir = await mkdtemp(join(tmpdir(), "qrt-management-join-"));
+    const file = join(dir, "runtime.sqlite");
+    let joined = createStore({ file });
+    const split = rebinding.membership;
+    assert.equal((await provision(joined, policyOf(split))).status, 200);
+    await setManagement(joined, PAIR, true);
+    assert.equal((await provision(joined, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION)).status, 200);
+    for (const phase of ["live", "restarted"]) {
+      if (phase === "restarted") { joined.close(); joined = createStore({ file, seed: false }); }
+      const frozen = joined.dump();
+      for (const deployment of [key, siblingKey]) {
+        for (const action of ["account_management_draft_save", "account_management_apply"]) {
+          const denied = await joined.call(managementCommand(joined, action, platform, deployment));
+          same("B2-A20", "joined_sibling_write_denied", [denied.status, denied.body.error], [409, "management_state_conflict"], `${phase} ${deployment} ${action}`);
+        }
+      }
+      same("B2-A20", "joined_sibling_zero_writes", joined.dump(), frozen, phase);
+    }
+    joined.close();
+    await rm(dir, { recursive: true, force: true });
+    const clean = await baselineStore();
+    same("B2-A20", "clean_group_still_initializes", clean.resolve(platform, key).applied.revision, 1);
+    clean.close();
   }
   const identity = await baselineStore();
   const moved = INSTANCES.map(item => item.key === "syn-acct-02" ? { ...item, config: { ...item.config, service_name: "syn-moved" } } : item);
