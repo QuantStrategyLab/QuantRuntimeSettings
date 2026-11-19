@@ -483,6 +483,13 @@ const noLeak = (outputs, label) => {
       { statement: `CREATE INDEX ${index} ON account_management_change (event_id, occurred_at)`, rows: [[]] }], expect: { state: "partial", missing: [], incompatible: [index] } },
     unique: { sql: [{ statement: `DROP INDEX ${index}`, rows: [[]] },
       { statement: `CREATE UNIQUE INDEX ${index} ON account_management_change (occurred_at, event_id)`, rows: [[]] }], expect: { state: "partial", missing: [], incompatible: [index] } },
+    direction: { sql: [{ statement: `DROP INDEX ${index}`, rows: [[]] },
+      { statement: `CREATE INDEX ${index} ON account_management_change (occurred_at DESC, event_id)`, rows: [[]] }], expect: { state: "partial", missing: [], incompatible: [index] } },
+    collation: { sql: [{ statement: `DROP INDEX ${index}`, rows: [[]] },
+      { statement: `CREATE INDEX ${index} ON account_management_change (occurred_at COLLATE NOCASE, event_id)`, rows: [[]] }], expect: { state: "partial", missing: [], incompatible: [index] } },
+    partial: { sql: [{ statement: `DROP INDEX ${index}`, rows: [[]] },
+      { statement: `CREATE INDEX ${index} ON account_management_change (occurred_at, event_id) WHERE result = 'applied'`, rows: [[]] }], expect: { state: "partial", missing: [], incompatible: [index] } },
+    cold_absent_table: { sql: [{ statement: "DROP TABLE account_management_change", rows: [[]] }], expect: { state: "partial", missing: [], incompatible: [] } },
   };
   for (const [name, { sql, expect }] of Object.entries(variants)) {
     const h = await harness({ runtime: { sql, kv: {}, alarm: null, initialize: true }, directory: { sql: [], kv: {}, alarm: null, initialize: false } });

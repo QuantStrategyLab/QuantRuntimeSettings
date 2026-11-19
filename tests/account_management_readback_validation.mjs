@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import {
-  INSTANCES, INSTANCE_REVISION, FIXTURE_ACCOUNTS, baselineStore, createStore, evidence, outbound, policyOf, provision, readback, ref, setManagement,
+  INSTANCES, INSTANCE_REVISION, FIXTURE_ACCOUNTS, baselineStore, createStore, evidence, managementCommand, outbound, policyOf, provision, readback, ref, setManagement,
 } from "./helpers/account_management_harness.mjs";
 import { collectInventory, instanceStateRow } from "./helpers/account_identity_inventory_collect.mjs";
 
@@ -671,13 +671,40 @@ assert.equal(outbound.count, 0, "zero outbound calls");
 const out = process.env.READ_RESULT_FILE;
 if (out) await writeFile(out, rec.report());
 
-// F03/F04: local schema and journal initiator certification reach the resolver, the
-// public group, the export and the section together.
+// B01 / F03 / F04: local schema (table constraints/keys + journal index DDL/order/
+// direction/collation/uniqueness/predicate) and journal initiator certification
+// reach resolver, readback, export, AND fresh ordinary write fencing together,
+// while preserving exact historical receipt replay and genuine first init.
 {
+  const recreateTable = (store, table, ddl, selectSql = "*") => {
+    const existing = store.rows(table);
+    store.db.exec(`DROP TABLE ${table}`);
+    store.db.exec(ddl);
+    for (const row of existing) {
+      const cols = Object.keys(row);
+      store.db.prepare(`INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`).run(...cols.map(col => row[col]));
+    }
+  };
   const drifts = {
     extra_applied_column: store => store.db.exec("ALTER TABLE account_management_applied ADD COLUMN extra_domain TEXT"),
+    missing_notnull_constraint: store => recreateTable(store, "account_management_applied",
+      `CREATE TABLE account_management_applied (platform TEXT NOT NULL, account_key TEXT NOT NULL, revision INTEGER,
+       identity_json TEXT NOT NULL, membership_json TEXT NOT NULL, management_enabled INTEGER NOT NULL, effective_at TEXT NOT NULL,
+       PRIMARY KEY (platform, account_key))`),
+    missing_check_constraint: store => recreateTable(store, "account_mapping_policy",
+      `CREATE TABLE account_mapping_policy (id INTEGER PRIMARY KEY, policy_revision INTEGER NOT NULL, policy_json TEXT NOT NULL, updated_at TEXT NOT NULL)`),
+    wrong_pk_order: store => recreateTable(store, "account_management_draft",
+      `CREATE TABLE account_management_draft (platform TEXT NOT NULL, account_key TEXT NOT NULL, revision INTEGER NOT NULL,
+       identity_json TEXT NOT NULL, membership_json TEXT NOT NULL, management_enabled INTEGER NOT NULL,
+       base_applied_revision INTEGER NOT NULL, policy_revision INTEGER NOT NULL, instance_revision INTEGER NOT NULL,
+       status TEXT NOT NULL, consumed_applied_revision INTEGER, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL,
+       PRIMARY KEY (account_key, platform))`),
     missing_journal_index: store => store.db.exec("DROP INDEX account_management_change_time"),
-    wrong_journal_index: store => { store.db.exec("DROP INDEX account_management_change_time"); store.db.exec("CREATE INDEX account_management_change_time ON account_management_change (event_id, occurred_at)"); },
+    wrong_journal_index_order: store => { store.db.exec("DROP INDEX account_management_change_time"); store.db.exec("CREATE INDEX account_management_change_time ON account_management_change (event_id, occurred_at)"); },
+    wrong_journal_index_direction: store => { store.db.exec("DROP INDEX account_management_change_time"); store.db.exec("CREATE INDEX account_management_change_time ON account_management_change (occurred_at DESC, event_id)"); },
+    wrong_journal_index_collation: store => { store.db.exec("DROP INDEX account_management_change_time"); store.db.exec("CREATE INDEX account_management_change_time ON account_management_change (occurred_at COLLATE NOCASE, event_id)"); },
+    wrong_journal_index_unique: store => { store.db.exec("DROP INDEX account_management_change_time"); store.db.exec("CREATE UNIQUE INDEX account_management_change_time ON account_management_change (occurred_at, event_id)"); },
+    wrong_journal_index_partial: store => { store.db.exec("DROP INDEX account_management_change_time"); store.db.exec("CREATE INDEX account_management_change_time ON account_management_change (occurred_at, event_id) WHERE result = 'applied'"); },
     initiator_only: store => {
       const row = store.rows("account_management_change")[0];
       const identity = { ...JSON.parse(row.initiating_identity_json), service_name: "syn-initiator-drift" };
@@ -690,17 +717,38 @@ if (out) await writeFile(out, rec.report());
   control.close();
   for (const [name, drift] of Object.entries(drifts)) {
     const store = await baselineStore();
-    drift(store);
     const [first] = eligible[0];
-    const resolution = store.resolve(...ref(first));
+    const [platform, key] = ref(first);
+    const replayCmd = managementCommand(store, "account_management_draft_save", platform, key, { management_enabled: false });
+    const replayOriginal = await store.call(replayCmd);
+    assert.equal(replayOriginal.status, 200);
+    // Also exercise revision-zero handling under drift on an uninitialized target (applied rows deleted).
+    const [, second] = eligible[1] ? [null, eligible[1][0]] : [null, first];
+    const [uninitPlatform, uninitKey] = ref(second);
+    store.db.prepare("DELETE FROM account_management_applied WHERE platform = ? AND account_key = ?").run(uninitPlatform, uninitKey);
+    store.db.prepare("DELETE FROM account_management_draft WHERE platform = ? AND account_key = ?").run(uninitPlatform, uninitKey);
+    drift(store);
+    const resolution = store.resolve(platform, key);
     assert.deepEqual([resolution.processing_eligible, resolution.applied], [false, null], `${name}: resolver withholds applied`);
-    assert.throws(() => store.object.requireManagementAdmission(...ref(first)), /management_status_unknown|management/, `${name}: admission denies`);
+    assert.throws(() => store.object.requireManagementAdmission(platform, key), /management_status_unknown|management/, `${name}: admission denies`);
     const body = (await store.read()).body;
     assert.equal(group(body, first).applied, null, `${name}: group publishes no applied value`);
     assert.equal(body.effective_export.records.length, 0, `${name}: export empty`);
     assert.equal(body.status, name === "initiator_only" ? "available" : "unavailable", `${name}: section status`);
+    const beforeWrites = store.dump();
+    for (const action of ["account_management_draft_save", "account_management_apply"]) {
+      for (const [targetP, targetK, revOverride] of [[platform, key, {}], [uninitPlatform, uninitKey, { expected_management_draft_revision: 0, expected_management_revision: 0 }]]) {
+        const denied = await store.call(managementCommand(store, action, targetP, targetK, revOverride));
+        assert.equal(denied.status, 409, `${name} ${action} (${targetK}): typed 409`);
+        assert.equal(denied.body.error, name === "initiator_only" ? "management_identity_conflict" : "management_state_conflict", `${name} ${action}: typed error`);
+      }
+    }
+    assert.deepEqual(store.dump(), beforeWrites, `${name}: zero state or receipt writes on denied save/apply`);
+    const replayed = await store.call(replayCmd);
+    assert.deepEqual([replayed.status, replayed.body.replayed], [200, true], `${name}: exact historical receipt replay preserved`);
     store.close();
   }
   ok("B2-A08", "schema_and_initiator_drift_withhold_applied");
+  ok("B2-A08", "uncertified_schema_fences_writes_zero_mutations");
 }
 console.log(`account_management_readback_validation ok ${Object.values(rec.rows).reduce((total, row) => total + row.checks, 0)} checks outbound=${outbound.count}`);

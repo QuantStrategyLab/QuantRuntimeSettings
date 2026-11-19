@@ -24,6 +24,7 @@ import {
 } from "../account_mapping/policy.js";
 import { accountSettingsIdentity } from "../account_settings/helpers.js";
 import { ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY } from "../account_settings/constants.js";
+import { INDEX_SPECS } from "../account_identity_inventory/constants.js";
 import { canonicalResearchTaskJson } from "../research_task/helpers.js";
 
 export const LIVE_RESOLUTION_FORMAT = "qsl_account_management_live_resolution.v1";
@@ -31,14 +32,27 @@ export const MANAGEMENT_EVIDENCE_SCOPE = "runtime_instances_sqlite";
 export const MANAGEMENT_CHANGE_EVENT = "account_management_change";
 export const POLICY_PROVISIONER_ACTOR = "account-mapping-policy-provisioner";
 
-export function initializeAccountManagement(sql) {
-  sql.exec(`CREATE TABLE IF NOT EXISTS account_mapping_policy (
+const col = (name, type, notnull, pk) => Object.freeze({ name, type, notnull, dflt_value: null, pk });
+
+// Reviewed DDL facts for the local management tables: exact CREATE TABLE
+// definition (keys and column/table constraints) plus pragma_table_info shape.
+export const MANAGEMENT_TABLE_SCHEMAS = Object.freeze({
+  account_mapping_policy: Object.freeze({
+    ddl: `CREATE TABLE account_mapping_policy (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     policy_revision INTEGER NOT NULL,
     policy_json TEXT NOT NULL,
     updated_at TEXT NOT NULL
-  )`);
-  sql.exec(`CREATE TABLE IF NOT EXISTS account_management_draft (
+  )`,
+    columns: Object.freeze([
+      col("id", "INTEGER", 0, 1),
+      col("policy_revision", "INTEGER", 1, 0),
+      col("policy_json", "TEXT", 1, 0),
+      col("updated_at", "TEXT", 1, 0),
+    ]),
+  }),
+  account_management_draft: Object.freeze({
+    ddl: `CREATE TABLE account_management_draft (
     platform TEXT NOT NULL, account_key TEXT NOT NULL,
     revision INTEGER NOT NULL, identity_json TEXT NOT NULL, membership_json TEXT NOT NULL,
     management_enabled INTEGER NOT NULL, base_applied_revision INTEGER NOT NULL,
@@ -46,15 +60,42 @@ export function initializeAccountManagement(sql) {
     status TEXT NOT NULL, consumed_applied_revision INTEGER,
     updated_by TEXT NOT NULL, updated_at TEXT NOT NULL,
     PRIMARY KEY (platform, account_key)
-  )`);
-  sql.exec(`CREATE TABLE IF NOT EXISTS account_management_applied (
+  )`,
+    columns: Object.freeze([
+      col("platform", "TEXT", 1, 1),
+      col("account_key", "TEXT", 1, 2),
+      col("revision", "INTEGER", 1, 0),
+      col("identity_json", "TEXT", 1, 0),
+      col("membership_json", "TEXT", 1, 0),
+      col("management_enabled", "INTEGER", 1, 0),
+      col("base_applied_revision", "INTEGER", 1, 0),
+      col("policy_revision", "INTEGER", 1, 0),
+      col("instance_revision", "INTEGER", 1, 0),
+      col("status", "TEXT", 1, 0),
+      col("consumed_applied_revision", "INTEGER", 0, 0),
+      col("updated_by", "TEXT", 1, 0),
+      col("updated_at", "TEXT", 1, 0),
+    ]),
+  }),
+  account_management_applied: Object.freeze({
+    ddl: `CREATE TABLE account_management_applied (
     platform TEXT NOT NULL, account_key TEXT NOT NULL,
     revision INTEGER NOT NULL, identity_json TEXT NOT NULL, membership_json TEXT NOT NULL,
     management_enabled INTEGER NOT NULL, effective_at TEXT NOT NULL,
     PRIMARY KEY (platform, account_key)
-  )`);
-  // One row per physical apply; the request key is the event reference.
-  sql.exec(`CREATE TABLE IF NOT EXISTS account_management_change (
+  )`,
+    columns: Object.freeze([
+      col("platform", "TEXT", 1, 1),
+      col("account_key", "TEXT", 1, 2),
+      col("revision", "INTEGER", 1, 0),
+      col("identity_json", "TEXT", 1, 0),
+      col("membership_json", "TEXT", 1, 0),
+      col("management_enabled", "INTEGER", 1, 0),
+      col("effective_at", "TEXT", 1, 0),
+    ]),
+  }),
+  account_management_change: Object.freeze({
+    ddl: `CREATE TABLE account_management_change (
     event_id TEXT PRIMARY KEY,
     occurred_at TEXT NOT NULL, actor TEXT NOT NULL,
     platform TEXT NOT NULL, account_key TEXT NOT NULL, initiating_identity_json TEXT NOT NULL,
@@ -63,24 +104,70 @@ export function initializeAccountManagement(sql) {
     old_applied_revision INTEGER NOT NULL, new_applied_revision INTEGER NOT NULL,
     old_management_enabled INTEGER, new_management_enabled INTEGER NOT NULL,
     result TEXT NOT NULL
-  )`);
-  sql.exec("CREATE INDEX IF NOT EXISTS account_management_change_time ON account_management_change (occurred_at, event_id)");
-  // A policy replacement that changes a physical group (class, membership or
-  // identities) leaves one row per affected deployment that held draft or applied
-  // rows, recording the revisions they had. Rows at or below those revisions are
-  // kept for history but are no longer a valid binding; only a newer draft or an
-  // explicit apply (which writes above them) reconciles the group.
-  sql.exec(`CREATE TABLE IF NOT EXISTS account_management_invalidation (
+  )`,
+    columns: Object.freeze([
+      col("event_id", "TEXT", 0, 1),
+      col("occurred_at", "TEXT", 1, 0),
+      col("actor", "TEXT", 1, 0),
+      col("platform", "TEXT", 1, 0),
+      col("account_key", "TEXT", 1, 0),
+      col("initiating_identity_json", "TEXT", 1, 0),
+      col("members_json", "TEXT", 1, 0),
+      col("policy_revision", "INTEGER", 1, 0),
+      col("instance_revision", "INTEGER", 1, 0),
+      col("draft_revision", "INTEGER", 1, 0),
+      col("old_applied_revision", "INTEGER", 1, 0),
+      col("new_applied_revision", "INTEGER", 1, 0),
+      col("old_management_enabled", "INTEGER", 0, 0),
+      col("new_management_enabled", "INTEGER", 1, 0),
+      col("result", "TEXT", 1, 0),
+    ]),
+  }),
+  account_management_invalidation: Object.freeze({
+    ddl: `CREATE TABLE account_management_invalidation (
     platform TEXT NOT NULL, account_key TEXT NOT NULL,
     policy_revision INTEGER NOT NULL, applied_revision INTEGER NOT NULL, draft_revision INTEGER NOT NULL, invalidated_at TEXT NOT NULL,
     PRIMARY KEY (platform, account_key)
-  )`);
-  sql.exec(`CREATE TABLE IF NOT EXISTS account_management_requests (
+  )`,
+    columns: Object.freeze([
+      col("platform", "TEXT", 1, 1),
+      col("account_key", "TEXT", 1, 2),
+      col("policy_revision", "INTEGER", 1, 0),
+      col("applied_revision", "INTEGER", 1, 0),
+      col("draft_revision", "INTEGER", 1, 0),
+      col("invalidated_at", "TEXT", 1, 0),
+    ]),
+  }),
+  account_management_requests: Object.freeze({
+    ddl: `CREATE TABLE account_management_requests (
     request_key TEXT PRIMARY KEY,
     operation TEXT NOT NULL, actor TEXT NOT NULL,
     platform TEXT NOT NULL, account_key TEXT NOT NULL, identity_json TEXT NOT NULL,
     fingerprint TEXT NOT NULL, receipt_json TEXT NOT NULL, created_at TEXT NOT NULL
-  )`);
+  )`,
+    columns: Object.freeze([
+      col("request_key", "TEXT", 0, 1),
+      col("operation", "TEXT", 1, 0),
+      col("actor", "TEXT", 1, 0),
+      col("platform", "TEXT", 1, 0),
+      col("account_key", "TEXT", 1, 0),
+      col("identity_json", "TEXT", 1, 0),
+      col("fingerprint", "TEXT", 1, 0),
+      col("receipt_json", "TEXT", 1, 0),
+      col("created_at", "TEXT", 1, 0),
+    ]),
+  }),
+});
+
+export function initializeAccountManagement(sql) {
+  for (const [table, spec] of Object.entries(MANAGEMENT_TABLE_SCHEMAS)) {
+    sql.exec(spec.ddl.replace(/^CREATE TABLE /, "CREATE TABLE IF NOT EXISTS "));
+    for (const index of INDEX_SPECS) {
+      if (index.table === table) {
+        sql.exec(`CREATE INDEX IF NOT EXISTS ${index.name} ON ${index.table} (${index.keys.map(item => item.column).join(", ")})`);
+      }
+    }
+  }
 }
 
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -119,34 +206,54 @@ export function storedPolicy(row) {
 // The reviewed local schema of the management tables and the journal index.
 // The resolver compares live metadata with it in the same transaction; the
 // full offline inventory stays a separate evidence source.
-export const MANAGEMENT_TABLE_COLUMNS = Object.freeze({
-  account_mapping_policy: ["id", "policy_revision", "policy_json", "updated_at"],
-  account_management_draft: ["platform", "account_key", "revision", "identity_json", "membership_json", "management_enabled",
-    "base_applied_revision", "policy_revision", "instance_revision", "status", "consumed_applied_revision", "updated_by", "updated_at"],
-  account_management_applied: ["platform", "account_key", "revision", "identity_json", "membership_json", "management_enabled", "effective_at"],
-  account_management_change: ["event_id", "occurred_at", "actor", "platform", "account_key", "initiating_identity_json", "members_json",
-    "policy_revision", "instance_revision", "draft_revision", "old_applied_revision", "new_applied_revision", "old_management_enabled",
-    "new_management_enabled", "result"],
-  account_management_invalidation: ["platform", "account_key", "policy_revision", "applied_revision", "draft_revision", "invalidated_at"],
-  account_management_requests: ["request_key", "operation", "actor", "platform", "account_key", "identity_json", "fingerprint", "receipt_json", "created_at"],
+export const MANAGEMENT_TABLE_COLUMNS = Object.freeze(
+  Object.fromEntries(Object.entries(MANAGEMENT_TABLE_SCHEMAS).map(([table, spec]) => [table, Object.freeze(spec.columns.map(column => column.name))])),
+);
+export const MANAGEMENT_JOURNAL_INDEX = Object.freeze({
+  ...INDEX_SPECS[0],
+  columns: Object.freeze(INDEX_SPECS[0].keys.map(item => item.column)),
 });
-export const MANAGEMENT_JOURNAL_INDEX = Object.freeze({ name: "account_management_change_time", table: "account_management_change", columns: ["occurred_at", "event_id"] });
 
-const sameList = (left, right) => left.length === right.length && left.every((value, index) => value === right[index]);
+const normalizeSql = text => String(text ?? "").replace(/["`[\]]/g, "").replace(/\s*([(),])\s*/g, "$1").replace(/\s+/g, " ").trim().toLowerCase();
 
 // Structural drift of the management tables, read-only and in the caller's
 // transaction. A table that cannot be read at all is reported by the row
-// reads, so an empty column list is not repeated here.
+// reads, so an empty table definition is not repeated here.
 function schemaIssues(rows) {
   const issues = [];
-  for (const [table, expected] of Object.entries(MANAGEMENT_TABLE_COLUMNS)) {
-    const columns = rows(`schema:${table}`, `SELECT name FROM pragma_table_info('${table}') ORDER BY name`).map(row => row.name);
-    if (columns.length && !sameList(columns, [...expected].sort())) issues.push(table);
+  const present = new Set();
+  for (const [table, spec] of Object.entries(MANAGEMENT_TABLE_SCHEMAS)) {
+    const info = rows(`schema:${table}`, `SELECT name, type, "notnull" AS not_null, dflt_value, pk FROM pragma_table_info('${table}') ORDER BY cid`);
+    const ddl = rows(`schema:${table}`, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = '${table}'`);
+    if (!info.length && !ddl.length) continue;
+    present.add(table);
+    const colsMatch = info.length === spec.columns.length && spec.columns.every((expected, index) => {
+      const actual = info[index];
+      return actual.name === expected.name
+        && String(actual.type || "").toUpperCase() === expected.type
+        && Number(actual.not_null) === expected.notnull
+        && (actual.dflt_value ?? null) === expected.dflt_value
+        && Number(actual.pk) === expected.pk;
+    });
+    const ddlMatch = ddl.length === 1 && normalizeSql(ddl[0].sql) === normalizeSql(spec.ddl);
+    if (!colsMatch || !ddlMatch) issues.push(table);
   }
-  const { name, table, columns } = MANAGEMENT_JOURNAL_INDEX;
-  const listed = rows(`schema:${name}`, `SELECT "unique" AS is_unique FROM pragma_index_list('${table}') WHERE name = '${name}'`);
-  const keyed = rows(`schema:${name}`, `SELECT name FROM pragma_index_info('${name}') ORDER BY seqno`).map(row => row.name);
-  if (listed.length !== 1 || Number(listed[0].is_unique) !== 0 || !sameList(keyed, columns)) issues.push(name);
+  for (const spec of INDEX_SPECS) {
+    if (!present.has(spec.table)) continue;
+    const idxDdl = rows(`schema:${spec.name}`, `SELECT tbl_name, sql FROM sqlite_schema WHERE type = 'index' AND name = '${spec.name}'`);
+    const listed = rows(`schema:${spec.name}`, `SELECT "unique" AS is_unique, partial FROM pragma_index_list('${spec.table}') WHERE name = '${spec.name}'`);
+    const xinfo = rows(`schema:${spec.name}`, `SELECT name, desc, coll, key FROM pragma_index_xinfo('${spec.name}') ORDER BY seqno`)
+      .filter(row => Number(row.key) === 1);
+    const ddlMatch = idxDdl.length === 1 && idxDdl[0].tbl_name === spec.table && normalizeSql(idxDdl[0].sql) === normalizeSql(spec.sql);
+    const listMatch = listed.length === 1 && Number(listed[0].is_unique) === (spec.unique ? 1 : 0) && Number(listed[0].partial) === (spec.partial ? 1 : 0);
+    const keysMatch = xinfo.length === spec.keys.length && spec.keys.every((expected, index) => {
+      const actual = xinfo[index];
+      return actual.name === expected.column
+        && Boolean(Number(actual.desc)) === expected.desc
+        && String(actual.coll || "").toUpperCase() === expected.coll;
+    });
+    if (!ddlMatch || !listMatch || !keysMatch) issues.push(spec.name);
+  }
   return issues;
 }
 
@@ -480,6 +587,9 @@ function controlTarget(sql, state, command) {
   const resolution = resolveManagement(readManagementSnapshot(sql, state), command.platform, command.key);
   if (resolution.reasons.includes("management_policy_unavailable")) throw new HttpError("management_policy_unavailable", 409);
   if (resolution.reasons.includes("management_policy_invalid")) throw new HttpError("management_policy_invalid", 409);
+  if (resolution.reasons.includes("management_schema_unverified") || resolution.reasons.includes("local_store_unreadable")) {
+    throw new HttpError("management_state_conflict", 409);
+  }
   if (command.expected_policy_revision !== resolution.policy_revision) throw new HttpError("management_policy_revision_conflict", 409);
   const addressed = resolution.deployments.find(item => item.platform === command.platform && item.legacy_key === command.key);
   if (addressed && !sameSettingsIdentity(command.identity, addressed.identity)) throw new HttpError("management_identity_conflict", 409);

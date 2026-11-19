@@ -5,6 +5,7 @@
 // the sanitized summary: counts and dispositions, never keys or identifiers.
 import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import { INDEX_SPECS } from "./application/account_identity_inventory/constants.js";
 
 export const EXPORT_FORMAT = "qsl_account_identity_inventory_export.v1";
 const OBJECTS = ["runtime", "directory"];
@@ -173,6 +174,30 @@ function assembleObject(object, responses) {
     }
     reasons.push(...losses);
     entry.disposition = reasons.some(reason => reason.startsWith(`${name}:`)) ? "incomplete" : "complete";
+  }
+  // Propagate reviewed index verdicts into the owning table, group, object, and overall completeness.
+  const missingIndexes = schema.body.missing_indexes;
+  const incompatibleIndexes = schema.body.incompatible_indexes;
+  for (const spec of INDEX_SPECS) {
+    const entry = tables[spec.table];
+    if (!entry?.present) continue;
+    if (!Array.isArray(missingIndexes) || !Array.isArray(incompatibleIndexes)) {
+      reasons.push(`${spec.table}:index_evidence_missing:${spec.name}`);
+      entry.disposition = "incomplete";
+    } else if (missingIndexes.includes(spec.name)) {
+      reasons.push(`${spec.table}:missing_index:${spec.name}`);
+      entry.disposition = "incomplete";
+    } else if (incompatibleIndexes.includes(spec.name)) {
+      reasons.push(`${spec.table}:incompatible_index:${spec.name}`);
+      entry.disposition = "incomplete";
+    }
+  }
+  const knownIndexNames = new Set(INDEX_SPECS.map(spec => spec.name));
+  for (const indexName of Array.isArray(missingIndexes) ? missingIndexes : []) {
+    if (!knownIndexNames.has(indexName)) reasons.push(`schema:missing_index:${indexName}`);
+  }
+  for (const indexName of Array.isArray(incompatibleIndexes) ? incompatibleIndexes : []) {
+    if (!knownIndexNames.has(indexName)) reasons.push(`schema:incompatible_index:${indexName}`);
   }
   for (const [group, groupTables] of Object.entries(SQL_GROUPS)) {
     for (const name of groupTables) {

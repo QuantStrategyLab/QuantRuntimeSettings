@@ -156,8 +156,17 @@ export const TABLE_SPECS = Object.freeze([
 // `sql` is the normalized stored definition: key columns in order, uniqueness
 // and any partial predicate are part of it.
 export const INDEX_SPECS = Object.freeze([
-  Object.freeze({ name: "account_management_change_time", table: "account_management_change",
-    sql: "create index account_management_change_time on account_management_change (occurred_at, event_id)" }),
+  Object.freeze({
+    name: "account_management_change_time",
+    table: "account_management_change",
+    unique: false,
+    partial: false,
+    keys: Object.freeze([
+      Object.freeze({ column: "occurred_at", desc: false, coll: "BINARY" }),
+      Object.freeze({ column: "event_id", desc: false, coll: "BINARY" }),
+    ]),
+    sql: "create index account_management_change_time on account_management_change (occurred_at, event_id)",
+  }),
 ]);
 export const INVENTORY_TABLES = Object.freeze(Object.fromEntries(TABLE_SPECS.map(spec => [spec.name, spec])));
 
