@@ -31,7 +31,7 @@ assert.equal(existsSync(new URL("reader.js", DOMAIN)), false, "the mixed reader 
 const topLevel = text => new Set([...text.matchAll(/^(?:export )?(?:async )?(?:function\*? |class |const |let )([A-Za-z_$][\w$]*)/gm)].map(match => match[1]));
 const declared = Object.fromEntries(Object.entries(texts).map(([name, text]) => [name, topLevel(text)]));
 const OWNERS = {
-  constants: ["INVENTORY_DO_PATH", "INVENTORY_SCHEMA_VERSION", "INVENTORY_ORDERING", "INVENTORY_OBJECTS", "INVENTORY_PAGE_SIZE", "INVENTORY_TABLES",
+  constants: ["INVENTORY_DO_PATH", "INVENTORY_SCHEMA_VERSION", "INVENTORY_ORDERING", "INVENTORY_OBJECTS", "INVENTORY_PAGE_SIZE", "INVENTORY_TABLES", "INDEX_SPECS",
     "INVENTORY_ROUTE", "TABLE_SPECS", "SCHEMA_SQL", "CHANGES_SQL", "TABLE_INFO_SQL", "STATEMENTS", "ALLOWED", "UNKNOWN_IDENTIFIER", "UNKNOWN_COUNT",
     "unknownCount", "IDENTITY_KEYS", "SECRET_KEY", "CACHE_QUALIFIERS", "DECLARATION_VALUES", "INSTANCE_FIELDS", "CONFIG_IDENTITY",
     "DESK_RECORD_PREFIX", "ADMISSION_PREFIX", "IDEMPOTENCY_PREFIX", "DIRECTORY_STATE_KEY", "STRATEGIES_WRITE_STATE_KEY", "SNAPSHOT_OVERALL",
@@ -143,10 +143,10 @@ assert.deepEqual([constants.RESPONSE_BYTE_BUDGET, constants.ROW_BYTE_LIMIT, cons
 assert.deepEqual([constants.PROJECTION_MAX_DEPTH, constants.ROW_IDENTITY_FIELDS, constants.DESK_IDENTITY_FIELDS, constants.KV_IDENTITY_FIELDS, constants.CACHE_ACCOUNTS],
   [8, 256, 128, 4000, 4000]);
 assert.deepEqual([constants.CURSOR_TTL_MS, constants.CURSOR_CLOCK_SKEW_MS, constants.CURSOR_MAX_LENGTH], [6 * 3600_000, 60_000, 8192]);
-assert.equal(Object.keys(constants.INVENTORY_TABLES).length, 39);
-assert.equal(sha(constants.INVENTORY_TABLES), "120cebff40f1c19b146fb1c31e99b933dfcd9f7fc8a4c812ea0517b7f90d1c04", "table specifications match B2 schema");
-assert.equal(constants.ALLOWED.size, 198);
-assert.equal(sha([...constants.ALLOWED].sort()), "5696d932eeb73ee8b6bebc8d04e99c62248e06702a0f6142cd28695d189a74e0", "statement allowlist matches B2 schema");
+assert.equal(Object.keys(constants.INVENTORY_TABLES).length, 40);
+assert.equal(sha(constants.INVENTORY_TABLES), "678677be7a82443b071d4e869787264636df21b180a5aa89a1dc81ad28a07da7", "table specifications match B2 schema");
+assert.equal(constants.ALLOWED.size, 203);
+assert.equal(sha([...constants.ALLOWED].sort()), "c061e233d9bd2c7cdd87246a0350200102338143e0d77de9bb81955cb67f0893", "statement allowlist matches B2 schema");
 assert.deepEqual([...constants.SECTIONS], ["manifest", "schema", "sql", "do_kv", "finalize", "kv", "env"]);
 assert.equal(constants.DO_ERRORS.size, 16);
 

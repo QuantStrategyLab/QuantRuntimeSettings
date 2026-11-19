@@ -12,6 +12,7 @@
 // initializes, caches or repairs anything. Drafts never enter this envelope.
 import { MANAGEMENT_READBACK_FORMAT, deploymentManagement } from "../account_mapping/management_cohort.js";
 import { deploymentId, MANAGEMENT_STATUS } from "../account_mapping/policy.js";
+import { accountSettingsIdentity } from "../account_settings/helpers.js";
 import { responseHeaders } from "../http_response.js";
 import {
   MANAGEMENT_EVIDENCE_SCOPE,
@@ -81,8 +82,15 @@ export function exportAppliedRecords(applied) {
 
 const compare = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 
-function scopeOf(members) {
+// The group's environment, from the policy identities reconciled with the
+// current deployments: a present deployment whose own environment disagrees
+// leaves the scope unknown rather than trusting either side.
+function scopeOf(members, state) {
   const environments = new Set(members.map(item => item.identity?.broker_environment ?? null));
+  for (const item of members) {
+    const instance = state.instances.find(candidate => candidate?.kind === "existing" && candidate.platform === item.platform && candidate.key === item.legacy_key);
+    if (instance && (accountSettingsIdentity(instance).broker_environment ?? null) !== (item.identity?.broker_environment ?? null)) return "unknown";
+  }
   if (environments.size !== 1) return "unknown";
   const [environment] = environments;
   return environment === "paper" || environment === "live" ? environment : "unknown";
@@ -102,7 +110,9 @@ export function buildManagementReadback(sql, observedAt) {
   const parsed = storedPolicy(snapshot.policy);
   const current = state.instances.filter(item => item?.kind === "existing" && typeof item.platform === "string" && typeof item.key === "string");
   const effectiveExport = { format: MANAGEMENT_EFFECTIVE_EXPORT_FORMAT, instance_revision: state.revision,
-    policy_revision: parsed.policy?.policy_revision ?? null, records: exportAppliedRecords(snapshot.applied) };
+    policy_revision: parsed.policy?.policy_revision ?? null, records: [] };
+  // A required local table that cannot be read, or one drifted from its reviewed schema, leaves the section unavailable.
+  const storageReasons = [...(snapshot.unreadable.length ? ["local_store_unreadable"] : []), ...(snapshot.schema_issues.length ? ["management_schema_unverified"] : [])];
   // The typed denial an admission would raise: a missing or invalid policy is named as such.
   const uncoveredEntry = (item, reasons) => ({
     platform: item.platform, key: item.key, management_status: MANAGEMENT_STATUS.UNKNOWN, evidence_state: "unknown",
@@ -110,7 +120,7 @@ export function buildManagementReadback(sql, observedAt) {
     processing_denial: reasons.find(reason => reason.startsWith("management_policy_")) || "management_status_unknown",
   });
   const base = {
-    ok: true, format: MANAGEMENT_READBACK_FORMAT, evidence_scope: MANAGEMENT_EVIDENCE_SCOPE, status: "available", reasons: snapshot.unreadable.length ? ["local_store_unreadable"] : [],
+    ok: true, format: MANAGEMENT_READBACK_FORMAT, evidence_scope: MANAGEMENT_EVIDENCE_SCOPE, status: storageReasons.length ? "unavailable" : "available", reasons: storageReasons,
     observed_at: observedAt, instance_revision: state.revision, effective_export: effectiveExport,
   };
   const ordered = [...current].sort((left, right) => compare(deploymentId(left.platform, left.key), deploymentId(right.platform, right.key)));
@@ -125,19 +135,25 @@ export function buildManagementReadback(sql, observedAt) {
   }
   const { policy } = parsed;
   const claimed = new Set();
+  const certified = new Set();
   const groups = policy.accounts.map(account => {
     const members = membershipOf(account.deployments);
     for (const item of members) claimed.add(deploymentId(item.platform, item.legacy_key));
     const [first] = members;
     const resolution = resolveManagement(snapshot, first.platform, first.legacy_key);
+    // Only a fully certified binding contributes effective records, from this same snapshot.
+    if (resolution.applied && resolution.evidence_state === "known" && resolution.applied_state === "complete") {
+      for (const item of members) certified.add(deploymentId(item.platform, item.legacy_key));
+    }
     return {
       management_class: account.management_class, management_status: resolution.management_status, evidence_state: resolution.evidence_state,
-      reasons: resolution.reasons, scope: scopeOf(members), processing_eligible: resolution.processing_eligible,
+      reasons: resolution.reasons, scope: scopeOf(members, state), processing_eligible: resolution.processing_eligible,
       processing_denial: processingDenial(resolution),
       applied: resolution.applied ? { management_enabled: resolution.applied.management_enabled === true, revision: resolution.applied.revision, effective_at: resolution.applied.effective_at } : null,
       deployments: members.map(item => ({ platform: item.platform, key: item.legacy_key, present: present(state, item) })),
     };
   }).sort((left, right) => compare(JSON.stringify(left.deployments), JSON.stringify(right.deployments)));
+  effectiveExport.records = exportAppliedRecords(snapshot.applied.filter(row => certified.has(deploymentId(row.platform, row.account_key))));
   const uncovered = ordered.filter(item => !claimed.has(deploymentId(item.platform, item.key))).map(item => uncoveredEntry(item, ["deployment_unclassified"]));
   const multiple = groups.some(group => group.reasons.includes("deployment_claimed_by_multiple_accounts"));
   const complete = uncovered.length === 0 && !multiple;

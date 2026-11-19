@@ -6,8 +6,7 @@
 // and the gate inventory, never fixture content.
 import assert from "node:assert/strict";
 import {
-  RuntimeInstances,
-  FIXTURE_ACCOUNTS, INSTANCES, baselineStore, createStore, evidence, outbound, policyOf, provision, ref, setManagement,
+  FIXTURE_ACCOUNTS, INSTANCES, baselineStore, createStore, evidence, management, outbound, policyOf, provision, ref, setManagement,
 } from "./helpers/account_management_harness.mjs";
 
 const CONSOLE = new URL("../web/strategy-switch-console/", import.meta.url);
@@ -204,7 +203,7 @@ const entrances = {
       ?, ?, '', NULL, ?, ?, ?)`)
       .run(applicationId, `ticket-${applicationId}`, status, platform, key, config.account_scope || "", config.account_selector || "", config.service_name || "",
         config.broker_environment || "", store.state().revision, "0".repeat(64), status === "claimed" ? "201" : null, status === "claimed" ? "1" : null, TS, TS,
-        unbound ? null : RuntimeInstances.managementBinding(store.resolve(platform, key)));
+        unbound ? null : management.managementBinding(store.resolve(platform, key)));
   };
   const claim = applicationId => store.call({ action: "application_claim", actor: "synthetic-workflow", application_id: applicationId,
     claim_token: "synthetic-claim", workflow_run_id: "201", workflow_run_attempt: "1", updated_at: TS });

@@ -65,6 +65,16 @@ export function initializeAccountManagement(sql) {
     result TEXT NOT NULL
   )`);
   sql.exec("CREATE INDEX IF NOT EXISTS account_management_change_time ON account_management_change (occurred_at, event_id)");
+  // A policy replacement that changes a physical group (class, membership or
+  // identities) leaves one row per affected deployment that held draft or applied
+  // rows, recording the revisions they had. Rows at or below those revisions are
+  // kept for history but are no longer a valid binding; only a newer draft or an
+  // explicit apply (which writes above them) reconciles the group.
+  sql.exec(`CREATE TABLE IF NOT EXISTS account_management_invalidation (
+    platform TEXT NOT NULL, account_key TEXT NOT NULL,
+    policy_revision INTEGER NOT NULL, applied_revision INTEGER NOT NULL, draft_revision INTEGER NOT NULL, invalidated_at TEXT NOT NULL,
+    PRIMARY KEY (platform, account_key)
+  )`);
   sql.exec(`CREATE TABLE IF NOT EXISTS account_management_requests (
     request_key TEXT PRIMARY KEY,
     operation TEXT NOT NULL, actor TEXT NOT NULL,
@@ -106,6 +116,40 @@ export function storedPolicy(row) {
   }
 }
 
+// The reviewed local schema of the management tables and the journal index.
+// The resolver compares live metadata with it in the same transaction; the
+// full offline inventory stays a separate evidence source.
+export const MANAGEMENT_TABLE_COLUMNS = Object.freeze({
+  account_mapping_policy: ["id", "policy_revision", "policy_json", "updated_at"],
+  account_management_draft: ["platform", "account_key", "revision", "identity_json", "membership_json", "management_enabled",
+    "base_applied_revision", "policy_revision", "instance_revision", "status", "consumed_applied_revision", "updated_by", "updated_at"],
+  account_management_applied: ["platform", "account_key", "revision", "identity_json", "membership_json", "management_enabled", "effective_at"],
+  account_management_change: ["event_id", "occurred_at", "actor", "platform", "account_key", "initiating_identity_json", "members_json",
+    "policy_revision", "instance_revision", "draft_revision", "old_applied_revision", "new_applied_revision", "old_management_enabled",
+    "new_management_enabled", "result"],
+  account_management_invalidation: ["platform", "account_key", "policy_revision", "applied_revision", "draft_revision", "invalidated_at"],
+  account_management_requests: ["request_key", "operation", "actor", "platform", "account_key", "identity_json", "fingerprint", "receipt_json", "created_at"],
+});
+export const MANAGEMENT_JOURNAL_INDEX = Object.freeze({ name: "account_management_change_time", table: "account_management_change", columns: ["occurred_at", "event_id"] });
+
+const sameList = (left, right) => left.length === right.length && left.every((value, index) => value === right[index]);
+
+// Structural drift of the management tables, read-only and in the caller's
+// transaction. A table that cannot be read at all is reported by the row
+// reads, so an empty column list is not repeated here.
+function schemaIssues(rows) {
+  const issues = [];
+  for (const [table, expected] of Object.entries(MANAGEMENT_TABLE_COLUMNS)) {
+    const columns = rows(`schema:${table}`, `SELECT name FROM pragma_table_info('${table}') ORDER BY name`).map(row => row.name);
+    if (columns.length && !sameList(columns, [...expected].sort())) issues.push(table);
+  }
+  const { name, table, columns } = MANAGEMENT_JOURNAL_INDEX;
+  const listed = rows(`schema:${name}`, `SELECT "unique" AS is_unique FROM pragma_index_list('${table}') WHERE name = '${name}'`);
+  const keyed = rows(`schema:${name}`, `SELECT name FROM pragma_index_info('${name}') ORDER BY seqno`).map(row => row.name);
+  if (listed.length !== 1 || Number(listed[0].is_unique) !== 0 || !sameList(keyed, columns)) issues.push(name);
+  return issues;
+}
+
 // Every local row the resolver checks, read synchronously in the caller's
 // transaction. A table that cannot be read is reported, not skipped.
 export function readManagementSnapshot(sql, state) {
@@ -126,7 +170,9 @@ export function readManagementSnapshot(sql, state) {
     declarations: rows("account_setting_declaration", "SELECT platform, account_key, declaration_json FROM account_setting_declaration"),
     drafts: rows("account_management_draft", "SELECT * FROM account_management_draft"),
     applied: rows("account_management_applied", "SELECT * FROM account_management_applied"),
-    journal: rows("account_management_change", "SELECT event_id, members_json FROM account_management_change"),
+    journal: rows("account_management_change", "SELECT event_id, platform, account_key, initiating_identity_json, members_json FROM account_management_change"),
+    invalidated: rows("account_management_invalidation", "SELECT platform, account_key, policy_revision, applied_revision, draft_revision FROM account_management_invalidation"),
+    schema_issues: schemaIssues(rows),
     unreadable,
   };
 }
@@ -174,6 +220,7 @@ export function resolveManagement(snapshot, platform, key) {
     return { ...result, management_status: status, evidence_state: evidenceState, reasons: [...reasons].sort(), processing_eligible: processingEligible(row) };
   };
   for (const name of snapshot.unreadable || []) flag(name === "account_mapping_policy" ? "management_policy_unavailable" : "local_store_unreadable", "unknown");
+  if ((snapshot.schema_issues || []).length) flag("management_schema_unverified", "unknown");
   if (!state?.initialized) { flag("runtime_instances_not_initialized", "unknown"); return finish(); }
   const parsed = storedPolicy(snapshot.policy);
   if (parsed.reason) { flag(parsed.reason, "unknown"); return finish(); }
@@ -248,9 +295,23 @@ export function resolveManagement(snapshot, platform, key) {
     const environment = declared?.environment, now = current.get(id).broker_environment;
     if ((environment === "live" || environment === "paper") && now !== null && environment !== now) flag("declared_environment_differs_from_current", "conflict");
   }
+  // Rows at or below the revisions a policy replacement invalidated are history, not a binding.
+  const tombstones = new Map(snapshot.invalidated.map(row => [deploymentId(row.platform, row.account_key), row]));
+  const stale = (row, field) => {
+    const tombstone = tombstones.get(deploymentId(row.platform, row.account_key));
+    return Boolean(tombstone) && Number(row.revision) <= Number(tombstone[field]);
+  };
+  const inGroup = row => siblingIds.has(deploymentId(row.platform, row.account_key));
+  const staleApplied = snapshot.applied.some(row => inGroup(row) && stale(row, "applied_revision"));
+  const staleDrafts = snapshot.drafts.some(row => inGroup(row) && stale(row, "draft_revision"));
+  const invalidated = staleApplied || staleDrafts;
+  // A group that is now display-only needs no applied value, so the history is reason-only there.
+  if (invalidated) flag("management_binding_invalidated", account.management_class === "display_only" ? "known" : "unknown");
+  result.invalidated = invalidated;
   // Management draft and applied rows bind their identity and membership.
-  for (const rows of [snapshot.drafts, snapshot.applied]) {
+  for (const [rows, field] of [[snapshot.drafts, "draft_revision"], [snapshot.applied, "applied_revision"]]) {
     for (const row of rows) {
+      if (stale(row, field)) continue;
       const id = deploymentId(row.platform, row.account_key);
       let identity, membership;
       try { identity = JSON.parse(row.identity_json); membership = JSON.parse(row.membership_json); } catch {
@@ -264,24 +325,35 @@ export function resolveManagement(snapshot, platform, key) {
     }
   }
   for (const row of snapshot.journal) {
-    let members;
-    try { members = JSON.parse(row.members_json); } catch { flag("management_journal_unreadable", "unknown"); continue; }
-    if (!Array.isArray(members)) { flag("management_journal_unreadable", "unknown"); continue; }
+    let members, initiator;
+    try { members = JSON.parse(row.members_json); initiator = JSON.parse(row.initiating_identity_json); } catch { flag("management_journal_unreadable", "unknown"); continue; }
+    if (!Array.isArray(members) || !validSettingsIdentity(initiator)) { flag("management_journal_unreadable", "unknown"); continue; }
+    // The addressed initiator must be one of the retained members, with the identity the row recorded for it.
+    const addressed = members.find(member => member?.platform === row.platform && member?.legacy_key === row.account_key);
+    if (!addressed || !sameSettingsIdentity(addressed.identity, initiator)) { flag("management_journal_unreadable", "unknown"); continue; }
     for (const member of members) {
       const id = deploymentId(member?.platform, member?.legacy_key);
       if (current.has(id) && !sameSettingsIdentity(member?.identity, current.get(id))) flag("management_identity_differs_from_current", "conflict");
     }
   }
+  const liveDrafts = snapshot.drafts.filter(row => !stale(row, "draft_revision"));
+  const siblingRows = rows => rows.filter(row => siblingIds.has(deploymentId(row.platform, row.account_key)));
   const applied = consistentRows(result.deployments, snapshot.applied, ["revision", "management_enabled", "membership_json"]);
-  result.applied_state = applied.state;
+  result.applied_state = staleApplied ? "invalidated" : applied.state;
+  result.applied_revision_floor = Math.max(0, ...siblingRows(snapshot.applied).map(row => Number(row.revision) || 0));
+  result.draft_revision_floor = Math.max(0, ...siblingRows(snapshot.drafts).map(row => Number(row.revision) || 0));
   // Only the five effective fields reach the strict effective-record parser.
   const records = applied.rows.map(row => ({ platform: row.platform, legacy_key: row.account_key,
     management_enabled: row.management_enabled === 1 ? true : row.management_enabled === 0 ? false : row.management_enabled,
     revision: row.revision, effective_at: row.effective_at }));
   const effective = effectiveManagementState(account, records);
-  if (effective.evidence_state === "known") result.applied = { management_enabled: effective.management_enabled, revision: effective.revision, effective_at: effective.effective_at };
-  const draft = consistentRows(result.deployments, snapshot.drafts, DRAFT_FIELDS);
-  result.draft_state = draft.state;
+  // The applied value is published only for a fully certified binding: no
+  // identity, membership, schema or invalidation evidence is outstanding.
+  if (!staleApplied && evidence === "known" && effective.evidence_state === "known") {
+    result.applied = { management_enabled: effective.management_enabled, revision: effective.revision, effective_at: effective.effective_at };
+  }
+  const draft = consistentRows(result.deployments, liveDrafts, DRAFT_FIELDS);
+  result.draft_state = draft.state === "absent" && staleDrafts ? "invalidated" : draft.state;
   if (draft.state === "complete") {
     const [row] = draft.rows;
     result.draft = row.management_enabled === 1 || row.management_enabled === 0 ? {
@@ -293,6 +365,11 @@ export function resolveManagement(snapshot, platform, key) {
   }
   return finish(effective);
 }
+
+// The physical group and applied revision an admission saw; a stored
+// application decision is only valid while both still hold.
+export const managementBinding = resolution => JSON.stringify({ membership_json: resolution.membership_json,
+  applied_revision: resolution.applied ? resolution.applied.revision : 0 });
 
 // The typed denial of a processing admission, or null when admitted.
 export function processingDenial(resolution) {
@@ -312,6 +389,31 @@ export function requireProcessingAdmission(sql, state, platform, key) {
 
 // --- Policy provisioning -------------------------------------------------
 
+// A group the new policy does not carry unchanged (same class, membership and
+// identities) loses its draft and applied bindings; groups it carries are left
+// alone. An unreadable previous policy invalidates every stored binding.
+function invalidateChangedGroups(sql, previousRow, nextPolicy) {
+  if (!previousRow) return;
+  const previous = storedPolicy(previousRow);
+  const kept = new Set(nextPolicy.accounts.map(account => JSON.stringify(account)));
+  const changed = previous.policy
+    ? canonicalPolicyDocument(previous.policy).accounts.filter(account => !kept.has(JSON.stringify(account))).flatMap(account => account.deployments)
+    : [...sql.exec("SELECT platform, account_key AS legacy_key FROM account_management_applied").toArray(),
+      ...sql.exec("SELECT platform, account_key AS legacy_key FROM account_management_draft").toArray()];
+  const now = new Date().toISOString();
+  for (const { platform, legacy_key: key } of changed) {
+    const appliedRow = sql.exec("SELECT revision FROM account_management_applied WHERE platform = ? AND account_key = ?", platform, key).toArray()[0];
+    const draftRow = sql.exec("SELECT revision FROM account_management_draft WHERE platform = ? AND account_key = ?", platform, key).toArray()[0];
+    if (!appliedRow && !draftRow) continue;
+    sql.exec(`INSERT INTO account_management_invalidation (platform, account_key, policy_revision, applied_revision, draft_revision, invalidated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT (platform, account_key) DO UPDATE SET policy_revision = excluded.policy_revision,
+        applied_revision = MAX(account_management_invalidation.applied_revision, excluded.applied_revision),
+        draft_revision = MAX(account_management_invalidation.draft_revision, excluded.draft_revision), invalidated_at = excluded.invalidated_at`,
+    platform, key, nextPolicy.policy_revision, appliedRow ? appliedRow.revision : 0, draftRow ? draftRow.revision : 0, now);
+  }
+}
+
 export function replaceMappingPolicy(sql, command) {
   if (!isObject(command) || Object.keys(command).some(field => !["action", "actor", "expected_policy_revision", "policy"].includes(field))
     || command.actor !== POLICY_PROVISIONER_ACTOR || !Number.isSafeInteger(command.expected_policy_revision) || command.expected_policy_revision < 0) {
@@ -329,6 +431,7 @@ export function replaceMappingPolicy(sql, command) {
   if (policy.policy_revision < currentRevision || command.expected_policy_revision !== currentRevision) {
     throw new HttpError("management_policy_revision_conflict", 409);
   }
+  invalidateChangedGroups(sql, row, policy);
   sql.exec(`INSERT INTO account_mapping_policy (id, policy_revision, policy_json, updated_at) VALUES (1, ?, ?, ?)
     ON CONFLICT (id) DO UPDATE SET policy_revision = excluded.policy_revision, policy_json = excluded.policy_json, updated_at = excluded.updated_at`,
   policy.policy_revision, content, new Date().toISOString());
@@ -416,7 +519,7 @@ export function saveManagementDraft(sql, state, command) {
   if (replay) return replay;
   const { resolution, draftRevision, appliedRevision } = controlTarget(sql, state, command);
   const now = new Date().toISOString();
-  const revision = draftRevision + 1;
+  const revision = Math.max(draftRevision, resolution.draft_revision_floor) + 1;
   for (const item of resolution.deployments) {
     sql.exec(`INSERT INTO account_management_draft
       (platform, account_key, revision, identity_json, membership_json, management_enabled, base_applied_revision,
@@ -452,7 +555,7 @@ export function applyManagementDraft(sql, state, command) {
     return recordReceipt(sql, command, request, { ...base, outcome: "no_op", management_draft_revision: draftRevision,
       management_revision: appliedRevision, management_enabled: draft.management_enabled });
   }
-  const revision = appliedRevision + 1;
+  const revision = Math.max(appliedRevision, resolution.applied_revision_floor) + 1;
   for (const item of resolution.deployments) {
     sql.exec(`INSERT INTO account_management_applied
       (platform, account_key, revision, identity_json, membership_json, management_enabled, effective_at)

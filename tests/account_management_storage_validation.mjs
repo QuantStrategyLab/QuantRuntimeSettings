@@ -453,9 +453,39 @@ for (const point of [0, 1, 2, 3, 4, 5, "commit"]) {
     await provision(changed, policyOf(accounts, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION);
     for (const deployment of [key, siblingKey]) {
       const resolution = changed.resolve(platform, deployment);
-      same("B2-A20", "changed_binding_invalidates", [resolution.evidence_state, resolution.processing_eligible], ["conflict", false], `${name} ${deployment}`);
+      same("B2-A20", "changed_binding_invalidates", [resolution.processing_eligible, resolution.applied, resolution.reasons.includes("management_binding_invalidated")],
+        [false, null, true], `${name} ${deployment}`);
     }
     changed.close();
+  }
+  // A forward replacement away from a group and back again does not revive the
+  // old applied row; an unrelated group keeps its state; the invalidation
+  // survives a restart and a later replacement; an explicit apply reconciles.
+  {
+    const dir = await mkdtemp(join(tmpdir(), "qrt-management-invalidation-"));
+    const file = join(dir, "runtime.sqlite");
+    let current = await baselineStore({ file });
+    const away = FIXTURE_ACCOUNTS.map(([managementClass, deployments]) => [deployments.includes("ibkr/syn-acct-02") ? "display_only" : managementClass, deployments]);
+    assert.equal((await provision(current, policyOf(away, INSTANCES, POLICY_REVISION + 1), POLICY_REVISION)).status, 200);
+    assert.equal((await provision(current, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 2), POLICY_REVISION + 1)).status, 200);
+    current.close();
+    current = createStore({ file, seed: false });
+    const back = current.resolve("ibkr", "syn-acct-02");
+    same("B2-A20", "away_and_back_not_reused", [back.processing_eligible, back.applied, back.management_status, back.reasons.includes("management_binding_invalidated")],
+      [false, null, "unknown", true]);
+    same("B2-A20", "invalidated_not_never_initialized", back.reasons.includes("effective_state_missing"), false);
+    const control = current.resolve("ibkr", "syn-acct-03");
+    same("B2-A20", "unrelated_group_preserved", [control.management_status, control.applied.revision], ["managed", 1]);
+    same("B2-A20", "invalidated_value_denied_at_admission", management.processingDenial(back), "management_status_unknown");
+    assert.equal((await provision(current, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 3), POLICY_REVISION + 2)).status, 200);
+    same("B2-A20", "invalidation_survives_later_replacement", current.resolve("ibkr", "syn-acct-02").processing_eligible, false);
+    same("B2-A20", "idempotent_replacement_writes_nothing", (await provision(current, policyOf(FIXTURE_ACCOUNTS, INSTANCES, POLICY_REVISION + 3), POLICY_REVISION + 2)).body.replaced, false);
+    const reconciled = await setManagement(current, "ibkr/syn-acct-02", true);
+    same("B2-A20", "explicit_apply_reconciles_above_history", [reconciled.applied.management_revision, reconciled.applied.previous_management_enabled], [2, null]);
+    const after = current.resolve("ibkr", "syn-acct-02");
+    same("B2-A20", "reconciled_group_eligible", [after.processing_eligible, after.applied.revision], [true, 2]);
+    current.close();
+    await rm(dir, { recursive: true, force: true });
   }
   const identity = await baselineStore();
   const moved = INSTANCES.map(item => item.key === "syn-acct-02" ? { ...item, config: { ...item.config, service_name: "syn-moved" } } : item);

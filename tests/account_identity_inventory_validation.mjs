@@ -473,6 +473,25 @@ const noLeak = (outputs, label) => {
   await h.close();
 }
 
+// ---------------------------------------------------- A2c: the B2 journal index is part of the reviewed schema
+{
+  const index = "account_management_change_time";
+  const variants = {
+    correct: { sql: [], expect: { state: "current", missing: [], incompatible: [] } },
+    missing: { sql: [{ statement: `DROP INDEX ${index}`, rows: [[]] }], expect: { state: "partial", missing: [index], incompatible: [] } },
+    reordered: { sql: [{ statement: `DROP INDEX ${index}`, rows: [[]] },
+      { statement: `CREATE INDEX ${index} ON account_management_change (event_id, occurred_at)`, rows: [[]] }], expect: { state: "partial", missing: [], incompatible: [index] } },
+    unique: { sql: [{ statement: `DROP INDEX ${index}`, rows: [[]] },
+      { statement: `CREATE UNIQUE INDEX ${index} ON account_management_change (occurred_at, event_id)`, rows: [[]] }], expect: { state: "partial", missing: [], incompatible: [index] } },
+  };
+  for (const [name, { sql, expect }] of Object.entries(variants)) {
+    const h = await harness({ runtime: { sql, kv: {}, alarm: null, initialize: true }, directory: { sql: [], kv: {}, alarm: null, initialize: false } });
+    const { schema } = await collect(h.get, "runtime");
+    assert.deepEqual([schema.schema_state, schema.missing_indexes, schema.incompatible_indexes], [expect.state, expect.missing, expect.incompatible], `journal index ${name}`);
+    await h.close();
+  }
+}
+
 // ---------------------------------------------------- A2b: NULL primary-key rows are withheld on every page
 {
   const nullable = { sql: [

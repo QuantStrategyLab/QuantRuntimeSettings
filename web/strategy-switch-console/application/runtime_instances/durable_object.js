@@ -1608,12 +1608,6 @@ export class RuntimeInstances {
     return processingDenial(resolveManagement(readManagementSnapshot(this.sql, state), platform, key));
   }
 
-  // The physical group and applied revision an admission saw; a stored
-  // application decision is only valid while both still hold.
-  static managementBinding(resolution) {
-    return JSON.stringify({ membership_json: resolution.membership_json, applied_revision: resolution.applied ? resolution.applied.revision : 0 });
-  }
-
   // Current denial, or `management_state_changed` when the admitted group or
   // applied revision drifted (an intervening disable/enable included) or the
   // record carries no verifiable binding.
@@ -3188,7 +3182,7 @@ export class RuntimeInstances {
           application.expected_revision, application.expected_strategy_profile, application.strategy_profile,
           application.candidate_id, application.config_sha256, application.source_commit,
           application.approved_ues_revision, application.desired_state, null, null, application.reason_code,
-          null, application.created_at, application.updated_at, RuntimeInstances.managementBinding(admission),
+          null, application.created_at, application.updated_at, managementBinding(admission),
         );
         return { ok: true, created: true, application };
       }

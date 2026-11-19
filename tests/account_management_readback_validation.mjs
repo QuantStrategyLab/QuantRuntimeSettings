@@ -93,7 +93,10 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
   const tampered = (await store.read()).body;
   assert.equal(group(tampered, eligible[0][0]).management_status, "unknown", "a non-boolean stored value is not coerced");
   assert.equal(group(tampered, eligible[0][0]).evidence_state, "conflict");
-  assert.equal(tampered.effective_export.records.find(item => item.platform === platform && item.legacy_key === key).management_enabled, 2, "raw value stays raw for the strict parser");
+  assert.equal(group(tampered, eligible[0][0]).applied, null, "no applied value is published for an uncertified binding");
+  assert.ok(!tampered.effective_export.records.some(item => eligible[0].some(text => ref(text)[0] === item.platform && ref(text)[1] === item.legacy_key)),
+    "an uncertified group exports no effective record");
+  assert.equal(tampered.effective_export.records.length, body.effective_export.records.length - eligible[0].length, "certified groups still export");
   ok("B2-A20", "export_exact_fields_no_laundering");
   ok("B2-A08", "malformed_applied_is_conflict");
   store.close();
@@ -189,7 +192,7 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
   assert.deepEqual([none.status, none.reasons, none.instance_revision, none.counts.physical_accounts], ["unavailable", ["runtime_instances_not_initialized"], null, null]);
   store.db.prepare("INSERT INTO instance_state (id, revision, payload) VALUES (1, ?, ?)").run(INSTANCE_REVISION, JSON.stringify(INSTANCES));
   const partial = (await store.read()).body;
-  assert.ok(partial.status === "available" && partial.reasons.includes("local_store_unreadable"), "unreadable management tables are an explicit reason");
+  assert.ok(partial.status === "unavailable" && partial.reasons.includes("local_store_unreadable"), "unreadable management tables leave the section unavailable with an explicit reason");
   assert.ok(partial.groups.every(item => item.management_status === "unknown" && item.processing_eligible === false));
   const objectsAfter = JSON.stringify(store.db.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY name").all());
   assert.equal(objectsAfter, objectsBefore, "no table was created or repaired");
@@ -347,6 +350,20 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
   ok("B2-A17", "paper_unknown_does_not_invalidate");
   ok("B2-A11", "paper_never_in_live_totals");
 
+  // Scope evidence is reconciled: a policy scope never excludes a row whose current
+  // environment disagrees, and a row contradicting its own group's scope vetoes.
+  const scopeStore = await baselineStore();
+  const staleScope = scopeStore.state().instances.map(item => item.key === "syn-acct-07" ? { ...item, config: { ...item.config, broker_environment: "live" } } : item);
+  scopeStore.db.prepare("UPDATE instance_state SET payload = ? WHERE id = 1").run(JSON.stringify(staleScope));
+  const staleRows = rowsOf(staleScope);
+  const staleTotals = aggregateAccountFactsTotals(staleRows, identities(staleRows), await cohortOf(scopeStore));
+  assert.equal(staleTotals.reason, "management_status_unknown", "a current live row is not excluded by a stale paper policy scope");
+  const contradiction = await evaluate(store, rows => rows.map(row => row.account_key === "syn-acct-02" ? { ...row, account_scope: "paper" } : row));
+  assert.equal(contradiction.totals.reason, "management_status_unknown", "a paper label on a live row vetoes the total");
+  assert.equal(contradiction.rows.find(row => row.account_key === "syn-acct-02").management_scope_conflict, true);
+  assert.equal(base.totals.status, "by_currency", "positive control: consistent scopes still sum");
+  ok("B2-A17", "scope_conflict_vetoes_total");
+
   // Empty managed live cohort: unavailable, never a zero.
   const emptyStore = await baselineStore();
   for (const deployments of eligible) {
@@ -408,7 +425,8 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
     ["unavailable", "management_status_unknown", "managed_non_paper", "incomplete"]);
   assert.equal(unknownRead.body.management_counts.unknown_non_paper, 1);
   assert.deepEqual(Object.keys(unknownRead.body.management_counts).length, 9);
-  assert.ok(!["points", "rows", "per_currency", "totals", "coverage"].some(field => Object.hasOwn(unknownRead.body, field)), "no aggregate curve, value, holdings or trade total");
+  assert.deepEqual([unknownRead.body.twr_return_percent, unknownRead.body.amount, unknownRead.body.simple_weighted_return_percent], [null, null, null], "no numeric aggregate");
+  assert.ok(["points", "rows", "per_currency", "excess_returns"].every(field => !Object.hasOwn(unknownRead.body, field) || unknownRead.body[field].length === 0), "typed empty payload, no curve, holdings or trade rows");
   ok("B2-A17", "performance_scope_all_unavailable_200");
   const accountScoped = await read(unknownStore, `scope=${ref(target)[1]}&platform=${ref(target)[0]}`);
   assert.notEqual(accountScoped.body.unavailable_reason, "management_status_unknown", "an account-specific read is not gated by the cohort");
@@ -627,4 +645,37 @@ const group = (body, text) => { const [platform, key] = ref(text); return body.g
 assert.equal(outbound.count, 0, "zero outbound calls");
 const out = process.env.READ_RESULT_FILE;
 if (out) await writeFile(out, rec.report());
+
+// F03/F04: local schema and journal initiator certification reach the resolver, the
+// public group, the export and the section together.
+{
+  const drifts = {
+    extra_applied_column: store => store.db.exec("ALTER TABLE account_management_applied ADD COLUMN extra_domain TEXT"),
+    missing_journal_index: store => store.db.exec("DROP INDEX account_management_change_time"),
+    wrong_journal_index: store => { store.db.exec("DROP INDEX account_management_change_time"); store.db.exec("CREATE INDEX account_management_change_time ON account_management_change (event_id, occurred_at)"); },
+    initiator_only: store => {
+      const row = store.rows("account_management_change")[0];
+      const identity = { ...JSON.parse(row.initiating_identity_json), service_name: "syn-initiator-drift" };
+      store.db.prepare("UPDATE account_management_change SET initiating_identity_json = ? WHERE event_id = ?").run(JSON.stringify(identity), row.event_id);
+    },
+  };
+  const control = await baselineStore();
+  const clean = (await control.read()).body;
+  assert.deepEqual([clean.status, clean.effective_export.records.length > 0, clean.groups.every(item => item.evidence_state === "known" || item.management_class !== "eligible")], ["available", true, true], "positive control");
+  control.close();
+  for (const [name, drift] of Object.entries(drifts)) {
+    const store = await baselineStore();
+    drift(store);
+    const [first] = eligible[0];
+    const resolution = store.resolve(...ref(first));
+    assert.deepEqual([resolution.processing_eligible, resolution.applied], [false, null], `${name}: resolver withholds applied`);
+    assert.throws(() => store.object.requireManagementAdmission(...ref(first)), /management_status_unknown|management/, `${name}: admission denies`);
+    const body = (await store.read()).body;
+    assert.equal(group(body, first).applied, null, `${name}: group publishes no applied value`);
+    assert.equal(body.effective_export.records.length, 0, `${name}: export empty`);
+    assert.equal(body.status, name === "initiator_only" ? "available" : "unavailable", `${name}: section status`);
+    store.close();
+  }
+  ok("B2-A08", "schema_and_initiator_drift_withhold_applied");
+}
 console.log(`account_management_readback_validation ok ${Object.values(rec.rows).reduce((total, row) => total + row.checks, 0)} checks outbound=${outbound.count}`);

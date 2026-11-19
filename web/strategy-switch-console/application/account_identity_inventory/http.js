@@ -13,7 +13,7 @@ import { base64UrlEncodeBytes } from "../auth/cookies.js";
 import {
   ADMISSION_PREFIX, ALLOWED, CHANGES_SQL, CURSOR_CLOCK_SKEW_MS, CURSOR_CONTEXT, CURSOR_MAX_LENGTH, CURSOR_TTL_MS, COMMAND_FIELDS,
   DO_ERRORS, HEX64, INVENTORY_DO_PATH, INVENTORY_OBJECTS, INVENTORY_ORDERING, INVENTORY_PAGE_SIZE, INVENTORY_SCHEMA_VERSION,
-  INVENTORY_TABLES, KV_IDENTITY_FIELDS, KV_PAGE_SIZE, KV_VALUE_MAX_BYTES, REQUEST_BYTE_LIMIT, RESPONSE_BYTE_BUDGET, ROW_BYTE_LIMIT,
+  INDEX_SPECS, INVENTORY_TABLES, KV_IDENTITY_FIELDS, KV_PAGE_SIZE, KV_VALUE_MAX_BYTES, REQUEST_BYTE_LIMIT, RESPONSE_BYTE_BUDGET, ROW_BYTE_LIMIT,
   SCHEMA_SQL, SECTIONS, STATEMENTS, TABLE_INFO_SQL, TABLE_SPECS, UNKNOWN_COUNT, UNKNOWN_IDENTIFIER, unknownCount,
 } from "./constants.js";
 import {
@@ -73,6 +73,15 @@ function schemaManifest(cap, observed) {
       null_key_rows: pkMatches ? Number(cap.query(statements.nullKeys)[0].n) : null,
     };
   }
+  // A reviewed index is checked only while its table exists (a cold or lazy table has none).
+  const wanted = text => String(text ?? "").replace(/["`[\]]/g, "").replace(/\s*([(),])\s*/g, "$1").replace(/\s+/g, " ").trim().toLowerCase();
+  const missingIndexes = [], incompatibleIndexes = [];
+  for (const spec of INDEX_SPECS) {
+    if (!tables[spec.table]?.present) continue;
+    const found = observed.schema.find(row => row.type === "index" && row.name === spec.name);
+    if (!found) missingIndexes.push(spec.name);
+    else if (found.tbl_name !== spec.table || wanted(found.sql) !== wanted(spec.sql)) incompatibleIndexes.push(spec.name);
+  }
   const other = [];
   for (const row of observed.schema) {
     if (row.type === "table" && INVENTORY_TABLES[row.name]) continue;
@@ -88,11 +97,13 @@ function schemaManifest(cap, observed) {
   const known = Object.values(tables);
   const unknownTables = other.filter(entry => entry.classification === "unknown_table");
   const state = !known.some(table => table.present) && !unknownTables.length ? "schema_absent"
-    : known.every(table => table.present ? !table.missing_columns.length && table.primary_key_matches : table.lazy) ? "current" : "partial";
+    : known.every(table => table.present ? !table.missing_columns.length && table.primary_key_matches : table.lazy)
+      && !missingIndexes.length && !incompatibleIndexes.length ? "current" : "partial";
   return {
     schema_state: state, tables, other_schema_objects: other,
     missing_tables: TABLE_SPECS.filter(spec => !tables[spec.name].present).map(spec => spec.name),
     incompatible_tables: known.filter(table => table.present && (!table.primary_key_matches || table.missing_columns.length)).length,
+    missing_indexes: missingIndexes, incompatible_indexes: incompatibleIndexes,
   };
 }
 

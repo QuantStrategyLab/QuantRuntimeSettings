@@ -65,6 +65,9 @@ export const TABLE_SPECS = Object.freeze([
   { copy: ["occurred_at", "platform", "account_key", "policy_revision", "instance_revision", "draft_revision", "old_applied_revision",
     "new_applied_revision", "old_management_enabled", "new_management_enabled", "result"],
   json: ["initiating_identity_json", "members_json"], redact: ["actor"] }),
+  c("account_management_invalidation", 2, ["platform", "account_key"], ["platform", "account_key", "policy_revision", "applied_revision",
+    "draft_revision", "invalidated_at"],
+  { copy: ["policy_revision", "applied_revision", "draft_revision", "invalidated_at"] }),
   c("account_management_requests", 3, ["request_key"], ["request_key", "operation", "actor", "platform", "account_key", "identity_json",
     "fingerprint", "receipt_json", "created_at"],
   { copy: ["operation", "platform", "account_key", "created_at"], json: ["identity_json", "receipt_json"], redact: ["actor", "fingerprint"] }),
@@ -148,6 +151,13 @@ export const TABLE_SPECS = Object.freeze([
     { countOnly: "not_account_identity" }),
   c("market_benchmark_revision_ledger", null, ["proposal_sha256", "entry_index"], ["proposal_sha256", "entry_index", "series_id_sha256",
     "observation_date", "prior_close_sha256", "new_close_sha256", "candidate_source", "reason", "applied_at"], { countOnly: "not_account_identity" }),
+]);
+// Reviewed index definitions the inventory verifies when their table exists.
+// `sql` is the normalized stored definition: key columns in order, uniqueness
+// and any partial predicate are part of it.
+export const INDEX_SPECS = Object.freeze([
+  Object.freeze({ name: "account_management_change_time", table: "account_management_change",
+    sql: "create index account_management_change_time on account_management_change (occurred_at, event_id)" }),
 ]);
 export const INVENTORY_TABLES = Object.freeze(Object.fromEntries(TABLE_SPECS.map(spec => [spec.name, spec])));
 
